@@ -127,9 +127,12 @@ the *same* repository — two sibling branches, or a fan-out child on another
 Hatchet worker entirely (a different process, so `StepRunner`'s in-process
 `_db_lock` can't help there) — can race on `index.lock` or a non-fast-forward
 push. `services/git/repo_lock.py` closes this with a Redis `SET NX EX`
-advisory lock keyed by `git_repository_id`, fail-soft if Redis is down. It
-does not turn N concurrent callers into one logical operation, only into N
-safely-serialised ones — see `doc/WORKFLOW-STEPS.md` → "Writing
+advisory lock keyed by `git_repository_id`. It is fail-soft only when there
+is no usable cache (Redis not configured, or erroring while acquiring: the lock
+is skipped with a warning). A lock that stays held by another caller past the
+90 s acquire timeout **fails the step** (`RuntimeError`) rather than proceeding
+on a shared working tree. It does not turn N concurrent callers into one
+logical operation, only into N safely-serialised ones — see `doc/WORKFLOW-STEPS.md` → "Writing
 concurrency-safe steps" for the author-facing guidance on why a git-touching
 step still usually belongs after a join point.
 
@@ -724,7 +727,7 @@ joined by a `change_requests` row:
    the "wait" is just that row.
 2. Approval — a JWT `POST /change-requests/{id}/approve` **or** a signed inbound
    git webhook (`POST /webhooks/git/{repo_id}`, the one unauthenticated,
-   non-proxy entry point, guarded by HMAC + rate limit + replay dedup +
+   non-proxy entry point, guarded by HMAC + its own per-repo+IP rate limit (60/min) + replay dedup +
    fail-closed) — atomically transitions the row and dispatches a **deploy
    run** through the same `resolve_dispatch_workflow(...).run_no_wait(...)` path
    a schedule uses. `WorkflowRun.change_request_id` links the deploy run back;
@@ -734,3 +737,27 @@ joined by a `change_requests` row:
    exactly one deploy run.
 
 Full spec: [`doc/CICD_PIPELINE.md`](./CICD_PIPELINE.md).
+
+---
+
+## Secret redaction: sealed envelopes plus run-scoped content scrubbing
+
+Secrets that ride in `DeviceContext.attribute_bags` are sealed (Fernet envelopes) and persisted only as
+`***REDACTED***` (`redact_secrets_in_data`). Because a step may unwrap a secret and copy it into free
+text (a command echo, a diff line, an error message), every `StepRunner` entry point that holds a run
+segment open (`execute_all`, `resume_after_join`, `execute_subgraph`, and the fan-out child task) runs
+inside `run_secret_scope()`: `unwrap_secret` and the credential decrypt methods register each cleartext
+(8+ characters) in a per-segment registry, and `redact_secrets_in_data` / `scrub_known_secrets` replace
+exact occurrences in string leaves, overlap-safe. A fan-out child scrubs its result before returning it
+to the parent, so the parent's persisted output and the Hatchet result carry no cleartext either. A
+secret that never passed through those calls (typed into a template) is unknown to the redactor. See
+`doc/WORKFLOW-STEPS.md`.
+
+## Per-user rate limiting
+
+Expensive endpoints (Netmiko, git sync, template render, ISE ops, Nautobot analyze, Secret Manager
+test, Batfish queries) carry `Depends(rate_limited("<bucket>", attempts=…, window_seconds=…))`
+(`core/rate_limit.py`): a sliding window per authenticated user and bucket, counted and recorded
+atomically (Redis Lua script), 429 with `Retry-After` when exceeded. Unlike login, a Redis outage falls
+back to an in-process window instead of blocking operators. A bucket name is one budget; reusing it with
+another fails at import.

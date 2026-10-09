@@ -142,6 +142,25 @@ declare a subclass and one factory call — do not copy the CRUD ladder.
 
 ---
 
+## Cross-cutting backend patterns
+
+- **Per-user rate limits:** add `Depends(rate_limited("<bucket>", attempts=N, window_seconds=S))`
+  (`core/rate_limit.py`) to any endpoint that opens SSH sessions, clones, renders or calls an external
+  API. A bucket name is one budget.
+- **Repository updates are whitelisted:** `repositories/updates.py::apply_updates` with a module-level
+  `frozenset` of updatable fields (or `updatable_fields` on a `BaseRepository` subclass). Never
+  `setattr` from `**kwargs`.
+- **Request models forbid unknown fields** (`ConfigDict(extra="forbid")`); a ratchet test
+  (`test_request_models_forbid_extra.py`) lists the legacy exceptions — never add to it.
+- **Secrets in free text:** code that decrypts a secret must go through `unwrap_secret` or
+  `CredentialsService.get_decrypted_*` / `get_ssh_key_path`, so it is registered for run-scoped
+  redaction (`services/workflow_context/secret_fields.py`). Never log or return git URLs raw — use
+  `services/git/scrub.py::scrub_url_credentials`.
+- **Swallowed exceptions:** `except …: pass` is a lint error (S110/S112); log at debug or add a
+  `# noqa` with the reason.
+- **Router error mapping:** ISE routes use the `@ise_errors("<action>")` decorator
+  (`routers/sources/ise/errors.py`) instead of repeating the except ladder.
+
 ## Backend INCORRECT Practices
 
 - ❌ Creating SQLite databases for production (unit test in-memory SQLite is OK when not using PG-only features)

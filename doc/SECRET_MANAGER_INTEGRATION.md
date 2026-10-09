@@ -540,3 +540,15 @@ development](#local-development).
   *credential row* behind a connection (same `credential_name`, new password)
   still does not bump `secret_manager_connections.updated_at`; re-save the
   connection, or accept fail-closed at the next OpenBao re-login.
+
+
+## Limits and hardening (2026-10)
+
+- `POST /secret-manager/connections/{id}/test` is rate limited per user (10/min).
+- Request models reject unknown fields (422); `name` is capped at 255 characters.
+- `secret-get`'s `version` must be an integer ≥ 1 (a numeric string is accepted; booleans, fractions and
+  garbage raise a configuration error).
+- OpenBao-backed `set_field` merges with check-and-set (`OpenBaoService.merge_kv`), so concurrent writers
+  on one path do not overwrite each other's fields.
+- The registry keeps one lock per connection and refuses new clients once `shutdown_all` has begun; a
+  login that finishes during shutdown shuts its own client down.

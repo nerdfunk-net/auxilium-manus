@@ -196,7 +196,8 @@ Pin this workflow on the stage step's `deploy_workflow_id`, or pick it in the
 - HMAC-SHA256 (`X-Hub-Signature-256`) for GitHub or shared-token (`X-Gitlab-Token`) for
   GitLab, constant-time compared against the repo's webhook secret. **Missing secret →
   `401` (fail closed).**
-- Sliding-window rate limit per repo + client IP.
+- Sliding-window rate limit per repo + client IP, with its own budget (60 deliveries / 60 s,
+  `build_webhook_rate_limiter`), separate from the login limiter.
 - Replay dedup on the delivery id (`X-GitHub-Delivery` / `X-Gitlab-Event-UUID`), 24 h.
 
 Correlation: any pushed commit SHA equal to a `staged` CR's `commit_sha` triggers that CR
@@ -236,7 +237,7 @@ Correlation: any pushed commit SHA equal to a `staged` CR's `commit_sha` trigger
 | Repository | `backend/repositories/change_request_repository.py` | `BaseRepository`; `transition()` = atomic conditional update; `find_active_for_commit`, `list_visible`, `list_in_flight` |
 | Service | `backend/services/change_requests/change_request_service.py` | `create_from_step`, `approve`, `mark_reviewed`, `deploy`, `reject`, `reconcile`, `expire_sweep` |
 | Service | `backend/services/change_requests/webhook_service.py` | signature verify → correlate → approve/mark-reviewed |
-| Helper | `backend/services/git/repo_lock.py` | per-repo Redis advisory lock (fail-soft) — shared with the git-clone/git-pull/git-push steps and store-artifact (git), not change-request-specific |
+| Helper | `backend/services/git/repo_lock.py` | per-repo Redis advisory lock (fail-soft without a cache; a timeout fails the step) — shared with the git-clone/git-pull/git-push steps and store-artifact (git), not change-request-specific |
 | Helper | `backend/core/webhook_signatures.py` | `verify_github_signature`, `verify_gitlab_token` (`hmac` / `secrets.compare_digest`) |
 | Run engine | `backend/services/execution/run_service.py` | `_create_and_dispatch_run(...)` — shared by manual / approve / webhook, reuses `resolve_dispatch_workflow(...).run_no_wait(...)` |
 | Step (stage) | `backend/workflow_steps/open_change_request/` | renders → branch → commit → push → diff → `ChangeRequest`; captures the `devices` snapshot |
@@ -315,6 +316,9 @@ the CR status; a `deploying` CR polls until terminal.
   protected by HMAC / shared-secret (constant-time), per-repo+IP rate limiting, replay
   dedup, and fail-closed-on-missing-secret. Bodies are non-committal. It must be reachable
   from the git host (ingress note).
+- A webhook secret must be at least 16 characters when set (an empty string clears it; shorter
+  secrets already stored keep working until the repository is re-saved). A non-ASCII signature header
+  is rejected as invalid, never a 500.
 - The webhook secret is stored Fernet-encrypted (`core.crypto`), never returned by the API
   (only `has_webhook_secret: bool`).
 - `webhook_auto_deploy = true` means a valid signed push pushes config to devices with no

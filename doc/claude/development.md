@@ -16,6 +16,9 @@ INITIAL_USERNAME=admin
 INITIAL_PASSWORD=admin
 ENABLE_DEV_TOOLS=true  # development-only; omit in production (OIDC test dashboard)
 VAULT_ENABLED=false    # optional OpenBao secret storage; see doc/VAULT_INTEGRATION.md
+SESSION_MAX_AGE_HOURS=12        # absolute session lifetime (see doc/claude/auth.md)
+REFRESH_TOKEN_MAX_AGE_HOURS=12   # defaults to SESSION_MAX_AGE_HOURS; must not exceed it
+MAX_REQUEST_BODY_BYTES=26214400  # 413 above this declared Content-Length; 0 disables
 ```
 
 **Frontend** (`.env.local`):
@@ -68,12 +71,21 @@ python scripts/init_test_db.py                                  # once
 python -m pytest tests/integration -m "not mutations" --no-cov
 python -m pytest tests/integration -m mutations --no-cov --run-mutations
 
+# CI (.github/workflows/backend-ci.yml) runs ruff, pyright (advisory), pip-audit, the guards and
+# pytest with the coverage ratchet; run the same locally before pushing.
+
 # Regression guards (run from backend/):
 python scripts/check_asyncio_run.py
 python scripts/check_http_500_leaks.py
 python scripts/check_router_repositories.py
 python scripts/check_text_sql.py
 ```
+
+## Operator scripts
+
+- `python scripts/link_oidc_identity.py <username> <provider_id> <subject>` — bind an existing local
+  user to an IdP identity (the only way; OIDC login never matches by username). Ends the user's sessions.
+- `python scripts/purge_retention.py`, `python scripts/repair_database.py` — see their docstrings.
 
 ## Common Tasks
 

@@ -135,14 +135,25 @@ blocking-library wrapping in this codebase
 `services/artifacts/sinks/git_sink.py`), not a new `ThreadPoolExecutor` like
 `DeviceSessionPool`'s (that one bounds true concurrent SSH connections;
 Batfish calls are one-shot RPCs with no comparable pooling need). A
-plain `asyncio.Lock` around "get-or-create" on the cache dict prevents two
-concurrent callers from double-constructing the same `(host, port, network)`
-entry.
+`asyncio.Lock` **per cache key** around "get-or-create" prevents two concurrent
+callers from double-constructing the same `(host, port, network)` entry without
+letting one slow coordinator call serialise every other network. The cache is an
+LRU capped at `MAX_CACHED_SESSIONS` (64); evicting an entry drops its lock too.
 
 `check_health` (used by test-connection) does **not** go through this cache
-at all — it builds a throwaway `Session(host, port)` and calls
+at all — it builds a throwaway `Session(host, port, load_questions=False)` (no question
+catalogue round trip) and calls
 `list_networks()`, which doesn't depend on `self.network` being set to
 anything in particular.
+
+## Ad-hoc query limits
+
+The Template Editor's ad-hoc endpoints (`/sources/batfish/{id}/query/*`) are rate limited per user
+(`batfish-query`, 30/min). The four row endpoints (routes, reachability, test-filters, generic) convert
+at most `MAX_PREVIEW_ROWS` (5,000) + 1 rows of an answer table, and `BatfishQueryResponse` cuts the
+result to 5,000 rows (1,000 nodes for facts) and sets `truncated: true`, which the result panel shows.
+Workflow steps are unaffected and always get the complete table. The generic endpoint rejects the
+reserved pybatfish parameters `question_name` and `exclusions` (B8).
 
 ## File map
 
@@ -384,6 +395,10 @@ contains many **snapshots** (one point-in-time set of configs each). This
 maps naturally onto Manus's own model:
 
 - **Network name = `f"manus-workflow-{workflow_id}"`, or an explicit override.**
+  An override may be a deliberately shared network, but `batfish-init-snapshot` refuses one that
+  equals *another* workflow's default (`manus-workflow-<other id>`), because `overwrite=True` plus the
+  retention sweep would destroy that workflow's snapshots (B5). Device ids are sanitised (and
+  de-duplicated) before they become `<id>.cfg` filenames (B6).
   One Batfish network per Manus workflow by default — keeps different
   workflows' device sets from colliding on node/filter names, and makes
   `bf.list_snapshots()` a meaningful "history for this workflow" view later.

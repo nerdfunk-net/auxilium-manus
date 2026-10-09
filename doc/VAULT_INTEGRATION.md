@@ -201,14 +201,18 @@ client with an ephemeral fallback) but synchronous. KV v2 REST:
 | Method | Call |
 |---|---|
 | `read_kv(path)` | `GET /v1/<mount>/data/<path>` → `data.data`; consults + fills the TTL cache |
-| `write_kv(path, data)` | `POST /v1/<mount>/data/<path>` body `{"data": {...}}`; refreshes the cache entry; returns the new KV v2 version number when OpenBao reports one |
+| `write_kv(path, data, cas=None)` | `POST /v1/<mount>/data/<path>` body `{"data": {...}}` (+ `{"options": {"cas": n}}` when `cas` is given; a mismatch → `VaultConflictError`); refreshes the cache entry; returns the new KV v2 version number when OpenBao reports one |
+| `merge_kv(path, fields)` | uncached read (with version) → merge → `write_kv(cas=version)`; one retry on a lost race (`cas=0` to create, the metadata `current_version` for a soft-deleted secret). Used for every update, so concurrent writers cannot overwrite each other (V10) |
+| `invalidate(path)` | drops the cached copy; the credentials service calls it on the runtime client after a management write/delete (V8) |
 | `destroy_kv_versions(path, versions)` | `POST /v1/<mount>/destroy/<path>` body `{"versions": [...]}`; permanently destroys the given versions (V3) |
 | `delete_kv(path)` | `DELETE /v1/<mount>/metadata/<path>`; destroys **every** version, not just the latest (V3); invalidates the cache entry |
 | `health()` | `GET /v1/sys/health` (unauthenticated) |
 
 `_request` adds `X-Vault-Token` (from `VaultTokenManager.current()`) and
-`X-Vault-Namespace`. Status mapping: a first `403` invalidates the token and
-retries the request once after re-login (V4); a second `403` (fresh token) →
+`X-Vault-Namespace`. Status mapping: a first `403` asks `auth/token/lookup-self` whether the token is
+still valid (V7) — if it is, that is a genuine policy denial and
+`VaultPermissionError` is raised at once; otherwise the token is invalidated and
+the request retried once after re-login (V4); a second `403` (fresh token) →
 `VaultPermissionError`; `404` → `VaultSecretNotFoundError`; connect error / sealed / `5xx` →
 `VaultUnavailableError`. **Failures are never cached.** TLS uses
 `core/ssl_config.create_verified_ssl_context()` (or `VAULT_CACERT`), extended
@@ -296,6 +300,13 @@ the previous version is destroyed (`destroy_kv_versions`); on delete the
 `metadata` endpoint removes every version. No superseded secret stays readable
 by the runtime role (V3).
 
+## Secrets in memory and logs
+
+`VaultToken`, `VaultConfig` and the Secret Manager config/token dataclasses declare their secret fields
+with `repr=False`, so a stray `repr()`/log line never prints a token, SecretID or key. A `secret_id_file`
+readable by group/others logs a warning at startup. Credential `password`/passphrase values are limited
+to 1024 characters and SSH private keys to 64 KiB.
+
 ## Caching
 
 `OpenBaoService` holds an in-process `InProcessTTLCache` keyed by KV path, TTL
@@ -316,7 +327,9 @@ with no `CredentialsService` change. Not built yet.
 | OpenBao not configured (`VAULT_ENABLED` false) | `local` credentials work normally. The UI hides the storage-backend picker. Resolving a `vault` row (shouldn't happen) → `CredentialVaultNotConfiguredError`. |
 | OpenBao configured but unreachable at **startup** | App boots (soft-fail; logged at ERROR). The renew loop keeps retrying login. `vault` resolution raises `CredentialVaultUnavailableError`; `local` resolution is unaffected. |
 | OpenBao goes down **at runtime** | Same — `vault` resolution fails loudly (workflow step fails, git op fails loudly, `GET /credentials/{id}/password` → 503 with `{message, error_id}`), `local` keeps working. Cached secrets within their TTL still serve; the cache is never consulted on a failed read. |
-| Token denied (`403`) | First `403`: token invalidated, request re-logged-in and retried once, transparently. Second `403` (fresh token, same request): `VaultPermissionError`, token kept — a genuine policy denial. |
+| Token denied (`403`) | First `403`: `lookup-self` decides — a valid token means a policy denial (`VaultPermissionError`, no re-login); an expired/revoked one is invalidated, re-logged-in and the request retried once, transparently. Second `403` (fresh token, same request): `VaultPermissionError`, token kept. |
+| Deleting a `vault` credential while OpenBao is down | Fail closed: the DB row is **kept** and the request returns 503 (`CredentialVaultUnavailableError`), so no secret is orphaned in OpenBao; retry once it is back. An already-missing secret (404) still lets the row go. With `VAULT_ENABLED=false` (decommissioned) the row is removed with a warning. |
+| `GET /health/ready` | Reports a `vault` check (`ok`/`error`) when `VAULT_ENABLED`, but it is informational: the HTTP status still depends only on database and Redis (V12). Alert on `vault.ok == false`. |
 
 ## Configuration
 
@@ -490,7 +503,7 @@ python -m pytest tests/integration/test_vault_integration.py --no-cov
   `vault_path`).
 - **Full `CertAuth` (mTLS) implementation** — interface + selection are done.
 - **Live reachability in `GET /credentials/vault/status`** (`reachable`,
-  `token_expires_at`, last-renew) + a `/health/ready` contribution.
+  `token_expires_at`, last-renew). (`/health/ready` already reports a non-blocking `vault` check.)
 - **Read-only-vault deployment mode** (`VAULT_MANAGEMENT_ENABLED=false`) where
   ops pre-provision secrets and the UI hides the vault write option.
 - **Retiring the three thin resolver adapters** (`credential_resolver.py`,
