@@ -213,6 +213,55 @@ class OpenChangeRequestExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual([o.name for o in outcomes], ["success", "failure"])
         self.assertEqual(self.db.execute(select(ChangeRequest)).all(), [])
 
+    async def test_no_devices_fails_without_staging(self) -> None:
+        outcomes = await execute(
+            config={"git_repository_id": 3, "content_source": "running_config"},
+            context=WorkflowContext(run_id="run-uuid", workflow_id="7", devices={}),
+            run=self._run(),
+            artifact_service=self.artifacts,
+            node_id=NODE_ID,
+            device_sessions=None,
+        )
+        self.assertEqual([o.name for o in outcomes], ["success", "failure"])
+        self.git.push.assert_not_called()
+
+    async def test_unknown_repository_fails_without_staging(self) -> None:
+        context = await self._context_with_running_config()
+        with patch(
+            "workflow_steps.open_change_request.executor.load_git_repository",
+            side_effect=ValueError("Git repository 3 not found"),
+        ):
+            outcomes = await execute(
+                config={"git_repository_id": 3, "content_source": "running_config"},
+                context=context,
+                run=self._run(),
+                artifact_service=self.artifacts,
+                node_id=NODE_ID,
+                device_sessions=None,
+            )
+        self.assertEqual([o.name for o in outcomes], ["success", "failure"])
+        self.git.push.assert_not_called()
+
+    async def test_change_request_conflict_returns_failure_outcome(self) -> None:
+        from core.domain_exceptions import ConflictError
+
+        context = await self._context_with_running_config()
+        with patch(
+            "services.change_requests.change_request_service.ChangeRequestService.create_from_step",
+            side_effect=ConflictError("already staged"),
+        ):
+            outcomes = await execute(
+                config={"git_repository_id": 3, "content_source": "running_config"},
+                context=context,
+                run=self._run(),
+                artifact_service=self.artifacts,
+                node_id=NODE_ID,
+                device_sessions=None,
+            )
+        by_name = {o.name: o for o in outcomes}
+        self.assertEqual(set(by_name), {"success", "failure"})
+        self.assertEqual(self.db.execute(select(ChangeRequest)).all(), [])
+
 
 if __name__ == "__main__":
     unittest.main()

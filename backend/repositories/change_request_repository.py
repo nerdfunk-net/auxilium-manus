@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import uuid as uuid_mod
 from datetime import datetime
-from typing import Any
+from typing import Any, cast
 
-from sqlalchemy import or_, select, update
+from sqlalchemy import CursorResult, or_, select, update
 from sqlalchemy.orm import Session
 
 from core.models.change_requests import ChangeRequest
@@ -147,7 +147,7 @@ class ChangeRequestRepository:
         )
         result = self.db.execute(stmt)
         self.db.commit()
-        if (result.rowcount or 0) != 1:
+        if (cast(CursorResult, result).rowcount or 0) != 1:
             return None
         self.db.refresh(change_request)
         return change_request

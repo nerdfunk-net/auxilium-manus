@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING
 
 from sqlalchemy.orm import Session
@@ -48,7 +49,10 @@ from services.pyats.source_config_service import PyATSSourceConfigService
 from services.sources.nautobot.persistence_service import InventoryService
 from services.sources.nautobot.source_service import NautobotSourceService
 
+logger = logging.getLogger(__name__)
+
 _cache_service: RedisCacheService | None = None
+_cache_failure_logged = False
 _nautobot_service: NautobotService | None = None
 _ise_service: ISEService | None = None
 _catalyst_center_service: CatalystCenterService | None = None
@@ -208,7 +212,7 @@ def build_ise_network_device_group_service(
 
 
 def build_cache_service() -> RedisCacheService | None:
-    global _cache_service
+    global _cache_service, _cache_failure_logged
     if _cache_service is not None:
         return _cache_service
     try:
@@ -216,8 +220,14 @@ def build_cache_service() -> RedisCacheService | None:
             redis_url=settings.redis_url,
             key_prefix=settings.redis_key_prefix,
         )
+        _cache_failure_logged = False
         return _cache_service
     except Exception:
+        # Callers degrade silently without a cache (OIDC login 503, no dedup, no repo lock):
+        # make the cause visible once instead of on every call.
+        if not _cache_failure_logged:
+            logger.warning("Redis cache could not be created; running without it", exc_info=True)
+            _cache_failure_logged = True
         return None
 
 

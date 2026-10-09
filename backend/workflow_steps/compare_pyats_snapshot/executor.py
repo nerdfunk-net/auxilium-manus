@@ -276,21 +276,29 @@ def _resolve_live_export_item(
     return item
 
 
-async def _compare_one_device(
+_DeviceResult = tuple[str, DeviceContext, str, dict[str, Any] | None]
+
+
+@dataclass(frozen=True)
+class _LiveSnapshot:
+    item: Any
+    data: Any
+
+
+@dataclass(frozen=True)
+class _ReferenceSnapshot:
+    path: str
+    data: Any
+
+
+def _credentials_for_device(
     *,
-    device_id: str,
     device: DeviceContext,
+    device_id: str,
     node_id: str,
-    features: list[str],
-    source_step_node_id: str,
-    parsed_output_key: str | None,
-    config: dict[str, Any],
-    exclude_keys: list[str],
-    context_run_id: str,
     source_credentials: dict[str, PyATSCredentials],
     source_errors: dict[str, str],
-    artifact_service: ArtifactService,
-) -> tuple[str, DeviceContext, str, dict[str, Any] | None]:
+) -> PyATSCredentials | _DeviceResult:
     bag = device.attribute_bags.get("pyats_testbed")
     if not isinstance(bag, dict):
         return _fail_device(
@@ -319,7 +327,18 @@ async def _compare_one_device(
             code="source_error",
             message=f"pyATS source {source_id!r} could not be resolved",
         )
+    return shim_credentials
 
+
+async def _load_live_snapshot(
+    *,
+    device: DeviceContext,
+    device_id: str,
+    node_id: str,
+    source_step_node_id: str,
+    parsed_output_key: str | None,
+    artifact_service: ArtifactService,
+) -> _LiveSnapshot | _DeviceResult:
     item = _resolve_live_export_item(
         device,
         device_id,
@@ -340,7 +359,7 @@ async def _compare_one_device(
 
     try:
         live_text = await artifact_service.resolve(item.artifact_ref)
-        live_snapshot = json.loads(live_text)
+        return _LiveSnapshot(item=item, data=json.loads(live_text))
     except json.JSONDecodeError:
         return _fail_device(
             device=device,
@@ -350,6 +369,16 @@ async def _compare_one_device(
             message="Live snapshot artifact is not valid JSON",
         )
 
+
+async def _load_reference_snapshot(
+    *,
+    device: DeviceContext,
+    device_id: str,
+    node_id: str,
+    item: Any,
+    config: dict[str, Any],
+    context_run_id: str,
+) -> _ReferenceSnapshot | _DeviceResult:
     reference_path = render_device_template(
         str(config.get("filename_template") or "").strip(),
         device,
@@ -380,7 +409,7 @@ async def _compare_one_device(
         )
 
     try:
-        reference_snapshot = json.loads(reference_text)
+        return _ReferenceSnapshot(path=reference_path, data=json.loads(reference_text))
     except json.JSONDecodeError:
         return _fail_device(
             device=device,
@@ -390,8 +419,18 @@ async def _compare_one_device(
             message="Reference snapshot file is not valid JSON snapshot content",
         )
 
-    reference_location = str(config.get("reference_location") or "filesystem").strip().lower()
 
+async def _diff_features(
+    *,
+    device: DeviceContext,
+    device_id: str,
+    node_id: str,
+    features: list[str],
+    live_snapshot: Any,
+    reference_snapshot: Any,
+    exclude_keys: list[str],
+    shim_credentials: PyATSCredentials,
+) -> list[_FeatureResult] | _DeviceResult:
     shim = service_factory.get_pyats_app_service()
     feature_results: list[_FeatureResult] = []
     for feature in features:
@@ -445,6 +484,68 @@ async def _compare_one_device(
                     reference_data=reference_data,
                 )
             )
+    return feature_results
+
+
+async def _compare_one_device(
+    *,
+    device_id: str,
+    device: DeviceContext,
+    node_id: str,
+    features: list[str],
+    source_step_node_id: str,
+    parsed_output_key: str | None,
+    config: dict[str, Any],
+    exclude_keys: list[str],
+    context_run_id: str,
+    source_credentials: dict[str, PyATSCredentials],
+    source_errors: dict[str, str],
+    artifact_service: ArtifactService,
+) -> _DeviceResult:
+    shim_credentials = _credentials_for_device(
+        device=device,
+        device_id=device_id,
+        node_id=node_id,
+        source_credentials=source_credentials,
+        source_errors=source_errors,
+    )
+    if isinstance(shim_credentials, tuple):
+        return shim_credentials
+
+    live = await _load_live_snapshot(
+        device=device,
+        device_id=device_id,
+        node_id=node_id,
+        source_step_node_id=source_step_node_id,
+        parsed_output_key=parsed_output_key,
+        artifact_service=artifact_service,
+    )
+    if isinstance(live, tuple):
+        return live
+
+    reference = await _load_reference_snapshot(
+        device=device,
+        device_id=device_id,
+        node_id=node_id,
+        item=live.item,
+        config=config,
+        context_run_id=context_run_id,
+    )
+    if isinstance(reference, tuple):
+        return reference
+
+    feature_results = await _diff_features(
+        device=device,
+        device_id=device_id,
+        node_id=node_id,
+        features=features,
+        live_snapshot=live.data,
+        reference_snapshot=reference.data,
+        exclude_keys=exclude_keys,
+        shim_credentials=shim_credentials,
+    )
+    if isinstance(feature_results, tuple):
+        return feature_results
 
     return await _build_device_result(
         device_id=device_id,
@@ -452,8 +553,8 @@ async def _compare_one_device(
         node_id=node_id,
         features=features,
         feature_results=feature_results,
-        reference_path=reference_path,
-        reference_location=reference_location,
+        reference_path=reference.path,
+        reference_location=str(config.get("reference_location") or "filesystem").strip().lower(),
         context_run_id=context_run_id,
         artifact_service=artifact_service,
     )

@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import uuid as uuid_mod
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 
-from sqlalchemy import delete, exists, func, or_, select
+from sqlalchemy import CursorResult, delete, exists, func, or_, select
 from sqlalchemy.orm import Session
 
 from core.models.runs import WorkflowRun, WorkflowRunDeviceGroup, WorkflowStepResult
@@ -332,6 +332,6 @@ class RunRepository:
 
             result = self.db.execute(delete(WorkflowRun).where(WorkflowRun.id.in_(run_ids)))
             self.db.commit()
-            total_deleted += result.rowcount or 0
+            total_deleted += cast(CursorResult, result).rowcount or 0
 
         return total_deleted

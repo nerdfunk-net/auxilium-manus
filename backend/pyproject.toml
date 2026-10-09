@@ -11,9 +11,10 @@ ignore = [
     "S106",     # same class of false positive, predominantly in test fixtures
     "ASYNC109", # service methods deliberately accept an explicit `timeout=` forwarded to the
                 # httpx transport; the asyncio.timeout() context-manager rewrite is not wanted
-    "S110",     # try-except-pass: tracked in doc/analysis/FABLE_BACKEND_20260902.md §4.4
-                # (each site should gain a logger.debug) — out of scope for FABLE_REST
 ]
+
+[tool.ruff.lint.flake8-bandit]
+check-typed-exception = true   # S110/S112 also fire for `except ValueError: pass`
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["S", "ASYNC"]         # asserts, tmp paths, sync sleeps are fine in test code

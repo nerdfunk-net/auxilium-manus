@@ -41,7 +41,7 @@ def build_git_env_overrides(
         host = "unknown"
         try:
             host = urlparse(repository.get("url") or "").hostname or "unknown"
-        except ValueError:
+        except ValueError:  # noqa: S110  # unparseable URL: host stays "unknown" in the log line
             pass
         logger.warning("Git SSL verification disabled for repository url_host=%s", host)
         overrides["GIT_SSL_NO_VERIFY"] = "1"

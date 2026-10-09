@@ -70,6 +70,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from sqlalchemy.orm import object_session
@@ -312,21 +313,30 @@ async def _run_diff(
     return True, str(raw or ""), None
 
 
-async def _process_one_device(
+_DeviceResult = tuple[str, DeviceContext, bool]
+
+
+@dataclass(frozen=True)
+class _Target:
+    """Everything a device needs before any shim call: its testbed bag, source credentials
+    and the shim device description."""
+
+    bag: dict[str, Any]
+    source_id: str
+    shim: Any
+    shim_credentials: PyATSCredentials
+    shim_device: dict[str, Any]
+
+
+def _prepare_target(
     *,
     device_id: str,
     device: DeviceContext,
     node_id: str,
-    destination_filename: str,
-    file_system: str,
-    timeout_minutes: int,
-    skip_if_no_pending_changes: bool,
-    verify_diff_after_replace: bool,
     source_credentials: dict[str, PyATSCredentials],
     source_errors: dict[str, str],
-    artifact_service: ArtifactService,
-    context_run_id: str,
-) -> tuple[str, DeviceContext, bool]:
+) -> _Target | _DeviceResult:
+    """Resolve the testbed bag, pyATS source and password; a failed device result on error."""
     bag = device.attribute_bags.get("pyats_testbed")
     if not isinstance(bag, dict):
         return _fail_device(
@@ -373,69 +383,100 @@ async def _process_one_device(
         "username": bag.get("username"),
         "password": password,
     }
+    return _Target(
+        bag=bag,
+        source_id=source_id,
+        shim=service_factory.get_pyats_app_service(),
+        shim_credentials=shim_credentials,
+        shim_device=shim_device,
+    )
 
-    shim = service_factory.get_pyats_app_service()
 
-    logger.info(
-        "%s replace starting device=%s host=%s os=%s source=%s",
+@dataclass(frozen=True)
+class _PreDiff:
+    """Result of the pre-replace diff check: either a finished (skipped) device result,
+    or the artifact of the pending diff (None when no check ran / it failed)."""
+
+    skipped: _DeviceResult | None = None
+    artifact_ref: Any | None = None
+
+
+async def _pre_replace_diff(
+    target: _Target,
+    *,
+    device_id: str,
+    device: DeviceContext,
+    node_id: str,
+    diff_command: str,
+    destination_filename: str,
+    file_system: str,
+    timeout_minutes: int,
+    artifact_service: ArtifactService,
+    context_run_id: str,
+) -> _PreDiff:
+    diff_ok, pre_diff_text, diff_err = await _run_diff(
+        target.shim,
+        target.shim_credentials,
+        shim_device=target.shim_device,
+        diff_command=diff_command,
+    )
+    if diff_ok and not _diff_has_changes(pre_diff_text):
+        entry = {
+            "kind": "configure_replace",
+            "confirmed": False,
+            "skipped": True,
+            "reason": "no_pending_changes",
+            "destination_filename": destination_filename,
+            "file_system": file_system,
+            "timeout_minutes": timeout_minutes,
+        }
+        parsed = set_node_result(device.parsed, node_id, "configure_replace", entry)
+        enriched = device.model_copy(
+            update={
+                "parsed": parsed,
+                "capabilities": device.capabilities | {Capability.PARSED},
+                "status": DeviceStatus.OK,
+            }
+        )
+        logger.info(
+            "%s skipped device=%s host=%s reason=no_pending_changes",
+            _STEP_ID,
+            device_id,
+            target.bag.get("host"),
+        )
+        return _PreDiff(skipped=(device_id, enriched, True))
+    if diff_ok:
+        artifact_ref = await artifact_service.store(
+            content=pre_diff_text,
+            kind=_DIFF_ARTIFACT_KIND_PRE,
+            device_id=device_id,
+            run_id=context_run_id,
+            media_type="text/plain",
+        )
+        return _PreDiff(artifact_ref=artifact_ref)
+    logger.warning(
+        "%s pre-replace diff check failed device=%s host=%s error=%s -- proceeding "
+        "with replace unverified",
         _STEP_ID,
         device_id,
-        bag.get("host"),
-        bag.get("os"),
-        source_id,
+        target.bag.get("host"),
+        diff_err,
     )
+    return _PreDiff()
 
-    diff_command = _build_diff_command(
-        file_system=file_system, destination_filename=destination_filename
-    )
-    pre_diff_artifact_ref = None
-    if skip_if_no_pending_changes:
-        diff_ok, pre_diff_text, diff_err = await _run_diff(
-            shim, shim_credentials, shim_device=shim_device, diff_command=diff_command
-        )
-        if diff_ok and not _diff_has_changes(pre_diff_text):
-            entry = {
-                "kind": "configure_replace",
-                "confirmed": False,
-                "skipped": True,
-                "reason": "no_pending_changes",
-                "destination_filename": destination_filename,
-                "file_system": file_system,
-                "timeout_minutes": timeout_minutes,
-            }
-            parsed = set_node_result(device.parsed, node_id, "configure_replace", entry)
-            enriched = device.model_copy(
-                update={
-                    "parsed": parsed,
-                    "capabilities": device.capabilities | {Capability.PARSED},
-                    "status": DeviceStatus.OK,
-                }
-            )
-            logger.info(
-                "%s skipped device=%s host=%s reason=no_pending_changes",
-                _STEP_ID,
-                device_id,
-                bag.get("host"),
-            )
-            return device_id, enriched, True
-        if diff_ok and _diff_has_changes(pre_diff_text):
-            pre_diff_artifact_ref = await artifact_service.store(
-                content=pre_diff_text,
-                kind=_DIFF_ARTIFACT_KIND_PRE,
-                device_id=device_id,
-                run_id=context_run_id,
-                media_type="text/plain",
-            )
-        elif not diff_ok:
-            logger.warning(
-                "%s pre-replace diff check failed device=%s host=%s error=%s -- proceeding "
-                "with replace unverified",
-                _STEP_ID,
-                device_id,
-                bag.get("host"),
-                diff_err,
-            )
 
+async def _replace_and_confirm(
+    target: _Target,
+    *,
+    device_id: str,
+    device: DeviceContext,
+    node_id: str,
+    destination_filename: str,
+    file_system: str,
+    timeout_minutes: int,
+) -> _DeviceResult | None:
+    """Send ``configure replace`` + ``configure confirm`` on one connection.
+    Returns a failed device result, or None when the replace was confirmed."""
     replace_command = (
         f"configure replace {file_system}{destination_filename} force time {timeout_minutes}"
     )
@@ -443,15 +484,15 @@ async def _process_one_device(
         "%s replace device=%s host=%s command=%s",
         _STEP_ID,
         device_id,
-        bag.get("host"),
+        target.bag.get("host"),
         replace_command,
     )
     started = time.monotonic()
     ok, command_entries, err = await _run_shim_job(
-        shim,
-        shim_credentials,
+        target.shim,
+        target.shim_credentials,
         operation="execute",
-        shim_device=shim_device,
+        shim_device=target.shim_device,
         commands=[replace_command, _CONFIRM_COMMAND],
     )
     if not ok:
@@ -466,7 +507,7 @@ async def _process_one_device(
         "%s replace returned device=%s host=%s elapsed=%.1fs",
         _STEP_ID,
         device_id,
-        bag.get("host"),
+        target.bag.get("host"),
         time.monotonic() - started,
     )
 
@@ -483,9 +524,8 @@ async def _process_one_device(
                 f"{timeout_minutes} minute(s)"
             ),
         )
-    confirm_raw = confirm_entry.get("raw")
 
-    if _has_no_pending_rollback(confirm_raw):
+    if _has_no_pending_rollback(confirm_entry.get("raw")):
         return _fail_device(
             device=device,
             device_id=device_id,
@@ -498,55 +538,85 @@ async def _process_one_device(
                 f"manually"
             ),
         )
+    return None
 
-    post_diff_artifact_ref = None
-    if verify_diff_after_replace:
-        diff_ok, post_diff_text, diff_err = await _run_diff(
-            shim, shim_credentials, shim_device=shim_device, diff_command=diff_command
+
+async def _verify_after_replace(
+    target: _Target,
+    *,
+    device_id: str,
+    device: DeviceContext,
+    node_id: str,
+    diff_command: str,
+    destination_filename: str,
+    file_system: str,
+    pre_diff_artifact_ref: Any | None,
+    artifact_service: ArtifactService,
+    context_run_id: str,
+) -> _DeviceResult | None:
+    """Diff the running config against the replacement file. Returns a failed device
+    result when the check fails or the configs still differ, else None."""
+    diff_ok, post_diff_text, diff_err = await _run_diff(
+        target.shim,
+        target.shim_credentials,
+        shim_device=target.shim_device,
+        diff_command=diff_command,
+    )
+    if not diff_ok:
+        return _fail_device(
+            device=_device_with_diff_refs(
+                device,
+                node_id,
+                pre_diff_artifact_ref=pre_diff_artifact_ref,
+                post_diff_artifact_ref=None,
+            ),
+            device_id=device_id,
+            node_id=node_id,
+            code="post_verify_failed",
+            message=(
+                f"'configure confirm' succeeded but the post-replace diff check failed "
+                f"({diff_err}); the running configuration could not be verified against "
+                f"{file_system}{destination_filename}"
+            ),
         )
-        if not diff_ok:
-            return _fail_device(
-                device=_device_with_diff_refs(
-                    device,
-                    node_id,
-                    pre_diff_artifact_ref=pre_diff_artifact_ref,
-                    post_diff_artifact_ref=None,
-                ),
-                device_id=device_id,
-                node_id=node_id,
-                code="post_verify_failed",
-                message=(
-                    f"'configure confirm' succeeded but the post-replace diff check failed "
-                    f"({diff_err}); the running configuration could not be verified against "
-                    f"{file_system}{destination_filename}"
-                ),
-            )
-        if _diff_has_changes(post_diff_text):
-            post_diff_artifact_ref = await artifact_service.store(
-                content=post_diff_text,
-                kind=_DIFF_ARTIFACT_KIND_POST,
-                device_id=device_id,
-                run_id=context_run_id,
-                media_type="text/plain",
-            )
-            return _fail_device(
-                device=_device_with_diff_refs(
-                    device,
-                    node_id,
-                    pre_diff_artifact_ref=pre_diff_artifact_ref,
-                    post_diff_artifact_ref=post_diff_artifact_ref,
-                ),
-                device_id=device_id,
-                node_id=node_id,
-                code="diff_mismatch",
-                message=(
-                    f"Running configuration still differs from "
-                    f"{file_system}{destination_filename} after 'configure replace'/"
-                    f"'configure confirm' succeeded; see the stored diff artifact "
-                    f"(artifact_id={post_diff_artifact_ref.artifact_id}) for details"
-                ),
-            )
+    if not _diff_has_changes(post_diff_text):
+        return None
+    post_diff_artifact_ref = await artifact_service.store(
+        content=post_diff_text,
+        kind=_DIFF_ARTIFACT_KIND_POST,
+        device_id=device_id,
+        run_id=context_run_id,
+        media_type="text/plain",
+    )
+    return _fail_device(
+        device=_device_with_diff_refs(
+            device,
+            node_id,
+            pre_diff_artifact_ref=pre_diff_artifact_ref,
+            post_diff_artifact_ref=post_diff_artifact_ref,
+        ),
+        device_id=device_id,
+        node_id=node_id,
+        code="diff_mismatch",
+        message=(
+            f"Running configuration still differs from "
+            f"{file_system}{destination_filename} after 'configure replace'/"
+            f"'configure confirm' succeeded; see the stored diff artifact "
+            f"(artifact_id={post_diff_artifact_ref.artifact_id}) for details"
+        ),
+    )
 
+
+def _confirmed_result(
+    device: DeviceContext,
+    *,
+    device_id: str,
+    node_id: str,
+    pre_diff_artifact_ref: Any | None,
+    destination_filename: str,
+    file_system: str,
+    timeout_minutes: int,
+) -> _DeviceResult:
     enriched = _device_with_diff_refs(
         device,
         node_id,
@@ -569,6 +639,100 @@ async def _process_one_device(
         }
     )
     return device_id, enriched, True
+
+
+async def _process_one_device(
+    *,
+    device_id: str,
+    device: DeviceContext,
+    node_id: str,
+    destination_filename: str,
+    file_system: str,
+    timeout_minutes: int,
+    skip_if_no_pending_changes: bool,
+    verify_diff_after_replace: bool,
+    source_credentials: dict[str, PyATSCredentials],
+    source_errors: dict[str, str],
+    artifact_service: ArtifactService,
+    context_run_id: str,
+) -> _DeviceResult:
+    target = _prepare_target(
+        device_id=device_id,
+        device=device,
+        node_id=node_id,
+        source_credentials=source_credentials,
+        source_errors=source_errors,
+    )
+    if isinstance(target, tuple):
+        return target
+
+    logger.info(
+        "%s replace starting device=%s host=%s os=%s source=%s",
+        _STEP_ID,
+        device_id,
+        target.bag.get("host"),
+        target.bag.get("os"),
+        target.source_id,
+    )
+
+    diff_command = _build_diff_command(
+        file_system=file_system, destination_filename=destination_filename
+    )
+    pre_diff_artifact_ref = None
+    if skip_if_no_pending_changes:
+        pre = await _pre_replace_diff(
+            target,
+            device_id=device_id,
+            device=device,
+            node_id=node_id,
+            diff_command=diff_command,
+            destination_filename=destination_filename,
+            file_system=file_system,
+            timeout_minutes=timeout_minutes,
+            artifact_service=artifact_service,
+            context_run_id=context_run_id,
+        )
+        if pre.skipped is not None:
+            return pre.skipped
+        pre_diff_artifact_ref = pre.artifact_ref
+
+    failed = await _replace_and_confirm(
+        target,
+        device_id=device_id,
+        device=device,
+        node_id=node_id,
+        destination_filename=destination_filename,
+        file_system=file_system,
+        timeout_minutes=timeout_minutes,
+    )
+    if failed is not None:
+        return failed
+
+    if verify_diff_after_replace:
+        failed = await _verify_after_replace(
+            target,
+            device_id=device_id,
+            device=device,
+            node_id=node_id,
+            diff_command=diff_command,
+            destination_filename=destination_filename,
+            file_system=file_system,
+            pre_diff_artifact_ref=pre_diff_artifact_ref,
+            artifact_service=artifact_service,
+            context_run_id=context_run_id,
+        )
+        if failed is not None:
+            return failed
+
+    return _confirmed_result(
+        device,
+        device_id=device_id,
+        node_id=node_id,
+        pre_diff_artifact_ref=pre_diff_artifact_ref,
+        destination_filename=destination_filename,
+        file_system=file_system,
+        timeout_minutes=timeout_minutes,
+    )
 
 
 def _partition(

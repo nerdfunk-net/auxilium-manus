@@ -86,6 +86,7 @@ class Settings:
     data_directory: Path
     log_directory: Path
     log_max_bytes: int
+    max_request_body_bytes: int
     log_backup_count: int
     allow_loopback_source_urls: bool
     netmiko_session_pooling: bool
@@ -177,6 +178,11 @@ class Settings:
             environ.get("LOG_DIRECTORY", self.data_directory / "logs")
         ).resolve()
         self.log_max_bytes = self._get_int("LOG_MAX_BYTES", 10_485_760)
+        # Reject requests that announce a body larger than this (0 disables). A reverse proxy
+        # should enforce its own limit too; this guards the direct-access / chunked-less case.
+        self.max_request_body_bytes = self._get_int("MAX_REQUEST_BODY_BYTES", 25 * 1024 * 1024)
+        if self.max_request_body_bytes < 0:
+            raise RuntimeError("MAX_REQUEST_BODY_BYTES must be 0 (disabled) or positive")
         self.log_backup_count = self._get_int("LOG_BACKUP_COUNT", 5)
         self.allow_loopback_source_urls = self._get_bool("ALLOW_LOOPBACK_SOURCE_URLS", False)
         self.netmiko_session_pooling = self._get_bool("NETMIKO_SESSION_POOLING", True)

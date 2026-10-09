@@ -31,7 +31,7 @@ def _build_summary(*, content: str, use_textfsm: bool) -> str:
             parsed = json.loads(content)
             if isinstance(parsed, list):
                 return f"{len(parsed)} row(s) parsed"
-        except json.JSONDecodeError:
+        except json.JSONDecodeError:  # noqa: S110  # not JSON: keep the raw text
             pass
     return f"{len(content.encode('utf-8'))} bytes"
 

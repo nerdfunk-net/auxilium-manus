@@ -4,6 +4,21 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from core.models.users import User
+from repositories.updates import apply_updates
+
+_UPDATABLE_FIELDS = frozenset(
+    {
+        "username",
+        "password_hash",
+        "is_active",
+        "must_change_password",
+        "token_version",
+        "email",
+        "display_name",
+        "oidc_provider",
+        "oidc_subject",
+    }
+)
 
 
 class UserRepository:
@@ -61,9 +76,11 @@ class UserRepository:
         user = self.db.get(User, user_id)
         if user is None:
             return None
-        for key, value in kwargs.items():
-            if value is not None and hasattr(user, key):
-                setattr(user, key, value)
+        apply_updates(
+            user,
+            {key: value for key, value in kwargs.items() if value is not None},
+            _UPDATABLE_FIELDS,
+        )
         self.db.commit()
         self.db.refresh(user)
         return user

@@ -118,6 +118,16 @@ Without such an ingress, a browser can supply its own `X-Forwarded-For` value
 (Next.js only fills it in when the browser didn't) — the per-IP budget is then
 best-effort, and the per-username budget is the control that cannot be spoofed.
 
+## Request body size
+
+The backend answers `413` when a request declares a `Content-Length` above
+`MAX_REQUEST_BODY_BYTES` (default 25 MiB, `0` disables). This does **not** cover chunked
+uploads without a `Content-Length`, so also limit the body in the reverse proxy in front
+of the frontend (port 3000), e.g. nginx `client_max_body_size 25m;` or Traefik's
+`buffering` middleware `maxRequestBodyBytes`. Certificate uploads are separately capped at
+64 KiB. Raise `MAX_REQUEST_BODY_BYTES` (and the proxy limit) if a legitimate CSV, inventory
+or template import is larger.
+
 ## Health checks
 
 ```bash

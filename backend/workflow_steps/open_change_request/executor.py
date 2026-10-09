@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -288,6 +289,99 @@ def _failure_outcomes(
     ]
 
 
+@dataclass(frozen=True)
+class _Naming:
+    branch: str
+    commit_message: str
+    title: str
+
+
+def _render_naming(config: dict[str, Any], *, run: WorkflowRun, workflow_id: str) -> _Naming:
+    # Templates use the integer WorkflowRun.id ({run.id} → 42) so the branch is
+    # short and human-correlatable; artifact storage still keys off the run uuid.
+    template_run_id = str(run.id)
+
+    def render(key: str) -> str:
+        return render_step_template(
+            str(_config_value(config, key)), run_id=template_run_id, workflow_id=workflow_id
+        )
+
+    return _Naming(
+        branch=render("branch_template"),
+        commit_message=render("commit_message_template"),
+        title=render("title_template"),
+    )
+
+
+def _create_change_request(
+    *,
+    config: dict[str, Any],
+    context: WorkflowContext,
+    run: WorkflowRun,
+    repository_id: int,
+    staged: dict[str, Any],
+    naming: _Naming,
+    device_paths: dict[str, str],
+    diff_ref: Any,
+    diff_stats: dict[str, Any],
+) -> Any:
+    """Persist the staged change as a ``ChangeRequest`` row (may raise ``ConflictError``)."""
+    from services.change_requests.change_request_service import ChangeRequestService
+
+    device_ids = list(run.device_ids or list(context.devices.keys()))
+    devices_snapshot = _device_snapshot(context, device_paths)
+    db = get_db_session()
+    try:
+        return ChangeRequestService(db).create_from_step(
+            source_workflow_id=_as_int(context.workflow_id),
+            source_run_id=_as_int(run.id),
+            deploy_workflow_id=_as_int(config.get("deploy_workflow_id")),
+            git_repository_id=repository_id,
+            base_branch=staged["base_ref"],
+            branch=naming.branch,
+            commit_sha=staged["commit_sha"],
+            title=naming.title,
+            device_ids=device_ids,
+            devices=devices_snapshot,
+            run_inputs=dict(run.run_inputs or {}),
+            diff_artifact_id=diff_ref.artifact_id,
+            diff_stats=diff_stats,
+            expires_after_hours=int(_config_value(config, "expires_after_hours") or 168),
+        )
+    finally:
+        db.close()
+
+
+async def _stage(
+    git_service: Any,
+    repository: dict[str, Any],
+    *,
+    naming: _Naming,
+    files: list[tuple[str, str]],
+    run: WorkflowRun,
+    repository_id: int,
+) -> dict[str, Any]:
+    """Commit + push the rendered files to the per-change branch (blocking git in a thread)."""
+    try:
+        return await asyncio.to_thread(
+            _stage_to_git,
+            git_service,
+            repository,
+            branch=naming.branch,
+            commit_message=naming.commit_message,
+            files=files,
+        )
+    except Exception as exc:
+        logger.error(
+            "%s git staging failed run_id=%s repository_id=%s: %s",
+            _STEP_ID,
+            run.id,
+            repository_id,
+            exc,
+        )
+        raise
+
+
 async def execute(
     *,
     config: dict[str, Any],
@@ -333,46 +427,22 @@ async def execute(
         resolved_files.append((rel_path, await artifact_service.resolve(artifact_ref)))
         device_paths.setdefault(device_id, rel_path)
 
-    # Templates use the integer WorkflowRun.id ({run.id} → 42) so the branch is
-    # short and human-correlatable; artifact storage still keys off the run uuid.
-    template_run_id = str(run.id)
-    branch = render_step_template(
-        str(_config_value(config, "branch_template")),
-        run_id=template_run_id,
-        workflow_id=context.workflow_id,
-    )
-    commit_message = render_step_template(
-        str(_config_value(config, "commit_message_template")),
-        run_id=template_run_id,
-        workflow_id=context.workflow_id,
-    )
-    title = render_step_template(
-        str(_config_value(config, "title_template")),
-        run_id=template_run_id,
-        workflow_id=context.workflow_id,
-    )
+    naming = _render_naming(config, run=run, workflow_id=context.workflow_id)
 
     import service_factory
 
     git_service = service_factory.build_git_service()
 
     try:
-        staged = await asyncio.to_thread(
-            _stage_to_git,
+        staged = await _stage(
             git_service,
             repository,
-            branch=branch,
-            commit_message=commit_message,
+            naming=naming,
             files=resolved_files,
+            run=run,
+            repository_id=repository_id,
         )
     except Exception as exc:  # noqa: BLE001 — surfaced as a step failure outcome
-        logger.error(
-            "%s git staging failed run_id=%s repository_id=%s: %s",
-            _STEP_ID,
-            run.id,
-            repository_id,
-            exc,
-        )
         return _failure_outcomes(context=context, node_id=node_id, message=str(exc))
 
     diff_text, truncated = _truncate_diff(staged["diff"])
@@ -385,34 +455,22 @@ async def execute(
     )
     diff_stats = {**_diff_stats(diff_text), "truncated": truncated}
 
-    device_ids = list(run.device_ids or list(context.devices.keys()))
-    devices_snapshot = _device_snapshot(context, device_paths)
-    db = get_db_session()
-    try:
-        from core.domain_exceptions import ConflictError
-        from services.change_requests.change_request_service import ChangeRequestService
+    from core.domain_exceptions import ConflictError
 
-        try:
-            change_request = ChangeRequestService(db).create_from_step(
-                source_workflow_id=_as_int(context.workflow_id),
-                source_run_id=_as_int(run.id),
-                deploy_workflow_id=_as_int(config.get("deploy_workflow_id")),
-                git_repository_id=repository_id,
-                base_branch=staged["base_ref"],
-                branch=branch,
-                commit_sha=staged["commit_sha"],
-                title=title,
-                device_ids=device_ids,
-                devices=devices_snapshot,
-                run_inputs=dict(run.run_inputs or {}),
-                diff_artifact_id=diff_ref.artifact_id,
-                diff_stats=diff_stats,
-                expires_after_hours=int(_config_value(config, "expires_after_hours") or 168),
-            )
-        except ConflictError as exc:
-            return _failure_outcomes(context=context, node_id=node_id, message=str(exc))
-    finally:
-        db.close()
+    try:
+        change_request = _create_change_request(
+            config=config,
+            context=context,
+            run=run,
+            repository_id=repository_id,
+            staged=staged,
+            naming=naming,
+            device_paths=device_paths,
+            diff_ref=diff_ref,
+            diff_stats=diff_stats,
+        )
+    except ConflictError as exc:
+        return _failure_outcomes(context=context, node_id=node_id, message=str(exc))
 
     metadata = {
         **context.metadata,
@@ -420,7 +478,7 @@ async def execute(
             "success": True,
             "change_request_id": change_request.id,
             "uuid": change_request.uuid,
-            "branch": branch,
+            "branch": naming.branch,
             "commit_sha": staged["commit_sha"],
             "status": "staged",
             "diff_artifact_id": diff_ref.artifact_id,
@@ -432,7 +490,7 @@ async def execute(
         "%s created change_request_id=%s branch=%s commit=%s run_id=%s",
         _STEP_ID,
         change_request.id,
-        branch,
+        naming.branch,
         str(staged["commit_sha"])[:8],
         run.id,
     )

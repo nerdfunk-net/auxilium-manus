@@ -278,10 +278,10 @@ def _maybe_prepend_selected_commit(
         try:
             commit_obj.tree[file_path]
             return [_history_entry_from_commit(commit_obj, "N")]
-        except KeyError:
+        except KeyError:  # noqa: S110  # file not in that commit: nothing to prepend
             pass
     except Exception:
-        pass
+        logger.debug("History lookup failed for %s", file_path, exc_info=True)
     return []
 
 

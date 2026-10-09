@@ -6,6 +6,14 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from core.models.settings import Setting
+from repositories.updates import apply_updates
+
+_UPDATABLE_FIELDS = frozenset(
+    {
+        "value",
+        "description",
+    }
+)
 
 
 class SettingsRepository:
@@ -35,8 +43,7 @@ class SettingsRepository:
         return setting
 
     def update(self, setting: Setting, fields: dict[str, Any]) -> Setting:
-        for field_key, field_value in fields.items():
-            setattr(setting, field_key, field_value)
+        apply_updates(setting, fields, _UPDATABLE_FIELDS)
         self.db.commit()
         self.db.refresh(setting)
         return setting

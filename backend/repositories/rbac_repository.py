@@ -1,10 +1,18 @@
 from __future__ import annotations
 
-from sqlalchemy import select
+from sqlalchemy import exists, select
 from sqlalchemy.orm import Session
 
 from core.models.rbac import Permission, Role, RolePermission, UserPermission, UserRole
 from core.models.users import User
+from repositories.updates import apply_updates
+
+_ROLE_UPDATABLE_FIELDS = frozenset(
+    {
+        "name",
+        "description",
+    }
+)
 
 
 class RBACRepository:
@@ -73,9 +81,11 @@ class RBACRepository:
         role = self.db.get(Role, role_id)
         if role is None:
             return None
-        for key, value in kwargs.items():
-            if value is not None and hasattr(role, key):
-                setattr(role, key, value)
+        apply_updates(
+            role,
+            {key: value for key, value in kwargs.items() if value is not None},
+            _ROLE_UPDATABLE_FIELDS,
+        )
         self.db.commit()
         self.db.refresh(role)
         return role
@@ -133,6 +143,21 @@ class RBACRepository:
                 .join(RolePermission, RolePermission.permission_id == Permission.id)
                 .where(RolePermission.role_id == role_id, RolePermission.granted == True),  # noqa: E712
             ),
+        )
+
+    def user_has_permission_via_roles(self, user_id: int, permission_id: int) -> bool:
+        """True when any role of the user grants ``permission_id`` (one EXISTS query)."""
+        return bool(
+            self.db.scalar(
+                select(
+                    exists().where(
+                        UserRole.user_id == user_id,
+                        RolePermission.role_id == UserRole.role_id,
+                        RolePermission.permission_id == permission_id,
+                        RolePermission.granted.is_(True),
+                    )
+                )
+            )
         )
 
     # User <-> Role

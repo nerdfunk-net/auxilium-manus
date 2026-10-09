@@ -49,6 +49,7 @@ from __future__ import annotations
 
 import json
 import logging
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 import service_factory
@@ -123,27 +124,29 @@ def _with_finding(device: DeviceContext, *, key: str, rows: list[dict[str, Any]]
     )
 
 
-async def execute(
-    *,
-    config: dict[str, Any],
-    context: WorkflowContext,
-    run: WorkflowRun,
-    artifact_service: ArtifactService,
-    node_id: str,
-    device_sessions: DeviceSessionPool,
-) -> list[StepOutcome]:
-    del device_sessions  # unused: Batfish is reached via pybatfish, not Netmiko
+@dataclass(frozen=True)
+class _SnapshotRows:
+    """The three Batfish answer tables this step reads (all empty when nothing to query)."""
 
-    merged_config = {**get_config(), **config}
-    output_key = str(merged_config.get("output_key") or "undefined_and_unused").strip() or (
-        "undefined_and_unused"
-    )
+    parse: list[dict[str, Any]]
+    undefined: list[dict[str, Any]]
+    unused: list[dict[str, Any]]
 
-    if not context.devices:
-        return [StepOutcome(name=name, context=context) for name in _OUTCOME_NAMES]
 
-    buckets: dict[str, dict[str, DeviceContext]] = {name: {} for name in _OUTCOME_NAMES}
-    contributions: dict[str, str] = {}  # device_id -> node_name (lowercase)
+@dataclass(frozen=True)
+class _NodeIndex:
+    """Batfish rows indexed by lowercase node name."""
+
+    node_status: dict[str, str]
+    undefined_by_node: dict[str, list[dict[str, Any]]]
+    unused_by_node: dict[str, list[dict[str, Any]]]
+
+
+def _split_nameless_devices(
+    context: WorkflowContext, *, node_id: str, buckets: dict[str, dict[str, DeviceContext]]
+) -> dict[str, str]:
+    """Fail devices without a name; return ``device_id -> node_name`` for the rest."""
+    contributions: dict[str, str] = {}
     for device_id, device in context.devices.items():
         node_name = device.name.strip().lower()
         if not node_name:
@@ -155,57 +158,44 @@ async def execute(
             )
             continue
         contributions[device_id] = node_name
+    return contributions
 
-    batfish = service_factory.get_batfish_app_service()
-    snap = await resolve_batfish_snapshot_ref(
-        context=context, config=merged_config, run=run, batfish=batfish
+
+async def _query_rows(batfish: Any, snap: Any, nodes_filter: str | None) -> _SnapshotRows:
+    if nodes_filter is None:
+        return _SnapshotRows(parse=[], undefined=[], unused=[])
+    # fileParseStatus takes no "nodes" parameter (confirmed live -- see
+    # query_file_parse_status's docstring) -- it always reports every
+    # file in the snapshot; irrelevant nodes are simply never looked up
+    # later since we only ever index into file_to_nodes/node_status via
+    # this run's own `contributions`.
+    parse_rows = await query_file_parse_status(
+        batfish,
+        snap.connection,
+        batfish_network=snap.network,
+        snapshot=snap.snapshot,
     )
-
-    logger.info(
-        "%s started run_id=%s node_id=%s devices=%d network=%s snapshot=%s",
-        _STEP_ID,
-        run.id,
-        node_id,
-        len(context.devices),
-        snap.network,
-        snap.snapshot,
+    undefined_rows = await query_undefined_references(
+        batfish,
+        snap.connection,
+        batfish_network=snap.network,
+        snapshot=snap.snapshot,
+        nodes=nodes_filter,
     )
+    unused_rows = await query_unused_structures(
+        batfish,
+        snap.connection,
+        batfish_network=snap.network,
+        snapshot=snap.snapshot,
+        nodes=nodes_filter,
+    )
+    return _SnapshotRows(parse=parse_rows, undefined=undefined_rows, unused=unused_rows)
 
-    nodes_filter = _build_nodes_filter(str(merged_config.get("nodes") or ""), contributions)
 
-    parse_rows: list[dict[str, Any]] = []
-    undefined_rows: list[dict[str, Any]] = []
-    unused_rows: list[dict[str, Any]] = []
-    if nodes_filter is not None:
-        # fileParseStatus takes no "nodes" parameter (confirmed live -- see
-        # query_file_parse_status's docstring) -- it always reports every
-        # file in the snapshot; irrelevant nodes are simply never looked up
-        # below since we only ever index into file_to_nodes/node_status via
-        # this run's own `contributions`.
-        parse_rows = await query_file_parse_status(
-            batfish,
-            snap.connection,
-            batfish_network=snap.network,
-            snapshot=snap.snapshot,
-        )
-        undefined_rows = await query_undefined_references(
-            batfish,
-            snap.connection,
-            batfish_network=snap.network,
-            snapshot=snap.snapshot,
-            nodes=nodes_filter,
-        )
-        unused_rows = await query_unused_structures(
-            batfish,
-            snap.connection,
-            batfish_network=snap.network,
-            snapshot=snap.snapshot,
-            nodes=nodes_filter,
-        )
-
+def _index_rows_by_node(rows: _SnapshotRows) -> _NodeIndex:
     file_to_nodes: dict[str, list[str]] = {}
     node_status: dict[str, str] = {}
-    for row in parse_rows:
+    for row in rows.parse:
         file_name = row.get("File_Name")
         if not isinstance(file_name, str):
             continue
@@ -216,7 +206,7 @@ async def execute(
             node_status[node] = status
 
     undefined_by_node: dict[str, list[dict[str, Any]]] = {}
-    for row in undefined_rows:
+    for row in rows.undefined:
         undefined_file_name = row.get("File_Name")
         if not isinstance(undefined_file_name, str):
             continue
@@ -224,7 +214,7 @@ async def execute(
             undefined_by_node.setdefault(node, []).append(row)
 
     unused_by_node: dict[str, list[dict[str, Any]]] = {}
-    for row in unused_rows:
+    for row in rows.unused:
         source_lines = row.get("Source_Lines")
         unused_file_name = source_lines.get("filename") if isinstance(source_lines, dict) else None
         if not isinstance(unused_file_name, str):
@@ -232,9 +222,21 @@ async def execute(
         for node in file_to_nodes.get(unused_file_name, []):
             unused_by_node.setdefault(node, []).append(row)
 
+    return _NodeIndex(node_status, undefined_by_node, unused_by_node)
+
+
+def _classify_devices(
+    context: WorkflowContext,
+    contributions: dict[str, str],
+    index: _NodeIndex,
+    *,
+    node_id: str,
+    output_key: str,
+    buckets: dict[str, dict[str, DeviceContext]],
+) -> None:
     for device_id, node_name in contributions.items():
         device = context.devices[device_id]
-        status = node_status.get(node_name)
+        status = index.node_status.get(node_name)
         if status is None:
             buckets["failure"][device_id] = _fail_device(
                 device,
@@ -258,8 +260,8 @@ async def execute(
             )
             continue
 
-        node_undefined = undefined_by_node.get(node_name, [])
-        node_unused = unused_by_node.get(node_name, [])
+        node_undefined = index.undefined_by_node.get(node_name, [])
+        node_unused = index.unused_by_node.get(node_name, [])
 
         # Always write BOTH parsed keys (an empty list when there are no
         # findings) and always add Capability.PARSED -- the registry
@@ -286,11 +288,21 @@ async def execute(
         if not node_undefined and not node_unused:
             buckets["success"][device_id] = enriched
 
+
+async def _store_result(
+    rows: _SnapshotRows,
+    *,
+    context: WorkflowContext,
+    artifact_service: ArtifactService,
+    node_id: str,
+    output_key: str,
+) -> dict[str, Any]:
+    """Persist the raw answer tables as an artifact; return the context metadata with it."""
     content = json.dumps(
         {
-            "file_parse_status": parse_rows,
-            "undefined_references": undefined_rows,
-            "unused_structures": unused_rows,
+            "file_parse_status": rows.parse,
+            "undefined_references": rows.undefined,
+            "unused_structures": rows.unused,
         },
         indent=2,
         default=str,
@@ -307,9 +319,62 @@ async def execute(
         "kind": "batfish_result",
         "question": "undefinedReferences+unusedStructures",
         "artifact_ref": artifact_ref.model_dump(mode="json"),
-        "undefined_row_count": len(undefined_rows),
-        "unused_row_count": len(unused_rows),
+        "undefined_row_count": len(rows.undefined),
+        "unused_row_count": len(rows.unused),
     }
+    return metadata
+
+
+async def execute(
+    *,
+    config: dict[str, Any],
+    context: WorkflowContext,
+    run: WorkflowRun,
+    artifact_service: ArtifactService,
+    node_id: str,
+    device_sessions: DeviceSessionPool,
+) -> list[StepOutcome]:
+    del device_sessions  # unused: Batfish is reached via pybatfish, not Netmiko
+
+    merged_config = {**get_config(), **config}
+    output_key = str(merged_config.get("output_key") or "undefined_and_unused").strip() or (
+        "undefined_and_unused"
+    )
+
+    if not context.devices:
+        return [StepOutcome(name=name, context=context) for name in _OUTCOME_NAMES]
+
+    buckets: dict[str, dict[str, DeviceContext]] = {name: {} for name in _OUTCOME_NAMES}
+    contributions = _split_nameless_devices(context, node_id=node_id, buckets=buckets)
+
+    batfish = service_factory.get_batfish_app_service()
+    snap = await resolve_batfish_snapshot_ref(
+        context=context, config=merged_config, run=run, batfish=batfish
+    )
+
+    logger.info(
+        "%s started run_id=%s node_id=%s devices=%d network=%s snapshot=%s",
+        _STEP_ID,
+        run.id,
+        node_id,
+        len(context.devices),
+        snap.network,
+        snap.snapshot,
+    )
+
+    nodes_filter = _build_nodes_filter(str(merged_config.get("nodes") or ""), contributions)
+    rows = await _query_rows(batfish, snap, nodes_filter)
+    index = _index_rows_by_node(rows)
+    _classify_devices(
+        context, contributions, index, node_id=node_id, output_key=output_key, buckets=buckets
+    )
+    metadata = await _store_result(
+        rows,
+        context=context,
+        artifact_service=artifact_service,
+        node_id=node_id,
+        output_key=output_key,
+    )
 
     counts = {name: len(buckets[name]) for name in _OUTCOME_NAMES}
     logger.info("%s finished run_id=%s counts=%s", _STEP_ID, run.id, counts)

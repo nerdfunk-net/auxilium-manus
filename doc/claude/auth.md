@@ -121,6 +121,12 @@ If an IdP-presented username collides with a row this identity isn't already bou
 must never be able to take over an existing local account. See
 `backend/services/auth/oidc_service.py::provision_or_get_user`.
 
+**Linking an existing local account.** Nothing links by username, so an admin binds an
+existing user to an IdP identity deliberately, from the host:
+`cd backend && python scripts/link_oidc_identity.py <username> <provider_id> <subject>`.
+It refuses an identity already bound to another user and bumps `token_version`, which ends the
+user's existing sessions. There is intentionally no API for this (T6).
+
 **Auth-request hardening.** Authorization requests carry a `nonce` and PKCE
 (`code_challenge`/`code_challenge_method=S256`). `routers/oidc.py` stores
 `{redirect_uri, nonce, code_verifier}` as the Redis state value; the callback verifies

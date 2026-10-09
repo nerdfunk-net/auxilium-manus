@@ -45,12 +45,12 @@ def set_git_author(repository: dict, repo: Repo):
     try:
         original_name = config_reader.get_value("user", "name", default=None)
     except Exception:
-        pass
+        logger.debug("git config read failed", exc_info=True)
 
     try:
         original_email = config_reader.get_value("user", "email", default=None)
     except Exception:
-        pass
+        logger.debug("git config read failed", exc_info=True)
 
     # Set new values from repository config or use defaults
     config_writer = repo.config_writer()
@@ -74,7 +74,7 @@ def set_git_author(repository: dict, repo: Repo):
             try:
                 config_writer.remove_option("user", "name")
             except Exception:
-                pass
+                logger.debug("git config restore failed", exc_info=True)
 
         if original_email is not None:
             config_writer.set_value("user", "email", original_email)
@@ -82,7 +82,7 @@ def set_git_author(repository: dict, repo: Repo):
             try:
                 config_writer.remove_option("user", "email")
             except Exception:
-                pass
+                logger.debug("git config restore failed", exc_info=True)
 
         config_writer.release()
         logger.debug("Restored original git author configuration")

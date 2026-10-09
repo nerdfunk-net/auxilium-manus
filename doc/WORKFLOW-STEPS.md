@@ -818,6 +818,12 @@ contract lives in `backend/services/workflow_context/secret_fields.py`:
   displays a run: `StepRunner._serialize_outcomes`, the Hatchet fan-out merge
   path (`hatchet/workflows/workflow_run.py::_aggregate_and_persist`), and
   `log-attributes`'s `build_context_snapshot`.
+  Inside a run segment (`StepRunner.execute_all` / `resume_after_join` /
+  `execute_subgraph` run under `run_secret_scope`) it also scrubs, by exact
+  match and in free text, every cleartext secret of 8+ characters that was
+  unwrapped via `unwrap_secret` or read through `CredentialsService.get_decrypted_*`
+  during that segment (W6). A secret that never passed through those calls
+  (typed into a template) is still unknown to the redactor.
 
 **`resolve_device_attribute(device, path, *, reveal_secrets=True)`**
 (`workflow_steps/common/attribute_path.py`) is the shared read path and

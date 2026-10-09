@@ -5,6 +5,25 @@ from sqlalchemy.orm import Session
 
 from core.models.credentials import Credential
 from core.models.users import User
+from repositories.updates import apply_updates
+
+_UPDATABLE_FIELDS = frozenset(
+    {
+        "name",
+        "username",
+        "type",
+        "algorithm",
+        "valid_until",
+        "visibility",
+        "owner_user_id",
+        "vault_path",
+        "vault_secret_fields",
+        "password_encrypted",
+        "ssh_key_encrypted",
+        "ssh_passphrase_encrypted",
+        "updated_at",
+    }
+)
 
 
 class CredentialsRepository:
@@ -123,14 +142,12 @@ class CredentialsRepository:
         self.db.refresh(credential)
 
     def update_no_commit(self, credential: Credential, **kwargs) -> Credential:
-        for key, value in kwargs.items():
-            setattr(credential, key, value)
+        apply_updates(credential, kwargs, _UPDATABLE_FIELDS)
         self.db.flush()
         return credential
 
     def update(self, credential: Credential, **kwargs) -> Credential:
-        for key, value in kwargs.items():
-            setattr(credential, key, value)
+        apply_updates(credential, kwargs, _UPDATABLE_FIELDS)
         self.db.commit()
         self.db.refresh(credential)
         return credential

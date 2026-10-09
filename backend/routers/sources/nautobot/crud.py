@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import JSONResponse
@@ -19,6 +18,10 @@ from models.sources_nautobot import (
     InventoryResponse,
     ListInventoriesResponse,
     UpdateInventoryRequest,
+)
+from services.sources.nautobot.inventory_transfer import (
+    build_export_document,
+    parse_import_document,
 )
 from services.sources.nautobot.persistence_service import InventoryService
 
@@ -161,38 +164,7 @@ def export_inventory(
                 detail=f"Inventory with ID {inventory_id} not found",
             )
 
-        export_data = {
-            "version": 2,
-            "metadata": {
-                "name": inventory["name"],
-                "description": inventory.get("description", ""),
-                "scope": inventory["scope"],
-                "exportedAt": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
-                "exportedBy": current_user.username,
-                "originalId": inventory["id"],
-            },
-            "conditionTree": None,
-        }
-
-        conditions = inventory.get("conditions", [])
-        if conditions:
-            first = conditions[0]
-            if isinstance(first, dict) and first.get("version") == 2:
-                export_data["conditionTree"] = first.get("tree")
-            else:
-                export_data["conditionTree"] = {
-                    "type": "root",
-                    "internalLogic": "AND",
-                    "items": [
-                        {
-                            "id": f"item-{index}",
-                            "field": cond.get("field", ""),
-                            "operator": cond.get("operator", ""),
-                            "value": cond.get("value", ""),
-                        }
-                        for index, cond in enumerate(conditions)
-                    ],
-                }
+        export_data = build_export_document(inventory, exported_by=current_user.username)
 
         return JSONResponse(
             content=export_data,
@@ -222,35 +194,8 @@ def import_inventory(
     persistence: InventoryService = Depends(get_inventory_service),
 ) -> InventoryResponse:
     try:
-        import_data = request.import_data
-        if import_data.get("version") != 2:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Invalid inventory file format. Expected version 2.",
-            )
-        if not import_data.get("conditionTree"):
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Invalid inventory file. Missing condition tree.",
-            )
-        metadata = import_data.get("metadata") or {}
-        if not metadata.get("name"):
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Invalid inventory file. Missing metadata.",
-            )
-
-        inventory_id = persistence.create_inventory(
-            {
-                "name": f"{metadata['name']} (imported)",
-                "description": metadata.get("description", "Imported inventory"),
-                "conditions": [{"version": 2, "tree": import_data["conditionTree"]}],
-                "template_category": None,
-                "template_name": None,
-                "scope": "global",
-                "created_by": current_user.username,
-            }
-        )
+        payload = parse_import_document(request.import_data, created_by=current_user.username)
+        inventory_id = persistence.create_inventory(payload)
         if not inventory_id:
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

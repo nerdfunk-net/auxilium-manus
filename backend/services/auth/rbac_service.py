@@ -111,11 +111,7 @@ class RBACService:
         if override is not None:
             return override
 
-        for role in self._repo.get_user_roles(user_id):
-            if any(p.id == permission.id for p in self._repo.get_role_permissions(role.id)):
-                return True
-
-        return False
+        return self._repo.user_has_permission_via_roles(user_id, permission.id)
 
     def check_any_permission(self, user_id: int, checks: list[tuple[str, str]]) -> bool:
         return any(self.has_permission(user_id, resource, action) for resource, action in checks)

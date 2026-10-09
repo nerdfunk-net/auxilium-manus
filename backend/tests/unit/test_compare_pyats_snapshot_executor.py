@@ -394,6 +394,34 @@ class ComparePyatsSnapshotExecutorTests(unittest.IsolatedAsyncioTestCase):
         error_code = failure_outcome.context.devices["device-1"].errors[0].code
         self.assertEqual(error_code, "invalid_snapshot")
 
+    async def test_malformed_live_snapshot_json_fails_device(self) -> None:
+        device = _device_with_snapshot(
+            ArtifactRef(artifact_id="placeholder", kind="pyats_snapshot")
+        )
+        outcomes, _, _ = await self._run(
+            device=device,
+            reference_content=json.dumps({"bgp": {"success": True, "data": {"peers": 1}}}),
+            live_content="not json",
+        )
+        failure_outcome = next(o for o in outcomes if o.name == "failure")
+        failed = failure_outcome.context.devices["device-1"]
+        self.assertEqual(failed.errors[0].code, "invalid_snapshot")
+        self.assertIn("Live snapshot", failed.errors[0].message)
+
+    async def test_unreadable_reference_fails_device_with_reference_error(self) -> None:
+        device = _device_with_snapshot(
+            ArtifactRef(artifact_id="placeholder", kind="pyats_snapshot")
+        )
+        with patch(
+            "workflow_steps.compare_pyats_snapshot.executor.read_reference_text",
+            new=AsyncMock(side_effect=PermissionError("denied")),
+        ):
+            outcomes, _, _ = await self._run(device=device, reference_content="{}")
+        failure_outcome = next(o for o in outcomes if o.name == "failure")
+        error = failure_outcome.context.devices["device-1"].errors[0]
+        self.assertEqual(error.code, "reference_error")
+        self.assertIn("denied", error.message)
+
     async def test_missing_reference_file_fails_device(self) -> None:
         device = _device_with_snapshot(
             ArtifactRef(artifact_id="placeholder", kind="pyats_snapshot")

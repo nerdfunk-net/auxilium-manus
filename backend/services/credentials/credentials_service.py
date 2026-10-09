@@ -36,6 +36,7 @@ from services.credentials.exceptions import (
     CredentialVaultUnavailableError,
 )
 from services.vault.exceptions import VaultError, VaultSecretNotFoundError
+from services.workflow_context.secret_fields import register_secret_value
 
 logger = logging.getLogger(__name__)
 
@@ -431,8 +432,8 @@ class CredentialsService:
             else:
                 try:
                     self._vault_writer.delete_kv(credential.vault_path)
-                except VaultSecretNotFoundError:
-                    pass  # already gone: nothing to orphan
+                except VaultSecretNotFoundError:  # noqa: S110  # already gone: nothing to orphan
+                    pass
                 except VaultError as exc:
                     # V9: keep the row so the operator can retry once OpenBao is back.
                     raise CredentialVaultUnavailableError(str(exc)) from exc
@@ -456,10 +457,13 @@ class CredentialsService:
             value = data.get("password") or data.get("token")
             if not value:
                 raise CredentialMissingFieldError("Credential has no password")
+            register_secret_value(value)  # W6: scrub it from step output later in this run
             return value
         if not credential.password_encrypted:
             raise CredentialMissingFieldError("Credential has no password")
-        return self._encryption.decrypt(credential.password_encrypted)
+        password = self._encryption.decrypt(credential.password_encrypted)
+        register_secret_value(password)
+        return password
 
     def get_decrypted_ssh_key(self, cred_id: int, *, acting_user_id: int | None = None) -> str:
         credential = self._repo.get_by_id_for_user(cred_id, acting_user_id=acting_user_id)
@@ -470,10 +474,13 @@ class CredentialsService:
             value = data.get("ssh_key")
             if not value:
                 raise CredentialMissingFieldError("Credential has no SSH key")
+            register_secret_value(value)
             return value
         if not credential.ssh_key_encrypted:
             raise CredentialMissingFieldError("Credential has no SSH key")
-        return self._encryption.decrypt(credential.ssh_key_encrypted)
+        ssh_key = self._encryption.decrypt(credential.ssh_key_encrypted)
+        register_secret_value(ssh_key)
+        return ssh_key
 
     def get_decrypted_ssh_passphrase(
         self, cred_id: int, *, acting_user_id: int | None = None
@@ -483,10 +490,14 @@ class CredentialsService:
             raise CredentialNotFoundError(cred_id)
         if credential.storage_backend == "vault":
             data = self._read_vault_data(credential)
-            return data.get("ssh_passphrase") or None
+            passphrase = data.get("ssh_passphrase") or None
+            register_secret_value(passphrase)
+            return passphrase
         if not credential.ssh_passphrase_encrypted:
             return None
-        return self._encryption.decrypt(credential.ssh_passphrase_encrypted)
+        passphrase = self._encryption.decrypt(credential.ssh_passphrase_encrypted)
+        register_secret_value(passphrase)
+        return passphrase
 
     def get_ssh_key_path(self, cred_id: int, *, acting_user_id: int | None = None) -> str | None:
         """Return a filesystem path holding the private key.
@@ -505,6 +516,7 @@ class CredentialsService:
             key_material = data.get("ssh_key")
             if not key_material:
                 raise CredentialMissingFieldError("Credential has no SSH key")
+            register_secret_value(key_material)
             return self._write_ephemeral_ssh_key_file(credential, key_material)
         if not credential.ssh_key_encrypted:
             return None
@@ -527,6 +539,7 @@ class CredentialsService:
             return None
         try:
             ssh_key_content = self._encryption.decrypt(credential.ssh_key_encrypted)
+            register_secret_value(ssh_key_content)
             return self._write_ssh_key_file(credential, ssh_key_content)
         except Exception:
             logger.exception("Failed to export SSH key '%s'", credential.name)

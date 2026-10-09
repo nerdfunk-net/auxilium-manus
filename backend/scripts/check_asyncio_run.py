@@ -41,7 +41,7 @@ def main() -> int:
     for py in routers.rglob("*.py"):
         try:
             text = py.read_text(encoding="utf-8")
-        except UnicodeDecodeError:
+        except UnicodeDecodeError:  # noqa: S112  # not a text file
             continue
         for lineno, line in enumerate(text.splitlines(), start=1):
             if PATTERN.search(line):

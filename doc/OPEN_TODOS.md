@@ -410,3 +410,50 @@ ownership checks, so identity can never be inherited via a reused username.
 
 Touches every ownership query/access check plus a data back-fill via the full migration
 framework (`doc/MIGRATION_SYSTEM.md`); deliberately deferred as a larger, separate plan.
+
+
+---
+
+## Bring `pyright` to zero
+
+**Added:** 2026-10-09 · **Area:** `backend/` (CI job `types` is advisory)
+
+### What we have
+
+Phase 9 of `doc/plans/FABLE_MERGE_20261009.md` converted `GitRepository` to `Mapped[...]` and
+fixed the `BaseRepository` / `rowcount` findings: **73 → 54 errors** (pyright 1.1.406, basic mode).
+Largest remaining: `services/cache/redis_cache_service.py` (8, `bytes | str` from redis),
+`services/git/connection.py` (5), `routers/workflow_update_attribute.py` (4),
+`services/workflow/workflow_git_service.py` (4), `services/execution/schedule_service.py` (4),
+`services/nautobot/devices/update.py` (4) — mostly `str | None` narrowing.
+
+### End state
+
+`pyright` green, then drop `continue-on-error` from the `types` job in
+`.github/workflows/backend-ci.yml`. Also bump the pin in `requirements-dev.txt` (the launcher
+asks for 1.1.414+) and re-baseline.
+
+
+---
+
+## Finish the Phase 9 quality items that were only started
+
+**Added:** 2026-10-09 · **Area:** `backend/models/`, `backend/workflow_steps/`, `backend/services/`
+
+### Q7 — `extra="forbid"` on request models
+
+`tests/unit/test_request_models_forbid_extra.py` now enforces the rule with a `LEGACY_LENIENT`
+allow-list (82 request models left; credentials is converted). Convert one domain at a time:
+add `ConfigDict(extra="forbid")`, delete the names from `LEGACY_LENIENT`, compare the keys the
+frontend sends for that domain with the model, and exercise the flow in the browser. Order:
+git repositories → workflows/runs → templates → sources → settings → the rest.
+
+### Q1 / Q10 — long functions
+
+The five worst functions were split into phase helpers (all behaviour covered by unit tests):
+`configure_replace_config._process_one_device` 257 → 92, `undefined_and_unused.execute` 200 → 63,
+`compare_pyats_snapshot._compare_one_device` 181 → 71, `git_workflow_step.run_git_workflow_step`
+158 → 100, `open_change_request.execute` 154 → 118. The 50-line target was not reached for
+`_process_one_device`, `run_git_workflow_step` and `open_change_request.execute` (long signatures,
+docstrings and metadata dicts); split further when those files are next touched. Q10 (`DeviceCommonService`
+pass-throughs, `InterfaceManagerService`, `DeviceUpdateService.update_device`, `GitService.push`) is untouched.

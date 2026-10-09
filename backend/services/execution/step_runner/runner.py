@@ -45,7 +45,11 @@ from services.workflow_context.guards import (
 from services.workflow_context.merge import merge_workflow_contexts
 from services.workflow_context.registry import capability_spec_from_plugin
 from services.workflow_context.run_inputs import seed_run_input_bag
-from services.workflow_context.secret_fields import redact_secrets_in_data
+from services.workflow_context.secret_fields import (
+    redact_secrets_in_data,
+    scrub_known_secrets,
+    with_run_secret_scope,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -92,6 +96,7 @@ class StepRunner:
         async with self._db_lock:
             self.repo.update_step_result(step_result, **fields)
 
+    @with_run_secret_scope
     async def execute_all(self, *, run: WorkflowRun, workflow: Workflow) -> bool | FanOutSignal:
         """Execute every step in dependency order.
 
@@ -502,13 +507,14 @@ class StepRunner:
             await self._persist_step_result(
                 step_result,
                 status="failed",
-                error_message=message[:4000],
+                error_message=scrub_known_secrets(message)[:4000],
                 error_category=category,
                 error_id=error_id,
                 finished_at=datetime.now(UTC),
             )
             return False
 
+    @with_run_secret_scope
     async def resume_after_join(
         self,
         *,
@@ -599,6 +605,7 @@ class StepRunner:
 
         return not (failed or any_reported_failure)
 
+    @with_run_secret_scope
     async def execute_subgraph(
         self,
         *,

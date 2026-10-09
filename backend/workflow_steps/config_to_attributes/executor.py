@@ -245,7 +245,7 @@ def _build_l2_access_interface(raw: dict[str, Any]) -> dict[str, Any] | None:
         data_vlan = raw.get("data_vlan")
         if data_vlan not in (None, ""):
             iface["untagged_vlan"] = int(data_vlan)
-    except TypeError, ValueError:
+    except TypeError, ValueError:  # noqa: S110  # non-numeric VLAN: leave untagged_vlan unset
         pass
 
     return iface

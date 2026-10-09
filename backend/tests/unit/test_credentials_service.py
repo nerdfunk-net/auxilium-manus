@@ -239,6 +239,47 @@ class CredentialsServiceTests(unittest.TestCase):
         with self.assertRaises(CredentialNotFoundError):
             cred_service.get_decrypted_password(123, acting_user_id=99)
 
+    def test_decrypted_password_is_registered_in_scope(self) -> None:
+        from services.workflow_context.secret_fields import (
+            redact_secrets_in_data,
+            run_secret_scope,
+        )
+
+        cred_service = CredentialsService(MagicMock())
+        cred_service._encryption = EncryptionService("test-secret-key-for-credentials")
+        credential = _make_credential(storage_backend="local")
+        credential.password_encrypted = cred_service._encryption.encrypt("device-password-1")
+        cred_service._repo = MagicMock()
+        cred_service._repo.get_by_id_for_user.return_value = credential
+
+        with run_secret_scope():
+            self.assertEqual(cred_service.get_decrypted_password(1), "device-password-1")
+            redacted = redact_secrets_in_data({"out": "login device-password-1 ok"})
+        self.assertEqual(redacted["out"], "login ***REDACTED*** ok")
+
+    def test_local_ssh_key_export_registers_the_key(self) -> None:
+        import tempfile
+        from unittest.mock import patch
+
+        from services.workflow_context.secret_fields import (
+            redact_secrets_in_data,
+            run_secret_scope,
+        )
+
+        cred_service = CredentialsService(MagicMock())
+        cred_service._encryption = EncryptionService("test-secret-key-for-credentials")
+        credential = _make_credential(storage_backend="local", type="ssh_key")
+        pem = "-----BEGIN KEY-----abcdef123456-----END KEY-----"
+        credential.ssh_key_encrypted = cred_service._encryption.encrypt(pem)
+        cred_service._repo = MagicMock()
+        cred_service._repo.get_by_id_for_user.return_value = credential
+
+        with tempfile.TemporaryDirectory() as tmp, run_secret_scope():
+            with patch.object(cred_service, "_ssh_keys_directory", return_value=tmp):
+                cred_service.export_single_ssh_key(1)
+            redacted = redact_secrets_in_data({"out": f"loaded {pem} ok"})
+        self.assertEqual(redacted["out"], "loaded ***REDACTED*** ok")
+
 
 if __name__ == "__main__":
     unittest.main()

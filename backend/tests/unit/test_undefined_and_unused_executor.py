@@ -71,6 +71,12 @@ _UNUSED_ROWS = [
 ]
 
 
+def _ref_from(dumped: dict):
+    from models.workflow_context import ArtifactRef
+
+    return ArtifactRef(**dumped)
+
+
 class UndefinedAndUnusedExecutorTests(unittest.IsolatedAsyncioTestCase):
     def _make_batfish(self) -> MagicMock:
         batfish = MagicMock()
@@ -141,6 +147,34 @@ class UndefinedAndUnusedExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             success_d.parsed["node-1.undefined_and_unused.unused"], {"parsed": [], "error": None}
         )
+
+    async def test_result_artifact_and_metadata_are_recorded(self) -> None:
+        import json
+
+        artifact_service = InMemoryArtifactService()
+        run = MagicMock()
+        run.id = 1
+        with patch(_SERVICE_FACTORY_TARGET) as service_factory_mock:
+            service_factory_mock.get_batfish_app_service.return_value = self._make_batfish()
+            outcomes = await execute(
+                config={"output_key": "findings"},
+                context=_context_with_snapshot({"id-a": _device("id-a", "routerA")}),
+                run=run,
+                artifact_service=artifact_service,
+                node_id="node-1",
+                device_sessions=MagicMock(),
+            )
+
+        meta = outcomes[0].context.metadata["node-1.findings"]
+        self.assertEqual(meta["kind"], "batfish_result")
+        self.assertEqual(meta["undefined_row_count"], len(_UNDEFINED_ROWS))
+        self.assertEqual(meta["unused_row_count"], len(_UNUSED_ROWS))
+        stored = json.loads(await artifact_service.resolve(_ref_from(meta["artifact_ref"])))
+        self.assertEqual(stored["file_parse_status"], _FILE_PARSE_STATUS_ROWS)
+        self.assertEqual(stored["undefined_references"], _UNDEFINED_ROWS)
+        # every outcome carries the same metadata (shared artifact)
+        self.assertTrue(all(o.context.metadata == outcomes[0].context.metadata for o in outcomes))
+        self.assertIn("node-1.findings.undefined", outcomes[1].context.devices["id-a"].parsed)
 
     async def test_nodes_filter_auto_derived_from_upstream_devices(self) -> None:
         devices = {

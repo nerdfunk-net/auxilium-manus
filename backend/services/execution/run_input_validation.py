@@ -71,7 +71,7 @@ def _coerce(attr: StaticAttributeDef, value: Any, errors: list[str]) -> Any:
         if isinstance(value, str):
             try:
                 return float(value) if any(c in value for c in ".eE") else int(value)
-            except ValueError:
+            except ValueError:  # noqa: S110  # not numeric: fall through to the error below
                 pass
         errors.append(f"{attr.name}: expected a number")
         return None

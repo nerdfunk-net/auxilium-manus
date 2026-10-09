@@ -9,6 +9,18 @@ from sqlalchemy.orm import Session
 
 from core.models.schedules import WorkflowSchedule
 from core.models.workflows import Workflow
+from repositories.updates import apply_updates
+
+_UPDATABLE_FIELDS = frozenset(
+    {
+        "name",
+        "schedule_type",
+        "cron_expression",
+        "run_at",
+        "enabled",
+        "run_inputs",
+    }
+)
 
 
 class ScheduleRepository:
@@ -90,8 +102,7 @@ class ScheduleRepository:
         return schedule
 
     def update(self, schedule: WorkflowSchedule, **fields: Any) -> WorkflowSchedule:
-        for key, value in fields.items():
-            setattr(schedule, key, value)
+        apply_updates(schedule, fields, _UPDATABLE_FIELDS)
         # A schedule edit always re-registers with Hatchet — clear stale ids.
         schedule.hatchet_cron_id = None
         schedule.hatchet_scheduled_id = None

@@ -368,7 +368,7 @@ class RedisCacheService:
                     if mem:
                         total_size += mem
                 except Exception:
-                    pass
+                    logger.debug("Redis cleanup failed", exc_info=True)
 
             # Group by namespace
             namespaces = {}
@@ -389,7 +389,7 @@ class RedisCacheService:
                     if mem:
                         namespaces[namespace]["size_bytes"] += mem
                 except Exception:
-                    pass
+                    logger.debug("Redis cleanup failed", exc_info=True)
 
             # Calculate hit rate
             total_requests = hits + misses

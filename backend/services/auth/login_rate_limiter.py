@@ -130,7 +130,7 @@ class LoginRateLimiter:
         try:
             self._redis.delete(self._redis_key(key))
         except redis.RedisError:
-            pass
+            logger.debug("Could not clear rate-limit key", exc_info=True)
         with self._fallback_lock:
             self._fallback_attempts.pop(key, None)
 

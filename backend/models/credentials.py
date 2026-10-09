@@ -26,6 +26,8 @@ def _validate_algorithm(value: str | None) -> str | None:
 
 
 class CredentialCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     name: str = Field(min_length=1, max_length=128)
     username: str = Field(min_length=1, max_length=128)
     type: CredentialType = "ssh"
@@ -65,6 +67,8 @@ class CredentialCreate(BaseModel):
 
 
 class CredentialUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     name: str | None = Field(default=None, min_length=1, max_length=128)
     username: str | None = Field(default=None, min_length=1, max_length=128)
     type: CredentialType | None = None

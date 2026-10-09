@@ -8,6 +8,22 @@ from sqlalchemy.orm import Session
 
 from core.models.users import User
 from core.models.workflows import Workflow
+from repositories.updates import apply_updates
+
+_UPDATABLE_FIELDS = frozenset(
+    {
+        "name",
+        "description",
+        "folder",
+        "visibility",
+        "canvas_nodes",
+        "canvas_edges",
+        "canvas_groups",
+        "static_attributes",
+        "is_version_controlled",
+        "notes",
+    }
+)
 
 
 class WorkflowRepository:
@@ -72,8 +88,7 @@ class WorkflowRepository:
         return workflow
 
     def update(self, workflow: Workflow, fields: dict[str, Any]) -> Workflow:
-        for key, value in fields.items():
-            setattr(workflow, key, value)
+        apply_updates(workflow, fields, _UPDATABLE_FIELDS)
         self.db.commit()
         self.db.refresh(workflow)
         return workflow

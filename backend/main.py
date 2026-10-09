@@ -81,6 +81,7 @@ from services.mattermost.client import MattermostService
 from services.nautobot.client import NautobotService
 from services.plugin_registry.plugin_registry_service import PluginRegistryService
 from services.pyats.client import PyATSShimService
+from services.users.inventory_orphans import warn_about_orphaned_inventories
 
 logger = logging.getLogger(__name__)
 
@@ -110,6 +111,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         rbac.assign_role_to_user_by_name(ai_assistant_user.id, "ai-assistant")
 
         LoggingSettingsService(db).apply_to_current_process("app")
+        warn_about_orphaned_inventories(db)
 
     plugin_service = PluginRegistryService(
         PluginRepository(plugins_file=settings.plugins_file),
@@ -173,6 +175,20 @@ app = FastAPI(
 @app.exception_handler(DomainError)
 async def domain_error_handler(_request: Request, exc: DomainError) -> JSONResponse:
     return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
+
+
+@app.middleware("http")
+async def limit_request_body(request: Request, call_next):
+    """413 for a declared Content-Length above MAX_REQUEST_BODY_BYTES (S15).
+
+    Chunked uploads without a Content-Length are not covered; enforce a limit in the
+    reverse proxy as well (docker/DOCKER.md, "Request body size")."""
+    limit = settings.max_request_body_bytes
+    declared = request.headers.get("content-length")
+    if limit and declared and declared.isdigit() and int(declared) > limit:
+        return JSONResponse(status_code=413, content={"detail": "Request body too large"})
+    return await call_next(request)
+
 
 app.include_router(auth_router, prefix=settings.api_prefix)
 app.include_router(oidc_router, prefix=settings.api_prefix)

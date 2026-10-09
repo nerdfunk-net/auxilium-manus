@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 
 from core.domain_exceptions import AccessDeniedError
 from core.models.users import User
+from repositories.inventory_repository import InventoryRepository
 from repositories.user_repository import UserRepository
 from services.auth.auth_service import password_hash
 from services.auth.password_policy import validate_password
@@ -14,6 +15,7 @@ class UserService:
     def __init__(self, db: Session) -> None:
         self._repo = UserRepository(db)
         self._rbac = RBACService(db)
+        self._inventories = InventoryRepository(db)  # same Session => one transaction (S14)
 
     def list_users(self, active_only: bool = False) -> list[User]:
         return self._repo.list_users(active_only=active_only)
@@ -83,10 +85,18 @@ class UserService:
         ):
             updates["token_version"] = target.token_version + 1
 
+        if username is not None and target is not None and username != target.username:
+            # S14: a private inventory must follow its owner to the new name, otherwise the old
+            # name's next holder would inherit it. Executed here, committed by update_user below.
+            self._inventories.reassign_creator(target.username, username)
         return self._repo.update_user(user_id, **updates)
 
     def delete_user(self, user_id: int, *, actor_user_id: int | None = None) -> bool:
         self._assert_can_remove(user_id, actor_user_id)
+        target = self._repo.get_by_id(user_id)
+        if target is not None:
+            # S14: nobody may inherit this user's private inventories by taking the name later.
+            self._inventories.delete_private_created_by(target.username)
         return self._repo.delete_user(user_id)
 
     def set_active(

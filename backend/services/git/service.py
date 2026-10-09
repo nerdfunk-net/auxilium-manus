@@ -45,6 +45,7 @@ from services.git.auth import GitAuthenticationService
 from services.git.config import set_git_author
 from services.git.env import build_git_env_overrides
 from services.git.paths import repo_path as get_repo_path
+from services.git.scrub import scrub_url_credentials
 
 logger = logging.getLogger(__name__)
 
@@ -257,7 +258,7 @@ class GitService:
                 if target_path.exists():
                     shutil.rmtree(target_path)
             except Exception:
-                pass
+                logger.debug("Could not remove partial clone at %s", target_path, exc_info=True)
             raise
 
     def pull(self, repository: dict, repo: Repo | None = None) -> PullResult:
@@ -327,21 +328,28 @@ class GitService:
                     if original_url:
                         try:
                             origin.set_url(original_url)
-                        except Exception:
-                            pass
+                        except Exception as restore_exc:
+                            # Credentials may still be in .git/config (Q4). Log the type only:
+                            # GitPython's message embeds the set-url command (the URL).
+                            logger.warning(
+                                "Could not restore remote URL for repository %s (%s); "
+                                ".git/config may still hold credentials",
+                                repository.get("name"),
+                                type(restore_exc).__name__,
+                            )
 
         except GitCommandError as e:
-            logger.error("Git pull failed: %s", e)
+            logger.error("Git pull failed: %s", scrub_url_credentials(str(e)))
             return PullResult(
                 success=False,
-                message=f"Pull failed: {str(e)}",
+                message=f"Pull failed: {scrub_url_credentials(str(e))}",
                 branch=repository.get("branch", "main"),
             )
         except Exception as e:
-            logger.error("Unexpected error during pull: %s", e)
+            logger.error("Unexpected error during pull: %s", scrub_url_credentials(str(e)))
             return PullResult(
                 success=False,
-                message=f"Unexpected error: {str(e)}",
+                message=f"Unexpected error: {scrub_url_credentials(str(e))}",
                 branch=repository.get("branch", "main"),
             )
 
@@ -444,12 +452,19 @@ class GitService:
                     if original_url:
                         try:
                             origin.set_url(original_url)
-                        except Exception:
-                            pass
+                        except Exception as restore_exc:
+                            # Credentials may still be in .git/config (Q4). Log the type only:
+                            # GitPython's message embeds the set-url command (the URL).
+                            logger.warning(
+                                "Could not restore remote URL for repository %s (%s); "
+                                ".git/config may still hold credentials",
+                                repository.get("name"),
+                                type(restore_exc).__name__,
+                            )
 
         except GitCommandError as e:
-            err_str = str(e)
-            logger.error("Git push failed: %s", e)
+            err_str = scrub_url_credentials(str(e))
+            logger.error("Git push failed: %s", err_str)
 
             if "authentication" in err_str.lower():
                 message = "Authentication failed. Please check your Git credentials."
@@ -465,10 +480,10 @@ class GitService:
                 branch=branch or repository.get("branch", "main"),
             )
         except Exception as e:
-            logger.error("Unexpected error during push: %s", e)
+            logger.error("Unexpected error during push: %s", scrub_url_credentials(str(e)))
             return PushResult(
                 success=False,
-                message=f"Unexpected error: {str(e)}",
+                message=f"Unexpected error: {scrub_url_credentials(str(e))}",
                 pushed=False,
                 branch=branch or repository.get("branch", "main"),
             )
@@ -529,16 +544,16 @@ class GitService:
             )
 
         except GitCommandError as e:
-            logger.error("Git commit failed: %s", e)
+            logger.error("Git commit failed: %s", scrub_url_credentials(str(e)))
             return CommitResult(
                 success=False,
-                message=f"Commit failed: {str(e)}",
+                message=f"Commit failed: {scrub_url_credentials(str(e))}",
             )
         except Exception as e:
-            logger.error("Unexpected error during commit: %s", e)
+            logger.error("Unexpected error during commit: %s", scrub_url_credentials(str(e)))
             return CommitResult(
                 success=False,
-                message=f"Unexpected error: {str(e)}",
+                message=f"Unexpected error: {scrub_url_credentials(str(e))}",
             )
 
     def fetch(self, repository: dict, repo: Repo | None = None) -> GitResult:
@@ -584,13 +599,20 @@ class GitService:
                     if original_url:
                         try:
                             origin.set_url(original_url)
-                        except Exception:
-                            pass
+                        except Exception as restore_exc:
+                            # Credentials may still be in .git/config (Q4). Log the type only:
+                            # GitPython's message embeds the set-url command (the URL).
+                            logger.warning(
+                                "Could not restore remote URL for repository %s (%s); "
+                                ".git/config may still hold credentials",
+                                repository.get("name"),
+                                type(restore_exc).__name__,
+                            )
 
         except Exception as e:
-            logger.error("Fetch failed: %s", e)
+            logger.error("Fetch failed: %s", scrub_url_credentials(str(e)))
             return GitResult(
                 success=False,
-                message=f"Fetch failed: {str(e)}",
+                message=f"Fetch failed: {scrub_url_credentials(str(e))}",
             )
 

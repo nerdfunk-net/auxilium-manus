@@ -200,6 +200,17 @@ class ConfigureReplaceConfigExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(error_code, "missing_testbed")
         shim.run_job.assert_not_awaited()
 
+    async def test_missing_password_fails_device_without_calling_shim(self) -> None:
+        device = _device_with_testbed()
+        bag = {**device.attribute_bags["pyats_testbed"], "password": ""}
+        device = device.model_copy(update={"attribute_bags": {"pyats_testbed": bag}})
+        outcomes, shim, _ = await self._run(device=device, run_job_side_effect=[])
+
+        failure_outcome = next(o for o in outcomes if o.name == "failure")
+        error_code = failure_outcome.context.devices[_DEVICE_ID].errors[0].code
+        self.assertEqual(error_code, "missing_credential")
+        shim.run_job.assert_not_awaited()
+
     async def test_job_connection_failure_fails_device(self) -> None:
         """The whole job/connection fails before any command runs (e.g. device
         unreachable) -- distinct from a per-command error on an otherwise-live

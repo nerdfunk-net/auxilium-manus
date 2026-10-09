@@ -64,7 +64,7 @@ def main() -> int:
             continue
         try:
             src = py.read_text(encoding="utf-8")
-        except (UnicodeDecodeError, OSError):
+        except (UnicodeDecodeError, OSError):  # noqa: S112  # unreadable file
             continue
         if "from sqlalchemy" not in src and "import sqlalchemy" not in src:
             continue

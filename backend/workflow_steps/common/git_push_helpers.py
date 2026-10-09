@@ -28,7 +28,7 @@ def collect_export_paths_for_commit(
                 continue
             try:
                 relative = Path(raw_path).resolve().relative_to(resolved_root)
-            except ValueError:
+            except ValueError:  # noqa: S112  # path outside the repository: not pushed
                 continue
             paths.append(relative.as_posix())
 

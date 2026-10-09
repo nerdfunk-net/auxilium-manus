@@ -12,6 +12,7 @@ _REAL_BUILD_USER_LIMITER = service_factory.build_user_rate_limiter
 
 _SINGLETONS = (
     "_cache_service",
+    "_cache_failure_logged",
     "_nautobot_service",
     "_ise_service",
     "_pyats_service",
@@ -67,6 +68,16 @@ class ServiceFactoryTests(unittest.TestCase):
             second = service_factory.build_cache_service()
         self.assertIs(first, second)
         cls.assert_called_once()
+
+    def test_cache_failure_is_logged_once(self) -> None:
+        service_factory._cache_failure_logged = False
+        with (
+            patch("service_factory.RedisCacheService", side_effect=RuntimeError("no redis")),
+            self.assertLogs("service_factory", level="WARNING") as logs,
+        ):
+            self.assertIsNone(service_factory.build_cache_service())
+            self.assertIsNone(service_factory.build_cache_service())
+        self.assertEqual(len(logs.records), 1)
 
     def test_build_cache_service_returns_none_on_failure(self) -> None:
         with patch("service_factory.RedisCacheService", side_effect=RuntimeError("no redis")):

@@ -66,6 +66,24 @@ class RBACServiceHasPermissionTests(unittest.TestCase):
             self.service.has_permission(self.user.id, "workflows", "write"),
         )
 
+    def test_user_with_two_roles_one_granting(self) -> None:
+        silent = self.service.create_role("silent")
+        granting = self.service.create_role("granting")
+        self.service.assign_permission_to_role(granting.id, self.permission.id, granted=True)
+        self.service.assign_role_to_user(self.user.id, silent.id)
+        self.service.assign_role_to_user(self.user.id, granting.id)
+
+        self.assertTrue(self.service.has_permission(self.user.id, "workflows", "write"))
+
+    def test_role_permission_granted_false_is_not_a_grant(self) -> None:
+        granting = self.service.create_role("granting")
+        denying = self.service.create_role("denying")
+        self.service.assign_permission_to_role(granting.id, self.permission.id, granted=False)
+        self.service.assign_role_to_user(self.user.id, granting.id)
+        self.service.assign_role_to_user(self.user.id, denying.id)
+
+        self.assertFalse(self.service.has_permission(self.user.id, "workflows", "write"))
+
     def test_role_permission_not_granted_denies(self) -> None:
         role = self.service.create_role("editor")
         self.service.assign_permission_to_role(role.id, self.permission.id, granted=False)

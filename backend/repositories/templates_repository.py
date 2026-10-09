@@ -4,6 +4,26 @@ from sqlalchemy import distinct, func, select
 from sqlalchemy.orm import Session
 
 from core.models.templates import Template
+from repositories.updates import apply_updates
+
+_UPDATABLE_FIELDS = frozenset(
+    {
+        "name",
+        "description",
+        "notes",
+        "template_type",
+        "category",
+        "content",
+        "variables",
+        "pre_run_commands",
+        "pre_run_command",
+        "pre_run_use_textfsm",
+        "nautobot_attributes",
+        "credential_id",
+        "batfish_config",
+        "is_active",
+    }
+)
 
 
 class TemplatesRepository:
@@ -55,8 +75,7 @@ class TemplatesRepository:
         return template
 
     def update(self, template: Template, **kwargs) -> Template:
-        for key, value in kwargs.items():
-            setattr(template, key, value)
+        apply_updates(template, kwargs, _UPDATABLE_FIELDS)
         self.db.commit()
         self.db.refresh(template)
         return template

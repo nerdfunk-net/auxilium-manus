@@ -64,19 +64,19 @@ def collect_git_source_files(
             continue
         try:
             rel = candidate.relative_to(repo_root)
-        except ValueError:
+        except ValueError:  # noqa: S112  # outside the repo root: skip
             continue
         if ".git" in rel.parts:
             continue
         try:
             resolved = candidate.resolve()
             resolved.relative_to(repo_root)  # reject symlinks escaping the repo
-        except (OSError, ValueError):
+        except (OSError, ValueError):  # noqa: S112  # unresolvable or symlink escaping the repo: skip
             continue
         try:
             if resolved.stat().st_size > MAX_GIT_SOURCE_FILE_SIZE:
                 continue
-        except OSError:
+        except OSError:  # noqa: S112  # unreadable file: skip
             continue
 
         matches.append(resolved)

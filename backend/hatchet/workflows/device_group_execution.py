@@ -16,6 +16,7 @@ from hatchet_sdk import Context
 from pydantic import BaseModel
 
 from hatchet.client import hatchet
+from services.workflow_context.secret_fields import scrub_known_secrets, with_run_secret_scope
 
 logger = logging.getLogger(__name__)
 
@@ -75,7 +76,10 @@ async def run_device_group(input: DeviceGroupInput) -> dict[str, Any]:
         raise
 
 
+@with_run_secret_scope
 async def _run_device_group(input: DeviceGroupInput) -> dict[str, Any]:
+    # The secret registry must outlive execute_subgraph: the result below is serialized for the
+    # parent (which persists it) and must be scrubbed of every secret the child decrypted (W6).
     logger.info(
         "DeviceGroupExecution starting parent_run_id=%s child_index=%s start_node_id=%s",
         input.parent_run_id,
@@ -144,12 +148,17 @@ async def _run_device_group(input: DeviceGroupInput) -> dict[str, Any]:
     # Serialize outcomes for parent aggregation; exclude the inventory step itself.
     # "__step_errors__" is a reserved key (not a canvas node_id) carrying
     # node_id -> {message, category, error_id} for nodes whose executor raised.
-    result: dict[str, Any] = {"__step_errors__": step_errors}
+    result: dict[str, Any] = {
+        "__step_errors__": {
+            node_id: {**err, "message": scrub_known_secrets(err.get("message", ""))}
+            for node_id, err in step_errors.items()
+        }
+    }
     for node_id, outcomes in step_outcomes.items():
         if node_id == input.start_node_id:
             continue
         result[node_id] = {
-            outcome_name: context_val.model_dump(mode="json")
+            outcome_name: scrub_known_secrets(context_val.model_dump(mode="json"))
             for outcome_name, context_val in outcomes.items()
         }
 

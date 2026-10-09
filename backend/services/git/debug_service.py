@@ -130,7 +130,7 @@ def _collect_auth_and_push_diagnostics(
                 origin = repo.remote("origin")
                 remote_url = list(origin.urls)[0] if origin.urls else "unknown"
         except Exception:
-            pass
+            logger.debug("Remote lookup failed for repository %s", repo_id, exc_info=True)
 
         if has_credentials and has_remote:
             push_status, push_message = "ready", "Push capability is configured and ready"
@@ -289,8 +289,14 @@ def _restore_origin_url(origin: Any, original_url: str | None, auth_type: str) -
     if auth_type != "ssh_key" and original_url:
         try:
             origin.set_url(original_url)
-        except Exception:
-            pass
+        except Exception as restore_exc:
+            # The credential-bearing URL may still be in .git/config (Q4). Log the exception
+            # type only: GitPython's message and traceback embed the set-url command (URL).
+            logger.warning(
+                "Could not restore the original remote URL (%s); .git/config may still hold "
+                "credentials",
+                type(restore_exc).__name__,
+            )
 
 
 def _push_debug_commit(

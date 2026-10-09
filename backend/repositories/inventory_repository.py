@@ -1,9 +1,27 @@
 from __future__ import annotations
 
-from sqlalchemy import distinct, or_, select
+from typing import cast
+
+from sqlalchemy import CursorResult, delete, distinct, or_, select, update
 from sqlalchemy.orm import Session
 
 from core.models.inventories import Inventory
+from repositories.updates import apply_updates
+
+_UPDATABLE_FIELDS = frozenset(
+    {
+        "name",
+        "description",
+        "conditions",
+        "inventory_type",
+        "device_ids",
+        "template_category",
+        "template_name",
+        "scope",
+        "group_path",
+        "is_active",
+    }
+)
 
 
 class InventoryRepository:
@@ -118,9 +136,7 @@ class InventoryRepository:
         inventory = self.get_by_id(inventory_id)
         if inventory is None:
             return None
-        for key, value in kwargs.items():
-            if hasattr(inventory, key):
-                setattr(inventory, key, value)
+        apply_updates(inventory, kwargs, _UPDATABLE_FIELDS)
         self.db.commit()
         self.db.refresh(inventory)
         return inventory
@@ -147,3 +163,31 @@ class InventoryRepository:
         self.db.delete(inventory)
         self.db.commit()
         return True
+
+    def reassign_creator(self, old_username: str, new_username: str) -> int:
+        """Point every inventory created by ``old_username`` at ``new_username`` (user rename).
+
+        Executes within the open transaction without committing; the caller commits, so the
+        rename and the carry-over are one transaction (S14).
+        """
+        result = self.db.execute(
+            update(Inventory)
+            .where(Inventory.created_by == old_username)
+            .values(created_by=new_username)
+        )
+        return cast(CursorResult, result).rowcount or 0
+
+    def delete_private_created_by(self, username: str) -> int:
+        """Delete ``username``'s private inventories (user deletion). Global ones stay, with
+        ``created_by`` kept as a display label. Does not commit; the caller commits (S14)."""
+        result = self.db.execute(
+            delete(Inventory).where(Inventory.scope == "private", Inventory.created_by == username)
+        )
+        return cast(CursorResult, result).rowcount or 0
+
+    def list_orphaned_private_creators(self, existing_usernames: set[str]) -> list[str]:
+        """Distinct ``created_by`` values of private inventories whose owner no longer exists."""
+        rows = self.db.scalars(
+            select(distinct(Inventory.created_by)).where(Inventory.scope == "private")
+        ).all()
+        return sorted(name for name in rows if name not in existing_usernames)

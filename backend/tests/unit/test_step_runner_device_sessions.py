@@ -19,6 +19,28 @@ def _runner() -> StepRunner:
     return runner
 
 
+class StepRunnerSecretScopeTests(unittest.IsolatedAsyncioTestCase):
+    def test_segment_entry_points_are_wrapped_in_a_secret_scope(self) -> None:
+        # functools.wraps leaves __wrapped__ on the decorated coroutine functions.
+        for name in ("execute_all", "resume_after_join", "execute_subgraph"):
+            self.assertTrue(hasattr(getattr(StepRunner, name), "__wrapped__"), name)
+
+    async def test_execute_all_runs_inside_secret_scope(self) -> None:
+        from services.workflow_context import secret_fields
+
+        seen: dict[str, object] = {}
+        runner = _runner()
+
+        async def inner(self_, *, run, workflow):
+            seen["scope"] = secret_fields._RUN_SECRETS.get()
+            return True
+
+        wrapped = secret_fields.with_run_secret_scope(inner)
+        self.assertTrue(await wrapped(runner, run=MagicMock(), workflow=MagicMock()))
+        self.assertIsInstance(seen["scope"], set)
+        self.assertIsNone(secret_fields._RUN_SECRETS.get())
+
+
 class StepRunnerDeviceSessionsTests(unittest.IsolatedAsyncioTestCase):
     async def test_execute_step_passes_device_sessions_to_executor(self) -> None:
         runner = _runner()

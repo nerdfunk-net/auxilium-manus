@@ -45,7 +45,7 @@ def _ip_in_network(detail: dict[str, Any], network: IPNetwork) -> bool:
         try:
             if ipaddress.ip_address(raw_ip) in network:
                 return True
-        except ValueError:
+        except ValueError:  # noqa: S112  # not an IP address: cannot match the network
             continue
     return False
 

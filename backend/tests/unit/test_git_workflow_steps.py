@@ -195,6 +195,29 @@ class GitWorkflowStepTests(unittest.IsolatedAsyncioTestCase):
         operation = outcomes[0].context.metadata["git-push-1.git_operation"]
         self.assertTrue(operation["pushed"])
 
+    async def test_unknown_repository_returns_failure_with_the_loader_message(self) -> None:
+        with patch(
+            "workflow_steps.common.git_workflow_step.load_git_repository",
+            side_effect=ValueError("Git repository 7 not found"),
+        ):
+            outcomes = await git_pull(
+                config={"git_repository_id": 7},
+                context=self.context,
+                run=self.run,
+                artifact_service=self.artifact_service,
+                node_id="git-pull-1",
+                device_sessions=MagicMock(),
+            )
+
+        by_name = {o.name: o for o in outcomes}
+        self.assertEqual(set(by_name), {"success", "failure"})
+        self.assertEqual(by_name["success"].context.devices, {})
+        failed = by_name["failure"].context
+        self.assertEqual(failed.devices["device-1"].status, DeviceStatus.FAILED)
+        operation = failed.metadata["git-pull-1.git_operation"]
+        self.assertFalse(operation["success"])
+        self.assertIn("not found", operation["message"])
+
     async def test_missing_git_repository_id_returns_failure(self) -> None:
         outcomes = await git_clone(
             config={"git_repository_id": None},

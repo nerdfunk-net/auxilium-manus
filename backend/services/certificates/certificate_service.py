@@ -30,6 +30,12 @@ def _sanitize_crt_filename(filename: str) -> str:
     return name
 
 
+# A PEM certificate chain is a few KiB; anything larger is refused before it is parsed or
+# written (S15). The multipart body itself is spooled by Starlette first and is bounded only by
+# the request-size middleware / reverse proxy (see docker/DOCKER.md, "Request body size").
+MAX_CERT_UPLOAD_BYTES = 64 * 1024
+
+
 class CertificateService:
     def __init__(
         self,
@@ -62,7 +68,9 @@ class CertificateService:
             raise ValueError("No filename provided")
 
         safe_name = _sanitize_crt_filename(file.filename)
-        content = await file.read()
+        content = await file.read(MAX_CERT_UPLOAD_BYTES + 1)
+        if len(content) > MAX_CERT_UPLOAD_BYTES:
+            raise ValueError(f"Certificate file is larger than {MAX_CERT_UPLOAD_BYTES // 1024} KiB")
 
         if b"-----BEGIN CERTIFICATE-----" not in content:
             raise ValueError("File does not look like a PEM certificate")

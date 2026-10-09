@@ -32,6 +32,7 @@ from services.execution.step_runner.progress import (
     report_node_started,
 )
 from services.execution.step_runner.signals import classify_step_exception
+from services.workflow_context.secret_fields import scrub_known_secrets
 
 if TYPE_CHECKING:
     from services.execution.step_runner.runner import StepRunner
@@ -141,7 +142,7 @@ def _record_subgraph_node_error(
         extra={"error_id": error_id},
     )
     step_errors[node_id] = {
-        "message": message[:4000],
+        "message": scrub_known_secrets(message)[:4000],
         "category": category,
         "error_id": error_id,
     }
