@@ -88,6 +88,34 @@ def test_create_maps_value_error_to_400(app: FastAPI, connection_service: MagicM
     assert "backend_config.addr" in response.json()["detail"]
 
 
+def test_name_too_long_is_422(app: FastAPI, connection_service: MagicMock) -> None:
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/secret-manager/connections",
+            json={
+                "name": "n" * 256,
+                "backend": "openbao",
+                "backend_config": {"addr": "x", "mount": "m"},
+            },
+        )
+    assert response.status_code == 422
+    connection_service.create_connection.assert_not_called()
+
+
+def test_extra_field_is_422(app: FastAPI, connection_service: MagicMock) -> None:
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/secret-manager/connections",
+            json={
+                "name": "net",
+                "backend": "openbao",
+                "backend_config": {"addr": "x", "mount": "m"},
+                "unexpected": 1,
+            },
+        )
+    assert response.status_code == 422
+
+
 def test_get_unknown_is_404(app: FastAPI, connection_service: MagicMock) -> None:
     connection_service.get_connection.return_value = None
     with TestClient(app) as client:

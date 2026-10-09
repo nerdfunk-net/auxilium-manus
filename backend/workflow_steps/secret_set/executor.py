@@ -36,6 +36,7 @@ from models.workflow_context import (
 from services.artifacts import ArtifactService
 from services.secret_manager.exceptions import SecretManagerError
 from services.secret_manager.service import SecretManagerService
+from services.secret_manager.validation import validate_field
 from services.workflow_context.attribute_path import resolve_device_attribute
 from services.workflow_context.device_template import (
     TemplateRenderOptions,
@@ -79,6 +80,10 @@ def _parse_config(config: dict[str, Any]) -> tuple[int, str, str, str, str]:
     field = str(config.get("field") or "key").strip()
     if not field:
         raise ValueError(f"{_STEP_ID}: field is required")
+    try:
+        field = validate_field(field)
+    except ValueError as exc:
+        raise ValueError(f"{_STEP_ID}: {exc}") from exc
 
     source_path = str(config.get("source_path") or "run_input.new_tacacs_key").strip()
     if not source_path:

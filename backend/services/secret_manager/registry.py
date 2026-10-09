@@ -26,7 +26,10 @@ from services.secret_manager.connection_service import (
     SecretManagerConnectionGeneration,
     SecretManagerConnectionService,
 )
-from services.secret_manager.exceptions import SecretManagerConfigError
+from services.secret_manager.exceptions import (
+    SecretManagerConfigError,
+    SecretManagerUnavailableError,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +55,15 @@ class _CachedClient:
 class SecretManagerClientRegistry:
     def __init__(self) -> None:
         self._clients: dict[int, _CachedClient] = {}
-        self._lock = asyncio.Lock()
+        self._locks: dict[int, asyncio.Lock] = {}
+        self._closed = False
+
+    def _lock_for(self, connection_id: int) -> asyncio.Lock:
+        # Created synchronously (no await), so two coroutines cannot race on it.
+        lock = self._locks.get(connection_id)
+        if lock is None:
+            lock = self._locks[connection_id] = asyncio.Lock()
+        return lock
 
     async def _require_generation(
         self, connection_id: int, db: Session
@@ -69,10 +80,14 @@ class SecretManagerClientRegistry:
         return generation
 
     async def get_or_create(self, connection_id: int, db: Session) -> SecretManagerClient:
+        # Per-connection lock: one connection's DB read + decrypt + login must not
+        # block every other connection (SM8).
+        lock = self._lock_for(connection_id)
         while True:
+            self._raise_if_closed()
             generation = await self._require_generation(connection_id, db)
 
-            async with self._lock:
+            async with lock:
                 cached = self._clients.get(connection_id)
                 if cached is not None and cached.updated_at == generation.updated_at:
                     return cached.client
@@ -83,7 +98,7 @@ class SecretManagerClientRegistry:
             generation = await self._require_generation(connection_id, db)
 
             stale = None
-            async with self._lock:
+            async with lock:
                 cached = self._clients.get(connection_id)
                 if cached is not None and cached.updated_at == generation.updated_at:
                     return cached.client
@@ -92,7 +107,7 @@ class SecretManagerClientRegistry:
             if stale is not None:
                 await stale.client.shutdown()
 
-            async with self._lock:
+            async with lock:
                 cached = self._clients.get(connection_id)
                 if cached is not None and cached.updated_at == generation.updated_at:
                     return cached.client
@@ -103,23 +118,41 @@ class SecretManagerClientRegistry:
                 cfg = load_connection_config(connection_id, db)
                 client = _build_client(cfg)
                 await client.ensure_started()
+                if self._closed:
+                    # Shutdown began while we were logging in: do not leave this client
+                    # (and e.g. its token-renewal task) running behind shutdown_all.
+                    await client.shutdown()
+                    self._raise_if_closed()
                 self._clients[connection_id] = _CachedClient(
                     client=client, updated_at=generation.updated_at
                 )
                 return client
 
+    def _raise_if_closed(self) -> None:
+        if self._closed:
+            raise SecretManagerUnavailableError("Secret manager registry is shutting down")
+
     async def invalidate(self, connection_id: int) -> None:
         """Drop and shut down a connection's cached client (e.g. after it was
         edited or deleted), so the next use rebuilds it from the current row."""
-        async with self._lock:
+        async with self._lock_for(connection_id):
             cached = self._clients.pop(connection_id, None)
         if cached is not None:
             await cached.client.shutdown()
 
     async def shutdown_all(self) -> None:
-        async with self._lock:
-            cached_clients = list(self._clients.values())
-            self._clients.clear()
+        # Refuse new inserts first, then wait for each connection's in-flight
+        # get_or_create (which holds its lock across ensure_started) before taking
+        # whatever it cached; otherwise a login finishing after the snapshot would
+        # leave a running client behind.
+        self._closed = True
+        cached_clients: list[_CachedClient] = []
+        for connection_id in list(self._locks):
+            async with self._lock_for(connection_id):
+                cached = self._clients.pop(connection_id, None)
+                if cached is not None:
+                    cached_clients.append(cached)
+        self._locks.clear()
         for cached in cached_clients:
             try:
                 await cached.client.shutdown()

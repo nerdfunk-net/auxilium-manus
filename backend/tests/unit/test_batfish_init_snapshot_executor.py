@@ -459,6 +459,106 @@ class BatfishInitSnapshotGitModeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(kwargs["batfish_network"], "manus-production")
         self.assertEqual(outcomes[0].context.metadata["batfish"]["network"], "manus-production")
 
+    async def _run_with_network(
+        self, *, network_name: str | None, workflow_id: str = "7", device_id: str = "device-1"
+    ):
+        artifact_service = InMemoryArtifactService()
+        device = await _device_with_running_config(artifact_service, device_id=device_id)
+        config: dict[str, Any] = {"batfish_source_id": "lab-batfish"}
+        if network_name is not None:
+            config["network_name"] = network_name
+        written: list[str] = []
+        with (
+            patch(_OBJECT_SESSION_TARGET, return_value=MagicMock()),
+            patch(_CONFIG_SERVICE_TARGET) as config_service_cls,
+            patch(_SERVICE_FACTORY_TARGET) as service_factory_mock,
+        ):
+            config_service_cls.return_value.resolve_connection.return_value = BatfishConnection(
+                host="batfish", port=9996
+            )
+            batfish = MagicMock()
+
+            async def _init(_connection, *, snapshot_dir, **_kw):
+                written.extend(sorted(p.name for p in Path(snapshot_dir).rglob("*.cfg")))
+                return "run-42"
+
+            batfish.init_snapshot = AsyncMock(side_effect=_init)
+            batfish.list_snapshots_with_metadata = AsyncMock(return_value=[])
+            service_factory_mock.get_batfish_app_service.return_value = batfish
+            outcomes = await execute(
+                config=config,
+                context=WorkflowContext(
+                    run_id="run-uuid-1", workflow_id=workflow_id, devices={device_id: device}
+                ),
+                run=self._run_mock(),
+                artifact_service=artifact_service,
+                node_id="node-1",
+                device_sessions=MagicMock(),
+            )
+        return outcomes, batfish, written
+
+    async def test_refuses_other_workflows_default_network(self) -> None:
+        with self.assertRaisesRegex(ValueError, "default network of workflow 8"):
+            await self._run_with_network(network_name="manus-workflow-8")
+
+    async def test_allows_own_default_network_name(self) -> None:
+        _, batfish, _ = await self._run_with_network(network_name="manus-workflow-7")
+        self.assertEqual(
+            batfish.init_snapshot.call_args.kwargs["batfish_network"], "manus-workflow-7"
+        )
+
+    async def test_allows_custom_shared_network(self) -> None:
+        _, batfish, _ = await self._run_with_network(network_name="manus-workflow-staging")
+        self.assertEqual(
+            batfish.init_snapshot.call_args.kwargs["batfish_network"], "manus-workflow-staging"
+        )
+
+    async def test_device_id_with_slash_is_sanitised(self) -> None:
+        _, _, written = await self._run_with_network(network_name=None, device_id="../evil/dev")
+        self.assertEqual(len(written), 1)
+        self.assertNotIn("/", written[0])
+        self.assertNotIn("..", written[0])
+
+    async def test_ids_that_sanitise_to_the_same_name_do_not_overwrite(self) -> None:
+        artifact_service = InMemoryArtifactService()
+        first = await _device_with_running_config(artifact_service, "a/b", "hostname ONE\n")
+        second = await _device_with_running_config(artifact_service, "a_b", "hostname TWO\n")
+        texts: list[str] = []
+        with (
+            patch(_OBJECT_SESSION_TARGET, return_value=MagicMock()),
+            patch(_CONFIG_SERVICE_TARGET) as config_service_cls,
+            patch(_SERVICE_FACTORY_TARGET) as service_factory_mock,
+        ):
+            config_service_cls.return_value.resolve_connection.return_value = BatfishConnection(
+                host="batfish", port=9996
+            )
+            batfish = MagicMock()
+
+            async def _init(_connection, *, snapshot_dir, **_kw):
+                texts.extend(p.read_text() for p in sorted(Path(snapshot_dir).rglob("*.cfg")))
+                return "run-42"
+
+            batfish.init_snapshot = AsyncMock(side_effect=_init)
+            batfish.list_snapshots_with_metadata = AsyncMock(return_value=[])
+            service_factory_mock.get_batfish_app_service.return_value = batfish
+            await execute(
+                config={"batfish_source_id": "lab-batfish"},
+                context=WorkflowContext(
+                    run_id="r", workflow_id="7", devices={"a/b": first, "a_b": second}
+                ),
+                run=self._run_mock(),
+                artifact_service=artifact_service,
+                node_id="node-1",
+                device_sessions=MagicMock(),
+            )
+        self.assertEqual(sorted(texts), ["hostname ONE\n", "hostname TWO\n"])
+
+    async def test_leading_zero_default_name_is_treated_as_same_workflow_number(self) -> None:
+        _, batfish, _ = await self._run_with_network(network_name="manus-workflow-07")
+        self.assertEqual(
+            batfish.init_snapshot.call_args.kwargs["batfish_network"], "manus-workflow-07"
+        )
+
     async def test_invalid_config_source_raises_value_error(self) -> None:
         run = self._run_mock()
         with self.assertRaises(ValueError):

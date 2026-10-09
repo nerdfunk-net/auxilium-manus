@@ -33,6 +33,22 @@ class QueryGenericTests(unittest.IsolatedAsyncioTestCase):
             )
         batfish.generic_question.assert_not_awaited()
 
+    async def test_generic_rejects_question_name_and_exclusions(self) -> None:
+        batfish = MagicMock()
+        batfish.generic_question = AsyncMock()
+        question_name = next(iter(GENERIC_QUESTION_ALLOWLIST))
+        for reserved in ("question_name", "exclusions"):
+            with self.subTest(reserved=reserved), self.assertRaises(ValueError):
+                await query_generic(
+                    batfish,
+                    _connection(),
+                    batfish_network="net",
+                    snapshot="snap",
+                    question_name=question_name,
+                    params={reserved: "x"},
+                )
+        batfish.generic_question.assert_not_awaited()
+
     async def test_allowlisted_question_forwards_to_service(self) -> None:
         batfish = MagicMock()
         batfish.generic_question = AsyncMock(return_value=[{"Node": "r1"}])

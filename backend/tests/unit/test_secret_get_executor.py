@@ -59,6 +59,38 @@ class SecretGetExecutorTests(unittest.IsolatedAsyncioTestCase):
                 get_field=AsyncMock(),
             )
 
+    async def test_version_string_is_coerced(self) -> None:
+        get_field = AsyncMock(return_value="s3cr3t")
+        await _run(
+            {**BASE_CONFIG, "version": "3"}, _context({"d1": _device("d1")}), get_field=get_field
+        )
+        self.assertEqual(get_field.call_args.kwargs["version"], 3)
+
+    async def test_version_garbage_raises(self) -> None:
+        for bad in ("abc", True, 1.5, float("inf"), []):
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                await _run(
+                    {**BASE_CONFIG, "version": bad},
+                    _context({"d1": _device("d1")}),
+                    get_field=AsyncMock(),
+                )
+
+    async def test_version_zero_raises(self) -> None:
+        with self.assertRaises(ValueError):
+            await _run(
+                {**BASE_CONFIG, "version": 0},
+                _context({"d1": _device("d1")}),
+                get_field=AsyncMock(),
+            )
+
+    async def test_invalid_field_name_raises(self) -> None:
+        with self.assertRaises(ValueError):
+            await _run(
+                {**BASE_CONFIG, "field": "../x"},
+                _context({"d1": _device("d1")}),
+                get_field=AsyncMock(),
+            )
+
     async def test_missing_optional_keys_fall_back_to_config_py_defaults(self) -> None:
         # Regression: a canvas node whose config was never actually edited (only
         # displayed with an illustrative default in the UI) sends a config dict

@@ -23,17 +23,15 @@ class LoginRateLimiterRedisTests(unittest.TestCase):
         self.limiter._redis = MagicMock()
 
     def test_allows_attempts_under_the_limit(self) -> None:
-        self.limiter._redis.pipeline.return_value.execute.side_effect = [
-            [0, LOGIN_RATE_LIMIT_ATTEMPTS - 1],
-            [1, True],
-        ]
+        self.limiter._redis.eval.return_value = 1
 
         self.limiter.check("1.2.3.4:alice")  # must not raise
+        # Count + record is ONE atomic Redis call (no ZCARD/ZADD race between requests).
+        self.limiter._redis.eval.assert_called_once()
+        self.limiter._redis.pipeline.assert_not_called()
 
     def test_blocks_once_the_window_is_full(self) -> None:
-        self.limiter._redis.pipeline.return_value.execute.side_effect = [
-            [0, LOGIN_RATE_LIMIT_ATTEMPTS],
-        ]
+        self.limiter._redis.eval.return_value = 0
 
         with self.assertRaises(RateLimitExceededError):
             self.limiter.check("1.2.3.4:alice")
@@ -44,7 +42,7 @@ class LoginRateLimiterRedisTests(unittest.TestCase):
         self.limiter._redis.delete.assert_called_once_with("manus-login-rl:1.2.3.4:alice")
 
     def test_falls_back_to_in_process_limiter_when_redis_is_unreachable(self) -> None:
-        self.limiter._redis.pipeline.side_effect = redis.ConnectionError("down")
+        self.limiter._redis.eval.side_effect = redis.ConnectionError("down")
 
         for _ in range(LOGIN_RATE_LIMIT_ATTEMPTS):
             self.limiter.check("1.2.3.4:bob")
@@ -98,10 +96,38 @@ class LoginRateLimiterFailClosedTests(unittest.TestCase):
         self.limiter._redis = MagicMock()
 
     def test_raises_immediately_when_redis_unreachable(self) -> None:
-        self.limiter._redis.pipeline.side_effect = redis.ConnectionError("down")
+        self.limiter._redis.eval.side_effect = redis.ConnectionError("down")
 
         with self.assertRaises(RateLimitExceededError):
             self.limiter.check("1.2.3.4:carol")
+
+
+class LoginRateLimiterConcurrencyTests(unittest.TestCase):
+    def test_parallel_burst_never_exceeds_budget_in_process(self) -> None:
+        import threading
+
+        limiter = LoginRateLimiter(
+            redis_url="redis://127.0.0.1:1/0", attempts=10, window_seconds=60
+        )
+        limiter._redis = MagicMock()
+        limiter._redis.eval.side_effect = redis.ConnectionError("down")
+        allowed: list[int] = []
+        barrier = threading.Barrier(50)
+
+        def hit() -> None:
+            barrier.wait()
+            try:
+                limiter.check("burst")
+                allowed.append(1)
+            except RateLimitExceededError:
+                pass
+
+        threads = [threading.Thread(target=hit) for _ in range(50)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+        self.assertEqual(len(allowed), 10)
 
 
 if __name__ == "__main__":

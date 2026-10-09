@@ -13,7 +13,7 @@ from unittest.mock import MagicMock, patch
 
 from pybatfish.exception import BatfishException
 
-from services.batfish.client import BatfishService
+from services.batfish.client import MAX_CACHED_SESSIONS, BatfishService
 from services.batfish.common.exceptions import BatfishAnswerFailedError, BatfishAPIError
 from services.batfish.credentials import BatfishConnection
 
@@ -22,6 +22,31 @@ def _connection(**overrides) -> BatfishConnection:
     base = {"host": "batfish", "port": 9996}
     base.update(overrides)
     return BatfishConnection(**base)
+
+
+class BatfishPreviewRowLimitTests(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self) -> None:
+        import pandas as pd
+
+        self.frame = pd.DataFrame({"i": list(range(20))})
+        self.service = BatfishService()
+        patcher = patch("services.batfish.client.Session")
+        mock_session_cls = patcher.start()
+        self.addCleanup(patcher.stop)
+        instance = mock_session_cls.return_value
+        instance.q.routes.return_value.answer.return_value.frame.return_value = self.frame
+
+    async def test_no_limit_returns_the_full_table(self) -> None:
+        rows = await self.service.routes(_connection(), batfish_network="n", snapshot="s")
+        self.assertEqual(len(rows), 20)
+
+    async def test_preview_limit_converts_only_limit_plus_one_rows(self) -> None:
+        from services.batfish.client import PREVIEW_ROW_LIMIT
+
+        token = PREVIEW_ROW_LIMIT.set(5)
+        self.addCleanup(PREVIEW_ROW_LIMIT.reset, token)
+        rows = await self.service.routes(_connection(), batfish_network="n", snapshot="s")
+        self.assertEqual(len(rows), 6)  # limit + 1, so the response model can flag truncation
 
 
 class BatfishServiceSessionCacheTests(unittest.IsolatedAsyncioTestCase):
@@ -50,6 +75,65 @@ class BatfishServiceSessionCacheTests(unittest.IsolatedAsyncioTestCase):
         self.mock_session_cls.assert_called_once_with(host="batfish", port=9996)
         mock_instance.set_network.assert_called_once_with("manus-workflow-1")
         self.assertTrue(all(r is mock_instance for r in results))
+
+    async def test_slow_session_for_one_network_does_not_block_another(self) -> None:
+        import threading
+        import time
+
+        release = threading.Event()
+
+        def make_session(*, host, port):
+            instance = MagicMock()
+            instance.network_name = None
+            return instance
+
+        slow_instance, fast_instance = MagicMock(), MagicMock()
+
+        def slow_set_network(name):
+            release.wait(5)
+
+        slow_instance.set_network.side_effect = slow_set_network
+        instances = {"slow": slow_instance, "fast": fast_instance}
+        order = iter(["slow", "fast"])
+        self.mock_session_cls.side_effect = lambda **_kw: instances[next(order)]
+
+        slow_task = asyncio.create_task(self.service._get_session(_connection(), "slow"))
+        await asyncio.sleep(0.05)  # let the slow call enter its thread
+        started = time.monotonic()
+        fast = await asyncio.wait_for(self.service._get_session(_connection(), "fast"), 2)
+        self.assertIs(fast, fast_instance)
+        self.assertLess(time.monotonic() - started, 1)
+        self.assertFalse(slow_task.done())
+        release.set()
+        self.assertIs(await slow_task, slow_instance)
+
+    async def test_session_cache_evicts_lru(self) -> None:
+        self.mock_session_cls.side_effect = lambda **_kw: MagicMock()
+        for index in range(MAX_CACHED_SESSIONS + 1):
+            await self.service._get_session(_connection(), f"net-{index}")
+        self.assertEqual(len(self.service._sessions), MAX_CACHED_SESSIONS)
+        oldest = ("batfish", 9996, "net-0")
+        self.assertNotIn(oldest, self.service._sessions)
+        self.assertNotIn(oldest, self.service._session_locks)
+        self.assertIn(("batfish", 9996, f"net-{MAX_CACHED_SESSIONS}"), self.service._sessions)
+
+    async def test_recently_used_session_survives_eviction(self) -> None:
+        self.mock_session_cls.side_effect = lambda **_kw: MagicMock()
+        for index in range(MAX_CACHED_SESSIONS):
+            await self.service._get_session(_connection(), f"net-{index}")
+        await self.service._get_session(_connection(), "net-0")  # touch the oldest
+        await self.service._get_session(_connection(), "extra")
+        self.assertIn(("batfish", 9996, "net-0"), self.service._sessions)
+        self.assertNotIn(("batfish", 9996, "net-1"), self.service._sessions)
+
+    async def test_list_networks_uses_load_questions_false(self) -> None:
+        instance = MagicMock()
+        instance.list_networks.return_value = ["a"]
+        self.mock_session_cls.return_value = instance
+        self.assertEqual(await self.service.list_networks(_connection()), ["a"])
+        self.mock_session_cls.assert_called_once_with(
+            host="batfish", port=9996, load_questions=False
+        )
 
     async def test_different_networks_get_independent_sessions(self) -> None:
         instance_a = MagicMock()

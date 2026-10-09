@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from core.auth import get_current_user, require_permission
 from core.database import get_db
 from core.models.users import User
+from core.rate_limit import rate_limited
 from core.safe_http_errors import raise_internal_server_error
 from models.templates import (
     ParseStructuredRequest,
@@ -70,7 +71,10 @@ def list_categories(
 @router.post(
     "/render",
     response_model=TemplateRenderResponse,
-    dependencies=[Depends(require_permission("templates", "read"))],
+    dependencies=[
+        Depends(require_permission("templates", "read")),
+        Depends(rate_limited("template-render", attempts=60, window_seconds=60)),
+    ],
 )
 def render_template(
     payload: TemplateRenderRequest,

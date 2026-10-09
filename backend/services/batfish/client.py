@@ -23,6 +23,8 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+from collections import OrderedDict
+from contextvars import ContextVar
 from typing import Any, cast
 
 from pybatfish.client.session import Session
@@ -33,17 +35,28 @@ from services.batfish.credentials import BatfishConnection
 
 logger = logging.getLogger(__name__)
 
+# One Session (with its loaded question catalogue) per (host, port, network). Networks are
+# created per workflow, so cap the cache and drop the least-recently-used entry (B4).
+MAX_CACHED_SESSIONS = 64
+
+# When set (by the ad-hoc preview endpoints), _answer converts at most this many rows + 1 of
+# an answer table, so a full-fleet RIB is never materialised as dicts in the API process
+# (B3). The extra row lets BatfishQueryResponse detect and flag the truncation. Workflow
+# steps leave it unset and always get the complete table.
+PREVIEW_ROW_LIMIT: ContextVar[int | None] = ContextVar("batfish_preview_row_limit", default=None)
+
 
 class BatfishService:
     def __init__(self) -> None:
-        self._sessions: dict[tuple[str, int, str], Session] = {}
-        self._lock = asyncio.Lock()
+        self._sessions: OrderedDict[tuple[str, int, str], Session] = OrderedDict()
+        self._session_locks: dict[tuple[str, int, str], asyncio.Lock] = {}
 
     async def startup(self) -> None:
         logger.info("BatfishService started")
 
     async def shutdown(self) -> None:
         self._sessions.clear()
+        self._session_locks.clear()
         logger.info("BatfishService shut down")
 
     async def list_networks(self, connection: BatfishConnection) -> list[str]:
@@ -56,7 +69,8 @@ class BatfishService:
         """
 
         def _list() -> list[str]:
-            session = Session(host=connection.host, port=connection.port)
+            # list_networks() needs no question templates: skip the extra HTTP round trip (B4).
+            session = Session(host=connection.host, port=connection.port, load_questions=False)
             return session.list_networks()
 
         try:
@@ -74,7 +88,8 @@ class BatfishService:
         """
 
         def _check() -> list[str]:
-            session = Session(host=connection.host, port=connection.port)
+            # list_networks() needs no question templates: skip the extra HTTP round trip (B4).
+            session = Session(host=connection.host, port=connection.port, load_questions=False)
             return session.list_networks()
 
         try:
@@ -390,6 +405,7 @@ class BatfishService:
         # None means "not set" -- pybatfish question constructors reject
         # unexpected kwargs, so omit rather than pass None through.
         clean_params = {k: v for k, v in params.items() if v is not None}
+        row_limit = PREVIEW_ROW_LIMIT.get()
 
         def _run() -> list[dict[str, Any]]:
             question = getattr(session.q, question_name)
@@ -401,6 +417,8 @@ class BatfishService:
             if not hasattr(answer, "frame"):
                 raise BatfishAnswerFailedError(question_name, dict(answer))
             frame = answer.frame()
+            if row_limit is not None:
+                frame = frame.head(row_limit + 1)
             # numpy scalar types in DataFrame cells (e.g. numpy.int64) can
             # fail plain json.dumps; pandas' own to_json round-trip is safe.
             return json.loads(frame.to_json(orient="records"))
@@ -417,7 +435,15 @@ class BatfishService:
 
     async def _get_session(self, connection: BatfishConnection, network: str) -> Session:
         key = (connection.host, connection.port, network)
-        async with self._lock:
+        session = self._sessions.get(key)
+        if session is not None:
+            self._sessions.move_to_end(key)
+            return session
+
+        # A lock per key: a slow coordinator for one network no longer serialises every
+        # other Batfish call in the process (B4). Created synchronously, so it cannot race.
+        lock = self._session_locks.setdefault(key, asyncio.Lock())
+        async with lock:
             session = self._sessions.get(key)
             if session is None:
                 session = await asyncio.to_thread(
@@ -425,4 +451,9 @@ class BatfishService:
                 )
                 await asyncio.to_thread(session.set_network, network)
                 self._sessions[key] = session
+                while len(self._sessions) > MAX_CACHED_SESSIONS:
+                    evicted, _ = self._sessions.popitem(last=False)
+                    self._session_locks.pop(evicted, None)
+            else:
+                self._sessions.move_to_end(key)
             return session

@@ -29,6 +29,7 @@ from services.artifacts import ArtifactService
 from services.secret_manager.exceptions import SecretManagerError
 from services.secret_manager.policy import SecretCharset, SecretGenerationPolicy
 from services.secret_manager.service import SecretManagerService
+from services.secret_manager.validation import validate_field
 from services.workflow_context.device_template import (
     TemplateRenderOptions,
     parse_strict_templates,
@@ -61,6 +62,10 @@ def _parse_config(config: dict[str, Any]) -> tuple[int, str, str, str, SecretGen
     field = str(config.get("field") or "key").strip()
     if not field:
         raise ValueError(f"{_STEP_ID}: field is required")
+    try:
+        field = validate_field(field)
+    except ValueError as exc:
+        raise ValueError(f"{_STEP_ID}: {exc}") from exc
 
     destination_path = str(config.get("destination_path") or "tacacs.shared_secret").strip()
     if not destination_path:

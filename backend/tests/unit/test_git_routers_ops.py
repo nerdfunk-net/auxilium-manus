@@ -13,6 +13,7 @@ from core.auth import get_current_user, verify_token
 from core.database import get_db
 from core.dev_tools import require_dev_tools
 from core.domain_exceptions import DomainError, NotFoundError
+from core.models.users import User
 from dependencies import (
     get_cache_service,
     get_git_auth_service,
@@ -40,7 +41,7 @@ def _app(*routers) -> FastAPI:
     for r in routers:
         app.include_router(r, prefix="/api")
     app.dependency_overrides[verify_token] = lambda: {"sub": "t", "user_id": 1}
-    app.dependency_overrides[get_current_user] = lambda: {"sub": "t", "user_id": 1}
+    app.dependency_overrides[get_current_user] = lambda: _current_user()
     app.dependency_overrides[get_db] = lambda: MagicMock()
     app.dependency_overrides[require_dev_tools] = lambda: None
     return app
@@ -49,6 +50,13 @@ def _app(*routers) -> FastAPI:
 @pytest.fixture(autouse=True)
 def _allow_rbac(monkeypatch):
     monkeypatch.setattr(RBACService, "has_permission", lambda self, *_a, **_k: True)
+
+
+
+def _current_user() -> User:
+    user = User(username="t", password_hash="h", is_active=True)
+    user.id = 1
+    return user
 
 
 class TestOperationsRouter:

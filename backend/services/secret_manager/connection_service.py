@@ -27,6 +27,11 @@ _REQUIRED_BACKEND_CONFIG_KEYS: dict[str, tuple[str, ...]] = {
     "openbao": ("addr", "mount"),
     "infisical": ("site_url", "project_id", "environment"),
 }
+_OPTIONAL_BACKEND_CONFIG_KEYS: dict[str, tuple[str, ...]] = {
+    "openbao": ("namespace",),
+    "infisical": (),
+}
+_MAX_BACKEND_CONFIG_VALUE_LENGTH = 255
 _TRANSPORT_FIELDS = frozenset({"backend", "backend_config", "verify_ssl"})
 
 
@@ -51,6 +56,18 @@ def _validate_backend_config(backend: str, backend_config: dict[str, Any]) -> No
         raise ValueError(
             f"backend_config for '{backend}' is missing required field(s): {', '.join(missing)}"
         )
+    allowed = set(required) | set(_OPTIONAL_BACKEND_CONFIG_KEYS[backend])
+    unknown = sorted(set(backend_config) - allowed)
+    if unknown:
+        raise ValueError(
+            f"backend_config for '{backend}' has unknown field(s): {', '.join(unknown)}"
+        )
+    for key, value in backend_config.items():
+        if not isinstance(value, str) or len(value) > _MAX_BACKEND_CONFIG_VALUE_LENGTH:
+            raise ValueError(
+                f"backend_config.{key} must be a string of at most "
+                f"{_MAX_BACKEND_CONFIG_VALUE_LENGTH} characters"
+            )
 
 
 def _validate_connection(
@@ -58,6 +75,8 @@ def _validate_connection(
 ) -> dict[str, Any]:
     """Shape check + transport policy (SM2). Returns backend_config with the
     URL field normalized by ``validate_outbound_http_url``."""
+    # An explicit null (e.g. namespace) means "absent".
+    backend_config = {k: v for k, v in backend_config.items() if v is not None}
     _validate_backend_config(backend, backend_config)
     safe_url = validate_connection_transport(
         backend=backend,

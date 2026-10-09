@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -49,6 +50,7 @@ from services.artifacts import ArtifactService
 from services.batfish.common.exceptions import BatfishAPIError
 from services.batfish.source_config_service import BatfishSourceConfigService
 from services.git.sync import clone_or_pull
+from services.workflow_context.device_template import sanitize_path_segment
 from workflow_steps.batfish_init_snapshot.config import get_config
 from workflow_steps.batfish_init_snapshot.git_source import (
     collect_git_source_files,
@@ -64,6 +66,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _STEP_ID = "batfish-init-snapshot"
+_DEFAULT_NETWORK_RE = re.compile(r"manus-workflow-(\d+)")
 _CONFIG_SOURCES = frozenset({"live", "git"})
 
 
@@ -71,6 +74,13 @@ _CONFIG_SOURCES = frozenset({"live", "git"})
 class _InitSummary:
     text: str
     log_suffix: str
+
+
+def _workflow_number(workflow_id: object) -> int | None:
+    try:
+        return int(str(workflow_id))
+    except ValueError:
+        return None
 
 
 async def _write_device_configs(
@@ -81,13 +91,22 @@ async def _write_device_configs(
 ) -> list[str]:
     """Write each device's running-config into configs_dir. Returns skipped device ids."""
     skipped: list[str] = []
+    used_names: set[str] = set()
     for device_id, device in context.devices.items():
         items = list_exportable_content(device, content_source="running_config")
         if not items:
             skipped.append(device_id)
             continue
         text = await artifact_service.resolve(items[0].artifact_ref)
-        (configs_dir / f"{device_id}.cfg").write_text(text, encoding="utf-8")
+        # Two ids can sanitise to the same name ("a/b" and "a_b"): never overwrite one
+        # device's config with another's.
+        stem = sanitize_path_segment(device_id)
+        name, suffix = stem, 1
+        while name in used_names:
+            suffix += 1
+            name = f"{stem}_{suffix}"
+        used_names.add(name)
+        (configs_dir / f"{name}.cfg").write_text(text, encoding="utf-8")
     return skipped
 
 
@@ -242,6 +261,15 @@ async def execute(
     network = str(merged_config.get("network_name") or "").strip() or (
         f"manus-workflow-{context.workflow_id}"
     )
+    # B5: a custom network_name may be a deliberately shared network, but it must not
+    # collide with *another workflow's* default network (overwrite=True + retention
+    # sweep would destroy that workflow's snapshots).
+    other = _DEFAULT_NETWORK_RE.fullmatch(network)
+    if other is not None and int(other.group(1)) != _workflow_number(context.workflow_id):
+        raise ValueError(
+            f"{_STEP_ID}: network_name {network!r} is the default network of workflow "
+            f"{other.group(1)}; choose a different name"
+        )
     snapshot_name = f"run-{run.id}"
 
     logger.info(

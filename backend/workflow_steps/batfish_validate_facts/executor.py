@@ -124,7 +124,7 @@ async def _resolve_rendered_yaml_fragment(
             "Render Jinja Template step producing the expected-facts content."
         )
     text = await artifact_service.resolve(items[0].artifact_ref)
-    nodes, error = _parse_nodes_yaml(text)
+    nodes, error = await asyncio.to_thread(_parse_nodes_yaml, text)
     if error is not None:
         return None, f"Rendered content {error}"
     return nodes, None
@@ -162,7 +162,7 @@ async def _build_git_facts_corpus(*, merged_config: dict[str, Any]) -> dict[str,
     corpus: dict[str, dict[str, Any]] = {}
     for path in matched_files:
         text = await asyncio.to_thread(path.read_text, "utf-8")
-        nodes, error = _parse_nodes_yaml(text)
+        nodes, error = await asyncio.to_thread(_parse_nodes_yaml, text)
         if error is not None or nodes is None:
             raise ValueError(f"{_STEP_ID}: {path} -- {error}")
         for key, value in nodes.items():

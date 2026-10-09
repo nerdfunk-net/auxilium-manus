@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 import service_factory
 from core.auth import get_current_user, require_permission
 from core.database import get_db
+from core.rate_limit import rate_limited
 from core.safe_http_errors import raise_internal_server_error
 from dependencies import get_secret_manager_connection_service
 from models.secret_manager import (
@@ -160,7 +161,10 @@ async def delete_connection(
 @router.post(
     "/{connection_id}/test",
     response_model=SecretManagerConnectionTestResponse,
-    dependencies=[Depends(require_permission("secret_manager.connections", "write"))],
+    dependencies=[
+        Depends(require_permission("secret_manager.connections", "write")),
+        Depends(rate_limited("secret-manager-test", attempts=10, window_seconds=60)),
+    ],
 )
 async def test_connection(
     connection_id: int,

@@ -32,6 +32,7 @@ from models.workflow_context import (
 from services.artifacts import ArtifactService
 from services.secret_manager.exceptions import SecretManagerError
 from services.secret_manager.service import SecretManagerService
+from services.secret_manager.validation import validate_field
 from services.workflow_context.device_template import (
     TemplateRenderOptions,
     parse_strict_templates,
@@ -64,13 +65,30 @@ def _parse_config(config: dict[str, Any]) -> tuple[int, str, str, str, int | Non
     field = str(config.get("field") or "key").strip()
     if not field:
         raise ValueError(f"{_STEP_ID}: field is required")
+    try:
+        field = validate_field(field)
+    except ValueError as exc:
+        raise ValueError(f"{_STEP_ID}: {exc}") from exc
 
     destination_path = str(config.get("destination_path") or "tacacs.shared_secret").strip()
     if not destination_path:
         raise ValueError(f"{_STEP_ID}: destination_path is required")
 
     raw_version = config.get("version")
-    version = int(raw_version) if isinstance(raw_version, int) else None
+    version: int | None = None
+    if raw_version is not None and raw_version != "":
+        if isinstance(raw_version, bool) or (
+            isinstance(raw_version, float) and not raw_version.is_integer()
+        ):
+            raise ValueError(f"{_STEP_ID}: version must be an integer, got {raw_version!r}")
+        try:
+            version = int(raw_version)
+        except (TypeError, ValueError, OverflowError):
+            raise ValueError(
+                f"{_STEP_ID}: version must be an integer, got {raw_version!r}"
+            ) from None
+        if version < 1:
+            raise ValueError(f"{_STEP_ID}: version must be 1 or greater")
 
     return connection_id, path_template, field, destination_path, version
 

@@ -38,6 +38,10 @@ from services.batfish.credentials import BatfishConnection
 # single-snapshot ad-hoc surface -- and every question already covered by a
 # typed step/endpoint (routes/reachability/testFilters/nodeProperties/
 # interfaceProperties).
+# pybatfish accepts these on every question (rename the instance / change exclusions);
+# the ad-hoc endpoint does not mean to expose them (B8).
+_RESERVED_GENERIC_PARAMS = frozenset({"question_name", "exclusions"})
+
 GENERIC_QUESTION_ALLOWLIST: frozenset[str] = frozenset(
     {
         "bgpPeerConfiguration",
@@ -593,6 +597,12 @@ async def query_generic(
         raise ValueError(
             f"Batfish question {question_name!r} is not allow-listed for ad-hoc queries -- "
             f"allowed: {', '.join(sorted(GENERIC_QUESTION_ALLOWLIST))}"
+        )
+    reserved = _RESERVED_GENERIC_PARAMS & set(params or {})
+    if reserved:
+        raise ValueError(
+            f"parameter(s) {', '.join(sorted(reserved))} are reserved and cannot be set "
+            "through the ad-hoc endpoint"
         )
     clean_params = {k: _or_none(v) for k, v in (params or {}).items()}
     clean_params = {k: v for k, v in clean_params.items() if v is not None}

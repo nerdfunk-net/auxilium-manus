@@ -34,6 +34,12 @@ export function BatfishResultPanel({ result }: { result: BatfishQueryResult }) {
           shape per device. Narrow <strong>Nodes</strong> to preview that exact shape.
         </p>
       ) : null}
+      {result.truncated ? (
+        <p className="text-[11px] text-muted-foreground">
+          Result truncated to the first 5,000 rows (1,000 nodes for facts). Narrow the query to
+          see the rest.
+        </p>
+      ) : null}
       <pre className="max-h-48 min-w-0 overflow-auto whitespace-pre-wrap break-words rounded bg-muted p-2 text-xs">
         {JSON.stringify(result.facts_by_node ?? result.rows, null, 2)}
       </pre>

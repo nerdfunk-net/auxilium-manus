@@ -10,6 +10,10 @@ from services.settings.source_keys import SOURCE_ID_PATTERN
 
 _SOURCE_ID_REGEX = SOURCE_ID_PATTERN.pattern
 
+# Ad-hoc query results are serialised to the Template Editor; a full-fleet RIB must not be (B3).
+MAX_PREVIEW_ROWS = 5000
+MAX_PREVIEW_NODES = 1000
+
 
 class BatfishSourceCreateRequest(BaseModel):
     source_id: str = Field(..., pattern=_SOURCE_ID_REGEX, max_length=64)
@@ -208,3 +212,17 @@ class BatfishQueryResponse(BaseModel):
     # Editor integration" for why these two response shapes exist side by
     # side rather than one being reused for the other).
     facts_by_node: dict[str, Any] | None = None
+    # True when rows / facts_by_node were cut to MAX_PREVIEW_ROWS / MAX_PREVIEW_NODES (B3).
+    truncated: bool = False
+
+    @model_validator(mode="after")
+    def _cap_size(self) -> Self:
+        """One central cap so every ad-hoc query path (routes, facts, generic) is bounded
+        without touching each call site."""
+        if len(self.rows) > MAX_PREVIEW_ROWS:
+            self.rows = self.rows[:MAX_PREVIEW_ROWS]
+            self.truncated = True
+        if self.facts_by_node is not None and len(self.facts_by_node) > MAX_PREVIEW_NODES:
+            self.facts_by_node = dict(list(self.facts_by_node.items())[:MAX_PREVIEW_NODES])
+            self.truncated = True
+        return self

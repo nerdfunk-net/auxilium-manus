@@ -274,9 +274,13 @@ workflow steps actually call — `get_field`, `set_field`, `generate_field`
 `set_field`, returning `(version, value)`), and `get_field_history`. All
 four are `async def`: resolving a connection's live client
 (`SecretManagerClientRegistry.get_or_create`) may need OpenBao's async
-`startup()`; once resolved, the field read/write calls themselves are
-synchronous HTTP, matching `CredentialsService`'s own "deliberately
-synchronous" OpenBao calls. No `storage_backend`-style branching lives in
+`startup()`; once resolved, the field read/write calls are synchronous
+`httpx` calls that the facade runs via `asyncio.to_thread`, so a slow secret
+manager never blocks the worker's event loop. The facade also validates the
+*rendered* path and the field name (`services/secret_manager/validation.py`:
+no empty/`.`/`..` segments, no `#`/`%`/`?`; field `[A-Za-z0-9_][A-Za-z0-9_.-]*`)
+before any client lookup. Connection `backend_config` rejects unknown keys and
+non-string / over-255-character values. No `storage_backend`-style branching lives in
 the facade — which client class to use is decided entirely inside the
 registry.
 

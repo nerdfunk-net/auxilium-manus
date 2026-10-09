@@ -3,13 +3,18 @@ failed ensure_started (SM1), invalidate, unknown backend."""
 
 from __future__ import annotations
 
+import asyncio
 import unittest
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from services.secret_manager.config import SecretManagerConnectionConfig
 from services.secret_manager.connection_service import SecretManagerConnectionGeneration
-from services.secret_manager.exceptions import SecretManagerAuthError, SecretManagerConfigError
+from services.secret_manager.exceptions import (
+    SecretManagerAuthError,
+    SecretManagerConfigError,
+    SecretManagerUnavailableError,
+)
 from services.secret_manager.registry import SecretManagerClientRegistry, _CachedClient
 
 _TS = datetime(2026, 9, 16, 12, 0, 0, tzinfo=UTC)
@@ -223,3 +228,92 @@ class RegistryTests(unittest.IsolatedAsyncioTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ShutdownRaceTests(unittest.IsolatedAsyncioTestCase):
+    async def test_login_in_flight_during_shutdown_does_not_leak_a_client(self) -> None:
+        release = asyncio.Event()
+
+        async def slow_start() -> None:
+            await release.wait()
+
+        client = MagicMock()
+        client.ensure_started = slow_start
+        client.shutdown = AsyncMock()
+        registry = SecretManagerClientRegistry()
+        with (
+            _patch_generation(_generation()),
+            patch(
+                "services.secret_manager.registry.load_connection_config",
+                return_value=_cfg(),
+            ),
+            patch("services.secret_manager.registry._build_client", return_value=client),
+        ):
+            task = asyncio.create_task(registry.get_or_create(1, MagicMock()))
+            await asyncio.sleep(0)
+            await asyncio.sleep(0)
+            shutdown = asyncio.create_task(registry.shutdown_all())
+            await asyncio.sleep(0)
+            release.set()
+            with self.assertRaises(SecretManagerUnavailableError):
+                await task
+            await shutdown
+        client.shutdown.assert_awaited()
+        self.assertEqual(registry._clients, {})
+
+    async def test_closed_registry_refuses_new_clients(self) -> None:
+        registry = SecretManagerClientRegistry()
+        await registry.shutdown_all()
+        with _patch_generation(_generation()):
+            with self.assertRaises(SecretManagerUnavailableError):
+                await registry.get_or_create(1, MagicMock())
+
+
+class PerConnectionLockTests(unittest.IsolatedAsyncioTestCase):
+    async def test_slow_connection_does_not_block_another(self) -> None:
+        release = asyncio.Event()
+
+        async def slow_start() -> None:
+            await release.wait()
+
+        slow = MagicMock()
+        slow.ensure_started = slow_start
+        fast = MagicMock()
+        fast.ensure_started = AsyncMock()
+        registry = SecretManagerClientRegistry()
+
+        def build(cfg):
+            return slow if cfg.id == 1 else fast
+
+        def load(connection_id, db):
+            return SecretManagerConnectionConfig(
+                id=connection_id, name="n", backend="openbao", verify_ssl=True,
+                backend_config={}, auth_id="", auth_secret="",
+            )
+
+        with (
+            _patch_generation(_generation()),
+            patch("services.secret_manager.registry.load_connection_config", side_effect=load),
+            patch("services.secret_manager.registry._build_client", side_effect=build),
+        ):
+            slow_task = asyncio.create_task(registry.get_or_create(1, MagicMock()))
+            await asyncio.sleep(0)
+            await asyncio.sleep(0)
+            got = await asyncio.wait_for(registry.get_or_create(2, MagicMock()), timeout=1)
+            self.assertIs(got, fast)
+            self.assertFalse(slow_task.done())
+            release.set()
+            self.assertIs(await slow_task, slow)
+
+    async def test_invalidate_one_connection_keeps_others(self) -> None:
+        registry = SecretManagerClientRegistry()
+        one, two = MagicMock(), MagicMock()
+        one.shutdown, two.shutdown = AsyncMock(), AsyncMock()
+        registry._clients = {
+            1: _CachedClient(client=one, updated_at=_TS),
+            2: _CachedClient(client=two, updated_at=_TS),
+        }
+        await registry.invalidate(1)
+        self.assertEqual(list(registry._clients), [2])
+        one.shutdown.assert_awaited_once()
+        two.shutdown.assert_not_called()

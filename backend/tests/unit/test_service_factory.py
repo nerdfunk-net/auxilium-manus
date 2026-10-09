@@ -8,6 +8,8 @@ from unittest.mock import MagicMock, patch
 import service_factory
 from services.nautobot.credentials import NautobotCredentials
 
+_REAL_BUILD_USER_LIMITER = service_factory.build_user_rate_limiter
+
 _SINGLETONS = (
     "_cache_service",
     "_nautobot_service",
@@ -93,6 +95,21 @@ class ServiceFactoryTests(unittest.TestCase):
         kwargs = cls.call_args.kwargs
         self.assertEqual(kwargs["key_prefix"], "manus-webhook-rl")
         self.assertEqual((kwargs["attempts"], kwargs["window_seconds"]), (60, 60))
+
+    def test_user_rate_limiter_is_cached_per_bucket(self) -> None:
+        with (
+            patch("service_factory.LoginRateLimiter") as cls,
+            # conftest swaps in an in-process variant for every test; test the real one here.
+            patch.object(service_factory, "build_user_rate_limiter", _REAL_BUILD_USER_LIMITER),
+        ):
+            cls.side_effect = lambda **_kw: MagicMock()
+            a1 = service_factory.build_user_rate_limiter("a", 10, 60)
+            a2 = service_factory.build_user_rate_limiter("a", 10, 60)
+            b = service_factory.build_user_rate_limiter("b", 10, 60)
+        self.assertIs(a1, a2)
+        self.assertIsNot(a1, b)
+        self.assertFalse(cls.call_args_list[0].kwargs["fail_closed"])
+        self.assertEqual(cls.call_args_list[0].kwargs["key_prefix"], "manus-rl:a")
 
     def test_build_login_user_rate_limiter_memoised(self) -> None:
         with patch("service_factory.LoginRateLimiter") as cls:

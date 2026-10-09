@@ -9,6 +9,7 @@ from core.auth import get_current_user, require_permission
 from core.database import get_db
 from core.domain_exceptions import DomainError
 from core.models.users import User
+from core.rate_limit import rate_limited
 from core.safe_http_errors import raise_internal_server_error
 from models.netmiko import (
     NetmikoGetConfigsRequest,
@@ -32,6 +33,7 @@ router = APIRouter(
     dependencies=[
         Depends(get_current_user),
         Depends(require_permission("netmiko", "execute")),
+        Depends(rate_limited("netmiko", attempts=10, window_seconds=60)),
     ],
 )
 

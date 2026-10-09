@@ -5,7 +5,8 @@ free-form dict rather than a discriminated Pydantic union at the request-model
 layer — it is validated per-backend inside
 ``services.secret_manager.connection_service.SecretManagerConnectionService``
 (``ValueError`` -> 400), matching how ``GitRepositoryService`` validates
-business rules rather than the request model.
+business rules rather than the request model. Unknown top-level request fields
+are rejected (422); unknown ``backend_config`` keys are rejected by the service.
 """
 
 from __future__ import annotations
@@ -13,7 +14,7 @@ from __future__ import annotations
 from enum import StrEnum
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class SecretManagerBackend(StrEnum):
@@ -22,7 +23,9 @@ class SecretManagerBackend(StrEnum):
 
 
 class SecretManagerConnectionRequest(BaseModel):
-    name: str = Field(..., description="Unique connection name")
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(..., min_length=1, max_length=255, description="Unique connection name")
     backend: SecretManagerBackend = Field(..., description="Which secret manager this connects to")
     credential_name: str | None = Field(
         None,
@@ -49,9 +52,11 @@ class SecretManagerConnectionRequest(BaseModel):
 
 
 class SecretManagerConnectionUpdateRequest(BaseModel):
-    name: str | None = None
+    model_config = ConfigDict(extra="forbid")
+
+    name: str | None = Field(default=None, min_length=1, max_length=255)
     backend: SecretManagerBackend | None = None
-    credential_name: str | None = None
+    credential_name: str | None = Field(default=None, max_length=255)
     verify_ssl: bool | None = None
     is_active: bool | None = None
     description: str | None = None

@@ -11,7 +11,9 @@ fail-soft pattern already used by ``service_factory.build_cache_service()``.
 from __future__ import annotations
 
 import logging
+import threading
 import time
+import uuid
 from collections import defaultdict, deque
 
 import redis
@@ -29,6 +31,20 @@ LOGIN_USER_RATE_LIMIT_WINDOW_SECONDS = 15 * 60
 # Inbound git webhooks: a push burst from CI must not be throttled like a password guess (W1).
 WEBHOOK_RATE_LIMIT_ATTEMPTS = 60
 WEBHOOK_RATE_LIMIT_WINDOW_SECONDS = 60
+
+
+# Atomic trim + count + (conditional) record, so concurrent requests cannot all observe a
+# count under the budget and proceed together. Returns 1 when the attempt was recorded,
+# 0 when the budget is exhausted.
+_CHECK_AND_RECORD_LUA = """
+redis.call('ZREMRANGEBYSCORE', KEYS[1], 0, ARGV[1])
+if redis.call('ZCARD', KEYS[1]) >= tonumber(ARGV[3]) then
+  return 0
+end
+redis.call('ZADD', KEYS[1], ARGV[2], ARGV[4])
+redis.call('EXPIRE', KEYS[1], ARGV[5])
+return 1
+"""
 
 
 class RateLimitExceededError(Exception):
@@ -66,11 +82,25 @@ class LoginRateLimiter:
         self._attempts = attempts
         self._window = window_seconds
         self._fallback_attempts: defaultdict[str, deque[float]] = defaultdict(deque)
+        # FastAPI runs sync dependencies on worker threads; the in-process window is shared.
+        self._fallback_lock = threading.RLock()
 
     def check(self, key: str) -> None:
-        """Raise RateLimitExceededError if key is over budget; else record this attempt."""
-        self.assert_allowed(key)
-        self.record(key)
+        """Raise RateLimitExceededError if key is over budget; else record this attempt.
+
+        Count and record are one atomic step (Redis Lua script, or the in-process lock),
+        so a parallel burst cannot overshoot the budget.
+        """
+        try:
+            allowed = self._check_and_record_redis(key)
+        except redis.RedisError:
+            if self._fail_closed:
+                logger.error("Rate limiter: Redis unavailable, failing closed")
+                raise RateLimitExceededError(key) from None
+            logger.warning("Rate limiter: Redis unavailable, using in-process fallback")
+            allowed = self._check_and_record_fallback(key)
+        if not allowed:
+            raise RateLimitExceededError(key)
 
     def assert_allowed(self, key: str) -> None:
         """Raise RateLimitExceededError if key is over budget. Records nothing."""
@@ -101,7 +131,8 @@ class LoginRateLimiter:
             self._redis.delete(self._redis_key(key))
         except redis.RedisError:
             pass
-        self._fallback_attempts.pop(key, None)
+        with self._fallback_lock:
+            self._fallback_attempts.pop(key, None)
 
     def _redis_key(self, key: str) -> str:
         return f"{self._prefix}:{key}"
@@ -123,12 +154,35 @@ class LoginRateLimiter:
         record_attempt.expire(redis_key, self._window)
         record_attempt.execute()
 
+    def _check_and_record_redis(self, key: str) -> bool:
+        now = time.time()
+        result = self._redis.eval(
+            _CHECK_AND_RECORD_LUA,
+            1,
+            self._redis_key(key),
+            now - self._window,
+            now,
+            self._attempts,
+            f"{now!r}:{uuid.uuid4().hex}",
+            self._window,
+        )
+        return int(result) == 1
+
+    def _check_and_record_fallback(self, key: str) -> bool:
+        with self._fallback_lock:
+            if self._count_fallback(key) >= self._attempts:
+                return False
+            self._record_fallback(key)
+            return True
+
     def _count_fallback(self, key: str) -> int:
-        now = time.monotonic()
-        attempts = self._fallback_attempts[key]
-        while attempts and now - attempts[0] > self._window:
-            attempts.popleft()
-        return len(attempts)
+        with self._fallback_lock:
+            now = time.monotonic()
+            attempts = self._fallback_attempts[key]
+            while attempts and now - attempts[0] > self._window:
+                attempts.popleft()
+            return len(attempts)
 
     def _record_fallback(self, key: str) -> None:
-        self._fallback_attempts[key].append(time.monotonic())
+        with self._fallback_lock:
+            self._fallback_attempts[key].append(time.monotonic())

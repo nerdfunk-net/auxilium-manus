@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 import service_factory
 from core.auth import get_current_user, require_permission
 from core.models.users import User
+from core.rate_limit import rate_limited
 from core.safe_http_errors import raise_internal_server_error
 from core.safe_urls import UnsafeURLError
 from dependencies import get_ise_source_config_service
@@ -43,7 +44,10 @@ logger = logging.getLogger(__name__)
 router = APIRouter(
     prefix="/sources/ise/{source_id}",
     tags=["sources-ise"],
-    dependencies=[Depends(require_permission("sources.ise", "read"))],
+    dependencies=[
+        Depends(require_permission("sources.ise", "read")),
+        Depends(rate_limited("ise-ops", attempts=120, window_seconds=60)),
+    ],
 )
 
 

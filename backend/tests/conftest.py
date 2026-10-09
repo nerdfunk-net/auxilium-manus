@@ -41,3 +41,33 @@ os.environ.setdefault("SECRET_KEY", "change-in-production-use-at-least-32-charac
 # tests exercise outbound HTTP clients (Mattermost, git) against local mock servers on
 # 127.0.0.1/::1, so the guard must be relaxed the same way local .env already does.
 os.environ.setdefault("ALLOW_LOOPBACK_SOURCE_URLS", "true")
+
+
+import pytest  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def _isolated_user_rate_limiters(monkeypatch):
+    """Per-user rate-limit buckets (S9) are process-global and, with a reachable dev Redis,
+    would also persist across tests and runs. Reset them and point them at an unreachable
+    Redis so the in-process fallback window does the counting."""
+    import service_factory
+    from services.auth.login_rate_limiter import LoginRateLimiter
+
+    service_factory._user_rate_limiters.clear()
+
+    def build(bucket: str, attempts: int, window_seconds: int) -> LoginRateLimiter:
+        limiter = service_factory._user_rate_limiters.get(bucket)
+        if limiter is None:
+            limiter = service_factory._user_rate_limiters[bucket] = LoginRateLimiter(
+                redis_url="redis://127.0.0.1:1/0",
+                key_prefix=f"manus-rl-test:{bucket}",
+                fail_closed=False,
+                attempts=attempts,
+                window_seconds=window_seconds,
+            )
+        return limiter
+
+    monkeypatch.setattr(service_factory, "build_user_rate_limiter", build)
+    yield
+    service_factory._user_rate_limiters.clear()

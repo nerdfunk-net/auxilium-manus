@@ -64,6 +64,22 @@ class SecretManagerConnectionServiceTests(unittest.TestCase):
         self.assertTrue(stored["is_active"])
         self.assertEqual(stored["backend"], "openbao")
 
+    def test_unknown_backend_config_key_rejected(self) -> None:
+        with self.assertRaisesRegex(ValueError, "unknown field"):
+            self._create(backend_config={**_OPENBAO_BASE["backend_config"], "evil": "x"})
+
+    def test_non_string_or_oversize_value_rejected(self) -> None:
+        with self.assertRaisesRegex(ValueError, "at most"):
+            self._create(backend_config={**_OPENBAO_BASE["backend_config"], "namespace": "x" * 256})
+        with self.assertRaisesRegex(ValueError, "string"):
+            self._create(backend_config={**_OPENBAO_BASE["backend_config"], "namespace": 5})
+
+    def test_namespace_null_is_allowed(self) -> None:
+        connection_id = self._create(
+            backend_config={**_OPENBAO_BASE["backend_config"], "namespace": None}
+        )
+        self.assertIsNotNone(self.service.get_connection(connection_id))
+
     def test_create_infisical_connection(self) -> None:
         connection_id = self.service.create_connection(dict(_INFISICAL_BASE))
         stored = self.service.get_connection(connection_id)

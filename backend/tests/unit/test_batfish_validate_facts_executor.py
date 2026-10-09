@@ -227,6 +227,49 @@ class BatfishValidateFactsRenderedYamlModeTests(unittest.IsolatedAsyncioTestCase
         self.assertIn("r1", loaded["nodes"])
         self.assertNotIn("version", loaded)
 
+    async def test_yaml_parsed_in_thread(self) -> None:
+        import asyncio
+
+        from workflow_steps.batfish_validate_facts import executor as mod
+
+        artifact_service = InMemoryArtifactService()
+        device = await _device_with_rendered_yaml(
+            artifact_service,
+            device_id="device-1",
+            device_name="R1",
+            yaml_text="nodes:\n  R1:\n    Hostname: r1\n",
+            source_step_node_id="render-node",
+        )
+        run = MagicMock()
+        run.id = 1
+        calls: list[object] = []
+        real_to_thread = asyncio.to_thread
+
+        async def spy(func, *args, **kwargs):
+            calls.append(func)
+            return await real_to_thread(func, *args, **kwargs)
+
+        with (
+            patch(_SERVICE_FACTORY_TARGET) as service_factory_mock,
+            patch.object(mod.asyncio, "to_thread", side_effect=spy),
+        ):
+            batfish = MagicMock()
+            batfish.validate_facts = AsyncMock(return_value={})
+            service_factory_mock.get_batfish_app_service.return_value = batfish
+            await execute(
+                config={
+                    "facts_source": "rendered_yaml",
+                    "source_step_node_id": "render-node",
+                    "parsed_output_key": "rendered",
+                },
+                context=_context_with_snapshot({"device-1": device}),
+                run=run,
+                artifact_service=artifact_service,
+                node_id="node-1",
+                device_sessions=MagicMock(),
+            )
+        self.assertIn(mod._parse_nodes_yaml, calls)
+
     async def test_missing_rendered_content_routes_to_failure(self) -> None:
         device = _device("device-1", "R1")
         run = MagicMock()

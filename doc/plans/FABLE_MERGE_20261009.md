@@ -1,8 +1,9 @@
 # Plan: Fix every open finding from `FABLE_MERGE_20261009.md`
 
 Source: `doc/analysis/FABLE_MERGE_20261009.md` (merge of `FABLE_BACKEND_20260902/0912/0916`).
-Status: **in progress** — Phases 1 (T3 deferred), 2 and 3 implemented (uncommitted) and reviewed
-(`FABLE_MERGE_P1_P3_REVIEW.md`); Phases 4–10 open.
+Status: **in progress** — Phases 1 (T3 deferred), 2 and 3 implemented, committed and reviewed
+(`FABLE_MERGE_P1_P3_REVIEW.md`); Phases 4, 5 and 6 implemented (uncommitted; §4.5 Infisical live
+verification still to be run); Phases 7–10 open.
 
 Each phase is independent: it can be implemented, tested and committed on its own, in any
 order. Where two phases touch the same file it is called out under **Depends on / conflicts**

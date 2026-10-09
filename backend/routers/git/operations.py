@@ -12,6 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from core.auth import get_current_user, require_permission
 from core.domain_exceptions import DomainError
+from core.rate_limit import rate_limited
 from core.safe_http_errors import internal_error_detail, raise_internal_server_error
 from dependencies import (
     get_git_cache_service,
@@ -49,7 +50,13 @@ def get_repository_status(
         }
 
 
-@router.post("/sync", dependencies=[Depends(require_permission("git.operations", "execute"))])
+@router.post(
+    "/sync",
+    dependencies=[
+        Depends(require_permission("git.operations", "execute")),
+        Depends(rate_limited("git-sync", attempts=10, window_seconds=60)),
+    ],
+)
 def sync_repository(
     repo_id: int,
     current_user: dict = Depends(get_current_user),
@@ -72,7 +79,10 @@ def sync_repository(
 
 @router.post(
     "/remove-and-sync",
-    dependencies=[Depends(require_permission("git.operations", "execute"))],
+    dependencies=[
+        Depends(require_permission("git.operations", "execute")),
+        Depends(rate_limited("git-sync", attempts=10, window_seconds=60)),
+    ],
 )
 def remove_and_sync_repository(
     repo_id: int,

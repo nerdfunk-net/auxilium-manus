@@ -87,6 +87,8 @@ export interface BatfishQueryResult {
    * `BatfishFactsQuestion`.
    */
   facts_by_node?: Record<string, unknown> | null;
+  /** True when the backend cut `rows` / `facts_by_node` to its preview cap (B3). */
+  truncated?: boolean;
 }
 
 export interface Template {

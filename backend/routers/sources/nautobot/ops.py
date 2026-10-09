@@ -13,6 +13,7 @@ from core.auth import get_current_user, require_permission
 from core.database import get_db
 from core.domain_exceptions import AccessDeniedError, DomainError, NotFoundError
 from core.models.users import User
+from core.rate_limit import rate_limited
 from core.safe_http_errors import raise_internal_server_error
 from dependencies import (
     get_inventory_service,
@@ -463,7 +464,10 @@ async def get_inventory_devices(
         )
 
 
-@router.get("/{inventory_id}/analyze")
+@router.get(
+    "/{inventory_id}/analyze",
+    dependencies=[Depends(rate_limited("nautobot-analyze", attempts=20, window_seconds=60))],
+)
 async def analyze_inventory(
     inventory_id: int,
     credentials: NautobotCredentials = Depends(nautobot_credentials_from_source_id),

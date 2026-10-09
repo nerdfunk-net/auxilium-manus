@@ -59,6 +59,7 @@ _login_rate_limiter: LoginRateLimiter | None = None
 _login_ip_rate_limiter: LoginRateLimiter | None = None
 _login_user_rate_limiter: LoginRateLimiter | None = None
 _webhook_rate_limiter: LoginRateLimiter | None = None
+_user_rate_limiters: dict[str, LoginRateLimiter] = {}
 # OpenBao (Vault). Both are None unless VAULT_ENABLED. `_vault_service` is the
 # read-only runtime client (manus-app policy); `_vault_management_service` is the
 # write-capable client (manus-manage policy), injected only into credential-manager
@@ -256,6 +257,21 @@ def build_webhook_rate_limiter() -> LoginRateLimiter:
             window_seconds=WEBHOOK_RATE_LIMIT_WINDOW_SECONDS,
         )
     return _webhook_rate_limiter
+
+
+def build_user_rate_limiter(bucket: str, attempts: int, window_seconds: int) -> LoginRateLimiter:
+    """One sliding-window limiter per named bucket (S9). Falls back to an in-process
+    window when Redis is down rather than blocking the endpoint."""
+    limiter = _user_rate_limiters.get(bucket)
+    if limiter is None:
+        limiter = _user_rate_limiters[bucket] = LoginRateLimiter(
+            redis_url=settings.redis_url,
+            key_prefix=f"manus-rl:{bucket}",
+            fail_closed=False,
+            attempts=attempts,
+            window_seconds=window_seconds,
+        )
+    return limiter
 
 
 def build_login_user_rate_limiter() -> LoginRateLimiter:

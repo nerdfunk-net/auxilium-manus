@@ -19,9 +19,11 @@ from fastapi import APIRouter, Depends, HTTPException, status
 
 from core.auth import get_current_user, require_permission
 from core.models.users import User
+from core.rate_limit import rate_limited
 from core.safe_http_errors import raise_internal_server_error
 from dependencies import get_batfish_preview_service
 from models.batfish import (
+    MAX_PREVIEW_ROWS,
     BatfishBgpFactsQueryRequest,
     BatfishExtractFactsQueryRequest,
     BatfishGenericQueryRequest,
@@ -33,6 +35,7 @@ from models.batfish import (
     BatfishRoutesQueryRequest,
     BatfishTestFiltersQueryRequest,
 )
+from services.batfish.client import PREVIEW_ROW_LIMIT
 from services.batfish.common.exceptions import BatfishAPIError, BatfishValidationError
 from services.batfish.preview_service import BatfishPreviewService
 from services.batfish.source_config_service import BatfishSourceNotFoundError
@@ -43,14 +46,29 @@ logger = logging.getLogger(__name__)
 # on the coordinator, regardless of which workflow built it (B2). The
 # read-only `viewer` role holds `sources.batfish:read` (source list, network
 # and snapshot names) but not this.
+async def _cap_preview_rows() -> None:
+    """Bound how much of a row-table answer the ad-hoc endpoints materialise (B3).
+
+    Async on purpose: an async dependency runs in the request's own task, so the context
+    variable is visible to the endpoint (and to the threads it spawns)."""
+    PREVIEW_ROW_LIMIT.set(MAX_PREVIEW_ROWS)
+
+
 router = APIRouter(
     prefix="/sources/batfish",
     tags=["sources-batfish"],
-    dependencies=[Depends(require_permission("sources.batfish", "query"))],
+    dependencies=[
+        Depends(require_permission("sources.batfish", "query")),
+        Depends(rate_limited("batfish-query", attempts=30, window_seconds=60)),
+    ],
 )
 
 
-@router.post("/{source_id}/query/routes", response_model=BatfishQueryResponse)
+@router.post(
+    "/{source_id}/query/routes",
+    response_model=BatfishQueryResponse,
+    dependencies=[Depends(_cap_preview_rows)],
+)
 async def query_batfish_routes(
     source_id: str,
     request: BatfishRoutesQueryRequest,
@@ -76,7 +94,11 @@ async def query_batfish_routes(
         raise_internal_server_error(logger, "Batfish routes query failed: ", exc)
 
 
-@router.post("/{source_id}/query/reachability", response_model=BatfishQueryResponse)
+@router.post(
+    "/{source_id}/query/reachability",
+    response_model=BatfishQueryResponse,
+    dependencies=[Depends(_cap_preview_rows)],
+)
 async def query_batfish_reachability(
     source_id: str,
     request: BatfishReachabilityQueryRequest,
@@ -102,7 +124,11 @@ async def query_batfish_reachability(
         raise_internal_server_error(logger, "Batfish reachability query failed: ", exc)
 
 
-@router.post("/{source_id}/query/test-filters", response_model=BatfishQueryResponse)
+@router.post(
+    "/{source_id}/query/test-filters",
+    response_model=BatfishQueryResponse,
+    dependencies=[Depends(_cap_preview_rows)],
+)
 async def query_batfish_test_filters(
     source_id: str,
     request: BatfishTestFiltersQueryRequest,
@@ -128,7 +154,11 @@ async def query_batfish_test_filters(
         raise_internal_server_error(logger, "Batfish ACL check query failed: ", exc)
 
 
-@router.post("/{source_id}/query/generic", response_model=BatfishQueryResponse)
+@router.post(
+    "/{source_id}/query/generic",
+    response_model=BatfishQueryResponse,
+    dependencies=[Depends(_cap_preview_rows)],
+)
 async def query_batfish_generic(
     source_id: str,
     request: BatfishGenericQueryRequest,
