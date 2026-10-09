@@ -146,9 +146,7 @@ anything in particular.
 
 ## File map
 
-**Implemented.** Everything below exists on `feature/batfish` (as of this
-writing, not yet merged to `main` — check `git status`/`git log` for current
-branch/commit state rather than trusting this document's staleness).
+**Implemented and merged to `main`.**
 
 ```
 backend/services/batfish/

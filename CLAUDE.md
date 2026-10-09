@@ -26,7 +26,7 @@ Netmiko, GitPython
 ### Core Principles
 - **Complete separation**: Frontend (port 3000) ↔ Backend (port 8000)
 - **API proxy pattern**: Frontend → Next.js `/api/proxy/*` → Backend (NEVER direct backend calls)
-- **PostgreSQL single database** with 15 tables (10 domain + 5 RBAC), defined in `/backend/core/models/`
+- **PostgreSQL single database** (26 tables, 5 of them RBAC), defined in `/backend/core/models/`; the list lives in `doc/claude/database.md`, not here
 - **Layered backend**: Model → Repository → Service → Router
 - **Feature-based organization**: Group by domain, not by technical role
 - **Server Components default**: Use `'use client'` only when necessary
@@ -126,6 +126,12 @@ export default function MyFeatureRoute() {
 - `/backend/core/auth.py` — `verify_token`, `get_current_user`, `require_permission`,
   `require_any_permission`, `require_all_permissions`, `require_role`
 - `/backend/main.py` — FastAPI app, router registration
+- `/backend/core/production_guards.py` — refuses unsafe config outside `ENV=development`
+- `/backend/core/safe_urls.py`, `safe_hosts.py` — outbound URL / Netmiko host policy (SSRF)
+- `/backend/core/client_ip.py` — trusted-proxy client IP resolution
+- `/backend/core/rate_limit.py` — `rate_limited(...)` per-user dependency
+- `/backend/core/vault.py`, `/backend/services/vault/` — OpenBao client; `/backend/services/secret_manager/` — Secret Manager connections
+- `/backend/core/dev_tools.py` — `ENABLE_DEV_TOOLS` gate
 
 **Frontend Core:**
 - `/frontend/src/lib/auth-store.ts` — Zustand auth state

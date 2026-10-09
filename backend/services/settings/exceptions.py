@@ -3,7 +3,7 @@
 ``SourceConfigError`` is a ``ValueError`` subclass specifically so
 worker-side callers (workflow-step executors) can let it propagate directly
 per the step contract in doc/WORKFLOW-STEPS.md (ValueError = configuration
-problem) without ever importing FastAPI. See doc/FABLE-ANALYSIS.md §3.1.
+problem) without ever importing FastAPI.
 """
 
 from __future__ import annotations

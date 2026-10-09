@@ -1,9 +1,26 @@
 # Plan: Fix every open finding from `FABLE_MERGE_20261009.md`
 
 Source: `doc/analysis/FABLE_MERGE_20261009.md` (merge of `FABLE_BACKEND_20260902/0912/0916`).
-Status: **in progress** — Phases 1 (T3 deferred), 2 and 3 implemented, committed and reviewed
-(`FABLE_MERGE_P1_P3_REVIEW.md`); Phases 4–9 implemented (uncommitted until committed; §4.5 Infisical live
-verification still to be run; §9.7/§9.8/§9.11 only partly — see `doc/OPEN_TODOS.md`); Phase 10 open.
+Status: **implemented 2026-10-09 (uncommitted until committed)**. Every phase is done except the items
+listed under "Not done" below; those, and everything the review rounds deferred, are tracked in
+`doc/OPEN_TODOS.md`. Reviews: `FABLE_MERGE_P1_P3_REVIEW.md`, `FABLE_MERGE_P4_P6_REVIEW.md`,
+`FABLE_MERGE_P7_P9.md` (their findings were fixed).
+
+| Phase | Status |
+|---|---|
+| 1 Account and RBAC guards | ✅ T2, R3, R4, R5, T4 fixed. ⏸ **T3 deferred** (393 tests stub minimal tokens) |
+| 2 Webhook and git-lock correctness | ✅ W1–W4 fixed |
+| 3 OpenBao hardening | ✅ V5–V14, SM6, SM7 fixed |
+| 4 Secret Manager steps | ✅ SM5, SM8, SM9, SM11 fixed. ⏳ **§4.5 Infisical live verification not run** |
+| 5 Batfish robustness | ✅ B3 (cap), B4–B8 fixed |
+| 6 Per-user rate limiting | ✅ S9, SM10, B3 (limit) fixed |
+| 7 Redaction and upload bounds | ✅ W6, W5/S15 fixed (chunked bodies need a proxy limit) |
+| 8 Inventory ownership | ✅ S14/R6 fixed (rename/delete variant; FK follow-up deferred) |
+| 9 Code-quality hygiene | ✅ Q2–Q6, Q8, R7, T6, CI restored. ◐ Q1 (5 worst functions split, 3 still > 50 lines), Q7 (ratchet test + credentials; 82 models left), Q9 (73 → 54). ⏳ Q10 not started |
+| 10 Docs and repository hygiene | ✅ D1–D6, T5 fixed. ◐ D7 (gitleaks not run, real contact + debug-router decision open) |
+
+**Not done** (all in `doc/OPEN_TODOS.md`): T3, §4.5 Infisical check, Q7 remainder, Q9 remainder, Q1/Q10
+remainder, D7 leftovers, and the deployment/hardening follow-ups noted in the reviews.
 
 Each phase is independent: it can be implemented, tested and committed on its own, in any
 order. Where two phases touch the same file it is called out under **Depends on / conflicts**

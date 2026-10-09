@@ -1,5 +1,5 @@
 """require_permission (and its siblings) must reject deactivated users even
-when get_current_user is not in the dependency chain — see FABLE-ANALYSIS.md §4.3."""
+when get_current_user is not in the dependency chain."""
 
 from __future__ import annotations
 

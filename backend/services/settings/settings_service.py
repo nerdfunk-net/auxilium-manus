@@ -120,7 +120,7 @@ class SettingsService:
         Workflow-step executors run in the Hatchet worker, not a FastAPI
         request, and must raise ``ValueError`` for configuration problems
         (doc/WORKFLOW-STEPS.md) rather than importing/catching
-        ``fastapi.HTTPException`` -- see doc/FABLE-ANALYSIS.md 3.1.
+        ``fastapi.HTTPException``.
         """
         try:
             return self.get_source_config(source_type, source_id)

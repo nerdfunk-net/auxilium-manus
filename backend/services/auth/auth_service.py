@@ -82,8 +82,7 @@ class AuthService:
         Still rejects tokens whose ``exp`` claim is older than
         ``settings.refresh_token_max_age_hours`` — otherwise a leaked access
         token could be exchanged for a fresh one indefinitely, making
-        ACCESS_TOKEN_EXPIRE_MINUTES a no-op security boundary (see
-        doc/FABLE-ANALYSIS.md §4.1).
+        ACCESS_TOKEN_EXPIRE_MINUTES a no-op security boundary.
         """
         try:
             payload = jwt.decode(

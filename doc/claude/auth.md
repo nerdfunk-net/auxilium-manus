@@ -16,6 +16,8 @@ Permissions are **not** embedded in the JWT. Authorization is evaluated per-requ
 against the database via `RBACService.has_permission(user_id, resource, action)` — there
 is no caching and no JWT permission claim to keep in sync.
 
+**Logout is global.** `POST /auth/logout` bumps `token_version`, so it ends *every* session of that user on every device. That is the deliberate, conservative choice: per-session logout would need a Redis denylist lookup on every request (`jti` is minted so one can be added later).
+
 **Revocation (`token_version`).** `users.token_version` is an int column embedded in every
 access token as `tv`. Bumping it invalidates every outstanding token for that user. It is
 bumped by: `AuthService.bump_token_version` (`POST /auth/logout`), `AuthService.change_password`

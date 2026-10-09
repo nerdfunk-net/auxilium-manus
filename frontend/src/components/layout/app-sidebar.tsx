@@ -171,6 +171,7 @@ export function AppSidebar() {
         </Button>
         <Button
           aria-label="Sign out"
+          title="This signs you out everywhere."
           className="w-full justify-start"
           onClick={handleLogout}
           size="sm"

@@ -4,8 +4,7 @@ over the canvas node/edge shape (``{"id": ...}`` nodes, ``{"source", "target"}``
 edges).
 
 Extracted from ``services/execution/step_runner.py`` so cycle detection has a
-single implementation instead of being duplicated at both call sites — see
-doc/FABLE-ANALYSIS.md §4.2 and §5.3.
+single implementation instead of being duplicated at both call sites.
 """
 
 from __future__ import annotations

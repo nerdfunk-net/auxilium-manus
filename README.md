@@ -211,6 +211,10 @@ intent.
 See [INSTALL.md](INSTALL.md) for prerequisites, first-time setup, and how to run the app
 locally or via Docker.
 
+## Security
+
+See [SECURITY.md](SECURITY.md) for how to report a vulnerability and the deployment assumptions.
+
 ## License
 
 Apache License 2.0 — see [LICENSE](LICENSE).

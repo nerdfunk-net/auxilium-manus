@@ -26,6 +26,10 @@ database), and **Redis** (cache). **Hatchet must be running before you start Man
 the backend and workers connect to Hatchet over gRPC on startup; without it, workflow
 runs cannot be scheduled or executed.
 
+Optional: OpenBao-backed credential storage — see
+[`doc/VAULT_INTEGRATION.md`](doc/VAULT_INTEGRATION.md) (production setup) and
+`docker/openbao/` (development only).
+
 #### Hatchet (start first)
 
 Hatchet runs from its own Compose file, separate from the application stack:

@@ -1,5 +1,4 @@
-"""WorkflowService must reject cyclic canvas graphs at save time.
-See doc/FABLE-ANALYSIS.md §4.2."""
+"""WorkflowService must reject cyclic canvas graphs at save time."""
 
 from __future__ import annotations
 

@@ -1,6 +1,6 @@
 # Security Notes — Accepted Risks
 
-This file records security-adjacent findings from `doc/FABLE-ANALYSIS.md` §4.7 that were reviewed and
+This file records security-adjacent findings from the 2026 security reviews (`doc/analysis/FABLE_BACKEND_*.md`) that were reviewed and
 intentionally left as-is, with the reasoning, so they aren't re-investigated from scratch later.
 
 ## `verify_ssl=False` support (Nautobot, ISE, Catalyst Center, Mattermost clients)
@@ -39,11 +39,11 @@ accepted for whatever host the preview (or a workflow run) is allowed to reach.
 
 ## Git credentials visible in process argv
 
-`services/sources/git/git_source_service.py` embeds HTTP basic-auth credentials into the remote URL
-(`_build_auth_url`) and passes that URL directly in the `git clone`/`git push` argv
-(`subprocess.run(cmd, ...)`), which is visible to other local users via `ps` on a shared host for the
-duration of the subprocess call. Output (`stdout`/`stderr`) is correctly redacted before being returned
-to the client or logged (`_redact_secrets`, called at both call sites) — only the argv-visibility window
+`services/git/auth.py::build_auth_url` embeds HTTP basic-auth credentials into the remote URL, and
+`services/git/service.py` passes that URL to GitPython (`Repo.clone_from`, `origin.pull/push`), i.e. in
+the `git` subprocess argv, which is visible to other local users via `ps` on a shared host for the
+duration of the subprocess call. Error text and log lines are scrubbed of URL credentials before being
+returned or logged (`services/git/scrub.py::scrub_url_credentials`) — only the argv-visibility window
 is unaddressed. **Accepted as-is** for now; `GIT_ASKPASS` or a git credential-helper would close this
 window if it's ever prioritized, since neither exposes the secret via argv.
 

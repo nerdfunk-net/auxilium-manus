@@ -2,12 +2,14 @@
 
 ## Schema (Key Tables)
 
-**Domain tables:** `users`, `credentials`, `git_repositories`, `inventories`, `settings`,
+**Domain tables (21):** `users`, `credentials`, `git_repositories`, `inventories`, `settings`,
 `templates`, `workflows`, `workflow_runs`, `workflow_step_results`,
 `workflow_run_device_groups` (fan-out child progress), `workflow_run_events` (live in-step
-events), `change_requests`
+events), `change_requests`, `workflow_schedules`, `workflow_background_tier`,
+`workflow_changes`, `workflow_ai_sessions`, `notifications`, `user_preferences`,
+`job_statistics`, `device_data_records`, `secret_manager_connections`
 
-**RBAC tables:** `roles`, `permissions`, `role_permissions`, `user_roles`, `user_permissions`
+**RBAC tables (5):** `roles`, `permissions`, `role_permissions`, `user_roles`, `user_permissions`
 
 ## Migration System
 
@@ -42,15 +44,24 @@ from `/backend/core/models/__init__.py`:
 | File | Models |
 |------|--------|
 | `base.py` | `Base` (declarative base) |
+| `background_tier.py` | `WorkflowBackgroundTier` |
 | `change_requests.py` | `ChangeRequest` |
 | `credentials.py` | `Credential` |
+| `device_data_records.py` | `DeviceDataRecord` |
 | `git.py` | `GitRepository` |
 | `inventories.py` | `Inventory` |
+| `job_statistics.py` | `JobStatistic` |
+| `notifications.py` | `Notification` |
 | `rbac.py` | `Permission`, `Role`, `RolePermission`, `UserPermission`, `UserRole` |
 | `runs.py` | `WorkflowRun`, `WorkflowStepResult`, `WorkflowRunDeviceGroup`, `WorkflowRunEvent` |
+| `schedules.py` | `WorkflowSchedule` |
+| `secret_manager.py` | `SecretManagerConnection` |
 | `settings.py` | `Setting` |
 | `templates.py` | `Template` |
+| `user_preferences.py` | `UserPreference` |
 | `users.py` | `User` |
+| `workflow_ai_session.py` | `WorkflowAiSession` |
+| `workflow_changes.py` | `WorkflowChange` |
 | `workflows.py` | `Workflow` |
 
 ## Requirements Checklist

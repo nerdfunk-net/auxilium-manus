@@ -1,5 +1,4 @@
-"""Tests for services.execution.graph — extracted from step_runner.py.
-See doc/FABLE-ANALYSIS.md §4.2, §5.3."""
+"""Tests for services.execution.graph — extracted from step_runner.py."""
 
 from __future__ import annotations
 

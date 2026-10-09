@@ -135,8 +135,8 @@ across all Batfish steps rather than introducing a fourth pattern.
 ### What we have
 
 `.github/workflows/backend-ci.yml`'s `types` job runs `pyright` (basic mode)
-with `continue-on-error: true` and currently reports **158 errors** (up from
-the ~149 noted when the job was added). It's advisory only — it never fails
+with `continue-on-error: true` and reported **158 errors** when this entry was written (since reduced to
+54 — see "Bring `pyright` to zero" below, which supersedes the numbers here). It's advisory only — it never fails
 the workflow or blocks a push.
 
 Spot-checked a representative sample of the findings against the actual code
@@ -457,3 +457,89 @@ The five worst functions were split into phase helpers (all behaviour covered by
 `_process_one_device`, `run_git_workflow_step` and `open_change_request.execute` (long signatures,
 docstrings and metadata dicts); split further when those files are next touched. Q10 (`DeviceCommonService`
 pass-throughs, `InterfaceManagerService`, `DeviceUpdateService.update_device`, `GitService.push`) is untouched.
+
+
+---
+
+## Make `tv` / `sid_iat` mandatory on every access token (T3)
+
+**Added:** 2026-10-09 · **Area:** `backend/core/auth.py::_load_active_user`, `backend/tests/unit`
+
+### What we have
+
+`_load_active_user` still tolerates tokens without `tv` / `sid_iat` (the `isinstance` guards).
+Every token this code mints carries both, so the tolerance only matters for legacy tokens (they die
+at their own `exp`, ≤ 60 min) and for test doubles. Making the claims mandatory broke 393 unit tests
+(router tests that override `verify_token` with a minimal `{"sub", "user_id"}` payload), so the
+change was reverted in Phase 1 (PD2).
+
+### End state
+
+`tv` (int, equal to `user.token_version`) and `sid_iat` (number, within `SESSION_MAX_AGE_HOURS`)
+are required; a missing/invalid claim is a 401.
+
+### How
+
+1. Add `tests/unit/helpers/tokens.py::token_payload(user_id=1, tv=0, ...)` and make the router-test
+   `verify_token` overrides use it (a mechanical sweep; `grep -rn "verify_token\] = lambda" tests/unit`).
+2. Make test-double users carry `token_version=0`.
+3. Apply the `_load_active_user` change from `doc/plans/FABLE_MERGE_20261009.md` §1.5 and add
+   `test_request_without_tv_is_rejected` / `..._sid_iat_...`.
+
+---
+
+## Verify the Infisical client against a real instance (§4.5)
+
+**Added:** 2026-10-09 · **Area:** `backend/services/secret_manager/infisical_client.py`, `doc/SECRET_MANAGER_INTEGRATION.md`
+
+The `PATCH`/`DELETE` verb shapes and version-pinned reads are documented as unverified, and
+`get_field_history` returns an empty list with a warning. Needs a running Infisical
+(`docker/infisical`, `.env` from `.env.example`): create a project/environment and a Universal Auth
+machine identity with read/write on `/network`, store its client id/secret as a global `generic`
+credential, create a connection and press *Test*, then run a throwaway workflow:
+`secret-set` (create) → `secret-set` (update, exercises `PATCH`) → `secret-get` →
+`secret-get` with `version=1`. Record confirmed verbs/status codes and whether `version` is honoured
+in `doc/SECRET_MANAGER_INTEGRATION.md`, implement `get_field_history` if possible, fix any difference
+in the client and add the observed bodies as `MockTransport` fixtures in
+`test_secret_manager_infisical_client.py`. Do not build a "retrieve the previous TACACS key"
+workflow on Infisical before this is done.
+
+---
+
+## Before flipping the repository to public (D7 leftovers)
+
+**Added:** 2026-10-09 · **Area:** repo root, `SECURITY.md`, `backend/routers/git/debug.py`
+
+- Run `gitleaks detect --no-git` and `gitleaks detect` (history) — the tool is not installed on the
+  dev machine, so it was not run. (`git log --all -- '*.env' '*oidc_providers.yaml'` is already empty.)
+- Add a real security contact to `SECURITY.md` if an e-mail address should be offered besides GitHub
+  private vulnerability reporting (enable that feature in the repository settings).
+- Decide whether `routers/git/debug.py` stays (dev-tools gated, 404 in production; keeping it is fine).
+- Confirm the restored `.github/workflows/backend-ci.yml` actually runs green on GitHub (it has not been
+  executed since it was restored).
+
+---
+
+## Hardening follow-ups noted in the Phase 1–9 reviews
+
+**Added:** 2026-10-09
+
+- **Chunked request bodies are unbounded in the app.** `limit_request_body` only checks a declared
+  `Content-Length`; certificate uploads are bounded after Starlette spools them. Either enforce a limit
+  in the reverse proxy (`docker/DOCKER.md`) or add an ASGI body-size limiter that counts streamed bytes.
+- **Management AppRole material is still in the worker environment.** Phase 3 (V5) stops workers from
+  *logging in* with the management role, but `production_guards` still requires its role/secret id.
+  Move them to an API-only env file and relax the guard for worker processes.
+- **`/health/ready` stays 200 when OpenBao is down** (V12 decision). Alert on `vault.ok == false`, or add
+  an opt-in setting that makes vault readiness blocking.
+- **A private inventory created between a rename/delete and the user change can still be orphaned**
+  (`created_by` is not an FK). Closed by the "Inventory ownership by user id" entry above.
+- **No 429-specific message in the frontend.** Per-user rate limits (Phase 6) return 429 with
+  `Retry-After`; `useApi` shows its generic error text. Add a friendly "slow down, retry in N s" toast.
+- **Per-process fallback for the rate limiters** when Redis is down is per-API-worker, so the effective
+  budget multiplies by the worker count during an outage (accepted in the plan).
+- **`nautobot/ops.py` error ladders** were left alone in Q2; if they are identical to the ISE ones, add a
+  sibling `errors.py` decorator.
+- **Request-model strictness for the Secret Manager and auth models** is done; see the Q7 entry above
+  for the other 82.
+

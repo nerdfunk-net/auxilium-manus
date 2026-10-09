@@ -1,5 +1,5 @@
 """Direct unit tests for the pure helpers extracted from update_nautobot_device/executor.py
-in doc/refactoring/FABLE_REST.md Step 4 — see doc/FABLE-ANALYSIS.md §5.2 and §7."""
+in doc/refactoring/FABLE_REST.md Step 4."""
 
 from __future__ import annotations
 

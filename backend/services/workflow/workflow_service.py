@@ -44,7 +44,7 @@ logger = logging.getLogger(__name__)
 def _validate_no_cycle(canvas_nodes: list[dict], canvas_edges: list[dict]) -> None:
     """Raise HTTP 400 if the canvas graph contains a cycle.
 
-    See doc/FABLE-ANALYSIS.md §4.2: without this, a cyclic graph is accepted
+    Without this, a cyclic graph is accepted
     at save time and then silently loses the cyclic nodes at run time (they
     never reach in-degree 0 in StepRunner's topological sort).
     """
