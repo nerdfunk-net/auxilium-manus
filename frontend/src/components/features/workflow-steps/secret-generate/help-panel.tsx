@@ -14,8 +14,7 @@ export function SecretGenerateHelpPanel() {
         <p>
           Generates a cryptographically random value per device (stdlib{" "}
           <HelpCode>secrets</HelpCode>, never <HelpCode>random</HelpCode>), stores it
-          at one field of an external Secret Manager connection (OpenBao or
-          Infisical), and seals it into the device&apos;s attribute bag for a later
+          at one field of an external Secret Manager connection (OpenBao), and seals it into the device&apos;s attribute bag for a later
           step in the same run — the TACACS+/SNMP{" "}
           <span className="font-medium text-foreground">rotation</span> primitive.
         </p>
@@ -117,8 +116,7 @@ export function SecretGenerateHelpPanel() {
           <span className="font-medium text-foreground">on an OpenBao
           connection</span>, each write reads the whole secret, changes one
           field, and writes the whole thing back, so two concurrent writes can
-          silently lose one field&apos;s update. Infisical writes each field as
-          its own API call and doesn&apos;t hit this specific race. If you can&apos;t
+          silently lose one field&apos;s update. If you can&apos;t
           keep the path device-unique, put a{" "}
           <span className="font-medium text-foreground">Fan In</span> node
           before this step, same as for git-backed sinks.

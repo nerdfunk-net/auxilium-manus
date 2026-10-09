@@ -89,7 +89,7 @@ export const SETTINGS_SECTIONS: {
   {
     id: "secret-manager",
     label: "Secret Manager",
-    description: "OpenBao/Infisical connections used by secret-get/set/generate workflow steps.",
+    description: "OpenBao connections used by secret-get/set/generate workflow steps.",
     icon: ShieldCheck,
     canShow: (user) => hasPermission(user, "secret_manager.connections", "read"),
   },

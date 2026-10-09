@@ -5,8 +5,7 @@ Field-granular rather than whole-dict, because the three consumers
 on one field at one path at a time. A path may hold several fields (e.g.
 ``network/router1/tacacs`` -> ``{"key": ..., "rotated_at": ...}``); each
 backend maps that onto its own native storage shape (OpenBao: one KV v2 dict
-at the path; Infisical: one secret per field, all sharing the path as their
-``secretPath`` — see ``infisical_client.py``).
+at the path).
 """
 
 from __future__ import annotations
@@ -35,9 +34,7 @@ class SecretManagerClient(Protocol):
         ...
 
     def get_field_history(self, path: str, field: str) -> list[SecretVersionInfo]:
-        """Best-effort version history, newest first. See the Infisical caveat
-        in doc/SECRET_MANAGER_INTEGRATION.md — verify against the live
-        deployment before relying on this for the "previous secret" use case."""
+        """Version history, newest first."""
         ...
 
     async def shutdown(self) -> None:

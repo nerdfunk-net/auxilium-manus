@@ -5,12 +5,13 @@ import { useQuery } from "@tanstack/react-query";
 import { useApi } from "@/hooks/use-api";
 import { queryKeys } from "@/lib/query-keys";
 
-export type SecretManagerBackend = "openbao" | "infisical";
+export type SecretManagerBackend = "openbao";
 
 export interface SecretManagerConnectionRecord {
   id: number;
   name: string;
-  backend: SecretManagerBackend;
+  // string, not the union: the API still returns rows from removed backends
+  backend: string;
   credential_name: string | null;
   verify_ssl: boolean;
   is_active: boolean;

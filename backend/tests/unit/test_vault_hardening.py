@@ -18,7 +18,6 @@ from models.credentials import (
     CredentialUpdate,
 )
 from services.secret_manager.config import SecretManagerConnectionConfig
-from services.secret_manager.infisical_client import _InfisicalToken
 from services.vault.auth import VaultToken
 from services.vault.config import VaultConfig
 
@@ -34,9 +33,6 @@ class SecretNotInReprTests(unittest.TestCase):
             addr="https://v", mount="m", secret_id=SECRET, token=SECRET, client_key=SECRET
         )
         self.assertNotIn(SECRET, repr(cfg))
-
-    def test_infisical_token(self) -> None:
-        self.assertNotIn(SECRET, repr(_InfisicalToken(access_token=SECRET, expires_at=1.0)))
 
     def test_secret_manager_config(self) -> None:
         import dataclasses

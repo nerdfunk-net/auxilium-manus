@@ -19,7 +19,6 @@ from pydantic import BaseModel, ConfigDict, Field
 
 class SecretManagerBackend(StrEnum):
     OPENBAO = "openbao"
-    INFISICAL = "infisical"
 
 
 class SecretManagerConnectionRequest(BaseModel):
@@ -32,7 +31,7 @@ class SecretManagerConnectionRequest(BaseModel):
         max_length=255,
         description=(
             "Name of a global 'generic' credential holding this connection's own auth "
-            "material (username = role_id / client_id, password = secret_id / client_secret). "
+            "material (username = AppRole role_id, password = secret_id). "
             "SSH credentials are rejected."
         ),
     )
@@ -45,8 +44,7 @@ class SecretManagerConnectionRequest(BaseModel):
     backend_config: dict[str, Any] = Field(
         ...,
         description=(
-            "Backend-specific config: openbao {addr, mount, namespace}; "
-            "infisical {site_url, project_id, environment}"
+            "Backend-specific config: openbao {addr, mount, namespace}"
         ),
     )
 
@@ -66,7 +64,9 @@ class SecretManagerConnectionUpdateRequest(BaseModel):
 class SecretManagerConnectionResponse(BaseModel):
     id: int
     name: str
-    backend: SecretManagerBackend
+    # Plain str, not the enum: a row left over from a removed backend (e.g. 'infisical')
+    # must still serialize so the list renders and an admin can delete it.
+    backend: str
     credential_name: str | None = None
     verify_ssl: bool
     is_active: bool

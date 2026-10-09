@@ -18,16 +18,6 @@ _OPENBAO_BASE = {
     "backend_config": {"addr": "https://vault.internal:8200", "mount": "manus-network"},
 }
 
-_INFISICAL_BASE = {
-    "name": "network-secrets-infisical",
-    "backend": "infisical",
-    "backend_config": {
-        "site_url": "https://app.infisical.com",
-        "project_id": "proj-1",
-        "environment": "prod",
-    },
-}
-
 
 class SecretManagerConnectionServiceTests(unittest.TestCase):
     def setUp(self) -> None:
@@ -80,12 +70,6 @@ class SecretManagerConnectionServiceTests(unittest.TestCase):
         )
         self.assertIsNotNone(self.service.get_connection(connection_id))
 
-    def test_create_infisical_connection(self) -> None:
-        connection_id = self.service.create_connection(dict(_INFISICAL_BASE))
-        stored = self.service.get_connection(connection_id)
-        self.assertEqual(stored["backend"], "infisical")
-        self.assertEqual(stored["backend_config"]["project_id"], "proj-1")
-
     def test_create_rejects_duplicate_name(self) -> None:
         self._create()
         with self.assertRaises(ValueError):
@@ -99,15 +83,9 @@ class SecretManagerConnectionServiceTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self._create(name="missing-mount", backend_config={"addr": "https://vault.internal"})
 
-    def test_create_rejects_missing_infisical_config_fields(self) -> None:
+    def test_create_rejects_removed_infisical_backend(self) -> None:
         with self.assertRaises(ValueError):
-            self.service.create_connection(
-                {
-                    "name": "bad-infisical",
-                    "backend": "infisical",
-                    "backend_config": {"site_url": "https://app.infisical.com"},
-                }
-            )
+            self._create(name="legacy", backend="infisical")
 
     def test_get_connection_missing_returns_none(self) -> None:
         self.assertIsNone(self.service.get_connection(999))
@@ -174,16 +152,6 @@ class SecretManagerConnectionServiceTests(unittest.TestCase):
         ):
             with self.assertRaisesRegex(ValueError, "verify_ssl=false"):
                 self.service.update_connection(connection_id, {"verify_ssl": False})
-
-    def test_infisical_site_url_is_policy_checked(self) -> None:
-        from core.safe_urls import UnsafeURLError
-
-        self.mock_validate.side_effect = UnsafeURLError("URL host is not allowed")
-        with self.assertRaisesRegex(ValueError, "backend_config.site_url"):
-            self.service.create_connection(
-                {**_INFISICAL_BASE, "backend_config": {**_INFISICAL_BASE["backend_config"],
-                                                       "site_url": "http://metadata.google.internal"}}
-            )
 
     # ---- SM4: generation snapshot -----------------------------------------
     def test_get_generation_returns_none_for_missing(self) -> None:

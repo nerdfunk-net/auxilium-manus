@@ -1,7 +1,7 @@
 """Transport policy for Secret Manager connections (SM2).
 
 One function, called from ``SecretManagerConnectionService`` on create/update
-(``resolve_dns=True``) and from both client adapters at construction
+(``resolve_dns=True``) and from the client adapter at construction
 (``resolve_dns=False`` -- rows that predate the check, and no DNS on the
 worker hot path). Mirrors ``core/production_guards`` for ``VAULT_ADDR`` /
 ``VAULT_VERIFY_SSL`` (V1), but per row, because a connection is a DB record,
@@ -16,7 +16,7 @@ from core.config import settings
 from core.safe_urls import UnsafeURLError, validate_outbound_http_url
 
 # Which backend_config key carries the base URL for each backend.
-URL_KEY_BY_BACKEND: dict[str, str] = {"openbao": "addr", "infisical": "site_url"}
+URL_KEY_BY_BACKEND: dict[str, str] = {"openbao": "addr"}
 
 
 def validate_connection_transport(

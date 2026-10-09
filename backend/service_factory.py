@@ -70,7 +70,7 @@ _user_rate_limiters: dict[str, LoginRateLimiter] = {}
 # write endpoints. See doc/VAULT_INTEGRATION.md.
 _vault_service: OpenBaoService | None = None
 _vault_management_service: OpenBaoService | None = None
-# Secret Manager (OpenBao/Infisical network-secret connections). Lazily built
+# Secret Manager (OpenBao network-secret connections). Lazily built
 # on first access — connections are DB rows, not known at boot. See
 # doc/SECRET_MANAGER_INTEGRATION.md.
 _secret_manager_registry: SecretManagerClientRegistry | None = None

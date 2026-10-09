@@ -22,14 +22,12 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-_VALID_BACKENDS = frozenset({"openbao", "infisical"})
+_VALID_BACKENDS = frozenset({"openbao"})
 _REQUIRED_BACKEND_CONFIG_KEYS: dict[str, tuple[str, ...]] = {
     "openbao": ("addr", "mount"),
-    "infisical": ("site_url", "project_id", "environment"),
 }
 _OPTIONAL_BACKEND_CONFIG_KEYS: dict[str, tuple[str, ...]] = {
     "openbao": ("namespace",),
-    "infisical": (),
 }
 _MAX_BACKEND_CONFIG_VALUE_LENGTH = 255
 _TRANSPORT_FIELDS = frozenset({"backend", "backend_config", "verify_ssl"})
@@ -84,8 +82,7 @@ def _validate_connection(
         verify_ssl=verify_ssl,
         resolve_dns=True,
     )
-    url_key = "addr" if backend == "openbao" else "site_url"
-    return {**backend_config, url_key: safe_url}
+    return {**backend_config, "addr": safe_url}
 
 
 class SecretManagerConnectionService:

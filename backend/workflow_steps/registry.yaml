@@ -5279,8 +5279,7 @@ plugins:
     name: Secret Get
     overview: Read a secret from a configured Secret Manager connection.
     description: >
-      Read one field from an external Secret Manager connection (OpenBao or
-      Infisical) per device and seal it into the device's attribute bag — the
+      Read one field from an external Secret Manager connection (OpenBao) per device and seal it into the device's attribute bag — the
       TACACS+/SNMP "retrieve the current or a previous value" primitive. A
       device with no value at the configured path/field is routed to the
       failure outcome; the step itself still succeeds (proceed with

@@ -9,7 +9,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 interface SecretManagerHelpDialogProps {
   open: boolean;
@@ -53,21 +52,15 @@ export function SecretManagerHelpDialog({ open, onClose }: SecretManagerHelpDial
     <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
       <DialogContent className="flex max-h-[85vh] flex-col sm:max-w-2xl">
         <DialogHeader>
-          <DialogTitle>Configuring a Secret Manager backend</DialogTitle>
+          <DialogTitle>Configuring an OpenBao Secret Manager connection</DialogTitle>
           <DialogDescription>
             Each connection needs a credential (Settings → Credentials, type &quot;Basic Auth
-            (Username + Password)&quot;) holding that backend&apos;s own auth material, then a
+            (Username + Password)&quot;) holding its AppRole Role ID and Secret ID, then a
             connection here referencing it.
           </DialogDescription>
         </DialogHeader>
 
-        <Tabs defaultValue="openbao" className="flex min-h-0 flex-1 flex-col">
-          <TabsList className="w-fit">
-            <TabsTrigger value="openbao">OpenBao</TabsTrigger>
-            <TabsTrigger value="infisical">Infisical</TabsTrigger>
-          </TabsList>
-
-          <TabsContent value="openbao" className="min-h-0 flex-1 space-y-5 overflow-y-auto pr-1">
+        <div className="min-h-0 flex-1 space-y-5 overflow-y-auto pr-1">
             <Section title="Which authentication method">
               <p>
                 This connection always authenticates with OpenBao&apos;s <strong>AppRole</strong>{" "}
@@ -122,7 +115,7 @@ bao write -f -field=secret_id auth/approle/role/manus-network-secrets/secret-id`
                   <strong>global</strong>.
                 </li>
                 <li>
-                  Back on this page, Add connection: backend <strong>OpenBao</strong>,{" "}
+                  Back on this page, Add connection:{" "}
                   <Code>addr</Code> = your OpenBao URL, <Code>mount</Code> ={" "}
                   <Code>manus-network</Code> (matching step 1), then pick that credential.
                 </li>
@@ -137,87 +130,7 @@ bao write -f -field=secret_id auth/approle/role/manus-network-secrets/secret-id`
                 mount/policy/role name.
               </p>
             </Warning>
-          </TabsContent>
-
-          <TabsContent
-            value="infisical"
-            className="min-h-0 flex-1 space-y-5 overflow-y-auto pr-1"
-          >
-            <Section title="Which authentication method">
-              <p>
-                This connection always authenticates with Infisical&apos;s{" "}
-                <strong>Universal Auth</strong> — a machine identity&apos;s{" "}
-                <strong>Client ID</strong> / <strong>Client Secret</strong> pair. The
-                credential&apos;s username field holds the Client ID, and its password field
-                holds the Client Secret.
-              </p>
-            </Section>
-
-            <Section title="1. Create a machine identity">
-              <ol className="list-decimal space-y-1.5 pl-4">
-                <li>
-                  In Infisical, go to <strong>Organization → Access Control → Machine
-                  Identities</strong> and select <strong>Create</strong>.
-                </li>
-                <li>Pick an organization role and give the identity a name (e.g. &quot;manus&quot;).</li>
-                <li>Universal Auth is the default authentication method on a new identity.</li>
-              </ol>
-            </Section>
-
-            <Section title="2. Generate a Client Secret">
-              <p>
-                On the identity&apos;s page, select <strong>Add Client Secret</strong> (set a TTL
-                and/or max uses if you want it to expire) and generate it. The Client Secret is
-                shown once — copy it immediately alongside the Client ID shown on the same page.
-              </p>
-            </Section>
-
-            <Section title="3. Add the identity to your project">
-              <ol className="list-decimal space-y-1.5 pl-4">
-                <li>
-                  Open the target project → <strong>Access Control → Machine Identities</strong> →{" "}
-                  <strong>Add Machine Identity to Project</strong>.
-                </li>
-                <li>Assign the identity you created and give it a project role with read/write access to secrets.</li>
-              </ol>
-            </Section>
-
-            <Section title="4. Get the Project ID and environment slug">
-              <p>
-                Both are on the project&apos;s <strong>Settings</strong> page — the Project ID is
-                shown directly; the environment slug (e.g. <Code>dev</Code>, <Code>prod</Code>) is
-                listed under the project&apos;s environments, not the display name.
-              </p>
-            </Section>
-
-            <Section title="5. Add the credential and connection in Manus">
-              <ol className="list-decimal space-y-1.5 pl-4">
-                <li>
-                  Settings → Credentials → Add credential, type &quot;Basic Auth (Username +
-                  Password)&quot;, username = Client ID, password = Client Secret. Must be{" "}
-                  <strong>global</strong>.
-                </li>
-                <li>
-                  Back on this page, Add connection: backend <strong>Infisical</strong>,{" "}
-                  <Code>site_url</Code> (<Code>https://app.infisical.com</Code> for cloud, or your
-                  self-hosted URL), <Code>project_id</Code>, <Code>environment</Code>, then pick
-                  that credential.
-                </li>
-              </ol>
-            </Section>
-
-            <Warning title="Verify against your Infisical version">
-              <p>
-                Menu names above match Infisical&apos;s documented UI at the time this page was
-                written — self-hosted deployments and future Infisical versions may differ
-                slightly. Retrieving a <em>previous</em> version of a secret (the &quot;what was
-                the old key&quot; use case) is not yet verified to work reliably against a live
-                Infisical instance — see doc/SECRET_MANAGER_INTEGRATION.md. The repo&apos;s{" "}
-                <Code>docker/infisical</Code> stack is the fastest way to test this locally.
-              </p>
-            </Warning>
-          </TabsContent>
-        </Tabs>
+        </div>
       </DialogContent>
     </Dialog>
   );

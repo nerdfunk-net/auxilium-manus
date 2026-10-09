@@ -207,8 +207,7 @@ Let a Secret Manager OpenBao connection pick an auth method the same way the
 app's own vault does: `auth_method` in `backend_config` (`approle` default,
 `cert` for mTLS, `token` for dev-only), with the matching extra fields
 (`client_cert`/`client_key`/`ca_cert` for cert auth) — surfaced conditionally
-in `secret-manager-connection-dialog.tsx` the same way the backend field
-already switches between OpenBao/Infisical layouts.
+in `secret-manager-connection-dialog.tsx`.
 
 ### Why it's deferred
 
@@ -231,9 +230,8 @@ Secret Manager OpenBao connection specifically:
    of hardcoding `"approle"`, and pass through the cert fields when present —
    `VaultConfig`/`build_auth_strategy` already accept them, no new auth code.
 3. Add the conditional fields to `secret-manager-connection-dialog.tsx`
-   (mirrors the existing `backend === "openbao"` vs `"infisical"` branch,
-   one level deeper: `authMethod === "cert"` within the OpenBao branch).
-4. Update the OpenBao tab of `secret-manager-help-dialog.tsx` and
+   (`authMethod === "cert"` conditional fields).
+4. Update `secret-manager-help-dialog.tsx` and
    `doc/SECRET_MANAGER_INTEGRATION.md` to document the new method(s) —
    don't let those two drift from the code again.
 
@@ -485,24 +483,6 @@ are required; a missing/invalid claim is a 401.
 2. Make test-double users carry `token_version=0`.
 3. Apply the `_load_active_user` change from `doc/plans/FABLE_MERGE_20261009.md` §1.5 and add
    `test_request_without_tv_is_rejected` / `..._sid_iat_...`.
-
----
-
-## Verify the Infisical client against a real instance (§4.5)
-
-**Added:** 2026-10-09 · **Area:** `backend/services/secret_manager/infisical_client.py`, `doc/SECRET_MANAGER_INTEGRATION.md`
-
-The `PATCH`/`DELETE` verb shapes and version-pinned reads are documented as unverified, and
-`get_field_history` returns an empty list with a warning. Needs a running Infisical
-(`docker/infisical`, `.env` from `.env.example`): create a project/environment and a Universal Auth
-machine identity with read/write on `/network`, store its client id/secret as a global `generic`
-credential, create a connection and press *Test*, then run a throwaway workflow:
-`secret-set` (create) → `secret-set` (update, exercises `PATCH`) → `secret-get` →
-`secret-get` with `version=1`. Record confirmed verbs/status codes and whether `version` is honoured
-in `doc/SECRET_MANAGER_INTEGRATION.md`, implement `get_field_history` if possible, fix any difference
-in the client and add the observed bodies as `MockTransport` fixtures in
-`test_secret_manager_infisical_client.py`. Do not build a "retrieve the previous TACACS key"
-workflow on Infisical before this is done.
 
 ---
 

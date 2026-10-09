@@ -45,10 +45,9 @@ logger = logging.getLogger(__name__)
 
 _SSH_TYPES = frozenset({"ssh"})
 _GENERIC_TYPES = frozenset({"ssh", "generic"})
-# Secret Manager connection auth (AppRole role_id/secret_id, Infisical
-# client_id/client_secret) may only come from a `generic` credential -- never
-# from a device SSH credential, whose password would otherwise be POSTed to
-# whatever addr/site_url the connection points at (SM2).
+# Secret Manager connection auth (AppRole role_id/secret_id) may only come from a
+# `generic` credential -- never from a device SSH credential, whose password would
+# otherwise be POSTed to whatever addr the connection points at (SM2).
 _SECRET_MANAGER_AUTH_TYPES = frozenset({"generic"})
 # SMTP AUTH is sent to a host chosen in the step config, so the same rule applies.
 _GENERIC_ONLY_TYPES = frozenset({"generic"})
@@ -105,7 +104,7 @@ class CredentialManager:
 
         Accepts ``generic`` credentials only (see ``_SECRET_MANAGER_AUTH_TYPES``);
         an ``ssh`` credential is rejected with ``CredentialUnusableError`` so a
-        device password can never be sent to a connection's ``addr``/``site_url``.
+        device password can never be sent to a connection's ``addr``.
         """
         match = self._match_by_name(name, _SECRET_MANAGER_AUTH_TYPES, "'generic'")
         username, password = self._decrypt_password(match, name, "has no decryptable password")

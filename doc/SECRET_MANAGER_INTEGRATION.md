@@ -3,7 +3,7 @@
 **Status: implemented.** Operational network secrets — device TACACS+ keys,
 SNMP community strings/SNMPv3 credentials, and similar per-device or
 per-team secrets — generated, rotated, and read back **by workflows at run
-time**, stored in an external secret manager (OpenBao or Infisical) chosen
+time**, stored in an external secret manager (OpenBao) chosen
 per connection.
 
 ## Contents
@@ -15,7 +15,6 @@ per connection.
 - [Data model](#data-model)
 - [Client abstraction](#client-abstraction)
 - [OpenBao client](#openbao-client)
-- [Infisical client](#infisical-client)
 - [Path / field convention](#path--field-convention)
 - [Workflow steps](#workflow-steps)
 - [Secret handling in the run engine](#secret-handling-in-the-run-engine)
@@ -49,13 +48,14 @@ handling (see [Secret handling in the run engine](#secret-handling-in-the-run-en
 
 ## Design decisions
 
-- **Both OpenBao and Infisical**, behind one `SecretManagerClient` protocol.
+- **OpenBao only**, behind a `SecretManagerClient` protocol (kept as a seam;
+  Infisical support was removed in 2026-10 — OpenBao is the single supported backend).
 - **Multiple named connections** (DB-backed, `secret_manager_connections`
   table), not a single env-configured backend like `VAULT_*`. Mirrors the
   `GitRepository` consolidation: one config system, admin-managed in
   Settings, not env/KV.
 - **No browse/reveal UI in Manus.** The network team looks at secrets
-  directly in Infisical's (or OpenBao's) own UI. Manus only manages
+  directly in OpenBao's own UI. Manus only manages
   connections and exposes workflow steps.
 - **Generated secrets are pipe-only.** A `secret-generate` step's output
   value flows only to later steps in the same run (e.g. a push-config step);
@@ -63,16 +63,8 @@ handling (see [Secret handling in the run engine](#secret-handling-in-the-run-en
   `workflow_step_results`, never logged. Achieved for free by reusing the
   existing sealed-secret mechanism — see
   [Secret handling in the run engine](#secret-handling-in-the-run-engine).
-- **Resolved during implementation — per-field storage shape.** The design
-  pass flagged a tradeoff between one Infisical secret per path holding a
-  JSON blob (symmetric with OpenBao's dict-at-path, but opaque in Infisical's
-  UI) versus flat per-field secrets (readable, but asymmetric). The actual
-  resolution needed neither compromise: Infisical's own `secretPath` /
-  `secretKey` primitives map 1:1 onto our `path` / `field`, so a path with
-  several fields becomes several individual Infisical secrets sharing one
-  `secretPath` — natural for Infisical's API *and* fully readable in its UI,
-  with no string concatenation or JSON encoding involved. OpenBao keeps its
-  native multi-field dict-at-path. See
+- **Per-field storage shape.** A path may hold several fields; OpenBao stores
+  them as one native KV v2 dict at the path. See
   [Path / field convention](#path--field-convention).
 
 ## Architecture
@@ -88,10 +80,10 @@ workflow step (secret-get/set/generate) ──resolve(conn_id)──▶ SecretMa
                                                             │  (facade, like CredentialManager)
                                                             ▼
                                           SecretManagerClientRegistry (lazy, cached per connection id)
-                                                     │                        │
-                                                     ▼                        ▼
-                                     OpenBaoSecretManagerClient   InfisicalSecretManagerClient
-                                     (wraps OpenBaoService)       (Universal Auth + secrets API)
+                                                            │
+                                                            ▼
+                                            OpenBaoSecretManagerClient
+                                            (wraps OpenBaoService)
 ```
 
 Each configured connection gets its **own live client instance** — new
@@ -122,9 +114,6 @@ backend/services/secret_manager/
   client.py             SecretManagerClient Protocol (field-granular) + SecretVersionInfo
   config.py             SecretManagerConnectionConfig (frozen dataclass) + load_connection_config()
   openbao_client.py     OpenBaoSecretManagerClient — thin adapter wrapping services/vault/client.OpenBaoService
-  infisical_client.py   InfisicalSecretManagerClient — Universal Auth + secrets API
-                         (also holds the private _InfisicalTokenManager — no separate auth.py;
-                         the wire formats differ too much from OpenBao's VaultTokenManager to share code)
   registry.py            SecretManagerClientRegistry — lazy per-connection client cache
   connection_service.py  SecretManagerConnectionService — CRUD for secret_manager_connections
   service.py             SecretManagerService — facade workflow steps call
@@ -151,8 +140,8 @@ frontend/src/hooks/queries/
 frontend/src/components/features/settings/
   components/secret-manager-settings-canvas.tsx      connections table (flat under components/,
   dialogs/secret-manager-connection-dialog.tsx        like git-repositories — no nested subdirectory)
-  dialogs/secret-manager-help-dialog.tsx              "Help" button on the canvas — tabbed
-                                                       OpenBao/Infisical setup walkthroughs
+  dialogs/secret-manager-help-dialog.tsx              "Help" button on the canvas — OpenBao
+                                                       setup walkthrough
   types/settings-section.ts, utils/settings-section-params.ts,
   constants/settings-sections.ts, components/settings-section-canvas.tsx
                                                        + "secret-manager" section wiring
@@ -170,9 +159,6 @@ backend/tests/unit/
   test_secret_get_executor.py
   test_secret_set_executor.py
   test_secret_generate_executor.py
-
-docker/infisical/   local dev stack (Postgres + Redis + Infisical), mirrors docker/openbao —
-                    see "Local development" below
 ```
 
 **No `workflow_steps/common/secret_manager_connection_loader.py` exists** —
@@ -202,7 +188,7 @@ class SecretManagerConnection(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(255), unique=True, nullable=False)
-    backend = Column(String(50), nullable=False)          # "openbao" | "infisical"
+    backend = Column(String(50), nullable=False)          # "openbao"
     credential_name = Column(String(255))                  # this connection's OWN auth material
     verify_ssl = Column(Boolean, nullable=False, default=True)
     is_active = Column(Boolean, nullable=False, default=True)
@@ -220,26 +206,23 @@ validates business rules):
 
 ```
 openbao:   {"addr": "...", "mount": "manus-network", "namespace": "..."}   # namespace optional
-infisical: {"site_url": "...", "project_id": "...", "environment": "prod"}
 ```
 
-**Why JSON, not flat columns like `GitAuthType`.** `GitAuthType` variance is
-narrow. OpenBao needs `addr` + `mount` (+ optional `namespace`); Infisical
-needs a site URL + `project_id` + `environment`. Forcing both into one flat
-column set means most columns are `NULL` for one backend or the other — the
-same problem the pre-consolidation git-config KV system had.
+**Why JSON, not flat columns like `GitAuthType`.** `backend_config` is
+backend-specific (OpenBao: `addr` + `mount` + optional `namespace`). It stays
+JSON so a future backend can add its own shape without a column migration.
 
 **`credential_name`** resolves this *connection's own* auth material via the
 existing `CredentialManager` facade — `CredentialManager(db).secret_manager_auth(name)`,
 which accepts a **`generic`-type credential only** (an `ssh` credential is
 rejected, so a device password can never be sent to a connection's URL)
-holding the OpenBao AppRole `secret_id` / Infisical `client_secret` as its
-password field, and `role_id`/`client_id` as its username. Reuses the
+holding the OpenBao AppRole `secret_id` as its
+password field, and `role_id` as its username. Reuses the
 existing credential-resolution seam (global-only, background/system-scoped —
 no `acting_user_id`) instead of inventing a third way to store "a secret
 needed to reach a secret store."
 
-**Transport policy.** `addr` / `site_url` must pass
+**Transport policy.** `addr` must pass
 `core.safe_urls.validate_outbound_http_url` (no link-local, metadata, or —
 unless `ALLOW_LOOPBACK_SOURCE_URLS=true` — loopback targets). Outside
 `ENV=development` the URL must be `https://` and `verify_ssl` must stay
@@ -253,7 +236,7 @@ may grant it.
 
 ```python
 class SecretManagerClient(Protocol):
-    async def ensure_started(self) -> None: ...   # OpenBao's token-renew loop; no-op for Infisical
+    async def ensure_started(self) -> None: ...   # OpenBao's token-renew loop
     def get_field(self, path: str, field: str, *, version: int | None = None) -> str | None: ...
     def set_field(self, path: str, field: str, value: str) -> int | None: ...
     def get_field_history(self, path: str, field: str) -> list[SecretVersionInfo]: ...
@@ -265,8 +248,7 @@ over the original design sketch. The three consumers (`secret-get`/
 `secret-set`/`secret-generate` executors) always operate on one field at one
 path at a time, so a field-granular protocol maps directly onto what callers
 need; each backend maps that onto its own native storage shape internally
-(OpenBao: read-modify-write the whole dict at `path`; Infisical: one secret
-per field, sharing `path` as `secretPath`).
+(OpenBao: read-modify-write the whole dict at `path`).
 
 `SecretManagerService` (`services/secret_manager/service.py`) is what
 workflow steps actually call — `get_field`, `set_field`, `generate_field`
@@ -313,46 +295,6 @@ policy):
 path "manus-network/data/*"     { capabilities = ["create", "read", "update"] }
 path "manus-network/metadata/*" { capabilities = ["read"] }
 ```
-
-## Infisical client
-
-`InfisicalSecretManagerClient` (`services/secret_manager/infisical_client.py`)
-is new, including a private `_InfisicalTokenManager` in the same file (no
-separate `auth.py` — the wire formats differ too much from OpenBao's
-`VaultTokenManager` to share code, only the login/re-login *shape* is
-common).
-
-- **Auth**: Universal Auth machine identity. `POST
-  /api/v1/auth/universal-auth/login` (form-encoded `clientId` +
-  `clientSecret`) → `{accessToken, expiresIn, ...}`. **No background renew
-  loop** — a deliberate v1 simplification, since Infisical's default
-  access-token TTL (7200s) is generous; `_InfisicalTokenManager.current()`
-  just re-logs-in lazily once the tracked deadline passes. On a `401`/`403`
-  the client invalidates the token and retries the same request once
-  (mirrors `OpenBaoService`'s 403-retry-once pattern).
-- **Secret CRUD**: `GET`/`POST`/`PATCH`/`DELETE /api/v4/secrets/{secretKey}`
-  with `projectId`, `environment`, `secretPath` — `set_field` does a `GET`
-  first to decide create vs. update (simpler and more robust than parsing
-  error codes from a failed create-on-conflict).
-- **Path/field mapping**: our `path` is Infisical's `secretPath` (a folder);
-  our `field` is Infisical's `secretKey` (an individual secret name) — see
-  [Design decisions](#design-decisions) for why this needed no blob/flatten
-  compromise.
-- **Version history — unverified, logs a warning.** `get_field_history`
-  returns an empty list and logs a warning rather than guessing at an
-  implementation: Infisical/infisical#3263 (open upstream issue) reports
-  that version-pinned reads sometimes silently return the latest version
-  instead. `get_field(..., version=N)` still forwards the `version` query
-  param (so the plumbing exists end-to-end) but also logs a warning when
-  used. **Do not build a "retrieve the previous TACACS key" workflow on
-  Infisical without testing this against the real deployed instance first**
-  — `docker/infisical/` (see [Local development](#local-development)) makes
-  that test possible locally.
-- **Verify before relying on it in production**: the exact `PATCH`/`DELETE`
-  verb shapes were not exhaustively cross-checked against every Infisical
-  API version during implementation — confirm against
-  `https://infisical.com/docs/api-reference` for the specific
-  self-hosted/cloud version in use.
 
 ## Path / field convention
 
@@ -469,28 +411,10 @@ in the existing `credentials` table, itself optionally `vault`-backed per
 
 ## Local development
 
-`docker/infisical/` — a local Infisical stack (Postgres + Redis + the
-Infisical app image), mirroring `docker/openbao`'s existing pattern:
-
-```bash
-cd docker/infisical
-cp .env.example .env
-# fill ENCRYPTION_KEY (openssl rand -hex 16), AUTH_SECRET (openssl rand -base64 32),
-# POSTGRES_PASSWORD
-docker compose up -d
-```
-
-Published on `127.0.0.1:8081` (Nautobot's dev stack already uses 8080).
-First run: open `http://localhost:8081`, create the instance admin account,
-create a project + a Universal Auth machine identity, put its client
-id/secret into a `generic` Manus credential, then add a Secret Manager
-connection (`backend: infisical`) pointing at it. See the compose file's
-header comments for the full reachability/backup notes (container DNS vs.
-host-native backend, `ALLOW_LOOPBACK_SOURCE_URLS`, `ENCRYPTION_KEY` backup
-requirements).
-
-This stack is what makes it possible to actually test the Infisical
-version-history caveat above, rather than continuing to guess at it.
+Use the repo's `docker/openbao` dev stack (see `docker/openbao/README.md`), create
+a KV v2 mount and an AppRole as described in the Settings → Secret Manager help
+dialog, put the Role ID / Secret ID into a global `generic` Manus credential, then
+add a Secret Manager connection pointing at it.
 
 ## Tests
 
@@ -499,39 +423,27 @@ version-history caveat above, rather than continuing to guess at it.
 | File | Covers |
 |---|---|
 | `test_secret_manager_policy.py` | `SecretGenerationPolicy` length bounds, charset output shape/length, non-determinism |
-| `test_secret_manager_connection_service.py` | CRUD against in-memory SQLite, `backend_config` validation per backend, duplicate-name rejection |
+| `test_secret_manager_connection_service.py` | CRUD against in-memory SQLite, `backend_config` validation, duplicate-name rejection |
 | `test_secret_get_executor.py` | config errors, sealed-value-on-found, per-device failure on miss, whole-step failure on `SecretManagerError` |
 | `test_secret_set_executor.py` | fixed vs. attribute mode, sealed-source read, unresolved-source per-device failure, connection-error whole-step failure |
 | `test_secret_generate_executor.py` | charset/length config errors, generated value sealed + **never appears in metadata** (asserted via `json.dumps` scan), connection-error whole-step failure |
 
 **Known gap, not yet covered**: `openbao_client.py`'s field-merge logic,
-`infisical_client.py`'s wire shaping (create-vs-update, token login/retry),
 `registry.py`, `service.py`, and `routers/secret_manager.py` have no direct
-unit tests yet — the design doc's own guidance was "write the Infisical
-integration test first, don't assume," and that remains true; a mocked unit
-test of `infisical_client.py`'s HTTP shaping would still be worth adding
-before the opt-in integration test against `docker/infisical/`.
+unit tests yet.
 
-**Integration** (opt-in, against live OpenBao *and* live Infisical): not yet
-written. `docker/infisical/` now exists to support this — see [Local
-development](#local-development).
+**Integration** (opt-in, against a live OpenBao): not yet written.
 
 ## Deferred / follow-ups
 
 - **No browse/reveal UI in Manus** — by decision; revisit only if the
-  network team finds Infisical's/OpenBao's own UI insufficient in practice.
+  network team finds OpenBao's own UI insufficient in practice.
 - **Cert-auth / mTLS for OpenBao secret-manager connections** — AppRole
   only, matching `VAULT_INTEGRATION.md`'s own status for that method.
-- **Infisical dynamic secrets / rotation-leasing features**, if any exist,
-  are out of scope — this integration only uses static KV-style secrets.
 - **Per-workflow-save RBAC gating** for write-capable steps — see
   [RBAC](#rbac); needs a real decision, not silent deferral.
-- **Unit tests for the OpenBao/Infisical adapter wire logic and the
-  connections router** — see [Tests](#tests).
-- **The Infisical version-history caveat** — verify `get_field_history`/
-  version-pinned `get_field` against a real Infisical instance
-  (`docker/infisical/` makes this possible now) before any workflow relies
-  on "retrieve the previous secret" for Infisical-backed connections.
+- **Unit tests for the OpenBao adapter wire logic and the connections
+  router** — see [Tests](#tests).
 - **Redis-backed shared client/token cache** across API + worker processes
   — still deferred. SM4 closed the "workers never see connection changes"
   gap with a PK re-read of `(is_active, updated_at)` on every `get_or_create`;
@@ -552,3 +464,10 @@ development](#local-development).
   on one path do not overwrite each other's fields.
 - The registry keeps one lock per connection and refuses new clients once `shutdown_all` has begun; a
   login that finishes during shutdown shuts its own client down.
+
+## Infisical removal (2026-10)
+
+Infisical support was removed: `infisical_client.py`, its tests, the `docker/infisical`
+stack, the `infisical` backend value (now rejected as unknown) and the UI option. A
+`secret_manager_connections` row with `backend = 'infisical'` can no longer be used —
+delete or recreate it as an OpenBao connection.

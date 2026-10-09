@@ -119,9 +119,8 @@ by the separate `sources.batfish:query` permission, which the read-only
 
 ## Secret Manager connections send their own auth material to a configured URL
 
-A Secret Manager connection's `credential_name` (AppRole `role_id`/`secret_id`
-or Infisical `client_id`/`client_secret`) is POSTed to the connection's
-`addr`/`site_url` on every login. **Mitigated, not accepted**: the URL must
+A Secret Manager connection's `credential_name` (AppRole `role_id`/`secret_id`)
+is POSTed to the connection's `addr` on every login. **Mitigated, not accepted**: the URL must
 pass `validate_outbound_http_url`, must be `https` with `verify_ssl=true`
 outside development, the credential must be of type `generic` (an `ssh`
 device credential is rejected), and `secret_manager.connections:*` is a

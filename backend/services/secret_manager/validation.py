@@ -10,7 +10,7 @@ _PATH_CHARS_RE = re.compile(r"^[A-Za-z0-9 _.@=+/-]+$")
 
 
 def validate_field(field: str) -> str:
-    """A secret key/field name (Infisical puts it in the URL path)."""
+    """A secret key/field name."""
     if not _FIELD_RE.fullmatch(field):
         raise ValueError(
             "field must be 1-255 characters of letters, digits, '_', '.', '-' "

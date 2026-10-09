@@ -97,7 +97,7 @@ trigger specific workflows and settings.
   users, and workflows
 - Secret Manager: generate, rotate, and read operational secrets (TACACS+ keys, SNMP
   community strings/SNMPv3 credentials, …) from a workflow at run time, stored in an
-  external OpenBao or Infisical backend chosen per connection
+  external OpenBao backend chosen per connection
 - AI workflow collaboration: a restricted, RBAC-scoped `ai-assistant` identity, per-workflow
   time-boxed consent sessions, four-tier static validation (schema, reference existence,
   capability flow, attribute-path wiring) gating both an explicit Validate action and run
@@ -111,7 +111,7 @@ UI, TanStack Query, Zustand, React Hook Form, Zod
 **Backend:** FastAPI, Python, PostgreSQL, SQLAlchemy, Redis, JWT auth, Hatchet, Netmiko,
 GitPython, pyATS/Genie
 
-**Integrations:** Nautobot API, Cisco ISE, pyATS, Batfish, Mattermost, OpenBao/Infisical
+**Integrations:** Nautobot API, Cisco ISE, pyATS, Batfish, Mattermost, OpenBao
 
 ## The app
 

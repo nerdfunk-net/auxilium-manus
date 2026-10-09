@@ -14,11 +14,11 @@ from services.credentials.manager import CredentialManager
 class SecretManagerConnectionConfig:
     id: int
     name: str
-    backend: str  # "openbao" | "infisical"
+    backend: str  # "openbao"
     verify_ssl: bool
     backend_config: dict[str, Any]
-    # This connection's own resolved auth material: (role_id/client_id,
-    # secret_id/client_secret). Both empty when credential_name is unset.
+    # This connection's own resolved auth material: (role_id,
+    # secret_id). Both empty when credential_name is unset.
     auth_id: str
     auth_secret: str = field(repr=False)
 

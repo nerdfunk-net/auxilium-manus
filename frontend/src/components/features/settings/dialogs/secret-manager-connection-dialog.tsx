@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect } from "react";
-import { Controller, useForm, useWatch } from "react-hook-form";
+import { Controller, useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 
@@ -34,7 +34,7 @@ import { useCredentialsQuery } from "../credentials/hooks/use-credentials-query"
 
 const connectionSchema = z.object({
   name: z.string().min(1, "Name is required").max(255),
-  backend: z.enum(["openbao", "infisical"]),
+  backend: z.literal("openbao"),
   credentialName: z.string().optional(),
   verifySsl: z.boolean(),
   isActive: z.boolean(),
@@ -43,10 +43,6 @@ const connectionSchema = z.object({
   addr: z.string().optional(),
   mount: z.string().optional(),
   namespace: z.string().optional(),
-  // Infisical
-  siteUrl: z.string().optional(),
-  projectId: z.string().optional(),
-  environment: z.string().optional(),
 });
 
 type ConnectionFormValues = z.infer<typeof connectionSchema>;
@@ -61,9 +57,6 @@ const EMPTY_DEFAULTS: ConnectionFormValues = {
   addr: "",
   mount: "",
   namespace: "",
-  siteUrl: "https://app.infisical.com",
-  projectId: "",
-  environment: "",
 };
 
 interface SecretManagerConnectionDialogProps {
@@ -92,14 +85,12 @@ export function SecretManagerConnectionDialog({
     defaultValues: EMPTY_DEFAULTS,
   });
 
-  const backend = useWatch({ control, name: "backend" });
-
   useEffect(() => {
     if (!open) return;
     const config = connection?.backend_config ?? {};
     reset({
       name: connection?.name ?? "",
-      backend: connection?.backend ?? "openbao",
+      backend: "openbao",
       credentialName: connection?.credential_name ?? "",
       verifySsl: connection?.verify_ssl ?? true,
       isActive: connection?.is_active ?? true,
@@ -107,10 +98,6 @@ export function SecretManagerConnectionDialog({
       addr: typeof config.addr === "string" ? config.addr : "",
       mount: typeof config.mount === "string" ? config.mount : "",
       namespace: typeof config.namespace === "string" ? config.namespace : "",
-      siteUrl:
-        typeof config.site_url === "string" ? config.site_url : "https://app.infisical.com",
-      projectId: typeof config.project_id === "string" ? config.project_id : "",
-      environment: typeof config.environment === "string" ? config.environment : "",
     });
   }, [open, connection, reset]);
 
@@ -122,18 +109,11 @@ export function SecretManagerConnectionDialog({
 
   const onSubmit = useCallback(
     (values: ConnectionFormValues) => {
-      const backendConfig: Record<string, unknown> =
-        values.backend === "openbao"
-          ? {
-              addr: values.addr?.trim() ?? "",
-              mount: values.mount?.trim() ?? "",
-              namespace: values.namespace?.trim() || undefined,
-            }
-          : {
-              site_url: values.siteUrl?.trim() ?? "",
-              project_id: values.projectId?.trim() ?? "",
-              environment: values.environment?.trim() ?? "",
-            };
+      const backendConfig: Record<string, unknown> = {
+        addr: values.addr?.trim() ?? "",
+        mount: values.mount?.trim() ?? "",
+        namespace: values.namespace?.trim() || undefined,
+      };
 
       const payload = {
         name: values.name.trim(),
@@ -177,63 +157,21 @@ export function SecretManagerConnectionDialog({
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="sm-conn-backend">Backend</Label>
-              <Controller
-                control={control}
-                name="backend"
-                render={({ field }) => (
-                  <Select value={field.value} onValueChange={field.onChange}>
-                    <SelectTrigger id="sm-conn-backend">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="openbao">OpenBao</SelectItem>
-                      <SelectItem value="infisical">Infisical</SelectItem>
-                    </SelectContent>
-                  </Select>
-                )}
+              <Label htmlFor="sm-conn-addr">OpenBao address</Label>
+              <Input
+                id="sm-conn-addr"
+                placeholder="https://vault.internal:8200"
+                {...register("addr")}
               />
             </div>
-
-            {backend === "openbao" ? (
-              <>
-                <div className="space-y-2">
-                  <Label htmlFor="sm-conn-addr">OpenBao address</Label>
-                  <Input
-                    id="sm-conn-addr"
-                    placeholder="https://vault.internal:8200"
-                    {...register("addr")}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="sm-conn-mount">KV v2 mount</Label>
-                  <Input id="sm-conn-mount" placeholder="manus-network" {...register("mount")} />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="sm-conn-namespace">Namespace (optional)</Label>
-                  <Input id="sm-conn-namespace" placeholder="" {...register("namespace")} />
-                </div>
-              </>
-            ) : (
-              <>
-                <div className="space-y-2">
-                  <Label htmlFor="sm-conn-site-url">Infisical site URL</Label>
-                  <Input
-                    id="sm-conn-site-url"
-                    placeholder="https://app.infisical.com"
-                    {...register("siteUrl")}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="sm-conn-project-id">Project ID</Label>
-                  <Input id="sm-conn-project-id" placeholder="" {...register("projectId")} />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="sm-conn-environment">Environment</Label>
-                  <Input id="sm-conn-environment" placeholder="prod" {...register("environment")} />
-                </div>
-              </>
-            )}
+            <div className="space-y-2">
+              <Label htmlFor="sm-conn-mount">KV v2 mount</Label>
+              <Input id="sm-conn-mount" placeholder="manus-network" {...register("mount")} />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="sm-conn-namespace">Namespace (optional)</Label>
+              <Input id="sm-conn-namespace" placeholder="" {...register("namespace")} />
+            </div>
 
             <div className="space-y-2">
               <Label htmlFor="sm-conn-credential">Connection credential</Label>
@@ -250,7 +188,7 @@ export function SecretManagerConnectionDialog({
                         <div className="px-2 py-1.5 text-xs text-muted-foreground">
                           No matching credentials found. Add one in Settings → Credentials with
                           type &quot;Basic Auth (Username + Password)&quot;, using username =
-                          role_id/client_id and password = secret_id/client_secret.
+                          role_id and password = secret_id.
                         </div>
                       ) : (
                         genericCredentials.map((cred) => (
@@ -270,8 +208,8 @@ export function SecretManagerConnectionDialog({
               />
               <p className="text-xs text-muted-foreground">
                 A <strong>Basic Auth (Username + Password)</strong> credential holding this
-                connection&apos;s own auth material: username = OpenBao AppRole role_id / Infisical
-                client_id, password = secret_id / client_secret. Must be <strong>global</strong> —
+                connection&apos;s own auth material: username = OpenBao AppRole role_id,
+                password = secret_id. Must be <strong>global</strong> —
                 this connection is used by background workflow runs, not as the signed-in user.
                 {hasPrivateOnly
                   ? " Edit the credential in Settings → Credentials and turn on “Make this credential global”."

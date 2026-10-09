@@ -1,7 +1,6 @@
 """Executor for the secret-get workflow step.
 
-Reads one field from an external Secret Manager connection (OpenBao or
-Infisical) per device and seals it into the device's attribute bag — see
+Reads one field from an external Secret Manager connection (OpenBao) per device and seals it into the device's attribute bag — see
 doc/SECRET_MANAGER_INTEGRATION.md. This is how a downstream step retrieves a
 previously-stored (or previously-rotated) device secret, e.g. the TACACS+ key
 needed to reconfigure a device.

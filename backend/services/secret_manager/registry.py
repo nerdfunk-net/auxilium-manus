@@ -39,10 +39,6 @@ def _build_client(cfg: SecretManagerConnectionConfig) -> SecretManagerClient:
         from services.secret_manager.openbao_client import OpenBaoSecretManagerClient
 
         return OpenBaoSecretManagerClient(cfg)
-    if cfg.backend == "infisical":
-        from services.secret_manager.infisical_client import InfisicalSecretManagerClient
-
-        return InfisicalSecretManagerClient(cfg)
     raise SecretManagerConfigError(f"Unknown secret manager backend: {cfg.backend!r}")
 
 

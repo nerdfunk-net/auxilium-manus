@@ -152,3 +152,16 @@ def test_update_invalidates_registry(
         response = client.put("/api/secret-manager/connections/1", json={"description": "x"})
     assert response.status_code == 200
     registry.invalidate.assert_awaited_once_with(1)
+
+
+def test_list_survives_row_from_removed_backend(
+    app: FastAPI, connection_service: MagicMock
+) -> None:
+    legacy = {**_ROW, "id": 2, "name": "old", "backend": "infisical"}
+    connection_service.get_connections.return_value = [_ROW, legacy]
+    with TestClient(app) as client:
+        response = client.get("/api/secret-manager/connections")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["total"] == 2
+    assert [c["backend"] for c in body["connections"]] == ["openbao", "infisical"]

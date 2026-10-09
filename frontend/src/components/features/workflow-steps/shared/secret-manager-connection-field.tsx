@@ -21,7 +21,6 @@ interface SecretManagerConnectionFieldProps {
 
 const BACKEND_LABELS: Record<string, string> = {
   openbao: "OpenBao",
-  infisical: "Infisical",
 };
 
 const EMPTY_CONNECTIONS: SecretManagerConnectionRecord[] = [];

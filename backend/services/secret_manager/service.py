@@ -10,7 +10,7 @@ Rendered paths and field names are validated here, before any client lookup
 
 No ``storage_backend``-style branching lives here — which client class to use
 is decided entirely inside the registry/config layer. This facade never
-imports ``OpenBaoSecretManagerClient`` or ``InfisicalSecretManagerClient``.
+imports ``OpenBaoSecretManagerClient``.
 """
 
 from __future__ import annotations

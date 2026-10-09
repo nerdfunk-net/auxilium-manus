@@ -12,8 +12,8 @@ export function SecretGetHelpPanel() {
     <div className="space-y-6">
       <HelpSection title="What this step does">
         <p>
-          Reads one field from an external Secret Manager connection (OpenBao or
-          Infisical) per device and seals it into the device&apos;s attribute bag —
+          Reads one field from an external Secret Manager connection (OpenBao)
+          per device and seals it into the device&apos;s attribute bag —
           the &quot;retrieve the current or a previous device secret&quot; primitive
           (a TACACS+ key, an SNMP credential, ...). A device with no value at the
           configured path/field is routed to <HelpCode>failure</HelpCode>; the step
@@ -22,7 +22,7 @@ export function SecretGetHelpPanel() {
         <p>
           Configure the connection itself in{" "}
           <span className="font-medium text-foreground">Settings → Secret Manager</span>{" "}
-          — that page has its own Help dialog covering OpenBao/Infisical setup.
+          — that page has its own Help dialog covering OpenBao setup.
         </p>
       </HelpSection>
 

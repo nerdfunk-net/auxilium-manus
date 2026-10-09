@@ -25,7 +25,6 @@ import { SecretManagerHelpDialog } from "../dialogs/secret-manager-help-dialog";
 
 const BACKEND_LABELS: Record<string, string> = {
   openbao: "OpenBao",
-  infisical: "Infisical",
 };
 
 export function SecretManagerSettingsCanvas() {
@@ -51,7 +50,7 @@ export function SecretManagerSettingsCanvas() {
             <div>
               <h1 className="text-lg font-semibold">Secret Manager</h1>
               <p className="mt-1 text-sm text-muted-foreground">
-                Connections to an external secret manager (OpenBao or Infisical) used by the
+                Connections to an external secret manager (OpenBao) used by the
                 secret-get / secret-set / secret-generate workflow steps to read, write, and
                 rotate operational network secrets — TACACS+ keys, SNMP credentials, and similar.
                 Browsing stored secrets happens in the backend&apos;s own UI, not here; this page
