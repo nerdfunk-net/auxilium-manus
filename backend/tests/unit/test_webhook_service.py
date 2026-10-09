@@ -94,7 +94,7 @@ class GitWebhookServiceTests(unittest.TestCase):
         fake_ref = MagicMock(workflow_run_id="h-1")
         for target, value in [
             ("service_factory.build_cache_service", self.cache),
-            ("service_factory.build_login_rate_limiter", self.limiter),
+            ("service_factory.build_webhook_rate_limiter", self.limiter),
         ]:
             p = patch(target, return_value=value)
             p.start()

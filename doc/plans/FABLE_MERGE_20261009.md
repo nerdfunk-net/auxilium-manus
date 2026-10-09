@@ -1,7 +1,8 @@
 # Plan: Fix every open finding from `FABLE_MERGE_20261009.md`
 
 Source: `doc/analysis/FABLE_MERGE_20261009.md` (merge of `FABLE_BACKEND_20260902/0912/0916`).
-Status: **proposed**. Nothing here is implemented yet.
+Status: **in progress** — Phases 1 (T3 deferred), 2 and 3 implemented (uncommitted) and reviewed
+(`FABLE_MERGE_P1_P3_REVIEW.md`); Phases 4–10 open.
 
 Each phase is independent: it can be implemented, tested and committed on its own, in any
 order. Where two phases touch the same file it is called out under **Depends on / conflicts**
@@ -30,6 +31,10 @@ Suggested order: 1, 2, 10 (cheap, closes the Medium items) → 3, 4, 5 → 6 →
 ---
 
 ## 0. Decisions (defaults — change before starting a phase if you disagree)
+
+**Confirmed 2026-10-09:** PD1 (block for everyone, as written), PD2 (as written, defer if > ~40 tests break),
+PD8 (rename/delete handling; the FK variant is recorded in `doc/OPEN_TODOS.md`), CI (restore, §9.12).
+All other PDs are still defaults.
 
 Named `PD1…PD9` (plan decisions) so they are not confused with the documentation findings `D1…D7`.
 
@@ -226,6 +231,10 @@ def delete_role(
 (`User` and `get_current_user` are already imported in this module.)
 
 ### 1.5 T3 — `tv` and `sid_iat` are mandatory
+
+> **Deferred (2026-10-09):** making the claims mandatory broke 393 unit tests (router tests that stub
+> `verify_token` with minimal payloads), far above the PD2 threshold of ~40. `core/auth.py` is unchanged;
+> do T3 as its own change with the shared `token_payload` helper below.
 
 `backend/core/auth.py::_load_active_user`
 
@@ -2111,7 +2120,8 @@ Decision revised after reading the code (replaces PD8): inventories are owned by
 orphaned `created_by` string can be inherited by a later holder of that username. Orphans arise from exactly
 two events, both in `UserService`: **rename** and **delete**. So: carry private inventories along on
 rename, remove them on delete, and warn about any pre-existing orphan. No schema change, no migration,
-no API change. (If you still prefer the FK, it is a separate, larger plan.)
+no API change. **Confirmed:** implement this variant now; the `owner_user_id` FK follow-up is tracked in `doc/OPEN_TODOS.md`
+("Inventory ownership by user id"), added as part of Phase 8.
 
 ### 8.1 Repository helpers
 
@@ -2937,14 +2947,14 @@ Q10 (`DeviceCommonService` 43 pass-throughs, `InterfaceManagerService`, `DeviceU
 149, `GitService.push`) follows the same method; do them only when a feature already needs to touch the file.
 Not planned: renaming services to `{domain}_service.py` (Q11) — cosmetic.
 
-### 9.12 CI — restore or leave removed (decision, not code)
+### 9.12 CI — restore (decided)
 
 `.github/workflows/backend-ci.yml` was deleted deliberately in `777c071`, so **there is currently no CI**
 (the 09-02/09-12 analyses and `CLAUDE.md` still describe one). Either:
-- **Restore** (recommended before going public): `git show 58f1ce4:.github/workflows/backend-ci.yml >
+- **Restore** (**decided 2026-10-09**; do it before going public): `git show 58f1ce4:.github/workflows/backend-ci.yml >
   .github/workflows/backend-ci.yml`, then `git show 21b1f64` for the action-version bump; keep pyright
   advisory until §9.7 brings it to 0; or
-- **Leave removed** and delete the "CI runs these" sentences from `CLAUDE.md` / `doc/claude/development.md`.
+- ~~Leave removed~~ (not chosen) — would delete the "CI runs these" sentences from `CLAUDE.md` / `doc/claude/development.md`.
 Run the equivalent locally either way: ruff, the four guard scripts, `pytest tests/unit`,
 `pip-audit -r requirements.txt -r requirements-dev.txt --ignore-vuln PYSEC-2026-2858`, `pyright`.
 

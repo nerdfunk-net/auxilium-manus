@@ -104,9 +104,12 @@ export function PermissionsSettingsCanvas() {
   const handleUpdateUser = useCallback(
     (user: RbacUser, values: { username: string; password?: string; is_active: boolean }) => {
       const payload: { username?: string; password?: string; is_active?: boolean } = {
-        username: values.username.trim(),
         is_active: values.is_active,
       };
+      // Only send a rename when it changed: the backend refuses self-renames (T2).
+      if (values.username.trim() !== user.username) {
+        payload.username = values.username.trim();
+      }
       if (values.password?.trim()) {
         payload.password = values.password;
       }
@@ -242,6 +245,7 @@ export function PermissionsSettingsCanvas() {
         mode="edit"
         open={userDialog.type === "edit"}
         user={userDialog.type === "edit" ? userDialog.user : undefined}
+        isSelf={userDialog.type === "edit" && userDialog.user.id === currentUser?.id}
         isSaving={updateUser.isPending}
         onClose={() => setUserDialog({ type: "closed" })}
         onSubmit={(values) => {

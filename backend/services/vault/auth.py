@@ -10,7 +10,7 @@ token and is refused outside ``ENV=development``.
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Protocol
 
 import httpx
@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 class VaultToken:
     """The result of authenticating: a client token plus its lease shape."""
 
-    client_token: str
+    client_token: str = field(repr=False)
     lease_duration: int = 0
     renewable: bool = False
     period: int | None = None

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from sqlalchemy.orm import Session
@@ -20,7 +20,7 @@ class SecretManagerConnectionConfig:
     # This connection's own resolved auth material: (role_id/client_id,
     # secret_id/client_secret). Both empty when credential_name is unset.
     auth_id: str
-    auth_secret: str
+    auth_secret: str = field(repr=False)
 
 
 def load_connection_config(connection_id: int, db: Session) -> SecretManagerConnectionConfig:

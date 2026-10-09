@@ -50,11 +50,13 @@ interface UserDialogProps {
   mode: "create" | "edit";
   user?: RbacUser;
   isSaving?: boolean;
+  /** Editing your own account: credentials change via the change-password dialog (T2). */
+  isSelf?: boolean;
   onClose: () => void;
   onSubmit: (values: FormValues) => void;
 }
 
-export function UserDialog({ open, mode, user, isSaving = false, onClose, onSubmit }: UserDialogProps) {
+export function UserDialog({ open, mode, user, isSaving = false, isSelf = false, onClose, onSubmit }: UserDialogProps) {
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
     defaultValues: { username: "", password: "", is_active: true },
@@ -98,7 +100,7 @@ export function UserDialog({ open, mode, user, isSaving = false, onClose, onSubm
                 <FormItem>
                   <FormLabel>Username</FormLabel>
                   <FormControl>
-                    <Input autoComplete="off" placeholder="jdoe" {...field} />
+                    <Input autoComplete="off" placeholder="jdoe" disabled={isSelf} {...field} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -114,10 +116,12 @@ export function UserDialog({ open, mode, user, isSaving = false, onClose, onSubm
                     Password{mode === "edit" ? " (leave blank to keep)" : ""}
                   </FormLabel>
                   <FormControl>
-                    <Input autoComplete="new-password" type="password" {...field} />
+                    <Input autoComplete="new-password" type="password" disabled={isSelf} {...field} />
                   </FormControl>
                   <FormDescription>
-                    At least 12 characters. The user must change it at next login.
+                    {isSelf
+                      ? "Change your own password from the profile menu."
+                      : "At least 12 characters. The user must change it at next login."}
                   </FormDescription>
                   <FormMessage />
                 </FormItem>

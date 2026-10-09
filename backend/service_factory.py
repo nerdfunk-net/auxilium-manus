@@ -17,6 +17,8 @@ from services.auth.login_rate_limiter import (
     LOGIN_IP_RATE_LIMIT_WINDOW_SECONDS,
     LOGIN_USER_RATE_LIMIT_ATTEMPTS,
     LOGIN_USER_RATE_LIMIT_WINDOW_SECONDS,
+    WEBHOOK_RATE_LIMIT_ATTEMPTS,
+    WEBHOOK_RATE_LIMIT_WINDOW_SECONDS,
     LoginRateLimiter,
 )
 from services.batfish.client import BatfishService
@@ -56,6 +58,7 @@ _mattermost_service: MattermostService | None = None
 _login_rate_limiter: LoginRateLimiter | None = None
 _login_ip_rate_limiter: LoginRateLimiter | None = None
 _login_user_rate_limiter: LoginRateLimiter | None = None
+_webhook_rate_limiter: LoginRateLimiter | None = None
 # OpenBao (Vault). Both are None unless VAULT_ENABLED. `_vault_service` is the
 # read-only runtime client (manus-app policy); `_vault_management_service` is the
 # write-capable client (manus-manage policy), injected only into credential-manager
@@ -239,6 +242,20 @@ def build_login_ip_rate_limiter() -> LoginRateLimiter:
             window_seconds=LOGIN_IP_RATE_LIMIT_WINDOW_SECONDS,
         )
     return _login_ip_rate_limiter
+
+
+def build_webhook_rate_limiter() -> LoginRateLimiter:
+    """Per repo+client-IP budget for the inbound git webhook (W1)."""
+    global _webhook_rate_limiter
+    if _webhook_rate_limiter is None:
+        _webhook_rate_limiter = LoginRateLimiter(
+            redis_url=settings.redis_url,
+            key_prefix="manus-webhook-rl",
+            fail_closed=settings.environment != "development",
+            attempts=WEBHOOK_RATE_LIMIT_ATTEMPTS,
+            window_seconds=WEBHOOK_RATE_LIMIT_WINDOW_SECONDS,
+        )
+    return _webhook_rate_limiter
 
 
 def build_login_user_rate_limiter() -> LoginRateLimiter:

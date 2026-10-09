@@ -125,7 +125,11 @@ def update_role(
     status_code=status.HTTP_204_NO_CONTENT,
     dependencies=[Depends(require_permission("rbac.roles", "delete"))],
 )
-def delete_role(role_id: int, service: RBACService = Depends(_service)) -> None:
+def delete_role(
+    role_id: int,
+    service: RBACService = Depends(_service),
+    current_user: User = Depends(get_current_user),
+) -> None:
     role = service.get_role(role_id)
     if role is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Role not found")
@@ -135,7 +139,10 @@ def delete_role(role_id: int, service: RBACService = Depends(_service)) -> None:
             detail="System roles cannot be deleted",
         )
 
-    service.delete_role(role_id)
+    try:
+        service.delete_role(role_id, actor_user_id=current_user.id)
+    except AccessDeniedError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
 
 
 @router.get(

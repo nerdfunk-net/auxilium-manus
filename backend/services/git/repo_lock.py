@@ -13,8 +13,10 @@ branches run concurrently"). This lock serialises the git sequence across
 worker processes using Redis ``SET NX EX``, so it covers all three triggers
 with one mechanism.
 
-Fail-soft by design: if Redis is unavailable the lock is skipped (a warning is
-logged) rather than blocking a caller.
+Fail-soft when there is no usable cache: if Redis is not configured, or errors
+while acquiring, the lock is skipped (a warning is logged). A lock that stays held
+by someone else past the acquire timeout fails the caller with ``RuntimeError`` -- proceeding would
+corrupt the shared working tree.
 
 Two ways to use it:
 
@@ -50,8 +52,11 @@ def acquire_git_repo_lock(git_repository_id: int) -> bool:
 
     Returns True when actually acquired -- the caller must then call
     ``release_git_repo_lock`` (typically in a ``finally``) once its git work
-    is done. Returns False when Redis was unavailable or acquisition timed
-    out (fail-soft: proceed anyway, matching ``git_repo_lock``'s behaviour).
+    is done. Returns False when no cache is configured or Redis errors
+    (fail-soft: the lock cannot be taken, and nothing is known to be contended).
+    Raises ``RuntimeError`` when the lock is
+    held by someone else for longer than ``_ACQUIRE_TIMEOUT_SECONDS`` --
+    proceeding would corrupt the shared working tree (W4).
     """
     import service_factory
 
@@ -66,15 +71,25 @@ def acquire_git_repo_lock(git_repository_id: int) -> bool:
     key = _lock_key(git_repository_id)
     deadline = time.monotonic() + _ACQUIRE_TIMEOUT_SECONDS
     while time.monotonic() < deadline:
-        if cache.set_if_absent(key, {"held": True}, _LOCK_TTL_SECONDS):
-            return True
+        try:
+            if cache.set_if_absent(key, {"held": True}, _LOCK_TTL_SECONDS, raise_on_error=True):
+                return True
+        except Exception:
+            # Redis died after the cache client was built: nothing is contended, so
+            # do not spin for the whole timeout -- skip the lock like "no cache".
+            logger.warning(
+                "git_repo_lock: cache error, proceeding without lock repo_id=%s",
+                git_repository_id,
+                exc_info=True,
+            )
+            return False
         time.sleep(_POLL_INTERVAL_SECONDS)
 
-    logger.warning(
-        "git_repo_lock: timed out waiting for lock, proceeding anyway repo_id=%s",
-        git_repository_id,
+    logger.error("git_repo_lock: timed out waiting for lock repo_id=%s", git_repository_id)
+    raise RuntimeError(
+        f"Timed out after {_ACQUIRE_TIMEOUT_SECONDS}s waiting for the lock on git repository "
+        f"{git_repository_id}; another run is still using it"
     )
-    return False
 
 
 def release_git_repo_lock(git_repository_id: int, acquired: bool) -> None:

@@ -61,10 +61,11 @@ async def start_all(process_name: str = WORKER_PROCESS_NAME) -> AsyncIterator[No
     service_factory.set_mattermost_app_service(mattermost_service)
 
     # OpenBao (Vault) — no-op unless VAULT_ENABLED. Each worker process holds its
-    # own token + renewal loop. See doc/VAULT_INTEGRATION.md.
+    # own runtime token + renewal loop; workers only read, so no management
+    # (write-capable) login (V5). See doc/VAULT_INTEGRATION.md.
     from core.vault import start_vault_services, stop_vault_services
 
-    await start_vault_services()
+    await start_vault_services(with_management=False)
 
     service_factory.build_cache_service()
     logger.info("Worker services initialized for process=%s", process_name)

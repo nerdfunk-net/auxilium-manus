@@ -387,3 +387,26 @@ attribute-write helper (not a flat dotted key; use
 `git_operation` metadata as is, add a `produces`/Help-tab note, and cover it
 with an executor test plus a `route-on-attribute` path-resolution test.
 
+
+---
+
+## Inventory ownership by user id (FK instead of username string)
+
+**Added:** 2026-10-09 · **Area:** `backend/core/models/inventories.py`, `InventoryRepository`, `InventoryService`, `reference_resolver`
+
+### What we have
+
+Inventories are owned by the username *string* (`created_by`) in ~20 places.
+`doc/plans/FABLE_MERGE_20261009.md` Phase 8 (S14 / R6) closes the hole without a schema
+change: private inventories are carried along on user rename and removed on user delete,
+and pre-existing orphans only produce a startup warning.
+
+### End state
+
+An `owner_user_id` FK to `users.id` (with back-fill migration), replacing all username-string
+ownership checks, so identity can never be inherited via a reused username.
+
+### What blocks it
+
+Touches every ownership query/access check plus a data back-fill via the full migration
+framework (`doc/MIGRATION_SYSTEM.md`); deliberately deferred as a larger, separate plan.

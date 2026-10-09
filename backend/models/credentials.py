@@ -7,6 +7,9 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from core.passphrase_cipher import normalize_algorithm
 
+MAX_PASSWORD_LENGTH = 1024  # passwords, tokens, passphrases, shared-secret passphrases
+MAX_SSH_KEY_LENGTH = 64 * 1024  # PEM private keys
+
 CredentialType = Literal["ssh", "ssh_key", "tacacs", "generic", "token", "shared_secret"]
 CredentialStatus = Literal["active", "expiring", "expired", "unknown"]
 CredentialVisibility = Literal["global", "private"]
@@ -26,9 +29,9 @@ class CredentialCreate(BaseModel):
     name: str = Field(min_length=1, max_length=128)
     username: str = Field(min_length=1, max_length=128)
     type: CredentialType = "ssh"
-    password: str | None = None
-    ssh_private_key: str | None = None
-    ssh_passphrase: str | None = None
+    password: str | None = Field(default=None, max_length=MAX_PASSWORD_LENGTH)
+    ssh_private_key: str | None = Field(default=None, max_length=MAX_SSH_KEY_LENGTH)
+    ssh_passphrase: str | None = Field(default=None, max_length=MAX_PASSWORD_LENGTH)
     algorithm: str | None = None
     valid_until: date | None = None
     visibility: CredentialVisibility = "private"
@@ -65,9 +68,9 @@ class CredentialUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=128)
     username: str | None = Field(default=None, min_length=1, max_length=128)
     type: CredentialType | None = None
-    password: str | None = None
-    ssh_private_key: str | None = None
-    ssh_passphrase: str | None = None
+    password: str | None = Field(default=None, max_length=MAX_PASSWORD_LENGTH)
+    ssh_private_key: str | None = Field(default=None, max_length=MAX_SSH_KEY_LENGTH)
+    ssh_passphrase: str | None = Field(default=None, max_length=MAX_PASSWORD_LENGTH)
     algorithm: str | None = None
     valid_until: date | None = None
     visibility: CredentialVisibility | None = None

@@ -79,5 +79,20 @@ class KdfIterationsFloorTests(unittest.TestCase):
             self.assertEqual(config.Settings().kdf_iterations, 100_000)
 
 
+class RefreshWindowCapTests(unittest.TestCase):
+    def test_refresh_window_above_session_cap_is_refused(self) -> None:
+        env = {"SESSION_MAX_AGE_HOURS": "12", "REFRESH_TOKEN_MAX_AGE_HOURS": "13"}
+        with mock.patch.dict("os.environ", env, clear=False):
+            with self.assertRaisesRegex(RuntimeError, "REFRESH_TOKEN_MAX_AGE_HOURS"):
+                config.Settings()
+
+    def test_refresh_window_defaults_to_session_cap(self) -> None:
+        env = {"SESSION_MAX_AGE_HOURS": "8"}
+        with mock.patch.dict("os.environ", env, clear=False):
+            os_env = __import__("os").environ
+            os_env.pop("REFRESH_TOKEN_MAX_AGE_HOURS", None)
+            self.assertEqual(config.Settings().refresh_token_max_age_hours, 8)
+
+
 if __name__ == "__main__":
     unittest.main()

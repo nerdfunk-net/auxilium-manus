@@ -393,14 +393,7 @@ class CredentialsService:
         if not credential.vault_path:
             raise CredentialMissingFieldError("Vault credential has no path")
         try:
-            existing = self._vault_writer.read_kv(credential.vault_path)
-        except VaultSecretNotFoundError:
-            existing = {}
-        except VaultError as exc:
-            raise CredentialVaultUnavailableError(str(exc)) from exc
-        merged = {**existing, **new_fields}
-        try:
-            new_version = self._vault_writer.write_kv(credential.vault_path, merged)
+            merged, new_version = self._vault_writer.merge_kv(credential.vault_path, new_fields)
         except VaultError as exc:
             raise CredentialVaultUnavailableError(str(exc)) from exc
         if isinstance(new_version, int) and new_version > 1:
@@ -416,6 +409,9 @@ class CredentialsService:
                     credential.vault_path,
                     exc_info=True,
                 )
+        reader = self._get_vault_reader()
+        if reader is not None:
+            reader.invalidate(credential.vault_path)  # V8: the runtime client's TTL cache
         return set(merged)
 
     # -------------------------------------------------------------------- delete
@@ -424,17 +420,25 @@ class CredentialsService:
         if credential is None:
             raise CredentialNotFoundError(cred_id)
         if credential.storage_backend == "vault" and credential.vault_path:
-            if self._vault_writer is not None:
+            if self._vault_writer is None:
+                if settings.vault_enabled:
+                    raise CredentialVaultNotConfiguredError()
+                logger.warning(
+                    "Vault is disabled; removing credential %s without deleting %s",
+                    cred_id,
+                    credential.vault_path,
+                )
+            else:
                 try:
                     self._vault_writer.delete_kv(credential.vault_path)
-                except VaultError:
-                    logger.warning(
-                        "Failed to delete OpenBao secret for credential %s at %s; "
-                        "removing the database row anyway",
-                        cred_id,
-                        credential.vault_path,
-                        exc_info=True,
-                    )
+                except VaultSecretNotFoundError:
+                    pass  # already gone: nothing to orphan
+                except VaultError as exc:
+                    # V9: keep the row so the operator can retry once OpenBao is back.
+                    raise CredentialVaultUnavailableError(str(exc)) from exc
+                reader = self._get_vault_reader()
+                if reader is not None:
+                    reader.invalidate(credential.vault_path)  # V8
         if credential.type == "ssh_key":
             # Also removes a permanent file left by pre-V2 vault rows.
             self._delete_ssh_key_file(

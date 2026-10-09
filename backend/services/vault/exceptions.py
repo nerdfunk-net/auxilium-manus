@@ -30,3 +30,7 @@ class VaultPermissionError(VaultError):
 
 class VaultSecretNotFoundError(VaultError):
     """Raised when the requested KV path holds no secret (HTTP 404)."""
+
+
+class VaultConflictError(VaultError):
+    """Raised when a KV v2 write loses a check-and-set race (HTTP 400, cas mismatch)."""

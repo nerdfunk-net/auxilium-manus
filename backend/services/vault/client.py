@@ -26,6 +26,7 @@ from services.vault.auth import build_auth_strategy
 from services.vault.cache import InProcessTTLCache
 from services.vault.config import VaultConfig
 from services.vault.exceptions import (
+    VaultConflictError,
     VaultError,
     VaultPermissionError,
     VaultSecretNotFoundError,
@@ -171,8 +172,15 @@ class OpenBaoService:
         if response.status_code in (200, 201, 204):
             return response
         if response.status_code == 403 and authed and _retry_on_403:
-            # An expired or revoked token also answers 403. Re-login once and
-            # retry transparently so a single expiry never fails a caller (V4).
+            # An expired or revoked token also answers 403, but so does a genuine
+            # policy denial. Ask OpenBao whether the token is still good (V7): if it
+            # is, this is a denial -- do not burn a login on it.
+            if self._token_is_valid(client, headers):
+                raise VaultPermissionError(
+                    f"OpenBao denied {method} {path} (HTTP 403) for {self._cfg.role_label}"
+                )
+            # Expired/revoked: re-login once and retry transparently so a single
+            # expiry never fails a caller (V4).
             self._tokens.invalidate()
             return self._request(method, path, json=json, authed=authed, _retry_on_403=False)
         if response.status_code == 403:
@@ -187,7 +195,17 @@ class OpenBaoService:
             raise VaultUnavailableError(
                 f"OpenBao {method} {path} returned HTTP {response.status_code}"
             )
+        if response.status_code == 400 and "check-and-set" in response.text:
+            raise VaultConflictError(f"OpenBao check-and-set conflict at {path}")
         raise VaultError(f"OpenBao {method} {path} returned HTTP {response.status_code}")
+
+    @staticmethod
+    def _token_is_valid(client: httpx.Client, headers: dict[str, str]) -> bool:
+        try:
+            response = client.get("/v1/auth/token/lookup-self", headers=headers)
+        except httpx.HTTPError:
+            return False
+        return response.status_code == 200
 
     # --------------------------------------------------------------------- KV v2
     def read_kv(self, path: str, *, version: int | None = None) -> dict:
@@ -210,17 +228,69 @@ class OpenBaoService:
             self._cache.set(path, data)
         return dict(data)
 
-    def write_kv(self, path: str, data: dict) -> int | None:
-        """Write a new version; return its version number when OpenBao reports it."""
-        response = self._request(
-            "POST", f"/v1/{self._cfg.mount}/data/{path}", json={"data": data}
-        )
+    def write_kv(self, path: str, data: dict, *, cas: int | None = None) -> int | None:
+        """Write a new version; return its version number when OpenBao reports it.
+
+        ``cas`` makes the write conditional on the current version (0 = create only
+        if absent); a mismatch raises ``VaultConflictError`` (V10).
+        """
+        body: dict = {"data": data}
+        if cas is not None:
+            body["options"] = {"cas": cas}
+        response = self._request("POST", f"/v1/{self._cfg.mount}/data/{path}", json=body)
         self._cache.set(path, data)
         try:
             version = ((response.json() or {}).get("data") or {}).get("version")
         except ValueError:
             return None
         return version if isinstance(version, int) else None
+
+    def read_kv_with_version(self, path: str) -> tuple[dict, int | None]:
+        """Uncached read returning ``(data, version)`` for read-modify-write (V10)."""
+        body = self._request("GET", f"/v1/{self._cfg.mount}/data/{path}").json() or {}
+        envelope = body.get("data") or {}
+        data = envelope.get("data")
+        if data is None:
+            raise VaultSecretNotFoundError(f"OpenBao path holds no secret data: {path}")
+        version = (envelope.get("metadata") or {}).get("version")
+        return dict(data), version if isinstance(version, int) else None
+
+    def merge_kv(
+        self, path: str, new_fields: dict, *, attempts: int = 2
+    ) -> tuple[dict, int | None]:
+        """Read-merge-write ``new_fields`` into the secret at *path* with check-and-set.
+
+        Returns ``(merged, new_version)``. A lost race is re-read and retried once;
+        a second loss raises ``VaultConflictError``. Never served from the TTL cache,
+        so concurrent writers in other processes cannot be overwritten (V10 / SM6).
+        """
+        for attempt in range(attempts):
+            try:
+                current, version = self.read_kv_with_version(path)
+            except VaultSecretNotFoundError:
+                # No readable data. A never-written path takes cas=0; a soft-deleted /
+                # destroyed one still has metadata and needs its current version (cas=0
+                # would be rejected forever).
+                current, version = {}, self._current_version_or_zero(path)
+            merged = {**current, **new_fields}
+            try:
+                return merged, self.write_kv(path, merged, cas=version)
+            except VaultConflictError:
+                if attempt == attempts - 1:
+                    raise
+        raise VaultConflictError(path)  # unreachable; keeps the type checker honest
+
+    def _current_version_or_zero(self, path: str) -> int:
+        try:
+            meta = self.metadata_kv(path)
+        except VaultSecretNotFoundError:
+            return 0
+        version = meta.get("current_version")
+        return version if isinstance(version, int) else 0
+
+    def invalidate(self, path: str) -> None:
+        """Forget a cached secret (used when another client in this process wrote it, V8)."""
+        self._cache.invalidate(path)
 
     def destroy_kv_versions(self, path: str, versions: list[int]) -> None:
         """Permanently destroy specific versions (KV v2 ``destroy`` endpoint)."""

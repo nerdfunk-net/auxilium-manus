@@ -30,7 +30,7 @@ import asyncio
 import logging
 import threading
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import httpx
 
@@ -52,7 +52,7 @@ _TOKEN_EXPIRY_BUFFER_SECONDS = 60
 
 @dataclass
 class _InfisicalToken:
-    access_token: str
+    access_token: str = field(repr=False)
     expires_at: float  # time.monotonic() deadline
 
 

@@ -211,14 +211,13 @@ class CredentialsServiceVaultTests(unittest.TestCase):
             storage_backend="vault",
         )
         row = self._row("v")
-        self.writer.read_kv.return_value = {"ssh_key": "KEY"}
-        self.writer.write_kv.return_value = 2
+        self.writer.merge_kv.return_value = ({"ssh_key": "KEY", "ssh_passphrase": "new-pp"}, 2)
 
         self.service.update_credential(row.id, ssh_passphrase="new-pp")
 
-        self.writer.write_kv.assert_called_with(
-            row.vault_path, {"ssh_key": "KEY", "ssh_passphrase": "new-pp"}
-        )
+        self.writer.merge_kv.assert_called_with(row.vault_path, {"ssh_passphrase": "new-pp"})
+        # V8: the runtime client's cached copy is dropped after the write.
+        self.reader.invalidate.assert_called_with(row.vault_path)
         self.assertEqual(self._row("v").vault_secret_fields, "ssh_key,ssh_passphrase")
         # V3: rotating a version-2 secret destroys the superseded version 1.
         self.writer.destroy_kv_versions.assert_called_once_with(row.vault_path, [1])
@@ -233,8 +232,7 @@ class CredentialsServiceVaultTests(unittest.TestCase):
             storage_backend="vault",
         )
         row = self._row("v")
-        self.writer.read_kv.return_value = {"ssh_key": "KEY"}
-        self.writer.write_kv.return_value = 1
+        self.writer.merge_kv.return_value = ({"ssh_key": "KEY", "ssh_passphrase": "new-pp"}, 1)
 
         self.service.update_credential(row.id, ssh_passphrase="new-pp")
 
@@ -252,8 +250,7 @@ class CredentialsServiceVaultTests(unittest.TestCase):
             storage_backend="vault",
         )
         row = self._row("v")
-        self.writer.read_kv.return_value = {"ssh_key": "KEY"}
-        self.writer.write_kv.return_value = 2
+        self.writer.merge_kv.return_value = ({"ssh_key": "KEY", "ssh_passphrase": "new-pp"}, 2)
         self.writer.destroy_kv_versions.side_effect = _VaultUnavailableError("x")
 
         with self.assertLogs("services.credentials.credentials_service", level="WARNING"):
@@ -276,6 +273,63 @@ class CredentialsServiceVaultTests(unittest.TestCase):
         self.service.delete_credential(row.id)
         self.writer.delete_kv.assert_called_once_with(path)
         self.assertIsNone(self._row("v"))
+
+    def _vault_row(self):
+        self.service.create_credential(
+            name="v",
+            username="u",
+            cred_type="token",
+            password="t",
+            visibility="global",
+            storage_backend="vault",
+        )
+        return self._row("v")
+
+    def test_delete_vault_failure_keeps_row(self) -> None:
+        # V9: fail closed, so the secret is not orphaned in OpenBao.
+        row = self._vault_row()
+        self.writer.delete_kv.side_effect = VaultUnavailableError("sealed")
+        with self.assertRaises(CredentialVaultUnavailableError):
+            self.service.delete_credential(row.id)
+        self.assertIsNotNone(self._row("v"))
+
+    def test_delete_not_found_in_vault_still_deletes(self) -> None:
+        from services.vault.exceptions import VaultSecretNotFoundError
+
+        row = self._vault_row()
+        self.writer.delete_kv.side_effect = VaultSecretNotFoundError("gone")
+        self.service.delete_credential(row.id)
+        self.assertIsNone(self._row("v"))
+
+    def test_delete_invalidates_reader_cache(self) -> None:
+        row = self._vault_row()
+        path = row.vault_path
+        self.service.delete_credential(row.id)
+        self.reader.invalidate.assert_called_with(path)
+
+    def test_delete_vault_disabled_deletes_with_warning(self) -> None:
+        from unittest.mock import patch
+
+        row = self._vault_row()
+        service = CredentialsService(self.db, vault_reader=self.reader, vault_writer=None)
+        with (
+            patch("services.credentials.credentials_service.settings") as settings_mock,
+            self.assertLogs("services.credentials.credentials_service", level="WARNING"),
+        ):
+            settings_mock.vault_enabled = False
+            service.delete_credential(row.id)
+        self.assertIsNone(self._row("v"))
+
+    def test_delete_vault_enabled_without_writer_raises(self) -> None:
+        from unittest.mock import patch
+
+        row = self._vault_row()
+        service = CredentialsService(self.db, vault_reader=self.reader, vault_writer=None)
+        with patch("services.credentials.credentials_service.settings") as settings_mock:
+            settings_mock.vault_enabled = True
+            with self.assertRaises(CredentialVaultNotConfiguredError):
+                service.delete_credential(row.id)
+        self.assertIsNotNone(self._row("v"))
 
     # ------------------------------------------------------ V2: ephemeral SSH keys
     def test_discard_ephemeral_ignores_permanent_local_export(self) -> None:

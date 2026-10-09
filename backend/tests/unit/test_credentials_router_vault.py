@@ -92,6 +92,28 @@ def test_create_vault_credential_openbao_down_returns_503(app: FastAPI) -> None:
     assert response.status_code == 503
 
 
+def test_delete_vault_credential_openbao_down_returns_503(app: FastAPI) -> None:
+    mock_service = MagicMock()
+    mock_service.delete_credential.side_effect = CredentialVaultUnavailableError("sealed")
+    app.dependency_overrides[_service] = lambda: mock_service
+
+    with TestClient(app) as client:
+        response = client.delete("/api/credentials/5")
+
+    assert response.status_code == 503
+
+
+def test_delete_vault_credential_without_writer_returns_422(app: FastAPI) -> None:
+    mock_service = MagicMock()
+    mock_service.delete_credential.side_effect = CredentialVaultNotConfiguredError()
+    app.dependency_overrides[_service] = lambda: mock_service
+
+    with TestClient(app) as client:
+        response = client.delete("/api/credentials/5")
+
+    assert response.status_code == 422
+
+
 def test_reveal_password_openbao_down_returns_503(app: FastAPI) -> None:
     mock_service = MagicMock()
     mock_service.get_decrypted_password.side_effect = CredentialVaultUnavailableError("down")

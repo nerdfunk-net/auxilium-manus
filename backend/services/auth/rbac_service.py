@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from sqlalchemy.orm import Session
 
-from core.domain_exceptions import AccessDeniedError
+from core.domain_exceptions import AccessDeniedError, ConflictError
 from core.models.rbac import Permission
 from repositories.rbac_repository import RBACRepository
 
@@ -70,9 +70,9 @@ class RBACService:
         """R1/P8: setting a user's password (or renaming them) hands the actor
         every permission the target holds. Allowed only when that set is a
         subset of the actor's own (P2) and contains no protected permission
-        (P3). Self-changes are not blocked here (that is T2, out of scope);
-        admins and internal callers (actor_user_id=None) bypass, like every
-        other policy helper."""
+        (P3). Self-changes are rejected earlier, in ``UserService.update_user``
+        (T2); admins and internal callers (actor_user_id=None) bypass, like
+        every other policy helper."""
         if (
             actor_user_id is None
             or actor_user_id == target_user_id
@@ -186,6 +186,17 @@ class RBACService:
         return self._repo.list_permissions()
 
     def delete_permission(self, permission_id: int) -> bool:
+        permission = self._repo.get_permission_by_id(permission_id)
+        if permission is not None:
+            # Lazy import: rbac_seed imports the repository layer and lazily this module.
+            from services.auth.rbac_seed import DEFAULT_PERMISSIONS
+
+            if (permission.resource, permission.action) in {
+                (resource, action) for resource, action, _ in DEFAULT_PERMISSIONS
+            }:
+                # R4: deleting it would cascade out of every role, admin included,
+                # until the next restart re-seeds it.
+                raise ConflictError("Built-in permissions cannot be deleted")
         return self._repo.delete_permission(permission_id)
 
     # Roles CRUD passthroughs
@@ -218,7 +229,15 @@ class RBACService:
             raise AccessDeniedError("System roles cannot be renamed")  # P5
         return self._repo.update_role(role_id, name=name, description=description)
 
-    def delete_role(self, role_id: int) -> bool:
+    def delete_role(self, role_id: int, *, actor_user_id: int | None = None) -> bool:
+        # R5 / P4: stripping a role from an administrator is a change to an administrator.
+        if actor_user_id is not None and not self._is_admin(actor_user_id):
+            if any(
+                self._is_admin(holder.id) for holder in self._repo.get_users_with_role(role_id)
+            ):
+                raise AccessDeniedError(
+                    "Admin role required to delete a role held by an administrator"
+                )
         return self._repo.delete_role(role_id)
 
     def role_name_exists(self, name: str, exclude_role_id: int | None = None) -> bool:

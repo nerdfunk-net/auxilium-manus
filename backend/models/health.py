@@ -14,3 +14,6 @@ class ReadyResponse(BaseModel):
     status: Literal["ok", "unavailable"]
     database: ReadyCheck
     redis: ReadyCheck
+    # Present only when VAULT_ENABLED. Informational: a vault outage degrades
+    # vault-backed credentials, it does not make the API unready (V12).
+    vault: ReadyCheck | None = None

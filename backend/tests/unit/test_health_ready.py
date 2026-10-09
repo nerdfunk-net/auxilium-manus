@@ -8,6 +8,26 @@ from unittest.mock import MagicMock, patch
 from services.health.ready import build_ready_response
 
 
+class VaultReadyTests(unittest.TestCase):
+    def test_vault_down_is_reported_but_not_blocking(self) -> None:
+        status_code, body = build_ready_response(
+            database_ok=True,
+            database_error=None,
+            redis_ok=True,
+            redis_error=None,
+            vault_ok=False,
+            vault_error="unavailable",
+        )
+        self.assertEqual(status_code, 200)
+        self.assertFalse(body.vault.ok)
+
+    def test_vault_omitted_when_not_enabled(self) -> None:
+        _, body = build_ready_response(
+            database_ok=True, database_error=None, redis_ok=True, redis_error=None
+        )
+        self.assertIsNone(body.vault)
+
+
 class BuildReadyResponseTests(unittest.TestCase):
     def test_both_ok_returns_200(self) -> None:
         status_code, body = build_ready_response(

@@ -101,11 +101,15 @@ class RedisCacheService:
         except Exception as e:
             logger.error("Cache set error for key '%s': %s", key, e)
 
-    def set_if_absent(self, key: str, data: Any, ttl_seconds: int) -> bool:
+    def set_if_absent(
+        self, key: str, data: Any, ttl_seconds: int, *, raise_on_error: bool = False
+    ) -> bool:
         """Atomically set ``key`` to ``data`` with a TTL only if it does not
         already exist (Redis ``SET key val NX EX ttl``). Returns True when the
         key was created (caller holds the "lock"), False when it already existed
         or on any Redis error (caller must treat that as "not acquired").
+        With ``raise_on_error=True`` a Redis error is re-raised instead, so a
+        caller can tell "held by someone else" from "Redis is down".
 
         Used for short-lived advisory locks — e.g. serialising concurrent
         change-request staging on one git repo.
@@ -119,6 +123,8 @@ class RedisCacheService:
             return False
         except Exception as e:
             logger.error("Cache set_if_absent error for key '%s': %s", key, e)
+            if raise_on_error:
+                raise
             return False
 
     # ------------------------------------------------------------------

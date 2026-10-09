@@ -9,7 +9,11 @@ itself.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import logging
+import os
+from dataclasses import dataclass, field
+
+logger = logging.getLogger(__name__)
 
 VALID_AUTH_METHODS = frozenset({"approle", "cert", "token"})
 
@@ -25,15 +29,15 @@ class VaultConfig:
 
     # AppRole
     role_id: str = ""
-    secret_id: str = ""
+    secret_id: str = field(default="", repr=False)
     secret_id_file: str = ""
 
     # Dev-only static token
-    token: str = ""
+    token: str = field(default="", repr=False)
 
     # Cert (mTLS) auth
     client_cert: str = ""
-    client_key: str = ""
+    client_key: str = field(default="", repr=False)
     ca_cert: str = ""
 
     verify_ssl: bool = True
@@ -56,6 +60,14 @@ class VaultConfig:
         if self.secret_id:
             return self.secret_id
         if self.secret_id_file:
+            mode = os.stat(self.secret_id_file).st_mode
+            if mode & 0o077:
+                logger.warning(
+                    "VAULT secret_id_file %s is readable by group/others (mode %o); "
+                    "restrict it to 0400/0600",
+                    self.secret_id_file,
+                    mode & 0o777,
+                )
             with open(self.secret_id_file, encoding="utf-8") as handle:
                 return handle.read().strip()
         return ""

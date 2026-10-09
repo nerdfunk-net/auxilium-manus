@@ -54,5 +54,13 @@ class GitlabTokenTests(unittest.TestCase):
         self.assertFalse(verify_gitlab_token("", ""))
 
 
+class NonAsciiHeaderTests(unittest.TestCase):
+    def test_non_ascii_github_signature_is_rejected_not_raised(self) -> None:
+        self.assertFalse(verify_github_signature(SECRET, BODY, "sha256=\u00e9\u00e9"))
+
+    def test_non_ascii_gitlab_token_is_rejected_not_raised(self) -> None:
+        self.assertFalse(verify_gitlab_token(SECRET, "t\u00f6ken"))
+
+
 if __name__ == "__main__":
     unittest.main()

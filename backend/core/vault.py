@@ -71,9 +71,13 @@ def require_vault_management() -> None:
         raise VaultConfigError("Vault management is not configured on this deployment")
 
 
-async def start_vault_services() -> None:
-    """Start the runtime + management OpenBao clients and register them as
-    ``service_factory`` singletons. No-op unless ``VAULT_ENABLED``.
+async def start_vault_services(*, with_management: bool = True) -> None:
+    """Start the runtime (and optionally the management) OpenBao client and
+    register them as ``service_factory`` singletons. No-op unless ``VAULT_ENABLED``.
+
+    The API process passes ``with_management=True`` (credential writes live in
+    ``routers/credentials.py``). Hatchet workers pass ``False``: worker code can
+    only read, so holding a write-capable token there is dead weight (V5).
 
     Called from both the FastAPI lifespan and every Hatchet worker's
     ``start_all`` — the two lifespans that wire app-scoped services.
@@ -88,9 +92,10 @@ async def start_vault_services() -> None:
     await runtime.startup()
     service_factory.set_vault_service(runtime)
 
-    management = OpenBaoService(build_vault_management_config())
-    await management.startup()
-    service_factory.set_vault_management_service(management)
+    if with_management:
+        management = OpenBaoService(build_vault_management_config())
+        await management.startup()
+        service_factory.set_vault_management_service(management)
 
 
 async def stop_vault_services() -> None:

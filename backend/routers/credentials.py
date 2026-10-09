@@ -188,6 +188,17 @@ def delete_credential(
         service.delete_credential(cred_id, acting_user_id=current_user.id)
     except CredentialNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except CredentialVaultNotConfiguredError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
+        ) from exc
+    except CredentialVaultUnavailableError as exc:
+        raise_internal_server_error(
+            logger,
+            "OpenBao unavailable while deleting credential",
+            exc,
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        )
     except Exception as exc:
         raise_internal_server_error(logger, "Failed to delete credential", exc)
 

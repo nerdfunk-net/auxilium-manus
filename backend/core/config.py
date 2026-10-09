@@ -125,13 +125,17 @@ class Settings:
         self.plugins_file = Path(environ.get("PLUGINS_FILE", DEFAULT_PLUGINS_FILE)).resolve()
         self.secret_key = self._get_secret_key()
         self.access_token_expire_minutes = self._get_int("ACCESS_TOKEN_EXPIRE_MINUTES", 60)
-        self.refresh_token_max_age_hours = self._get_int("REFRESH_TOKEN_MAX_AGE_HOURS", 24)
-        self._validate_refresh_token_max_age()
         # Absolute session lifetime measured from the original login (claim
         # `sid_iat`), carried unchanged through every refresh. Independent of the
         # sliding access-token TTL and the refresh grace window.
         self.session_max_age_hours = self._get_int("SESSION_MAX_AGE_HOURS", 12)
         self._validate_session_max_age()
+        # How stale an expired access token may be when exchanged. Anything above
+        # the absolute session cap is unreachable, so it is refused (T4).
+        self.refresh_token_max_age_hours = self._get_int(
+            "REFRESH_TOKEN_MAX_AGE_HOURS", self.session_max_age_hours
+        )
+        self._validate_refresh_token_max_age()
         # PBKDF2 iteration count for deriving the credential-encryption Fernet key
         # (core/crypto.py). Read here, not via raw os.getenv, so it is validated
         # once and visible in Settings.
@@ -272,6 +276,8 @@ class Settings:
     def _validate_refresh_token_max_age(self) -> None:
         if self.refresh_token_max_age_hours < 1:
             raise RuntimeError("REFRESH_TOKEN_MAX_AGE_HOURS must be at least 1")
+        if self.refresh_token_max_age_hours > self.session_max_age_hours:
+            raise RuntimeError("REFRESH_TOKEN_MAX_AGE_HOURS must not exceed SESSION_MAX_AGE_HOURS")
 
     def _validate_session_max_age(self) -> None:
         if self.session_max_age_hours < 1:

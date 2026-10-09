@@ -17,6 +17,7 @@ _SINGLETONS = (
     "_login_rate_limiter",
     "_login_ip_rate_limiter",
     "_login_user_rate_limiter",
+    "_webhook_rate_limiter",
 )
 
 
@@ -82,6 +83,16 @@ class ServiceFactoryTests(unittest.TestCase):
             second = service_factory.build_login_ip_rate_limiter()
         self.assertIs(first, second)
         cls.assert_called_once()
+
+    def test_build_webhook_rate_limiter_budget_and_memoised(self) -> None:
+        with patch("service_factory.LoginRateLimiter") as cls:
+            first = service_factory.build_webhook_rate_limiter()
+            second = service_factory.build_webhook_rate_limiter()
+        self.assertIs(first, second)
+        cls.assert_called_once()
+        kwargs = cls.call_args.kwargs
+        self.assertEqual(kwargs["key_prefix"], "manus-webhook-rl")
+        self.assertEqual((kwargs["attempts"], kwargs["window_seconds"]), (60, 60))
 
     def test_build_login_user_rate_limiter_memoised(self) -> None:
         with patch("service_factory.LoginRateLimiter") as cls:

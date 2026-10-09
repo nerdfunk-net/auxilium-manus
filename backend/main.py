@@ -250,11 +250,20 @@ async def health_ready(response: Response) -> ReadyResponse:
             redis_ok = False
             redis_error = "unavailable"
 
+    vault_ok: bool | None = None
+    vault_error: str | None = None
+    if settings.vault_enabled:
+        runtime = service_factory.get_vault_service()
+        vault_ok = bool(runtime is not None and runtime.healthy)
+        vault_error = None if vault_ok else "unavailable"
+
     status_code, body = build_ready_response(
         database_ok=database_ok,
         database_error=database_error,
         redis_ok=redis_ok,
         redis_error=redis_error,
+        vault_ok=vault_ok,
+        vault_error=vault_error,
     )
     response.status_code = status_code
     return body

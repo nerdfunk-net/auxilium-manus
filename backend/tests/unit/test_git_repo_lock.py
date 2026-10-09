@@ -27,7 +27,9 @@ class AcquireGitRepoLockTests(unittest.TestCase):
         cache.set_if_absent.return_value = True
         with patch("service_factory.build_cache_service", return_value=cache):
             self.assertTrue(acquire_git_repo_lock(7))
-        cache.set_if_absent.assert_called_once_with("git-repo-lock:7", {"held": True}, 120)
+        cache.set_if_absent.assert_called_once_with(
+            "git-repo-lock:7", {"held": True}, 120, raise_on_error=True
+        )
 
     def test_polls_until_the_holder_releases(self) -> None:
         cache = MagicMock()
@@ -40,7 +42,18 @@ class AcquireGitRepoLockTests(unittest.TestCase):
         self.assertEqual(cache.set_if_absent.call_count, 3)
         self.assertEqual(sleep_mock.call_count, 2)
 
-    def test_fails_soft_and_returns_false_on_timeout(self) -> None:
+    def test_redis_error_skips_lock_without_spinning(self) -> None:
+        cache = MagicMock()
+        cache.set_if_absent.side_effect = ConnectionError("redis down")
+        with (
+            patch("service_factory.build_cache_service", return_value=cache),
+            patch("services.git.repo_lock.time.sleep") as sleep_mock,
+        ):
+            self.assertFalse(acquire_git_repo_lock(7))
+        cache.set_if_absent.assert_called_once()
+        sleep_mock.assert_not_called()
+
+    def test_raises_on_timeout(self) -> None:
         cache = MagicMock()
         cache.set_if_absent.return_value = False
         # Make the deadline appear already passed on the second monotonic()
@@ -53,7 +66,8 @@ class AcquireGitRepoLockTests(unittest.TestCase):
                 side_effect=[0.0, 1000.0],
             ),
         ):
-            self.assertFalse(acquire_git_repo_lock(7))
+            with self.assertRaises(RuntimeError):
+                acquire_git_repo_lock(7)
 
 
 class ReleaseGitRepoLockTests(unittest.TestCase):
@@ -81,7 +95,9 @@ class GitRepoLockContextManagerTests(unittest.TestCase):
         with patch("service_factory.build_cache_service", return_value=cache):
             with git_repo_lock(7):
                 calls.append("inside")
-        cache.set_if_absent.assert_called_once_with("git-repo-lock:7", {"held": True}, 120)
+        cache.set_if_absent.assert_called_once_with(
+            "git-repo-lock:7", {"held": True}, 120, raise_on_error=True
+        )
         cache.delete.assert_called_once_with("git-repo-lock:7")
         self.assertEqual(calls, ["inside"])
 

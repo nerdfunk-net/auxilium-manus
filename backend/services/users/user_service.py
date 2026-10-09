@@ -45,6 +45,14 @@ class UserService:
         if is_active is False:
             self._assert_can_remove(user_id, actor_user_id)
         if password is not None or username is not None:
+            # T2: bypassing the current-password check of /auth/change-password
+            # through this admin endpoint is not allowed, for anyone.
+            if actor_user_id is not None and actor_user_id == user_id:
+                raise AccessDeniedError(
+                    "You cannot change your own password or username here; "
+                    "change your password via the change-password dialog "
+                    "(an administrator renames accounts)"
+                )
             # A password reset is an account takeover; a rename is an identity
             # change. Both are bounded by the target's effective rights (R1).
             self._rbac.assert_may_take_over(actor_user_id, user_id)
@@ -93,6 +101,9 @@ class UserService:
             return self._repo.update_user(
                 user_id, is_active=False, token_version=target.token_version + 1
             )
+        # R3 / P4: only an admin may bring a deactivated administrator back.
+        # Approving a pending OIDC user (a non-admin target) still passes.
+        self._rbac.may_touch_target(actor_user_id, user_id)
         return self._repo.set_active(user_id, is_active)
 
     def _assert_can_remove(self, user_id: int, actor_user_id: int | None) -> None:

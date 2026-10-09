@@ -10,6 +10,7 @@ import httpx
 from services.vault.client import OpenBaoService
 from services.vault.config import VaultConfig
 from services.vault.exceptions import (
+    VaultConflictError,
     VaultError,
     VaultPermissionError,
     VaultSecretNotFoundError,
@@ -136,6 +137,119 @@ class OpenBaoServiceTests(unittest.TestCase):
             _resp(200, {"data": {"data": {"token": "ok"}}}),
         ]
         self.assertEqual(svc.read_kv("credentials/c"), {"token": "ok"})
+        self.assertEqual(svc._client.request.call_count, 2)
+
+    def test_403_with_valid_token_does_not_relogin(self) -> None:
+        # V7: lookup-self says the token is fine -> genuine policy denial, no re-login.
+        svc = _service()
+        svc._tokens.ensure_token(svc._client)
+        svc._client.request.return_value = _resp(403)
+        svc._client.get.return_value = _resp(200)
+        with patch.object(svc._tokens, "invalidate") as invalidate:
+            with self.assertRaises(VaultPermissionError):
+                svc.read_kv("credentials/denied")
+        invalidate.assert_not_called()
+        self.assertEqual(svc._client.request.call_count, 1)
+        self.assertEqual(svc._client.get.call_args[0][0], "/v1/auth/token/lookup-self")
+
+    def test_403_with_invalid_token_relogs_in_once(self) -> None:
+        svc = _service()
+        svc._tokens.ensure_token(svc._client)
+        svc._client.get.return_value = _resp(403)
+        svc._client.request.side_effect = [
+            _resp(403),
+            _resp(200, {"data": {"data": {"token": "ok"}}}),
+        ]
+        with patch.object(svc._tokens, "invalidate") as invalidate:
+            self.assertEqual(svc.read_kv("credentials/c"), {"token": "ok"})
+        invalidate.assert_called_once()
+
+    def test_write_kv_sends_cas(self) -> None:
+        svc = _service()
+        svc._client.request.return_value = _resp(204)
+        svc.write_kv("credentials/c", {"a": "1"}, cas=3)
+        self.assertEqual(
+            svc._client.request.call_args[1]["json"],
+            {"data": {"a": "1"}, "options": {"cas": 3}},
+        )
+
+    def test_cas_mismatch_maps_to_conflict(self) -> None:
+        svc = _service()
+        bad = _resp(400)
+        bad.text = "check-and-set parameter did not match the current version"
+        svc._client.request.return_value = bad
+        with self.assertRaises(VaultConflictError):
+            svc.write_kv("credentials/c", {"a": "1"}, cas=1)
+
+    def _read_resp(self, data: dict, version: int) -> MagicMock:
+        return _resp(200, {"data": {"data": data, "metadata": {"version": version}}})
+
+    def test_merge_kv_merges_with_current_version_as_cas(self) -> None:
+        svc = _service()
+        svc._client.request.side_effect = [
+            self._read_resp({"a": "1"}, 4),
+            _resp(200, {"data": {"version": 5}}),
+        ]
+        merged, version = svc.merge_kv("credentials/c", {"b": "2"})
+        self.assertEqual(merged, {"a": "1", "b": "2"})
+        self.assertEqual(version, 5)
+        self.assertEqual(svc._client.request.call_args[1]["json"]["options"], {"cas": 4})
+
+    def test_merge_kv_creates_with_cas_zero(self) -> None:
+        svc = _service()
+        svc._client.request.side_effect = [
+            _resp(404),
+            _resp(404),
+            _resp(200, {"data": {"version": 1}}),
+        ]
+        merged, _ = svc.merge_kv("credentials/c", {"b": "2"})
+        self.assertEqual(merged, {"b": "2"})
+        self.assertEqual(svc._client.request.call_args[1]["json"]["options"], {"cas": 0})
+
+    def test_merge_kv_retries_once_on_cas_conflict(self) -> None:
+        svc = _service()
+        conflict = _resp(400)
+        conflict.text = "check-and-set parameter did not match"
+        svc._client.request.side_effect = [
+            self._read_resp({"a": "1"}, 1),
+            conflict,
+            self._read_resp({"a": "1", "x": "9"}, 2),
+            _resp(200, {"data": {"version": 3}}),
+        ]
+        merged, version = svc.merge_kv("credentials/c", {"b": "2"})
+        self.assertEqual(merged, {"a": "1", "x": "9", "b": "2"})
+        self.assertEqual(version, 3)
+
+    def test_merge_kv_second_conflict_raises(self) -> None:
+        svc = _service()
+        conflict = _resp(400)
+        conflict.text = "check-and-set parameter did not match"
+        svc._client.request.side_effect = [
+            self._read_resp({}, 1),
+            conflict,
+            self._read_resp({}, 2),
+            conflict,
+        ]
+        with self.assertRaises(VaultConflictError):
+            svc.merge_kv("credentials/c", {"b": "2"})
+
+    def test_merge_kv_rewrites_soft_deleted_secret_with_current_version(self) -> None:
+        svc = _service()
+        svc._client.request.side_effect = [
+            _resp(404),  # data read: soft-deleted
+            _resp(200, {"data": {"current_version": 4, "versions": {}}}),  # metadata
+            _resp(200, {"data": {"version": 5}}),
+        ]
+        merged, version = svc.merge_kv("credentials/c", {"b": "2"})
+        self.assertEqual((merged, version), ({"b": "2"}, 5))
+        self.assertEqual(svc._client.request.call_args[1]["json"]["options"], {"cas": 4})
+
+    def test_invalidate_drops_cache(self) -> None:
+        svc = _service()
+        svc._client.request.return_value = _resp(200, {"data": {"data": {"t": "x"}}})
+        svc.read_kv("credentials/c")
+        svc.invalidate("credentials/c")
+        svc.read_kv("credentials/c")
         self.assertEqual(svc._client.request.call_count, 2)
 
     def test_unauthed_403_is_not_retried(self) -> None:

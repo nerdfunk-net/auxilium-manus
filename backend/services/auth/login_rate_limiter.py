@@ -26,6 +26,9 @@ LOGIN_IP_RATE_LIMIT_ATTEMPTS = 20
 LOGIN_IP_RATE_LIMIT_WINDOW_SECONDS = 60
 LOGIN_USER_RATE_LIMIT_ATTEMPTS = 100
 LOGIN_USER_RATE_LIMIT_WINDOW_SECONDS = 15 * 60
+# Inbound git webhooks: a push burst from CI must not be throttled like a password guess (W1).
+WEBHOOK_RATE_LIMIT_ATTEMPTS = 60
+WEBHOOK_RATE_LIMIT_WINDOW_SECONDS = 60
 
 
 class RateLimitExceededError(Exception):

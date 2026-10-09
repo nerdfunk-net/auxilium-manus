@@ -388,14 +388,24 @@ Manual bootstrap by the container/app admin (no delivery pipeline).
 
    bao write auth/approle/role/manus-app \
      token_policies=manus-app token_period=3600 \
-     secret_id_num_uses=0 secret_id_ttl=0 \
+     secret_id_num_uses=0 secret_id_ttl=2160h \
      token_bound_cidrs="10.0.0.0/24" secret_id_bound_cidrs="10.0.0.0/24"
 
    bao write auth/approle/role/manus-manage \
      token_policies=manus-manage token_period=3600 \
-     secret_id_num_uses=0 secret_id_ttl=0 \
+     secret_id_num_uses=0 secret_id_ttl=2160h \
      token_bound_cidrs="10.0.0.0/24" secret_id_bound_cidrs="10.0.0.0/24"
    ```
+
+   `secret_id_ttl=2160h` (90 days) makes an un-rotated SecretID expire on its own; rotate it
+   as described under *SecretID rotation* before then. `secret_id_num_uses=0` stays so
+   redeploys do not exhaust it. Keep the `default` policy attached to both roles (do not set
+   `token_no_default_policy`): the client uses `auth/token/lookup-self` to tell an expired
+   token from a policy denial (V7).
+
+   Hatchet workers only start the read-only runtime client (V5). The management RoleID /
+   SecretID are still required by the production startup guard; keeping them out of the
+   worker containers is a deployment choice (separate env file per service).
 
 4. **Fetch RoleIDs and generate SecretIDs**
 

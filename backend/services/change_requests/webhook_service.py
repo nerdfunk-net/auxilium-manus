@@ -83,7 +83,7 @@ class GitWebhookService:
             # by a webhook.
             return 401, {"detail": "webhook not configured"}
 
-        limiter = service_factory.build_login_rate_limiter()
+        limiter = service_factory.build_webhook_rate_limiter()
         try:
             limiter.check(f"webhook:{git_repository_id}:{client_host}")
         except RateLimitExceededError:

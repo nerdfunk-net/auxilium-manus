@@ -26,7 +26,7 @@ isinstance-guarded); `AuthService.refresh_access_token` is strict and additional
 numeric `sid_iat`, so a pre-`tv` token cannot be refreshed. Legacy pre-`tv`/`sid_iat` tokens
 die at their own `exp` (≤ 60 min) since they cannot be renewed.
 
-**Absolute session lifetime (`SESSION_MAX_AGE_HOURS`, default 12, floor 1).** Measured from
+**Absolute session lifetime (`SESSION_MAX_AGE_HOURS`, default 12, floor 1).** `REFRESH_TOKEN_MAX_AGE_HOURS` defaults to the same value and may not exceed it (T4). Measured from
 `sid_iat`, which `create_access_token` preserves across refreshes. `_load_active_user` and
 `refresh_access_token` both reject a session older than this regardless of per-token `exp`.
 A successful `POST /auth/change-password` returns a fresh `SessionResponse` (new token,
@@ -61,6 +61,10 @@ See `backend/services/auth/rbac_service.py::RBACService.has_permission`.
 | P6 | The last **active** user holding `admin` cannot lose it (role removal, deactivation, deletion). Deactivated admins do not count. |
 | P7 | Internal callers (seed, lifespan) pass `actor_user_id=None` and bypass P1–P4. |
 | P8 | Password reset or username change of another user requires target's permissions to be a subset of the actor's with no protected permission (else requires `admin`). |
+| T2 | Nobody (admins included) may change their own password or username via `PUT /users/{id}`; self-service is `POST /auth/change-password`. |
+| R3 | Reactivating a user follows P4 (only `admin` may reactivate an administrator). |
+| R4 | Permissions seeded in `rbac_seed.DEFAULT_PERMISSIONS` cannot be deleted (409). |
+| R5 | Deleting a role held by an administrator requires `admin` (P4). |
 
 Every mutating `RBACService`/`UserService` method takes `actor_user_id: int | None`; routers
 pass `current_user.id` and map `AccessDeniedError` → 403. See

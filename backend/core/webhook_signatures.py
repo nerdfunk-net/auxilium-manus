@@ -22,11 +22,12 @@ def verify_github_signature(secret: str, raw_body: bytes, header_value: str | No
     if not secret or not header_value or not header_value.startswith("sha256="):
         return False
     expected = "sha256=" + hmac.new(secret.encode("utf-8"), raw_body, hashlib.sha256).hexdigest()
-    return hmac.compare_digest(expected, header_value)
+    # Bytes, not str: compare_digest raises TypeError on non-ASCII str input (W3).
+    return hmac.compare_digest(expected.encode("utf-8"), header_value.encode("utf-8"))
 
 
 def verify_gitlab_token(secret: str, header_value: str | None) -> bool:
     """True iff the presented token equals the configured secret."""
     if not secret or not header_value:
         return False
-    return hmac.compare_digest(secret, header_value)
+    return hmac.compare_digest(secret.encode("utf-8"), header_value.encode("utf-8"))

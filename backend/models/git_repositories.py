@@ -4,7 +4,16 @@ from __future__ import annotations
 
 from enum import StrEnum
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+WEBHOOK_SECRET_MIN_LENGTH = 16
+
+
+def validate_webhook_secret(value: str | None) -> str | None:
+    """None keeps, '' clears, anything else must be a real secret (W2)."""
+    if value and len(value) < WEBHOOK_SECRET_MIN_LENGTH:
+        raise ValueError(f"webhook_secret must be at least {WEBHOOK_SECRET_MIN_LENGTH} characters")
+    return value
 
 
 class GitCategory(StrEnum):
@@ -42,9 +51,14 @@ class GitRepositoryRequest(BaseModel):
     is_active: bool = Field(default=True, description="Repository is active")
     webhook_secret: str | None = Field(
         None,
-        description="Inbound git-webhook secret (GitHub HMAC secret / GitLab token). "
-        "Write-only; never returned.",
+        description="Inbound git-webhook secret (GitHub HMAC secret / GitLab token), "
+        "at least 16 characters. Write-only; never returned.",
     )
+
+    @field_validator("webhook_secret")
+    @classmethod
+    def _webhook_secret_min_length(cls, value: str | None) -> str | None:
+        return validate_webhook_secret(value)
     webhook_auto_deploy: bool = Field(
         default=False,
         description="When true a verified webhook dispatches the deploy run immediately; "
@@ -94,6 +108,11 @@ class GitRepositoryUpdateRequest(BaseModel):
     is_active: bool | None = None
     # An empty string clears the stored secret; omitting the field keeps it.
     webhook_secret: str | None = None
+
+    @field_validator("webhook_secret")
+    @classmethod
+    def _webhook_secret_min_length(cls, value: str | None) -> str | None:
+        return validate_webhook_secret(value)
     webhook_auto_deploy: bool | None = None
 
 

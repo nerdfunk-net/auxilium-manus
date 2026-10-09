@@ -83,11 +83,10 @@ class OpenBaoSecretManagerClientTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.cls(_cfg()).get_field("p", "key", version=2), "old")
         self.svc.read_kv.assert_called_once_with("p", version=2)
 
-    def test_set_field_merges_existing_fields(self) -> None:
-        self.svc.read_kv.return_value = {"key": "old", "rotated_at": "t0"}
-        self.svc.write_kv.return_value = 3
+    def test_set_field_uses_merge_kv(self) -> None:
+        self.svc.merge_kv.return_value = ({"key": "new", "rotated_at": "t0"}, 3)
         version = self.cls(_cfg()).set_field("p", "key", "new")
-        self.svc.write_kv.assert_called_once_with("p", {"key": "new", "rotated_at": "t0"})
+        self.svc.merge_kv.assert_called_once_with("p", {"key": "new"})
         self.assertEqual(version, 3)
 
     def test_vault_unavailable_maps_to_unavailable(self) -> None:

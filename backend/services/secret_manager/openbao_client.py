@@ -95,16 +95,10 @@ class OpenBaoSecretManagerClient:
 
     def set_field(self, path: str, field: str, value: str) -> int | None:
         try:
-            current = self._service.read_kv(path)
-        except VaultSecretNotFoundError:
-            current = {}
+            _merged, version = self._service.merge_kv(path, {field: value})
         except VaultError as exc:
             raise SecretManagerUnavailableError(str(exc)) from exc
-        merged = {**current, field: value}
-        try:
-            return self._service.write_kv(path, merged)
-        except VaultError as exc:
-            raise SecretManagerUnavailableError(str(exc)) from exc
+        return version
 
     def get_field_history(self, path: str, field: str) -> list[SecretVersionInfo]:
         del field  # OpenBao KV v2 versions the whole dict at `path`, not per field.
