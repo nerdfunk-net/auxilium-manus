@@ -560,3 +560,29 @@ pass-throughs, `InterfaceManagerService`, `DeviceUpdateService.update_device`, `
 - **To do:** move the worker and the bounded sandbox to a shared helper (e.g. `core/`), use it from those
   paths, and decide the limits for long legitimate renders in workflow runs.
 
+---
+
+## AI assistant: secret tokens are only bound to a field *name*
+
+**Added:** 2026-10-10 · **Area:** `backend/services/ai_assistant/redaction.py`,
+`backend/services/ai_assistant/tools/workflow_tools.py`
+
+- **What we have.** The assistant never sees a secret. It sees a `__SECRET_n__` token, and when the user
+  asks for a workflow change the server puts the real value back (`Redactor.restore_data`). To stop the
+  model from moving a secret somewhere the user never saw it, `tokenize_data` records the dict key each
+  token came from and `restore_data` raises `SecretRelocationError` for any other key (the workflow
+  tools return it to the model as a plan error). Added steps also show their secret-masked config in the
+  proposal card.
+- **The gap.** The binding is by key *name* only, not by position. A token that came from `password` of
+  step A can still be restored into a `password` key of a different, new step B. That is the same kind
+  of value in the same kind of field, so the damage is small. A step's `password` can only be reused
+  where the plan already has such a field, and the proposal card shows the added step's masked config.
+  A secret can no longer be moved into a message, command or other non-secret field.
+- **To do (only if it matters).** Bind each token to its exact origin, for example
+  `(node id, key path)` for a workflow step and `static_attributes[i].<key>` for run inputs, and restore
+  it only there. Decide what happens when the model legitimately renames or splits a step: allow the
+  token for the node it came from only, and keep it valid when the node id is unchanged. Add tests for
+  moving a token between two steps that both have the same key.
+- **Not worth doing** unless the assistant is given more write surfaces or the card stops showing the
+  config of added steps.
+

@@ -8,9 +8,13 @@ Uncommitted doc edits in the working tree (`doc/ARCHITECTURAL_OVERVIEW.md`,
 and DB readers, plus the frontend hook, panel, proposal cards and page integrations. I ran the
 toolchain and reproduced the most important finding (H1) against the real code.
 
+> **Status (updated 2026-10-10, later the same day):** sections 1–6 are the review **as written before
+> any fixes** (kept as the record of what was found). What has been done since, and what is still open,
+> is in **§7**. The verdict below is superseded by §7.1.
+
 ---
 
-## 1. Verdict
+## 1. Verdict (at review time)
 
 | Question | Answer |
 |---|---|
@@ -289,8 +293,8 @@ fragment), M1 (token relocation).
 | Finding | Status | What was done |
 |---|---|---|
 | H1 render leak | **Fixed** | `render_template` no longer restores tokens; with no `content` it renders the *redacted* editor content. Regression test `test_render_never_reveals_a_redacted_secret_to_the_model`. |
-| H2 base_url SSRF | **Fixed (partly)** | Query, fragment and path params are rejected (`base_url_policy._check_shape`). Setting a base URL is **admin-only** (router 403 `ai_base_url_admin_only`); the settings form disables the field for non-admins. **Not done:** pinning the resolved IP against DNS rebinding. |
-| M1 token relocation | **Fixed** | `Redactor` records the dict key each token came from; `restore_data` raises `SecretRelocationError` for any other key, and the workflow tools return it to the model as a plan error. Added steps now show their (secret-masked) config in the proposal card, and changed-step diffs are masked too. Residual: the check is by key name, so a secret can still be placed under the same key name in another step. |
+| H2 base_url SSRF | **Fixed (partly)** | Query, fragment and path params are rejected (`base_url_policy._check_shape`). Setting a base URL is **admin-only** (router 403 `ai_base_url_admin_only`); the settings form disables the field for non-admins. **Accepted, not fixing:** pinning the resolved IP against DNS rebinding. Only an administrator can set the URL, and administrators already control the other outbound source URLs, so admin-only (decision 2026-10-10) is sufficient. |
+| M1 token relocation | **Fixed** | `Redactor` records the dict key each token came from; `restore_data` raises `SecretRelocationError` for any other key, and the workflow tools return it to the model as a plan error. Added steps now show their (secret-masked) config in the proposal card, and changed-step diffs are masked too. Residual (key-name binding only) moved to `doc/OPEN_TODOS.md` "AI assistant: secret tokens are only bound to a field name". |
 | M2 unclosed clients | **Fixed** | Providers have `aclose()`; `chat_service` closes the provider after every turn and connection test. |
 | M3 render threads | **Fixed** | The trial render runs in a child process (`render_isolated.py` + `render_worker.py`, started with `python -I`) that is killed at the 5 s timeout and has CPU (5 s) and address-space (1 GiB, Linux) limits. At most 4 renders run at once (otherwise a "busy" error). The sandbox also caps `*` and `**` results (`_BoundedSandbox`), so `{{ 'a' * 10**9 }}` is refused. Tests: `test_ai_render_isolation.py`. The editor preview and Hatchet template steps are unchanged (see OPEN_TODOS). |
 | L1 blocking test endpoint | **Fixed** | Config lookup runs in `asyncio.to_thread`. |
@@ -301,5 +305,27 @@ fragment), M1 (token relocation).
 | D3, D4, D5, D8, D9 and function splits | Open | |
 | §5 reader tests | **Done** | `tests/unit/test_ai_db_readers.py` (15 tests). Reader coverage is now 80–100 % (was 33–55 %); `registry.py` 100 %. Frontend: `use-assistant-chat.test.tsx` (17), `template-proposal-card.test.tsx` (7) and `workflow-proposal-card.test.tsx` (11) added; I broke the code five ways (wrong fingerprint, missing interrupted check, stop not clearing the abort ref, no stale warning, warning after apply) and each was caught. **Still missing:** tests for the settings form (write-only key, `clear_api_key`, admin-only server URL, sharing confirm dialog) and an end-to-end browser test. |
 
-Verification after the changes: 5196 backend tests pass, ruff, pyright and the four guards are clean,
-and `tsc`, eslint, Prettier and vitest are clean.
+### 7.1 Current verdict
+
+| Question | Answer now |
+|---|---|
+| Ready to merge to `main`? | **Yes, technically.** H1, H2 (admin-only), M1, M2 and M3 are fixed, and L1–L4 too. The remaining items are cleanups and tests, not blockers. Everything is still **uncommitted** in the working tree, so it needs your review and a commit first. |
+| Production ready? | **Not yet.** The design doc's "Not verified" items are still open: a real model driving the workflow assistant, the newest UIs in a browser, streaming through a production build (including Next cancelling the upstream request on Stop), and the `gemini-3.8-flash` 503. |
+
+### 7.2 Still open
+
+- **Cleanups (D3, D4, D5, D8) and the long functions** from §3/§4 (`expand_plan` 151 lines, the frontend
+  `send` ~170, `run_agent`, the two provider `stream` methods, `_summarize`).
+- **Settings-form tests and an end-to-end browser test** (§5).
+- **PATCH `/ai/settings` has no rate limit** (it does a DNS lookup); minor.
+- **Moved to `doc/OPEN_TODOS.md`:** exact-path binding of secret tokens (M1 residual) and the shared
+  isolated renderer for the editor preview and Hatchet template steps. The chat-session-across-navigation
+  and Nautobot GraphQL entries are feature work, not review findings.
+- **Accepted, not fixing:** DNS-rebinding protection for the custom server URL (admin-only is sufficient).
+
+### 7.3 Verification after the changes (latest run)
+
+- Backend: 5210 unit tests pass; ruff, pyright and the four guards are clean.
+- Frontend: tsc, eslint and Prettier are clean; vitest 358 passed (51 files), 46 of them in
+  `features/ai-assistant`.
+- Not run: any browser or real-model check.
