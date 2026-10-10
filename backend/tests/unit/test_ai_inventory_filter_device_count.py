@@ -28,9 +28,7 @@ class CountInventoryDevicesTests(unittest.TestCase):
                 "workflow_steps.common.nautobot_source.resolve_nautobot_credentials",
                 return_value=MagicMock(),
             ),
-            patch(
-                "services.nautobot.client.NautobotService", return_value=mock_nautobot_service
-            ),
+            patch("services.nautobot.client.NautobotService", return_value=mock_nautobot_service),
             patch("service_factory.set_nautobot_app_service"),
             patch(
                 "service_factory.build_nautobot_source_service",
@@ -57,9 +55,7 @@ class CountInventoryDevicesTests(unittest.TestCase):
                 "workflow_steps.common.nautobot_source.resolve_nautobot_credentials",
                 return_value=MagicMock(),
             ),
-            patch(
-                "services.nautobot.client.NautobotService", return_value=mock_nautobot_service
-            ),
+            patch("services.nautobot.client.NautobotService", return_value=mock_nautobot_service),
             patch("service_factory.set_nautobot_app_service"),
             patch(
                 "service_factory.build_nautobot_source_service",
@@ -84,9 +80,7 @@ class CountInventoryDevicesTests(unittest.TestCase):
                 "workflow_steps.common.nautobot_source.resolve_nautobot_credentials",
                 return_value=MagicMock(),
             ),
-            patch(
-                "services.nautobot.client.NautobotService", return_value=mock_nautobot_service
-            ),
+            patch("services.nautobot.client.NautobotService", return_value=mock_nautobot_service),
             patch("service_factory.set_nautobot_app_service"),
             patch(
                 "service_factory.build_nautobot_source_service",

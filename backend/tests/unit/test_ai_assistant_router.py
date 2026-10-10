@@ -1,0 +1,222 @@
+"""TestClient tests for /ai/*: enable switch enforced server-side, key write-only, SSE framing."""
+
+from __future__ import annotations
+
+from collections.abc import Iterator
+from unittest.mock import MagicMock
+
+import pytest
+from _ai_helpers import FakeRepo
+from _auth_helpers import make_auth_db, token_payload
+from fastapi import FastAPI
+from fastapi.routing import APIRoute
+from fastapi.testclient import TestClient
+
+from core.auth import get_current_user, verify_token
+from core.crypto import EncryptionService
+from core.database import get_db
+from core.models.users import User
+from routers import ai_assistant as ai_router_module
+from routers.ai_assistant import get_ai_settings_service, router
+from services.ai_assistant.chat_service import ChatEvent
+from services.ai_assistant.settings_service import AiSettingsService
+from services.auth.rbac_service import RBACService
+
+SECRET = "sk-ant-router-secret"
+
+
+def _user(user_id: int = 1) -> User:
+    user = User(username="tester", password_hash="hash", is_active=True)
+    user.id = user_id
+    return user
+
+
+SESSIONS: list[MagicMock] = []
+
+
+def _override_db() -> Iterator[MagicMock]:
+    db = make_auth_db()
+    SESSIONS.append(db)
+    yield db
+
+
+@pytest.fixture(autouse=True)
+def _reset_sessions() -> None:
+    SESSIONS.clear()
+
+
+@pytest.fixture
+def repo() -> FakeRepo:
+    return FakeRepo()
+
+
+@pytest.fixture
+def allowed(monkeypatch: pytest.MonkeyPatch) -> dict[str, bool]:
+    state = {"value": True}
+    monkeypatch.setattr(RBACService, "has_permission", lambda self, *_a, **_k: state["value"])
+    return state
+
+
+@pytest.fixture
+def client(repo: FakeRepo, allowed: dict[str, bool]) -> TestClient:
+    service = AiSettingsService(repo, EncryptionService("test-secret-key-for-ai-router-0000"))
+    app = FastAPI()
+    app.include_router(router, prefix="/api")
+    app.dependency_overrides[verify_token] = lambda: token_payload()
+    app.dependency_overrides[get_current_user] = lambda: _user(1)
+    app.dependency_overrides[get_db] = _override_db
+    app.dependency_overrides[get_ai_settings_service] = lambda: service
+    return TestClient(app)
+
+
+def _configure(client: TestClient, *, enabled: bool = True) -> None:
+    response = client.patch("/api/ai/settings", json={"api_key": SECRET, "enabled": enabled})
+    assert response.status_code == 200, response.text
+
+
+def test_status_reports_each_reason(client: TestClient, allowed: dict[str, bool]) -> None:
+    allowed["value"] = False
+    assert client.get("/api/ai/status").json() == {"available": False, "reason": "no_permission"}
+
+    allowed["value"] = True
+    assert client.get("/api/ai/status").json()["reason"] == "disabled"
+
+    client.patch("/api/ai/settings", json={"enabled": True})
+    assert client.get("/api/ai/status").json()["reason"] == "not_configured"
+
+    client.patch("/api/ai/settings", json={"api_key": SECRET})
+    assert client.get("/api/ai/status").json() == {"available": True, "reason": "ok"}
+
+
+def test_settings_require_permission(client: TestClient, allowed: dict[str, bool]) -> None:
+    allowed["value"] = False
+
+    assert client.get("/api/ai/settings").status_code == 403
+    assert client.patch("/api/ai/settings", json={"enabled": True}).status_code == 403
+
+
+def test_key_is_never_returned(client: TestClient) -> None:
+    patched = client.patch("/api/ai/settings", json={"api_key": SECRET})
+    fetched = client.get("/api/ai/settings")
+
+    for response in (patched, fetched):
+        assert SECRET not in response.text
+        assert response.json()["api_key_set"] is True
+
+
+def test_unknown_fields_and_unavailable_provider_are_rejected(client: TestClient) -> None:
+    assert client.patch("/api/ai/settings", json={"surprise": 1}).status_code == 422
+    rejected = client.patch("/api/ai/settings", json={"provider": "gemini"})
+    assert rejected.status_code == 422
+    assert rejected.json()["detail"]["code"] == "ai_settings_invalid"
+
+
+def test_chat_is_refused_server_side_when_disabled(client: TestClient) -> None:
+    _configure(client, enabled=False)
+
+    response = client.post("/api/ai/chat", json={"messages": [{"role": "user", "content": "hi"}]})
+
+    assert response.status_code == 403
+    assert response.json()["detail"]["code"] == "ai_assistant_disabled"
+
+
+def test_chat_streams_sse_events(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    _configure(client)
+    seen: dict[str, object] = {}
+
+    async def fake_stream(config, messages):
+        seen["model"] = config.model
+        seen["messages"] = [(m.role, m.content) for m in messages]
+        yield ChatEvent("text", {"text": "Hello"})
+        yield ChatEvent("done", {})
+
+    monkeypatch.setattr(ai_router_module, "stream_chat", fake_stream)
+
+    response = client.post("/api/ai/chat", json={"messages": [{"role": "user", "content": "hi"}]})
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/event-stream")
+    assert response.text == ('event: text\ndata: {"text": "Hello"}\n\nevent: done\ndata: {}\n\n')
+    assert seen["messages"] == [("user", "hi")]
+    assert SECRET not in response.text
+
+
+def test_chat_validates_the_request_body(client: TestClient) -> None:
+    _configure(client)
+
+    assert client.post("/api/ai/chat", json={"messages": []}).status_code == 422
+    bad_role = {"messages": [{"role": "system", "content": "x"}]}
+    assert client.post("/api/ai/chat", json=bad_role).status_code == 422
+
+
+def test_connection_test_works_before_enabling(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _configure(client, enabled=False)
+
+    async def fake_check(config):
+        return {"ok": True}
+
+    monkeypatch.setattr(ai_router_module, "check_connection", fake_check)
+
+    assert client.post("/api/ai/settings/test").json() == {"ok": True}
+
+
+def test_connection_test_without_key_is_a_conflict(client: TestClient) -> None:
+    response = client.post("/api/ai/settings/test")
+
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "ai_assistant_not_configured"
+
+
+def _dependency_names(route: APIRoute) -> set[str]:
+    names: set[str] = set()
+
+    def walk(dependant) -> None:
+        for sub in dependant.dependencies:
+            names.add(getattr(sub.call, "__name__", ""))
+            walk(sub)
+
+    walk(route.dependant)
+    return names
+
+
+def test_provider_calling_routes_are_rate_limited() -> None:
+    by_path = {r.path: r for r in router.routes if isinstance(r, APIRoute)}
+
+    assert "rate_limited_ai-chat" in _dependency_names(by_path["/ai/chat"])
+    assert "rate_limited_ai-test" in _dependency_names(by_path["/ai/settings/test"])
+
+
+def test_chat_releases_the_db_session_before_streaming(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _configure(client)
+    closed_when_stream_started: list[bool] = []
+
+    async def fake_stream(config, messages):
+        closed_when_stream_started.append(SESSIONS[-1].close.called)
+        yield ChatEvent("done", {})
+
+    monkeypatch.setattr(ai_router_module, "stream_chat", fake_stream)
+
+    client.post("/api/ai/chat", json={"messages": [{"role": "user", "content": "hi"}]})
+
+    assert closed_when_stream_started == [True]
+
+
+def test_connection_test_releases_the_db_session_before_the_provider_call(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _configure(client)
+    closed_at_call: list[bool] = []
+
+    async def fake_check(config):
+        closed_at_call.append(SESSIONS[-1].close.called)
+        return {"ok": True}
+
+    monkeypatch.setattr(ai_router_module, "check_connection", fake_check)
+
+    client.post("/api/ai/settings/test")
+
+    assert closed_at_call == [True]

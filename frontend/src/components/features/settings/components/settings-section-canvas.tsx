@@ -1,6 +1,7 @@
 "use client";
 
 import type { SettingsSection } from "../types/settings-section";
+import { AiAssistantSettingsCanvas } from "./ai-assistant-settings-canvas";
 import { CredentialsSettingsCanvas } from "./credentials-settings-canvas";
 import { GeneralSettingsCanvas } from "./general-settings-canvas";
 import { GitRepositoriesSettingsCanvas } from "./git-repositories-settings-canvas";
@@ -50,6 +51,10 @@ export function SettingsSectionCanvas({ section }: SettingsSectionCanvasProps) {
 
   if (section === "secret-manager") {
     return <SecretManagerSettingsCanvas />;
+  }
+
+  if (section === "ai-assistant") {
+    return <AiAssistantSettingsCanvas />;
   }
 
   return null;

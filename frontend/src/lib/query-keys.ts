@@ -68,6 +68,11 @@ export const queryKeys = {
     all: ["logging"] as const,
     settings: () => [...queryKeys.logging.all, "settings"] as const,
   },
+  ai: {
+    all: ["ai"] as const,
+    status: () => [...queryKeys.ai.all, "status"] as const,
+    settings: () => [...queryKeys.ai.all, "settings"] as const,
+  },
   general: {
     all: ["general"] as const,
     settings: () => [...queryKeys.general.all, "settings"] as const,

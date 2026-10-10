@@ -1,4 +1,5 @@
 import {
+  Bot,
   Database,
   GitBranch,
   KeyRound,
@@ -92,5 +93,12 @@ export const SETTINGS_SECTIONS: {
     description: "OpenBao connections used by secret-get/set/generate workflow steps.",
     icon: ShieldCheck,
     canShow: (user) => hasPermission(user, "secret_manager.connections", "read"),
+  },
+  {
+    id: "ai-assistant",
+    label: "AI Assistant",
+    description: "Your AI provider, API key, and what the assistant may see.",
+    icon: Bot,
+    canShow: (user) => hasPermission(user, "ai_assistant", "use"),
   },
 ];

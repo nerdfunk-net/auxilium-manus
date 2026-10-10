@@ -1,6 +1,6 @@
 # In-App AI Assistant — Requirements & Design
 
-Status: **design agreed in principle (2026-10-10)** — nothing is implemented yet. Open questions
+Status: **phase 1 implemented (2026-10-10), UI not yet verified in a browser.** Phases 2–6 are not started. Open questions
 were answered by the product owner; see §9 for the recorded decisions.
 
 This document describes an AI assistant built *into* the app. It is distinct from
@@ -76,7 +76,8 @@ prompts or calls providers.
 
 A small internal interface — not a third-party abstraction layer — with three adapters:
 
-- `anthropic` — Anthropic Messages API (tool use, streaming, prompt caching).
+- `anthropic` — Anthropic Messages API via the **official `anthropic` SDK** (tool use, streaming,
+  prompt caching). The adapter wrapping it is still ours; only the HTTP/streaming layer is the SDK's.
 - `gemini` — Google AI Studio (Gemini API, function calling). Free tier has tight rate
   limits; the loop must surface 429s clearly.
 - `openai_compat` — any `/v1/chat/completions` endpoint with tool calling: Ollama, LM Studio,
@@ -90,6 +91,12 @@ context overflow, provider down) into a small set of app errors.
 providers is small, tool-calling quirks are exactly where LiteLLM leaks, and it keeps the
 dependency surface and the SSRF-policy integration simple. Revisit if a fourth provider is
 requested.
+
+**Model selection.** The user picks from a short per-provider list (not free text); the list lives
+in `services/ai_assistant/settings_service.py::PROVIDER_MODELS`, validated server-side. For
+Anthropic: **Claude Haiku 5.5 (default; cheap, adequate for editing Jinja2 templates)** and
+**Claude Sonnet 5.5 (complex workflows)**. The list is data only: nothing downstream branches on a
+model id. A stored model that is no longer offered falls back to the provider default.
 
 **Providers are treated equally.** The app does not special-case individual models or vendors:
 no per-model feature flags, capability tables or tuned prompts. The adapter interface is the
@@ -106,6 +113,18 @@ it against the step cap).
 Each user has their own provider settings: provider, model, base URL (openai_compat only),
 and API key. Requirements:
 
+- **Enable switch, independent of the key.** `enabled` (default **false**) is a per-user master
+  switch. A user can have a key configured and the assistant still off. When off, every
+  assistant UI surface is hidden (panels, entry buttons) and the backend refuses every
+  assistant endpoint with `403 {"code": "ai_assistant_disabled"}`. Hiding is a UX
+  convenience; the server-side refusal is the enforcement. Turning it off does not delete the
+  key or the data-sharing choices.
+- **Availability** is the conjunction of three independent things: permission
+  `ai_assistant:use` (admin-controlled) AND `enabled` (user-controlled) AND a configured key
+  (or, for `openai_compat` with a local endpoint, a configured base URL). The frontend asks one
+  lightweight endpoint, `GET /ai/status` → `{available, reason}`, so surfaces do not need the
+  full settings payload. The settings page itself stays visible to anyone holding the
+  permission, since that is where the assistant is switched on.
 - Key is **private to the user** — never readable by other users or admins through the API,
   never returned by any endpoint after being set (write-only; UI shows "key set").
 - Encrypted at rest with the same mechanism as credentials (Fernet, or OpenBao when
@@ -301,7 +320,11 @@ scrubbing, and ML/entropy-based detection.
 - One reusable `AssistantPanel` (chat, tool-activity disclosure, proposal card with diff),
   mounted by each surface with a `surface` + context ref. Surfaces: template editor,
   workflow canvas (v1); more later.
-- Settings → **AI Assistant** (per-user): provider, model, base URL, key, test connection.
+- Settings → **AI Assistant** (per-user): enable switch, provider, model, base URL, key, test
+  connection, data-sharing switches.
+- **Visibility gate:** one hook, `useAiAssistantAvailable()` (TanStack Query on `/ai/status`),
+  is the only way a surface decides whether to render assistant UI. When it reports
+  unavailable, nothing assistant-related is rendered — no panel, no button, no empty placeholder.
 - Server state through TanStack Query hooks + `queryKeys`; the stream itself via a small
   dedicated hook (`use-assistant-stream.ts`) since it is not request/response.
 - Shadcn UI components only. **Diff view (agreed: simple, library-based):** use a small
@@ -317,8 +340,8 @@ scrubbing, and ML/entropy-based detection.
 ## 7. Data model (sketch)
 
 - `user_ai_settings`: `user_id` (unique), `provider`, `model`, `base_url`,
-  `api_key_encrypted` (or vault ref), `storage_backend`, `share_inventory_data` (bool, default
-  false), `share_content_data` (bool, default false), timestamps.
+  `enabled` (bool, default false), `api_key_encrypted` (or vault ref), `storage_backend`,
+  `share_inventory_data` (bool, default false), `share_content_data` (bool, default false), timestamps.
 - No conversation tables in v1.
 
 ## 8. Permissions
@@ -349,6 +372,26 @@ could do by hand. P2 (grant only what you hold) applies as usual when granting i
 Testing: provider adapters against recorded fixtures; the agent loop against a scripted
 fake provider (deterministic tool-call sequences); tools as ordinary service tests; a small
 set of live smoke tests (opt-in, like `tests/integration`) per provider.
+
+## 9a. Implementation status
+
+**Phase 1 (backend + frontend written, unit-tested; not yet exercised against a real provider key
+or in a browser):**
+
+- Backend: `core/models/user_ai_settings.py`, `repositories/user_ai_settings_repository.py`,
+  `services/ai_assistant/` (settings, chat, providers, prompts), `routers/ai_assistant.py`
+  (`GET /ai/status`, `GET|PATCH /ai/settings`, `POST /ai/settings/test`, `POST /ai/chat`),
+  permission `ai_assistant:use`.
+- Frontend: `components/features/ai-assistant/` (SSE parser, `useAssistantChat`,
+  `AssistantPanel`, `useAiAssistantAvailable`), Settings → AI Assistant section.
+- SSE through the Next.js dev proxy verified with a probe endpoint (incremental delivery, no
+  gzip buffering). **Not yet verified for a production build / Docker ingress.**
+- Key storage is Fernet only (`EncryptionService`); OpenBao storage is deferred.
+- No data-sharing enforcement exists yet because no class B/C tool exists yet; the two switches
+  are stored and shown, and `AiRuntimeConfig` carries them for the phase-2 tool layer.
+- Not done: server-side `fallbacks` for refusals (a refusal is reported as a clear error),
+  `openai_compat` loopback/SSRF policy (phase 3), the redaction module (phase 6, must precede any
+  class B/C tool).
 
 ## 10. Decisions and open questions
 

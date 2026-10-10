@@ -61,8 +61,9 @@ class ResolveAndCheckTests(unittest.TestCase):
         return base
 
     def test_all_entries_resolve_returns_ids(self) -> None:
-        with self._patched() as mocks, patch(
-            "scripts.ai_defaults.load_ai_defaults_yaml", return_value=self._fake_yaml()
+        with (
+            self._patched() as mocks,
+            patch("scripts.ai_defaults.load_ai_defaults_yaml", return_value=self._fake_yaml()),
         ):
             mocks["CredentialsService"].return_value.list_credentials.return_value = [
                 _credential("cisco - noc", "ssh", cred_id=5)
@@ -82,8 +83,9 @@ class ResolveAndCheckTests(unittest.TestCase):
         self.assertEqual(resolved.inventory_ids["safe_default"], 1)
 
     def test_missing_credential_raises_drift_error(self) -> None:
-        with self._patched() as mocks, patch(
-            "scripts.ai_defaults.load_ai_defaults_yaml", return_value=self._fake_yaml()
+        with (
+            self._patched() as mocks,
+            patch("scripts.ai_defaults.load_ai_defaults_yaml", return_value=self._fake_yaml()),
         ):
             mocks["CredentialsService"].return_value.list_credentials.return_value = []
 
@@ -94,8 +96,9 @@ class ResolveAndCheckTests(unittest.TestCase):
         self.assertIn("cisco - noc", str(ctx.exception))
 
     def test_credential_wrong_type_raises_drift_error(self) -> None:
-        with self._patched() as mocks, patch(
-            "scripts.ai_defaults.load_ai_defaults_yaml", return_value=self._fake_yaml()
+        with (
+            self._patched() as mocks,
+            patch("scripts.ai_defaults.load_ai_defaults_yaml", return_value=self._fake_yaml()),
         ):
             mocks["CredentialsService"].return_value.list_credentials.return_value = [
                 _credential("cisco - noc", "generic", cred_id=5)
@@ -105,8 +108,9 @@ class ResolveAndCheckTests(unittest.TestCase):
                 resolve_and_check(db=MagicMock(), acting_username="ai-assistant")
 
     def test_missing_git_repository_raises_drift_error(self) -> None:
-        with self._patched() as mocks, patch(
-            "scripts.ai_defaults.load_ai_defaults_yaml", return_value=self._fake_yaml()
+        with (
+            self._patched() as mocks,
+            patch("scripts.ai_defaults.load_ai_defaults_yaml", return_value=self._fake_yaml()),
         ):
             mocks["CredentialsService"].return_value.list_credentials.return_value = [
                 _credential("cisco - noc", "ssh", cred_id=5)
@@ -119,8 +123,9 @@ class ResolveAndCheckTests(unittest.TestCase):
         self.assertIn("device_configs", str(ctx.exception))
 
     def test_missing_source_raises_drift_error(self) -> None:
-        with self._patched() as mocks, patch(
-            "scripts.ai_defaults.load_ai_defaults_yaml", return_value=self._fake_yaml()
+        with (
+            self._patched() as mocks,
+            patch("scripts.ai_defaults.load_ai_defaults_yaml", return_value=self._fake_yaml()),
         ):
             mocks["CredentialsService"].return_value.list_credentials.return_value = [
                 _credential("cisco - noc", "ssh", cred_id=5)
@@ -136,8 +141,9 @@ class ResolveAndCheckTests(unittest.TestCase):
         self.assertIn("nautobot_source_id", str(ctx.exception))
 
     def test_missing_inventory_raises_drift_error(self) -> None:
-        with self._patched() as mocks, patch(
-            "scripts.ai_defaults.load_ai_defaults_yaml", return_value=self._fake_yaml()
+        with (
+            self._patched() as mocks,
+            patch("scripts.ai_defaults.load_ai_defaults_yaml", return_value=self._fake_yaml()),
         ):
             mocks["CredentialsService"].return_value.list_credentials.return_value = [
                 _credential("cisco - noc", "ssh", cred_id=5)
@@ -172,8 +178,7 @@ class RealAiDefaultsYamlRegressionTests(unittest.TestCase):
             InventoryRepository=DEFAULT,
         ) as mocks:
             mocks["CredentialsService"].return_value.list_credentials.return_value = [
-                _credential(entry["name"], entry["type"])
-                for entry in raw["credentials"].values()
+                _credential(entry["name"], entry["type"]) for entry in raw["credentials"].values()
             ]
             mocks["GitRepositoryService"].return_value.get_repositories.side_effect = (
                 lambda category, active_only=True: [

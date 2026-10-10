@@ -19,6 +19,7 @@ import service_factory
 from core.database import SessionLocal, init_db, ping_database
 from models.health import ReadyResponse
 from repositories.plugin_repository import PluginRepository
+from routers.ai_assistant import router as ai_assistant_router
 from routers.auth import router as auth_router
 from routers.cache_settings import router as cache_settings_router
 from routers.certificates import router as certificates_router
@@ -191,6 +192,7 @@ async def limit_request_body(request: Request, call_next):
 
 
 app.include_router(auth_router, prefix=settings.api_prefix)
+app.include_router(ai_assistant_router, prefix=settings.api_prefix)
 app.include_router(oidc_router, prefix=settings.api_prefix)
 app.include_router(git_router, prefix=settings.api_prefix)
 app.include_router(nautobot_source_ops_router, prefix=settings.api_prefix)

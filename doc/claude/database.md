@@ -2,12 +2,12 @@
 
 ## Schema (Key Tables)
 
-**Domain tables (21):** `users`, `credentials`, `git_repositories`, `inventories`, `settings`,
+**Domain tables (22):** `users`, `credentials`, `git_repositories`, `inventories`, `settings`,
 `templates`, `workflows`, `workflow_runs`, `workflow_step_results`,
 `workflow_run_device_groups` (fan-out child progress), `workflow_run_events` (live in-step
 events), `change_requests`, `workflow_schedules`, `workflow_background_tier`,
 `workflow_changes`, `workflow_ai_sessions`, `notifications`, `user_preferences`,
-`job_statistics`, `device_data_records`, `secret_manager_connections`
+`job_statistics`, `device_data_records`, `secret_manager_connections`, `user_ai_settings`
 
 **RBAC tables (5):** `roles`, `permissions`, `role_permissions`, `user_roles`, `user_permissions`
 
@@ -59,6 +59,7 @@ from `/backend/core/models/__init__.py`:
 | `settings.py` | `Setting` |
 | `templates.py` | `Template` |
 | `user_preferences.py` | `UserPreference` |
+| `user_ai_settings.py` | `UserAiSettings` |
 | `users.py` | `User` |
 | `workflow_ai_session.py` | `WorkflowAiSession` |
 | `workflow_changes.py` | `WorkflowChange` |

@@ -1,0 +1,76 @@
+from __future__ import annotations
+
+from typing import Literal
+
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator
+
+AiProvider = Literal["anthropic", "gemini", "openai_compat"]
+AiStatusReason = Literal["ok", "no_permission", "disabled", "not_configured"]
+
+
+class UserAiSettingsUpdate(BaseModel):
+    """Partial update: omitted fields are left unchanged. ``api_key`` is write-only."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool | None = None
+    provider: AiProvider | None = None
+    model: str | None = Field(default=None, max_length=128)
+    api_key: SecretStr | None = Field(default=None, min_length=1, max_length=512)
+    clear_api_key: bool = False
+    share_inventory_data: bool | None = None
+    share_content_data: bool | None = None
+
+    # base_url is intentionally not accepted yet: it only matters for openai_compat (phase 3),
+    # where it must pass core.safe_urls validation at save time and again at call time.
+
+    @field_validator("model")
+    @classmethod
+    def _model_not_blank(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("model must not be blank")
+        return stripped
+
+
+class AiModelOption(BaseModel):
+    id: str
+    label: str
+    description: str
+
+
+class UserAiSettingsResponse(BaseModel):
+    """What the owner may read back. The key itself is never returned, only ``api_key_set``."""
+
+    enabled: bool
+    provider: AiProvider
+    model: str
+    base_url: str | None
+    api_key_set: bool
+    share_inventory_data: bool
+    share_content_data: bool
+    available_providers: list[AiProvider]
+    # Selectable models per provider; the UI shows a picker, not a free-text field.
+    available_models: dict[str, list[AiModelOption]]
+
+
+class AiStatusResponse(BaseModel):
+    available: bool
+    reason: AiStatusReason
+
+
+class ChatMessageIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    role: Literal["user", "assistant"]
+    content: str = Field(min_length=1, max_length=20000)
+
+
+class ChatRequest(BaseModel):
+    """Stateless chat turn: the client holds the history and re-sends it (v1)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    messages: list[ChatMessageIn] = Field(min_length=1, max_length=50)

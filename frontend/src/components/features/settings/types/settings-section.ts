@@ -7,4 +7,5 @@ export type SettingsSection =
   | "redis"
   | "logging"
   | "git-repositories"
-  | "secret-manager";
+  | "secret-manager"
+  | "ai-assistant";

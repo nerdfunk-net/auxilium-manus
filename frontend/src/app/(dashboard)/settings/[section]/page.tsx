@@ -16,6 +16,7 @@ export function generateStaticParams() {
     { section: "logging" },
     { section: "version-control" },
     { section: "secret-manager" },
+    { section: "ai-assistant" },
   ];
 }
 

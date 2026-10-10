@@ -18,6 +18,7 @@ from core.models.schedules import WorkflowSchedule
 from core.models.secret_manager import SecretManagerConnection
 from core.models.settings import Setting
 from core.models.templates import Template
+from core.models.user_ai_settings import UserAiSettings
 from core.models.user_preferences import UserPreference
 from core.models.users import User
 from core.models.workflow_ai_session import WorkflowAiSession
@@ -40,6 +41,7 @@ __all__ = [
     "Setting",
     "Template",
     "User",
+    "UserAiSettings",
     "UserPermission",
     "UserPreference",
     "UserRole",

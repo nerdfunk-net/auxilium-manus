@@ -10,6 +10,7 @@ const VALID_SECTIONS: SettingsSection[] = [
   "logging",
   "git-repositories",
   "secret-manager",
+  "ai-assistant",
 ];
 
 export function parseSettingsSection(value: string): SettingsSection | null {

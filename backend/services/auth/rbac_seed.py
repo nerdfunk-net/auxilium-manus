@@ -100,6 +100,9 @@ DEFAULT_PERMISSIONS: list[tuple[str, str, str]] = [
     ("system.certificates", "read", "View CA certificate files and system trust status"),
     ("system.certificates", "write", "Upload, install, or remove CA certificate files"),
     ("system.oidc", "read", "View OIDC provider configuration and debug status"),
+    # Switch for the in-app AI assistant. Additive: every tool the assistant calls still
+    # enforces the underlying resource permission (doc/ai_integration/AI_ASSISTANT.md §8).
+    ("ai_assistant", "use", "Use the in-app AI assistant (also requires the user to enable it)"),
 ]
 
 SYSTEM_ROLES: dict[str, str] = {
