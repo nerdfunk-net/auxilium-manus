@@ -9,7 +9,10 @@ import { useWorkflowQuery } from "@/hooks/queries/use-workflow-query";
 import { useWorkflowsQuery } from "@/hooks/queries/use-workflows-query";
 
 import { useNautobotSources } from "./use-nautobot-sources";
-import { isFactsQuestion, useTemplateEditorBatfish } from "./use-template-editor-batfish";
+import {
+  isFactsQuestion,
+  useTemplateEditorBatfish,
+} from "./use-template-editor-batfish";
 import { useTemplateEditorDevice } from "./use-template-editor-device";
 import { useTemplateEditorSave } from "./use-template-editor-save";
 import { useTemplateQuery } from "./use-template-query";
@@ -32,12 +35,16 @@ export function useTemplateEditor() {
   const [templateType, setTemplateType] = useState<TemplateType>("jinja2");
   const [content, setContent] = useState("");
   const [sourceId, setSourceId] = useState("");
-  const [selectedDevice, setSelectedDevice] = useState<DeviceSummary | null>(null);
+  const [selectedDevice, setSelectedDevice] = useState<DeviceSummary | null>(
+    null,
+  );
   const [commands, setCommands] = useState<string[]>([]);
   const [useTextfsm, setUseTextfsm] = useState(false);
   const [credentialId, setCredentialId] = useState("none");
   const [attributes, setAttributes] = useState<string[]>([]);
-  const [selectedVariableId, setSelectedVariableId] = useState<string | null>(null);
+  const [selectedVariableId, setSelectedVariableId] = useState<string | null>(
+    null,
+  );
   const [addVariableOpen, setAddVariableOpen] = useState(false);
   const [loadVariablesOpen, setLoadVariablesOpen] = useState(false);
   const [variablesHelpOpen, setVariablesHelpOpen] = useState(false);
@@ -48,7 +55,9 @@ export function useTemplateEditor() {
   // Reference workflow whose static attributes are previewed as the
   // `run_input` variable — a per-session discovery aid, never persisted with
   // the template (see doc/WORKFLOW-STEPS.md "Static attributes").
-  const [referenceWorkflowId, setReferenceWorkflowId] = useState<number | null>(null);
+  const [referenceWorkflowId, setReferenceWorkflowId] = useState<number | null>(
+    null,
+  );
   const [linkWorkflowDialogOpen, setLinkWorkflowDialogOpen] = useState(false);
 
   const variableManager = useTemplateVariables();
@@ -95,7 +104,8 @@ export function useTemplateEditor() {
     loadCustomVariables,
     mergeCustomVariables,
   } = variableManager;
-  const { loadFromConfig: loadBatfishFromConfig, toConfig: batfishToConfig } = batfish;
+  const { loadFromConfig: loadBatfishFromConfig, toConfig: batfishToConfig } =
+    batfish;
 
   const cleanedCommands = useMemo(
     () => commands.map((command) => command.trim()).filter(Boolean),
@@ -122,7 +132,12 @@ export function useTemplateEditor() {
     );
     loadCustomVariables(template.variables ?? {});
     loadBatfishFromConfig(template.batfish_config ?? null);
-  }, [isEditMode, templateQuery.data, loadCustomVariables, loadBatfishFromConfig]);
+  }, [
+    isEditMode,
+    templateQuery.data,
+    loadCustomVariables,
+    loadBatfishFromConfig,
+  ]);
 
   // Show/hide the command variables based on whether any command is configured.
   useEffect(() => {
@@ -135,15 +150,23 @@ export function useTemplateEditor() {
   // into `parsed.<output_key>`, not the flat `batfish` variable).
   useEffect(() => {
     toggleParsedConfigVariable(
-      getDeviceConfigs || (batfish.enabled && isFactsQuestion(batfish.question)),
+      getDeviceConfigs ||
+        (batfish.enabled && isFactsQuestion(batfish.question)),
     );
-  }, [getDeviceConfigs, batfish.enabled, batfish.question, toggleParsedConfigVariable]);
+  }, [
+    getDeviceConfigs,
+    batfish.enabled,
+    batfish.question,
+    toggleParsedConfigVariable,
+  ]);
 
   // Show/hide the flat `batfish` variable -- only for the 4 preview-only
   // question types (routes/reachability/testFilters/generic); the 5 facts
   // questions write into `parsed` instead (see effect above).
   useEffect(() => {
-    toggleBatfishVariable(batfish.enabled && !isFactsQuestion(batfish.question));
+    toggleBatfishVariable(
+      batfish.enabled && !isFactsQuestion(batfish.question),
+    );
   }, [batfish.enabled, batfish.question, toggleBatfishVariable]);
 
   // Build the `device` variable from the selected test device (matches the
@@ -255,7 +278,10 @@ export function useTemplateEditor() {
   );
 
   const handleLoadVariables = useCallback(
-    (entries: Parameters<typeof mergeCustomVariables>[0], mode: Parameters<typeof mergeCustomVariables>[1]) => {
+    (
+      entries: Parameters<typeof mergeCustomVariables>[0],
+      mode: Parameters<typeof mergeCustomVariables>[1],
+    ) => {
       mergeCustomVariables(entries, mode);
     },
     [mergeCustomVariables],
@@ -283,6 +309,7 @@ export function useTemplateEditor() {
     () => ({
       router,
       isEditMode,
+      templateId,
       isLoading,
       name,
       setName,
@@ -366,6 +393,7 @@ export function useTemplateEditor() {
     }),
     [
       router,
+      templateId,
       isEditMode,
       isLoading,
       name,

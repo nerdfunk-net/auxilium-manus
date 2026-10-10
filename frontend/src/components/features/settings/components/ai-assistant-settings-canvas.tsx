@@ -499,7 +499,7 @@ function AiAssistantSettingsForm({ settings }: { settings: AiSettings }) {
               <CardTitle className="text-base">Try it</CardTitle>
             </CardHeader>
             <CardContent className="h-96">
-              <AssistantPanel />
+              <AssistantPanel sessionKey="settings_try_it" />
             </CardContent>
           </Card>
         )}

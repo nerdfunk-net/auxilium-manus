@@ -12,10 +12,11 @@ import {
   Sparkles,
   X,
 } from "lucide-react";
-import { Suspense, useCallback, useMemo, useState } from "react";
+import { Suspense, useCallback, useMemo } from "react";
 
 import { AssistantPanel } from "@/components/features/ai-assistant/components/assistant-panel";
 import { useAiAssistantAvailable } from "@/components/features/ai-assistant/hooks/use-ai-assistant-available";
+import { useAssistantSessionOpen } from "@/components/features/ai-assistant/hooks/use-assistant-session-open";
 import type { AssistantContext } from "@/components/features/ai-assistant/types/ai-assistant";
 import { CanvasErrorBoundary } from "@/components/features/workflows/components/canvas-error-boundary";
 import { Button } from "@/components/ui/button";
@@ -41,7 +42,12 @@ const MAX_CONTEXT_VALUE_CHARS = 50000;
 function TemplateEditorContent() {
   const editor = useTemplateEditor();
   const assistantAvailable = useAiAssistantAvailable();
-  const [assistantOpen, setAssistantOpen] = useState(false);
+  const assistantSessionKey = `template_editor:${editor.templateId ?? "new"}`;
+  const {
+    open: assistantOpen,
+    setOpen: setAssistantOpen,
+    toggle: toggleAssistant,
+  } = useAssistantSessionOpen(assistantSessionKey);
   const {
     name,
     description,
@@ -111,7 +117,7 @@ function TemplateEditorContent() {
                 <Button
                   type="button"
                   variant={assistantOpen ? "default" : "outline"}
-                  onClick={() => setAssistantOpen((open) => !open)}
+                  onClick={toggleAssistant}
                 >
                   <Sparkles className="size-4" />
                   AI Assistant
@@ -350,6 +356,7 @@ function TemplateEditorContent() {
           </div>
           <div className="min-h-0 flex-1">
             <AssistantPanel
+              sessionKey={assistantSessionKey}
               placeholder="Describe the template you need, or what to change…"
               getContext={getAssistantContext}
               templateTarget={proposalTarget}

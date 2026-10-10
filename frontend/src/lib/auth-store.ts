@@ -3,6 +3,8 @@
 import type { QueryClient } from "@tanstack/react-query";
 import { create } from "zustand";
 
+import { useAssistantSessionStore } from "@/components/features/ai-assistant/store/assistant-session-store";
+
 import type { AuthUser, LoginResponse } from "@/lib/auth";
 
 interface AuthState {
@@ -112,6 +114,8 @@ export const useAuthStore = create<AuthState>((set) => ({
       // so they can't survive in memory for the next person on a shared
       // machine before a full page reload.
       queryClient?.clear();
+      // Assistant chats may hold device or run data; same reasoning as the cache above.
+      useAssistantSessionStore.getState().resetAll();
       set({ error: null, isLoading: false, user: null });
     } catch (error) {
       set({

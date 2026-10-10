@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Play, Sparkles, X } from "lucide-react";
@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { AssistantPanel } from "@/components/features/ai-assistant/components/assistant-panel";
 import { DataSharingNotice } from "@/components/features/ai-assistant/components/data-sharing-notice";
 import { useAiAssistantAvailable } from "@/components/features/ai-assistant/hooks/use-ai-assistant-available";
+import { useAssistantSessionOpen } from "@/components/features/ai-assistant/hooks/use-assistant-session-open";
 import type { AssistantContext } from "@/components/features/ai-assistant/types/ai-assistant";
 import { useWorkflowRunQuery } from "@/hooks/queries/use-workflow-run-query";
 
@@ -17,6 +18,8 @@ import { WorkflowExecutionsPanel } from "./components/workflow-executions-panel"
 import { useWorkflowBuilderStore } from "./hooks/use-workflow-builder-store";
 
 const ACTIVE_RUN_STATUSES = new Set(["pending", "running", "paused"]);
+
+const ASSISTANT_SESSION_KEY = "run_viewer";
 
 export function WorkflowRunsPage() {
   const router = useRouter();
@@ -56,11 +59,11 @@ export function WorkflowRunsPage() {
 
   // AI assistant: read-only run explainer, rendered only while the user has it enabled.
   const assistantAvailable = useAiAssistantAvailable();
-  const [assistantOpen, setAssistantOpen] = useState(false);
-  const toggleAssistant = useCallback(
-    () => setAssistantOpen((open) => !open),
-    [],
-  );
+  const {
+    open: assistantOpen,
+    setOpen: setAssistantOpen,
+    toggle: toggleAssistant,
+  } = useAssistantSessionOpen(ASSISTANT_SESSION_KEY);
   const getAssistantContext = useCallback(
     (): AssistantContext => ({ surface: "run_viewer", run_id: activeRunId }),
     [activeRunId],
@@ -140,6 +143,7 @@ export function WorkflowRunsPage() {
             <DataSharingNotice />
             <div className="min-h-0 flex-1">
               <AssistantPanel
+                sessionKey={ASSISTANT_SESSION_KEY}
                 placeholder={
                   activeRunId
                     ? `Ask about run #${activeRunId}, e.g. why did it fail?`

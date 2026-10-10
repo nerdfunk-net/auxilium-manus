@@ -1,11 +1,12 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback } from "react";
 import { List, Sparkles, X } from "lucide-react";
 
 import { AssistantPanel } from "@/components/features/ai-assistant/components/assistant-panel";
 import { DataSharingNotice } from "@/components/features/ai-assistant/components/data-sharing-notice";
 import { useAiAssistantAvailable } from "@/components/features/ai-assistant/hooks/use-ai-assistant-available";
+import { useAssistantSessionOpen } from "@/components/features/ai-assistant/hooks/use-assistant-session-open";
 import type { AssistantContext } from "@/components/features/ai-assistant/types/ai-assistant";
 import { Button } from "@/components/ui/button";
 
@@ -19,12 +20,13 @@ export function InventoryPage() {
   // AI assistant: read-only inventory questions, rendered only while the user has it enabled
   // and a Nautobot source exists (the tools read through that source).
   const assistantAvailable = useAiAssistantAvailable();
-  const [assistantOpen, setAssistantOpen] = useState(false);
-  const toggleAssistant = useCallback(
-    () => setAssistantOpen((open) => !open),
-    [],
-  );
   const sourceId = source.sourceId;
+  const assistantSessionKey = `inventory:${sourceId}`;
+  const {
+    open: assistantOpen,
+    setOpen: setAssistantOpen,
+    toggle: toggleAssistant,
+  } = useAssistantSessionOpen(assistantSessionKey);
   const getAssistantContext = useCallback(
     (): AssistantContext => ({ surface: "inventory", source_id: sourceId }),
     [sourceId],
@@ -40,7 +42,9 @@ export function InventoryPage() {
               <List className="h-6 w-6" />
             </div>
             <div className="flex-1">
-              <h1 className="text-3xl font-bold text-foreground">Inventory Builder</h1>
+              <h1 className="text-3xl font-bold text-foreground">
+                Inventory Builder
+              </h1>
               <p className="mt-1 text-muted-foreground">
                 Build dynamic device inventories using logical operations
               </p>
@@ -94,6 +98,7 @@ export function InventoryPage() {
           <DataSharingNotice />
           <div className="min-h-0 flex-1">
             <AssistantPanel
+              sessionKey={assistantSessionKey}
               placeholder="Ask about your inventories, e.g. how many devices are in LAB?"
               getContext={getAssistantContext}
             />

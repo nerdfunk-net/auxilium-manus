@@ -1,10 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
 
 import { AssistantPanel } from "@/components/features/ai-assistant/components/assistant-panel";
 import { useAiAssistantAvailable } from "@/components/features/ai-assistant/hooks/use-ai-assistant-available";
+import { useAssistantSessionOpen } from "@/components/features/ai-assistant/hooks/use-assistant-session-open";
 import type {
   AssistantContext,
   WorkflowProposal,
@@ -116,11 +117,12 @@ export function WorkflowBuilderPage() {
 
   // --- AI assistant (rendered only while the user has it enabled) ---------------------------
   const assistantAvailable = useAiAssistantAvailable();
-  const [assistantOpen, setAssistantOpen] = useState(false);
-  const toggleAssistant = useCallback(
-    () => setAssistantOpen((open) => !open),
-    [],
-  );
+  const assistantSessionKey = `workflow_editor:${persistence.workflowId ?? "new"}`;
+  const {
+    open: assistantOpen,
+    setOpen: setAssistantOpen,
+    toggle: toggleAssistant,
+  } = useAssistantSessionOpen(assistantSessionKey);
   const { allNodes, allEdges, groups, staticAttributes, applyLoadedCanvas } =
     canvas;
   const workflowNameForAssistant = persistence.workflowName;
@@ -301,6 +303,7 @@ export function WorkflowBuilderPage() {
             </div>
             <div className="min-h-0 flex-1">
               <AssistantPanel
+                sessionKey={assistantSessionKey}
                 placeholder="Describe the workflow you need, or what to change…"
                 getContext={getAssistantContext}
                 workflowTarget={workflowTarget}

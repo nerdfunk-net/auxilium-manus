@@ -3,6 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { useAuthStore } from "@/lib/auth-store";
 
+import { useAssistantSessionStore } from "../store/assistant-session-store";
+
 import type {
   AssistantContext,
   TemplateProposal,
@@ -11,6 +13,7 @@ import type {
 import { canvasFingerprint } from "../utils/canvas-fingerprint";
 import { useAssistantChat } from "./use-assistant-chat";
 
+const KEY = "test_session";
 const replace = vi.fn();
 vi.mock("next/navigation", () => ({ useRouter: () => ({ replace }) }));
 
@@ -73,6 +76,7 @@ async function send(
 }
 
 beforeEach(() => {
+  useAssistantSessionStore.getState().resetAll();
   fetchMock.mockReset();
   replace.mockReset();
   vi.stubGlobal("fetch", fetchMock);
@@ -92,7 +96,7 @@ describe("useAssistantChat", () => {
         frame("done", {}),
       ]),
     );
-    const { result } = renderHook(() => useAssistantChat());
+    const { result } = renderHook(() => useAssistantChat({ sessionKey: KEY }));
 
     await send(result, "  hi  ");
 
@@ -113,7 +117,7 @@ describe("useAssistantChat", () => {
     fetchMock.mockResolvedValue(
       sseResponse([whole.slice(0, 12), whole.slice(12), frame("done", {})]),
     );
-    const { result } = renderHook(() => useAssistantChat());
+    const { result } = renderHook(() => useAssistantChat({ sessionKey: KEY }));
 
     await send(result, "go");
 
@@ -122,7 +126,7 @@ describe("useAssistantChat", () => {
   });
 
   it("ignores blank messages", async () => {
-    const { result } = renderHook(() => useAssistantChat());
+    const { result } = renderHook(() => useAssistantChat({ sessionKey: KEY }));
 
     await send(result, "   ");
 
@@ -145,7 +149,7 @@ describe("useAssistantChat", () => {
         frame("done", {}),
       ]),
     );
-    const { result } = renderHook(() => useAssistantChat());
+    const { result } = renderHook(() => useAssistantChat({ sessionKey: KEY }));
 
     await send(result, "go");
 
@@ -188,7 +192,7 @@ describe("useAssistantChat", () => {
       ]),
     );
     const { result } = renderHook(() =>
-      useAssistantChat({ getContext: () => context }),
+      useAssistantChat({ sessionKey: KEY, getContext: () => context }),
     );
 
     await send(result, "change it");
@@ -239,7 +243,7 @@ describe("useAssistantChat", () => {
       ]),
     );
     const { result } = renderHook(() =>
-      useAssistantChat({ getContext: () => context }),
+      useAssistantChat({ sessionKey: KEY, getContext: () => context }),
     );
 
     await send(result, "build");
@@ -261,7 +265,7 @@ describe("useAssistantChat", () => {
         frame("done", {}),
       ]),
     );
-    const { result } = renderHook(() => useAssistantChat());
+    const { result } = renderHook(() => useAssistantChat({ sessionKey: KEY }));
 
     await send(result, "go");
 
@@ -280,7 +284,7 @@ describe("useAssistantChat", () => {
       .mockResolvedValueOnce(
         sseResponse([frame("text", { text: "ok" }), frame("done", {})]),
       );
-    const { result } = renderHook(() => useAssistantChat());
+    const { result } = renderHook(() => useAssistantChat({ sessionKey: KEY }));
 
     await send(result, "first");
     expect(result.current.messages[1].error).toBe("Key rejected");
@@ -296,7 +300,7 @@ describe("useAssistantChat", () => {
     fetchMock.mockResolvedValue(
       sseResponse([frame("text", { text: "half an ans" })]),
     );
-    const { result } = renderHook(() => useAssistantChat());
+    const { result } = renderHook(() => useAssistantChat({ sessionKey: KEY }));
 
     await send(result, "go");
 
@@ -309,12 +313,13 @@ describe("useAssistantChat", () => {
 
   it("redirects to login on 401", async () => {
     fetchMock.mockResolvedValue(new Response(null, { status: 401 }));
-    const { result } = renderHook(() => useAssistantChat());
+    const { result } = renderHook(() => useAssistantChat({ sessionKey: KEY }));
 
     await send(result, "go");
 
     expect(replace).toHaveBeenCalledWith("/login");
-    expect(result.current.messages[1].error).toBe("Authentication required");
+    // The session is over: stored conversations are dropped with it.
+    expect(result.current.messages).toEqual([]);
   });
 
   it("shows the server's message for a failed request", async () => {
@@ -323,7 +328,7 @@ describe("useAssistantChat", () => {
         detail: { code: "ai_assistant_not_configured", message: "No key" },
       }),
     );
-    const { result } = renderHook(() => useAssistantChat());
+    const { result } = renderHook(() => useAssistantChat({ sessionKey: KEY }));
 
     await send(result, "go");
 
@@ -340,7 +345,7 @@ describe("useAssistantChat", () => {
         detail: { code: "password_change_required", message: "Change it" },
       }),
     );
-    const { result } = renderHook(() => useAssistantChat());
+    const { result } = renderHook(() => useAssistantChat({ sessionKey: KEY }));
 
     await send(result, "go");
 
@@ -350,7 +355,7 @@ describe("useAssistantChat", () => {
 
   it("shows a generic error when the network fails", async () => {
     fetchMock.mockRejectedValue(new TypeError("network down"));
-    const { result } = renderHook(() => useAssistantChat());
+    const { result } = renderHook(() => useAssistantChat({ sessionKey: KEY }));
 
     await send(result, "go");
 
@@ -363,7 +368,7 @@ describe("useAssistantChat", () => {
     fetchMock.mockImplementation((_url, init: RequestInit) =>
       Promise.resolve(hangingResponse(init.signal as AbortSignal)),
     );
-    const { result } = renderHook(() => useAssistantChat());
+    const { result } = renderHook(() => useAssistantChat({ sessionKey: KEY }));
 
     let first: Promise<void> = Promise.resolve();
     await act(async () => {
@@ -394,7 +399,7 @@ describe("useAssistantChat", () => {
       .mockResolvedValueOnce(
         sseResponse([frame("text", { text: "next" }), frame("done", {})]),
       );
-    const { result } = renderHook(() => useAssistantChat());
+    const { result } = renderHook(() => useAssistantChat({ sessionKey: KEY }));
 
     let first: Promise<void> = Promise.resolve();
     await act(async () => {
@@ -427,7 +432,7 @@ describe("useAssistantChat", () => {
         frame("done", {}),
       ]),
     );
-    const { result } = renderHook(() => useAssistantChat());
+    const { result } = renderHook(() => useAssistantChat({ sessionKey: KEY }));
     await send(result, "go");
     const assistantId = result.current.messages[1].id;
 
@@ -440,12 +445,102 @@ describe("useAssistantChat", () => {
 
   it("clear empties the conversation", async () => {
     fetchMock.mockResolvedValue(sseResponse([frame("done", {})]));
-    const { result } = renderHook(() => useAssistantChat());
+    const { result } = renderHook(() => useAssistantChat({ sessionKey: KEY }));
     await send(result, "go");
 
     act(() => result.current.clear());
 
     expect(result.current.messages).toEqual([]);
     expect(result.current.isStreaming).toBe(false);
+  });
+
+  it("restores the conversation after a remount", async () => {
+    fetchMock.mockResolvedValue(
+      sseResponse([frame("text", { text: "Hello" }), frame("done", {})]),
+    );
+    const first = renderHook(() => useAssistantChat({ sessionKey: KEY }));
+    await send(first.result, "hi");
+    first.unmount();
+
+    const second = renderHook(() => useAssistantChat({ sessionKey: KEY }));
+    expect(second.result.current.messages.map((m) => m.content)).toEqual([
+      "hi",
+      "Hello",
+    ]);
+    // The restored history is part of the next request.
+    fetchMock.mockResolvedValue(sseResponse([frame("done", {})]));
+    await send(second.result, "again");
+    expect((lastRequestBody().messages as unknown[]).length).toBe(3);
+  });
+
+  it("keeps conversations of different keys apart", async () => {
+    fetchMock.mockResolvedValue(sseResponse([frame("done", {})]));
+    const a = renderHook(() => useAssistantChat({ sessionKey: "a" }));
+    const b = renderHook(() => useAssistantChat({ sessionKey: "b" }));
+    await send(a.result, "only a");
+    expect(a.result.current.messages).toHaveLength(2);
+    expect(b.result.current.messages).toHaveLength(0);
+  });
+
+  it("cancels the running turn when the page unmounts and marks it cancelled", async () => {
+    fetchMock.mockImplementation((_url: string, init: RequestInit) =>
+      Promise.resolve(hangingResponse(init.signal as AbortSignal)),
+    );
+    const first = renderHook(() => useAssistantChat({ sessionKey: KEY }));
+    act(() => {
+      void first.result.current.send("slow");
+    });
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalled());
+
+    first.unmount();
+    await vi.waitFor(() => {
+      const messages =
+        useAssistantSessionStore.getState().sessions[KEY].messages;
+      expect(messages[1].error).toBe("Cancelled");
+    });
+
+    // A restored, cancelled turn is not sent back to the model.
+    const second = renderHook(() => useAssistantChat({ sessionKey: KEY }));
+    expect(second.result.current.isStreaming).toBe(false);
+    fetchMock.mockResolvedValue(sseResponse([frame("done", {})]));
+    await send(second.result, "next");
+    expect(lastRequestBody().messages).toEqual([
+      { role: "user", content: "slow" },
+      { role: "user", content: "next" },
+    ]);
+  });
+
+  it("keeps partial text of a cancelled turn", async () => {
+    fetchMock.mockImplementation((_url: string, init: RequestInit) =>
+      Promise.resolve(
+        hangingResponse(
+          init.signal as AbortSignal,
+          frame("text", { text: "par" }),
+        ),
+      ),
+    );
+    const { result, unmount } = renderHook(() =>
+      useAssistantChat({ sessionKey: KEY }),
+    );
+    act(() => {
+      void result.current.send("go");
+    });
+    await vi.waitFor(() =>
+      expect(result.current.messages[1]?.content).toBe("par"),
+    );
+    unmount();
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    const message =
+      useAssistantSessionStore.getState().sessions[KEY].messages[1];
+    expect(message.content).toBe("par");
+    expect(message.error).toBeUndefined();
+  });
+
+  it("drops every stored conversation on 401", async () => {
+    useAssistantSessionStore.getState().setOpen("other", true);
+    fetchMock.mockResolvedValue(jsonResponse(401, {}));
+    const { result } = renderHook(() => useAssistantChat({ sessionKey: KEY }));
+    await send(result, "hi");
+    expect(useAssistantSessionStore.getState().sessions.other).toBeUndefined();
   });
 });

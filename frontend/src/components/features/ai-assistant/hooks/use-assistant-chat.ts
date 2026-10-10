@@ -16,12 +16,17 @@ import type {
   WorkflowChanges,
   WorkflowProposalWarning,
 } from "../types/ai-assistant";
+import {
+  EMPTY_SESSION,
+  useAssistantSessionStore,
+} from "../store/assistant-session-store";
 import { canvasFingerprint } from "../utils/canvas-fingerprint";
 import { parseSseBuffer } from "../utils/sse-parser";
 
 const CHAT_ENDPOINT = "/api/proxy/ai/chat";
 const GENERIC_ERROR = "The assistant request failed";
 const INTERRUPTED_ERROR = "The response was interrupted";
+const CANCELLED_ERROR = "Cancelled";
 
 interface TextPayload {
   text?: string;
@@ -49,6 +54,8 @@ interface ProposalPayload {
 }
 
 export interface UseAssistantChatOptions {
+  /** Which stored conversation this hook shows, for example `workflow_editor:12`. */
+  sessionKey: string;
   /** Current surface state, read fresh on every send (a ref keeps this stable). */
   getContext?: () => AssistantContext | undefined;
 }
@@ -70,32 +77,45 @@ function nextId(): string {
 }
 
 /**
- * Client-held chat (v1 is stateless on the server): the history is re-sent each turn and
- * is lost on reload. Streams the reply over SSE through the Next.js proxy.
+ * Client-held chat (the server is stateless): the history is re-sent each turn. Messages live
+ * in `useAssistantSessionStore` under `sessionKey`, so they survive leaving and re-entering a
+ * page (but not a reload). A running turn is cancelled when the page unmounts or the key
+ * changes. Streams the reply over SSE through the Next.js proxy.
  */
-export function useAssistantChat({ getContext }: UseAssistantChatOptions = {}) {
+export function useAssistantChat({
+  sessionKey,
+  getContext,
+}: UseAssistantChatOptions) {
   const router = useRouter();
-  const [messages, setMessages] = useState<DisplayMessage[]>([]);
+  const messages = useAssistantSessionStore(
+    (state) => (state.sessions[sessionKey] ?? EMPTY_SESSION).messages,
+  );
   const [isStreaming, setIsStreaming] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
-  const messagesRef = useRef<DisplayMessage[]>([]);
   const getContextRef = useRef(getContext);
 
   useEffect(() => {
     getContextRef.current = getContext;
   }, [getContext]);
 
-  useEffect(() => {
-    messagesRef.current = messages;
-  }, [messages]);
-
-  useEffect(() => () => abortRef.current?.abort(), []);
+  // Leaving the page (or switching to another conversation) cancels the running turn.
+  useEffect(
+    () => () => {
+      abortRef.current?.abort();
+      abortRef.current = null;
+    },
+    [sessionKey],
+  );
 
   const patchAssistant = useCallback(
     (id: string, update: (current: DisplayMessage) => DisplayMessage) => {
-      setMessages((prev) => prev.map((m) => (m.id === id ? update(m) : m)));
+      useAssistantSessionStore
+        .getState()
+        .updateMessages(sessionKey, (prev) =>
+          prev.map((m) => (m.id === id ? update(m) : m)),
+        );
     },
-    [],
+    [sessionKey],
   );
 
   const send = useCallback(
@@ -106,17 +126,22 @@ export function useAssistantChat({ getContext }: UseAssistantChatOptions = {}) {
       }
 
       const history: ChatMessage[] = [
-        ...messagesRef.current
+        ...(
+          useAssistantSessionStore.getState().sessions[sessionKey] ??
+          EMPTY_SESSION
+        ).messages
           .filter((m) => !m.error && m.content)
           .map(({ role, content }) => ({ role, content })),
         { role: "user", content: trimmed },
       ];
       const assistantId = nextId();
-      setMessages((prev) => [
-        ...prev,
-        { id: nextId(), role: "user", content: trimmed },
-        { id: assistantId, role: "assistant", content: "" },
-      ]);
+      useAssistantSessionStore
+        .getState()
+        .updateMessages(sessionKey, (prev) => [
+          ...prev,
+          { id: nextId(), role: "user", content: trimmed },
+          { id: assistantId, role: "assistant", content: "" },
+        ]);
 
       const context = getContextRef.current?.();
       const controller = new AbortController();
@@ -139,7 +164,7 @@ export function useAssistantChat({ getContext }: UseAssistantChatOptions = {}) {
 
         if (response.status === 401) {
           router.replace("/login");
-          fail("Authentication required");
+          useAssistantSessionStore.getState().resetAll();
           return;
         }
         if (!response.ok || !response.body) {
@@ -250,6 +275,12 @@ export function useAssistantChat({ getContext }: UseAssistantChatOptions = {}) {
       } catch (error) {
         if ((error as Error).name !== "AbortError") {
           fail(GENERIC_ERROR);
+        } else {
+          // Stop, leaving the page or switching conversation. An empty reply would show a
+          // spinner forever once the conversation is restored.
+          patchAssistant(assistantId, (m) =>
+            m.content || m.proposal ? m : { ...m, error: CANCELLED_ERROR },
+          );
         }
       } finally {
         if (abortRef.current === controller || abortRef.current === null) {
@@ -258,20 +289,22 @@ export function useAssistantChat({ getContext }: UseAssistantChatOptions = {}) {
         }
       }
     },
-    [patchAssistant, router],
+    [patchAssistant, router, sessionKey],
   );
 
   const setProposalState = useCallback(
     (messageId: string, state: ProposalState) => {
-      setMessages((prev) =>
-        prev.map((m) =>
-          m.id === messageId && m.proposal
-            ? { ...m, proposal: { ...m.proposal, state } }
-            : m,
-        ),
-      );
+      useAssistantSessionStore
+        .getState()
+        .updateMessages(sessionKey, (prev) =>
+          prev.map((m) =>
+            m.id === messageId && m.proposal
+              ? { ...m, proposal: { ...m.proposal, state } }
+              : m,
+          ),
+        );
     },
-    [],
+    [sessionKey],
   );
 
   // Null the ref synchronously so a send right after stop/clear is not dropped while the
@@ -284,8 +317,8 @@ export function useAssistantChat({ getContext }: UseAssistantChatOptions = {}) {
     abortRef.current?.abort();
     abortRef.current = null;
     setIsStreaming(false);
-    setMessages([]);
-  }, []);
+    useAssistantSessionStore.getState().clearSession(sessionKey);
+  }, [sessionKey]);
 
   return useMemo(
     () => ({ messages, isStreaming, send, stop, clear, setProposalState }),
