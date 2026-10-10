@@ -585,3 +585,46 @@ pass-throughs, `InterfaceManagerService`, `DeviceUpdateService.update_device`, `
 - **Not worth doing** unless the assistant is given more write surfaces or the card stops showing the
   config of added steps.
 
+
+---
+
+## AI assistant: structured failure records — follow-ups
+
+**Added:** 2026-10-11 · **Area:** `backend/models/failure.py`, `doc/ai_integration/AI_ASSISTANT.md` §19
+
+The record (`FailureInfo`) is built for Netmiko, Catalyst Center, ISE, templates, git and Nautobot and
+is covered by unit tests only. Open items:
+
+- **Verify against real sources** (product owner, pending). Per source: a wrong credential, an
+  unreachable host, and one source-specific failure, each with "Run and device content" off, asking the
+  assistant what went wrong. Suggested cases: Netmiko (timeout, auth), Catalyst Center (self-signed
+  certificate, wrong password), ISE (401 / 403), git (wrong token, non-fast-forward push), a template
+  with an undefined variable, a Nautobot job that fails. Also check that:
+  - the new `workflow_step_results.failure` column appears after the backend restarts,
+  - a **fan-out** run carries the step-level record through `__step_errors__` to the aggregated step,
+  - the classifier picks the right kind for the real error texts (git and Netmiko classify by
+    inspecting text; add a case to the tests whenever a real failure comes out as `unknown`).
+- **Show the record in the runs page.** The step result API already returns `failure` and `DeviceError`
+  has it (`frontend/src/lib/workflow-context-types.ts`); the step result viewer
+  (`step-result-viewer/device-error-list.tsx`) still shows only the message. Show kind, attempts and the
+  hint next to it, and use it for filtering ("show all timeouts").
+- **Live run events carry no record.** `workflow_run_events` keeps its `kind` (`connect_failed`,
+  `auth_failed`, ...) and a text message. Decide whether events need a structured field or whether the
+  step-level record is enough.
+- **Not covered yet:** the pyATS steps (`get-pyats-*`, `compare-pyats-snapshot`, `add-pyats-testbed`),
+  Batfish steps, `store-artifact`, `send-mail`, `notify*`, `secret-*` / Secret Manager and any other
+  step that fails with a bare `RuntimeError(message)`. They still record text only; the fix is the same
+  as for the others (classifier next to the client, `.failure` on its exception, or `from exc` in the
+  cause chain).
+- **Catalyst Center raise sites without a `code`** (for example the site-membership checks in
+  `site_service.py`) classify as `unknown`. Set a `code` there.
+- **Nautobot GraphQL `errors` bodies are swallowed.** A GraphQL answer can be HTTP 200 with an `errors`
+  list; `resolvers/base_resolver.py` and `network_resolver.py` log it and return nothing, so a failed
+  lookup looks like "not found" and no record exists. Needs a behaviour decision (raise
+  `NautobotAPIError` with a `code`?) before it can be classified.
+- **Run history per device** (`get_device_history`: the last N runs of this workflow for this device,
+  status and failure kind only) was deferred in the design discussion. It would let the assistant say
+  whether a failure is new or recurring.
+- **Revisit the strict host / port rule** after testing. The record deliberately has no host or port
+  (device addresses stay class B). If the assistant needs them to be useful, add them behind the
+  inventory opt-in rather than to the always-visible record.

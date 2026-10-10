@@ -158,6 +158,11 @@ declare a subclass and one factory call — do not copy the CRUD ladder.
   `services/git/scrub.py::scrub_url_credentials`.
 - **Swallowed exceptions:** `except …: pass` is a lint error (S110/S112); log at debug or add a
   `# noqa` with the reason.
+- **Failure records:** a step that fails a device or the whole step records *why* as a
+  `models.failure.FailureInfo` (closed vocabulary, no free text) next to the readable message:
+  `DeviceError(failure=...)`, `StepOutcome(failure=...)`, or raise with the client error in the cause
+  chain. Classifiers live next to the client (`.failure` on the exception, `http_status`/`code` set at
+  the raise site); never copy message text into the record. See `doc/ai_integration/AI_ASSISTANT.md` §19.
 - **Router error mapping:** ISE routes use the `@ise_errors("<action>")` decorator
   (`routers/sources/ise/errors.py`) instead of repeating the except ladder.
 

@@ -198,6 +198,9 @@ class DeviceError(BaseModel):
     code: str       # "timeout" | "auth_failed" | "unreachable" | "parse_error" | ...
     message: str    # human-readable, safe to surface in the UI
     occurred_at: str = Field(default_factory=now_iso)
+    # Structured, non-sensitive cause (models/failure.py): phase, kind, attempts, hint, ...
+    # Closed vocabulary, no free text, so the AI assistant shows it without the content opt-in.
+    failure: FailureInfo | None = None
 
 
 class DeviceContext(BaseModel):
@@ -331,6 +334,9 @@ class StepOutcome(BaseModel):
     name: str                 # "success" | "failure" | "ios" | "nxos" | ...
     context: WorkflowContext
     summary: str | None = None  # short, bounded status text; surfaced in run/step UI and logs
+    # Why the step as a whole ended on this outcome when no single device is to blame (source
+    # unreachable, git push rejected). Persisted as WorkflowStepResult.failure.
+    failure: FailureInfo | None = None
 
 
 def bare_hostname(primary_ip4: str | None, fallback: str) -> str:
@@ -406,7 +412,8 @@ if not context.devices:
 2. **Populate only your fields** — never clear another step's data.
 3. **Add capabilities** to each device you *successfully* enriched.
 4. **On per-device runtime failure** — set `status=FAILED`, append a `DeviceError` (with
-   your `node_id` and `step_id`), continue to the next device. Do not raise.
+   your `node_id` and `step_id`, and a `failure` where the cause is known), continue to the
+   next device. Do not raise. See `doc/ai_integration/AI_ASSISTANT.md` §19 for `FailureInfo`.
 5. **Success outcome carries only successfully enriched devices.** Failed devices go only
    on the `failure` outcome. The `success` context must satisfy
    `step.produces ⊆ provided_capabilities()` of that context.

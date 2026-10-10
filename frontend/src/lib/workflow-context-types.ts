@@ -13,12 +13,27 @@ export interface ArtifactRef {
   created_at: string;
 }
 
+/** Structured, non-sensitive cause of a failure (backend `models/failure.py`). */
+export interface FailureInfo {
+  phase: string;
+  kind: string;
+  retryable?: boolean;
+  attempts?: number;
+  max_attempts?: number;
+  elapsed_ms?: number;
+  http_status?: number;
+  line?: number;
+  exception_type?: string;
+  hint?: string;
+}
+
 export interface DeviceError {
   node_id: string;
   step_id: string;
   code: string;
   message: string;
   occurred_at: string;
+  failure?: FailureInfo;
 }
 
 export interface CommandResult {

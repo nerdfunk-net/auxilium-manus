@@ -130,7 +130,8 @@ push. `services/git/repo_lock.py` closes this with a Redis `SET NX EX`
 advisory lock keyed by `git_repository_id`. It is fail-soft only when there
 is no usable cache (Redis not configured, or erroring while acquiring: the lock
 is skipped with a warning). A lock that stays held by another caller past the
-90 s acquire timeout **fails the step** (`RuntimeError`) rather than proceeding
+90 s acquire timeout **fails the step** (`GitOperationError`, a `RuntimeError` carrying a
+`repo_locked` failure record) rather than proceeding
 on a shared working tree. It does not turn N concurrent callers into one
 logical operation, only into N safely-serialised ones — see `doc/WORKFLOW-STEPS.md` → "Writing
 concurrency-safe steps" for the author-facing guidance on why a git-touching
@@ -761,6 +762,37 @@ test, Batfish queries) carry `Depends(rate_limited("<bucket>", attempts=…, win
 atomically (Redis Lua script), 429 with `Retry-After` when exceeded. Unlike login, a Redis outage falls
 back to an in-process window instead of blocking operators. A bucket name is one budget; reusing it with
 another fails at import.
+
+---
+
+## Failure records: why a step failed, without the content opt-in
+
+**Question:** A run failed because a device was unreachable. Which part of that is safe to show the
+AI assistant when the user has not shared run and device content?
+
+**Answer:** The *cause*, never the *text*. Error messages echo device output, hostnames, URLs and
+response bodies, so they stay class C (opt-in). Next to every message a step can record a
+`FailureInfo` (`backend/models/failure.py`): a closed vocabulary (`phase`, `kind` such as `timeout`,
+`auth_failed`, `tls_error`, `push_rejected`, `undefined_variable`), numbers (`attempts`, `elapsed_ms`,
+`http_status`, template `line`), the exception class name and a hint code. It has no free-text field
+by design, and every classifier only *inspects* exception text to choose a kind.
+
+- **Where it lives:** per device on `DeviceError.failure` (inside the persisted step output), and for
+  failures that are not one device's fault on `WorkflowStepResult.failure` (JSON column). A step sets
+  `StepOutcome.failure`, or raises with the client error in its cause chain; `StepRunner` and the
+  fan-out subgraph read it through `failure_from_exception`. An unexpected exception (a bug)
+  records only its class name.
+- **Where it is produced:** next to each client, not in the steps. Netmiko
+  (`services/network/netmiko/failure.py`), Catalyst Center, ISE and Nautobot (a `.failure` property on
+  their exception base class, fed by `http_status` and a short `code` set at the raise site), git
+  (`services/git/failure.py`) and Jinja (`JinjaTemplateError.failure`). Transport errors (DNS,
+  refused, TLS, no route) are recognised once in `services/network/transport_failure.py`.
+- **Who reads it:** the run explainer shows `failures` per device, `device_failures_by_cause` per
+  step and `failure` on the step without the opt-in; the runs-page UI does not yet.
+
+New integration? Put the classifier next to the client, give its exceptions `http_status`/`code` and a
+`.failure`, and pass it to the `DeviceError` or outcome. Rules and the full list are in
+[`doc/ai_integration/AI_ASSISTANT.md`](./ai_integration/AI_ASSISTANT.md) §19.
 
 ---
 
