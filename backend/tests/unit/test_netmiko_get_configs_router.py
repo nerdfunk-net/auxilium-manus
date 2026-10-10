@@ -6,6 +6,7 @@ from collections.abc import Iterator
 from unittest.mock import MagicMock, patch
 
 import pytest
+from _auth_helpers import make_auth_db, token_payload
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.testclient import TestClient
@@ -28,7 +29,7 @@ def _make_user() -> User:
 
 
 def _override_db() -> Iterator[MagicMock]:
-    yield MagicMock()
+    yield make_auth_db()
 
 
 @pytest.fixture
@@ -42,7 +43,7 @@ def app(monkeypatch: pytest.MonkeyPatch) -> FastAPI:
         return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
 
     app.include_router(netmiko_router, prefix="/api")
-    app.dependency_overrides[verify_token] = lambda: {"sub": "tester", "user_id": 1}
+    app.dependency_overrides[verify_token] = lambda: token_payload()
     app.dependency_overrides[get_current_user] = _make_user
     app.dependency_overrides[get_db] = _override_db
     return app

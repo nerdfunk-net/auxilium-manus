@@ -7,6 +7,7 @@ from ipaddress import ip_network
 from unittest.mock import MagicMock, patch
 
 import redis
+from _auth_helpers import make_auth_db
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -37,7 +38,7 @@ class AuthLoginRateLimitTests(unittest.TestCase):
 
         self.app = FastAPI()
         self.app.include_router(auth_router, prefix="/api")
-        self.app.dependency_overrides[get_db] = lambda: MagicMock()
+        self.app.dependency_overrides[get_db] = lambda: make_auth_db()
         self.app.dependency_overrides[get_login_ip_rate_limiter] = lambda: self.ip_limiter
         self.app.dependency_overrides[get_login_user_rate_limiter] = lambda: self.user_limiter
 

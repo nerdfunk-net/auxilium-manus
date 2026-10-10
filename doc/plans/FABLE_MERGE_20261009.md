@@ -8,7 +8,7 @@ listed under "Not done" below; those, and everything the review rounds deferred,
 
 | Phase | Status |
 |---|---|
-| 1 Account and RBAC guards | ✅ T2, R3, R4, R5, T4 fixed. ⏸ **T3 deferred** (393 tests stub minimal tokens) |
+| 1 Account and RBAC guards | ✅ T2, R3, R4, R5, T4 fixed. ✅ T3 fixed separately — see `FABLE_MERGE_T3.md` |
 | 2 Webhook and git-lock correctness | ✅ W1–W4 fixed |
 | 3 OpenBao hardening | ✅ V5–V14, SM6, SM7 fixed |
 | 4 Secret Manager steps | ✅ SM5, SM8, SM9, SM11 fixed. ⏳ **§4.5 Infisical live verification not run** |
@@ -19,7 +19,7 @@ listed under "Not done" below; those, and everything the review rounds deferred,
 | 9 Code-quality hygiene | ✅ Q2–Q6, Q8, R7, T6, CI restored. ◐ Q1 (5 worst functions split, 3 still > 50 lines), Q7 (ratchet test + credentials; 82 models left), Q9 (73 → 54). ⏳ Q10 not started |
 | 10 Docs and repository hygiene | ✅ D1–D6, T5 fixed. ◐ D7 (gitleaks not run, real contact + debug-router decision open) |
 
-**Not done** (all in `doc/OPEN_TODOS.md`): T3, §4.5 Infisical check, Q7 remainder, Q9 remainder, Q1/Q10
+**Not done** (all in `doc/OPEN_TODOS.md`): §4.5 Infisical check, Q7 remainder, Q9 remainder, Q1/Q10
 remainder, D7 leftovers, and the deployment/hardening follow-ups noted in the reviews.
 
 Each phase is independent: it can be implemented, tested and committed on its own, in any
@@ -250,9 +250,7 @@ def delete_role(
 
 ### 1.5 T3 — `tv` and `sid_iat` are mandatory
 
-> **Deferred (2026-10-09):** making the claims mandatory broke 393 unit tests (router tests that stub
-> `verify_token` with minimal payloads), far above the PD2 threshold of ~40. `core/auth.py` is unchanged;
-> do T3 as its own change with the shared `token_payload` helper below.
+> **Implemented separately (2026-10-10):** see `doc/plans/FABLE_MERGE_T3.md` (393 router tests needed a shared helper first).
 
 `backend/core/auth.py::_load_active_user`
 

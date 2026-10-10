@@ -8,6 +8,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
+from _auth_helpers import make_auth_db, make_user, token_payload
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -36,9 +37,9 @@ def ctx(monkeypatch):
     app.include_router(user_access_router, prefix="/api")
     user = User(username="actor", password_hash="h", is_active=True)
     user.id = 7
-    app.dependency_overrides[verify_token] = lambda: {"sub": "actor", "user_id": 7}
+    app.dependency_overrides[verify_token] = lambda: token_payload(7, username="actor")
     app.dependency_overrides[get_current_user] = lambda: user
-    app.dependency_overrides[get_db] = lambda: MagicMock()
+    app.dependency_overrides[get_db] = lambda: make_auth_db(make_user(7, username="actor"))
     svc = MagicMock()
     app.dependency_overrides[_service] = lambda: svc
     monkeypatch.setattr(UserService, "get_user", lambda self, user_id: SimpleNamespace(id=user_id))

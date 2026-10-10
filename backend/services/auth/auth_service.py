@@ -19,6 +19,20 @@ dummy_password_hash = password_hash.hash("dummy-password")
 logger = logging.getLogger(__name__)
 
 
+def _timestamp_to_datetime(value: object) -> datetime | None:
+    """A JWT timestamp claim as an aware datetime, or None when it is not a usable number.
+
+    Rejects bool (an int subclass), NaN and out-of-range values that make
+    ``fromtimestamp`` raise, so a signed-but-malformed claim is a 401, not a 500.
+    """
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        return None
+    try:
+        return datetime.fromtimestamp(value, UTC)
+    except OverflowError, OSError, ValueError:
+        return None
+
+
 class AuthenticationError(RuntimeError):
     """Raised when credentials are invalid."""
 
@@ -97,15 +111,14 @@ class AuthService:
         user_id = payload.get("user_id")
         username = payload.get("sub")
         expires_at_ts = payload.get("exp")
-        if (
-            not isinstance(user_id, int)
-            or not isinstance(username, str)
-            or not username
-            or not isinstance(expires_at_ts, int | float)
-        ):
+        if not isinstance(user_id, int) or not isinstance(username, str) or not username:
             raise AuthenticationError("Invalid authentication token")
 
-        expired_since = datetime.now(UTC) - datetime.fromtimestamp(expires_at_ts, UTC)
+        expires_at = _timestamp_to_datetime(expires_at_ts)
+        if expires_at is None:
+            raise AuthenticationError("Invalid authentication token")
+
+        expired_since = datetime.now(UTC) - expires_at
         if expired_since > timedelta(hours=settings.refresh_token_max_age_hours):
             raise AuthenticationError("Invalid authentication token")
 
@@ -116,13 +129,14 @@ class AuthService:
         # Strict: the token must carry a matching `tv` and a numeric `sid_iat`.
         # A pre-S5 token has neither and cannot be refreshed (intended).
         token_version = payload.get("tv")
-        if not isinstance(token_version, int) or token_version != user.token_version:
+        # `type() is int`: bool is an int subclass and `False == 0` (same rule as
+        # core.auth._load_active_user).
+        if type(token_version) is not int or token_version != user.token_version:
             raise AuthenticationError("Invalid authentication token")
 
-        sid_iat_raw = payload.get("sid_iat")
-        if not isinstance(sid_iat_raw, int | float):
+        sid_iat = _timestamp_to_datetime(payload.get("sid_iat"))
+        if sid_iat is None:
             raise AuthenticationError("Invalid authentication token")
-        sid_iat = datetime.fromtimestamp(sid_iat_raw, UTC)
 
         # create_access_token re-checks the absolute session cap against sid_iat
         # and raises AuthenticationError if it is exceeded.

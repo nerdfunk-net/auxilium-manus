@@ -15,6 +15,7 @@ from collections.abc import Iterator
 from unittest.mock import MagicMock
 
 import pytest
+from _auth_helpers import make_auth_db, token_payload
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -33,7 +34,7 @@ def _make_user() -> User:
 
 
 def _override_db() -> Iterator[MagicMock]:
-    yield MagicMock()
+    yield make_auth_db()
 
 
 def _template_dict(**overrides: object) -> dict:
@@ -71,7 +72,7 @@ def client(monkeypatch: pytest.MonkeyPatch, service: MagicMock) -> Iterator[Test
     monkeypatch.setattr(RBACService, "has_permission", lambda self, *_a, **_k: True)
     app = FastAPI()
     app.include_router(templates_router, prefix="/api")
-    app.dependency_overrides[verify_token] = lambda: {"sub": "tester", "user_id": 1}
+    app.dependency_overrides[verify_token] = lambda: token_payload()
     app.dependency_overrides[get_current_user] = _make_user
     app.dependency_overrides[get_db] = _override_db
     app.dependency_overrides[_service] = lambda: service

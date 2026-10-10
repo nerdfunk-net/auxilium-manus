@@ -7,6 +7,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock
 
 import pytest
+from _auth_helpers import make_auth_db, token_payload
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -109,9 +110,9 @@ def client(variant, monkeypatch):
         app.include_router(variant["ops_module"].router, prefix="/api")
     user = User(username="t", password_hash="h", is_active=True)
     user.id = 1
-    app.dependency_overrides[verify_token] = lambda: {"sub": "t", "user_id": 1}
+    app.dependency_overrides[verify_token] = lambda: token_payload()
     app.dependency_overrides[get_current_user] = lambda: user
-    app.dependency_overrides[get_db] = lambda: MagicMock()
+    app.dependency_overrides[get_db] = lambda: make_auth_db()
     service = MagicMock()
     app.dependency_overrides[variant["dep"]] = lambda: service
     with TestClient(app) as c:

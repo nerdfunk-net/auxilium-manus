@@ -6,6 +6,7 @@ from __future__ import annotations
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from _auth_helpers import make_auth_db
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -41,7 +42,7 @@ def ctx(monkeypatch):
 
     app = FastAPI()
     app.include_router(oidc_router, prefix="/api")
-    app.dependency_overrides[get_db] = lambda: MagicMock()
+    app.dependency_overrides[get_db] = lambda: make_auth_db()
 
     oidc_service = MagicMock()
     oidc_service.generate_state.return_value = "state123"

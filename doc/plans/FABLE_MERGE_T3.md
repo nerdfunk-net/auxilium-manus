@@ -2,7 +2,7 @@
 
 Source: `doc/analysis/FABLE_MERGE_20261009.md` (T3, Low) · deferred in `doc/plans/FABLE_MERGE_20261009.md`
 §1.5 / PD2 · tracked in `doc/OPEN_TODOS.md` ("Make `tv` / `sid_iat` mandatory…").
-Status: **planned, not started.** Run everything from `backend/` with the project venv
+Status: **implemented 2026-10-10 (uncommitted).** Run everything from `backend/` with the project venv
 (`source ../.venv/bin/activate`). Write the tests first (RED), then the change (GREEN).
 
 ## 0. Why this was deferred, and what is actually broken
@@ -125,8 +125,7 @@ def override_db(user: User | None = None):
 
 Why `token_payload` takes no required args: FastAPI invokes an override with the *original dependency's*
 signature; `verify_token` has a `credentials` param with a default, and a zero-arg callable is accepted.
-Existing `lambda: {...}` already relies on this, so `app.dependency_overrides[verify_token] = token_payload`
-keeps working unchanged. (Verify once in step 1's smoke test below.)
+Existing `lambda: {...}` already relies on this, so `app.dependency_overrides[verify_token] = lambda: token_payload()` keeps working unchanged. (Passing `token_payload` itself would make FastAPI treat its parameters as query params, so always wrap it in a zero-arg lambda.) (Verified in the sweep.)
 
 **Tests (RED first)** — `tests/unit/test_auth_helpers.py`: `token_payload()` passes `_load_active_user(…, make_auth_db())`
 with the *current* code, and `make_auth_db()` returns a user with `token_version == 0 and is_active is True`.

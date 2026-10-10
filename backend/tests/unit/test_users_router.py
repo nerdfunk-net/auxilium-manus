@@ -8,6 +8,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
+from _auth_helpers import make_auth_db, token_payload
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -37,9 +38,9 @@ def ctx(monkeypatch):
     app.include_router(users_router, prefix="/api")
     actor = User(username="actor", password_hash="h", is_active=True)
     actor.id = 1
-    app.dependency_overrides[verify_token] = lambda: {"sub": "actor", "user_id": 1}
+    app.dependency_overrides[verify_token] = lambda: token_payload(1, username="actor")
     app.dependency_overrides[get_current_user] = lambda: actor
-    app.dependency_overrides[get_db] = lambda: MagicMock()
+    app.dependency_overrides[get_db] = lambda: make_auth_db()
     svc = MagicMock()
     app.dependency_overrides[_user_service] = lambda: svc
     app.dependency_overrides[_rbac_service] = lambda: RBACService(MagicMock())

@@ -5,6 +5,7 @@ from __future__ import annotations
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from _auth_helpers import make_auth_db, token_payload
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -50,9 +51,9 @@ def harness(monkeypatch):
     app.include_router(ops.router, prefix="/api")
     user = User(username="t", password_hash="h", is_active=True)
     user.id = 1
-    app.dependency_overrides[verify_token] = lambda: {"sub": "t", "user_id": 1}
+    app.dependency_overrides[verify_token] = lambda: token_payload()
     app.dependency_overrides[get_current_user] = lambda: user
-    app.dependency_overrides[get_db] = lambda: MagicMock()
+    app.dependency_overrides[get_db] = lambda: make_auth_db()
     config = MagicMock()
     config.resolve_credentials.return_value = CREDS
     app.dependency_overrides[get_catalyst_center_source_config_service] = lambda: config

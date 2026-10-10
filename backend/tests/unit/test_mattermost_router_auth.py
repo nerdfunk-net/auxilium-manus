@@ -6,6 +6,7 @@ from collections.abc import Iterator
 from unittest.mock import MagicMock
 
 import pytest
+from _auth_helpers import make_auth_db, token_payload
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -28,7 +29,7 @@ def _make_user() -> User:
 
 
 def _override_db() -> Iterator[MagicMock]:
-    yield MagicMock()
+    yield make_auth_db()
 
 
 def _build_app() -> FastAPI:
@@ -53,7 +54,7 @@ def test_list_sources_forbidden_without_permission(
     app: FastAPI, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(RBACService, "has_permission", lambda self, *_a, **_k: False)
-    app.dependency_overrides[verify_token] = lambda: {"sub": "tester", "user_id": 1}
+    app.dependency_overrides[verify_token] = lambda: token_payload()
     app.dependency_overrides[get_current_user] = _make_user
     app.dependency_overrides[get_db] = _override_db
 
@@ -72,7 +73,7 @@ def test_list_sources_allowed_with_permission(
     mock_service = MagicMock()
     mock_service.list_sources.return_value = []
     app.dependency_overrides[get_mattermost_source_config_service] = lambda: mock_service
-    app.dependency_overrides[verify_token] = lambda: {"sub": "tester", "user_id": 1}
+    app.dependency_overrides[verify_token] = lambda: token_payload()
     app.dependency_overrides[get_current_user] = _make_user
     app.dependency_overrides[get_db] = _override_db
 
@@ -90,7 +91,7 @@ def test_create_source_requires_write_permission(
         return action == "read"
 
     monkeypatch.setattr(RBACService, "has_permission", has_permission)
-    app.dependency_overrides[verify_token] = lambda: {"sub": "tester", "user_id": 1}
+    app.dependency_overrides[verify_token] = lambda: token_payload()
     app.dependency_overrides[get_current_user] = _make_user
     app.dependency_overrides[get_db] = _override_db
 
@@ -115,7 +116,7 @@ def test_delete_source_requires_delete_permission(
         return action == "read"
 
     monkeypatch.setattr(RBACService, "has_permission", has_permission)
-    app.dependency_overrides[verify_token] = lambda: {"sub": "tester", "user_id": 1}
+    app.dependency_overrides[verify_token] = lambda: token_payload()
     app.dependency_overrides[get_current_user] = _make_user
     app.dependency_overrides[get_db] = _override_db
 
@@ -140,7 +141,7 @@ def test_test_connection_success_reports_username(
     mock_config_service = MagicMock()
     mock_config_service.resolve_credentials.return_value = MagicMock()
     app.dependency_overrides[get_mattermost_source_config_service] = lambda: mock_config_service
-    app.dependency_overrides[verify_token] = lambda: {"sub": "tester", "user_id": 1}
+    app.dependency_overrides[verify_token] = lambda: token_payload()
     app.dependency_overrides[get_current_user] = _make_user
     app.dependency_overrides[get_db] = _override_db
 
@@ -171,7 +172,7 @@ def test_test_connection_reports_unreachable(
     mock_config_service = MagicMock()
     mock_config_service.resolve_credentials.return_value = MagicMock()
     app.dependency_overrides[get_mattermost_source_config_service] = lambda: mock_config_service
-    app.dependency_overrides[verify_token] = lambda: {"sub": "tester", "user_id": 1}
+    app.dependency_overrides[verify_token] = lambda: token_payload()
     app.dependency_overrides[get_current_user] = _make_user
     app.dependency_overrides[get_db] = _override_db
 

@@ -23,6 +23,14 @@ PASSWORD_CHANGE_REQUIRED_DETAIL = {
 }
 
 
+def _invalid_token() -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Invalid authentication token",
+        headers=AUTHENTICATE_HEADER,
+    )
+
+
 def verify_token(
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
 ) -> dict[str, Any]:
@@ -68,38 +76,30 @@ def _load_active_user(token_payload: dict[str, Any], db: Session) -> User:
             headers=AUTHENTICATE_HEADER,
         )
 
-    # Revocation (S5): every access token carries `tv` = the user's
-    # token_version at mint time. A bump (logout, password / username change,
-    # deactivation) makes every older token's `tv` stale. Both sides are
-    # isinstance-guarded so a mocked user row with a non-int token_version does
-    # not trip this by accident — same philosophy as the `must_change_password
-    # is True` check in get_current_user / _require_active_user_id.
+    # Revocation (S5/T3): every access token carries `tv` = the user's
+    # token_version at mint time; a bump (logout, password / username change,
+    # deactivation) makes older tokens stale. The claim is mandatory and must
+    # match exactly — a token without it, or a row whose token_version is not an
+    # int, is rejected (fail closed). `type() is int` because bool is an int subclass.
     token_tv = token_payload.get("tv")
     if (
-        isinstance(user.token_version, int)
-        and isinstance(token_tv, int)
-        and token_tv != user.token_version
+        type(token_tv) is not int
+        or type(user.token_version) is not int
+        or token_tv != user.token_version
     ):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid authentication token",
-            headers=AUTHENTICATE_HEADER,
-        )
+        raise _invalid_token()
 
-    # Absolute session lifetime (S5): `sid_iat` is the original login time,
-    # carried unchanged through every refresh. Enforced whenever the claim is
-    # present — every token this code mints has it; the refresh path
-    # (AuthService.refresh_access_token) additionally *requires* it, so a token
-    # without it cannot be renewed and dies at its own `exp`.
+    # Absolute session lifetime (S5/T3): `sid_iat` is the original login time,
+    # carried unchanged through every refresh, and is mandatory.
     sid_iat_raw = token_payload.get("sid_iat")
-    if isinstance(sid_iat_raw, int | float):
+    if isinstance(sid_iat_raw, bool) or not isinstance(sid_iat_raw, int | float):
+        raise _invalid_token()
+    try:
         session_age = datetime.now(UTC) - datetime.fromtimestamp(sid_iat_raw, UTC)
-        if session_age > timedelta(hours=settings.session_max_age_hours):
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid authentication token",
-                headers=AUTHENTICATE_HEADER,
-            )
+    except (OverflowError, OSError, ValueError) as exc:
+        raise _invalid_token() from exc
+    if session_age > timedelta(hours=settings.session_max_age_hours):
+        raise _invalid_token()
 
     return user
 

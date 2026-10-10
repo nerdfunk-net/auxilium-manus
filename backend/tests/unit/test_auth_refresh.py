@@ -8,6 +8,7 @@ from unittest.mock import MagicMock
 
 import jwt
 import pytest
+from _auth_helpers import make_auth_db
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -98,6 +99,39 @@ class TestAuthServiceRefresh:
         service.users = MagicMock()
         service.users.get_by_id.return_value = user
         token, _ = service.create_access_token(user)
+
+        with pytest.raises(AuthenticationError):
+            service.refresh_access_token(token)
+
+    @pytest.mark.parametrize(
+        "claims",
+        [
+            {"tv": False},
+            {"tv": "0"},
+            {"sid_iat": float("nan")},
+            {"sid_iat": 1e20},
+            {"sid_iat": True},
+            {"exp": float("nan")},
+            {"exp": 1e20},
+        ],
+    )
+    def test_refresh_rejects_malformed_claims_with_authentication_error(self, claims: dict) -> None:
+        """Signed but malformed claims must be a clean 401, never a ValueError/500."""
+        user = _make_user()
+        service = AuthService(MagicMock())
+        service.users = MagicMock()
+        service.users.get_by_id.return_value = user
+        now = int(datetime.now(UTC).timestamp())
+        payload = {
+            "sub": user.username,
+            "user_id": user.id,
+            "iat": now,
+            "sid_iat": now,
+            "tv": user.token_version,
+            "exp": now + 600,
+            **claims,
+        }
+        token = jwt.encode(payload, settings.secret_key, algorithm="HS256")
 
         with pytest.raises(AuthenticationError):
             service.refresh_access_token(token)
@@ -213,7 +247,7 @@ class TestAuthServiceRefresh:
 
 
 def _override_db() -> Iterator[MagicMock]:
-    yield MagicMock()
+    yield make_auth_db()
 
 
 @pytest.fixture

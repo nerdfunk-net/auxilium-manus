@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
+from _auth_helpers import make_auth_db, token_payload
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -21,9 +22,9 @@ def client(monkeypatch, tmp_path: Path):
     (tmp_path / "d.yaml").write_text("devices:\n  - device_name: r1\n    site: City A\n")
     app = FastAPI()
     app.include_router(devices_router.router, prefix="/api")
-    app.dependency_overrides[verify_token] = lambda: {"sub": "t", "user_id": 1}
-    app.dependency_overrides[get_current_user] = lambda: {"sub": "t", "user_id": 1}
-    app.dependency_overrides[get_db] = lambda: MagicMock()
+    app.dependency_overrides[verify_token] = lambda: token_payload()
+    app.dependency_overrides[get_current_user] = lambda: token_payload()
+    app.dependency_overrides[get_db] = lambda: make_auth_db()
     with (
         patch.object(
             devices_router.GitRepositoryService,

@@ -459,33 +459,6 @@ pass-throughs, `InterfaceManagerService`, `DeviceUpdateService.update_device`, `
 
 ---
 
-## Make `tv` / `sid_iat` mandatory on every access token (T3)
-
-**Added:** 2026-10-09 · **Area:** `backend/core/auth.py::_load_active_user`, `backend/tests/unit`
-
-### What we have
-
-`_load_active_user` still tolerates tokens without `tv` / `sid_iat` (the `isinstance` guards).
-Every token this code mints carries both, so the tolerance only matters for legacy tokens (they die
-at their own `exp`, ≤ 60 min) and for test doubles. Making the claims mandatory broke 393 unit tests
-(router tests that override `verify_token` with a minimal `{"sub", "user_id"}` payload), so the
-change was reverted in Phase 1 (PD2).
-
-### End state
-
-`tv` (int, equal to `user.token_version`) and `sid_iat` (number, within `SESSION_MAX_AGE_HOURS`)
-are required; a missing/invalid claim is a 401.
-
-### How
-
-1. Add `tests/unit/helpers/tokens.py::token_payload(user_id=1, tv=0, ...)` and make the router-test
-   `verify_token` overrides use it (a mechanical sweep; `grep -rn "verify_token\] = lambda" tests/unit`).
-2. Make test-double users carry `token_version=0`.
-3. Apply the `_load_active_user` change from `doc/plans/FABLE_MERGE_20261009.md` §1.5 and add
-   `test_request_without_tv_is_rejected` / `..._sid_iat_...`.
-
----
-
 ## Before flipping the repository to public (D7 leftovers)
 
 **Added:** 2026-10-09 · **Area:** repo root, `SECURITY.md`, `backend/routers/git/debug.py`

@@ -17,6 +17,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+from _auth_helpers import make_auth_db, token_payload
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
@@ -41,7 +42,7 @@ def _make_user() -> User:
 
 
 def _override_db() -> Iterator[MagicMock]:
-    yield MagicMock()
+    yield make_auth_db()
 
 
 # ---------------------------------------------------------------------------
@@ -502,7 +503,7 @@ class TestR5DevToolsGate(unittest.TestCase):
 
         app = FastAPI()
         app.include_router(system_router, prefix="/api")
-        app.dependency_overrides[verify_token] = lambda: {"sub": "tester", "user_id": 1}
+        app.dependency_overrides[verify_token] = lambda: token_payload()
         app.dependency_overrides[get_current_user] = _make_user
         app.dependency_overrides[get_db] = _override_db
 
@@ -570,7 +571,7 @@ class TestR7GeneralSettingsRead(unittest.TestCase):
 
         app = FastAPI()
         app.include_router(general_settings_router, prefix="/api")
-        app.dependency_overrides[verify_token] = lambda: {"sub": "tester", "user_id": 1}
+        app.dependency_overrides[verify_token] = lambda: token_payload()
         app.dependency_overrides[get_current_user] = _make_user
         app.dependency_overrides[get_db] = _override_db
         mock_service = MagicMock()

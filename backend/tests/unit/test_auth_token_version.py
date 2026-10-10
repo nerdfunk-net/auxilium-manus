@@ -9,6 +9,7 @@ from unittest.mock import MagicMock, patch
 
 import jwt
 import pytest
+from _auth_helpers import make_auth_db
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
@@ -82,12 +83,38 @@ class LoadActiveUserTests(unittest.TestCase):
         )
         self.assertEqual(user.token_version, 5)
 
-    def test_claimless_token_for_active_user_is_not_proactively_rejected(self) -> None:
-        # Pre-S5 shape ({sub,user_id,exp}); documents the §0 split — verify is
-        # lenient, refresh is strict.
-        self._patch_get_by_id(_user())
-        user = _load_active_user({"user_id": 1}, MagicMock())
-        self.assertEqual(user.id, 1)
+    def _assert_rejected(self, payload: dict, user: User | None = None) -> None:
+        self._patch_get_by_id(user or _user())
+        with pytest.raises(HTTPException) as exc:
+            _load_active_user(payload, MagicMock())
+        self.assertEqual(exc.value.status_code, 401)
+
+    def test_claimless_token_is_rejected(self) -> None:
+        # Pre-S5 shape ({sub,user_id,exp}) — T3: both claims are mandatory.
+        self._assert_rejected({"user_id": 1})
+
+    def test_token_without_tv_is_rejected(self) -> None:
+        self._assert_rejected({"user_id": 1, "sid_iat": _now_ts()})
+
+    def test_token_without_sid_iat_is_rejected(self) -> None:
+        self._assert_rejected({"user_id": 1, "tv": 0})
+
+    def test_non_numeric_or_bool_claims_are_rejected(self) -> None:
+        for bad in (
+            {"tv": "0", "sid_iat": _now_ts()},
+            {"tv": False, "sid_iat": _now_ts()},
+            {"tv": 0, "sid_iat": "now"},
+            {"tv": 0, "sid_iat": None},
+            {"tv": 0, "sid_iat": float("nan")},
+            {"tv": 0, "sid_iat": 1e20},
+        ):
+            with self.subTest(claims=bad):
+                self._assert_rejected({"user_id": 1, **bad})
+
+    def test_user_without_integer_token_version_is_rejected(self) -> None:
+        user = _user()
+        user.token_version = MagicMock()  # type: ignore[assignment]
+        self._assert_rejected({"user_id": 1, "tv": 0, "sid_iat": _now_ts()}, user)
 
     def test_session_older_than_max_age_is_rejected(self) -> None:
         self._patch_get_by_id(_user())
@@ -149,7 +176,7 @@ class LogoutEndpointTests(unittest.TestCase):
         auth_service = MagicMock()
         app = FastAPI()
         app.include_router(auth_router, prefix="/api")
-        app.dependency_overrides[get_db] = lambda: MagicMock()
+        app.dependency_overrides[get_db] = lambda: make_auth_db()
         app.dependency_overrides[get_current_user_allow_password_change] = lambda: _user(
             user_id=7
         )

@@ -8,6 +8,7 @@ from collections.abc import Iterator
 from unittest.mock import MagicMock, patch
 
 import pytest
+from _auth_helpers import make_auth_db, token_payload
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -80,7 +81,7 @@ class TestAuthServiceChangePassword(unittest.TestCase):
 
 
 def _override_db() -> Iterator[MagicMock]:
-    yield MagicMock()
+    yield make_auth_db()
 
 
 @pytest.fixture
@@ -194,7 +195,7 @@ class TestChangePasswordEndpoint:
         # block, proving the two dependencies are genuinely distinct here.
         client, _rl = ctx
         app = FastAPI()
-        app.dependency_overrides[verify_token] = lambda: {"sub": "alice", "user_id": 1}
+        app.dependency_overrides[verify_token] = lambda: token_payload(1, username="alice")
         app.dependency_overrides[get_db] = _override_db
 
         from fastapi import Depends

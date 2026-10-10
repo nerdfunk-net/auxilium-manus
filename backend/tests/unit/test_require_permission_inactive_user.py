@@ -6,6 +6,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock
 
 import pytest
+from _auth_helpers import token_payload
 from fastapi import HTTPException
 
 from core.auth import (
@@ -25,6 +26,7 @@ def _user(is_active: bool, must_change_password: bool = False) -> User:
         must_change_password=must_change_password,
     )
     user.id = 1
+    user.token_version = 0
     return user
 
 
@@ -49,7 +51,7 @@ def test_rejects_deactivated_user_even_with_valid_permission(monkeypatch, checke
 
     checker = checker_factory()
     with pytest.raises(HTTPException) as exc_info:
-        checker({"user_id": 1}, MagicMock())
+        checker(token_payload(), MagicMock())
 
     assert exc_info.value.status_code == 401
 
@@ -78,7 +80,7 @@ def test_rejects_user_who_must_change_password(monkeypatch, checker_factory) -> 
 
     checker = checker_factory()
     with pytest.raises(HTTPException) as exc_info:
-        checker({"user_id": 1}, MagicMock())
+        checker(token_payload(), MagicMock())
 
     assert exc_info.value.status_code == 403
     assert exc_info.value.detail["code"] == "password_change_required"

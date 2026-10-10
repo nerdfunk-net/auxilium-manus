@@ -6,9 +6,9 @@
   "sub": "username",
   "user_id": 123,
   "iat": 1234567890,      # mint time (Unix seconds)
-  "sid_iat": 1234567890,  # original login time; carried UNCHANGED through every refresh
+  "sid_iat": 1234567890,  # REQUIRED; original login time; carried UNCHANGED through every refresh
   "jti": "…",             # random per-token id (minted, not yet consumed)
-  "tv": 0,                # user.token_version at mint time
+  "tv": 0,                # REQUIRED; user.token_version at mint time
   "exp": 1234567890,      # clamped so it never outlives sid_iat + SESSION_MAX_AGE_HOURS
 }
 ```
@@ -23,10 +23,12 @@ access token as `tv`. Bumping it invalidates every outstanding token for that us
 bumped by: `AuthService.bump_token_version` (`POST /auth/logout`), `AuthService.change_password`
 (self-service change — folded into the same write), and `UserService.update_user` /
 `set_active` on an admin password change, username change, or deactivation.
-`core/auth.py::_load_active_user` rejects a token whose `tv` mismatches the row (both sides
-isinstance-guarded); `AuthService.refresh_access_token` is strict and additionally requires a
-numeric `sid_iat`, so a pre-`tv` token cannot be refreshed. Legacy pre-`tv`/`sid_iat` tokens
-die at their own `exp` (≤ 60 min) since they cannot be renewed.
+`core/auth.py::_load_active_user` rejects (401) a token whose `tv` is missing, not an int
+(`bool` excluded) or differs from the row's `token_version`, and one whose `sid_iat` is missing or
+not a number (T3: both claims are mandatory, fail closed). `AuthService.refresh_access_token` is
+equally strict. Tokens minted before S5 are no longer accepted; the client is sent to login. Tests
+that stub `verify_token` must use `tests/unit/_auth_helpers.py::token_payload` (guarded by
+`test_no_minimal_token_stubs.py`).
 
 **Absolute session lifetime (`SESSION_MAX_AGE_HOURS`, default 12, floor 1).** `REFRESH_TOKEN_MAX_AGE_HOURS` defaults to the same value and may not exceed it (T4). Measured from
 `sid_iat`, which `create_access_token` preserves across refreshes. `_load_active_user` and
