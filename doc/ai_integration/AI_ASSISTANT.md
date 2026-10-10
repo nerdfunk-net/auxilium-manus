@@ -1,10 +1,11 @@
 # In-App AI Assistant — Requirements & Design
 
-Status: **phases 1 and 2 verified by the product owner against the real Claude API (template Q&A and
-proposals work). Phase 3 (Gemini + OpenAI-compatible) implemented 2026-10-10, covered by unit/contract
-tests only — not yet tried with a real Gemini key or an Ollama server.** Phase 4 (workflow canvas assistant) implemented 2026-10-10, unit-tested and checked against the real
-validator/registry/dev DB, but not yet tried with a real model or in a browser. Phases 5–6 are not started. Open questions
-were answered by the product owner; see §9 for the recorded decisions.
+Status (2026-10-10): **phases 1-4 are implemented.** Phases 1-2 (settings, Claude, template
+assistant) are verified by the product owner against the real Claude API. Phase 3 (Gemini,
+OpenAI-compatible) and phase 4 (workflow canvas assistant) are covered by unit/contract tests and
+by checks against the real validator, registry and dev database, but not yet by a real model run or
+a browser session. Phase 5 (explain & query) and phase 6 (hardening) are not started. §12 lists what
+was built and verified per phase, §13 the recorded decisions.
 
 This document describes an AI assistant built *into* the app. It is distinct from
 `doc/ai_collaboration/` (an external AI coding session such as Claude Code driving
@@ -58,18 +59,24 @@ app's own services, observes the results, and corrects itself before presenting 
 ## 3. Architecture
 
 ```
-Frontend chat panel  ──►  /api/proxy/ai/*  ──►  routers/ai_assistant.py
- (SSE stream, diff UI)                              │  (auth, rate limit, thin)
-                                                    ▼
-                                      services/ai_assistant/
-                                        ├─ agent_loop.py      tool loop, step/token caps
-                                        ├─ context/           per-surface context builders
-                                        ├─ tools/             tool registry + implementations
-                                        ├─ providers/         anthropic, gemini, openai_compat
-                                        ├─ key_store.py       per-user key resolution
-                                        └─ proposals.py       proposal model + validation
-                                                    │
-                      existing services (workflow, templates, validation, runs, nautobot, registry)
+Frontend panel (SSE, proposal cards)  ──►  /api/proxy/ai/*  ──►  routers/ai_assistant.py
+ template editor / workflow builder                                  │ auth, rate limit, thin
+                                                                     ▼
+                                              services/ai_assistant/
+                                                ├─ settings_service.py   per-user config, per-provider keys
+                                                ├─ chat_service.py       one request -> event stream
+                                                ├─ agent_loop.py         tool loop (max 8 steps)
+                                                ├─ surfaces.py           prompt + toolbox per surface
+                                                ├─ tools/                base (choke point), template_tools, workflow_tools
+                                                ├─ providers/            anthropic (SDK), gemini, openai_compat (httpx)
+                                                ├─ redaction.py          restorable secret tokens
+                                                ├─ workflow_expand.py    compact plan <-> persisted canvas
+                                                ├─ template_render.py    sandboxed lenient render
+                                                ├─ template_reader.py / workflow_reader.py   per-call DB access + RBAC
+                                                ├─ base_url_policy.py    outbound URL check for local servers
+                                                └─ knowledge/            curated reference texts the model can read
+                                                             │
+              existing services (templates, workflow validation, plugin registry, credentials, git, inventories)
 ```
 
 Layering follows the project rule: router → service → repository. The router never builds
@@ -130,24 +137,30 @@ and API key. Requirements:
   permission, since that is where the assistant is switched on.
 - Key is **private to the user** — never readable by other users or admins through the API,
   never returned by any endpoint after being set (write-only; UI shows "key set").
-- Encrypted at rest with the same mechanism as credentials (Fernet, or OpenBao when
-  `VAULT_ENABLED`). Stored in a dedicated `user_ai_settings` table (agreed): the
-  provider/model/base-URL fields don't fit `Credential`.
+- Encrypted at rest with the same Fernet mechanism as credentials (`EncryptionService`; OpenBao
+  storage is not implemented). Stored in a dedicated `user_ai_settings` table: the
+  provider/model/base-URL fields don't fit `Credential`. **One key per provider**: the column
+  holds a JSON map of individually encrypted keys, so switching provider never makes another
+  provider's key look valid and presence checks need no decryption. A pre-existing single token is
+  still read as the row's provider key.
 - Key resolution goes through the secret-handling path that registers the value for
   run-scoped redaction (`unwrap_secret` / `CredentialsService.get_decrypted_*`).
-- Base URL passes `core/safe_urls.py` validation. Local (Ollama) endpoints are legitimately
-  private addresses, so this needs an explicit, documented allowance for the
-  `openai_compat` provider rather than weakening the global policy.
+- Base URL (OpenAI-compatible only) passes `core/safe_urls.py` through `base_url_policy.py` when it
+  is saved **and** again right before every call; redirects are never followed. There is **no
+  special bypass** for local servers: a LAN host (RFC1918) works, a server on the backend's own
+  machine needs `ALLOW_LOOPBACK_SOURCE_URLS=true` like every other source. Outside development an API
+  key is only sent over https.
 - "Test connection" button (cheap request, rate limited).
 
 ### 3.3 Agent loop
 
-- Backend-driven; the frontend only sends a prompt plus a *surface context reference*
-  (e.g. `{surface: "template", template_id: 7}`) and renders the event stream.
+- Backend-driven; the frontend sends the chat text plus the surface's **current state** (the
+  template editor's buffer, the builder's canvas - which may be unsaved) and renders the event
+  stream. The server decides what of that state the model may see.
 - Hard caps: max tool steps per turn, max output tokens, request timeout, and a per-user
   `rate_limited("ai-assistant", ...)` budget.
-- Streams events over SSE: text deltas, `tool_call` / `tool_result` (collapsed in the UI),
-  `proposal`, `error`, `done`. The Next.js proxy must pass streaming through unbuffered —
+- Streams events over SSE: `text` deltas, `tool` status (running / done / error), `proposal`,
+  `usage`, `error`, `done`. The Next.js proxy must pass streaming through unbuffered —
   verify this early, it is the main frontend unknown.
 - Conversations are held client-side per surface in v1 and re-sent each turn (stateless
   server). Persisting history is a later decision; see open questions.
@@ -157,11 +170,11 @@ and API key. Requirements:
 Each surface contributes a context builder, so the model starts informed instead of
 discovering everything via tool calls:
 
-| Surface | Injected up front |
-|---------|-------------------|
-| Template editor | current template (content, variables, type), Jinja conventions of this app, available variable sources |
-| Workflow canvas | compact current definition (nodes, edges, configs), step catalogue summary, selected node |
-| Run explanation | run metadata, step result *metadata*, failed step's error — content data fetched on demand |
+| Surface | Injected up front | Status |
+|---------|-------------------|--------|
+| Template editor | current buffer (content, type, description), custom variables with values, names only of device/run variables | built |
+| Workflow canvas | compact view of the current plan (steps with config, edges, run inputs); layout and registry noise stripped | built |
+| Run explanation | run metadata, step result *metadata*, failed step's error - content data fetched on demand | planned (phase 5) |
 
 Keep it compact: summaries up front, details through tools. Large content data (command
 output, config backups) is truncated with an explicit marker and fetchable via a tool.
@@ -170,46 +183,48 @@ output, config backups) is truncated with an explicit marker and fetchable via a
 
 All tools take/return JSON, run as the calling user, and have bounded output sizes.
 
-**Read tools**
+**Built (phases 2 and 4)** - see §10 and §11 for the details of each:
 
-| Tool | Purpose |
-|------|---------|
-| `list_steps` / `get_step_schema(step_id)` | Step catalogue from `registry.yaml` + config schema, consumes/produces capabilities |
-| `get_workflow(id)` / `list_workflows` | Definition + canvas, subject to workflow visibility rules |
-| `get_template(id)` / `list_templates` | Template content and variables |
-| `list_inventories` / `resolve_inventory(id)` | Inventory definitions and the devices they resolve to (bounded) |
-| `get_device_attributes(device, groups)` | Cached Nautobot attributes (never credentials) |
-| `list_credentials` | Names/ids/types only — **never** secret material |
-| `list_git_repositories` | Names/ids/categories |
-| `get_run(id)` / `get_step_result(run, node)` | Metadata always; content data truncated, on request |
-| `render_template(template_or_content, device)` | Pure render against a sample device; returns output or the Jinja error with line |
-| `validate_workflow(definition)` | Existing Tier 1–4 validation → findings |
+| Tool | Surface | Purpose |
+|------|---------|---------|
+| `get_template_reference` | template | Curated Jinja / namespace reference |
+| `list_templates` / `get_template` | template | Saved templates as examples (`templates:read`) |
+| `render_template` | template | Lenient sandboxed render with custom variables + model-supplied samples |
+| `propose_template` | template | Syntax check + trial render; emits a `proposal` |
+| `get_workflow_reference` | workflow | Authoring rules (plan format, outcomes, capability flow, fan-out, run inputs) |
+| `list_steps` / `get_step_schema` | workflow | Step catalogue and per-step config schema, outcomes, capabilities |
+| `list_references` | workflow | Credentials (id/name/type only), git repositories, sources, saved inventories |
+| `validate_workflow` | workflow | The four validation tiers on a plan, without proposing |
+| `propose_workflow` | workflow | Expand + validate; emits a `proposal` only when error-free |
 
-**Proposal tools (no persistence)**
-
-| Tool | Purpose |
-|------|---------|
-| `propose_template(patch)` | Validates with a trial render; returns findings; emits a `proposal` event |
-| `propose_workflow_patch(patch)` | Runs validation on the patched definition; emits a `proposal` event |
+**Planned (phase 5, read-only):** `get_run` / `get_step_result` (metadata always; content data only
+with the opt-in), `resolve_inventory`, `get_device_attributes`, and a way to read a saved workflow
+other than the open one. These are the first class B/C tools, so they ship only together with the
+opt-in enforcement of §4.2 and the injection corpus.
 
 Rule for new tools: if it cannot be classified as "pure read" or "proposal", it does not
 ship in this feature.
 
 ### 3.6 Proposals and the diff UI
 
-A proposal is `{kind, target_id | null, base_version, patch, validation_findings}`.
+A proposal is an SSE `proposal` event: for a template `{kind: "template", content, summary,
+warnings}`, for a workflow `{kind: "workflow", canvas_nodes, canvas_edges, canvas_groups,
+static_attributes, changes, warnings, summary}`.
 
-- The UI shows a diff (template text diff; canvas diff highlighting added/changed/removed
-  nodes and edges) and **Apply / Reject**.
-- `base_version` (e.g. `updated_at`) guards against applying onto a changed target:
-  stale proposals are rejected with a clear message.
-- **Apply** calls the ordinary workflow/template save endpoints from the browser, as the
-  user. The backend has no "apply proposal" shortcut, so there is exactly one write path.
-- Validation errors block *Apply* for workflows (consistent with the external AI path,
-  which refuses to write on Tier 1–3 errors); warnings are shown.
-- Reuse `doc/ai_collaboration/AI_DEFAULTS.md` / `ai_defaults.yaml` thinking: the model must
-  reference credentials, git repositories and sources by real ids obtained from tools,
-  never invented ones — Tier 2 reference validation enforces it.
+- The UI shows a diff (line diff for templates; a change list for workflows - added / removed /
+  changed steps with a config diff, added / removed edges) and **Apply / Reject**.
+- **Apply writes into the open editor or canvas as unsaved state** (decision 8). The user reviews it
+  there and uses the normal **Save**, which re-runs the server-side validation and goes through
+  `WorkflowChange` auditing and git versioning. The backend has no "apply proposal" endpoint, so
+  there is exactly one write path.
+- Staleness is a warning, not a block: the card compares a fingerprint (workflows) or the content
+  (templates) from when the turn started with the current editor and says applying will overwrite
+  edits made meanwhile.
+- A workflow proposal is **never emitted while validation errors remain**: they go back to the model,
+  which must fix and re-propose (stricter than the external path, which only refuses Tier 2 drift).
+  Warnings are shown on the card.
+- References must be real ids/names obtained from tools, never invented - Tier 2 validation enforces
+  it (`doc/ai_collaboration/AI_DEFAULTS.md` thinking, applied to the in-app path).
 
 ### 3.7 Explain & query features
 
@@ -275,9 +290,9 @@ Reuse what the app already has, and add only the missing free-text layer. What e
 
 What does **not** exist: scrubbing secrets inside *free text* such as a `show running-config`
 dump, which is the main class-C case. New module `services/ai_assistant/redaction.py` adds a
-small, conservative, ordered set of regexes for text, replacing only the secret part with
-`***REDACTED***` and keeping the surrounding line so the model can still reason about the
-config:
+small, conservative, ordered set of regexes for text, replacing only the secret part with a
+**restorable token** (`__SECRET_n__`, see §10) and keeping the surrounding line so the model can
+still reason about the config:
 
 - PEM/private-key blocks (`-----BEGIN ... PRIVATE KEY-----` through `END`)
 - Cisco-style secrets: `enable secret|password <n> <value>`, `username ... (password|secret) <n> <value>`,
@@ -297,12 +312,15 @@ cap line length before matching). Because the existing structured redactor and t
 redactor are independent mechanisms, both run on every class A–C tool result: structured data
 first, then every remaining string leaf through the text redactor.
 
-Additional rule: when the model quotes redacted content back into a proposal (e.g. rebuilds a
-config template), the `***REDACTED***` marker must not be persisted as if it were a real value.
-The proposal validator rejects the literal placeholder in template content and workflow config.
+Because the tokens are restorable, an edit never corrupts a secret: a proposal that keeps a token gets
+the original value back, one that deletes it removes the value. Structured step configs use
+`tokenize_data` / `restore_data` (secret-named keys and sealed envelopes become tokens too). The
+structured redactor's literal `***REDACTED***` marker is never persisted: any proposal containing it
+is rejected.
 
-Not in v1 (documented gaps): registering the user's own credential secrets for exact-match
-scrubbing, and ML/entropy-based detection.
+The regex set and its fixtures exist (`tests/unit/test_ai_redaction.py`). Not in v1 (documented
+gaps): registering the user's own credential secrets for exact-match scrubbing, and
+ML/entropy-based detection.
 
 ## 5. Security & privacy
 
@@ -312,7 +330,7 @@ scrubbing, and ML/entropy-based detection.
 | Secrets in prompts | No tool returns decrypted credentials; run-scoped redaction applied to tool output before it reaches the model |
 | Prompt injection | Proposal-only writes, no execution tools, diff review (principle 4) |
 | Data exfiltration to a 3rd-party LLM | Opt-in only for device-derived data (§4); active provider and enabled data classes shown in the panel; Ollama as the local option |
-| SSRF | Base URL through `safe_urls`; documented private-address allowance for `openai_compat` only |
+| SSRF | Server URL through `safe_urls` at save and before every call, no redirects, no new bypass (loopback needs `ALLOW_LOOPBACK_SOURCE_URLS`); https required for a key outside development |
 | Cost / runaway loops | Step, token and time caps; per-user rate limit |
 | Error leakage | 5xx via `raise_internal_server_error`; provider error bodies mapped, not echoed raw |
 | Audit | Log (not store content): user, surface, provider/model, tool names, token usage. Applied changes are audited by the existing `WorkflowChange` path |
@@ -329,10 +347,9 @@ scrubbing, and ML/entropy-based detection.
   is the only way a surface decides whether to render assistant UI. When it reports
   unavailable, nothing assistant-related is rendered — no panel, no button, no empty placeholder.
 - Server state through TanStack Query hooks + `queryKeys`; the stream itself via a small
-  dedicated hook (`use-assistant-stream.ts`) since it is not request/response.
+  dedicated hook (`use-assistant-chat.ts`) since it is not request/response.
 - Shadcn UI components only. **Diff view (agreed: simple, library-based):** use a small
-  text-diff library (`diff`, i.e. jsdiff — pure JS, no UI, ships types in current
-  majors; confirm the exact version and that it is not abandoned at implementation time) and
+  text-diff library (`diff`, i.e. jsdiff 9.x - pure JS, no UI, ships its own types) and
   render the result ourselves with Tailwind tokens (`bg-background`, destructive/success
   tokens — no arbitrary colors). Templates: line diff (`diffLines`) of old vs. proposed
   content, with changed lines highlighted. Canvas: structural diff keyed by node id (added /
@@ -343,15 +360,16 @@ scrubbing, and ML/entropy-based detection.
 ## 7. Data model (sketch)
 
 - `user_ai_settings`: `user_id` (unique), `provider`, `model`, `base_url`,
-  `enabled` (bool, default false), `api_key_encrypted` (or vault ref), `storage_backend`,
+  `enabled` (bool, default false), `api_key_encrypted` (JSON map provider -> Fernet token),
   `share_inventory_data` (bool, default false), `share_content_data` (bool, default false), timestamps.
 - No conversation tables in v1.
 
 ## 8. Permissions
 
 One new permission, `ai_assistant:use`, added to `rbac_seed.DEFAULT_PERMISSIONS` (and therefore
-undeletable, R4). **Suggested defaults:** grant it to the roles that already hold
-`workflows:write` or `templates:write` — the people who author things — and not to
+undeletable, R4). `admin` has it automatically; it is **not** granted to any other role by the
+seed (custom role names are not known at seed time), so an admin grants it to the roles that already
+hold `workflows:write` or `templates:write` - the people who author things - and not to
 viewer/read-only roles. It is deliberately *not* implied by those permissions, so an admin
 can switch the assistant off for a role without touching editing rights. The assistant adds no
 authority: each tool additionally enforces the underlying permission (`workflows:read`,
@@ -360,23 +378,24 @@ could do by hand. P2 (grant only what you hold) applies as usual when granting i
 
 ## 9. Phased plan
 
-1. **Foundation** (gated on the SSE check in §10, decision 6): provider interface + Anthropic adapter, `user_ai_settings`, settings UI incl. data-sharing switches,
+1. **Foundation** *(done)* (gated on the SSE check, §13 decision 6): provider interface + Anthropic adapter, `user_ai_settings`, settings UI incl. data-sharing switches,
    test connection, rate limiting, SSE endpoint with a plain chat (no tools).
-2. **Tool loop + template assistant:** agent loop, read tools, `render_template`,
+2. **Tool loop + template assistant** *(done)*: agent loop, read tools, `render_template`,
    `propose_template`, diff/apply UI in the template editor. Smallest slice that proves the
    whole architecture.
-3. **Gemini + openai_compat adapters:** same tools, contract tests across all providers.
-4. **Workflow canvas assistant:** workflow read tools, step catalogue tools,
-   `propose_workflow_patch` + validation feedback loop, canvas diff.
-5. **Explain & query:** run tools, inventory/attribute questions, "explain failure" entry.
-6. **Hardening:** content-data privacy switch, truncation behaviour, injection test corpus,
+3. **Gemini + openai_compat adapters** *(done)*: same tools, contract tests across all providers.
+4. **Workflow canvas assistant** *(done)*: step catalogue and reference tools, `propose_workflow`
+   with the validation feedback loop, change-list diff.
+5. **Explain & query** *(not started)*: run tools, inventory/attribute questions, "explain failure" entry.
+6. **Hardening** *(not started; the regex redactor and token round-trip were pulled forward)*:
+   content-data privacy switch, truncation behaviour, injection test corpus,
    docs.
 
 Testing: provider adapters against recorded fixtures; the agent loop against a scripted
 fake provider (deterministic tool-call sequences); tools as ordinary service tests; a small
 set of live smoke tests (opt-in, like `tests/integration`) per provider.
 
-## 9b. Phase 2 design — tool loop + template assistant
+## 10. Phase 2 design — tool loop + template assistant
 
 Grounded in how the template editor works today: **the editor holds all state in the browser**
 (content, variables, test-device data) and may be unsaved, so the template surface sends its
@@ -426,7 +445,7 @@ the card says applying will overwrite those edits.
 **UI.** An "AI Assistant" button in the template editor toggles an inline right-hand panel, rendered
 only when `useAiAssistantAvailable()` is true. Tool activity shows as collapsed one-line chips.
 
-## 9c. Phase 4 design — workflow canvas assistant
+## 11. Phase 4 design — workflow canvas assistant
 
 Grounded in the existing external-AI path (`ai_workflow_apply.py`, `WorkflowValidationService`
 tiers 1–4, `contributing-data/workflow-gallery/*.json`) and the builder's client-side canvas state.
@@ -478,10 +497,9 @@ config diff) and added / removed edges, with validation warnings. **Apply** load
 the open builder as **unsaved** state (`applyLoadedCanvas` + mark dirty); the user reviews it on the
 canvas and saves with the normal Save, which also runs the server-side validation again.
 
-## 9a. Implementation status
+## 12. Implementation status
 
-**Phase 1 (backend + frontend written, unit-tested; not yet exercised against a real provider key
-or in a browser):**
+**Phase 1 (settings, Claude adapter, SSE chat) - verified by the product owner with a real key:**
 
 - Backend: `core/models/user_ai_settings.py`, `repositories/user_ai_settings_repository.py`,
   `services/ai_assistant/` (settings, chat, providers, prompts), `routers/ai_assistant.py`
@@ -493,12 +511,10 @@ or in a browser):**
   gzip buffering). **Not yet verified for a production build / Docker ingress.**
 - Key storage is Fernet only (`EncryptionService`); OpenBao storage is deferred.
 - No data-sharing enforcement exists yet because no class B/C tool exists yet; the two switches
-  are stored and shown, and `AiRuntimeConfig` carries them for the phase-2 tool layer.
-- Not done: server-side `fallbacks` for refusals (a refusal is reported as a clear error),
-  `openai_compat` loopback/SSRF policy (phase 3), the redaction module (phase 6, must precede any
-  class B/C tool).
+  are stored and shown, and `AiRuntimeConfig` carries them for the phase-5 tool layer.
+- Not done: server-side `fallbacks` for refusals (a refusal is reported as a clear error).
 
-**Phase 2 (template assistant):**
+**Phase 2 (template assistant) - verified by the product owner with a real key:**
 
 - Backend: `services/ai_assistant/` gained `redaction.py` (restorable-token redactor, 26 tests),
   `agent_loop.py` + `tools/base.py` (tool loop, one choke point for validation/redaction/size
@@ -510,8 +526,7 @@ or in a browser):**
   9.x), "AI Assistant" button + inline panel in the template editor, gated by
   `useAiAssistantAvailable()`. Apply writes into the **unsaved** editor buffer.
 - Verified: backend unit tests (adapter tested against real SDK message types), frontend
-  vitest/tsc/eslint. **Not verified:** a real tool-using turn against the Anthropic API, the UI in
-  a browser, and proposal behaviour with Haiku 5.5 on real templates.
+  vitest/tsc/eslint, and by the product owner: template Q&A and added lines through a proposal.
 - Known limits: a pathological template can burn CPU in the render thread after the 5 s timeout
   returns (threads cannot be killed; same exposure as the editor's own preview); only the template
   *content* is proposable (not variables/options); the opt-in switches are still not consulted
@@ -568,7 +583,7 @@ or in a browser):**
   not by the proposal validation; canvas groups are preserved but not created; workflow metadata
   (name, folder, notes, schedules) is out of scope.
 
-## 10. Decisions and open questions
+## 13. Decisions and open questions
 
 Decided (2026-10-10):
 
@@ -577,15 +592,15 @@ Decided (2026-10-10):
 3. **History:** stateless, client-held; losing history on reload is acceptable in v1.
 4. **Data sharing:** opt-in only for anything device- or run-derived (§4). Config backups and
    command output may contain secrets.
-5. **Permission:** `ai_assistant:use`, granted by default to roles holding `workflows:write` or
-   `templates:write` (§8).
+5. **Permission:** `ai_assistant:use`. `admin` has it automatically; an admin grants it to the roles
+   that hold `workflows:write` or `templates:write` (§8).
 6. **SSE through the Next.js proxy:** must be verified without buffering *before* we commit to
-   SSE; this is the first task of phase 1. Evidence so far is from reading
-   `frontend/src/lib/api-proxy.ts`: non-JSON responses are returned as `new
-   NextResponse(response.body, ...)`, i.e. the stream is passed through, not read into
-   memory. **Not yet verified at runtime**; it must be tested with a real
-   `text/event-stream` endpoint, including behind any reverse proxy / compression used in
-   Docker. Fallback if it buffers: a dedicated streaming route handler, or polling.
+   SSE; this was the first task of phase 1. `frontend/src/lib/api-proxy.ts` returns non-JSON
+   responses as `new NextResponse(response.body, ...)` (streamed, not buffered), and a probe
+   `text/event-stream` endpoint confirmed incremental delivery through the **dev** server with and
+   without `Accept-Encoding: gzip`; chat works in real use. **Not verified:** a production build or a
+   reverse proxy / ingress (see `docker/DOCKER.md`). Fallback if it buffers: a dedicated streaming
+   route handler, or polling.
 7. **Providers equal:** no per-model handling. Gemini's free tier is for testing; its limits are
    unknown, so quota errors must degrade gracefully (§3.1).
 8. **Applying a canvas proposal:** apply into the **open editor state, unsaved**. The user then
@@ -596,15 +611,29 @@ Decided (2026-10-10):
 
 Decided (2026-10-10, second round):
 
-9. **Redaction:** layered pipeline (§4.3) — reuse the existing structured redactor and URL scrub,
+9. **Redaction** (refined by decision 12): layered pipeline (§4.3) — reuse the existing structured redactor and URL scrub,
    add a conservative free-text regex layer for config text. The existing run-secret exact-match
    layer does not apply outside a run.
 10. **Step error text:** treated as sensitive (class C) for now.
 11. **Diff view:** simple, built on a diff library (jsdiff), rendered with our own Tailwind/Shadcn
    styling (§6).
 
+Decided (2026-10-10, later rounds):
+
+12. **Redaction:** restorable tokens instead of a literal marker (§4.3, §10); structured configs
+    via `tokenize_data` / `restore_data`.
+13. **Providers:** hand-written adapters on `httpx` for Gemini (`generateContent`, not the newer
+    Interactions API) and OpenAI-compatible; official SDK for Anthropic; one key per provider; no SSRF
+    bypass for local servers (§3.2, §12).
+14. **Workflow authoring:** compact plan expanded and validated server-side; no proposal while errors
+    remain (§11).
+
 Still open:
 
-- Exact regex set and fixtures for §4.3 — to be written test-first during phase 6 (or earlier if
-  class B/C tools ship earlier than planned; they must not ship without it).
+- Class B/C tools and the opt-in enforcement (phase 5), then the hardening items of phase 6
+  (content-data switch UX, truncation behaviour, an injection test corpus).
 - Whether to register the user's credential secrets for exact-match scrubbing later.
+- Production verification of SSE behind the real ingress, and of the Gemini / Ollama / workflow
+  assistant paths with real models (see §12 "Not verified").
+- Cause of the `gemini-3.8-flash` HTTP 503 seen on a free-tier key (retry + clearer errors added; cause
+  not established).

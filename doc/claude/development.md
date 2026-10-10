@@ -115,6 +115,12 @@ AI collaboration: a seeded `ai-assistant` RBAC principal plus a per-workflow
 `WorkflowAiSession` consent flag gate `backend/scripts/ai_workflow_apply.py`.
 Read `doc/ai_collaboration/PROCESS.md` first.
 
+In-app AI assistant (a chat panel in the template editor and the workflow builder, per-user
+provider and key, proposals applied as unsaved state): `backend/services/ai_assistant/`,
+`backend/routers/ai_assistant.py`, `frontend/src/components/features/ai-assistant/`. Read
+`doc/ai_integration/AI_ASSISTANT.md` first. Tools there must be pure reads or proposals - never
+persist or execute.
+
 ### Adding New Permission
 1. UI: `/settings/users` → Permissions tab lists the catalog; create from Roles tab's
    "Manage permissions" dialog (or `POST /api/rbac/permissions`), then grant to a role

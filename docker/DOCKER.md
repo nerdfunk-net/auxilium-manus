@@ -128,6 +128,19 @@ of the frontend (port 3000), e.g. nginx `client_max_body_size 25m;` or Traefik's
 64 KiB. Raise `MAX_REQUEST_BODY_BYTES` (and the proxy limit) if a legitimate CSV, inventory
 or template import is larger.
 
+## AI assistant (streaming and local models)
+
+The assistant streams its answer as Server-Sent Events (`POST /api/proxy/ai/chat`, content type
+`text/event-stream`). A reverse proxy in front of the frontend must not buffer or compress that
+response, or the answer appears all at once. The backend sends `X-Accel-Buffering: no` (nginx honours
+it); for other proxies disable response buffering for that path. This has been verified through the
+Next.js dev server only, **not** behind a production ingress.
+
+A local model server (Ollama, LM Studio, ...) configured under Settings -> AI Assistant is subject to
+the outbound URL policy: a host on the LAN works, a server on the backend's own machine (or the
+Docker host's loopback) needs `ALLOW_LOOPBACK_SOURCE_URLS=true`. Outside development an API key is only
+sent to an `https` URL.
+
 ## Health checks
 
 ```bash

@@ -761,3 +761,68 @@ test, Batfish queries) carry `Depends(rate_limited("<bucket>", attempts=…, win
 atomically (Redis Lua script), 429 with `Retry-After` when exceeded. Unlike login, a Redis outage falls
 back to an in-process window instead of blocking operators. A bucket name is one budget; reusing it with
 another fails at import.
+
+---
+
+## In-app AI assistant: tools that propose, never write
+
+**Question:** The assistant can "edit" a Jinja2 template or a workflow. What stops it from saving,
+running or leaking something it should not?
+
+**Answer:** Nothing it can call is able to. Every tool is either a pure read or a *proposal*, and
+the only way a change reaches the database is the user's own Save. Full design and the per-phase
+build notes live in [`doc/ai_integration/AI_ASSISTANT.md`](./ai_integration/AI_ASSISTANT.md); this
+section is the short version of how a request actually flows.
+
+### One chat turn
+
+1. The browser posts the chat text plus the surface's **current state** to `POST /api/ai/chat`
+   (through the Next.js proxy, which streams the response unbuffered): the template editor's buffer
+   or the workflow builder's canvas, saved or not. The server never loads the row itself.
+2. The router checks `ai_assistant:use` and the user's **enable switch**, resolves the user's
+   provider config, builds a surface *session* (system prompt with the state, plus the tools for
+   that surface) and **releases its database session before streaming**: a stream can last minutes
+   and must not pin a pooled connection.
+3. `agent_loop.run_agent` calls the provider (Anthropic, Gemini or an OpenAI-compatible server,
+   behind one `LlmProvider` interface), runs the tools the model asks for, feeds the results back
+   and repeats, at most 8 tool steps. Provider-specific blocks (for example thinking blocks) exist
+   only inside this loop; the client's history is plain text.
+4. Progress reaches the browser as SSE events: `text`, `tool` status chips, `proposal`, `usage`,
+   `error`, `done`. Provider failures are mapped to neutral messages (HTTP status plus the
+   provider's short error category, never its response body).
+
+### Why it cannot write
+
+- **Tools** run as the calling user, each opening a short database session of its own and
+  re-checking RBAC (`templates:read`, `credentials:read`, `sources.<type>:read`, ...). Input is
+  validated with Pydantic, output is redacted and capped, and an exception becomes a generic tool
+  error. There is no execute, run, SSH or git tool.
+- **Proposals** are validated before the user ever sees them. A template is syntax-checked and
+  trial-rendered. A workflow is sent as a compact plan (steps and edges) that
+  `workflow_expand.py` merges onto the open canvas (existing steps keep position and identity) and
+  that `WorkflowValidationService` checks across all four tiers *as the calling user*. Errors go
+  back to the model; a proposal is only emitted when none remain.
+- **Apply** happens in the browser, into the unsaved editor or canvas. Saving then goes through the
+  normal path: validation again, `WorkflowChange` audit, git mirror. The backend has no "apply
+  proposal" endpoint.
+
+### What the model is allowed to see
+
+Workflow and template *definitions* only. Device- and run-derived values (the editor's `device`,
+`nautobot`, command output, `parsed.*`) are sent by name, never with values, and the two opt-in
+switches in the user's settings are reserved for future tools that would send them. Secrets that
+appear in a definition become request-scoped tokens (`__SECRET_n__`) before the prompt is built and
+are restored when a proposal comes back, so redaction can neither leak a secret nor overwrite one
+with a placeholder. The token table lives for one request and is never stored.
+
+### Per-user configuration
+
+`user_ai_settings` holds one row per user: master switch (default off), provider, model, and one
+encrypted key *per provider*. Availability is `permission AND switch AND configured`, enforced
+server-side; the frontend hides every assistant surface through one hook when `GET /api/ai/status`
+says unavailable. A user-configured server URL (OpenAI-compatible) goes through the same outbound
+URL policy as the other sources, at save time and before each call, and redirects are never followed.
+
+Code: `backend/routers/ai_assistant.py`, `backend/services/ai_assistant/`,
+`frontend/src/components/features/ai-assistant/`.
+
