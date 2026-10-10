@@ -28,7 +28,7 @@ from services.ai_assistant.providers.base import (
 )
 from services.ai_assistant.providers.http_common import (
     new_client,
-    raise_for_status,
+    open_stream,
     sse_data,
     unavailable,
 )
@@ -125,10 +125,12 @@ class OpenAiCompatProvider:
         usage: dict[str, Any] = {}
 
         try:
-            async with self._client.stream(
-                "POST", f"{self._base_url}/chat/completions", json=body, headers=headers
+            async with open_stream(
+                self._client,
+                f"{self._base_url}/chat/completions",
+                json_body=body,
+                headers=headers,
             ) as response:
-                await raise_for_status(response)
                 async for data in sse_data(response):
                     if data == "[DONE]":
                         break

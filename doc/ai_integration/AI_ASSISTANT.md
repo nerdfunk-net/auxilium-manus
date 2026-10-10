@@ -486,6 +486,11 @@ or in a browser):**
   (via `base_url_policy.py`) when saved and again before every call; a server on the backend's own
   machine (`localhost`) is reachable only when `ALLOW_LOOPBACK_SOURCE_URLS` is enabled, a LAN host
   (RFC1918) just works. Outside development an API key is only sent over https.
+- **Transient failures:** the httpx adapters retry HTTP 500/502/503/504 and connection errors up to twice
+  (1 s, 2 s) *before* any output is streamed, never 429 (quota). Error messages now carry the HTTP status
+  and the provider's short error category (e.g. `HTTP 503 UNAVAILABLE`) but never its free text.
+  Observed in real use: `gemini-3.8-flash` answered 503 on a free-tier key while `gemini-3.5-flash-lite`
+  worked; cause not established (a 503 is server-side, not the usual free-tier signal).
 - Not verified: a real Gemini turn (incl. tool calls and thought signatures), a real Ollama turn,
   and the settings UI for the new providers in a browser.
 

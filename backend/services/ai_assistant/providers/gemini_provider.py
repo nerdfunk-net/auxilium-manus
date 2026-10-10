@@ -27,7 +27,7 @@ from services.ai_assistant.providers.base import (
 )
 from services.ai_assistant.providers.http_common import (
     new_client,
-    raise_for_status,
+    open_stream,
     sse_data,
     unavailable,
 )
@@ -139,14 +139,13 @@ class GeminiProvider:
         usage: dict[str, Any] = {}
 
         try:
-            async with self._client.stream(
-                "POST",
+            async with open_stream(
+                self._client,
                 f"{API_BASE}/models/{model}:streamGenerateContent",
                 params={"alt": "sse"},
-                json=body,
+                json_body=body,
                 headers={"x-goog-api-key": self._api_key},
             ) as response:
-                await raise_for_status(response)
                 async for data in sse_data(response):
                     try:
                         chunk = json.loads(data)
