@@ -297,7 +297,7 @@ async def _get_artifact(ctx: ToolContext, args: ArtifactInput) -> ToolOutput:
         "truncated": truncated,
     }
     body = content[:MAX_ARTIFACT_CHARS] + (f"\n{TRUNCATION_NOTE}" if truncated else "")
-    return ToolOutput(f"{json.dumps(meta)}\n<artifact>\n{body}\n</artifact>")
+    return ToolOutput(f"{json.dumps(meta)}\n<artifact>\n{body}\n</artifact>", truncated=truncated)
 
 
 async def _list_events(ctx: ToolContext, args: EventsInput) -> ToolOutput:

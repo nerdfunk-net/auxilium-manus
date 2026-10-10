@@ -27,9 +27,10 @@ PLACEHOLDER_MARKER = "***REDACTED***"
 _FLAGS = re.IGNORECASE | re.MULTILINE
 # The secret value: one non-space token that does not start a Jinja expression.
 _V = r"(?P<s>(?!\{)\S+)"
-# A Cisco secret *type* is a single digit followed by whitespace; matching it possessively means
-# "enable secret 9 {{ x }}" cannot backtrack into treating the type digit as the secret.
-_TYPE = r"(?:[ \t]+[0-9](?=[ \t]))?+"
+# A secret *type* is a single digit (Cisco) or a hash name (Arista) followed by whitespace;
+# matching it possessively means "enable secret 9 {{ x }}" cannot backtrack into treating the
+# type digit as the secret.
+_TYPE = r"(?:[ \t]+(?:[0-9]|sha512|sha256)(?=[ \t]))?+"
 # A key/id number (possibly several digits), same possessive rule.
 _NUM = r"(?:[ \t]+\d+(?=[ \t]))?+"
 
@@ -41,11 +42,11 @@ _PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
             re.DOTALL,
         ),
     ),
-    ("enable", re.compile(rf"^[ \t]*enable[ \t]+(?:secret|password){_TYPE}[ \t]+{_V}", _FLAGS)),
+    ("enable", re.compile(rf"\benable[ \t]+(?:secret|password){_TYPE}[ \t]+{_V}", _FLAGS)),
     (
         "username",
         re.compile(
-            rf"^[ \t]*username[ \t]+\S+[ \t]+(?:[^\n]*?[ \t])?(?:password|secret){_TYPE}[ \t]+{_V}",
+            rf"\busername[ \t]+\S+[ \t]+(?:[^\n]*?[ \t])?(?:password|secret){_TYPE}[ \t]+{_V}",
             _FLAGS,
         ),
     ),
@@ -80,6 +81,33 @@ _PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
             _FLAGS,
         ),
     ),
+    ("isakmp-key", re.compile(rf"\bisakmp[ \t]+key{_TYPE}[ \t]+{_V}", _FLAGS)),
+    (
+        "neighbor-password",
+        re.compile(rf"\bneighbor[ \t]+\S+[ \t]+password{_TYPE}[ \t]+{_V}", _FLAGS),
+    ),
+    (
+        "pre-shared-key",
+        re.compile(
+            r"\bpre-shared-key(?:[ \t]+(?:local|remote|hexadecimal|ascii-text|ascii))*"
+            rf"{_TYPE}[ \t]+\"?(?P<s>(?![{{\"])[^\s\";]+)",
+            _FLAGS,
+        ),
+    ),
+    (
+        "ppp-password",
+        re.compile(rf"\bppp[ \t]+(?:chap|pap)[ \t]+password{_TYPE}[ \t]+{_V}", _FLAGS),
+    ),
+    ("wpa-psk", re.compile(rf"\bwpa-psk(?:[ \t]+(?:ascii|hex)){{0,1}}{_TYPE}[ \t]+{_V}", _FLAGS)),
+    (
+        "quoted-secret",
+        re.compile(
+            r"\b(?:encrypted-password|authentication-key|simple-password|secret|md5)[ \t]+"
+            r"\"(?P<s>(?![{}%])[^\"\n]+)\"",
+            _FLAGS,
+        ),
+    ),
+    ("junos-community", re.compile(r"\bcommunity[ \t]+(?P<s>[A-Za-z0-9_.-]+)[ \t]*\{", _FLAGS)),
     ("line-password", re.compile(rf"^[ \t]*password(?:[ \t]+\d)?[ \t]+{_V}", _FLAGS)),
     (
         "assignment",

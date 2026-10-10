@@ -187,6 +187,7 @@ async def _resolve_inventory(ctx: ToolContext, args: ResolveInput) -> ToolOutput
     except InventoryAccessError:
         return _NO_ACCESS
     devices: list[dict[str, Any]] = resolved["devices"]
+    truncated = False
     result: dict[str, Any] = {
         "inventory": {k: resolved.get(k) for k in ("id", "name", "inventory_type")},
         "total_count": len(devices),
@@ -198,12 +199,13 @@ async def _resolve_inventory(ctx: ToolContext, args: ResolveInput) -> ToolOutput
         if withheld:
             result["withheld_fields"] = withheld  # field -> setting the user has not enabled
         if len(devices) > args.limit:
+            truncated = True
             result["note"] = (
                 f"Showing {args.limit} of {len(devices)} devices; counts_by covers all of them."
             )
     else:
         result["devices"] = not_shared_marker(DataClass.INVENTORY)
-    return ToolOutput(_json(_cap(ctx.redactor.redact_data(result))))
+    return ToolOutput(_json(_cap(ctx.redactor.redact_data(result))), truncated=truncated)
 
 
 async def _search_devices(ctx: ToolContext, args: SearchInput) -> ToolOutput:

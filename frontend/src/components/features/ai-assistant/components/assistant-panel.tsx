@@ -1,11 +1,13 @@
 "use client";
 
+import Link from "next/link";
 import { Loader2, Send, Square, Trash2, Wrench } from "lucide-react";
 import { useCallback, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 
+import { dataClassLabel } from "../constants/data-classes";
 import { useAssistantChat } from "../hooks/use-assistant-chat";
 import type {
   AssistantContext,
@@ -122,6 +124,19 @@ export function AssistantPanel({
               )}
               {toolLabel(tool.name)}
               {tool.status === "error" && " (failed)"}
+              {tool.truncated && " (partial result)"}
+              {tool.withheld && tool.withheld.length > 0 && (
+                <span className="text-warning-foreground">
+                  {" "}
+                  – needs {tool.withheld.map(dataClassLabel).join(", ")}{" "}
+                  <Link
+                    href="/settings/ai-assistant"
+                    className="underline underline-offset-2"
+                  >
+                    enable
+                  </Link>
+                </span>
+              )}
             </li>
           ))}
         </ul>

@@ -12,6 +12,7 @@ from collections.abc import AsyncIterator, Callable
 from typing import Any
 
 from services.ai_assistant.agent_loop import run_agent
+from services.ai_assistant.audit import AuditContext, TurnAudit
 from services.ai_assistant.events import ChatEvent
 from services.ai_assistant.exceptions import AiAssistantError
 from services.ai_assistant.prompts import BASE_SYSTEM_PROMPT, CONNECTION_TEST_PROMPT
@@ -37,6 +38,25 @@ async def stream_chat(
     provider_factory: ProviderFactory = build_provider,
     toolbox: Toolbox | None = None,
     system: str = BASE_SYSTEM_PROMPT,
+    audit: AuditContext | None = None,
+) -> AsyncIterator[ChatEvent]:
+    turn = TurnAudit(audit) if audit is not None else None
+    try:
+        async for event in _stream(config, messages, provider_factory, toolbox, system):
+            if turn is not None:
+                turn.observe(event)
+            yield event
+    finally:
+        if turn is not None:
+            turn.log()
+
+
+async def _stream(
+    config: AiRuntimeConfig,
+    messages: list[ChatMessage],
+    provider_factory: ProviderFactory,
+    toolbox: Toolbox | None,
+    system: str,
 ) -> AsyncIterator[ChatEvent]:
     try:
         provider = provider_factory(

@@ -7,7 +7,7 @@ checks against the real validator, registry and dev database, but not yet by a r
 browser session. Phase 5 is built: the **run explainer** (run tools, opt-in enforcement, runs-page
 panel) and the **inventory assistant** (inventory-page panel, read-only questions) are checked against
 real dev-database rows and the live Nautobot; the user has tried the run explainer.
-Phase 6 (hardening) is not started. §12 lists what was built and verified per phase, §13 the
+Phase 6 (hardening) is built (§17). §12 lists what was built and verified per phase, §13 the
 recorded decisions.
 
 This document describes an AI assistant built *into* the app. It is distinct from
@@ -410,9 +410,8 @@ could do by hand. P2 (grant only what you hold) applies as usual when granting i
 4. **Workflow canvas assistant** *(done)*: step catalogue and reference tools, `propose_workflow`
    with the validation feedback loop, change-list diff.
 5. **Explain & query** *(done)*: run explainer with opt-in enforcement (§14), inventory assistant (§15).
-6. **Hardening** *(not started; the regex redactor and token round-trip were pulled forward)*:
-   content-data privacy switch, truncation behaviour, injection test corpus,
-   docs.
+6. **Hardening** *(done, §17)*: audit trail, truncation behaviour, tool-event hints, sharing
+   confirmation, redaction corpus, injection test corpus.
 
 Testing: provider adapters against recorded fixtures; the agent loop against a scripted
 fake provider (deterministic tool-call sequences); tools as ordinary service tests; a small
@@ -668,7 +667,7 @@ Still open:
   inventory, and proposing a filter ("all core switches at site X") as a reviewable proposal.
 - Keeping the chat session across navigation (panel state is lost when leaving a page); see
   `doc/OPEN_TODOS.md` "AI assistant: keep the session while the user works".
-- The remaining hardening items of phase 6 (truncation UX, a wider injection test corpus).
+- A wider real-world redaction corpus (add a case to `test_ai_redaction_corpus.py` whenever a leak is found).
 - Whether to register the user's credential secrets for exact-match scrubbing later.
 - Production verification of SSE behind the real ingress, and of the workflow assistant path with a
   real model (see §12 "Not verified"). Gemini and Ollama work (product owner, 2026-10-10).
@@ -787,3 +786,47 @@ field names that are always withheld (add if asked for).
 the base-switch requirement, the allow-list and the run-bag mask; 5,115 backend tests pass. The new
 columns are added at startup by `AutoSchemaMigration` (NOT NULL with a Python default). Not verified:
 the settings page in a browser.
+
+## 17. Phase 6 - hardening
+
+**Audit trail** (`audit.py`, logger `ai_assistant.audit`). One INFO line per chat turn, written even
+when the turn fails: `user_id`, `surface`, `provider`, `model`, tool names, withheld data classes,
+input / output tokens and `outcome` (`ok` or `error:<code>`). Never prompts, tool results or content.
+Applied changes stay audited by the existing `WorkflowChange` path (§5).
+
+**Truncation.** The choke point (`Toolbox`) now cuts an oversized result at a line boundary and appends
+`[output truncated: showed N of M characters; tell the user the answer is based on partial data]`
+instead of cutting mid-value. Tools that cap themselves (artifact text, device rows) set
+`ToolOutput.truncated` too. The `tool` SSE event carries `truncated` and `withheld`.
+
+**Hints in the panel.** A tool chip shows "(partial result)" and, when the user's opt-ins blocked part
+of a result, "needs <setting> - enable" with a link to the settings. `withheld` is derived from the
+`not_shared` markers our own gating emits, so a forged marker in third-party text can at worst show a
+harmless hint.
+
+**Sharing confirmation.** Turning any data-sharing switch on (base, the three categories, run and device
+content) asks first, naming the data and repeating that redaction is best-effort; turning it off is
+immediate and applies from the next message (`ShareConfirmSwitch`).
+
+**Redaction.** A corpus of 36 realistic lines (IOS, NX-OS, EOS, Junos, generic) now must not leak
+(`tests/unit/test_ai_redaction_corpus.py`). It found 11 gaps, closed by new patterns: IPsec
+`isakmp key` and `pre-shared-key`, BGP `neighbor ... password`, PPP chap / pap, `wpa-psk`, Arista
+`sha512` secrets, quoted Junos `encrypted-password` / `authentication-key` / `secret`, Junos
+`community X {`. A second gap found by the injection corpus: `enable secret` and `username ...
+secret` were matched only at the start of a line, so a secret embedded in a log or error sentence
+leaked; those anchors were relaxed (false positives are accepted by design). Hostile input (very long
+lines, repeated tokens) is tested to redact in under 2 s.
+
+**Injection corpus** (`tests/unit/test_ai_hardening.py`). Six payloads (instruction override, forged
+closing tags and fake system turns, JSON breakout, fake dialogue, Jinja / SSTI, social engineering for
+secrets) placed in run errors, step names and artifacts are asserted to stay inside quoted JSON or the
+`<artifact>` fence; a forged closing tag does not end the fence. A scripted model that obeys an
+injection and asks for `propose_workflow`, `propose_template`, `trigger_run` or `execute_command` on a
+read-only surface gets "Unknown tool" and no `proposal` event is emitted; no read-only surface offers a
+tool whose name starts with propose / run / trigger / execute / delete. Secrets inside injected text are
+still redacted.
+
+**Not done / limits.** Prompt injection cannot be excluded for the model's text answer (it may repeat
+what a tool result said); the safety property is that it cannot act (no write or execution tool on any
+read surface; writes are proposals the user reviews). Redaction stays best-effort. Not verified: the new
+confirmation dialog and chip hints in a browser.

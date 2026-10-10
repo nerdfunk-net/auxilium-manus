@@ -33,6 +33,8 @@ interface ToolPayload {
   id?: string;
   name?: string;
   status?: ToolStatus;
+  truncated?: boolean;
+  withheld?: string[];
 }
 interface ProposalPayload {
   kind?: string;
@@ -175,6 +177,8 @@ export function useAssistantChat({ getContext }: UseAssistantChatOptions = {}) {
                   id: tool.id,
                   name: tool.name,
                   status: tool.status,
+                  truncated: tool.truncated === true,
+                  withheld: Array.isArray(tool.withheld) ? tool.withheld : [],
                 };
                 patchAssistant(assistantId, (m) => ({
                   ...m,

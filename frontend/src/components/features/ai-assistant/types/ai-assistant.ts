@@ -112,6 +112,10 @@ export interface ToolActivity {
   id: string;
   name: string;
   status: ToolStatus;
+  /** The result was cut; the answer may rest on partial data. */
+  truncated?: boolean;
+  /** Opt-in data classes the result had to leave out (server names, e.g. `content_data`). */
+  withheld?: string[];
 }
 
 export type ProposalState = "pending" | "applied" | "rejected";

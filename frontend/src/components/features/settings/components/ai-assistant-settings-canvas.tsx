@@ -34,6 +34,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import { ShareConfirmSwitch } from "./share-confirm-switch";
 import { PROVIDER_LABELS } from "@/components/features/ai-assistant/constants/providers";
 import { useAiSettingsMutations } from "@/hooks/queries/use-ai-settings-mutations";
 import { useAiSettingsQuery } from "@/hooks/queries/use-ai-settings-query";
@@ -44,18 +45,24 @@ const INVENTORY_CATEGORIES = [
     name: "share_device_addresses",
     label: "Addresses and serial numbers",
     description: "Primary IPs, interfaces, hostnames, serials and asset tags.",
+    warning:
+      "IP addresses, interfaces, hostnames, serial numbers and asset tags of your devices will be sent to the AI provider.",
   },
   {
     name: "share_custom_fields",
     label: "Custom fields",
     description:
       "Nautobot custom fields. They can hold free text such as credentials or owners.",
+    warning:
+      "Nautobot custom fields of your devices will be sent. They are free text and may contain credentials or internal information that automatic redaction does not recognise.",
   },
   {
     name: "share_config_context",
     label: "Config context",
     description:
       "Nautobot config context, which often carries keys, passwords and addressing.",
+    warning:
+      "The Nautobot config context of your devices will be sent. It often carries keys, passwords and addressing; secrets under unusual key names are not recognised by automatic redaction.",
   },
 ] as const;
 
@@ -390,9 +397,11 @@ function AiAssistantSettingsForm({ settings }: { settings: AiSettings }) {
                         </FormDescription>
                       </div>
                       <FormControl>
-                        <Switch
+                        <ShareConfirmSwitch
                           checked={field.value}
-                          onCheckedChange={field.onChange}
+                          label="Inventory and device attributes"
+                          warning="Device names, roles, platforms, locations, status and tags from your inventories will be sent to the AI provider."
+                          onChange={field.onChange}
                         />
                       </FormControl>
                     </FormItem>
@@ -412,10 +421,12 @@ function AiAssistantSettingsForm({ settings }: { settings: AiSettings }) {
                           </FormDescription>
                         </div>
                         <FormControl>
-                          <Switch
+                          <ShareConfirmSwitch
                             checked={field.value && inventoryShared}
                             disabled={!inventoryShared}
-                            onCheckedChange={field.onChange}
+                            label={category.label}
+                            warning={category.warning}
+                            onChange={field.onChange}
                           />
                         </FormControl>
                       </FormItem>
@@ -435,9 +446,11 @@ function AiAssistantSettingsForm({ settings }: { settings: AiSettings }) {
                         </FormDescription>
                       </div>
                       <FormControl>
-                        <Switch
+                        <ShareConfirmSwitch
                           checked={field.value}
-                          onCheckedChange={field.onChange}
+                          label="Run and device content"
+                          warning="Command output, config backups, run logs and error text will be sent to the AI provider. They frequently contain hostnames, addresses and sometimes credentials."
+                          onChange={field.onChange}
                         />
                       </FormControl>
                     </FormItem>

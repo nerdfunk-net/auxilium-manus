@@ -223,8 +223,8 @@ def test_output_is_redacted_and_truncated() -> None:
     out = _execute(_toolbox(leaky), _call())
 
     assert "topsecret123" not in out.content
-    assert out.content.endswith("[output truncated]")
-    assert len(out.content) <= MAX_TOOL_OUTPUT_CHARS + 40
+    assert "[output truncated: showed" in out.content and out.truncated
+    assert len(out.content) <= MAX_TOOL_OUTPUT_CHARS + 200
 
 
 def test_tool_spec_is_a_json_schema_object() -> None:

@@ -8,6 +8,7 @@ proposal. Nothing here persists, executes a workflow or touches a device.
 from __future__ import annotations
 
 import logging
+import re
 from collections.abc import Awaitable, Callable, Iterable
 from dataclasses import dataclass, field
 from typing import Any
@@ -21,7 +22,8 @@ from services.ai_assistant.redaction import Redactor
 logger = logging.getLogger(__name__)
 
 MAX_TOOL_OUTPUT_CHARS = 20000
-TRUNCATION_MARKER = "\n…[output truncated]"
+# Matches the marker our own gating code emits; used only to tell the user what is withheld.
+_NOT_SHARED = re.compile(r'"not_shared":\s*"([a-z_]+)"')
 
 
 def inline_schema_refs(schema: dict[str, Any]) -> dict[str, Any]:
@@ -57,6 +59,10 @@ class ToolOutput:
     content: str
     is_error: bool = False
     proposal: dict[str, Any] | None = None
+    # The result was cut (by the tool or by the choke point); shown to the user as a hint.
+    truncated: bool = False
+    # Data classes the user has not opted in to that this result had to leave out.
+    withheld: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -118,6 +124,28 @@ class Toolbox:
 
     def _finish(self, output: ToolOutput) -> ToolOutput:
         content = self._context.redactor.redact(output.content)
+        withheld = tuple(sorted(set(_NOT_SHARED.findall(content))))
+        truncated = output.truncated
         if len(content) > MAX_TOOL_OUTPUT_CHARS:
-            content = content[:MAX_TOOL_OUTPUT_CHARS] + TRUNCATION_MARKER
-        return ToolOutput(content=content, is_error=output.is_error, proposal=output.proposal)
+            content = _truncate(content)
+            truncated = True
+        return ToolOutput(
+            content=content,
+            is_error=output.is_error,
+            proposal=output.proposal,
+            truncated=truncated,
+            withheld=withheld,
+        )
+
+
+def _truncate(content: str) -> str:
+    """Cut at a line boundary and say so, with sizes, so the model does not read a half line as
+    data and knows its answer rests on partial output."""
+    cut = content[:MAX_TOOL_OUTPUT_CHARS]
+    newline = cut.rfind("\n")
+    if newline > MAX_TOOL_OUTPUT_CHARS // 2:
+        cut = cut[:newline]
+    return (
+        f"{cut}\n…[output truncated: showed {len(cut)} of {len(content)} characters; "
+        "tell the user the answer is based on partial data]"
+    )

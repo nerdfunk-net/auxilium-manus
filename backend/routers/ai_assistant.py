@@ -31,6 +31,7 @@ from models.ai_assistant import (
     UserAiSettingsUpdate,
     WorkflowCanvasContext,
 )
+from services.ai_assistant.audit import AuditContext
 from services.ai_assistant.chat_service import ChatEvent, check_connection, stream_chat
 from services.ai_assistant.exceptions import (
     AiAssistantDisabledError,
@@ -197,8 +198,17 @@ def chat(
         session = _session_for(body.context, current_user, request, config)
         system, toolbox = session.system, session.toolbox
 
+    audit = AuditContext(
+        user_id=current_user.id,
+        surface=body.context.surface if body.context is not None else "plain",
+        provider=config.provider,
+        model=config.model,
+    )
+
     async def event_stream() -> AsyncIterator[str]:
-        async for event in stream_chat(config, messages, system=system, toolbox=toolbox):
+        async for event in stream_chat(
+            config, messages, system=system, toolbox=toolbox, audit=audit
+        ):
             yield _sse(event)
 
     return StreamingResponse(

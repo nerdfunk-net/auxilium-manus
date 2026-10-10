@@ -92,6 +92,8 @@ async def run_agent(
                     "id": call.id,
                     "name": call.name,
                     "status": "error" if output.is_error else "done",
+                    "truncated": output.truncated,
+                    "withheld": list(output.withheld),
                 },
             )
             if output.proposal is not None:
