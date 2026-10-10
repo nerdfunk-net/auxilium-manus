@@ -6,10 +6,15 @@ Surfaces send their *current* client-side state; the server decides what of it t
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 
-from models.ai_assistant import TemplateEditorContext
-from services.ai_assistant.prompts import BASE_SYSTEM_PROMPT, TEMPLATE_EDITOR_PROMPT
+from models.ai_assistant import TemplateEditorContext, WorkflowCanvasContext
+from services.ai_assistant.prompts import (
+    BASE_SYSTEM_PROMPT,
+    TEMPLATE_EDITOR_PROMPT,
+    WORKFLOW_EDITOR_PROMPT,
+)
 from services.ai_assistant.redaction import Redactor
 from services.ai_assistant.tools.base import Toolbox, ToolContext
 from services.ai_assistant.tools.template_tools import (
@@ -17,6 +22,14 @@ from services.ai_assistant.tools.template_tools import (
     TemplateEditorState,
     TemplateReader,
 )
+from services.ai_assistant.tools.workflow_tools import (
+    WORKFLOW_EDITOR_TOOLS,
+    PluginCatalogue,
+    ReferenceReader,
+    WorkflowEditorState,
+    WorkflowValidator,
+)
+from services.ai_assistant.workflow_expand import build_compact_view
 
 MAX_VARIABLE_VALUE_CHARS = 1000
 
@@ -63,3 +76,38 @@ def build_template_editor_session(
         [BASE_SYSTEM_PROMPT, TEMPLATE_EDITOR_PROMPT, _editor_state_block(context, redactor)]
     )
     return AssistantSession(system=system, toolbox=Toolbox(TEMPLATE_EDITOR_TOOLS, tool_context))
+
+
+def build_workflow_editor_session(
+    *,
+    user_id: int,
+    context: WorkflowCanvasContext,
+    registry: PluginCatalogue,
+    references: ReferenceReader,
+    validator: WorkflowValidator,
+) -> AssistantSession:
+    redactor = Redactor()
+    state = WorkflowEditorState(
+        nodes=context.canvas_nodes,
+        edges=context.canvas_edges,
+        groups=context.canvas_groups,
+        static_attributes=context.static_attributes,
+        registry=registry,
+        references=references,
+        validator=validator,
+    )
+    tool_context = ToolContext(
+        user_id=user_id, redactor=redactor, extras={"workflow_editor": state}
+    )
+    # Built first so secrets in step configs get their tokens before any tool runs.
+    view = build_compact_view(
+        context.canvas_nodes, context.canvas_edges, context.static_attributes, redactor
+    )
+    canvas_block = (
+        "<canvas_state>\n"
+        f"workflow name: {redactor.redact(context.name) or '(unsaved)'}\n"
+        f"{json.dumps(view, default=str)}\n"
+        "</canvas_state>"
+    )
+    system = "\n\n".join([BASE_SYSTEM_PROMPT, WORKFLOW_EDITOR_PROMPT, canvas_block])
+    return AssistantSession(system=system, toolbox=Toolbox(WORKFLOW_EDITOR_TOOLS, tool_context))

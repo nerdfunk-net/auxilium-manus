@@ -12,10 +12,15 @@ there is no catastrophic backtracking.
 
 from __future__ import annotations
 
+import json
 import re
 from typing import Any
 
-from services.workflow_context.secret_fields import redact_secrets_in_data
+from services.workflow_context.secret_fields import (
+    is_sealed_secret,
+    is_secret_key_name,
+    redact_secrets_in_data,
+)
 
 PLACEHOLDER_MARKER = "***REDACTED***"
 
@@ -105,6 +110,8 @@ class Redactor:
     def __init__(self) -> None:
         self._token_by_secret: dict[str, str] = {}
         self._secret_by_token: dict[str, str] = {}
+        # Tokens standing in for a whole non-string value (e.g. a sealed secret envelope).
+        self._object_by_token: dict[str, Any] = {}
 
     def _token_for(self, secret: str) -> str:
         token = self._token_by_secret.get(secret)
@@ -147,9 +154,65 @@ class Redactor:
             return [self._redact_strings(item) for item in value]
         return value
 
+    def tokenize_data(self, data: Any) -> Any:
+        """Restorable structured redaction for editable configs (workflow steps).
+
+        Values under secret-named keys and sealed envelopes become tokens (``restore_data`` puts
+        the originals back), and every other string leaf gets the text redaction. Unlike
+        ``redact_data`` nothing becomes a literal ``***REDACTED***``, so a model that echoes the
+        structure back cannot overwrite a real secret with a placeholder.
+        """
+        return self._tokenize(data)
+
+    def _tokenize(self, value: Any) -> Any:
+        if is_sealed_secret(value):
+            return self._object_token(value)
+        if isinstance(value, dict):
+            return {key: self._tokenize_entry(key, item) for key, item in value.items()}
+        if isinstance(value, list):
+            return [self._tokenize(item) for item in value]
+        if isinstance(value, str):
+            return self.redact(value)
+        return value
+
+    def _tokenize_entry(self, key: Any, item: Any) -> Any:
+        if isinstance(key, str) and is_secret_key_name(key):
+            if isinstance(item, str) and item:
+                return self._token_for(item)
+            if isinstance(item, dict | list) and item:
+                return self._object_token(item)
+        return self._tokenize(item)
+
+    def _object_token(self, value: Any) -> str:
+        token = self._token_for(json.dumps(value, sort_keys=True, default=str))
+        self._object_by_token.setdefault(token, value)
+        return token
+
+    def restore_data(self, data: Any) -> Any:
+        """Inverse of ``tokenize_data`` (also restores text tokens inside strings)."""
+        if isinstance(data, str):
+            if data in self._object_by_token:
+                return self._object_by_token[data]
+            return self.restore(data)
+        if isinstance(data, dict):
+            return {key: self.restore_data(item) for key, item in data.items()}
+        if isinstance(data, list):
+            return [self.restore_data(item) for item in data]
+        return data
+
     def restore(self, text: str) -> str:
         """Put original secrets back. Unknown tokens are left as they are."""
         return _TOKEN.sub(lambda m: self._secret_by_token.get(m.group(0), m.group(0)), text)
+
+    @staticmethod
+    def data_contains_placeholder(data: Any) -> bool:
+        if isinstance(data, str):
+            return PLACEHOLDER_MARKER in data
+        if isinstance(data, dict):
+            return any(Redactor.data_contains_placeholder(v) for v in data.values())
+        if isinstance(data, list):
+            return any(Redactor.data_contains_placeholder(v) for v in data)
+        return False
 
     @staticmethod
     def contains_unresolved_placeholder(text: str) -> bool:

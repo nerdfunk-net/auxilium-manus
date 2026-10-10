@@ -2,7 +2,8 @@
 
 Status: **phases 1 and 2 verified by the product owner against the real Claude API (template Q&A and
 proposals work). Phase 3 (Gemini + OpenAI-compatible) implemented 2026-10-10, covered by unit/contract
-tests only — not yet tried with a real Gemini key or an Ollama server.** Phases 4–6 are not started. Open questions
+tests only — not yet tried with a real Gemini key or an Ollama server.** Phase 4 (workflow canvas assistant) implemented 2026-10-10, unit-tested and checked against the real
+validator/registry/dev DB, but not yet tried with a real model or in a browser. Phases 5–6 are not started. Open questions
 were answered by the product owner; see §9 for the recorded decisions.
 
 This document describes an AI assistant built *into* the app. It is distinct from
@@ -425,6 +426,58 @@ the card says applying will overwrite those edits.
 **UI.** An "AI Assistant" button in the template editor toggles an inline right-hand panel, rendered
 only when `useAiAssistantAvailable()` is true. Tool activity shows as collapsed one-line chips.
 
+## 9c. Phase 4 design — workflow canvas assistant
+
+Grounded in the existing external-AI path (`ai_workflow_apply.py`, `WorkflowValidationService`
+tiers 1–4, `contributing-data/workflow-gallery/*.json`) and the builder's client-side canvas state.
+
+**Compact plan, server-side expansion.** A persisted canvas node carries ~20 fields (denormalized
+registry data, `measured`, `stepUuid`, positions...) and edges have a fixed id/handle scheme. Asking a
+model to emit that JSON is fragile, so the model works in a compact vocabulary and the server expands it:
+
+- node: `{id, kind, title?, config, disabled?}` — `kind` is a registry step id, `config` its
+  `pluginConfig`.
+- edge: `{from, outcome, to}` — `outcome` must be one of the step's registry outcomes.
+- `static_attributes`: the existing `StaticAttributeDef` list, passed through.
+
+The model always sends the **complete** plan (full replacement, like the external path). The server
+merges it onto the canvas the client sent: an existing node id with the same `kind` keeps its position,
+size, `stepUuid` and everything the model did not touch; new nodes are built from the registry and
+placed next to their parent; unchanged edges keep their waypoints/style; canvas decorations (labels,
+backgrounds, funnels) and groups pass through untouched (groups are repaired like
+`WorkflowService._repair_orphan_groups`).
+
+**Validation loop (the main quality lever).** `propose_workflow` expands the plan and runs
+`WorkflowValidationService` (Tier 1 schema, Tier 2 references, Tier 3 capability flow, Tier 4
+attribute-path wiring) as the calling user. Any *error* is returned to the model as a tool error
+(with node ids and codes) so it fixes and re-proposes; **no proposal is emitted while errors remain**.
+Warnings are carried on the proposal. This is stricter than the external path, which only refuses
+Tier 2 drift, and matches the run-time gate (`RunService` refuses Tier 1–3 errors anyway).
+
+**Context sent each turn (client → server):** the raw canvas (`canvas_nodes`, `canvas_edges`,
+`canvas_groups`, `static_attributes`) — the server builds the model's compact view, so formats cannot
+drift. Caps: 300 nodes, 600 edges. Step configs are class A (workflow definition) but pass through
+redaction; secret-named keys and sealed envelopes are **tokenised and restored** on propose, so an edit
+can never overwrite a real secret with a placeholder (`Redactor.tokenize_data` / `restore_data`).
+
+**Tools (all permission-checked as the calling user, read-only or proposal-only):**
+
+| Tool | Class | Purpose |
+|------|-------|---------|
+| `get_workflow_reference` | A | Authoring rules: node/edge model, outcomes, capability flow, fan-out/fan-in, static attributes, conventions |
+| `list_steps` / `get_step_schema` | A | Step catalogue from the registry; full config schema, outcomes, capabilities for one step |
+| `list_references` | A | Credentials (id/name/type only, never secrets), git repositories, sources, saved inventories — so references are real, never invented |
+| `validate_workflow` | A | Run the tiers on a plan without proposing |
+| `propose_workflow` | proposal | Expand + validate; emits the `proposal` event with a change summary |
+
+**Not in phase 4:** running a workflow, editing workflow metadata (name/folder/visibility), notes,
+creating schedules, canvas groups beyond preserving existing ones.
+
+**Proposal flow.** The card lists added / removed / changed steps (changed ones with a before/after
+config diff) and added / removed edges, with validation warnings. **Apply** loads the merged canvas into
+the open builder as **unsaved** state (`applyLoadedCanvas` + mark dirty); the user reviews it on the
+canvas and saves with the normal Save, which also runs the server-side validation again.
+
 ## 9a. Implementation status
 
 **Phase 1 (backend + frontend written, unit-tested; not yet exercised against a real provider key
@@ -493,6 +546,27 @@ or in a browser):**
   worked; cause not established (a 503 is server-side, not the usual free-tier signal).
 - Not verified: a real Gemini turn (incl. tool calls and thought signatures), a real Ollama turn,
   and the settings UI for the new providers in a browser.
+
+**Phase 4 (workflow canvas assistant):**
+
+- Backend: `workflow_expand.py` (compact plan <-> persisted canvas: registry-built nodes, layout next to
+  parents, edge id/handle scheme, position/uuid/waypoint preservation, decoration + group pass-through,
+  change summary), `tools/workflow_tools.py` (6 tools), `workflow_reader.py` (per-call DB sessions,
+  RBAC-checked reference lists, validation as the calling user), `knowledge/workflow_reference.md`,
+  `Redactor.tokenize_data/restore_data` (secrets in step configs round-trip), tool schemas are inlined
+  (no `$ref`) for every provider. `POST /ai/chat` accepts `context.surface == "workflow_editor"`.
+- Frontend: "AI Assistant" button + side panel in the workflow builder (only while the assistant is
+  available), `WorkflowProposalCard` (added / removed / changed steps with config diff, edges, warnings,
+  stale-canvas notice), Apply loads the merged canvas as **unsaved** state via the same path as opening
+  a workflow.
+- Verified: unit tests (expansion, tools, router, redaction); the real `WorkflowValidationService` accepts
+  a correct expanded plan and returns the Tier 3 `missing_capability` / Tier 2 `source_not_found` errors
+  for broken ones; reference lists and permission checks against the real dev DB.
+- Not verified: a real model driving the loop (plan quality with Haiku / Flash-Lite on non-trivial
+  workflows is unknown), the UI in a browser, and apply/undo behaviour on a large canvas.
+- Known limits: `stop-here` inside a fan-out branch is only rejected at save time (`WorkflowService`),
+  not by the proposal validation; canvas groups are preserved but not created; workflow metadata
+  (name, folder, notes, schedules) is out of scope.
 
 ## 10. Decisions and open questions
 

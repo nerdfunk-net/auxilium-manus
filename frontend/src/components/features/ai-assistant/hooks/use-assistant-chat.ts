@@ -13,7 +13,10 @@ import type {
   ProposalState,
   ToolActivity,
   ToolStatus,
+  WorkflowChanges,
+  WorkflowProposalWarning,
 } from "../types/ai-assistant";
+import { canvasFingerprint } from "../utils/canvas-fingerprint";
 import { parseSseBuffer } from "../utils/sse-parser";
 
 const CHAT_ENDPOINT = "/api/proxy/ai/chat";
@@ -35,7 +38,12 @@ interface ProposalPayload {
   kind?: string;
   content?: string;
   summary?: string;
-  warnings?: string[];
+  warnings?: unknown[];
+  canvas_nodes?: Record<string, unknown>[];
+  canvas_edges?: Record<string, unknown>[];
+  canvas_groups?: Record<string, unknown>[];
+  static_attributes?: Record<string, unknown>[];
+  changes?: WorkflowChanges;
 }
 
 export interface UseAssistantChatOptions {
@@ -180,14 +188,45 @@ export function useAssistantChat({ getContext }: UseAssistantChatOptions = {}) {
                 typeof proposal.content === "string"
               ) {
                 const content = proposal.content;
+                const baseContent =
+                  context?.surface === "template_editor" ? context.content : "";
                 patchAssistant(assistantId, (m) => ({
                   ...m,
                   proposal: {
                     kind: "template",
                     content,
                     summary: proposal.summary ?? "",
-                    warnings: proposal.warnings ?? [],
-                    baseContent: context?.content ?? "",
+                    warnings: (proposal.warnings ?? []) as string[],
+                    baseContent,
+                    state: "pending",
+                  },
+                }));
+              } else if (
+                proposal.kind === "workflow" &&
+                proposal.canvas_nodes &&
+                proposal.changes
+              ) {
+                const { canvas_nodes, changes } = proposal;
+                const baseFingerprint =
+                  context?.surface === "workflow_editor"
+                    ? canvasFingerprint(
+                        context.canvas_nodes,
+                        context.canvas_edges,
+                      )
+                    : "";
+                patchAssistant(assistantId, (m) => ({
+                  ...m,
+                  proposal: {
+                    kind: "workflow",
+                    summary: proposal.summary ?? "",
+                    canvas_nodes,
+                    canvas_edges: proposal.canvas_edges ?? [],
+                    canvas_groups: proposal.canvas_groups ?? [],
+                    static_attributes: proposal.static_attributes ?? [],
+                    changes,
+                    warnings: (proposal.warnings ??
+                      []) as WorkflowProposalWarning[],
+                    baseFingerprint,
                     state: "pending",
                   },
                 }));

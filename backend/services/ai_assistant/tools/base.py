@@ -23,6 +23,32 @@ MAX_TOOL_OUTPUT_CHARS = 20000
 TRUNCATION_MARKER = "\n…[output truncated]"
 
 
+def inline_schema_refs(schema: dict[str, Any]) -> dict[str, Any]:
+    """Resolve ``$ref`` into the definitions in place and drop ``$defs``.
+
+    Pydantic emits ``$defs`` for nested models. Not every provider (nor every small local model)
+    handles references well, so tool input schemas are sent fully inlined. Recursive models are not
+    used for tool inputs; a self-reference would raise rather than loop forever.
+    """
+    defs = schema.get("$defs", {})
+
+    def resolve(node: Any, stack: tuple[str, ...]) -> Any:
+        if isinstance(node, dict):
+            ref = node.get("$ref")
+            if isinstance(ref, str) and ref.startswith("#/$defs/"):
+                name = ref.removeprefix("#/$defs/")
+                if name in stack:
+                    raise ValueError(f"recursive tool input schema: {name}")
+                merged = {k: v for k, v in node.items() if k != "$ref"}
+                return resolve({**defs[name], **merged}, (*stack, name))
+            return {k: resolve(v, stack) for k, v in node.items() if k != "$defs"}
+        if isinstance(node, list):
+            return [resolve(item, stack) for item in node]
+        return node
+
+    return resolve(schema, ())
+
+
 @dataclass(frozen=True)
 class ToolOutput:
     """``content`` goes back to the model. ``proposal`` (if any) goes to the client only."""
@@ -56,7 +82,7 @@ class Tool:
         return ToolSpec(
             name=self.name,
             description=self.description,
-            input_schema=self.input_model.model_json_schema(),
+            input_schema=inline_schema_refs(self.input_model.model_json_schema()),
         )
 
 

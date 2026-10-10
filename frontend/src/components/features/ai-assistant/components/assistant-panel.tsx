@@ -7,7 +7,12 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 
 import { useAssistantChat } from "../hooks/use-assistant-chat";
-import type { AssistantContext, DisplayMessage } from "../types/ai-assistant";
+import type {
+  AssistantContext,
+  DisplayMessage,
+  WorkflowProposal,
+} from "../types/ai-assistant";
+import { WorkflowProposalCard } from "./workflow-proposal-card";
 import { TemplateProposalCard } from "./template-proposal-card";
 
 /** Where a template proposal is applied: the editor's unsaved buffer. */
@@ -16,12 +21,19 @@ export interface TemplateProposalTarget {
   onApply: (content: string) => void;
 }
 
+/** Where a workflow proposal is applied: the builder canvas, as unsaved state. */
+export interface WorkflowProposalTarget {
+  currentFingerprint: string;
+  onApply: (proposal: WorkflowProposal) => void;
+}
+
 interface AssistantPanelProps {
   /** Shown in the input; surfaces use it to say what the assistant can see. */
   placeholder?: string;
   /** Current surface state, sent with every turn (enables the surface's tools). */
   getContext?: () => AssistantContext | undefined;
-  proposalTarget?: TemplateProposalTarget;
+  templateTarget?: TemplateProposalTarget;
+  workflowTarget?: WorkflowProposalTarget;
 }
 
 const DEFAULT_PLACEHOLDER = "Ask the assistant…";
@@ -32,6 +44,12 @@ const TOOL_LABELS: Record<string, string> = {
   get_template: "Reading a template",
   render_template: "Trial-rendering",
   propose_template: "Preparing a proposal",
+  get_workflow_reference: "Reading the workflow guide",
+  list_steps: "Looking through workflow steps",
+  get_step_schema: "Reading a step's settings",
+  list_references: "Looking up credentials, repositories and sources",
+  validate_workflow: "Validating the workflow",
+  propose_workflow: "Preparing a proposal",
 };
 
 function toolLabel(name: string): string {
@@ -45,7 +63,8 @@ function toolLabel(name: string): string {
 export function AssistantPanel({
   placeholder = DEFAULT_PLACEHOLDER,
   getContext,
-  proposalTarget,
+  templateTarget,
+  workflowTarget,
 }: AssistantPanelProps) {
   const { messages, isStreaming, send, stop, clear, setProposalState } =
     useAssistantChat({
@@ -108,13 +127,26 @@ export function AssistantPanel({
         !message.tools?.length && (
           <Loader2 className="size-4 animate-spin text-muted-foreground" />
         )}
-      {message.proposal && proposalTarget && (
+      {message.proposal?.kind === "template" && templateTarget && (
         <TemplateProposalCard
           proposal={message.proposal}
-          currentContent={proposalTarget.currentContent}
+          currentContent={templateTarget.currentContent}
           onApply={() => {
-            if (message.proposal) {
-              proposalTarget.onApply(message.proposal.content);
+            if (message.proposal?.kind === "template") {
+              templateTarget.onApply(message.proposal.content);
+              setProposalState(message.id, "applied");
+            }
+          }}
+          onReject={() => setProposalState(message.id, "rejected")}
+        />
+      )}
+      {message.proposal?.kind === "workflow" && workflowTarget && (
+        <WorkflowProposalCard
+          proposal={message.proposal}
+          currentFingerprint={workflowTarget.currentFingerprint}
+          onApply={() => {
+            if (message.proposal?.kind === "workflow") {
+              workflowTarget.onApply(message.proposal);
               setProposalState(message.id, "applied");
             }
           }}

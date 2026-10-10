@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from typing import Literal
+import json
+from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator, model_validator
 
 AiProvider = Literal["anthropic", "gemini", "openai_compat"]
 AiStatusReason = Literal["ok", "no_permission", "disabled", "not_configured"]
@@ -94,10 +95,43 @@ class TemplateEditorContext(BaseModel):
     variables: list[EditorVariableIn] = Field(default_factory=list, max_length=200)
 
 
+MAX_CANVAS_JSON_CHARS = 3_000_000
+
+
+class WorkflowCanvasContext(BaseModel):
+    """Current (possibly unsaved) workflow builder canvas, in the persisted shape."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    surface: Literal["workflow_editor"]
+    name: str = Field(default="", max_length=255)
+    canvas_nodes: list[dict[str, Any]] = Field(default_factory=list, max_length=500)
+    canvas_edges: list[dict[str, Any]] = Field(default_factory=list, max_length=1000)
+    canvas_groups: list[dict[str, Any]] = Field(default_factory=list, max_length=200)
+    static_attributes: list[dict[str, Any]] = Field(default_factory=list, max_length=100)
+
+    @model_validator(mode="after")
+    def _bounded_size(self) -> WorkflowCanvasContext:
+        size = len(
+            json.dumps(
+                [self.canvas_nodes, self.canvas_edges, self.canvas_groups, self.static_attributes],
+                default=str,
+            )
+        )
+        if size > MAX_CANVAS_JSON_CHARS:
+            raise ValueError("The canvas is too large to send to the assistant")
+        return self
+
+
+AssistantContext = Annotated[
+    TemplateEditorContext | WorkflowCanvasContext, Field(discriminator="surface")
+]
+
+
 class ChatRequest(BaseModel):
     """Stateless chat turn: the client holds the history and re-sends it (v1)."""
 
     model_config = ConfigDict(extra="forbid")
 
     messages: list[ChatMessageIn] = Field(min_length=1, max_length=50)
-    context: TemplateEditorContext | None = None
+    context: AssistantContext | None = None

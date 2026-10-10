@@ -13,7 +13,10 @@ import { migrateCanvasState } from "./migrate-canvas";
 import { mergeRunInputAttributes } from "./run-input-attributes";
 
 export function canvasFromWorkflowResponse(
-  full: WorkflowResponse,
+  full: Pick<
+    WorkflowResponse,
+    "canvas_nodes" | "canvas_edges" | "canvas_groups" | "static_attributes"
+  >,
   plugins: PluginDefinition[],
 ): {
   nodes: PersistedCanvasNode[];

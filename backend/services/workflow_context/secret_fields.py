@@ -106,6 +106,11 @@ def _key_is_secret_name(key: str) -> bool:
     return lowered.endswith(("_password", "_secret", "_token", "_passphrase"))
 
 
+def is_secret_key_name(key: str) -> bool:
+    """Public form of the key-name rule: does this dict key name hold a secret value?"""
+    return _key_is_secret_name(key)
+
+
 def path_is_known_secret(dotted_path: str) -> bool:
     """True when *dotted_path* (e.g. ``"tacacs.shared_secret"``) is a known secret path."""
     parts = tuple(part for part in dotted_path.strip().split(".") if part)

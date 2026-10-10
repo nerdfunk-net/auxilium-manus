@@ -11,6 +11,7 @@ import {
   Save,
   SaveAll,
   ShieldCheck,
+  Sparkles,
   StepForward,
 } from "lucide-react";
 
@@ -42,6 +43,9 @@ interface WorkflowTopbarProps {
   onRun: () => void;
   onValidate: () => void;
   isValidating: boolean;
+  /** Provided only when the AI assistant is available to the user; hides the button otherwise. */
+  onToggleAssistant?: () => void;
+  isAssistantOpen?: boolean;
 }
 
 export function WorkflowTopbar({
@@ -54,6 +58,8 @@ export function WorkflowTopbar({
   onRun,
   onValidate,
   isValidating,
+  onToggleAssistant,
+  isAssistantOpen = false,
 }: WorkflowTopbarProps) {
   const workflowId = useWorkflowBuilderStore((state) => state.workflowId);
   const workflowName = useWorkflowBuilderStore((state) => state.workflowName);
@@ -64,7 +70,8 @@ export function WorkflowTopbar({
   const approveBatch = useApproveBatchMutation(workflowId);
   const approveAll = useApproveAllMutation(workflowId);
   const approvalState = activeRun?.approval_state;
-  const isAwaitingBatch = activeRun?.status === "paused" && approvalState?.awaiting === true;
+  const isAwaitingBatch =
+    activeRun?.status === "paused" && approvalState?.awaiting === true;
 
   return (
     <header className="flex h-16 items-center justify-between border-b bg-card px-5">
@@ -72,7 +79,9 @@ export function WorkflowTopbar({
         <div>
           <h1 className="text-sm font-semibold">
             {workflowName}
-            {isDirty ? <span className="ml-1 text-muted-foreground">●</span> : null}
+            {isDirty ? (
+              <span className="ml-1 text-muted-foreground">●</span>
+            ) : null}
           </h1>
           <p className="text-xs text-muted-foreground">
             Select devices, run commands, and store artifacts.
@@ -142,12 +151,25 @@ export function WorkflowTopbar({
               </span>
             </DropdownMenuItem>
             <DropdownMenuSeparator />
-            <DropdownMenuItem onSelect={onVersionControl} disabled={!workflowId}>
+            <DropdownMenuItem
+              onSelect={onVersionControl}
+              disabled={!workflowId}
+            >
               <History className="size-4" />
               Version Control…
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
+
+        {onToggleAssistant ? (
+          <Button
+            variant={isAssistantOpen ? "default" : "outline"}
+            onClick={onToggleAssistant}
+          >
+            <Sparkles className="size-4" />
+            AI Assistant
+          </Button>
+        ) : null}
 
         <Button
           variant="outline"

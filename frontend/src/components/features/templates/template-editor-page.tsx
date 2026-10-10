@@ -352,7 +352,7 @@ function TemplateEditorContent() {
             <AssistantPanel
               placeholder="Describe the template you need, or what to change…"
               getContext={getAssistantContext}
-              proposalTarget={proposalTarget}
+              templateTarget={proposalTarget}
             />
           </div>
         </aside>

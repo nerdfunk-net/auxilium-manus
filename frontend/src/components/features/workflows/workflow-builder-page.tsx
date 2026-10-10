@@ -1,9 +1,18 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
+import { AssistantPanel } from "@/components/features/ai-assistant/components/assistant-panel";
+import { useAiAssistantAvailable } from "@/components/features/ai-assistant/hooks/use-ai-assistant-available";
+import type {
+  AssistantContext,
+  WorkflowProposal,
+} from "@/components/features/ai-assistant/types/ai-assistant";
+import { canvasFingerprint } from "@/components/features/ai-assistant/utils/canvas-fingerprint";
 import { useWorkflowStepsQuery } from "@/hooks/queries/use-workflow-steps-query";
+import { Sparkles, X } from "lucide-react";
+
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -32,6 +41,9 @@ import { WorkflowRunInputsDialog } from "./dialogs/workflow-run-inputs-dialog";
 import { WorkflowSaveAsDialog } from "./dialogs/workflow-save-as-dialog";
 import { WorkflowValidationDialog } from "./dialogs/workflow-validation-dialog";
 import { WorkflowWikiDialog } from "./dialogs/workflow-wiki-dialog";
+import type { StaticAttributeDef } from "./types/workflow-persistence";
+import { canvasFromWorkflowResponse } from "./utils/apply-loaded-workflow";
+import { canvasPersistPayload } from "./utils/canvas-persist-payload";
 import { isGroupCanvasNode } from "./utils/canvas-group-projection";
 import { computeDeviceParamConfigs } from "./utils/device-param-hints";
 import { useUnsavedChangesWarning } from "./hooks/use-unsaved-changes-warning";
@@ -44,10 +56,16 @@ import { useWorkflowValidation } from "./hooks/use-workflow-validation";
 
 export function WorkflowBuilderPage() {
   const resetToNew = useWorkflowBuilderStore((state) => state.resetToNew);
-  const openStepLibrary = useWorkflowBuilderStore((state) => state.openStepLibrary);
-  const closeStepLibrary = useWorkflowBuilderStore((state) => state.closeStepLibrary);
+  const openStepLibrary = useWorkflowBuilderStore(
+    (state) => state.openStepLibrary,
+  );
+  const closeStepLibrary = useWorkflowBuilderStore(
+    (state) => state.closeStepLibrary,
+  );
   const isDirty = useWorkflowBuilderStore((state) => state.isDirty);
-  const autoLayoutDirection = useWorkflowBuilderStore((state) => state.autoLayoutDirection);
+  const autoLayoutDirection = useWorkflowBuilderStore(
+    (state) => state.autoLayoutDirection,
+  );
   const setAutoLayoutDirection = useWorkflowBuilderStore(
     (state) => state.setAutoLayoutDirection,
   );
@@ -76,7 +94,10 @@ export function WorkflowBuilderPage() {
   // synthetic group nodes (only present in the current projection, never in
   // allNodes) so a Group's own "Open configuration" can resolve too.
   const nodesForConfigModal = useMemo(
-    () => [...canvas.allNodes, ...canvas.projected.nodes.filter(isGroupCanvasNode)],
+    () => [
+      ...canvas.allNodes,
+      ...canvas.projected.nodes.filter(isGroupCanvasNode),
+    ],
     [canvas.allNodes, canvas.projected.nodes],
   );
   const persistence = useWorkflowPersistence({
@@ -91,8 +112,70 @@ export function WorkflowBuilderPage() {
     allNodes: canvas.allNodes,
     allEdges: canvas.allEdges,
   });
+  const markDirty = useWorkflowBuilderStore((state) => state.markDirty);
+
+  // --- AI assistant (rendered only while the user has it enabled) ---------------------------
+  const assistantAvailable = useAiAssistantAvailable();
+  const [assistantOpen, setAssistantOpen] = useState(false);
+  const toggleAssistant = useCallback(
+    () => setAssistantOpen((open) => !open),
+    [],
+  );
+  const { allNodes, allEdges, groups, staticAttributes, applyLoadedCanvas } =
+    canvas;
+  const workflowNameForAssistant = persistence.workflowName;
+  const getAssistantContext = useCallback((): AssistantContext => {
+    const payload = canvasPersistPayload(
+      allNodes,
+      allEdges,
+      groups,
+      staticAttributes,
+    );
+    return {
+      surface: "workflow_editor",
+      name: workflowNameForAssistant,
+      ...payload,
+      static_attributes: payload.static_attributes as unknown as Record<
+        string,
+        unknown
+      >[],
+    };
+  }, [allNodes, allEdges, groups, staticAttributes, workflowNameForAssistant]);
+  const applyWorkflowProposal = useCallback(
+    (proposal: WorkflowProposal) => {
+      // Same path as loading a saved workflow, so the canvas migrates/repairs it identically; the
+      // result stays unsaved until the user saves.
+      applyLoadedCanvas(
+        canvasFromWorkflowResponse(
+          {
+            canvas_nodes: proposal.canvas_nodes,
+            canvas_edges: proposal.canvas_edges,
+            canvas_groups: proposal.canvas_groups,
+            static_attributes:
+              proposal.static_attributes as unknown as StaticAttributeDef[],
+          },
+          plugins,
+        ),
+      );
+      markDirty();
+    },
+    [applyLoadedCanvas, markDirty, plugins],
+  );
+  const workflowTarget = useMemo(
+    () => ({
+      currentFingerprint: canvasFingerprint(
+        allNodes as unknown as Record<string, unknown>[],
+        allEdges as unknown as Record<string, unknown>[],
+      ),
+      onApply: applyWorkflowProposal,
+    }),
+    [allNodes, allEdges, applyWorkflowProposal],
+  );
+
   const selectNode = useWorkflowBuilderStore((state) => state.selectNode);
-  const openConfigModal = useWorkflowBuilderStore((state) => state.openConfigModal);
+  const openConfigModal = useWorkflowBuilderStore(
+    (state) => state.openConfigModal,
+  );
   const { requestRun } = run;
   useEffect(() => {
     requestRunRef.current = (id) => {
@@ -115,7 +198,9 @@ export function WorkflowBuilderPage() {
   // full load, then hand off to /workflows/runs if `thenRuns` was asked.
   const router = useRouter();
   const workflowId = useWorkflowBuilderStore((state) => state.workflowId);
-  const pendingWorkflowLoad = useWorkflowBuilderStore((state) => state.pendingWorkflowLoad);
+  const pendingWorkflowLoad = useWorkflowBuilderStore(
+    (state) => state.pendingWorkflowLoad,
+  );
   const clearPendingWorkflowLoad = useWorkflowBuilderStore(
     (state) => state.clearPendingWorkflowLoad,
   );
@@ -130,7 +215,12 @@ export function WorkflowBuilderPage() {
     clearPendingWorkflowLoad();
     awaitingRunsHandoffRef.current = thenRuns ? pendingId : null;
     handleLoadWorkflow({ id: pendingId });
-  }, [pendingWorkflowLoad, isPluginsLoading, clearPendingWorkflowLoad, handleLoadWorkflow]);
+  }, [
+    pendingWorkflowLoad,
+    isPluginsLoading,
+    clearPendingWorkflowLoad,
+    handleLoadWorkflow,
+  ]);
 
   useEffect(() => {
     // The load has landed (store metadata now reflects the target) — safe to
@@ -153,6 +243,8 @@ export function WorkflowBuilderPage() {
         onVersionControl={() => persistence.setIsHistoryOpen(true)}
         onValidate={validation.handleValidate}
         isValidating={validation.isValidating}
+        onToggleAssistant={assistantAvailable ? toggleAssistant : undefined}
+        isAssistantOpen={assistantOpen}
       />
       <main className="flex min-h-0 flex-1">
         <section className="flex min-w-0 flex-1 flex-col">
@@ -187,6 +279,35 @@ export function WorkflowBuilderPage() {
             </CanvasErrorBoundary>
           </div>
         </section>
+        {assistantAvailable && assistantOpen ? (
+          <aside
+            className="flex w-[420px] shrink-0 flex-col gap-3 border-l bg-card p-4"
+            aria-label="AI Assistant"
+          >
+            <div className="flex items-center justify-between">
+              <h2 className="flex items-center gap-2 text-sm font-semibold">
+                <Sparkles className="size-4" />
+                AI Assistant
+              </h2>
+              <Button
+                type="button"
+                size="icon"
+                variant="ghost"
+                onClick={() => setAssistantOpen(false)}
+                aria-label="Close assistant"
+              >
+                <X className="size-4" />
+              </Button>
+            </div>
+            <div className="min-h-0 flex-1">
+              <AssistantPanel
+                placeholder="Describe the workflow you need, or what to change…"
+                getContext={getAssistantContext}
+                workflowTarget={workflowTarget}
+              />
+            </div>
+          </aside>
+        ) : null}
         <WorkflowPropertiesPanel
           edges={canvas.projected.edges}
           nodes={canvas.projected.nodes}
@@ -194,7 +315,9 @@ export function WorkflowBuilderPage() {
           autoLayoutDirection={autoLayoutDirection}
           isAutoLayoutRunning={canvas.isAutoLayoutRunning}
           onAutoLayoutDirectionChange={setAutoLayoutDirection}
-          onAutoLayoutNodes={(nodeIds) => canvas.handleAutoLayout(nodeIds, autoLayoutDirection)}
+          onAutoLayoutNodes={(nodeIds) =>
+            canvas.handleAutoLayout(nodeIds, autoLayoutDirection)
+          }
           onDeleteEdge={canvas.handleDeleteEdge}
           onDeleteNodes={canvas.handleDeleteNodes}
           onDuplicateNode={canvas.handleDuplicateNode}
@@ -255,7 +378,10 @@ export function WorkflowBuilderPage() {
         defaultFolder={persistence.workflowFolder}
         defaultVisibility={persistence.workflowVisibility}
         defaultIsVersionControlled={persistence.workflowIsVersionControlled}
-        isSaving={persistence.createWorkflow.isPending || persistence.updateWorkflow.isPending}
+        isSaving={
+          persistence.createWorkflow.isPending ||
+          persistence.updateWorkflow.isPending
+        }
         onSave={persistence.handleSaveAs}
         onOverwrite={persistence.handleOverwrite}
         onClose={persistence.closeSaveAs}
@@ -327,7 +453,9 @@ export function WorkflowBuilderPage() {
 
       <Dialog
         open={persistence.isOpenConfirmOpen}
-        onOpenChange={(open) => !open && persistence.setIsOpenConfirmOpen(false)}
+        onOpenChange={(open) =>
+          !open && persistence.setIsOpenConfirmOpen(false)
+        }
       >
         <DialogContent className="sm:max-w-sm">
           <DialogHeader>
@@ -344,7 +472,10 @@ export function WorkflowBuilderPage() {
             >
               Cancel
             </Button>
-            <Button variant="outline" onClick={persistence.handleDiscardAndOpen}>
+            <Button
+              variant="outline"
+              onClick={persistence.handleDiscardAndOpen}
+            >
               Discard &amp; open
             </Button>
             <Button
@@ -384,9 +515,13 @@ export function WorkflowBuilderPage() {
             ) : null}
             <Button
               onClick={run.handleSaveAndRun}
-              disabled={persistence.updateWorkflow.isPending || persistence.createWorkflow.isPending}
+              disabled={
+                persistence.updateWorkflow.isPending ||
+                persistence.createWorkflow.isPending
+              }
             >
-              {persistence.updateWorkflow.isPending || persistence.createWorkflow.isPending
+              {persistence.updateWorkflow.isPending ||
+              persistence.createWorkflow.isPending
                 ? "Saving…"
                 : "Save & run"}
             </Button>

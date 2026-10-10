@@ -71,7 +71,17 @@ export interface TemplateEditorContext {
   variables: EditorVariableContext[];
 }
 
-export type AssistantContext = TemplateEditorContext;
+/** The workflow builder canvas in its persisted shape (the server builds the model's view). */
+export interface WorkflowCanvasContext {
+  surface: "workflow_editor";
+  name: string;
+  canvas_nodes: Record<string, unknown>[];
+  canvas_edges: Record<string, unknown>[];
+  canvas_groups: Record<string, unknown>[];
+  static_attributes: Record<string, unknown>[];
+}
+
+export type AssistantContext = TemplateEditorContext | WorkflowCanvasContext;
 
 export type ToolStatus = "running" | "done" | "error";
 
@@ -94,10 +104,61 @@ export interface TemplateProposal {
   state: ProposalState;
 }
 
+export interface WorkflowChangeNode {
+  id: string;
+  kind: string | null;
+  title: string;
+}
+
+export interface WorkflowChangedNode extends WorkflowChangeNode {
+  fields: string[];
+  /** Pretty-printed step config before / after (for a line diff). */
+  before: string;
+  after: string;
+}
+
+export interface WorkflowChangeEdge {
+  from: string;
+  outcome: string;
+  to: string;
+}
+
+export interface WorkflowChanges {
+  nodes_added: WorkflowChangeNode[];
+  nodes_removed: WorkflowChangeNode[];
+  nodes_changed: WorkflowChangedNode[];
+  edges_added: WorkflowChangeEdge[];
+  edges_removed: WorkflowChangeEdge[];
+  static_attributes_changed: boolean;
+}
+
+export interface WorkflowProposalWarning {
+  node_id: string | null;
+  code: string;
+  message: string;
+}
+
+/** A validated workflow change. Applying loads it into the builder as unsaved state. */
+export interface WorkflowProposal {
+  kind: "workflow";
+  summary: string;
+  canvas_nodes: Record<string, unknown>[];
+  canvas_edges: Record<string, unknown>[];
+  canvas_groups: Record<string, unknown>[];
+  static_attributes: Record<string, unknown>[];
+  changes: WorkflowChanges;
+  warnings: WorkflowProposalWarning[];
+  /** Fingerprint of the canvas when the turn started (detects edits made meanwhile). */
+  baseFingerprint: string;
+  state: ProposalState;
+}
+
+export type AssistantProposal = TemplateProposal | WorkflowProposal;
+
 /** A message in the panel; `error` is set on an assistant turn that failed. */
 export interface DisplayMessage extends ChatMessage {
   id: string;
   error?: string;
   tools?: ToolActivity[];
-  proposal?: TemplateProposal;
+  proposal?: AssistantProposal;
 }

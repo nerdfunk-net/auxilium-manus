@@ -130,3 +130,40 @@ def test_restore_leaves_unknown_tokens_untouched() -> None:
 def test_placeholder_marker_is_detected() -> None:
     assert Redactor.contains_unresolved_placeholder("x ***REDACTED*** y")
     assert not Redactor.contains_unresolved_placeholder("clean text")
+
+
+# -- structured tokenisation (workflow configs) ---------------------------------------------
+
+
+def test_tokenize_data_replaces_secret_named_values_and_sealed_envelopes_restorably() -> None:
+    redactor = Redactor()
+    sealed = {"__am_sealed__": True, "v": 1, "ct": "gAAAA-ciphertext"}
+    data = {
+        "name": "lab",
+        "password": "plain-text-pw",
+        "nested": {"api_key": "abcd1234", "ok": "keep"},
+        "bag": {"tacacs": {"shared_secret": sealed}},
+        "items": [{"token": "tok-9999"}, "enable secret 5 zzz999"],
+        "count": 3,
+    }
+
+    tokenised = redactor.tokenize_data(data)
+    flat = str(tokenised)
+
+    for leaked in ("plain-text-pw", "abcd1234", "gAAAA-ciphertext", "tok-9999", "zzz999"):
+        assert leaked not in flat
+    assert tokenised["name"] == "lab" and tokenised["count"] == 3
+    assert redactor.restore_data(tokenised) == data
+    assert data["password"] == "plain-text-pw"  # input not mutated
+
+
+def test_restore_data_keeps_unknown_tokens_and_non_secret_values() -> None:
+    redactor = Redactor()
+    value = {"a": "__SECRET_42__", "b": [1, None, True]}
+
+    assert redactor.restore_data(value) == value
+
+
+def test_a_model_supplied_literal_marker_is_detected_anywhere_in_a_structure() -> None:
+    assert Redactor.data_contains_placeholder({"a": [{"b": "x ***REDACTED*** y"}]})
+    assert not Redactor.data_contains_placeholder({"a": [{"b": "clean"}], "n": 1})

@@ -13,14 +13,17 @@ from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 
 from core.auth import get_current_user, verify_token
+from core.config import settings
 from core.crypto import EncryptionService
 from core.database import get_db
 from core.models.users import User
+from repositories.plugin_repository import PluginRepository
 from routers import ai_assistant as ai_router_module
 from routers.ai_assistant import get_ai_settings_service, router
 from services.ai_assistant.chat_service import ChatEvent
 from services.ai_assistant.settings_service import AiSettingsService
 from services.auth.rbac_service import RBACService
+from services.plugin_registry.plugin_registry_service import PluginRegistryService
 
 SECRET = "sk-ant-router-secret"
 
@@ -272,3 +275,59 @@ def test_chat_rejects_an_unknown_surface_or_oversized_content(client: TestClient
     )
 
     assert unknown.status_code == 422 and huge.status_code == 422
+
+
+def test_chat_with_workflow_context_gets_the_workflow_tools(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _configure(client)
+    seen: dict[str, object] = {}
+
+    async def fake_stream(config, messages, **kwargs):
+        seen["tools"] = [spec.name for spec in kwargs["toolbox"].specs()]
+        seen["system"] = kwargs["system"]
+        yield ChatEvent("done", {})
+
+    monkeypatch.setattr(ai_router_module, "stream_chat", fake_stream)
+    client.app.state.plugin_service = PluginRegistryService(  # type: ignore[attr-defined]
+        PluginRepository(plugins_file=settings.plugins_file)
+    )
+
+    body = {
+        "messages": [{"role": "user", "content": "add attributes"}],
+        "context": {
+            "surface": "workflow_editor",
+            "name": "Backups",
+            "canvas_nodes": [],
+            "canvas_edges": [],
+        },
+    }
+    response = client.post("/api/ai/chat", json=body)
+
+    assert response.status_code == 200
+    assert "propose_workflow" in seen["tools"] and "propose_template" not in seen["tools"]
+    assert "<canvas_state>" in str(seen["system"])
+
+
+def test_workflow_context_without_a_plugin_registry_is_a_503(client: TestClient) -> None:
+    _configure(client)
+    body = {
+        "messages": [{"role": "user", "content": "hi"}],
+        "context": {"surface": "workflow_editor"},
+    }
+
+    response = client.post("/api/ai/chat", json=body)
+
+    assert response.status_code == 503
+    assert response.json()["detail"]["code"] == "plugin_registry_unavailable"
+
+
+def test_oversized_workflow_canvas_is_rejected(client: TestClient) -> None:
+    _configure(client)
+    huge = [{"id": f"n{i}", "data": {"blob": "x" * 20000}} for i in range(200)]
+    body = {
+        "messages": [{"role": "user", "content": "hi"}],
+        "context": {"surface": "workflow_editor", "canvas_nodes": huge},
+    }
+
+    assert client.post("/api/ai/chat", json=body).status_code == 422

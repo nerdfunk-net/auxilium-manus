@@ -13,7 +13,7 @@ import json
 from collections.abc import AsyncIterator
 from typing import NoReturn
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
@@ -24,8 +24,10 @@ from core.rate_limit import rate_limited
 from models.ai_assistant import (
     AiStatusResponse,
     ChatRequest,
+    TemplateEditorContext,
     UserAiSettingsResponse,
     UserAiSettingsUpdate,
+    WorkflowCanvasContext,
 )
 from services.ai_assistant.chat_service import ChatEvent, check_connection, stream_chat
 from services.ai_assistant.exceptions import (
@@ -37,9 +39,14 @@ from services.ai_assistant.exceptions import (
 from services.ai_assistant.prompts import BASE_SYSTEM_PROMPT
 from services.ai_assistant.providers.base import ChatMessage
 from services.ai_assistant.settings_service import AiRuntimeConfig, AiSettingsService
-from services.ai_assistant.surfaces import build_template_editor_session
+from services.ai_assistant.surfaces import (
+    AssistantSession,
+    build_template_editor_session,
+    build_workflow_editor_session,
+)
 from services.ai_assistant.template_reader import DbTemplateReader
 from services.ai_assistant.tools.base import Toolbox
+from services.ai_assistant.workflow_reader import DbReferenceReader, DbWorkflowValidator
 from services.auth.rbac_service import RBACService
 
 router = APIRouter(prefix="/ai", tags=["ai-assistant"])
@@ -65,6 +72,31 @@ def get_ai_settings_service(db: Session = Depends(get_db)) -> AiSettingsService:
 def _raise_http(exc: AiAssistantError) -> NoReturn:
     code = _STATUS_FOR_ERROR.get(type(exc), status.HTTP_400_BAD_REQUEST)
     raise HTTPException(status_code=code, detail={"code": exc.code, "message": str(exc)}) from exc
+
+
+def _session_for(
+    context: TemplateEditorContext | WorkflowCanvasContext, user: User, request: Request
+) -> AssistantSession:
+    if isinstance(context, WorkflowCanvasContext):
+        registry = getattr(request.app.state, "plugin_service", None)
+        if registry is None:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail={
+                    "code": "plugin_registry_unavailable",
+                    "message": "Plugin registry unavailable",
+                },
+            )
+        return build_workflow_editor_session(
+            user_id=user.id,
+            context=context,
+            registry=registry,
+            references=DbReferenceReader(user.id, user.username),
+            validator=DbWorkflowValidator(user.id, registry),
+        )
+    return build_template_editor_session(
+        user_id=user.id, context=context, reader=DbTemplateReader(user.id)
+    )
 
 
 def _sse(event: ChatEvent) -> str:
@@ -121,6 +153,7 @@ async def test_settings(
 @router.post("/chat", dependencies=[_USE, Depends(_CHAT_BUDGET)])
 def chat(
     body: ChatRequest,
+    request: Request,
     current_user: User = Depends(get_current_user),
     service: AiSettingsService = Depends(get_ai_settings_service),
     db: Session = Depends(get_db),
@@ -137,11 +170,7 @@ def chat(
     system = BASE_SYSTEM_PROMPT
     toolbox: Toolbox | None = None
     if body.context is not None:
-        session = build_template_editor_session(
-            user_id=current_user.id,
-            context=body.context,
-            reader=DbTemplateReader(current_user.id),
-        )
+        session = _session_for(body.context, current_user, request)
         system, toolbox = session.system, session.toolbox
 
     async def event_stream() -> AsyncIterator[str]:
