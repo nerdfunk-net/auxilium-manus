@@ -558,8 +558,9 @@ canvas and saves with the normal Save, which also runs the server-side validatio
   `useAiAssistantAvailable()`. Apply writes into the **unsaved** editor buffer.
 - Verified: backend unit tests (adapter tested against real SDK message types), frontend
   vitest/tsc/eslint, and by the product owner: template Q&A and added lines through a proposal.
-- Known limits: a pathological template can burn CPU in the render thread after the 5 s timeout
-  returns (threads cannot be killed; same exposure as the editor's own preview); only the template
+- Trial renders run in a killable child process with CPU / memory limits and a 5 s timeout
+  (`render_isolated.py`), and the sandbox caps `*` / `**` results.
+- Known limits: only the template
   *content* is proposable (not variables/options); the template surface still sends no class B/C
   data (device and run variables by name only), so the opt-in switches do not apply to it.
 

@@ -6,7 +6,6 @@ client a diff to apply into the unsaved editor buffer.
 
 from __future__ import annotations
 
-import asyncio
 from collections.abc import Sequence
 from dataclasses import dataclass
 from functools import cache
@@ -17,7 +16,8 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from models.ai_assistant import EditorVariableIn, TemplateEditorContext
 from services.ai_assistant.redaction import Redactor
-from services.ai_assistant.template_render import build_context, check_syntax, render_lenient
+from services.ai_assistant.render_isolated import render_isolated
+from services.ai_assistant.template_render import build_context, check_syntax
 from services.ai_assistant.tools.base import Tool, ToolContext, ToolOutput
 
 MAX_CONTENT_CHARS = 200000
@@ -133,9 +133,8 @@ async def _get_template(ctx: ToolContext, args: GetTemplateInput) -> ToolOutput:
 
 
 async def _render_with_timeout(content: str, context: dict[str, Any]) -> Any:
-    return await asyncio.wait_for(
-        asyncio.to_thread(render_lenient, content, context), timeout=RENDER_TIMEOUT_SECONDS
-    )
+    # In a child process that is killed at the timeout: a thread could not be stopped.
+    return await render_isolated(content, context, timeout=RENDER_TIMEOUT_SECONDS)
 
 
 def _format_withheld(names: Sequence[str]) -> str:

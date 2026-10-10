@@ -544,3 +544,19 @@ pass-throughs, `InterfaceManagerService`, `DeviceUpdateService.update_device`, `
     GraphQL internally.
   - *Proposal flow:* a query that is useful to keep (a filter) could later become an inventory-filter
     proposal the user reviews and saves.
+
+---
+
+## Isolate Jinja rendering outside the AI assistant
+
+**Added:** 2026-10-10
+
+- The AI assistant's trial render now runs in a child process (`backend/services/ai_assistant/render_isolated.py`)
+  with a hard timeout, CPU/memory limits and capped `*` / `**` results (`_BoundedSandbox` in
+  `template_render.py`).
+- **Still exposed:** the template editor's own preview (`services/templates/templates_service.py`) and the
+  Hatchet template steps render in-process with the stock `SandboxedEnvironment`. A template with nested
+  loops or `'a' * 10**9` can burn a worker thread or memory there.
+- **To do:** move the worker and the bounded sandbox to a shared helper (e.g. `core/`), use it from those
+  paths, and decide the limits for long legitimate renders in workflow runs.
+

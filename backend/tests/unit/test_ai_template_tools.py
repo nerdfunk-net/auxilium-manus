@@ -189,6 +189,22 @@ def test_render_never_reveals_a_redacted_secret_to_the_model() -> None:
         assert "M y S 3" not in out.content
 
 
+def test_a_runaway_template_times_out_without_hanging_the_tools(monkeypatch) -> None:
+    from services.ai_assistant.tools import template_tools
+
+    monkeypatch.setattr(template_tools, "RENDER_TIMEOUT_SECONDS", 1.0)
+    runaway = (
+        "{% for a in range(100000) %}{% for b in range(100000) %}{{ a }}{% endfor %}{% endfor %}"
+    )
+
+    rendered = _call(_session(), "render_template", content=runaway)
+    proposed = _call(_session(), "propose_template", content=runaway, summary="s")
+
+    assert rendered.is_error and "timed out" in rendered.content
+    assert proposed.proposal is not None and proposed.proposal["warnings"]
+    assert "ok" in _call(_session(), "render_template", content="{{ 'ok' }}").content
+
+
 # -- read tools -----------------------------------------------------------------------
 
 

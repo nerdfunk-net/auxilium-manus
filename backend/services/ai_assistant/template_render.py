@@ -18,6 +18,34 @@ from jinja2 import ChainableUndefined, TemplateError, TemplateSyntaxError
 from jinja2.exceptions import SecurityError, UndefinedError
 from jinja2.sandbox import SandboxedEnvironment
 
+# Results of ``*`` and ``**`` the trial render will build. The stock sandbox only bounds ``range``,
+# so ``{{ 'a' * 10**9 }}`` would otherwise allocate gigabytes.
+MAX_REPEAT_LENGTH = 1_000_000
+MAX_POWER_BITS = 100_000
+
+
+class _BoundedSandbox(SandboxedEnvironment):
+    intercepted_binops = frozenset({"*", "**"})
+
+    def call_binop(self, context: Any, operator: str, left: Any, right: Any) -> Any:
+        if operator == "*":
+            for sequence, count in ((left, right), (right, left)):
+                if (
+                    isinstance(sequence, str | bytes | list | tuple)
+                    and isinstance(count, int)
+                    and len(sequence) * max(count, 0) > MAX_REPEAT_LENGTH
+                ):
+                    raise SecurityError("repeating a sequence this often is not allowed")
+        elif (
+            isinstance(left, int)
+            and isinstance(right, int)
+            and right > 0
+            and abs(left) > 1
+            and right * abs(left).bit_length() > MAX_POWER_BITS
+        ):
+            raise SecurityError("this power is too large to compute")
+        return super().call_binop(context, operator, left, right)
+
 
 @dataclass(frozen=True)
 class SyntaxProblem:
@@ -96,7 +124,7 @@ def render_lenient(content: str, context: Mapping[str, Any]) -> RenderOutcome:
                 withheld.append(name)
             return f"<<{name}>>"
 
-    env = SandboxedEnvironment(
+    env = _BoundedSandbox(
         autoescape=False, trim_blocks=True, lstrip_blocks=True, undefined=_Placeholder
     )
     try:
