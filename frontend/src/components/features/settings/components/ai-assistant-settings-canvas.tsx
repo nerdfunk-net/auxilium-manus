@@ -42,14 +42,21 @@ const PROVIDER_LABELS: Record<AiProvider, string> = {
   openai_compat: "OpenAI-compatible (Ollama, LM Studio, …)",
 };
 
-const formSchema = z.object({
-  enabled: z.boolean(),
-  provider: z.enum(["anthropic", "gemini", "openai_compat"]),
-  model: z.string().min(1, "Model is required"),
-  api_key: z.string().max(512),
-  share_inventory_data: z.boolean(),
-  share_content_data: z.boolean(),
-});
+const formSchema = z
+  .object({
+    enabled: z.boolean(),
+    provider: z.enum(["anthropic", "gemini", "openai_compat"]),
+    model: z.string().min(1, "Model is required"),
+    base_url: z.string().max(512),
+    api_key: z.string().max(512),
+    share_inventory_data: z.boolean(),
+    share_content_data: z.boolean(),
+  })
+  .refine(
+    (values) =>
+      values.provider !== "openai_compat" || values.base_url.trim().length > 0,
+    { message: "A server URL is required", path: ["base_url"] },
+  );
 
 type FormValues = z.infer<typeof formSchema>;
 
@@ -59,6 +66,7 @@ const EMPTY_DEFAULTS: FormValues = {
   enabled: false,
   provider: "anthropic",
   model: "",
+  base_url: "",
   api_key: "",
   share_inventory_data: false,
   share_content_data: false,
@@ -76,6 +84,7 @@ export function AiAssistantSettingsCanvas() {
             enabled: settings.enabled,
             provider: settings.provider,
             model: settings.model,
+            base_url: settings.base_url ?? "",
             api_key: "",
             share_inventory_data: settings.share_inventory_data,
             share_content_data: settings.share_content_data,
@@ -91,16 +100,21 @@ export function AiAssistantSettingsCanvas() {
 
   const handleSave = useCallback(
     (values: FormValues) => {
-      const { api_key, ...rest } = values;
-      // A blank key field means "leave the stored key unchanged".
-      saveSettings.mutate(
-        api_key.trim() ? { ...rest, api_key: api_key.trim() } : rest,
-        {
-          // Replacing a key can leave the cached settings object unchanged, so the form's
-          // `values` never refresh; clear the plaintext key from the form explicitly.
-          onSuccess: () => form.reset({ ...values, api_key: "" }),
-        },
-      );
+      const { api_key, base_url, ...rest } = values;
+      // A blank key field means "leave the stored key unchanged"; the base URL only applies to
+      // the OpenAI-compatible provider.
+      const payload = {
+        ...rest,
+        ...(rest.provider === "openai_compat"
+          ? { base_url: base_url.trim() }
+          : {}),
+        ...(api_key.trim() ? { api_key: api_key.trim() } : {}),
+      };
+      saveSettings.mutate(payload, {
+        // Replacing a key can leave the cached settings object unchanged, so the form's
+        // `values` never refresh; clear the plaintext key from the form explicitly.
+        onSuccess: () => form.reset({ ...values, api_key: "" }),
+      });
     },
     [form, saveSettings],
   );
@@ -115,6 +129,7 @@ export function AiAssistantSettingsCanvas() {
   );
 
   const keySet = settings?.api_key_set ?? false;
+  const configured = settings?.configured ?? false;
   const providers = settings?.available_providers ?? [];
   const dirty = form.formState.isDirty;
   const selectedProvider = useWatch({
@@ -132,10 +147,10 @@ export function AiAssistantSettingsCanvas() {
   const handleProviderChange = useCallback(
     (provider: AiProvider) => {
       form.setValue("provider", provider, { shouldDirty: true });
+      // A model id (or server URL) from another provider is meaningless here.
       const first = settings?.available_models[provider]?.[0];
-      if (first) {
-        form.setValue("model", first.id, { shouldDirty: true });
-      }
+      form.setValue("model", first?.id ?? "", { shouldDirty: true });
+      form.setValue("base_url", "", { shouldDirty: true });
     },
     [form, settings],
   );
@@ -206,32 +221,74 @@ export function AiAssistantSettingsCanvas() {
                     </FormItem>
                   )}
                 />
+                {selectedProvider === "openai_compat" && (
+                  <FormField
+                    control={form.control}
+                    name="base_url"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Server URL</FormLabel>
+                        <FormControl>
+                          <Input
+                            className="font-mono text-xs"
+                            placeholder="http://ollama-host:11434/v1"
+                            {...field}
+                          />
+                        </FormControl>
+                        <FormDescription>
+                          The server&apos;s OpenAI-compatible base URL (for
+                          Ollama: http://host:11434/v1). A server on the same
+                          machine as the backend is only reachable when the
+                          backend runs with ALLOW_LOOPBACK_SOURCE_URLS enabled.
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                )}
                 <FormField
                   control={form.control}
                   name="model"
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Model</FormLabel>
-                      <Select
-                        value={field.value}
-                        onValueChange={field.onChange}
-                      >
+                      {modelOptions.length > 0 ? (
+                        <Select
+                          value={field.value}
+                          onValueChange={field.onChange}
+                        >
+                          <FormControl>
+                            <SelectTrigger className="w-full">
+                              <SelectValue />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            {modelOptions.map((option) => (
+                              <SelectItem key={option.id} value={option.id}>
+                                {option.label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      ) : (
                         <FormControl>
-                          <SelectTrigger className="w-full">
-                            <SelectValue />
-                          </SelectTrigger>
+                          <Input
+                            className="font-mono text-xs"
+                            placeholder="e.g. llama3.1:8b"
+                            {...field}
+                          />
                         </FormControl>
-                        <SelectContent>
-                          {modelOptions.map((option) => (
-                            <SelectItem key={option.id} value={option.id}>
-                              {option.label}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                      )}
                       {selectedModel && (
                         <FormDescription>
                           {selectedModel.description}
+                        </FormDescription>
+                      )}
+                      {selectedProvider === "openai_compat" && (
+                        <FormDescription>
+                          Tool use (editing templates through proposals) depends
+                          on the model; smaller local models may handle it
+                          poorly.
                         </FormDescription>
                       )}
                       <FormMessage />
@@ -243,7 +300,10 @@ export function AiAssistantSettingsCanvas() {
                   name="api_key"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>API key</FormLabel>
+                      <FormLabel>
+                        API key
+                        {selectedProvider === "openai_compat" && " (optional)"}
+                      </FormLabel>
                       <div className="flex items-center gap-2">
                         <FormControl>
                           <Input
@@ -351,14 +411,14 @@ export function AiAssistantSettingsCanvas() {
                 type="button"
                 variant="outline"
                 onClick={handleTest}
-                disabled={!keySet || dirty || testConnection.isPending}
+                disabled={!configured || dirty || testConnection.isPending}
               >
                 {testConnection.isPending && (
                   <Loader2 className="size-4 animate-spin" />
                 )}
                 Test connection
               </Button>
-              {dirty && keySet && (
+              {dirty && configured && (
                 <span className="text-xs text-muted-foreground">
                   Save before testing.
                 </span>

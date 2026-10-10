@@ -1,7 +1,8 @@
 # In-App AI Assistant — Requirements & Design
 
-Status: **phase 1 verified by the product owner (real key, connection test passed); phase 2 implemented
-(2026-10-10), not yet exercised against the real API with tool use or in a browser.** Phases 3–6 are not started. Open questions
+Status: **phases 1 and 2 verified by the product owner against the real Claude API (template Q&A and
+proposals work). Phase 3 (Gemini + OpenAI-compatible) implemented 2026-10-10, covered by unit/contract
+tests only — not yet tried with a real Gemini key or an Ollama server.** Phases 4–6 are not started. Open questions
 were answered by the product owner; see §9 for the recorded decisions.
 
 This document describes an AI assistant built *into* the app. It is distinct from
@@ -462,6 +463,31 @@ or in a browser):**
   returns (threads cannot be killed; same exposure as the editor's own preview); only the template
   *content* is proposable (not variables/options); the opt-in switches are still not consulted
   because no class B/C data is sent.
+
+**Phase 3 (Gemini + OpenAI-compatible):**
+
+- Adapters: `providers/gemini_provider.py` (Gemini API `generateContent`, `streamGenerateContent`
+  over SSE, `x-goog-api-key` header, tools via `parametersJsonSchema`, the model's `parts` echoed back
+  unchanged for thought signatures) and `providers/openai_compat_provider.py` (`/chat/completions`
+  SSE, tool-call fragment assembly, optional key). Both on `httpx` with a shared `http_common.py`
+  (neutral error mapping, SSE reading, **no redirects followed**); a contract test suite runs the same
+  expectations against both (`tests/unit/test_ai_http_providers.py`, `httpx.MockTransport`).
+- Why `generateContent` and not Gemini's newer Interactions API: Google documents `generateContent`
+  as "fully supported" (no deprecation announced) and the stateless tool loop maps onto it directly.
+  Revisit if Google deprecates it.
+- Gemini models offered: `gemini-3.8-flash` (default), `gemini-3.5-flash-lite`,
+  `gemini-3.1-pro-preview` (preview). Which ones a free-tier key may call is unknown; a 429/quota
+  error shows the neutral rate-limit message. OpenAI-compatible takes a **free-text model**.
+- **One key per provider** (individually encrypted, JSON map in the existing column; the earlier single
+  token is still read). Switching provider no longer makes another provider's key look valid.
+  `configured` replaces "has a key" as the readiness test: a key for hosted providers, a server URL +
+  model for OpenAI-compatible (the key is optional there).
+- **SSRF decision:** no new bypass for local servers. The server URL goes through `core.safe_urls`
+  (via `base_url_policy.py`) when saved and again before every call; a server on the backend's own
+  machine (`localhost`) is reachable only when `ALLOW_LOOPBACK_SOURCE_URLS` is enabled, a LAN host
+  (RFC1918) just works. Outside development an API key is only sent over https.
+- Not verified: a real Gemini turn (incl. tool calls and thought signatures), a real Ollama turn,
+  and the settings UI for the new providers in a browser.
 
 ## 10. Decisions and open questions
 

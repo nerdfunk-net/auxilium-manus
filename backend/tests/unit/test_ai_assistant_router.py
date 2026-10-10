@@ -106,7 +106,11 @@ def test_key_is_never_returned(client: TestClient) -> None:
 
 def test_unknown_fields_and_unavailable_provider_are_rejected(client: TestClient) -> None:
     assert client.patch("/api/ai/settings", json={"surprise": 1}).status_code == 422
-    rejected = client.patch("/api/ai/settings", json={"provider": "gemini"})
+    assert client.patch("/api/ai/settings", json={"provider": "nonsense"}).status_code == 422
+    rejected = client.patch(
+        "/api/ai/settings",
+        json={"provider": "openai_compat", "base_url": "http://169.254.169.254/v1"},
+    )
     assert rejected.status_code == 422
     assert rejected.json()["detail"]["code"] == "ai_settings_invalid"
 

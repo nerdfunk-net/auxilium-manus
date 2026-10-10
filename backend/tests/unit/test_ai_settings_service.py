@@ -70,9 +70,9 @@ def test_api_key_and_clear_together_is_rejected(service: AiSettingsService) -> N
         service.update(1, UserAiSettingsUpdate(api_key=SecretStr("x"), clear_api_key=True))
 
 
-def test_unavailable_provider_is_rejected(service: AiSettingsService) -> None:
-    with pytest.raises(AiSettingsValidationError):
-        service.update(1, UserAiSettingsUpdate(provider="gemini"))
+def test_unknown_provider_is_rejected_by_the_schema() -> None:
+    with pytest.raises(ValueError):
+        UserAiSettingsUpdate.model_validate({"provider": "nonsense"})
 
 
 def test_settings_are_isolated_per_user(service: AiSettingsService) -> None:
@@ -147,11 +147,9 @@ def test_undecryptable_key_is_reported_as_not_configured(
         rotated.require_runtime_config(1)
 
 
-def test_blank_model_and_base_url_are_rejected_by_the_schema() -> None:
+def test_blank_model_is_rejected_by_the_schema() -> None:
     with pytest.raises(ValueError):
         UserAiSettingsUpdate(model="   ")
-    with pytest.raises(ValueError):
-        UserAiSettingsUpdate.model_validate({"base_url": "http://localhost:11434"})
     assert UserAiSettingsUpdate(model="  claude-haiku-5-5 ").model == "claude-haiku-5-5"
 
 
@@ -187,3 +185,161 @@ def test_a_stored_model_that_is_no_longer_offered_falls_back_to_the_default(
 
     assert service.get(1).model == "claude-haiku-5-5"
     assert service.require_runtime_config(1).model == "claude-haiku-5-5"
+
+
+# -- phase 3: Gemini and OpenAI-compatible providers -------------------------------------
+
+
+def test_gemini_is_selectable_with_its_own_default_model(service: AiSettingsService) -> None:
+    result = service.update(1, UserAiSettingsUpdate(provider="gemini"))
+
+    assert result.provider == "gemini"
+    assert result.model == DEFAULT_MODELS["gemini"]
+    assert [o.id for o in result.available_models["gemini"]][0] == DEFAULT_MODELS["gemini"]
+    assert result.available_providers == ["anthropic", "gemini", "openai_compat"]
+
+
+def test_changing_provider_resets_the_model_to_that_providers_default(
+    service: AiSettingsService,
+) -> None:
+    service.update(1, UserAiSettingsUpdate(model="claude-sonnet-5-5"))
+
+    result = service.update(1, UserAiSettingsUpdate(provider="gemini"))
+
+    assert result.model == DEFAULT_MODELS["gemini"]
+
+
+def test_a_claude_model_is_rejected_for_gemini(service: AiSettingsService) -> None:
+    with pytest.raises(AiSettingsValidationError):
+        service.update(1, UserAiSettingsUpdate(provider="gemini", model="claude-haiku-5-5"))
+
+
+def test_openai_compat_takes_a_free_text_model_and_a_base_url(
+    service: AiSettingsService,
+) -> None:
+    result = service.update(
+        1,
+        UserAiSettingsUpdate(
+            provider="openai_compat", model="llama3.1:8b", base_url="http://10.0.0.5:11434/v1"
+        ),
+    )
+
+    assert result.model == "llama3.1:8b"
+    assert result.base_url == "http://10.0.0.5:11434/v1"
+    assert result.available_models.get("openai_compat", []) == []
+
+
+def test_openai_compat_is_configured_without_an_api_key(service: AiSettingsService) -> None:
+    service.update(
+        1,
+        UserAiSettingsUpdate(
+            enabled=True,
+            provider="openai_compat",
+            model="llama3.1:8b",
+            base_url="http://10.0.0.5:11434/v1",
+        ),
+    )
+
+    assert service.get(1).configured is True
+    assert service.status(1, has_permission=True).available is True
+    config = service.require_runtime_config(1)
+    assert config.api_key == "" and config.base_url == "http://10.0.0.5:11434/v1"
+
+
+def test_openai_compat_without_base_url_or_model_is_not_configured(
+    service: AiSettingsService,
+) -> None:
+    service.update(1, UserAiSettingsUpdate(enabled=True, provider="openai_compat"))
+
+    assert service.get(1).configured is False
+    assert service.status(1, has_permission=True).reason == "not_configured"
+    with pytest.raises(AiAssistantNotConfiguredError):
+        service.require_runtime_config(1)
+
+
+def test_base_url_is_only_accepted_for_openai_compat(service: AiSettingsService) -> None:
+    with pytest.raises(AiSettingsValidationError):
+        service.update(1, UserAiSettingsUpdate(base_url="http://10.0.0.5:11434/v1"))
+
+
+def test_unsafe_base_urls_are_rejected_at_save_time(service: AiSettingsService) -> None:
+    for url in ("http://169.254.169.254/v1", "ftp://10.0.0.5/v1", "http://user:pw@10.0.0.5/v1"):
+        with pytest.raises(AiSettingsValidationError):
+            service.update(1, UserAiSettingsUpdate(provider="openai_compat", base_url=url))
+
+
+def test_switching_away_from_openai_compat_clears_the_base_url(service: AiSettingsService) -> None:
+    service.update(
+        1,
+        UserAiSettingsUpdate(
+            provider="openai_compat", model="m", base_url="http://10.0.0.5:11434/v1"
+        ),
+    )
+
+    result = service.update(1, UserAiSettingsUpdate(provider="anthropic"))
+
+    assert result.base_url is None
+
+
+def test_anthropic_and_gemini_still_need_a_key_to_be_configured(service: AiSettingsService) -> None:
+    service.update(1, UserAiSettingsUpdate(enabled=True, provider="gemini"))
+    assert service.get(1).configured is False
+
+    service.update(1, UserAiSettingsUpdate(api_key=SecretStr("AIza-test-key")))
+    assert service.get(1).configured is True
+
+
+# -- one key per provider ------------------------------------------------------------------
+
+
+def test_each_provider_keeps_its_own_key(service: AiSettingsService) -> None:
+    service.update(1, UserAiSettingsUpdate(api_key=SecretStr("sk-ant-claude")))
+    service.update(1, UserAiSettingsUpdate(provider="gemini", api_key=SecretStr("AIza-gemini")))
+
+    assert service.resolve_api_key(1) == "AIza-gemini"
+    service.update(1, UserAiSettingsUpdate(provider="anthropic"))
+    assert service.resolve_api_key(1) == "sk-ant-claude"
+
+
+def test_switching_to_a_provider_without_a_key_is_not_configured(
+    service: AiSettingsService,
+) -> None:
+    service.update(1, UserAiSettingsUpdate(enabled=True, api_key=SecretStr("sk-ant-claude")))
+
+    result = service.update(1, UserAiSettingsUpdate(provider="gemini"))
+
+    assert result.api_key_set is False and result.configured is False
+    assert service.status(1, has_permission=True).reason == "not_configured"
+    with pytest.raises(AiAssistantNotConfiguredError):
+        service.require_runtime_config(1)
+
+
+def test_removing_a_key_only_affects_the_current_provider(service: AiSettingsService) -> None:
+    service.update(1, UserAiSettingsUpdate(api_key=SecretStr("sk-ant-claude")))
+    service.update(1, UserAiSettingsUpdate(provider="gemini", api_key=SecretStr("AIza-gemini")))
+
+    service.update(1, UserAiSettingsUpdate(clear_api_key=True))
+    assert service.get(1).api_key_set is False
+
+    service.update(1, UserAiSettingsUpdate(provider="anthropic"))
+    assert service.get(1).api_key_set is True
+
+
+def test_a_legacy_single_key_blob_is_read_as_the_rows_provider_key(
+    service: AiSettingsService, repo: FakeRepo
+) -> None:
+    service.update(1, UserAiSettingsUpdate(enabled=True))
+    repo.rows[1].api_key_encrypted = EncryptionService(
+        "test-secret-key-for-ai-settings-00"
+    ).encrypt("sk-ant-legacy")
+
+    assert service.resolve_api_key(1) == "sk-ant-legacy"
+    assert service.get(1).configured is True
+
+
+def test_stored_blob_never_contains_a_cleartext_key(
+    service: AiSettingsService, repo: FakeRepo
+) -> None:
+    service.update(1, UserAiSettingsUpdate(provider="gemini", api_key=SecretStr("AIza-gemini")))
+
+    assert b"AIza-gemini" not in repo.rows[1].api_key_encrypted

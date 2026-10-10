@@ -21,6 +21,8 @@ export interface AiSettings {
   model: string;
   base_url: string | null;
   api_key_set: boolean;
+  /** Ready to use: a key (hosted providers) or a base URL + model (OpenAI-compatible). */
+  configured: boolean;
   share_inventory_data: boolean;
   share_content_data: boolean;
   available_providers: AiProvider[];
@@ -31,6 +33,8 @@ export interface AiSettingsUpdate {
   enabled?: boolean;
   provider?: AiProvider;
   model?: string;
+  /** OpenAI-compatible only; an empty string clears it. */
+  base_url?: string;
   api_key?: string;
   clear_api_key?: boolean;
   share_inventory_data?: boolean;

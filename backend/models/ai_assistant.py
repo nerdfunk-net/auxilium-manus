@@ -16,13 +16,12 @@ class UserAiSettingsUpdate(BaseModel):
     enabled: bool | None = None
     provider: AiProvider | None = None
     model: str | None = Field(default=None, max_length=128)
+    # Only meaningful for provider "openai_compat". An empty string clears it.
+    base_url: str | None = Field(default=None, max_length=512)
     api_key: SecretStr | None = Field(default=None, min_length=1, max_length=512)
     clear_api_key: bool = False
     share_inventory_data: bool | None = None
     share_content_data: bool | None = None
-
-    # base_url is intentionally not accepted yet: it only matters for openai_compat (phase 3),
-    # where it must pass core.safe_urls validation at save time and again at call time.
 
     @field_validator("model")
     @classmethod
@@ -49,6 +48,8 @@ class UserAiSettingsResponse(BaseModel):
     model: str
     base_url: str | None
     api_key_set: bool
+    # Ready to use: a key (anthropic, gemini) or a base URL + model (openai_compat).
+    configured: bool
     share_inventory_data: bool
     share_content_data: bool
     available_providers: list[AiProvider]
