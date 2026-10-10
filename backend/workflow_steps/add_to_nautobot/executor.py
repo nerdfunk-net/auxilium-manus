@@ -11,6 +11,7 @@ from sqlalchemy.orm import object_session
 
 import service_factory
 from core.models.runs import WorkflowRun
+from models.failure import FailureInfo, failure_from_exception
 from models.workflow_context import (
     Capability,
     DeviceContext,
@@ -178,6 +179,13 @@ def _is_already_exists(exc: Exception) -> bool:
     return isinstance(exc, NautobotAPIError) and is_duplicate_error(exc)
 
 
+def _create_failure(exc: Exception) -> FailureInfo | None:
+    """A duplicate the API did not flag as 409 is still ``already_exists`` for the assistant."""
+    if _is_already_exists(exc):
+        return FailureInfo(phase="api", kind="already_exists", exception_type=type(exc).__name__)
+    return failure_from_exception(exc)
+
+
 def _fail_device(
     *,
     device: DeviceContext,
@@ -185,12 +193,14 @@ def _fail_device(
     node_id: str,
     code: str,
     message: str,
+    failure: FailureInfo | None = None,
 ) -> tuple[str, DeviceContext, bool]:
     err = DeviceError(
         node_id=node_id,
         step_id=_STEP_ID,
         code=code,
         message=message,
+        failure=failure,
     )
     failed = device.model_copy(
         update={"status": DeviceStatus.FAILED, "errors": [*device.errors, err]}
@@ -288,6 +298,7 @@ async def _create_one_device(
             node_id=node_id,
             code=code,
             message=str(exc),
+            failure=_create_failure(exc),
         )
 
 

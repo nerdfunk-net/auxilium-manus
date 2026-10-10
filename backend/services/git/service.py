@@ -41,9 +41,16 @@ from git import Repo
 from git.exc import GitCommandError, InvalidGitRepositoryError
 
 from core.safe_urls import validate_git_remote_url
+from models.failure import FailureInfo
 from services.git.auth import GitAuthenticationService
 from services.git.config import set_git_author
 from services.git.env import build_git_env_overrides
+from services.git.failure import (
+    GitOperationError,
+    annotate_failure,
+    classify_git_exception,
+    classify_git_text,
+)
 from services.git.paths import repo_path as get_repo_path
 from services.git.scrub import scrub_url_credentials
 
@@ -57,6 +64,12 @@ class GitResult:
     success: bool
     message: str
     details: dict[str, Any] | None = None
+    # Why it failed (models.failure); None on success and for failures not classified.
+    failure: FailureInfo | None = None
+
+    def error(self) -> GitOperationError:
+        """The exception to raise when this failed result must abort a step."""
+        return GitOperationError(self.message, failure=self.failure)
 
 
 @dataclass
@@ -252,7 +265,8 @@ class GitService:
                     repository.get("url"),
                 )
                 return repo
-        except Exception:
+        except Exception as clone_exc:
+            annotate_failure(clone_exc)
             # Cleanup partial clone on failure
             try:
                 if target_path.exists():
@@ -344,6 +358,7 @@ class GitService:
                 success=False,
                 message=f"Pull failed: {scrub_url_credentials(str(e))}",
                 branch=repository.get("branch", "main"),
+                failure=classify_git_exception(e),
             )
         except Exception as e:
             logger.error("Unexpected error during pull: %s", scrub_url_credentials(str(e)))
@@ -351,6 +366,7 @@ class GitService:
                 success=False,
                 message=f"Unexpected error: {scrub_url_credentials(str(e))}",
                 branch=repository.get("branch", "main"),
+                failure=classify_git_exception(e),
             )
 
     def checkout_new_branch(self, repo: Repo, name: str, base_ref: str) -> None:
@@ -433,6 +449,7 @@ class GitService:
                                     message=f"Push failed: {info.summary}",
                                     pushed=False,
                                     branch=push_branch,
+                                    failure=classify_git_text(info.summary or ""),
                                 )
 
                     logger.info(
@@ -478,6 +495,7 @@ class GitService:
                 message=message,
                 pushed=False,
                 branch=branch or repository.get("branch", "main"),
+                failure=classify_git_exception(e),
             )
         except Exception as e:
             logger.error("Unexpected error during push: %s", scrub_url_credentials(str(e)))
@@ -486,6 +504,7 @@ class GitService:
                 message=f"Unexpected error: {scrub_url_credentials(str(e))}",
                 pushed=False,
                 branch=branch or repository.get("branch", "main"),
+                failure=classify_git_exception(e),
             )
 
     def commit(
@@ -548,12 +567,14 @@ class GitService:
             return CommitResult(
                 success=False,
                 message=f"Commit failed: {scrub_url_credentials(str(e))}",
+                failure=classify_git_exception(e),
             )
         except Exception as e:
             logger.error("Unexpected error during commit: %s", scrub_url_credentials(str(e)))
             return CommitResult(
                 success=False,
                 message=f"Unexpected error: {scrub_url_credentials(str(e))}",
+                failure=classify_git_exception(e),
             )
 
     def fetch(self, repository: dict, repo: Repo | None = None) -> GitResult:
@@ -614,5 +635,6 @@ class GitService:
             return GitResult(
                 success=False,
                 message=f"Fetch failed: {scrub_url_credentials(str(e))}",
+                failure=classify_git_exception(e),
             )
 

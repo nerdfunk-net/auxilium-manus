@@ -219,7 +219,11 @@ async def _prepare_contribution(
             )
         except JinjaTemplateError as exc:
             return DeviceError(
-                node_id=node_id, step_id=_STEP_ID, code="render_error", message=str(exc)
+                node_id=node_id,
+                step_id=_STEP_ID,
+                code="render_error",
+                message=str(exc),
+                failure=exc.failure,
             )
         return node_name, _resolve_field_fragment(rendered_value, fact_key)
 

@@ -106,17 +106,18 @@ class NautobotService:
             if response.status_code == 200:
                 return response.json()
             raise NautobotAPIError(
-                f"GraphQL request failed with status {response.status_code}: {response.text}"
+                f"GraphQL request failed with status {response.status_code}: {response.text}",
+                http_status=response.status_code,
             )
         except httpx.TimeoutException as exc:
             raise NautobotAPIError(
-                f"GraphQL request timed out after {credentials.timeout} seconds"
+                f"GraphQL request timed out after {credentials.timeout} seconds", code="timeout"
             ) from exc
         except NautobotAPIError:
             raise
         except Exception as exc:
             logger.error("GraphQL query failed: %s", exc)
-            raise NautobotAPIError("GraphQL query failed") from exc
+            raise NautobotAPIError("GraphQL query failed", code="transport") from exc
 
     async def rest_request(
         self,
@@ -160,19 +161,22 @@ class NautobotService:
                     return {"status": "success", "message": "Resource deleted successfully"}
                 return response.json()
             if response.status_code == 404:
-                raise NautobotNotFoundError(f"Resource not found: {endpoint} — {response.text}")
+                raise NautobotNotFoundError(
+                    f"Resource not found: {endpoint} — {response.text}", http_status=404
+                )
             raise NautobotAPIError(
-                f"REST request failed with status {response.status_code}: {response.text}"
+                f"REST request failed with status {response.status_code}: {response.text}",
+                http_status=response.status_code,
             )
         except httpx.TimeoutException as exc:
             raise NautobotAPIError(
-                f"REST request timed out after {credentials.timeout} seconds"
+                f"REST request timed out after {credentials.timeout} seconds", code="timeout"
             ) from exc
         except NautobotAPIError:
             raise
         except Exception as exc:
             logger.error("REST request failed: %s", exc)
-            raise NautobotAPIError("REST request failed") from exc
+            raise NautobotAPIError("REST request failed", code="transport") from exc
 
     async def _do_post(
         self,

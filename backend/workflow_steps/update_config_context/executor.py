@@ -29,6 +29,7 @@ from sqlalchemy.orm import object_session
 
 import service_factory
 from core.models.runs import WorkflowRun
+from models.failure import failure_from_exception
 from models.workflow_context import (
     DeviceContext,
     DeviceError,
@@ -437,6 +438,7 @@ def _fail_device(
 ) -> tuple[str, DeviceContext | None, bool]:
     error_code = code or (type(exc).__name__.lower() if exc is not None else "error")
     error_message = message or (str(exc) if exc is not None else "Unknown error")
+    failure = failure_from_exception(exc) if exc is not None else None
 
     if device is None:
         placeholder = DeviceContext(
@@ -447,7 +449,11 @@ def _fail_device(
             status=DeviceStatus.FAILED,
             errors=[
                 DeviceError(
-                    node_id=node_id, step_id=_STEP_ID, code=error_code, message=error_message
+                    node_id=node_id,
+                    step_id=_STEP_ID,
+                    code=error_code,
+                    message=error_message,
+                    failure=failure,
                 )
             ],
         )
@@ -459,7 +465,11 @@ def _fail_device(
             "errors": [
                 *device.errors,
                 DeviceError(
-                    node_id=node_id, step_id=_STEP_ID, code=error_code, message=error_message
+                    node_id=node_id,
+                    step_id=_STEP_ID,
+                    code=error_code,
+                    message=error_message,
+                    failure=failure,
                 ),
             ],
         }

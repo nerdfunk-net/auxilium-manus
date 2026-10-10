@@ -95,7 +95,7 @@ class GitArtifactSink(ArtifactSink):
             if self._pull_before_write:
                 pull_result = self._git_service.pull(self._repository, repo=repo)
                 if not pull_result.success:
-                    raise RuntimeError(pull_result.message)
+                    raise pull_result.error()
             return repo
 
         async with self._lock:
@@ -175,7 +175,7 @@ class GitArtifactSink(ArtifactSink):
                 repo=self._repo,
             )
             if not commit_result.success:
-                raise RuntimeError(commit_result.message)
+                raise commit_result.error()
             commit_sha = commit_result.commit_sha
             files_changed = commit_result.files_changed
             committed = files_changed > 0
@@ -187,7 +187,7 @@ class GitArtifactSink(ArtifactSink):
             else:
                 push_result = self._git_service.push(self._repository, repo=self._repo)
                 if not push_result.success:
-                    raise RuntimeError(push_result.message)
+                    raise push_result.error()
                 pushed = push_result.pushed
                 messages.append(push_result.message)
 

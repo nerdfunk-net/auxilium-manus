@@ -22,6 +22,8 @@ FailurePhase = Literal[
     "api",  # one request/response against a REST API
     "task",  # an asynchronous job on a controller
     "internal",  # a bug in our own code
+    "render",  # rendering a Jinja template
+    "git",  # a git operation (clone, pull, push, commit, fetch)
 ]
 
 FailureKind = Literal[
@@ -44,6 +46,13 @@ FailureKind = Literal[
     "task_failed",  # an asynchronous job reported failure
     "task_timeout",  # an asynchronous job did not finish in time
     "command_blocked",  # the controller refused to run the command (blocklist)
+    "already_exists",  # the object to create is already there
+    "push_rejected",  # the remote refused the push (non-fast-forward, hooks)
+    "merge_conflict",  # pulling produced conflicts or would overwrite local changes
+    "repo_locked",  # the working tree is in use by another run / git process
+    "template_syntax",  # the template does not parse
+    "undefined_variable",  # the template used a name or attribute the context does not have
+    "template_error",  # the template failed while rendering (filter, type, sandbox)
     "internal_error",  # unexpected exception in our own code; only the class name is kept
     "unknown",
 ]
@@ -62,6 +71,10 @@ FailureHint = Literal[
     "check_request",
     "check_controller",
     "retry_later",
+    "fix_template",
+    "pull_first",
+    "resolve_conflict",
+    "wait_for_other_run",
 ]
 
 
@@ -76,6 +89,8 @@ class FailureInfo(BaseModel):
     elapsed_ms: int | None = None
     # HTTP status of the API answer, when there was one.
     http_status: int | None = None
+    # Line of the template (1-based, as the author sees it) where a render failed.
+    line: int | None = None
     # Class name of the exception that was classified (e.g. "NetmikoTimeoutException").
     exception_type: str | None = None
     hint: FailureHint | None = None

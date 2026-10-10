@@ -11,6 +11,7 @@ from sqlalchemy.orm import object_session
 
 import service_factory
 from core.models.runs import WorkflowRun
+from models.failure import FailureInfo, failure_from_exception
 from models.workflow_context import (
     DeviceContext,
     DeviceError,
@@ -84,8 +85,17 @@ def _bind_nautobot(run: WorkflowRun, source_id: str) -> tuple[NautobotCredential
     return credentials, service_factory.get_nautobot_app_service()
 
 
-def _failed(device: DeviceContext, *, node_id: str, code: str, message: str) -> DeviceContext:
-    err = DeviceError(node_id=node_id, step_id=_STEP_ID, code=code, message=message)
+def _failed(
+    device: DeviceContext,
+    *,
+    node_id: str,
+    code: str,
+    message: str,
+    failure: FailureInfo | None = None,
+) -> DeviceContext:
+    err = DeviceError(
+        node_id=node_id, step_id=_STEP_ID, code=code, message=message, failure=failure
+    )
     return device.model_copy(
         update={"status": DeviceStatus.FAILED, "errors": [*device.errors, err]}
     )
@@ -158,7 +168,11 @@ async def _classify_device(
         return "failure", _failed(device, node_id=node_id, code="ip_unresolved", message=str(exc))
     except Exception as exc:
         return "failure", _failed(
-            device, node_id=node_id, code=type(exc).__name__.lower(), message=str(exc)
+            device,
+            node_id=node_id,
+            code=type(exc).__name__.lower(),
+            message=str(exc),
+            failure=failure_from_exception(exc),
         )
 
     if nautobot_id is None:

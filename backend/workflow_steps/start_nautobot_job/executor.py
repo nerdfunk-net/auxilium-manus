@@ -22,6 +22,7 @@ from sqlalchemy.orm import object_session
 
 import service_factory
 from core.models.runs import WorkflowRun
+from models.failure import failure_from_exception
 from models.workflow_context import (
     Capability,
     DeviceContext,
@@ -296,6 +297,7 @@ def _fail_device(
         step_id=_STEP_ID,
         code=type(exc).__name__.lower(),
         message=str(exc),
+        failure=failure_from_exception(exc),
     )
     update: dict[str, Any] = {"status": DeviceStatus.FAILED, "errors": [*device.errors, err]}
     if response is not None:

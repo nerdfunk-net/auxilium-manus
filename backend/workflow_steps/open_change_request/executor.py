@@ -231,7 +231,7 @@ def _stage_to_git(
             repository, message=commit_message, files=written, repo=repo
         )
         if not commit_result.success:
-            raise RuntimeError(commit_result.message)
+            raise commit_result.error()
         if not commit_result.commit_sha:
             raise RuntimeError(
                 "Rendered configs are identical to the base branch — nothing to review"
@@ -239,7 +239,7 @@ def _stage_to_git(
 
         push_result = git_service.push(repository, repo=repo, branch=branch, force=True)
         if not push_result.success:
-            raise RuntimeError(push_result.message)
+            raise push_result.error()
 
         raw_diff = git_service.diff_refs(repo, base_ref, branch)
 

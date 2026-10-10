@@ -75,7 +75,7 @@ def collect_status(
     if fetch and check_sync:
         result = git_service.fetch(repository, repo=repo)
         if not result.success:
-            raise RuntimeError(result.message)
+            raise result.error()
 
     branch = _current_branch(repo)
     unstaged, staged = _changed_paths(repo)

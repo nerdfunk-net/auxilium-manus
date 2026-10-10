@@ -86,9 +86,19 @@ def acquire_git_repo_lock(git_repository_id: int) -> bool:
         time.sleep(_POLL_INTERVAL_SECONDS)
 
     logger.error("git_repo_lock: timed out waiting for lock repo_id=%s", git_repository_id)
-    raise RuntimeError(
+    from models.failure import FailureInfo
+    from services.git.failure import GitOperationError
+
+    raise GitOperationError(
         f"Timed out after {_ACQUIRE_TIMEOUT_SECONDS}s waiting for the lock on git repository "
-        f"{git_repository_id}; another run is still using it"
+        f"{git_repository_id}; another run is still using it",
+        failure=FailureInfo(
+            phase="git",
+            kind="repo_locked",
+            retryable=True,
+            elapsed_ms=_ACQUIRE_TIMEOUT_SECONDS * 1000,
+            hint="wait_for_other_run",
+        ),
     )
 
 

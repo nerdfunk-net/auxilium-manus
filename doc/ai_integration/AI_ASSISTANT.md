@@ -942,6 +942,28 @@ in the step output with the rest of the device.
 - *ISE:* `ISEError.failure` (same pattern as Catalyst Center; 401 is `auth_failed`, 403
   `permission_denied`). `add-to-ise`, `update-ise-tacacs-key` and `get-ise-tacacs-key` copy it to
   the device error, and to the step for "could not reach / lost connection" outcomes.
+- *Templates:* `JinjaTemplateError.failure` (phase `render`; kinds `template_syntax`,
+  `undefined_variable`, `template_error`) with the template `line` the author sees, taken from the
+  render traceback; the variable name and message are not copied. `render-jinja-template` and
+  `batfish-validate-facts` copy it to the device error; steps that raise it (for example
+  `update-config-context`) record it on the step.
+- *Git:* `services/git/failure.py` classifies git output by inspecting stderr (never copying it):
+  dns / refused / timeout / tls_error / auth_failed / permission_denied / push_rejected /
+  merge_conflict / not_found / repo_locked. `GitResult.failure` is set by `GitService` on every
+  failed result, `GitResult.error()` raises a `GitOperationError(RuntimeError)` carrying it, and
+  exceptions we do not own (GitPython's) get it attached with `annotate_failure`, so
+  `clone_or_pull` and every `raise ... from exc` keep it. `run_git_workflow_step` puts it on the
+  `failure` outcome and on the devices it fails; the repository lock timeout is `repo_locked`; a
+  missing / inactive repository is `bad_request`.
+- *Nautobot:* `NautobotError.failure` (same pattern as ISE; `http_status` and a `timeout` /
+  `transport` code are set in `NautobotService`, the message, which contains the response body,
+  is never read). Domain errors map too: "resource not found" is `not_found`, "already exists"
+  is `already_exists`. The device steps (`get-nautobot-attributes`, `add-to-nautobot`,
+  `update-nautobot-device`, `exists-in-nautobot`, `add-nautobot-metadata`,
+  `update-config-context`, `start-nautobot-job`, `check-nautobot-job`) copy it to the device
+  error; a Nautobot job that ended unsuccessfully or never finished is recorded as `task_failed` /
+  `task_timeout` (phase `task`) with the check count. Steps that let the client error propagate
+  (`get-nautobot-devices`) get it on the step through the cause chain.
 - *Step level (all sources):* `WorkflowStepResult.failure` (JSON, nullable; added by the startup
   schema sync) holds the cause of a failure that is not tied to one device. A step either sets
   `StepOutcome.failure` (outcomes that end on `failure` without raising) or raises with the
@@ -960,6 +982,6 @@ from the record first and to say so when a step recorded none.
 **Decisions.** Host and port are not part of the record (device addresses stay class B; strict for
 now). Per-device run history (`get_device_history`) is deferred.
 
-**Not done.** Other sources and steps still record only text, in the agreed order: template
-rendering, git, Nautobot; pyATS steps; the live run events keep their `kind` but carry no record; the runs-page UI does not
-show the record yet. Not verified: a real failed run with a real model.
+**Not done.** Every source in the agreed order is covered. Not covered: pyATS steps and Nautobot
+GraphQL `errors` bodies returned with HTTP 200 (the resolvers log and swallow them); the live run
+events keep their `kind` but carry no record; the runs-page UI does not show the record yet. Not verified: a real failed run with a real model.

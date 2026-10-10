@@ -23,6 +23,7 @@ from sqlalchemy.orm import object_session
 
 import service_factory
 from core.models.runs import WorkflowRun
+from models.failure import FailureInfo, failure_from_exception
 from models.workflow_context import (
     Capability,
     DeviceContext,
@@ -103,13 +104,19 @@ def _parse_config(config: dict[str, Any]) -> _ParsedConfig:
 
 
 def _fail_device(
-    *, device_key: str, device: DeviceContext, node_id: str, exc: Exception
+    *,
+    device_key: str,
+    device: DeviceContext,
+    node_id: str,
+    exc: Exception,
+    failure: FailureInfo | None = None,
 ) -> tuple[str, DeviceContext]:
     err = DeviceError(
         node_id=node_id,
         step_id=_STEP_ID,
         code=type(exc).__name__.lower(),
         message=str(exc),
+        failure=failure or failure_from_exception(exc),
     )
     failed = device.model_copy(
         update={"status": DeviceStatus.FAILED, "errors": [*device.errors, err]}
@@ -194,15 +201,26 @@ async def _check_job_for_device(
     if status == _SUCCESS_STATE:
         return device_key, updated.model_copy(update={"status": DeviceStatus.OK}), True
 
+    failure: FailureInfo | None = None
     if status:
         message = f"job did not succeed (status={status}) after {attempts} check(s)"
+        # The job ran and ended unsuccessfully, or never finished: a job problem, not an API one.
+        failure = FailureInfo(
+            phase="task",
+            kind="task_failed" if status in _READY_STATES else "task_timeout",
+            retryable=status not in _READY_STATES,
+            attempts=attempts,
+            max_attempts=parsed.max_checks,
+        )
     elif last_error is not None:
         message = f"could not determine job status after {attempts} check(s): {last_error}"
     else:
         message = f"job did not reach a terminal state after {attempts} check(s)"
 
+    error = RuntimeError(message)
+    error.__cause__ = last_error
     key, failed = _fail_device(
-        device_key=device_key, device=updated, node_id=node_id, exc=RuntimeError(message)
+        device_key=device_key, device=updated, node_id=node_id, exc=error, failure=failure
     )
     return key, failed, False
 

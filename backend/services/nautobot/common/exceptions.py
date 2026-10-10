@@ -4,11 +4,31 @@ from __future__ import annotations
 
 import logging
 
+from models.failure import FailureInfo
+
 logger = logging.getLogger(__name__)
 
 
 class NautobotError(Exception):
-    """Base exception for Nautobot operations."""
+    """Base exception for Nautobot operations.
+
+    ``http_status`` and ``code`` (``timeout`` or ``transport``) are the structured facts behind
+    the message and feed :attr:`failure`; never text taken from a response.
+    """
+
+    def __init__(
+        self, message: str = "", *, http_status: int | None = None, code: str | None = None
+    ) -> None:
+        super().__init__(message)
+        self.http_status = http_status
+        self.code = code
+
+    @property
+    def failure(self) -> FailureInfo:
+        """Structured, non-sensitive classification (see ``models.failure``)."""
+        from services.nautobot.common.failure import classify_nautobot_exception
+
+        return classify_nautobot_exception(self)
 
 
 class NautobotValidationError(NautobotError):

@@ -15,6 +15,7 @@ from typing import Any
 from git import GitCommandError
 
 from core.safe_urls import UnsafeURLError
+from services.git.failure import annotate_failure
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +39,9 @@ def clone_or_pull(repository: dict[str, Any]) -> Path:
     try:
         repo = git_service.open_or_clone(repository)
     except UnsafeURLError as exc:
-        raise ValueError(f"Git repository '{name}' has an unsafe URL: {exc}") from exc
+        raise ValueError(
+            f"Git repository '{name}' has an unsafe URL: {exc}"
+        ) from annotate_failure(exc)
     except GitCommandError as exc:
         raise RuntimeError(f"Failed to clone git repository '{name}': {exc}") from exc
 
@@ -68,7 +71,9 @@ def remove_and_clone(repository: dict[str, Any]) -> Path:
     try:
         git_service.clone(repository)
     except UnsafeURLError as exc:
-        raise ValueError(f"Git repository '{name}' has an unsafe URL: {exc}") from exc
+        raise ValueError(
+            f"Git repository '{name}' has an unsafe URL: {exc}"
+        ) from annotate_failure(exc)
     except GitCommandError as exc:
         raise RuntimeError(f"Failed to clone git repository '{name}': {exc}") from exc
 

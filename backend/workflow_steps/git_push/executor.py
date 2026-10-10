@@ -62,14 +62,14 @@ def _push_operation(
                 add_all=True,
             )
         if not commit_result.success:
-            raise RuntimeError(commit_result.message)
+            raise commit_result.error()
         commit_sha = commit_result.commit_sha
         files_changed = commit_result.files_changed
         committed = files_changed > 0
 
     push_result = git_service.push(repository, repo=repo)
     if not push_result.success:
-        raise RuntimeError(push_result.message)
+        raise push_result.error()
 
     return {
         "success": True,

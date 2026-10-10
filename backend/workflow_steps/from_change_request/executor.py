@@ -65,7 +65,7 @@ def _checkout_cr_branch(git_service: Any, repository: dict[str, Any], branch: st
     repo = git_service.open_or_clone(repository)
     fetch_result = git_service.fetch(repository, repo=repo)
     if not fetch_result.success:
-        raise RuntimeError(fetch_result.message)
+        raise fetch_result.error()
     git_service.checkout_new_branch(repo, branch, f"origin/{branch}")
     return git_service.get_repo_path(repository)
 

@@ -118,7 +118,7 @@ async def _read_git_async(config: dict[str, Any], relative_path: str) -> str:
         ):
             pull_result = git_service.pull(repository, repo=repo)
             if not pull_result.success:
-                raise RuntimeError(pull_result.message)
+                raise pull_result.error()
         if not target.is_file():
             raise FileNotFoundError(f"Reference file not found: {target}")
         content = target.read_text(encoding="utf-8")

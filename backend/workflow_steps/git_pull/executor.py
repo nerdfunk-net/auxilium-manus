@@ -22,7 +22,7 @@ def _pull_operation(
     del config, context
     result = git_service.pull(repository)
     if not result.success:
-        raise RuntimeError(result.message)
+        raise result.error()
     repo_path = git_service.get_repo_path(repository)
     return {
         "success": True,

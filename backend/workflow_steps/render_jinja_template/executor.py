@@ -8,6 +8,7 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from core.models.runs import WorkflowRun
+from models.failure import FailureInfo, failure_from_exception
 from models.workflow_context import (
     Capability,
     CommandResult,
@@ -139,12 +140,14 @@ def _mark_render_failed(
     *,
     code: str,
     message: str,
+    failure: FailureInfo | None = None,
 ) -> DeviceContext:
     err = DeviceError(
         node_id=node_id,
         step_id="render-jinja-template",
         code=code,
         message=message,
+        failure=failure,
     )
     return device.model_copy(
         update={
@@ -203,7 +206,11 @@ async def _render_and_store_device(
             exc,
         )
         failed = _mark_render_failed(
-            device, node_id, code="template_error", message=str(exc)
+            device,
+            node_id,
+            code="template_error",
+            message=str(exc),
+            failure=failure_from_exception(exc),
         )
         return device_id, failed, False
     except Exception as exc:
@@ -219,6 +226,7 @@ async def _render_and_store_device(
             node_id,
             code=type(exc).__name__.lower(),
             message=str(exc),
+            failure=failure_from_exception(exc),
         )
         return device_id, failed, False
 

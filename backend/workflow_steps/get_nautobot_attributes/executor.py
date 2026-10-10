@@ -11,6 +11,7 @@ from sqlalchemy.orm import object_session
 
 import service_factory
 from core.models.runs import WorkflowRun
+from models.failure import FailureInfo, failure_from_exception
 from models.workflow_context import (
     Capability,
     DeviceContext,
@@ -99,12 +100,14 @@ def _fail_device(
     node_id: str,
     code: str,
     message: str,
+    failure: FailureInfo | None = None,
 ) -> tuple[str, DeviceContext, bool]:
     err = DeviceError(
         node_id=node_id,
         step_id=_STEP_ID,
         code=code,
         message=message,
+        failure=failure,
     )
     failed = device.model_copy(
         update={
@@ -177,6 +180,7 @@ async def _enrich_device(
             node_id=node_id,
             code=type(exc).__name__.lower(),
             message=str(exc),
+            failure=failure_from_exception(exc),
         )
 
 

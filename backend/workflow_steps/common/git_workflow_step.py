@@ -14,6 +14,7 @@ from collections.abc import Callable
 from typing import Any
 
 from core.models.runs import WorkflowRun
+from models.failure import FailureInfo, failure_from_exception
 from models.workflow_context import (
     DeviceContext,
     DeviceError,
@@ -22,11 +23,15 @@ from models.workflow_context import (
     WorkflowContext,
 )
 from services.artifacts import ArtifactService
+from services.git.failure import classify_git_exception
 from services.git.repo_lock import git_repo_lock
 from services.git.scrub import scrub_url_credentials
 from workflow_steps.common.git_repository_loader import load_git_repository
 
 logger = logging.getLogger(__name__)
+
+# The git_repository_id is missing, unknown, inactive or has no URL: a setup problem.
+_BAD_CONFIG = FailureInfo(phase="git", kind="bad_request", hint="check_request")
 
 GitOperation = Callable[
     [Any, dict[str, Any], dict[str, Any], WorkflowContext],
@@ -54,12 +59,14 @@ def _mark_devices_failed(
     node_id: str,
     step_id: str,
     message: str,
+    failure: FailureInfo | None = None,
 ) -> dict[str, DeviceContext]:
     error = DeviceError(
         node_id=node_id,
         step_id=step_id,
         code="git_operation_failed",
         message=message,
+        failure=failure,
     )
     return {
         device_id: device.model_copy(
@@ -121,6 +128,7 @@ def _failure_outcomes(
     git_repository_id: int | None,
     message: str,
     result_outcome_names: tuple[str, ...] = (),
+    failure: FailureInfo | None = None,
 ) -> list[StepOutcome]:
     """Failure result. A routing step (``result_outcome_names`` = e.g. clean/dirty)
     emits every result outcome as inactive, so a failed check never reads as a
@@ -152,11 +160,16 @@ def _failure_outcomes(
             node_id=node_id,
             step_id=step_id,
             message=message,
+            failure=failure,
         )
         failure_update: dict[str, Any] = {"devices": failed_devices, "metadata": metadata}
     else:
         failure_update = {"metadata": metadata}
-    outcomes.append(StepOutcome(name="failure", context=context.model_copy(update=failure_update)))
+    outcomes.append(
+        StepOutcome(
+            name="failure", context=context.model_copy(update=failure_update), failure=failure
+        )
+    )
     return outcomes
 
 
@@ -275,7 +288,7 @@ async def run_git_workflow_step(
 
     repository_id = _git_repository_id(config)
 
-    def _failure(message: str) -> list[StepOutcome]:
+    def _failure(message: str, failure: FailureInfo | None = None) -> list[StepOutcome]:
         return _failure_outcomes(
             context=context,
             node_id=node_id,
@@ -284,10 +297,11 @@ async def run_git_workflow_step(
             git_repository_id=repository_id,
             message=message,
             result_outcome_names=result_outcome_names,
+            failure=failure,
         )
 
     if repository_id is None:
-        return _failure(f"{step_id}: git_repository_id is not configured")
+        return _failure(f"{step_id}: git_repository_id is not configured", _BAD_CONFIG)
 
     if result_outcome is None and _on_inactive_branch(context):
         logger.info(
@@ -308,7 +322,7 @@ async def run_git_workflow_step(
     try:
         repository = load_git_repository(repository_id)
     except ValueError as exc:
-        return _failure(str(exc))
+        return _failure(str(exc), _BAD_CONFIG)
     repository = _apply_change_request_branch(
         repository, config=config, run=run, context=context, step_id=step_id
     )
@@ -333,7 +347,7 @@ async def run_git_workflow_step(
             repository_id,
             scrub_url_credentials(str(exc)),
         )
-        return _failure(str(exc))
+        return _failure(str(exc), failure_from_exception(exc) or classify_git_exception(exc))
 
     logger.info(
         "%s succeeded run_id=%s repository_id=%s operation=%s",
