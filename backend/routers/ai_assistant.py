@@ -34,8 +34,12 @@ from services.ai_assistant.exceptions import (
     AiAssistantNotConfiguredError,
     AiSettingsValidationError,
 )
+from services.ai_assistant.prompts import BASE_SYSTEM_PROMPT
 from services.ai_assistant.providers.base import ChatMessage
 from services.ai_assistant.settings_service import AiRuntimeConfig, AiSettingsService
+from services.ai_assistant.surfaces import build_template_editor_session
+from services.ai_assistant.template_reader import DbTemplateReader
+from services.ai_assistant.tools.base import Toolbox
 from services.auth.rbac_service import RBACService
 
 router = APIRouter(prefix="/ai", tags=["ai-assistant"])
@@ -130,9 +134,18 @@ def chat(
         # minutes); release the pooled connection now. The stream never touches the DB.
         db.close()
     messages = [ChatMessage(role=m.role, content=m.content) for m in body.messages]
+    system = BASE_SYSTEM_PROMPT
+    toolbox: Toolbox | None = None
+    if body.context is not None:
+        session = build_template_editor_session(
+            user_id=current_user.id,
+            context=body.context,
+            reader=DbTemplateReader(current_user.id),
+        )
+        system, toolbox = session.system, session.toolbox
 
     async def event_stream() -> AsyncIterator[str]:
-        async for event in stream_chat(config, messages):
+        async for event in stream_chat(config, messages, system=system, toolbox=toolbox):
             yield _sse(event)
 
     return StreamingResponse(

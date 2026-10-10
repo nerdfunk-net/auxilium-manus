@@ -124,7 +124,7 @@ def test_chat_streams_sse_events(client: TestClient, monkeypatch: pytest.MonkeyP
     _configure(client)
     seen: dict[str, object] = {}
 
-    async def fake_stream(config, messages):
+    async def fake_stream(config, messages, **kwargs):
         seen["model"] = config.model
         seen["messages"] = [(m.role, m.content) for m in messages]
         yield ChatEvent("text", {"text": "Hello"})
@@ -194,7 +194,7 @@ def test_chat_releases_the_db_session_before_streaming(
     _configure(client)
     closed_when_stream_started: list[bool] = []
 
-    async def fake_stream(config, messages):
+    async def fake_stream(config, messages, **kwargs):
         closed_when_stream_started.append(SESSIONS[-1].close.called)
         yield ChatEvent("done", {})
 
@@ -220,3 +220,51 @@ def test_connection_test_releases_the_db_session_before_the_provider_call(
     client.post("/api/ai/settings/test")
 
     assert closed_at_call == [True]
+
+
+def test_chat_with_editor_context_gets_the_template_tools_and_prompt(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _configure(client)
+    seen: dict[str, object] = {}
+
+    async def fake_stream(config, messages, **kwargs):
+        seen["tools"] = [spec.name for spec in kwargs["toolbox"].specs()]
+        seen["system"] = kwargs["system"]
+        yield ChatEvent("done", {})
+
+    monkeypatch.setattr(ai_router_module, "stream_chat", fake_stream)
+
+    body = {
+        "messages": [{"role": "user", "content": "add ntp"}],
+        "context": {
+            "surface": "template_editor",
+            "name": "Base",
+            "content": "hostname {{ device.name }}",
+            "variables": [
+                {"name": "nautobot", "type": "auto", "value": "DEVICE-DATA", "is_auto": True}
+            ],
+        },
+    }
+    response = client.post("/api/ai/chat", json=body)
+
+    assert response.status_code == 200
+    assert "propose_template" in seen["tools"]
+    assert "DEVICE-DATA" not in str(seen["system"])
+    assert "hostname {{ device.name }}" in str(seen["system"])
+
+
+def test_chat_rejects_an_unknown_surface_or_oversized_content(client: TestClient) -> None:
+    _configure(client)
+    msg = [{"role": "user", "content": "hi"}]
+
+    unknown = client.post("/api/ai/chat", json={"messages": msg, "context": {"surface": "x"}})
+    huge = client.post(
+        "/api/ai/chat",
+        json={
+            "messages": msg,
+            "context": {"surface": "template_editor", "content": "a" * 200001},
+        },
+    )
+
+    assert unknown.status_code == 422 and huge.status_code == 422

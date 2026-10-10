@@ -14,7 +14,9 @@ describe("parseSseBuffer", () => {
 
   it("completes a frame split across chunks", () => {
     const first = parseSseBuffer('event: text\ndata: {"text": "a');
-    const second = parseSseBuffer(`${first.rest}b"}\n\nevent: done\ndata: {}\n\n`);
+    const second = parseSseBuffer(
+      `${first.rest}b"}\n\nevent: done\ndata: {}\n\n`,
+    );
 
     expect(second.events.map((e) => e.event)).toEqual(["text", "done"]);
     expect(second.events[0].data).toEqual({ text: "ab" });
@@ -22,14 +24,14 @@ describe("parseSseBuffer", () => {
   });
 
   it("accepts CRLF line endings", () => {
-    const result = parseSseBuffer('event: done\r\ndata: {}\r\n\r\n');
+    const result = parseSseBuffer("event: done\r\ndata: {}\r\n\r\n");
 
     expect(result.events).toEqual([{ event: "done", data: {} }]);
   });
 
   it("skips malformed JSON and data-less frames without throwing", () => {
     const result = parseSseBuffer(
-      'event: text\ndata: {not json}\n\n: comment\n\nevent: done\ndata: {}\n\n',
+      "event: text\ndata: {not json}\n\n: comment\n\nevent: done\ndata: {}\n\n",
     );
 
     expect(result.events).toEqual([{ event: "done", data: {} }]);

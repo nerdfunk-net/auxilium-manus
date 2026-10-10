@@ -68,9 +68,35 @@ class ChatMessageIn(BaseModel):
     content: str = Field(min_length=1, max_length=20000)
 
 
+class EditorVariableIn(BaseModel):
+    """A variable row from the template editor. ``is_auto`` marks device/run-derived variables;
+    their values are never sent to the model (doc/ai_integration/AI_ASSISTANT.md §9b)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=200)
+    type: str = Field(default="custom", max_length=50)
+    value: str = Field(default="", max_length=50000)
+    is_auto: bool = False
+
+
+class TemplateEditorContext(BaseModel):
+    """Current (possibly unsaved) state of the template editor, sent with each chat turn."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    surface: Literal["template_editor"]
+    name: str = Field(default="", max_length=255)
+    description: str | None = Field(default=None, max_length=2000)
+    template_type: Literal["jinja2", "text", "textfsm"] = "jinja2"
+    content: str = Field(default="", max_length=200000)
+    variables: list[EditorVariableIn] = Field(default_factory=list, max_length=200)
+
+
 class ChatRequest(BaseModel):
     """Stateless chat turn: the client holds the history and re-sends it (v1)."""
 
     model_config = ConfigDict(extra="forbid")
 
     messages: list[ChatMessageIn] = Field(min_length=1, max_length=50)
+    context: TemplateEditorContext | None = None

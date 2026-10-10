@@ -1,26 +1,56 @@
 "use client";
 
-import { Loader2, Send, Square, Trash2 } from "lucide-react";
+import { Loader2, Send, Square, Trash2, Wrench } from "lucide-react";
 import { useCallback, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 
 import { useAssistantChat } from "../hooks/use-assistant-chat";
+import type { AssistantContext, DisplayMessage } from "../types/ai-assistant";
+import { TemplateProposalCard } from "./template-proposal-card";
+
+/** Where a template proposal is applied: the editor's unsaved buffer. */
+export interface TemplateProposalTarget {
+  currentContent: string;
+  onApply: (content: string) => void;
+}
 
 interface AssistantPanelProps {
-  /** Shown above the input; surfaces use it to say what the assistant can see. */
+  /** Shown in the input; surfaces use it to say what the assistant can see. */
   placeholder?: string;
+  /** Current surface state, sent with every turn (enables the surface's tools). */
+  getContext?: () => AssistantContext | undefined;
+  proposalTarget?: TemplateProposalTarget;
 }
 
 const DEFAULT_PLACEHOLDER = "Ask the assistant…";
+
+const TOOL_LABELS: Record<string, string> = {
+  get_template_reference: "Reading the template reference",
+  list_templates: "Looking through templates",
+  get_template: "Reading a template",
+  render_template: "Trial-rendering",
+  propose_template: "Preparing a proposal",
+};
+
+function toolLabel(name: string): string {
+  return TOOL_LABELS[name] ?? name;
+}
 
 /**
  * Reusable chat panel. Callers must gate rendering on `useAiAssistantAvailable()` so that
  * nothing assistant-related is shown when the user has switched it off.
  */
-export function AssistantPanel({ placeholder = DEFAULT_PLACEHOLDER }: AssistantPanelProps) {
-  const { messages, isStreaming, send, stop, clear } = useAssistantChat();
+export function AssistantPanel({
+  placeholder = DEFAULT_PLACEHOLDER,
+  getContext,
+  proposalTarget,
+}: AssistantPanelProps) {
+  const { messages, isStreaming, send, stop, clear, setProposalState } =
+    useAssistantChat({
+      getContext,
+    });
   const [draft, setDraft] = useState("");
 
   const handleSend = useCallback(() => {
@@ -41,30 +71,76 @@ export function AssistantPanel({ placeholder = DEFAULT_PLACEHOLDER }: AssistantP
     [handleSend],
   );
 
+  const renderMessage = (message: DisplayMessage) => (
+    <div
+      key={message.id}
+      className={
+        message.role === "user"
+          ? "ml-8 rounded-md bg-primary/10 p-3 text-sm"
+          : "mr-2 space-y-2 rounded-md bg-muted p-3 text-sm"
+      }
+    >
+      {message.tools && message.tools.length > 0 && (
+        <ul className="space-y-1" aria-label="Assistant activity">
+          {message.tools.map((tool) => (
+            <li
+              key={tool.id}
+              className="flex items-center gap-1 text-xs text-muted-foreground"
+            >
+              {tool.status === "running" ? (
+                <Loader2 className="size-3 animate-spin" />
+              ) : (
+                <Wrench className="size-3" />
+              )}
+              {toolLabel(tool.name)}
+              {tool.status === "error" && " (failed)"}
+            </li>
+          ))}
+        </ul>
+      )}
+      {message.content && (
+        <p className="whitespace-pre-wrap break-words">{message.content}</p>
+      )}
+      {message.role === "assistant" &&
+        !message.content &&
+        !message.error &&
+        !message.proposal &&
+        !message.tools?.length && (
+          <Loader2 className="size-4 animate-spin text-muted-foreground" />
+        )}
+      {message.proposal && proposalTarget && (
+        <TemplateProposalCard
+          proposal={message.proposal}
+          currentContent={proposalTarget.currentContent}
+          onApply={() => {
+            if (message.proposal) {
+              proposalTarget.onApply(message.proposal.content);
+              setProposalState(message.id, "applied");
+            }
+          }}
+          onReject={() => setProposalState(message.id, "rejected")}
+        />
+      )}
+      {message.error && <p className="text-destructive">{message.error}</p>}
+    </div>
+  );
+
   return (
-    <div className="flex h-full min-h-0 flex-col gap-3" data-testid="assistant-panel">
-      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto" aria-live="polite">
+    <div
+      className="flex h-full min-h-0 flex-col gap-3"
+      data-testid="assistant-panel"
+    >
+      <div
+        className="min-h-0 flex-1 space-y-3 overflow-y-auto"
+        aria-live="polite"
+      >
         {messages.length === 0 ? (
           <p className="text-sm text-muted-foreground">
-            Ask a question. Conversations are not saved and are cleared when you reload.
+            Ask a question. Conversations are not saved and are cleared when you
+            reload.
           </p>
         ) : (
-          messages.map((message) => (
-            <div
-              key={message.id}
-              className={
-                message.role === "user"
-                  ? "ml-8 rounded-md bg-primary/10 p-3 text-sm"
-                  : "mr-8 rounded-md bg-muted p-3 text-sm"
-              }
-            >
-              <p className="whitespace-pre-wrap break-words">{message.content}</p>
-              {message.role === "assistant" && !message.content && !message.error && (
-                <Loader2 className="size-4 animate-spin text-muted-foreground" />
-              )}
-              {message.error && <p className="mt-1 text-destructive">{message.error}</p>}
-            </div>
-          ))
+          messages.map(renderMessage)
         )}
       </div>
       <div className="flex items-end gap-2">
@@ -79,7 +155,13 @@ export function AssistantPanel({ placeholder = DEFAULT_PLACEHOLDER }: AssistantP
         />
         <div className="flex flex-col gap-1">
           {isStreaming ? (
-            <Button type="button" size="icon" variant="outline" onClick={stop} aria-label="Stop">
+            <Button
+              type="button"
+              size="icon"
+              variant="outline"
+              onClick={stop}
+              aria-label="Stop"
+            >
               <Square className="size-4" />
             </Button>
           ) : (

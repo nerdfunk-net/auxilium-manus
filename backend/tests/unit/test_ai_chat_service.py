@@ -59,7 +59,7 @@ def test_streams_text_usage_then_done() -> None:
         [
             StreamEvent(type="text", text="Hel"),
             StreamEvent(type="text", text="lo"),
-            StreamEvent(type="usage", input_tokens=5, output_tokens=2),
+            StreamEvent(type="turn", stop_reason="end_turn", input_tokens=5, output_tokens=2),
         ]
     )
 

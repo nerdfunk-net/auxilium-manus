@@ -1,36 +1,33 @@
-"""Stateless chat turn → stream of neutral events (text / usage / error / done).
+"""Stateless chat turn → stream of neutral events (text / tool / proposal / usage / error / done).
 
-Phase 1 is plain chat (no tools). The caller resolves the runtime config (which enforces the
-enable switch) *before* streaming starts, so this generator never touches the database.
+The caller resolves the runtime config (which enforces the enable switch) and builds the
+toolbox *before* streaming starts. This generator never holds a database session; tools open
+short-lived ones of their own.
 """
 
 from __future__ import annotations
 
 import logging
 from collections.abc import AsyncIterator, Callable
-from dataclasses import dataclass
 from typing import Any
 
+from services.ai_assistant.agent_loop import run_agent
+from services.ai_assistant.events import ChatEvent
 from services.ai_assistant.exceptions import AiAssistantError
 from services.ai_assistant.prompts import BASE_SYSTEM_PROMPT, CONNECTION_TEST_PROMPT
 from services.ai_assistant.providers.base import ChatMessage, LlmProvider, ProviderError
 from services.ai_assistant.providers.registry import build_provider
 from services.ai_assistant.settings_service import AiRuntimeConfig
+from services.ai_assistant.tools.base import Toolbox
 
 logger = logging.getLogger(__name__)
 
-MAX_OUTPUT_TOKENS = 16000
 TEST_MAX_OUTPUT_TOKENS = 64
 
 ProviderFactory = Callable[..., LlmProvider]
 
 
-@dataclass(frozen=True)
-class ChatEvent:
-    """``event`` is the SSE event name; ``data`` its JSON payload."""
-
-    event: str
-    data: dict[str, Any]
+__all__ = ["ChatEvent", "check_connection", "stream_chat"]
 
 
 async def stream_chat(
@@ -38,24 +35,21 @@ async def stream_chat(
     messages: list[ChatMessage],
     *,
     provider_factory: ProviderFactory = build_provider,
+    toolbox: Toolbox | None = None,
+    system: str = BASE_SYSTEM_PROMPT,
 ) -> AsyncIterator[ChatEvent]:
     try:
         provider = provider_factory(
             config.provider, api_key=config.api_key, base_url=config.base_url
         )
-        async for item in provider.stream(
+        async for event in run_agent(
+            provider=provider,
             model=config.model,
-            system=BASE_SYSTEM_PROMPT,
+            system=system,
             messages=messages,
-            max_tokens=MAX_OUTPUT_TOKENS,
+            toolbox=toolbox,
         ):
-            if item.type == "text":
-                yield ChatEvent("text", {"text": item.text})
-            else:
-                yield ChatEvent(
-                    "usage",
-                    {"input_tokens": item.input_tokens, "output_tokens": item.output_tokens},
-                )
+            yield event
     except ProviderError as exc:
         yield ChatEvent("error", {"code": exc.code, "message": exc.message})
     except AiAssistantError as exc:

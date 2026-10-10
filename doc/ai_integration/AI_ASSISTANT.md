@@ -1,6 +1,7 @@
 # In-App AI Assistant — Requirements & Design
 
-Status: **phase 1 implemented (2026-10-10), UI not yet verified in a browser.** Phases 2–6 are not started. Open questions
+Status: **phase 1 verified by the product owner (real key, connection test passed); phase 2 implemented
+(2026-10-10), not yet exercised against the real API with tool use or in a browser.** Phases 3–6 are not started. Open questions
 were answered by the product owner; see §9 for the recorded decisions.
 
 This document describes an AI assistant built *into* the app. It is distinct from
@@ -373,6 +374,56 @@ Testing: provider adapters against recorded fixtures; the agent loop against a s
 fake provider (deterministic tool-call sequences); tools as ordinary service tests; a small
 set of live smoke tests (opt-in, like `tests/integration`) per provider.
 
+## 9b. Phase 2 design — tool loop + template assistant
+
+Grounded in how the template editor works today: **the editor holds all state in the browser**
+(content, variables, test-device data) and may be unsaved, so the template surface sends its
+*current* state with each chat turn instead of the server loading a saved row.
+
+**Data rule for phase 2 (conservative, no class B/C values reach the model).** The editor's
+variables split cleanly on `isAutoFilled`: *custom* variables are user-authored (class A) and are
+sent with values; *auto-filled* ones (`device`, `nautobot`, `command(s)`, `parsed`, `batfish`,
+`run_input`) hold device/run data (class B/C) and are sent **by name only**, never with values,
+even if the opt-in switches are on. Their shape is documented in a curated reference
+(`get_template_reference`) distilled from the editor's Jinja help, so the model can write correct
+paths without seeing data. Honouring the opt-in switches for these values is deferred until the
+redaction module has been proven (§4.3).
+
+**Neutral turn model.** `ChatMessage` gains `tool_calls`, `tool_results` and an opaque
+`raw` (the provider's own assistant content blocks, e.g. thinking blocks, echoed back unchanged
+within one request — required by Anthropic when continuing after a tool call). The tool loop runs
+entirely server-side inside one request; the client history stays plain text.
+
+**Agent loop** (`services/ai_assistant/agent_loop.py`): max 8 tool steps per turn; a refusal, a
+`max_tokens` cut-off or a step-limit hit become `error` events; tool exceptions never reach the
+client (generic tool error result + server log); tool inputs validated with Pydantic; tool output
+capped and redacted.
+
+**Tools (all permission-checked as the calling user, all read-only or proposal-only):**
+
+| Tool | Class | Purpose |
+|------|-------|---------|
+| `get_template_reference` | A | Curated Jinja/namespace reference (what `device`, `nautobot`, `commands`, `parsed.*`, `run_input` contain) |
+| `list_templates` / `get_template` | A | Existing saved templates as examples (needs `templates:read`) |
+| `render_template` | A | Render editor content (or given content) with *custom* variables + model-supplied sample data; withheld variables render as `<<name>>` and are reported |
+| `propose_template` | proposal | Syntax check + trial render; on success emits a `proposal` event. Never persists |
+
+**Redaction (pulled forward from phase 6 for what phase 2 sends).** Template source and custom
+variable values are class A but can contain pasted secrets. A text redactor replaces secrets with
+**restorable tokens** (`__SECRET_1__`), and `propose_template` restores them, so redaction never
+corrupts an edit: if the model keeps the token the original secret line round-trips; if it deletes
+it the secret is gone. Patterns are the §4.3 set (PEM blocks, Cisco `enable|username` secrets,
+tacacs/radius keys, SNMP communities/v3 keys, routing/NTP/HSRP keys, generic `password=` style
+assignments, bearer/basic headers) and never touch Jinja expressions (`{{ ... }}`).
+
+**Proposal flow.** `propose_template` → SSE `proposal` event → the editor shows a line diff
+(jsdiff) against its *current* buffer with Apply/Reject. Apply writes into the **unsaved editor
+buffer** only; the user saves with the normal Save. If the buffer changed since the turn started,
+the card says applying will overwrite those edits.
+
+**UI.** An "AI Assistant" button in the template editor toggles an inline right-hand panel, rendered
+only when `useAiAssistantAvailable()` is true. Tool activity shows as collapsed one-line chips.
+
 ## 9a. Implementation status
 
 **Phase 1 (backend + frontend written, unit-tested; not yet exercised against a real provider key
@@ -392,6 +443,25 @@ or in a browser):**
 - Not done: server-side `fallbacks` for refusals (a refusal is reported as a clear error),
   `openai_compat` loopback/SSRF policy (phase 3), the redaction module (phase 6, must precede any
   class B/C tool).
+
+**Phase 2 (template assistant):**
+
+- Backend: `services/ai_assistant/` gained `redaction.py` (restorable-token redactor, 26 tests),
+  `agent_loop.py` + `tools/base.py` (tool loop, one choke point for validation/redaction/size
+  caps), `tools/template_tools.py` (5 tools), `template_render.py` (lenient sandboxed render),
+  `template_reader.py` (per-call DB session + RBAC), `surfaces.py` (prompt + toolbox per surface),
+  `knowledge/template_reference.md`. The Anthropic adapter now does tool use, echoing the
+  provider's raw blocks. `POST /ai/chat` accepts an optional `context` (template editor state).
+- Frontend: tool-activity chips, `proposal` events, `TemplateProposalCard` (line diff via `diff`
+  9.x), "AI Assistant" button + inline panel in the template editor, gated by
+  `useAiAssistantAvailable()`. Apply writes into the **unsaved** editor buffer.
+- Verified: backend unit tests (adapter tested against real SDK message types), frontend
+  vitest/tsc/eslint. **Not verified:** a real tool-using turn against the Anthropic API, the UI in
+  a browser, and proposal behaviour with Haiku 5.5 on real templates.
+- Known limits: a pathological template can burn CPU in the render thread after the 5 s timeout
+  returns (threads cannot be killed; same exposure as the editor's own preview); only the template
+  *content* is proposable (not variables/options); the opt-in switches are still not consulted
+  because no class B/C data is sent.
 
 ## 10. Decisions and open questions
 

@@ -6,7 +6,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { buildApiErrorMessage } from "@/hooks/use-api";
 import { useAuthStore } from "@/lib/auth-store";
 
-import type { ChatMessage, DisplayMessage } from "../types/ai-assistant";
+import type {
+  AssistantContext,
+  ChatMessage,
+  DisplayMessage,
+  ProposalState,
+  ToolActivity,
+  ToolStatus,
+} from "../types/ai-assistant";
 import { parseSseBuffer } from "../utils/sse-parser";
 
 const CHAT_ENDPOINT = "/api/proxy/ai/chat";
@@ -19,6 +26,32 @@ interface TextPayload {
 interface ErrorPayload {
   message?: string;
 }
+interface ToolPayload {
+  id?: string;
+  name?: string;
+  status?: ToolStatus;
+}
+interface ProposalPayload {
+  kind?: string;
+  content?: string;
+  summary?: string;
+  warnings?: string[];
+}
+
+export interface UseAssistantChatOptions {
+  /** Current surface state, read fresh on every send (a ref keeps this stable). */
+  getContext?: () => AssistantContext | undefined;
+}
+
+function upsertTool(
+  tools: ToolActivity[] | undefined,
+  next: ToolActivity,
+): ToolActivity[] {
+  const current = tools ?? [];
+  return current.some((tool) => tool.id === next.id)
+    ? current.map((tool) => (tool.id === next.id ? next : tool))
+    : [...current, next];
+}
 
 let messageCounter = 0;
 function nextId(): string {
@@ -30,12 +63,17 @@ function nextId(): string {
  * Client-held chat (v1 is stateless on the server): the history is re-sent each turn and
  * is lost on reload. Streams the reply over SSE through the Next.js proxy.
  */
-export function useAssistantChat() {
+export function useAssistantChat({ getContext }: UseAssistantChatOptions = {}) {
   const router = useRouter();
   const [messages, setMessages] = useState<DisplayMessage[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
   const messagesRef = useRef<DisplayMessage[]>([]);
+  const getContextRef = useRef(getContext);
+
+  useEffect(() => {
+    getContextRef.current = getContext;
+  }, [getContext]);
 
   useEffect(() => {
     messagesRef.current = messages;
@@ -70,6 +108,7 @@ export function useAssistantChat() {
         { id: assistantId, role: "assistant", content: "" },
       ]);
 
+      const context = getContextRef.current?.();
       const controller = new AbortController();
       abortRef.current = controller;
       setIsStreaming(true);
@@ -82,7 +121,9 @@ export function useAssistantChat() {
           method: "POST",
           credentials: "include",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ messages: history }),
+          body: JSON.stringify(
+            context ? { messages: history, context } : { messages: history },
+          ),
           signal: controller.signal,
         });
 
@@ -100,7 +141,9 @@ export function useAssistantChat() {
           return;
         }
 
-        const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
+        const reader = response.body
+          .pipeThrough(new TextDecoderStream())
+          .getReader();
         let buffer = "";
         let sawDone = false;
         for (;;) {
@@ -113,7 +156,42 @@ export function useAssistantChat() {
           for (const { event, data } of parsed.events) {
             if (event === "text") {
               const delta = (data as TextPayload).text ?? "";
-              patchAssistant(assistantId, (m) => ({ ...m, content: m.content + delta }));
+              patchAssistant(assistantId, (m) => ({
+                ...m,
+                content: m.content + delta,
+              }));
+            } else if (event === "tool") {
+              const tool = data as ToolPayload;
+              if (tool.id && tool.name && tool.status) {
+                const activity: ToolActivity = {
+                  id: tool.id,
+                  name: tool.name,
+                  status: tool.status,
+                };
+                patchAssistant(assistantId, (m) => ({
+                  ...m,
+                  tools: upsertTool(m.tools, activity),
+                }));
+              }
+            } else if (event === "proposal") {
+              const proposal = data as ProposalPayload;
+              if (
+                proposal.kind === "template" &&
+                typeof proposal.content === "string"
+              ) {
+                const content = proposal.content;
+                patchAssistant(assistantId, (m) => ({
+                  ...m,
+                  proposal: {
+                    kind: "template",
+                    content,
+                    summary: proposal.summary ?? "",
+                    warnings: proposal.warnings ?? [],
+                    baseContent: context?.content ?? "",
+                    state: "pending",
+                  },
+                }));
+              }
             } else if (event === "error") {
               fail((data as ErrorPayload).message ?? GENERIC_ERROR);
             } else if (event === "done") {
@@ -142,6 +220,19 @@ export function useAssistantChat() {
 
   // Null the ref synchronously so a send right after stop/clear is not dropped while the
   // aborted request's `finally` has not run yet.
+  const setProposalState = useCallback(
+    (messageId: string, state: ProposalState) => {
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === messageId && m.proposal
+            ? { ...m, proposal: { ...m.proposal, state } }
+            : m,
+        ),
+      );
+    },
+    [],
+  );
+
   const stop = useCallback(() => {
     abortRef.current?.abort();
     abortRef.current = null;
@@ -154,7 +245,7 @@ export function useAssistantChat() {
   }, []);
 
   return useMemo(
-    () => ({ messages, isStreaming, send, stop, clear }),
-    [messages, isStreaming, send, stop, clear],
+    () => ({ messages, isStreaming, send, stop, clear, setProposalState }),
+    [messages, isStreaming, send, stop, clear, setProposalState],
   );
 }

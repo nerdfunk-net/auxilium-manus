@@ -1,0 +1,95 @@
+"""Tool plumbing: a registry the agent loop calls, with one choke point for input validation,
+error containment, output redaction and size capping.
+
+Rule for every tool (doc/ai_integration/AI_ASSISTANT.md §3.5): it is either a pure read or a
+proposal. Nothing here persists, executes a workflow or touches a device.
+"""
+
+from __future__ import annotations
+
+import logging
+from collections.abc import Awaitable, Callable, Iterable
+from dataclasses import dataclass, field
+from typing import Any
+
+from pydantic import BaseModel, ValidationError
+
+from services.ai_assistant.providers.base import ToolCall, ToolSpec
+from services.ai_assistant.redaction import Redactor
+
+logger = logging.getLogger(__name__)
+
+MAX_TOOL_OUTPUT_CHARS = 20000
+TRUNCATION_MARKER = "\n…[output truncated]"
+
+
+@dataclass(frozen=True)
+class ToolOutput:
+    """``content`` goes back to the model. ``proposal`` (if any) goes to the client only."""
+
+    content: str
+    is_error: bool = False
+    proposal: dict[str, Any] | None = None
+
+
+@dataclass(frozen=True)
+class ToolContext:
+    """Request-scoped state every tool may use. Built per chat request, never shared."""
+
+    user_id: int
+    redactor: Redactor
+    extras: dict[str, Any] = field(default_factory=dict)
+
+
+ToolHandler = Callable[[ToolContext, Any], Awaitable[ToolOutput]]
+
+
+@dataclass(frozen=True)
+class Tool:
+    name: str
+    description: str
+    input_model: type[BaseModel]
+    handler: ToolHandler
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.name,
+            description=self.description,
+            input_schema=self.input_model.model_json_schema(),
+        )
+
+
+class Toolbox:
+    def __init__(self, tools: Iterable[Tool], context: ToolContext) -> None:
+        self._tools = {tool.name: tool for tool in tools}
+        self._context = context
+
+    def specs(self) -> list[ToolSpec]:
+        return [tool.spec for tool in self._tools.values()]
+
+    async def execute(self, call: ToolCall) -> ToolOutput:
+        tool = self._tools.get(call.name)
+        if tool is None:
+            return ToolOutput(f"Unknown tool: {call.name}", is_error=True)
+        try:
+            args = tool.input_model.model_validate(call.input)
+        except ValidationError as exc:
+            problems = "; ".join(
+                f"{'.'.join(str(p) for p in err['loc']) or 'input'}: {err['msg']}"
+                for err in exc.errors()
+            )
+            return ToolOutput(f"Invalid input for {call.name}: {problems}", is_error=True)
+        try:
+            output = await tool.handler(self._context, args)
+        except Exception:
+            # Never surface internals to the model or the client; the stack goes to the log.
+            logger.exception("AI assistant tool %s failed", call.name)
+            return ToolOutput(f"The {call.name} tool failed unexpectedly", is_error=True)
+        return self._finish(output)
+
+    def _finish(self, output: ToolOutput) -> ToolOutput:
+        content = self._context.redactor.redact(output.content)
+        if len(content) > MAX_TOOL_OUTPUT_CHARS:
+            content = content[:MAX_TOOL_OUTPUT_CHARS] + TRUNCATION_MARKER
+        return ToolOutput(content=content, is_error=output.is_error, proposal=output.proposal)

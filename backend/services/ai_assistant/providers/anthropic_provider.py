@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Sequence
+from typing import Any
 
 import anthropic
 
@@ -16,6 +17,8 @@ from services.ai_assistant.providers.base import (
     ProviderRequestError,
     ProviderUnavailableError,
     StreamEvent,
+    ToolCall,
+    ToolSpec,
 )
 
 logger = logging.getLogger(__name__)
@@ -40,6 +43,34 @@ def map_anthropic_error(exc: Exception) -> ProviderError:
     return ProviderUnavailableError("The provider request failed")
 
 
+def _to_api_message(message: ChatMessage) -> dict[str, Any]:
+    if message.role == "assistant" and message.raw is not None:
+        # Echo the provider's own blocks (incl. thinking) unchanged when continuing a tool turn.
+        return {"role": "assistant", "content": message.raw}
+    if message.tool_results:
+        return {
+            "role": "user",
+            "content": [
+                {
+                    "type": "tool_result",
+                    "tool_use_id": result.tool_use_id,
+                    "content": result.content,
+                    "is_error": result.is_error,
+                }
+                for result in message.tool_results
+            ],
+        }
+    return {"role": message.role, "content": message.content}
+
+
+def _to_api_tool(tool: ToolSpec) -> dict[str, Any]:
+    return {
+        "name": tool.name,
+        "description": tool.description,
+        "input_schema": tool.input_schema,
+    }
+
+
 class AnthropicProvider:
     def __init__(self, api_key: str) -> None:
         # max_retries: the SDK retries 429/5xx with backoff; keep its default.
@@ -52,14 +83,18 @@ class AnthropicProvider:
         system: str,
         messages: list[ChatMessage],
         max_tokens: int,
+        tools: Sequence[ToolSpec] = (),
     ) -> AsyncIterator[StreamEvent]:
+        request: dict[str, Any] = {
+            "model": model,
+            "max_tokens": max_tokens,
+            "system": system,
+            "messages": [_to_api_message(m) for m in messages],
+        }
+        if tools:
+            request["tools"] = [_to_api_tool(t) for t in tools]
         try:
-            async with self._client.messages.stream(
-                model=model,
-                max_tokens=max_tokens,
-                system=system,
-                messages=[{"role": m.role, "content": m.content} for m in messages],
-            ) as stream:
+            async with self._client.messages.stream(**request) as stream:
                 async for text in stream.text_stream:
                     yield StreamEvent(type="text", text=text)
                 final = await stream.get_final_message()
@@ -71,8 +106,16 @@ class AnthropicProvider:
 
         if final.stop_reason == "refusal":
             raise ProviderRefusalError("The provider declined to answer this request")
+        tool_calls = tuple(
+            ToolCall(id=block.id, name=block.name, input=dict(block.input))
+            for block in final.content
+            if block.type == "tool_use"
+        )
         yield StreamEvent(
-            type="usage",
+            type="turn",
+            tool_calls=tool_calls,
+            stop_reason=final.stop_reason or "",
+            raw=final.content,
             input_tokens=final.usage.input_tokens,
             output_tokens=final.usage.output_tokens,
         )
