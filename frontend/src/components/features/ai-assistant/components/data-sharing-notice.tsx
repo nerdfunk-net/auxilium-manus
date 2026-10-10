@@ -17,8 +17,14 @@ export function DataSharingNotice() {
   if (!settings) {
     return null;
   }
+  const inventory = settings.share_inventory_data;
   const shared = [
-    settings.share_inventory_data ? "inventory data" : null,
+    inventory ? "device basics" : null,
+    inventory && settings.share_device_addresses
+      ? "addresses and serials"
+      : null,
+    inventory && settings.share_custom_fields ? "custom fields" : null,
+    inventory && settings.share_config_context ? "config context" : null,
     settings.share_content_data ? "run and device content" : null,
   ].filter((item): item is string => item !== null);
   const Icon = shared.length > 0 ? ShieldAlert : ShieldCheck;
@@ -29,7 +35,7 @@ export function DataSharingNotice() {
       <span>
         Sent to {PROVIDER_LABELS[settings.provider]}:{" "}
         {shared.length > 0
-          ? `${shared.join(" and ")} (best-effort redaction)`
+          ? `${shared.join(", ")} (best-effort redaction)`
           : "definitions only, no device or run data"}
         .{" "}
         <Link

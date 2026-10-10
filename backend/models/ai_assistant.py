@@ -22,6 +22,9 @@ class UserAiSettingsUpdate(BaseModel):
     api_key: SecretStr | None = Field(default=None, min_length=1, max_length=512)
     clear_api_key: bool = False
     share_inventory_data: bool | None = None
+    share_device_addresses: bool | None = None
+    share_custom_fields: bool | None = None
+    share_config_context: bool | None = None
     share_content_data: bool | None = None
 
     @field_validator("model")
@@ -52,6 +55,9 @@ class UserAiSettingsResponse(BaseModel):
     # Ready to use: a key (anthropic, gemini) or a base URL + model (openai_compat).
     configured: bool
     share_inventory_data: bool
+    share_device_addresses: bool
+    share_custom_fields: bool
+    share_config_context: bool
     share_content_data: bool
     available_providers: list[AiProvider]
     # Selectable models per provider; the UI shows a picker, not a free-text field.
@@ -132,8 +138,17 @@ class RunViewerContext(BaseModel):
     run_id: int | None = Field(default=None, ge=1)
 
 
+class InventoryContext(BaseModel):
+    """The inventory page: which Nautobot source it is using. Read-only surface."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    surface: Literal["inventory"]
+    source_id: str = Field(min_length=1, max_length=64)
+
+
 AssistantContext = Annotated[
-    TemplateEditorContext | WorkflowCanvasContext | RunViewerContext,
+    TemplateEditorContext | WorkflowCanvasContext | RunViewerContext | InventoryContext,
     Field(discriminator="surface"),
 ]
 

@@ -13,7 +13,7 @@ class UserAiSettings(Base):
 
     One row per user. The API key is private to its owner: encrypted at rest and never
     returned by any endpoint. ``enabled`` is the user's master switch and is independent
-    of the key. The two ``share_*`` flags are the opt-in data-sharing switches (default
+    of the key. The ``share_*`` flags are the opt-in data-sharing switches (default
     off): device-derived data may only reach the model when the user allowed it.
     """
 
@@ -33,6 +33,10 @@ class UserAiSettings(Base):
     base_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
     api_key_encrypted: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
     share_inventory_data: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    # Finer opt-ins inside inventory data; each only takes effect while share_inventory_data is on.
+    share_device_addresses: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    share_custom_fields: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    share_config_context: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     share_content_data: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()

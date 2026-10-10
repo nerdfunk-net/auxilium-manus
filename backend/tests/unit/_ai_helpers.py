@@ -23,6 +23,9 @@ class FakeRepo:
             base_url=None,
             api_key_encrypted=None,
             share_inventory_data=False,
+            share_device_addresses=False,
+            share_custom_fields=False,
+            share_config_context=False,
             share_content_data=False,
         )
         for key, value in values.items():

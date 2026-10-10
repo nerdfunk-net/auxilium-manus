@@ -55,6 +55,10 @@ const TOOL_LABELS: Record<string, string> = {
   get_artifact: "Reading stored output",
   list_run_events: "Reading run events",
   get_run_workflow: "Reading the workflow definition",
+  list_inventories: "Looking through inventories",
+  resolve_inventory: "Resolving an inventory",
+  search_devices: "Searching devices",
+  get_device_attributes: "Reading device attributes",
 };
 
 function toolLabel(name: string): string {

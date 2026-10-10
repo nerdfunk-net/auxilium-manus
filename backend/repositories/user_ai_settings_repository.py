@@ -18,6 +18,9 @@ _UPDATABLE_FIELDS = frozenset(
         "base_url",
         "api_key_encrypted",
         "share_inventory_data",
+        "share_device_addresses",
+        "share_custom_fields",
+        "share_config_context",
         "share_content_data",
     }
 )

@@ -4,8 +4,9 @@ Status (2026-10-10): **phases 1-4 are implemented, phase 5 is half done.** Phase
 Claude, template assistant, Gemini, Ollama/OpenAI-compatible) are verified by the product owner
 against real providers. Phase 4 (workflow canvas assistant) is covered by unit/contract tests and by
 checks against the real validator, registry and dev database, but not yet by a real model run or a
-browser session. Phase 5: the **run explainer** (run tools, opt-in enforcement, runs-page panel) is
-built and checked against real run rows; **inventory / device-attribute queries are not started**.
+browser session. Phase 5 is built: the **run explainer** (run tools, opt-in enforcement, runs-page
+panel) and the **inventory assistant** (inventory-page panel, read-only questions) are checked against
+real dev-database rows and the live Nautobot; the user has tried the run explainer.
 Phase 6 (hardening) is not started. §12 lists what was built and verified per phase, §13 the
 recorded decisions.
 
@@ -210,9 +211,16 @@ tools, so every value of those classes passes the opt-in of §4.2:
 | `list_run_events` | Live run events; message text is C |
 | `get_run_workflow` | The run's workflow as the compact view (A), "as saved now" |
 
-**Planned (phase 5, not started):** `resolve_inventory` and `get_device_attributes` (class B) for
-inventory questions, and a way to read a saved workflow other than the open one. They need an entry
-point that is not the runs page (see §13 open questions).
+**Built (phase 5, inventory assistant, surface `inventory`)** - see §15. All read-only, class B:
+
+| Tool | Purpose |
+|------|---------|
+| `list_inventories` | Saved inventories visible to the user (id, name, type, scope) |
+| `resolve_inventory` | Devices of one inventory resolved now: `total_count` always; counts by role / platform / location / status / type / manufacturer over ALL devices and up to 50 device rows (chosen fields) only with the opt-in |
+| `search_devices` | Devices by name part across Nautobot (opt-in) |
+| `get_device_attributes` | Nautobot attributes of one device (opt-in) |
+
+**Planned (not started):** a way to read a saved workflow other than the open one.
 
 Rule for new tools: if it cannot be classified as "pure read" or "proposal", it does not
 ship in this feature.
@@ -259,7 +267,7 @@ devices or runs.
 | Class | Examples | Default |
 |-------|----------|---------|
 | **A. Definitions** | Step catalogue/schemas, workflow definitions and canvas, template content and variable names, credential/repo *names and ids* | Sent (needed for the feature to work). Credential secrets are never in this class. |
-| **B. Inventory & attributes** | Device names, Nautobot attributes, resolved inventories | **Opt-in** |
+| **B. Inventory & attributes** | Device names, Nautobot attributes, resolved inventories | **Opt-in**, split into a base switch (basics) and three categories that each need their own switch on top (§16) |
 | **C. Content data** | Config backups, command output, parsed output, generated artifacts, step `content` results, run logs/events, step error text (may echo output) | **Opt-in** |
 | **D. Secrets** | Decrypted credentials, vault values, keys | **Never sent**, not even with opt-in |
 
@@ -268,8 +276,10 @@ contain a pasted secret.
 
 ### 4.2 Rules
 
-1. **Per-user, default off.** Stored in `user_ai_settings` as `share_inventory_data` (B) and
-   `share_content_data` (C). Independent switches; C does not imply B.
+1. **Per-user, default off.** Stored in `user_ai_settings` as `share_inventory_data` (B base),
+   `share_device_addresses`, `share_custom_fields`, `share_config_context` (B categories, §16) and
+   `share_content_data` (C). Independent switches; C does not imply B, and a B category does nothing
+   without the B base switch.
 2. **Visible and session-scoped.** The assistant panel shows which classes are currently
    enabled for the active provider (and which provider, so a user can tell a local Ollama from
    a remote API). The user can turn a class off at any time; it takes effect on the next turn.
@@ -373,7 +383,8 @@ ML/entropy-based detection.
 
 - `user_ai_settings`: `user_id` (unique), `provider`, `model`, `base_url`,
   `enabled` (bool, default false), `api_key_encrypted` (JSON map provider -> Fernet token),
-  `share_inventory_data` (bool, default false), `share_content_data` (bool, default false), timestamps.
+  `share_inventory_data`, `share_device_addresses`, `share_custom_fields`, `share_config_context`,
+  `share_content_data` (bool, default false each), timestamps.
 - No conversation tables in v1.
 
 ## 8. Permissions
@@ -398,8 +409,7 @@ could do by hand. P2 (grant only what you hold) applies as usual when granting i
 3. **Gemini + openai_compat adapters** *(done)*: same tools, contract tests across all providers.
 4. **Workflow canvas assistant** *(done)*: step catalogue and reference tools, `propose_workflow`
    with the validation feedback loop, change-list diff.
-5. **Explain & query** *(run explainer done; inventory / attribute questions not started)*: run tools,
-   opt-in enforcement, runs-page panel (§14).
+5. **Explain & query** *(done)*: run explainer with opt-in enforcement (§14), inventory assistant (§15).
 6. **Hardening** *(not started; the regex redactor and token round-trip were pulled forward)*:
    content-data privacy switch, truncation behaviour, injection test corpus,
    docs.
@@ -652,9 +662,12 @@ Decided (2026-10-10, phase 5):
 
 Still open:
 
-- Where inventory / device-attribute questions live (`resolve_inventory`, `get_device_attributes`):
-  the runs page has no inventory context. Candidates: the same runs-page panel without a run, a panel
-  on the inventory UI, or a global panel (explicitly out of scope for the first release).
+- Read-only Nautobot GraphQL queries for open questions ("which devices are in City A?"); see
+  `doc/OPEN_TODOS.md` "AI assistant: Nautobot GraphQL queries".
+- Inventory assistant follow-ups (§15): awareness of the unsaved filter being built and the loaded
+  inventory, and proposing a filter ("all core switches at site X") as a reviewable proposal.
+- Keeping the chat session across navigation (panel state is lost when leaving a page); see
+  `doc/OPEN_TODOS.md` "AI assistant: keep the session while the user works".
 - The remaining hardening items of phase 6 (truncation UX, a wider injection test corpus).
 - Whether to register the user's credential secrets for exact-match scrubbing later.
 - Production verification of SSE behind the real ingress, and of the workflow assistant path with a
@@ -702,3 +715,75 @@ tools were also run against real rows of the dev database with the switches off 
 
 **Not verified:** a real model explaining a real failed run (the dev database has only successful
 runs), the panel in a browser, and the injection corpus is small (§13 open items).
+
+## 15. Phase 5 design - inventory assistant
+
+**Decision (2026-10-10):** inventory questions live in a panel on the inventory page
+(`/inventory`), not on the runs page or a global panel.
+
+**Surface.** `context = {surface: "inventory", source_id}`; `source_id` is the Nautobot source the page
+already uses. The button appears only while the assistant is available and the source is ready. The
+surface is read-only.
+
+**Data and access.** `inventory_reader.py` runs as the calling user: `sources.nautobot:read`, saved
+inventories through `InventoryService` (another user's private inventory looks like a missing one), and
+device data through the same `NautobotSourceService` the page uses (Redis-cached bulk data). DB work
+happens in a worker thread; the Nautobot calls are awaited after the session is closed.
+
+**Opt-in.** Device data is class B. With the switch off `resolve_inventory` returns only the inventory
+name and `total_count` (the size) and `search_devices` / `get_device_attributes` return the `not_shared`
+marker. With it on, device rows are limited to 50, string values to 500 characters, and results pass
+`Redactor.redact_data` (secret-named custom fields such as `snmp_password` are redacted). The aggregate
+`counts_by` block is computed over all devices so "how many ..." questions are exact even when rows are
+truncated.
+
+**Verified.** 12 unit tests (`tests/unit/test_ai_inventory_tools.py` plus 2 router tests): sharing off
+and on, counts over 100 devices with a 5-row limit, field projection, secret redaction, unknown
+inventory, denied access. The tools were run against the live Nautobot source and dev inventories.
+
+**Not verified:** a real model answering inventory questions, the panel in a browser, and behaviour on a
+large (thousands of devices) inventory.
+
+**Not built:** the assistant does not see the unsaved filter or loaded inventory of the page (it works
+from saved inventories by id), and it cannot propose filters. See §13 open items.
+
+## 16. Fine-grained inventory opt-in
+
+**Why.** Device basics rarely carry sensitive values, but addresses, custom fields and especially the
+Nautobot config context often do (keys, passwords, addressing), and the key-name redactor cannot
+recognise a secret under an unmarked key (a value under `key` or `comments` is not caught). So the user
+decides per category.
+
+**Switches** (Settings -> AI Assistant -> Data sent to the model; the three are nested under the base
+switch and disabled while it is off). Each category works only while `share_inventory_data` is on
+(`SharingPolicy.allows`), whatever its own value.
+
+| Setting | `DataClass` | Releases |
+|---|---|---|
+| Inventory and device attributes (base) | `inventory_data` | name, role, platform, device type, manufacturer, location, status, tags, face, position; inventory sizes and `counts_by` |
+| Addresses and serial numbers | `device_addresses` | `primary_ip4/6`, `oob_ip`, `ip_addresses`, `interfaces`, `hostname`, `serial`, `asset_tag` |
+| Custom fields | `custom_fields` | `custom_fields`, `_custom_field_data`, `computed_fields` |
+| Config context | `config_context` | `config_context`, `local_config_context_data` |
+
+**Enforcement** (`data_sharing.py`, tool layer):
+
+- `resolve_inventory` / `search_devices`: a requested field whose category is off is dropped, and the
+  result lists it under `withheld_fields` with the setting that would release it.
+- `get_device_attributes`: an allow-list. Names in none of the sets above (for example `comments`) are
+  **never** sent, even with every switch on; they are reported as `"never"`. Asking for an attribute by
+  name does not bypass this.
+- Run tools: attribute bags in a step result (`include=['attributes']`) are masked recursively by key
+  name, so a `primary_ip4`, `custom_fields` or `config_context` nested anywhere shows
+  `{"not_shared": ...}` unless its category is on. This is a deny-list because run bags hold arbitrary
+  per-source keys.
+- The system prompt and the panel notice name exactly what is enabled.
+
+**Known limits.** Class C text (errors, command output) can still contain IPs once content sharing is on.
+A secret stored under a non-secret-looking key inside a category the user enabled is not recognised by
+the redactor; that is the residual risk the opt-in makes explicit. Not built: a per-user list of custom
+field names that are always withheld (add if asked for).
+
+**Verified.** Unit tests for the policy (`tests/unit/test_ai_data_sharing.py`), each category per tool,
+the base-switch requirement, the allow-list and the run-bag mask; 5,115 backend tests pass. The new
+columns are added at startup by `AutoSchemaMigration` (NOT NULL with a Python default). Not verified:
+the settings page in a browser.

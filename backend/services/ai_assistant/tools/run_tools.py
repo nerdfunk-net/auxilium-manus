@@ -17,6 +17,7 @@ from services.ai_assistant.data_sharing import (
     DataClass,
     DeviceLabeler,
     gated,
+    mask_run_attributes,
     not_shared_marker,
 )
 from services.ai_assistant.tools.base import Tool, ToolContext, ToolOutput
@@ -194,7 +195,11 @@ def _device_summary(ctx: ToolContext, device: dict[str, Any], include: set[str])
         out["errors"] = gated(ctx.sharing, DataClass.CONTENT, device["errors"])
     if "attributes" in include:
         out["attributes"] = gated(
-            ctx.sharing, DataClass.INVENTORY, ctx.redactor.redact_data(device.get("attribute_bags"))
+            ctx.sharing,
+            DataClass.INVENTORY,
+            ctx.redactor.redact_data(
+                mask_run_attributes(ctx.sharing, device.get("attribute_bags"))
+            ),
         )
     if "parsed" in include:
         out["parsed"] = gated(

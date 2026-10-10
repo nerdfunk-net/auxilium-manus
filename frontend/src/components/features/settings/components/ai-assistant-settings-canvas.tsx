@@ -38,6 +38,27 @@ import { PROVIDER_LABELS } from "@/components/features/ai-assistant/constants/pr
 import { useAiSettingsMutations } from "@/hooks/queries/use-ai-settings-mutations";
 import { useAiSettingsQuery } from "@/hooks/queries/use-ai-settings-query";
 
+/** Inventory data categories that are more likely to hold sensitive values; each has its own opt-in. */
+const INVENTORY_CATEGORIES = [
+  {
+    name: "share_device_addresses",
+    label: "Addresses and serial numbers",
+    description: "Primary IPs, interfaces, hostnames, serials and asset tags.",
+  },
+  {
+    name: "share_custom_fields",
+    label: "Custom fields",
+    description:
+      "Nautobot custom fields. They can hold free text such as credentials or owners.",
+  },
+  {
+    name: "share_config_context",
+    label: "Config context",
+    description:
+      "Nautobot config context, which often carries keys, passwords and addressing.",
+  },
+] as const;
+
 const formSchema = z
   .object({
     enabled: z.boolean(),
@@ -46,6 +67,9 @@ const formSchema = z
     base_url: z.string().max(512),
     api_key: z.string().max(512),
     share_inventory_data: z.boolean(),
+    share_device_addresses: z.boolean(),
+    share_custom_fields: z.boolean(),
+    share_config_context: z.boolean(),
     share_content_data: z.boolean(),
   })
   .refine(
@@ -86,6 +110,9 @@ function AiAssistantSettingsForm({ settings }: { settings: AiSettings }) {
       base_url: settings.base_url ?? "",
       api_key: "",
       share_inventory_data: settings.share_inventory_data,
+      share_device_addresses: settings.share_device_addresses,
+      share_custom_fields: settings.share_custom_fields,
+      share_config_context: settings.share_config_context,
       share_content_data: settings.share_content_data,
     }),
     [settings],
@@ -133,6 +160,10 @@ function AiAssistantSettingsForm({ settings }: { settings: AiSettings }) {
   const selectedProvider = useWatch({
     control: form.control,
     name: "provider",
+  });
+  const inventoryShared = useWatch({
+    control: form.control,
+    name: "share_inventory_data",
   });
   const selectedModelId = useWatch({ control: form.control, name: "model" });
   const modelOptions =
@@ -354,7 +385,8 @@ function AiAssistantSettingsForm({ settings }: { settings: AiSettings }) {
                       <div className="space-y-1">
                         <FormLabel>Inventory and device attributes</FormLabel>
                         <FormDescription>
-                          Device names and attributes from your inventories.
+                          Device names, role, platform, location, status and
+                          tags. The categories below need this switch too.
                         </FormDescription>
                       </div>
                       <FormControl>
@@ -366,6 +398,30 @@ function AiAssistantSettingsForm({ settings }: { settings: AiSettings }) {
                     </FormItem>
                   )}
                 />
+                {INVENTORY_CATEGORIES.map((category) => (
+                  <FormField
+                    key={category.name}
+                    control={form.control}
+                    name={category.name}
+                    render={({ field }) => (
+                      <FormItem className="ml-6 flex items-center justify-between gap-4 border-l pl-4">
+                        <div className="space-y-1">
+                          <FormLabel>{category.label}</FormLabel>
+                          <FormDescription>
+                            {category.description}
+                          </FormDescription>
+                        </div>
+                        <FormControl>
+                          <Switch
+                            checked={field.value && inventoryShared}
+                            disabled={!inventoryShared}
+                            onCheckedChange={field.onChange}
+                          />
+                        </FormControl>
+                      </FormItem>
+                    )}
+                  />
+                ))}
                 <FormField
                   control={form.control}
                   name="share_content_data"

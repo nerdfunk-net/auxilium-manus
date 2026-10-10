@@ -24,6 +24,7 @@ from core.rate_limit import rate_limited
 from models.ai_assistant import (
     AiStatusResponse,
     ChatRequest,
+    InventoryContext,
     RunViewerContext,
     TemplateEditorContext,
     UserAiSettingsResponse,
@@ -31,19 +32,20 @@ from models.ai_assistant import (
     WorkflowCanvasContext,
 )
 from services.ai_assistant.chat_service import ChatEvent, check_connection, stream_chat
-from services.ai_assistant.data_sharing import SharingPolicy
 from services.ai_assistant.exceptions import (
     AiAssistantDisabledError,
     AiAssistantError,
     AiAssistantNotConfiguredError,
     AiSettingsValidationError,
 )
+from services.ai_assistant.inventory_reader import DbInventoryReader
 from services.ai_assistant.prompts import BASE_SYSTEM_PROMPT
 from services.ai_assistant.providers.base import ChatMessage
 from services.ai_assistant.run_reader import DbRunReader
 from services.ai_assistant.settings_service import AiRuntimeConfig, AiSettingsService
 from services.ai_assistant.surfaces import (
     AssistantSession,
+    build_inventory_session,
     build_run_viewer_session,
     build_template_editor_session,
     build_workflow_editor_session,
@@ -79,19 +81,25 @@ def _raise_http(exc: AiAssistantError) -> NoReturn:
 
 
 def _session_for(
-    context: TemplateEditorContext | WorkflowCanvasContext | RunViewerContext,
+    context: TemplateEditorContext | WorkflowCanvasContext | RunViewerContext | InventoryContext,
     user: User,
     request: Request,
     config: AiRuntimeConfig,
 ) -> AssistantSession:
+    sharing = config.sharing
+    if isinstance(context, InventoryContext):
+        return build_inventory_session(
+            user_id=user.id,
+            context=context,
+            reader=DbInventoryReader(user.id, user.username, context.source_id),
+            sharing=sharing,
+        )
     if isinstance(context, RunViewerContext):
         return build_run_viewer_session(
             user_id=user.id,
             context=context,
             reader=DbRunReader(user.id),
-            sharing=SharingPolicy(
-                inventory=config.share_inventory_data, content=config.share_content_data
-            ),
+            sharing=sharing,
         )
     if isinstance(context, WorkflowCanvasContext):
         registry = getattr(request.app.state, "plugin_service", None)

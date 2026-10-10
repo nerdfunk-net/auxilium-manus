@@ -376,7 +376,7 @@ def test_saved_data_sharing_switches_reach_the_run_surface(
     }
     client.post("/api/ai/chat", json=body)
 
-    assert "shares with you: content data" in str(seen["system"])
+    assert "shares with you: run and device content" in str(seen["system"])
 
 
 def test_run_viewer_rejects_a_bad_run_id(client: TestClient) -> None:
@@ -385,5 +385,29 @@ def test_run_viewer_rejects_a_bad_run_id(client: TestClient) -> None:
         "messages": [{"role": "user", "content": "hi"}],
         "context": {"surface": "run_viewer", "run_id": 0},
     }
+
+    assert client.post("/api/ai/chat", json=body).status_code == 422
+
+
+def test_inventory_context_gets_the_inventory_tools(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _configure(client)
+    seen = _capture_chat(monkeypatch)
+
+    body = {
+        "messages": [{"role": "user", "content": "how many core switches"}],
+        "context": {"surface": "inventory", "source_id": "nb"},
+    }
+    response = client.post("/api/ai/chat", json=body)
+
+    assert response.status_code == 200
+    assert "resolve_inventory" in seen["tools"] and "propose_workflow" not in seen["tools"]
+    assert "nothing about individual devices" in str(seen["system"])
+
+
+def test_inventory_context_requires_a_source(client: TestClient) -> None:
+    _configure(client)
+    body = {"messages": [{"role": "user", "content": "hi"}], "context": {"surface": "inventory"}}
 
     assert client.post("/api/ai/chat", json=body).status_code == 422

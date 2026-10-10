@@ -23,6 +23,7 @@ from models.ai_assistant import (
 )
 from repositories.user_ai_settings_repository import UserAiSettingsRepository
 from services.ai_assistant.base_url_policy import BaseUrlPolicyError, validate_llm_base_url
+from services.ai_assistant.data_sharing import SharingPolicy
 from services.ai_assistant.exceptions import (
     AiAssistantDisabledError,
     AiAssistantNotConfiguredError,
@@ -140,6 +141,15 @@ class _SettingsRepository(Protocol):
     def upsert(self, user_id: int, values: dict[str, Any]) -> Any: ...
 
 
+SHARE_FLAGS = (
+    "share_inventory_data",
+    "share_device_addresses",
+    "share_custom_fields",
+    "share_config_context",
+    "share_content_data",
+)
+
+
 @dataclass(frozen=True)
 class AiRuntimeConfig:
     """Everything the chat path needs. ``api_key`` is excluded from ``repr``."""
@@ -150,6 +160,19 @@ class AiRuntimeConfig:
     api_key: str = field(repr=False)
     share_inventory_data: bool
     share_content_data: bool
+    share_device_addresses: bool = False
+    share_custom_fields: bool = False
+    share_config_context: bool = False
+
+    @property
+    def sharing(self) -> SharingPolicy:
+        return SharingPolicy(
+            inventory=self.share_inventory_data,
+            addresses=self.share_device_addresses,
+            custom_fields=self.share_custom_fields,
+            config_context=self.share_config_context,
+            content=self.share_content_data,
+        )
 
 
 class AiSettingsService:
@@ -177,6 +200,9 @@ class AiSettingsService:
                 api_key_set=False,
                 configured=False,
                 share_inventory_data=False,
+                share_device_addresses=False,
+                share_custom_fields=False,
+                share_config_context=False,
                 share_content_data=False,
                 available_providers=list(ENABLED_PROVIDERS),
                 available_models=_available_models(),
@@ -189,6 +215,9 @@ class AiSettingsService:
             api_key_set=_has_key(row),
             configured=_is_configured(row),
             share_inventory_data=bool(row.share_inventory_data),
+            share_device_addresses=bool(row.share_device_addresses),
+            share_custom_fields=bool(row.share_custom_fields),
+            share_config_context=bool(row.share_config_context),
             share_content_data=bool(row.share_content_data),
             available_providers=list(ENABLED_PROVIDERS),
             available_models=_available_models(),
@@ -244,6 +273,9 @@ class AiSettingsService:
             base_url=row.base_url,
             api_key=self.resolve_api_key(user_id) or "",
             share_inventory_data=bool(row.share_inventory_data),
+            share_device_addresses=bool(row.share_device_addresses),
+            share_custom_fields=bool(row.share_custom_fields),
+            share_config_context=bool(row.share_config_context),
             share_content_data=bool(row.share_content_data),
         )
 
@@ -269,10 +301,9 @@ class AiSettingsService:
             values["enabled"] = data.enabled
         if data.provider is not None:
             values["provider"] = data.provider
-        if data.share_inventory_data is not None:
-            values["share_inventory_data"] = data.share_inventory_data
-        if data.share_content_data is not None:
-            values["share_content_data"] = data.share_content_data
+        for flag in SHARE_FLAGS:
+            if getattr(data, flag) is not None:
+                values[flag] = getattr(data, flag)
         if data.api_key is not None or data.clear_api_key:
             keys = _key_map(existing)
             if data.api_key is not None:

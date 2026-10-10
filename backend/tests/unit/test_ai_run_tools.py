@@ -139,7 +139,7 @@ def test_surface_offers_only_read_tools() -> None:
 
 def test_prompt_states_what_is_shared() -> None:
     assert "shares with you: nothing" in _session().system
-    assert "inventory data, content data" in _session(inventory=True, content=True).system
+    assert "device basics, run and device content" in _session(inventory=True, content=True).system
     assert "run 7 open" in _session().system
 
 
@@ -179,6 +179,46 @@ def test_step_result_opted_in_shows_values_but_redacts_secret_keys() -> None:
 
     assert "HQ" in out.content and "17.3" in out.content and "timeout talking" in out.content
     assert "x1y2z3w4v5" not in out.content
+
+
+def test_run_attributes_hide_address_and_custom_field_keys_without_their_switch() -> None:
+    class Bags(FakeRunReader):
+        async def get_run(self, run_id):
+            device = STEP["output"]["outcomes"]["failed"]["devices"]["d1"]
+            bag = {
+                "nautobot": {
+                    "site": "HQ",
+                    "primary_ip4": "10.9.9.9",
+                    "custom_fields": {"owner": "net-team"},
+                }
+            }
+            patched = {
+                **STEP,
+                "output": {
+                    "outcomes": {"failed": {"devices": {"d1": {**device, "attribute_bags": bag}}}}
+                },
+            }
+            return {**RUN, "step_results": [patched]}
+
+    def build(**flags):
+        return build_run_viewer_session(
+            user_id=1,
+            context=RunViewerContext(surface="run_viewer", run_id=7),
+            reader=Bags(),
+            sharing=SharingPolicy(inventory=True, **flags),
+        )
+
+    base = _call(build(), "get_step_result", node_id="cmd-1", include=["attributes"])
+    full = _call(
+        build(addresses=True, custom_fields=True),
+        "get_step_result",
+        node_id="cmd-1",
+        include=["attributes"],
+    )
+
+    assert "HQ" in base.content and "10.9.9.9" not in base.content
+    assert "net-team" not in base.content and "device_addresses" in base.content
+    assert "10.9.9.9" in full.content and "net-team" in full.content
 
 
 def test_inventory_optin_alone_does_not_leak_content() -> None:

@@ -496,3 +496,51 @@ pass-throughs, `InterfaceManagerService`, `DeviceUpdateService.update_device`, `
 - **Request-model strictness for the Secret Manager and auth models** is done; see the Q7 entry above
   for the other 82.
 
+
+---
+
+## AI assistant: keep the session while the user works
+
+**Added:** 2026-10-10
+
+- **The panel loses its state on navigation.** The assistant panel (open/closed, chat messages, tool
+  chips, pending proposals) lives in component state, so going from the runs page to the canvas and
+  back shows it collapsed and empty. Accepted for the first version (history is stateless and
+  client-held, `doc/ai_integration/AI_ASSISTANT.md` §13 decision 3).
+- **To do:** store the session while the user is working, per surface (template editor, workflow
+  builder, runs page), at least across navigation within one browser session. Options: a Zustand store
+  keyed by surface (and workflow / run id) with the open state, or `sessionStorage`. Decide whether a
+  pending proposal survives (its stale-canvas fingerprint check must still work) and when the session is
+  cleared (explicit "clear", logout, switching workflow). Server-side persistence is a separate, later
+  decision and would need the conversation tables §7 deliberately left out.
+
+---
+
+## AI assistant: Nautobot GraphQL queries
+
+**Added:** 2026-10-10
+
+- **Today** the inventory assistant (`doc/ai_integration/AI_ASSISTANT.md` §15) works from saved
+  inventories (`resolve_inventory`), a name search and the attributes of one device. It cannot answer
+  open questions such as "which devices are located in City A?" unless an inventory with that filter
+  already exists.
+- **To do:** let the assistant run read-only GraphQL queries against the Nautobot source, as the calling
+  user, to answer such questions.
+- **Design points to settle first:**
+  - *Read-only:* accept queries only (no mutations; reject `mutation` / `subscription` operations by
+    parsing the document, not by string matching) and keep it a pure read, like every other tool.
+  - *Opt-in:* results are class B, so they must pass the same gates as the other inventory tools
+    (§16): a result may contain only fields of categories the user enabled (basics, addresses, custom
+    fields, config context). Filtering the selection set before sending is safer than filtering the
+    response; unknown fields should be refused, not passed through.
+  - *Bounds:* depth and complexity limit, a result row cap with a "N more" note, a timeout, and a
+    per-user rate limit (`rate_limited(...)`), since each query hits Nautobot.
+  - *Schema help:* a curated reference or a schema-introspection tool so the model writes valid queries
+    instead of guessing field names (compare `get_template_reference`).
+  - *Alternative to raw GraphQL:* a few structured tools (`find_devices(location=, role=, platform=)`)
+    on top of the existing `NautobotSourceService`. They are easier to gate and validate, but less
+    flexible. Decide whether raw GraphQL is worth the extra risk. Note that the project's rule
+    "no client-side GraphQL" (`doc/claude/frontend.md`) concerns the browser; the backend already uses
+    GraphQL internally.
+  - *Proposal flow:* a query that is useful to keep (a filter) could later become an inventory-filter
+    proposal the user reviews and saves.

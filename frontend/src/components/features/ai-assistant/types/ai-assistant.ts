@@ -24,6 +24,10 @@ export interface AiSettings {
   /** Ready to use: a key (hosted providers) or a base URL + model (OpenAI-compatible). */
   configured: boolean;
   share_inventory_data: boolean;
+  /** Finer opt-ins inside inventory data; only effective while share_inventory_data is on. */
+  share_device_addresses: boolean;
+  share_custom_fields: boolean;
+  share_config_context: boolean;
   share_content_data: boolean;
   available_providers: AiProvider[];
   available_models: Record<string, AiModelOption[]>;
@@ -38,6 +42,9 @@ export interface AiSettingsUpdate {
   api_key?: string;
   clear_api_key?: boolean;
   share_inventory_data?: boolean;
+  share_device_addresses?: boolean;
+  share_custom_fields?: boolean;
+  share_config_context?: boolean;
   share_content_data?: boolean;
 }
 
@@ -87,8 +94,17 @@ export interface RunViewerContext {
   run_id: number | null;
 }
 
+/** The inventory page: the Nautobot source it uses. Read-only surface. */
+export interface InventoryContext {
+  surface: "inventory";
+  source_id: string;
+}
+
 export type AssistantContext =
-  TemplateEditorContext | WorkflowCanvasContext | RunViewerContext;
+  | TemplateEditorContext
+  | WorkflowCanvasContext
+  | RunViewerContext
+  | InventoryContext;
 
 export type ToolStatus = "running" | "done" | "error";
 
