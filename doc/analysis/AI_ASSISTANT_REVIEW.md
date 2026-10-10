@@ -295,10 +295,11 @@ fragment), M1 (token relocation).
 | M3 render threads | **Fixed** | The trial render runs in a child process (`render_isolated.py` + `render_worker.py`, started with `python -I`) that is killed at the 5 s timeout and has CPU (5 s) and address-space (1 GiB, Linux) limits. At most 4 renders run at once (otherwise a "busy" error). The sandbox also caps `*` and `**` results (`_BoundedSandbox`), so `{{ 'a' * 10**9 }}` is refused. Tests: `test_ai_render_isolation.py`. The editor preview and Hatchet template steps are unchanged (see OPEN_TODOS). |
 | L1 blocking test endpoint | **Fixed** | Config lookup runs in `asyncio.to_thread`. |
 | L2 prompt guidance | **Fixed** | Template and workflow prompts now state that tool results are data; test covers all four surfaces. |
-| L3 usage on failed turns, L4 abort propagation | Open | |
+| L3 usage on failed turns | **Fixed** | `run_agent` emits a cumulative `usage` event after every provider turn (before any error is raised), so the audit line carries the tokens of cut-off / too-many-steps / provider-error turns. The client ignores `usage`, so no UI change. |
+| L4 abort propagation | **Fixed and verified** | `lib/api-proxy.ts` now passes `request.signal` to the backend `fetch`. Backend: a disconnect cancels the stream, closes the provider client and audits `outcome=aborted`. Checked against a real uvicorn server with a client that dropped the connection (script not committed); unit tests cover the audit and close. **Not checked:** Next's own cancellation in a browser or production build. |
 | D1, D2, D6, D7 | **Done** | Legacy key-blob fallback and its test removed; no-op `register_secret_value` removed; `unavailable()` lost its unused argument; misplaced comment moved. |
 | D3, D4, D5, D8, D9 and function splits | Open | |
-| §5 reader tests | **Done** | `tests/unit/test_ai_db_readers.py` (15 tests). Reader coverage is now 80–100 % (was 33–55 %); `registry.py` 100 %. The frontend hook and card tests are still missing. |
+| §5 reader tests | **Done** | `tests/unit/test_ai_db_readers.py` (15 tests). Reader coverage is now 80–100 % (was 33–55 %); `registry.py` 100 %. Frontend: `use-assistant-chat.test.tsx` (17), `template-proposal-card.test.tsx` (7) and `workflow-proposal-card.test.tsx` (11) added; I broke the code five ways (wrong fingerprint, missing interrupted check, stop not clearing the abort ref, no stale warning, warning after apply) and each was caught. **Still missing:** tests for the settings form (write-only key, `clear_api_key`, admin-only server URL, sharing confirm dialog) and an end-to-end browser test. |
 
 Verification after the changes: 5196 backend tests pass, ruff, pyright and the four guards are clean,
 and `tsc`, eslint, Prettier and vitest are clean.

@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
+import pytest
 from pydantic import BaseModel, ConfigDict
 
 from services.ai_assistant.agent_loop import MAX_TOOL_STEPS, run_agent
@@ -12,6 +13,7 @@ from services.ai_assistant.chat_service import stream_chat
 from services.ai_assistant.events import ChatEvent
 from services.ai_assistant.providers.base import (
     ChatMessage,
+    ProviderRequestError,
     StreamEvent,
     ToolCall,
 )
@@ -109,13 +111,19 @@ def test_tool_round_trip_feeds_results_back_and_echoes_raw_blocks() -> None:
     names = [(e.event, e.data.get("status") or e.data.get("text")) for e in events]
     assert names == [
         ("text", "Checking."),
+        ("usage", None),
         ("tool", "running"),
         ("tool", "done"),
         ("text", "\n\n"),
         ("text", "Done."),
         ("usage", None),
     ]
-    assert events[-1].data == {"input_tokens": 30, "output_tokens": 7}
+    # Usage is reported after every provider turn, cumulatively.
+    usages = [e.data for e in events if e.event == "usage"]
+    assert usages == [
+        {"input_tokens": 10, "output_tokens": 3},
+        {"input_tokens": 30, "output_tokens": 7},
+    ]
     second = provider.calls[1]["messages"]
     assert second[-2].role == "assistant" and second[-2].raw == "RAW1"
     assert second[-2].tool_calls[0].name == "echo"
@@ -180,7 +188,7 @@ def test_cut_off_response_with_tool_call_does_not_run_the_tool() -> None:
     events = asyncio.run(go())
 
     assert ran == []
-    assert events[0].event == "error"
+    assert [e.event for e in events] == ["usage", "error", "done"]
 
 
 def test_without_a_toolbox_tool_calls_are_ignored_and_the_turn_ends() -> None:
@@ -233,3 +241,24 @@ def test_tool_spec_is_a_json_schema_object() -> None:
     assert spec.input_schema["type"] == "object"
     assert spec.input_schema["properties"]["value"]["type"] == "string"
     assert spec.input_schema["additionalProperties"] is False
+
+
+def test_usage_is_reported_before_a_turn_that_then_fails() -> None:
+    provider = ScriptedProvider([[_text("cut"), _turn(stop="max_tokens", i=50, o=16000)]])
+    events: list[ChatEvent] = []
+
+    async def go() -> None:
+        async for event in run_agent(
+            provider=provider,
+            model="m",
+            system="s",
+            messages=[ChatMessage(role="user", content="hi")],
+            toolbox=None,
+        ):
+            events.append(event)
+
+    with pytest.raises(ProviderRequestError):
+        asyncio.run(go())
+
+    assert events[-1].event == "usage"
+    assert events[-1].data == {"input_tokens": 50, "output_tokens": 16000}

@@ -32,7 +32,8 @@ async def run_agent(
     messages: list[ChatMessage],
     toolbox: Toolbox | None,
 ) -> AsyncIterator[ChatEvent]:
-    """Yields ``text`` / ``tool`` / ``proposal`` / ``usage`` events. Provider errors propagate."""
+    """Yields ``text`` / ``tool`` / ``proposal`` events and a cumulative ``usage`` after every
+    provider turn. Provider errors propagate."""
     conversation = list(messages)
     specs = toolbox.specs() if toolbox is not None else []
     input_tokens = 0
@@ -64,6 +65,9 @@ async def run_agent(
             raise ProviderUnavailableError("The provider returned no response")
         input_tokens += turn.input_tokens
         output_tokens += turn.output_tokens
+        # After every provider turn (cumulative), not once at the end: a turn that then fails
+        # (cut off, too many steps) has still spent the tokens, and the audit must see them.
+        yield ChatEvent("usage", {"input_tokens": input_tokens, "output_tokens": output_tokens})
 
         if turn.stop_reason == "max_tokens":
             raise ProviderRequestError("The response was cut off; try a shorter request")
@@ -100,5 +104,3 @@ async def run_agent(
                 yield ChatEvent("proposal", output.proposal)
             results.append(ToolResult(call.id, output.content, output.is_error))
         conversation.append(ChatMessage(role="user", tool_results=tuple(results)))
-
-    yield ChatEvent("usage", {"input_tokens": input_tokens, "output_tokens": output_tokens})

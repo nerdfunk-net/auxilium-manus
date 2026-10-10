@@ -18,6 +18,7 @@ from services.ai_assistant.chat_service import stream_chat
 from services.ai_assistant.data_sharing import SharingPolicy
 from services.ai_assistant.providers.base import (
     ChatMessage,
+    ProviderRequestError,
     StreamEvent,
     ToolCall,
 )
@@ -167,6 +168,66 @@ def test_each_turn_writes_one_audit_line_without_content(
     assert "user_id=7" in line and "surface=inventory" in line and "tools=resolve_inventory" in line
     assert "withheld=inventory_data" in line and "input_tokens=20" in line
     assert "outcome=ok" in line and "sw-0" not in line and "answer" not in line
+
+
+def test_a_turn_that_fails_after_spending_tokens_still_audits_the_usage(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    class SpendsThenFails:
+        calls = 0
+
+        async def stream(self, **kwargs):
+            type(self).calls += 1
+            if type(self).calls == 1:
+                yield StreamEvent(
+                    type="turn",
+                    tool_calls=(ToolCall("c1", "resolve_inventory", {"inventory_id": 1}),),
+                    stop_reason="tool_use",
+                    input_tokens=40,
+                    output_tokens=5,
+                )
+            else:
+                raise ProviderRequestError("The response was cut off")
+
+    audit = AuditContext(user_id=1, surface="inventory", provider="anthropic", model="m")
+
+    with caplog.at_level(logging.INFO, logger="ai_assistant.audit"):
+        _collect(CONFIG, SpendsThenFails(), _inventory_toolbox(), audit)
+
+    assert "input_tokens=40 output_tokens=5" in caplog.text
+    assert "outcome=error:provider_bad_request" in caplog.text
+
+
+def test_an_aborted_stream_is_audited_and_closes_the_provider(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    class Slow:
+        closed = False
+
+        async def aclose(self) -> None:
+            type(self).closed = True
+
+        async def stream(self, **kwargs):
+            yield StreamEvent(type="text", text="partial")
+            await asyncio.sleep(60)
+
+    audit = AuditContext(user_id=1, surface="plain", provider="anthropic", model="m")
+
+    async def go() -> None:
+        stream = stream_chat(
+            CONFIG,
+            [ChatMessage(role="user", content="hi")],
+            provider_factory=lambda *_a, **_k: Slow(),
+            audit=audit,
+        )
+        assert (await anext(stream)).event == "text"
+        await stream.aclose()  # what Starlette does when the client disconnects
+
+    with caplog.at_level(logging.INFO, logger="ai_assistant.audit"):
+        asyncio.run(go())
+
+    assert Slow.closed
+    assert "outcome=aborted" in caplog.text
 
 
 def test_a_failed_turn_is_audited_with_its_error_code(caplog: pytest.LogCaptureFixture) -> None:

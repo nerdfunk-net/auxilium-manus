@@ -92,4 +92,24 @@ describe("proxyRequest", () => {
     expect(sentHeaders.get("x-real-ip")).toBeNull();
     expect(sentHeaders.get("forwarded")).toBeNull();
   });
+
+  it("cancels the backend request when the browser request is aborted", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response("ok", { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const controller = new AbortController();
+
+    await proxyRequest({
+      path: ["ai", "chat"],
+      request: new Request("http://next.internal/api/proxy/ai/chat", {
+        method: "POST",
+        body: "{}",
+        signal: controller.signal,
+      }),
+    });
+
+    const sentSignal = fetchMock.mock.calls[0][1].signal as AbortSignal;
+    expect(sentSignal.aborted).toBe(false);
+    controller.abort();
+    expect(sentSignal.aborted).toBe(true);
+  });
 });

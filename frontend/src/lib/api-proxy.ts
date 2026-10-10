@@ -61,6 +61,9 @@ export async function proxyRequest({
       headers,
       method: request.method,
       redirect: "manual",
+      // Cancel the backend request when the browser goes away (e.g. the AI assistant's Stop
+      // button), so a streaming response does not keep running and spending quota.
+      signal: request.signal,
     });
 
     return toNextResponse(backendResponse);

@@ -7,6 +7,7 @@ short-lived ones of their own.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections.abc import AsyncIterator, Callable
 from typing import Any
@@ -46,6 +47,12 @@ async def stream_chat(
             if turn is not None:
                 turn.observe(event)
             yield event
+    except GeneratorExit, asyncio.CancelledError:
+        # The client went away (Stop, closed tab, dropped connection); the loop ends here and the
+        # provider call is cancelled with it.
+        if turn is not None:
+            turn.outcome = "aborted"
+        raise
     finally:
         if turn is not None:
             turn.log()
