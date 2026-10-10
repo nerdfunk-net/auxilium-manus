@@ -123,8 +123,18 @@ class WorkflowCanvasContext(BaseModel):
         return self
 
 
+class RunViewerContext(BaseModel):
+    """The workflow runs page: which run (if any) the user has open. Read-only surface."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    surface: Literal["run_viewer"]
+    run_id: int | None = Field(default=None, ge=1)
+
+
 AssistantContext = Annotated[
-    TemplateEditorContext | WorkflowCanvasContext, Field(discriminator="surface")
+    TemplateEditorContext | WorkflowCanvasContext | RunViewerContext,
+    Field(discriminator="surface"),
 ]
 
 

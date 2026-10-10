@@ -50,6 +50,11 @@ const TOOL_LABELS: Record<string, string> = {
   list_references: "Looking up credentials, repositories and sources",
   validate_workflow: "Validating the workflow",
   propose_workflow: "Preparing a proposal",
+  get_run: "Reading the run",
+  get_step_result: "Reading a step's result",
+  get_artifact: "Reading stored output",
+  list_run_events: "Reading run events",
+  get_run_workflow: "Reading the workflow definition",
 };
 
 function toolLabel(name: string): string {

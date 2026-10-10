@@ -24,12 +24,14 @@ from core.rate_limit import rate_limited
 from models.ai_assistant import (
     AiStatusResponse,
     ChatRequest,
+    RunViewerContext,
     TemplateEditorContext,
     UserAiSettingsResponse,
     UserAiSettingsUpdate,
     WorkflowCanvasContext,
 )
 from services.ai_assistant.chat_service import ChatEvent, check_connection, stream_chat
+from services.ai_assistant.data_sharing import SharingPolicy
 from services.ai_assistant.exceptions import (
     AiAssistantDisabledError,
     AiAssistantError,
@@ -38,9 +40,11 @@ from services.ai_assistant.exceptions import (
 )
 from services.ai_assistant.prompts import BASE_SYSTEM_PROMPT
 from services.ai_assistant.providers.base import ChatMessage
+from services.ai_assistant.run_reader import DbRunReader
 from services.ai_assistant.settings_service import AiRuntimeConfig, AiSettingsService
 from services.ai_assistant.surfaces import (
     AssistantSession,
+    build_run_viewer_session,
     build_template_editor_session,
     build_workflow_editor_session,
 )
@@ -75,8 +79,20 @@ def _raise_http(exc: AiAssistantError) -> NoReturn:
 
 
 def _session_for(
-    context: TemplateEditorContext | WorkflowCanvasContext, user: User, request: Request
+    context: TemplateEditorContext | WorkflowCanvasContext | RunViewerContext,
+    user: User,
+    request: Request,
+    config: AiRuntimeConfig,
 ) -> AssistantSession:
+    if isinstance(context, RunViewerContext):
+        return build_run_viewer_session(
+            user_id=user.id,
+            context=context,
+            reader=DbRunReader(user.id),
+            sharing=SharingPolicy(
+                inventory=config.share_inventory_data, content=config.share_content_data
+            ),
+        )
     if isinstance(context, WorkflowCanvasContext):
         registry = getattr(request.app.state, "plugin_service", None)
         if registry is None:
@@ -170,7 +186,7 @@ def chat(
     system = BASE_SYSTEM_PROMPT
     toolbox: Toolbox | None = None
     if body.context is not None:
-        session = _session_for(body.context, current_user, request)
+        session = _session_for(body.context, current_user, request, config)
         system, toolbox = session.system, session.toolbox
 
     async def event_stream() -> AsyncIterator[str]:

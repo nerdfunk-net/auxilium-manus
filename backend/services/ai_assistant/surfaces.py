@@ -9,14 +9,17 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 
-from models.ai_assistant import TemplateEditorContext, WorkflowCanvasContext
+from models.ai_assistant import RunViewerContext, TemplateEditorContext, WorkflowCanvasContext
+from services.ai_assistant.data_sharing import DeviceLabeler, SharingPolicy
 from services.ai_assistant.prompts import (
     BASE_SYSTEM_PROMPT,
+    RUN_VIEWER_PROMPT,
     TEMPLATE_EDITOR_PROMPT,
     WORKFLOW_EDITOR_PROMPT,
 )
 from services.ai_assistant.redaction import Redactor
 from services.ai_assistant.tools.base import Toolbox, ToolContext
+from services.ai_assistant.tools.run_tools import RUN_VIEWER_TOOLS, RunReader, RunViewerState
 from services.ai_assistant.tools.template_tools import (
     TEMPLATE_EDITOR_TOOLS,
     TemplateEditorState,
@@ -111,3 +114,31 @@ def build_workflow_editor_session(
     )
     system = "\n\n".join([BASE_SYSTEM_PROMPT, WORKFLOW_EDITOR_PROMPT, canvas_block])
     return AssistantSession(system=system, toolbox=Toolbox(WORKFLOW_EDITOR_TOOLS, tool_context))
+
+
+def build_run_viewer_session(
+    *,
+    user_id: int,
+    context: RunViewerContext,
+    reader: RunReader,
+    sharing: SharingPolicy,
+) -> AssistantSession:
+    state = RunViewerState(run_id=context.run_id, reader=reader, labeler=DeviceLabeler(sharing))
+    tool_context = ToolContext(
+        user_id=user_id, redactor=Redactor(), extras={"run_viewer": state}, sharing=sharing
+    )
+    opened = (
+        f"The user has run {context.run_id} open."
+        if context.run_id is not None
+        else "No run is open; ask which run (id) to look at."
+    )
+    shared = [
+        name
+        for name, on in (("inventory data", sharing.inventory), ("content data", sharing.content))
+        if on
+    ]
+    sharing_line = (
+        f"Data the user shares with you: {', '.join(shared) if shared else 'nothing'}."
+    )
+    system = "\n\n".join([BASE_SYSTEM_PROMPT, RUN_VIEWER_PROMPT, opened, sharing_line])
+    return AssistantSession(system=system, toolbox=Toolbox(RUN_VIEWER_TOOLS, tool_context))

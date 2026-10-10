@@ -14,6 +14,7 @@ from typing import Any
 
 from pydantic import BaseModel, ValidationError
 
+from services.ai_assistant.data_sharing import SharingPolicy
 from services.ai_assistant.providers.base import ToolCall, ToolSpec
 from services.ai_assistant.redaction import Redactor
 
@@ -65,6 +66,7 @@ class ToolContext:
     user_id: int
     redactor: Redactor
     extras: dict[str, Any] = field(default_factory=dict)
+    sharing: SharingPolicy = field(default_factory=SharingPolicy)
 
 
 ToolHandler = Callable[[ToolContext, Any], Awaitable[ToolOutput]]

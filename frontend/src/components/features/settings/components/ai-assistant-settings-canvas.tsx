@@ -11,6 +11,7 @@ import { useAiAssistantAvailable } from "@/components/features/ai-assistant/hook
 import type {
   AiModelOption,
   AiProvider,
+  AiSettings,
 } from "@/components/features/ai-assistant/types/ai-assistant";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -33,14 +34,9 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import { PROVIDER_LABELS } from "@/components/features/ai-assistant/constants/providers";
 import { useAiSettingsMutations } from "@/hooks/queries/use-ai-settings-mutations";
 import { useAiSettingsQuery } from "@/hooks/queries/use-ai-settings-query";
-
-const PROVIDER_LABELS: Record<AiProvider, string> = {
-  anthropic: "Anthropic (Claude)",
-  gemini: "Google Gemini",
-  openai_compat: "OpenAI-compatible (Ollama, LM Studio, …)",
-};
 
 const formSchema = z
   .object({
@@ -62,34 +58,36 @@ type FormValues = z.infer<typeof formSchema>;
 
 const EMPTY_MODEL_OPTIONS: AiModelOption[] = [];
 
-const EMPTY_DEFAULTS: FormValues = {
-  enabled: false,
-  provider: "anthropic",
-  model: "",
-  base_url: "",
-  api_key: "",
-  share_inventory_data: false,
-  share_content_data: false,
-};
-
 export function AiAssistantSettingsCanvas() {
   const { data: settings, isLoading } = useAiSettingsQuery();
+
+  if (isLoading || !settings) {
+    return (
+      <div className="flex h-full items-center justify-center bg-muted">
+        <Loader2 className="size-5 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  // The form is created only once the settings exist, so its first render already holds the
+  // stored model. Starting empty and filling it in later left the model Select showing nothing.
+  return <AiAssistantSettingsForm settings={settings} />;
+}
+
+function AiAssistantSettingsForm({ settings }: { settings: AiSettings }) {
   const { saveSettings, testConnection } = useAiSettingsMutations();
   const available = useAiAssistantAvailable();
 
   const defaultValues = useMemo<FormValues>(
-    () =>
-      settings
-        ? {
-            enabled: settings.enabled,
-            provider: settings.provider,
-            model: settings.model,
-            base_url: settings.base_url ?? "",
-            api_key: "",
-            share_inventory_data: settings.share_inventory_data,
-            share_content_data: settings.share_content_data,
-          }
-        : EMPTY_DEFAULTS,
+    () => ({
+      enabled: settings.enabled,
+      provider: settings.provider,
+      model: settings.model,
+      base_url: settings.base_url ?? "",
+      api_key: "",
+      share_inventory_data: settings.share_inventory_data,
+      share_content_data: settings.share_content_data,
+    }),
     [settings],
   );
 
@@ -128,9 +126,9 @@ export function AiAssistantSettingsCanvas() {
     [testConnection],
   );
 
-  const keySet = settings?.api_key_set ?? false;
-  const configured = settings?.configured ?? false;
-  const providers = settings?.available_providers ?? [];
+  const keySet = settings.api_key_set ?? false;
+  const configured = settings.configured ?? false;
+  const providers = settings.available_providers ?? [];
   const dirty = form.formState.isDirty;
   const selectedProvider = useWatch({
     control: form.control,
@@ -138,7 +136,7 @@ export function AiAssistantSettingsCanvas() {
   });
   const selectedModelId = useWatch({ control: form.control, name: "model" });
   const modelOptions =
-    settings?.available_models[selectedProvider] ?? EMPTY_MODEL_OPTIONS;
+    settings.available_models[selectedProvider] ?? EMPTY_MODEL_OPTIONS;
   const selectedModel = modelOptions.find(
     (option) => option.id === selectedModelId,
   );
@@ -148,20 +146,12 @@ export function AiAssistantSettingsCanvas() {
     (provider: AiProvider) => {
       form.setValue("provider", provider, { shouldDirty: true });
       // A model id (or server URL) from another provider is meaningless here.
-      const first = settings?.available_models[provider]?.[0];
+      const first = settings.available_models[provider]?.[0];
       form.setValue("model", first?.id ?? "", { shouldDirty: true });
       form.setValue("base_url", "", { shouldDirty: true });
     },
     [form, settings],
   );
-
-  if (isLoading) {
-    return (
-      <div className="flex h-full items-center justify-center bg-muted">
-        <Loader2 className="size-5 animate-spin text-muted-foreground" />
-      </div>
-    );
-  }
 
   return (
     <div className="flex h-full flex-col gap-6 overflow-y-auto bg-muted p-8">

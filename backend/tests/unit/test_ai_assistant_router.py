@@ -331,3 +331,59 @@ def test_oversized_workflow_canvas_is_rejected(client: TestClient) -> None:
     }
 
     assert client.post("/api/ai/chat", json=body).status_code == 422
+
+
+def _capture_chat(monkeypatch: pytest.MonkeyPatch) -> dict[str, object]:
+    seen: dict[str, object] = {}
+
+    async def fake_stream(config, messages, **kwargs):
+        seen["tools"] = [spec.name for spec in kwargs["toolbox"].specs()]
+        seen["system"] = kwargs["system"]
+        yield ChatEvent("done", {})
+
+    monkeypatch.setattr(ai_router_module, "stream_chat", fake_stream)
+    return seen
+
+
+def test_run_viewer_context_gets_read_only_run_tools(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _configure(client)
+    seen = _capture_chat(monkeypatch)
+
+    body = {
+        "messages": [{"role": "user", "content": "why did it fail"}],
+        "context": {"surface": "run_viewer", "run_id": 5},
+    }
+    response = client.post("/api/ai/chat", json=body)
+
+    assert response.status_code == 200
+    assert "get_step_result" in seen["tools"] and "propose_workflow" not in seen["tools"]
+    assert "run 5 open" in str(seen["system"])
+    assert "shares with you: nothing" in str(seen["system"])
+
+
+def test_saved_data_sharing_switches_reach_the_run_surface(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _configure(client)
+    client.patch("/api/ai/settings", json={"share_content_data": True})
+    seen = _capture_chat(monkeypatch)
+
+    body = {
+        "messages": [{"role": "user", "content": "hi"}],
+        "context": {"surface": "run_viewer"},
+    }
+    client.post("/api/ai/chat", json=body)
+
+    assert "shares with you: content data" in str(seen["system"])
+
+
+def test_run_viewer_rejects_a_bad_run_id(client: TestClient) -> None:
+    _configure(client)
+    body = {
+        "messages": [{"role": "user", "content": "hi"}],
+        "context": {"surface": "run_viewer", "run_id": 0},
+    }
+
+    assert client.post("/api/ai/chat", json=body).status_code == 422

@@ -81,7 +81,14 @@ export interface WorkflowCanvasContext {
   static_attributes: Record<string, unknown>[];
 }
 
-export type AssistantContext = TemplateEditorContext | WorkflowCanvasContext;
+/** The runs page: the run (if any) the user has open. Read-only surface. */
+export interface RunViewerContext {
+  surface: "run_viewer";
+  run_id: number | null;
+}
+
+export type AssistantContext =
+  TemplateEditorContext | WorkflowCanvasContext | RunViewerContext;
 
 export type ToolStatus = "running" | "done" | "error";
 

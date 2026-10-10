@@ -1,11 +1,13 @@
 # In-App AI Assistant — Requirements & Design
 
-Status (2026-10-10): **phases 1-4 are implemented.** Phases 1-2 (settings, Claude, template
-assistant) are verified by the product owner against the real Claude API. Phase 3 (Gemini,
-OpenAI-compatible) and phase 4 (workflow canvas assistant) are covered by unit/contract tests and
-by checks against the real validator, registry and dev database, but not yet by a real model run or
-a browser session. Phase 5 (explain & query) and phase 6 (hardening) are not started. §12 lists what
-was built and verified per phase, §13 the recorded decisions.
+Status (2026-10-10): **phases 1-4 are implemented, phase 5 is half done.** Phases 1-3 (settings,
+Claude, template assistant, Gemini, Ollama/OpenAI-compatible) are verified by the product owner
+against real providers. Phase 4 (workflow canvas assistant) is covered by unit/contract tests and by
+checks against the real validator, registry and dev database, but not yet by a real model run or a
+browser session. Phase 5: the **run explainer** (run tools, opt-in enforcement, runs-page panel) is
+built and checked against real run rows; **inventory / device-attribute queries are not started**.
+Phase 6 (hardening) is not started. §12 lists what was built and verified per phase, §13 the
+recorded decisions.
 
 This document describes an AI assistant built *into* the app. It is distinct from
 `doc/ai_collaboration/` (an external AI coding session such as Claude Code driving
@@ -197,10 +199,20 @@ All tools take/return JSON, run as the calling user, and have bounded output siz
 | `validate_workflow` | workflow | The four validation tiers on a plan, without proposing |
 | `propose_workflow` | workflow | Expand + validate; emits a `proposal` only when error-free |
 
-**Planned (phase 5, read-only):** `get_run` / `get_step_result` (metadata always; content data only
-with the opt-in), `resolve_inventory`, `get_device_attributes`, and a way to read a saved workflow
-other than the open one. These are the first class B/C tools, so they ship only together with the
-opt-in enforcement of §4.2 and the injection corpus.
+**Built (phase 5, run explainer, surface `run_viewer`)** - see §14. All read-only; the first class B/C
+tools, so every value of those classes passes the opt-in of §4.2:
+
+| Tool | Purpose |
+|------|---------|
+| `get_run` | Status, timings, error category, every step, fan-out groups |
+| `get_step_result` | One step per outcome and device: status, capabilities, commands + artifact ids; `include` = `attributes` (B) / `parsed` (C) |
+| `get_artifact` | Stored command output / config text (C), truncated at 8000 chars |
+| `list_run_events` | Live run events; message text is C |
+| `get_run_workflow` | The run's workflow as the compact view (A), "as saved now" |
+
+**Planned (phase 5, not started):** `resolve_inventory` and `get_device_attributes` (class B) for
+inventory questions, and a way to read a saved workflow other than the open one. They need an entry
+point that is not the runs page (see §13 open questions).
 
 Rule for new tools: if it cannot be classified as "pure read" or "proposal", it does not
 ship in this feature.
@@ -386,7 +398,8 @@ could do by hand. P2 (grant only what you hold) applies as usual when granting i
 3. **Gemini + openai_compat adapters** *(done)*: same tools, contract tests across all providers.
 4. **Workflow canvas assistant** *(done)*: step catalogue and reference tools, `propose_workflow`
    with the validation feedback loop, change-list diff.
-5. **Explain & query** *(not started)*: run tools, inventory/attribute questions, "explain failure" entry.
+5. **Explain & query** *(run explainer done; inventory / attribute questions not started)*: run tools,
+   opt-in enforcement, runs-page panel (§14).
 6. **Hardening** *(not started; the regex redactor and token round-trip were pulled forward)*:
    content-data privacy switch, truncation behaviour, injection test corpus,
    docs.
@@ -559,8 +572,7 @@ canvas and saves with the normal Save, which also runs the server-side validatio
   and the provider's short error category (e.g. `HTTP 503 UNAVAILABLE`) but never its free text.
   Observed in real use: `gemini-3.8-flash` answered 503 on a free-tier key while `gemini-3.5-flash-lite`
   worked; cause not established (a 503 is server-side, not the usual free-tier signal).
-- Not verified: a real Gemini turn (incl. tool calls and thought signatures), a real Ollama turn,
-  and the settings UI for the new providers in a browser.
+- Verified by the product owner (2026-10-10): real Anthropic, Gemini and Ollama turns work.
 
 **Phase 4 (workflow canvas assistant):**
 
@@ -628,12 +640,65 @@ Decided (2026-10-10, later rounds):
 14. **Workflow authoring:** compact plan expanded and validated server-side; no proposal while errors
     remain (§11).
 
+Decided (2026-10-10, phase 5):
+
+15. **Opt-in is enforced in the tool layer** through `SharingPolicy` on `ToolContext` (§14); the
+    result carries a `{"not_shared": ...}` marker so the model can tell the user what to enable.
+16. **Device names are class B.** With inventory sharing off, tools show `device-1`, `device-2`
+    (stable within one request) so a failure can still be discussed per device; the real name is
+    not accepted as a `device` filter either.
+17. **Run `run_inputs` and every error text are class C**; `error_category` and `error_id` are
+    metadata and always shown.
+
 Still open:
 
-- Class B/C tools and the opt-in enforcement (phase 5), then the hardening items of phase 6
-  (content-data switch UX, truncation behaviour, an injection test corpus).
+- Where inventory / device-attribute questions live (`resolve_inventory`, `get_device_attributes`):
+  the runs page has no inventory context. Candidates: the same runs-page panel without a run, a panel
+  on the inventory UI, or a global panel (explicitly out of scope for the first release).
+- The remaining hardening items of phase 6 (truncation UX, a wider injection test corpus).
 - Whether to register the user's credential secrets for exact-match scrubbing later.
-- Production verification of SSE behind the real ingress, and of the Gemini / Ollama / workflow
-  assistant paths with real models (see §12 "Not verified").
+- Production verification of SSE behind the real ingress, and of the workflow assistant path with a
+  real model (see §12 "Not verified"). Gemini and Ollama work (product owner, 2026-10-10).
 - Cause of the `gemini-3.8-flash` HTTP 503 seen on a free-tier key (retry + clearer errors added; cause
   not established).
+
+## 14. Phase 5 design - run explainer and opt-in enforcement
+
+**Surface.** `POST /ai/chat` accepts `context = {surface: "run_viewer", run_id?}`. The runs page
+(`/workflows/runs`) shows an "AI Assistant" button (only while the assistant is available) that opens
+a side panel; the context carries the open run (`activeRunId`), so the model starts on the right run
+and can still be asked about another id. The surface is read-only: no proposal tool, no execution.
+
+**Opt-in enforcement (`services/ai_assistant/data_sharing.py`).** The router builds a `SharingPolicy`
+from the user's saved `share_inventory_data` / `share_content_data` on every chat request and the
+session puts it on `ToolContext.sharing`, so switching a setting takes effect on the next turn.
+Tools call `gated(policy, DataClass.X, value)`; off means the value is replaced by
+`{"not_shared": "<class>", "message": ...}`. Classification of what the run tools return:
+
+| Always shown (metadata) | Class B (inventory) | Class C (content) |
+|---|---|---|
+| run / step status, timings, `error_category`, `error_id`, step type + name, outcome names, capabilities, command success flag, artifact ids, attribute group and parsed key *names* | device names (else `device-N`), `attributes` values | `error_message` (run, step, group), device `errors`, command `summary`, `parsed` values, `run_inputs`, command text, event `message`, artifact text |
+
+The tool output is then redacted twice: `Redactor.redact_data` on structured results (secret-named
+keys, sealed envelopes, then every string leaf through the text redactor) and the text redactor again
+in the `Toolbox` choke point. The panel header shows the provider and the enabled classes
+(`DataSharingNotice`), with a link to the settings.
+
+**Known limits (by design).** Class C text (errors, event messages, command summaries, artifact text)
+often contains hostnames and IPs; the `device-N` substitution applies to structured fields only, so
+enabling content sharing alone can still reveal device names. `get_run_workflow` is class A (§4.1,
+same as the workflow-editor surface): step configs can hold device names or filters, so it is not
+gated. Labels are seeded from all devices of the run in sorted order, so they are stable across
+tools and turns. Long strings are capped at 2000 characters, artifacts at 8000 (redacted first).
+
+**Access.** `run_reader.py` delegates to `RunService`, so private-workflow visibility is the same as
+for the REST endpoints, and additionally requires `workflow_runs:read` (and `workflows:read` for
+`get_run_workflow`). A missing run and a forbidden run give the same message.
+
+**Verified.** 23 unit tests (`tests/unit/test_ai_run_tools.py`: each B/C field with the switch off and
+on, inventory-only does not leak content, label filtering, artifact truncation and redaction, access
+errors, injected text stays inside JSON) and 3 router tests (saved switches reach the surface); the
+tools were also run against real rows of the dev database with the switches off and on.
+
+**Not verified:** a real model explaining a real failed run (the dev database has only successful
+runs), the panel in a browser, and the injection corpus is small (§13 open items).
