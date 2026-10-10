@@ -39,6 +39,7 @@ describe("assistant session store", () => {
       open: true,
       messages: [],
       draft: "",
+      savedId: null,
     });
   });
 
@@ -71,5 +72,29 @@ describe("assistant session store", () => {
     const before = state().sessions.a.messages;
     state().updateMessages("a", (m) => [...m, msg("2")]);
     expect(before).toHaveLength(1);
+  });
+
+  it("loadSaved replaces the chat, clears the draft and remembers the saved id", () => {
+    state().setDraft("a", "typing");
+    state().updateMessages("a", () => [msg("old")]);
+    state().loadSaved("a", [msg("new1"), msg("new2")], 42);
+    expect(state().sessions.a.messages.map((m) => m.id)).toEqual([
+      "new1",
+      "new2",
+    ]);
+    expect(state().sessions.a.draft).toBe("");
+    expect(state().sessions.a.savedId).toBe(42);
+  });
+
+  it("clearSession forgets the saved id so the next save creates a new row", () => {
+    state().loadSaved("a", [msg("1")], 7);
+    state().clearSession("a");
+    expect(state().sessions.a.savedId).toBeNull();
+  });
+
+  it("setSavedId only touches its own session", () => {
+    state().setSavedId("a", 3);
+    expect(state().sessions.a.savedId).toBe(3);
+    expect(state().sessions.b).toBeUndefined();
   });
 });

@@ -190,4 +190,51 @@ export interface DisplayMessage extends ChatMessage {
   error?: string;
   tools?: ToolActivity[];
   proposal?: AssistantProposal;
+  /** A proposal from a resumed conversation: only its summary survives, it can't be applied. */
+  savedProposal?: SavedProposal;
+}
+
+export type AssistantSurface =
+  "template_editor" | "workflow_editor" | "run_viewer" | "inventory";
+
+/** What a panel needs to save and list conversations: its surface and subject (for example a workflow id). */
+export interface ConversationScope {
+  surface: AssistantSurface;
+  subjectKey: string;
+}
+
+export interface SavedProposal {
+  kind: "template" | "workflow";
+  summary: string;
+}
+
+export interface SavedToolChip {
+  id: string;
+  name: string;
+  status: ToolStatus;
+  truncated: boolean;
+  withheld: string[];
+}
+
+/** A message as the server stores it (redacted; proposals reduced to kind and summary). */
+export interface SavedMessage {
+  role: "user" | "assistant";
+  content: string;
+  error?: string | null;
+  tools: SavedToolChip[];
+  proposal?: SavedProposal | null;
+}
+
+export interface SavedConversationSummary {
+  id: number;
+  surface: AssistantSurface;
+  subject_key: string;
+  title: string;
+  message_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SavedConversation extends SavedConversationSummary {
+  messages: SavedMessage[];
 }

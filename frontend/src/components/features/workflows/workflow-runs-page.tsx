@@ -11,7 +11,10 @@ import { AssistantPanel } from "@/components/features/ai-assistant/components/as
 import { DataSharingNotice } from "@/components/features/ai-assistant/components/data-sharing-notice";
 import { useAiAssistantAvailable } from "@/components/features/ai-assistant/hooks/use-ai-assistant-available";
 import { useAssistantSessionOpen } from "@/components/features/ai-assistant/hooks/use-assistant-session-open";
-import type { AssistantContext } from "@/components/features/ai-assistant/types/ai-assistant";
+import type {
+  AssistantContext,
+  ConversationScope,
+} from "@/components/features/ai-assistant/types/ai-assistant";
 import { useWorkflowRunQuery } from "@/hooks/queries/use-workflow-run-query";
 
 import { WorkflowExecutionsPanel } from "./components/workflow-executions-panel";
@@ -20,6 +23,10 @@ import { useWorkflowBuilderStore } from "./hooks/use-workflow-builder-store";
 const ACTIVE_RUN_STATUSES = new Set(["pending", "running", "paused"]);
 
 const ASSISTANT_SESSION_KEY = "run_viewer";
+const ASSISTANT_SCOPE: ConversationScope = {
+  surface: "run_viewer",
+  subjectKey: "",
+};
 
 export function WorkflowRunsPage() {
   const router = useRouter();
@@ -144,6 +151,7 @@ export function WorkflowRunsPage() {
             <div className="min-h-0 flex-1">
               <AssistantPanel
                 sessionKey={ASSISTANT_SESSION_KEY}
+                conversationScope={ASSISTANT_SCOPE}
                 placeholder={
                   activeRunId
                     ? `Ask about run #${activeRunId}, e.g. why did it fail?`

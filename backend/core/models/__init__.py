@@ -1,3 +1,4 @@
+from core.models.ai_conversations import AiConversation
 from core.models.background_tier import WorkflowBackgroundTier
 from core.models.base import Base
 from core.models.change_requests import ChangeRequest
@@ -41,6 +42,7 @@ __all__ = [
     "Setting",
     "Template",
     "User",
+    "AiConversation",
     "UserAiSettings",
     "UserPermission",
     "UserPreference",

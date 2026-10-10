@@ -499,20 +499,16 @@ pass-throughs, `InterfaceManagerService`, `DeviceUpdateService.update_device`, `
 
 ---
 
-## AI assistant: keep the session while the user works
+## AI assistant: survive a full page reload
 
 **Added:** 2026-10-10
 
-- **The panel loses its state on navigation.** The assistant panel (open/closed, chat messages, tool
-  chips, pending proposals) lives in component state, so going from the runs page to the canvas and
-  back shows it collapsed and empty. Accepted for the first version (history is stateless and
-  client-held, `doc/ai_integration/AI_ASSISTANT.md` §13 decision 3).
-- **To do:** store the session while the user is working, per surface (template editor, workflow
-  builder, runs page), at least across navigation within one browser session. Options: a Zustand store
-  keyed by surface (and workflow / run id) with the open state, or `sessionStorage`. Decide whether a
-  pending proposal survives (its stale-canvas fingerprint check must still work) and when the session is
-  cleared (explicit "clear", logout, switching workflow). Server-side persistence is a separate, later
-  decision and would need the conversation tables §7 deliberately left out.
+- Sessions now survive navigation (in-memory store) and conversations can be saved on the server on
+  request (`doc/ai_integration/AI_ASSISTANT.md` §18).
+- **Still open:** an unsaved chat is lost on a full reload, by design (no browser storage for data that
+  may contain device or run output). If that turns out to hurt, offer an opt-in autosave of the current
+  chat as a draft conversation, or a "Save before reload" prompt, rather than writing to
+  `sessionStorage`.
 
 ---
 

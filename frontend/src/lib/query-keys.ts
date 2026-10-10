@@ -72,6 +72,9 @@ export const queryKeys = {
     all: ["ai"] as const,
     status: () => [...queryKeys.ai.all, "status"] as const,
     settings: () => [...queryKeys.ai.all, "settings"] as const,
+    conversations: () => [...queryKeys.ai.all, "conversations"] as const,
+    conversationList: (surface: string, subjectKey: string) =>
+      [...queryKeys.ai.conversations(), "list", surface, subjectKey] as const,
   },
   general: {
     all: ["general"] as const,

@@ -1,11 +1,20 @@
 "use client";
 
 import Link from "next/link";
-import { Loader2, Send, Square, Trash2, Wrench } from "lucide-react";
-import { useCallback } from "react";
+import {
+  FolderOpen,
+  Loader2,
+  Save,
+  Send,
+  Square,
+  Trash2,
+  Wrench,
+} from "lucide-react";
+import { useCallback, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { useAiConversationsMutations } from "@/hooks/queries/use-ai-conversations-mutations";
 
 import { dataClassLabel } from "../constants/data-classes";
 import { useAssistantChat } from "../hooks/use-assistant-chat";
@@ -15,9 +24,16 @@ import {
 } from "../store/assistant-session-store";
 import type {
   AssistantContext,
+  ConversationScope,
   DisplayMessage,
+  SavedConversation,
   WorkflowProposal,
 } from "../types/ai-assistant";
+import {
+  fromSavedMessages,
+  toSavedMessages,
+} from "../utils/conversation-mapping";
+import { SavedConversationsDialog } from "./saved-conversations-dialog";
 import { WorkflowProposalCard } from "./workflow-proposal-card";
 import { TemplateProposalCard } from "./template-proposal-card";
 
@@ -36,6 +52,8 @@ export interface WorkflowProposalTarget {
 interface AssistantPanelProps {
   /** Stored conversation to show, for example `workflow_editor:12` (see the session store). */
   sessionKey: string;
+  /** Enables Save and Saved conversations for this surface and subject. Omit to hide them. */
+  conversationScope?: ConversationScope;
   /** Shown in the input; surfaces use it to say what the assistant can see. */
   placeholder?: string;
   /** Current surface state, sent with every turn (enables the surface's tools). */
@@ -79,6 +97,7 @@ function toolLabel(name: string): string {
  */
 export function AssistantPanel({
   sessionKey,
+  conversationScope,
   placeholder = DEFAULT_PLACEHOLDER,
   getContext,
   templateTarget,
@@ -92,6 +111,52 @@ export function AssistantPanel({
   const draft = useAssistantSessionStore(
     (state) => (state.sessions[sessionKey] ?? EMPTY_SESSION).draft,
   );
+  const savedId = useAssistantSessionStore(
+    (state) => (state.sessions[sessionKey] ?? EMPTY_SESSION).savedId,
+  );
+  const [savedOpen, setSavedOpen] = useState(false);
+  const { save } = useAiConversationsMutations();
+
+  const handleSave = useCallback(() => {
+    if (!conversationScope) {
+      return;
+    }
+    save.mutate(
+      {
+        scope: conversationScope,
+        messages: toSavedMessages(messages),
+        savedId,
+      },
+      {
+        onSuccess: (saved) =>
+          useAssistantSessionStore.getState().setSavedId(sessionKey, saved.id),
+      },
+    );
+  }, [conversationScope, messages, save, savedId, sessionKey]);
+
+  const handleResume = useCallback(
+    (conversation: SavedConversation) => {
+      stop();
+      useAssistantSessionStore
+        .getState()
+        .loadSaved(
+          sessionKey,
+          fromSavedMessages(conversation.messages),
+          conversation.id,
+        );
+    },
+    [sessionKey, stop],
+  );
+
+  const handleDeleted = useCallback(
+    (id: number) => {
+      if (id === savedId) {
+        useAssistantSessionStore.getState().setSavedId(sessionKey, null);
+      }
+    },
+    [savedId, sessionKey],
+  );
+
   const setDraft = useCallback(
     (value: string) =>
       useAssistantSessionStore.getState().setDraft(sessionKey, value),
@@ -192,6 +257,12 @@ export function AssistantPanel({
           onReject={() => setProposalState(message.id, "rejected")}
         />
       )}
+      {message.savedProposal && (
+        <p className="rounded border border-dashed p-2 text-xs text-muted-foreground">
+          Earlier {message.savedProposal.kind} proposal (not applicable after
+          resuming): {message.savedProposal.summary || "no summary"}
+        </p>
+      )}
       {message.error && <p className="text-destructive">{message.error}</p>}
     </div>
   );
@@ -201,6 +272,30 @@ export function AssistantPanel({
       className="flex h-full min-h-0 flex-col gap-3"
       data-testid="assistant-panel"
     >
+      {conversationScope && (
+        <div className="flex items-center justify-end gap-1">
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            onClick={handleSave}
+            disabled={messages.length === 0 || isStreaming || save.isPending}
+            title="Save this conversation on the server (secrets are redacted on a best-effort basis)"
+          >
+            <Save className="size-4" />
+            {savedId === null ? "Save" : "Update saved"}
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            onClick={() => setSavedOpen(true)}
+          >
+            <FolderOpen className="size-4" />
+            Saved
+          </Button>
+        </div>
+      )}
       <div
         className="min-h-0 flex-1 space-y-3 overflow-y-auto"
         aria-live="polite"
@@ -209,6 +304,7 @@ export function AssistantPanel({
           <p className="text-sm text-muted-foreground">
             Ask a question. The conversation is kept while you use the app and
             cleared when you reload or sign out.
+            {conversationScope && " Use Save to keep it for later."}
           </p>
         ) : (
           messages.map(renderMessage)
@@ -258,6 +354,17 @@ export function AssistantPanel({
           </Button>
         </div>
       </div>
+      {conversationScope && (
+        <SavedConversationsDialog
+          scope={conversationScope}
+          open={savedOpen}
+          onOpenChange={setSavedOpen}
+          hasCurrentMessages={messages.length > 0}
+          currentSavedId={savedId}
+          onResume={handleResume}
+          onDeleted={handleDeleted}
+        />
+      )}
     </div>
   );
 }

@@ -79,6 +79,7 @@ class Settings:
     run_retention_days: int
     run_retention_batch_size: int
     run_retention_cron_schedule: str
+    ai_conversation_retention_days: int
     apply_safe_migrations: bool
     apply_risky_migrations: bool
     install_certificate_files: bool
@@ -168,6 +169,8 @@ class Settings:
         self.run_retention_days = self._get_int("RUN_RETENTION_DAYS", 90)
         self.run_retention_batch_size = self._get_int("RUN_RETENTION_BATCH_SIZE", 500)
         self.run_retention_cron_schedule = environ.get("RUN_RETENTION_CRON_SCHEDULE", "0 3 * * *")
+        # Saved AI assistant conversations; 0 keeps them until the user deletes them.
+        self.ai_conversation_retention_days = self._get_int("AI_CONVERSATION_RETENTION_DAYS", 90)
         self._validate_run_retention()
         self.apply_safe_migrations = self._get_bool("APPLY_SAFE_DATABASE_MIGRATION", False)
         self.apply_risky_migrations = self._get_bool("APPLY_RISKY_DATABASE_MIGRATION", False)
@@ -252,6 +255,8 @@ class Settings:
             raise RuntimeError("RUN_RETENTION_BATCH_SIZE must be at least 1")
         if not self.run_retention_cron_schedule.strip():
             raise RuntimeError("RUN_RETENTION_CRON_SCHEDULE must not be empty")
+        if self.ai_conversation_retention_days < 0:
+            raise RuntimeError("AI_CONVERSATION_RETENTION_DAYS must be 0 or greater")
 
     def _validate_vault(self) -> None:
         """Structural, environment-agnostic checks for the OpenBao settings.

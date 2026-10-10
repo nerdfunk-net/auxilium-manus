@@ -17,7 +17,10 @@ import { Suspense, useCallback, useMemo } from "react";
 import { AssistantPanel } from "@/components/features/ai-assistant/components/assistant-panel";
 import { useAiAssistantAvailable } from "@/components/features/ai-assistant/hooks/use-ai-assistant-available";
 import { useAssistantSessionOpen } from "@/components/features/ai-assistant/hooks/use-assistant-session-open";
-import type { AssistantContext } from "@/components/features/ai-assistant/types/ai-assistant";
+import type {
+  AssistantContext,
+  ConversationScope,
+} from "@/components/features/ai-assistant/types/ai-assistant";
 import { CanvasErrorBoundary } from "@/components/features/workflows/components/canvas-error-boundary";
 import { Button } from "@/components/ui/button";
 import { MarkdownEditor } from "@/components/ui/markdown-editor";
@@ -43,6 +46,13 @@ function TemplateEditorContent() {
   const editor = useTemplateEditor();
   const assistantAvailable = useAiAssistantAvailable();
   const assistantSessionKey = `template_editor:${editor.templateId ?? "new"}`;
+  const conversationScope = useMemo<ConversationScope>(
+    () => ({
+      surface: "template_editor",
+      subjectKey: String(editor.templateId ?? "new"),
+    }),
+    [editor.templateId],
+  );
   const {
     open: assistantOpen,
     setOpen: setAssistantOpen,
@@ -357,6 +367,7 @@ function TemplateEditorContent() {
           <div className="min-h-0 flex-1">
             <AssistantPanel
               sessionKey={assistantSessionKey}
+              conversationScope={conversationScope}
               placeholder="Describe the template you need, or what to change…"
               getContext={getAssistantContext}
               templateTarget={proposalTarget}

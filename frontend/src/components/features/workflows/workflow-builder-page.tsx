@@ -8,6 +8,7 @@ import { useAiAssistantAvailable } from "@/components/features/ai-assistant/hook
 import { useAssistantSessionOpen } from "@/components/features/ai-assistant/hooks/use-assistant-session-open";
 import type {
   AssistantContext,
+  ConversationScope,
   WorkflowProposal,
 } from "@/components/features/ai-assistant/types/ai-assistant";
 import { canvasFingerprint } from "@/components/features/ai-assistant/utils/canvas-fingerprint";
@@ -118,6 +119,13 @@ export function WorkflowBuilderPage() {
   // --- AI assistant (rendered only while the user has it enabled) ---------------------------
   const assistantAvailable = useAiAssistantAvailable();
   const assistantSessionKey = `workflow_editor:${persistence.workflowId ?? "new"}`;
+  const conversationScope = useMemo<ConversationScope>(
+    () => ({
+      surface: "workflow_editor",
+      subjectKey: String(persistence.workflowId ?? "new"),
+    }),
+    [persistence.workflowId],
+  );
   const {
     open: assistantOpen,
     setOpen: setAssistantOpen,
@@ -304,6 +312,7 @@ export function WorkflowBuilderPage() {
             <div className="min-h-0 flex-1">
               <AssistantPanel
                 sessionKey={assistantSessionKey}
+                conversationScope={conversationScope}
                 placeholder="Describe the workflow you need, or what to change…"
                 getContext={getAssistantContext}
                 workflowTarget={workflowTarget}

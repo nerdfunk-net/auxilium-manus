@@ -23,3 +23,19 @@ class AiAssistantNotConfiguredError(AiAssistantError):
     """The assistant is enabled but has no usable provider configuration (e.g. no API key)."""
 
     code = "ai_assistant_not_configured"
+
+
+class AiConversationNotFoundError(AiAssistantError):
+    """No saved conversation with this id for this user (another user's looks the same)."""
+
+    code = "ai_conversation_not_found"
+
+
+class AiConversationLimitError(AiAssistantError):
+    """The user already holds the maximum number of saved conversations."""
+
+    code = "ai_conversation_limit"
+
+
+class AiConversationTooLargeError(AiAssistantError):
+    code = "ai_conversation_too_large"

@@ -21,6 +21,7 @@ import {
   useAssistantSessionStore,
 } from "../store/assistant-session-store";
 import { canvasFingerprint } from "../utils/canvas-fingerprint";
+import { nextMessageId } from "../utils/message-id";
 import { parseSseBuffer } from "../utils/sse-parser";
 
 const CHAT_ENDPOINT = "/api/proxy/ai/chat";
@@ -70,11 +71,7 @@ function upsertTool(
     : [...current, next];
 }
 
-let messageCounter = 0;
-function nextId(): string {
-  messageCounter += 1;
-  return `m${messageCounter}`;
-}
+const nextId = nextMessageId;
 
 /**
  * Client-held chat (the server is stateless): the history is re-sent each turn. Messages live

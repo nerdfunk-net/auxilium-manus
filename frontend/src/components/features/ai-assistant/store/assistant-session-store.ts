@@ -14,6 +14,8 @@ export interface AssistantSession {
   open: boolean;
   messages: DisplayMessage[];
   draft: string;
+  /** Id of the saved conversation this chat was saved as or resumed from; Save then updates it. */
+  savedId: number | null;
 }
 
 interface AssistantSessionState {
@@ -26,6 +28,9 @@ interface AssistantSessionState {
     key: string,
     update: (messages: DisplayMessage[]) => DisplayMessage[],
   ) => void;
+  setSavedId: (key: string, savedId: number | null) => void;
+  /** Replaces the chat with a resumed conversation. */
+  loadSaved: (key: string, messages: DisplayMessage[], savedId: number) => void;
   clearSession: (key: string) => void;
   resetAll: () => void;
 }
@@ -34,6 +39,7 @@ export const EMPTY_SESSION: AssistantSession = Object.freeze({
   open: false,
   messages: [],
   draft: "",
+  savedId: null,
 }) as AssistantSession;
 
 /** Writes `next` for `key`, marks it most recently used and evicts the oldest overflow. */
@@ -77,6 +83,22 @@ export const useAssistantSessionStore = create<AssistantSessionState>(
           messages: update(current.messages),
         });
       }),
+    setSavedId: (key, savedId) =>
+      set((state) =>
+        withSession(state, key, {
+          ...(state.sessions[key] ?? EMPTY_SESSION),
+          savedId,
+        }),
+      ),
+    loadSaved: (key, messages, savedId) =>
+      set((state) =>
+        withSession(state, key, {
+          ...(state.sessions[key] ?? EMPTY_SESSION),
+          messages,
+          draft: "",
+          savedId,
+        }),
+      ),
     clearSession: (key) =>
       set((state) =>
         state.sessions[key]
@@ -84,6 +106,7 @@ export const useAssistantSessionStore = create<AssistantSessionState>(
               ...state.sessions[key],
               messages: [],
               draft: "",
+              savedId: null,
             })
           : state,
       ),

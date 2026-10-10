@@ -7,7 +7,8 @@ checks against the real validator, registry and dev database, but not yet by a r
 browser session. Phase 5 is built: the **run explainer** (run tools, opt-in enforcement, runs-page
 panel) and the **inventory assistant** (inventory-page panel, read-only questions) are checked against
 real dev-database rows and the live Nautobot; the user has tried the run explainer.
-Phase 6 (hardening) is built (§17). §12 lists what was built and verified per phase, §13 the
+Phase 6 (hardening) is built (§17). Sessions that survive navigation and server-side saved
+conversations are built (§18). §12 lists what was built and verified per phase, §13 the
 recorded decisions.
 
 This document describes an AI assistant built *into* the app. It is distinct from
@@ -75,6 +76,7 @@ Frontend panel (SSE, proposal cards)  ──►  /api/proxy/ai/*  ──►  rou
                                                 ├─ providers/            anthropic (SDK), gemini, openai_compat (httpx)
                                                 ├─ redaction.py          restorable secret tokens
                                                 ├─ data_sharing.py       opt-in policy (classes B/C), device labels, attribute allow-list
+                                                ├─ conversation_service.py  saved conversations (explicit Save, redacted)
                                                 ├─ audit.py              one log line per chat turn
                                                 ├─ workflow_expand.py    compact plan <-> persisted canvas
                                                 ├─ template_render.py    sandboxed lenient render
@@ -172,8 +174,8 @@ and API key. Requirements:
 - Streams events over SSE: `text` deltas, `tool` status (running / done / error), `proposal`,
   `usage`, `error`, `done`. The Next.js proxy must pass streaming through unbuffered —
   verify this early, it is the main frontend unknown.
-- Conversations are held client-side per surface in v1 and re-sent each turn (stateless
-  server). Persisting history is a later decision; see open questions.
+- Conversations are held client-side per surface and re-sent each turn (stateless server). They
+  survive navigation in an in-memory store and can be saved on the server on request (§18).
 
 ### 3.4 Context (option 2)
 
@@ -394,7 +396,9 @@ ML/entropy-based detection.
   `enabled` (bool, default false), `api_key_encrypted` (JSON map provider -> Fernet token),
   `share_inventory_data`, `share_device_addresses`, `share_custom_fields`, `share_config_context`,
   `share_content_data` (bool, default false each), timestamps.
-- No conversation tables in v1.
+- `ai_conversations` (§18): `user_id` (FK, cascade), `surface`, `subject_key`, `title`, `messages`
+  (JSON, redacted display messages), timestamps. Rows exist only after the user presses Save; the
+  chat itself stays stateless on the server.
 
 ## 8. Permissions
 
@@ -620,7 +624,9 @@ Decided (2026-10-10):
 
 1. **Adapters vs. LiteLLM:** thin hand-written adapters.
 2. **Storage:** dedicated `user_ai_settings` table.
-3. **History:** stateless, client-held; losing history on reload is acceptable in v1.
+3. **History:** the chat request is stateless and client-held. The panel keeps its session in memory
+   while the user works and loses it on reload or sign-out (§18); the user can save a conversation
+   on the server explicitly (decision 18).
 4. **Data sharing:** opt-in only for anything device- or run-derived (§4). Config backups and
    command output may contain secrets.
 5. **Permission:** `ai_assistant:use`. `admin` has it automatically; an admin grants it to the roles
@@ -669,14 +675,20 @@ Decided (2026-10-10, phase 5):
 17. **Run `run_inputs` and every error text are class C**; `error_category` and `error_id` are
     metadata and always shown.
 
+Decided (2026-10-10, sessions):
+
+18. **Sessions and saving (§18):** the panel session lives in an in-memory store keyed by surface and
+    subject, and a running turn is cancelled when the user leaves. A conversation is saved
+    server-side only on an explicit Save, redacted, with proposals reduced to a summary.
+
 Still open:
 
 - Read-only Nautobot GraphQL queries for open questions ("which devices are in City A?"); see
   `doc/OPEN_TODOS.md` "AI assistant: Nautobot GraphQL queries".
 - Inventory assistant follow-ups (§15): awareness of the unsaved filter being built and the loaded
   inventory, and proposing a filter ("all core switches at site X") as a reviewable proposal.
-- Keeping the chat session across navigation (panel state is lost when leaving a page); see
-  `doc/OPEN_TODOS.md` "AI assistant: keep the session while the user works".
+- Keeping a session across a full reload (not done on purpose: messages may hold device or run
+  data, so nothing is written to browser storage).
 - A wider real-world redaction corpus (add a case to `test_ai_redaction_corpus.py` whenever a leak is found).
 - Whether to register the user's credential secrets for exact-match scrubbing later.
 - Production verification of SSE behind the real ingress, and of the workflow assistant path with a
@@ -840,3 +852,59 @@ still redacted.
 what a tool result said); the safety property is that it cannot act (no write or execution tool on any
 read surface; writes are proposals the user reviews). Redaction stays best-effort. Not verified: the new
 confirmation dialog and chip hints in a browser.
+
+## 18. Sessions and saved conversations
+
+**Session across navigation (frontend only).** `ai-assistant/store/assistant-session-store.ts` is an
+in-memory Zustand store: per session key the open state, the messages, the draft and the id of the
+saved conversation the chat belongs to. Keys: `template_editor:<id|new>`, `workflow_editor:<id|new>`,
+`run_viewer`, `inventory:<sourceId>`, so returning to workflow A restores A's chat and opening B
+starts a new one. At most 10 sessions are kept (least recently used dropped).
+
+- `useAssistantChat({ sessionKey })` reads and writes that store. **Leaving the page, or switching to
+  another key, cancels the running turn** (decision of the product owner); an empty cancelled reply is
+  marked "Cancelled", partial text is kept, and cancelled replies are not sent back to the model.
+- Cleared by the Clear button (that session), logout and any 401 from chat (all sessions). A full reload
+  clears everything: nothing is written to `sessionStorage`/`localStorage`, since messages can hold
+  device or run data.
+- Pending proposals survive; the stale-edit check compares against the editor at render time, so it
+  still works on a restored message.
+
+**Saved conversations (server side, explicit Save).** The panel header has **Save** (becomes **Update
+saved** once the chat was saved or resumed) and **Saved**, which opens a list for the current surface
+and subject with Resume and Delete. Only panels given a `conversationScope` show them; the Settings
+"Try it" panel does not.
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /ai/conversations?surface=&subject_key=` | Summaries (no messages), newest first |
+| `GET /ai/conversations/{id}` | One conversation with its messages |
+| `POST /ai/conversations` | Save a new one; title defaults to the first user message (80 chars) |
+| `PUT /ai/conversations/{id}` | Replace messages and/or rename |
+| `DELETE /ai/conversations/{id}` | Delete |
+
+- **Access:** `ai_assistant:use`, like the settings endpoints (not the enable switch: a user can still
+  list or delete what they saved). Rows are private to the owner; another user's id answers 404. Writes
+  are rate limited (`ai-conversations`, 30 / 60 s).
+- **What is stored** (`services/ai_assistant/conversation_service.py`): message text, error text, tool
+  chips (name and status) and, for a proposal, only its kind and summary. All text goes through
+  `Redactor.redact` first, so a stored conversation holds no more than the model was shown; the tokens
+  are not restorable. A full proposal payload is rejected by the request model (`extra="forbid"`).
+- **Resume** loads the stored messages into the current session as history; the server needs no change
+  because chat history is plain role/content. A resumed proposal shows as "Earlier ... proposal (not
+  applicable after resuming)", since the canvas or template has changed.
+- **Limits:** 50 messages of 20,000 characters, 200,000 characters per conversation (413
+  `ai_conversation_too_large`), 100 conversations per user (409 `ai_conversation_limit`).
+- **Retention:** conversations not updated for `AI_CONVERSATION_RETENTION_DAYS` (default 90, `0` keeps
+  them) are purged by the `purge_ai_conversations` task of the daily Hatchet housekeeping workflow
+  (`hatchet/workflows/purge_retention.py`). Deleting a user deletes their conversations (FK cascade).
+- **Why explicit Save, not autosave:** a conversation may contain text derived from opted-in device or
+  run data (classes B/C); writing that to the database for every chat would bypass the point of the
+  opt-in. The dialog says where it is stored and that redaction is best-effort.
+
+**Verified.** Backend unit tests for owner isolation, redaction on save, size and count caps,
+retention and the HTTP status codes (`test_ai_conversation_service.py`,
+`test_ai_conversations_router.py`); frontend tests for the store, the mapping and the Save/Resume/Delete
+flow. The new routes are served by the running dev backend. Not verified: the full flow with a real
+login in a browser.
+

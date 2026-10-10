@@ -1,11 +1,13 @@
 """Periodic Hatchet workflow for background housekeeping.
 
-Two independent tasks run on the same cron:
+Three independent tasks run on the same cron:
 
 * ``purge_retention`` — deletes workflow_runs in terminal states older than
   RUN_RETENTION_DAYS (gated on RUN_RETENTION_ENABLED), then sweeps
   data/artifacts/ for any artifact whose run_id no longer matches a run. Same
   RetentionService as scripts/purge_retention.py.
+* ``purge_ai_conversations`` — deletes saved AI assistant conversations not updated for
+  AI_CONVERSATION_RETENTION_DAYS (0 keeps them). Not gated on RUN_RETENTION_ENABLED.
 * ``reconcile_change_requests`` — expires stale ``staged`` change requests past
   their TTL and finalises any ``deploying`` change request whose deploy run
   already reached a terminal status but whose detail page nobody opened (the
@@ -72,7 +74,19 @@ async def reconcile_change_requests(input: EmptyModel, ctx: Context) -> dict:
         finalised = service.reconcile_all_in_flight()
 
     if expired or finalised:
-        logger.info(
-            "Change-request sweep: %s expired, %s finalised", expired, finalised
-        )
+        logger.info("Change-request sweep: %s expired, %s finalised", expired, finalised)
     return {"expired": expired, "finalised": finalised}
+
+
+@workflow.task(name="purge_ai_conversations")
+async def purge_ai_conversations(input: EmptyModel, ctx: Context) -> dict:
+    from core.database import SessionLocal
+    from services.ai_assistant.conversation_service import AiConversationService
+
+    days = settings.ai_conversation_retention_days
+    if days < 1:
+        return {"skipped": True}
+
+    with SessionLocal() as db:
+        deleted = AiConversationService.from_session(db).purge_older_than_days(days)
+    return {"deleted": deleted, "retention_days": days}

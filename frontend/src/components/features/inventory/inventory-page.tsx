@@ -1,13 +1,16 @@
 "use client";
 
-import { useCallback } from "react";
+import { useCallback, useMemo } from "react";
 import { List, Sparkles, X } from "lucide-react";
 
 import { AssistantPanel } from "@/components/features/ai-assistant/components/assistant-panel";
 import { DataSharingNotice } from "@/components/features/ai-assistant/components/data-sharing-notice";
 import { useAiAssistantAvailable } from "@/components/features/ai-assistant/hooks/use-ai-assistant-available";
 import { useAssistantSessionOpen } from "@/components/features/ai-assistant/hooks/use-assistant-session-open";
-import type { AssistantContext } from "@/components/features/ai-assistant/types/ai-assistant";
+import type {
+  AssistantContext,
+  ConversationScope,
+} from "@/components/features/ai-assistant/types/ai-assistant";
 import { Button } from "@/components/ui/button";
 
 import { DeviceSelector } from "./components/device-selector";
@@ -22,6 +25,10 @@ export function InventoryPage() {
   const assistantAvailable = useAiAssistantAvailable();
   const sourceId = source.sourceId;
   const assistantSessionKey = `inventory:${sourceId}`;
+  const conversationScope = useMemo<ConversationScope>(
+    () => ({ surface: "inventory", subjectKey: sourceId }),
+    [sourceId],
+  );
   const {
     open: assistantOpen,
     setOpen: setAssistantOpen,
@@ -99,6 +106,7 @@ export function InventoryPage() {
           <div className="min-h-0 flex-1">
             <AssistantPanel
               sessionKey={assistantSessionKey}
+              conversationScope={conversationScope}
               placeholder="Ask about your inventories, e.g. how many devices are in LAB?"
               getContext={getAssistantContext}
             />
