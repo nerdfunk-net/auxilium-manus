@@ -9,6 +9,7 @@ verify a key before switching it on (it is still permission-gated and rate limit
 
 from __future__ import annotations
 
+import asyncio
 import json
 from collections.abc import AsyncIterator
 from typing import NoReturn
@@ -151,7 +152,18 @@ def update_settings(
     body: UserAiSettingsUpdate,
     current_user: User = Depends(get_current_user),
     service: AiSettingsService = Depends(get_ai_settings_service),
+    db: Session = Depends(get_db),
 ) -> UserAiSettingsResponse:
+    # A custom endpoint makes the backend send requests to an address the user chose, inside the
+    # internal network. Like the other outbound source settings (auth.md P3) that is admin-only.
+    if body.base_url and not RBACService(db).has_role(current_user.id, "admin"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "code": "ai_base_url_admin_only",
+                "message": "Only an administrator can set a custom server URL",
+            },
+        )
     try:
         return service.update(current_user.id, body)
     except AiAssistantError as exc:
@@ -165,7 +177,10 @@ async def test_settings(
     db: Session = Depends(get_db),
 ) -> dict[str, object]:
     try:
-        config = service.require_runtime_config(current_user.id, require_enabled=False)
+        # Blocking DB read + key decryption: keep it off the event loop.
+        config = await asyncio.to_thread(
+            service.require_runtime_config, current_user.id, require_enabled=False
+        )
     except AiAssistantError as exc:
         _raise_http(exc)
     finally:

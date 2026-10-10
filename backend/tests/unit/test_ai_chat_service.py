@@ -37,6 +37,10 @@ class ScriptedProvider:
         self.events = list(events)
         self.error = error
         self.calls: list[dict] = []
+        self.closed = 0
+
+    async def aclose(self) -> None:
+        self.closed += 1
 
     async def stream(self, **kwargs):
         self.calls.append(kwargs)
@@ -69,6 +73,18 @@ def test_streams_text_usage_then_done() -> None:
     assert events[0].data == {"text": "Hel"}
     assert events[2].data == {"input_tokens": 5, "output_tokens": 2}
     assert provider.calls[0]["model"] == "claude-haiku-5-5"
+
+
+def test_the_provider_client_is_closed_after_every_turn_and_test() -> None:
+    ok = ScriptedProvider([StreamEvent(type="turn", stop_reason="end_turn")])
+    failing = ScriptedProvider(error=ProviderRateLimitError("quota reached"))
+    tested = ScriptedProvider([StreamEvent(type="turn", stop_reason="end_turn")])
+
+    asyncio.run(_collect(ok))
+    asyncio.run(_collect(failing))
+    asyncio.run(check_connection(CONFIG, provider_factory=_factory(tested)))
+
+    assert (ok.closed, failing.closed, tested.closed) == (1, 1, 1)
 
 
 def test_provider_error_becomes_error_event_then_done() -> None:

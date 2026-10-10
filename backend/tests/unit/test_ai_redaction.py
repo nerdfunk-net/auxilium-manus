@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from services.ai_assistant.redaction import Redactor
+from services.ai_assistant.redaction import Redactor, SecretRelocationError
 
 CISCO_SAMPLE = """\
 hostname lab
@@ -162,6 +162,35 @@ def test_restore_data_keeps_unknown_tokens_and_non_secret_values() -> None:
     value = {"a": "__SECRET_42__", "b": [1, None, True]}
 
     assert redactor.restore_data(value) == value
+
+
+def test_restore_data_refuses_a_token_under_a_different_key() -> None:
+    redactor = Redactor()
+    tokenised = redactor.tokenize_data(
+        {
+            "password": "plain-text-pw",
+            "cmd": "enable secret 5 zzz999",
+            "opts": {"api_key": "k-12345678"},
+        }
+    )
+    password_token, cmd, key_token = (
+        tokenised["password"],
+        tokenised["cmd"],
+        tokenised["opts"]["api_key"],
+    )
+
+    assert redactor.restore_data({"password": password_token, "list": []})["password"]
+    assert redactor.restore_data({"cmd": cmd})["cmd"] == "enable secret 5 zzz999"
+    with pytest.raises(SecretRelocationError):
+        redactor.restore_data({"message": password_token})
+    with pytest.raises(SecretRelocationError):
+        redactor.restore_data({"message": f"see {cmd}"})
+    with pytest.raises(SecretRelocationError):
+        redactor.restore_data({"items": [{"note": key_token}]})
+    # Several fields of one list item keep working under their own key.
+    assert redactor.restore_data({"items": [{"api_key": key_token}]}) == {
+        "items": [{"api_key": "k-12345678"}]
+    }
 
 
 def test_a_model_supplied_literal_marker_is_detected_anywhere_in_a_structure() -> None:

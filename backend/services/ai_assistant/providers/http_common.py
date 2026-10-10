@@ -142,6 +142,6 @@ async def sse_data(response: httpx.Response) -> AsyncIterator[str]:
             yield line[len("data:") :].lstrip()
 
 
-def unavailable(_exc: httpx.HTTPError) -> ProviderUnavailableError:
+def unavailable() -> ProviderUnavailableError:
     """Transport failure. Neither the URL nor the exception text is exposed."""
     return ProviderUnavailableError("Could not reach the provider")

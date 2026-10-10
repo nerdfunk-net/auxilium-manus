@@ -132,6 +132,17 @@ def _overlaps(start: int, end: int, spans: list[tuple[int, int]]) -> bool:
     return any(start < span_end and end > span_start for span_start, span_end in spans)
 
 
+class SecretRelocationError(ValueError):
+    """The model echoed a token under a different field than the one the secret came from."""
+
+    def __init__(self, token: str, key: str | None) -> None:
+        super().__init__(
+            f"{token} stands for a secret that belongs to another field and cannot be used "
+            f"in '{key or 'this position'}'"
+        )
+        self.token = token
+
+
 class Redactor:
     """One instance per request: the token table is request-scoped, never shared or stored."""
 
@@ -140,6 +151,11 @@ class Redactor:
         self._secret_by_token: dict[str, str] = {}
         # Tokens standing in for a whole non-string value (e.g. a sealed secret envelope).
         self._object_by_token: dict[str, Any] = {}
+        # Dict keys a token was found under by ``tokenize_data``. ``restore_data`` puts a token back
+        # only under one of these, so a model cannot move a secret into a field the user never saw
+        # it in (e.g. a chat message). Tokens made outside ``tokenize_data`` are unrestricted.
+        self._origin_keys: dict[str, set[str]] = {}
+        self._active_key: str | None = None
 
     def _token_for(self, secret: str) -> str:
         token = self._token_by_secret.get(secret)
@@ -147,6 +163,8 @@ class Redactor:
             token = f"__SECRET_{len(self._token_by_secret) + 1}__"
             self._token_by_secret[secret] = token
             self._secret_by_token[token] = secret
+        if self._active_key is not None:
+            self._origin_keys.setdefault(token, set()).add(self._active_key)
         return token
 
     def redact(self, text: str) -> str:
@@ -192,45 +210,79 @@ class Redactor:
         """
         return self._tokenize(data)
 
-    def _tokenize(self, value: Any) -> Any:
+    def _tokenize(self, value: Any, key: str | None = None) -> Any:
         if is_sealed_secret(value):
-            return self._object_token(value)
+            return self._object_token(value, key)
         if isinstance(value, dict):
-            return {key: self._tokenize_entry(key, item) for key, item in value.items()}
+            return {k: self._tokenize_entry(k, item) for k, item in value.items()}
         if isinstance(value, list):
-            return [self._tokenize(item) for item in value]
+            return [self._tokenize(item, key) for item in value]
         if isinstance(value, str):
-            return self.redact(value)
+            return self._redact_under(value, key)
         return value
 
     def _tokenize_entry(self, key: Any, item: Any) -> Any:
-        if isinstance(key, str) and is_secret_key_name(key):
+        name = key if isinstance(key, str) else None
+        if name is not None and is_secret_key_name(name):
             if isinstance(item, str) and item:
-                return self._token_for(item)
+                return self._token_under(item, name)
             if isinstance(item, dict | list) and item:
-                return self._object_token(item)
-        return self._tokenize(item)
+                return self._object_token(item, name)
+        return self._tokenize(item, name)
 
-    def _object_token(self, value: Any) -> str:
-        token = self._token_for(json.dumps(value, sort_keys=True, default=str))
+    def _redact_under(self, text: str, key: str | None) -> str:
+        self._active_key = key
+        try:
+            return self.redact(text)
+        finally:
+            self._active_key = None
+
+    def _token_under(self, secret: str, key: str | None) -> str:
+        self._active_key = key
+        try:
+            return self._token_for(secret)
+        finally:
+            self._active_key = None
+
+    def _object_token(self, value: Any, key: str | None = None) -> str:
+        token = self._token_under(json.dumps(value, sort_keys=True, default=str), key)
         self._object_by_token.setdefault(token, value)
         return token
 
-    def restore_data(self, data: Any) -> Any:
-        """Inverse of ``tokenize_data`` (also restores text tokens inside strings)."""
+    def _check_origin(self, token: str, key: str | None) -> None:
+        origins = self._origin_keys.get(token)
+        if origins and key not in origins:
+            raise SecretRelocationError(token, key)
+
+    def restore_data(self, data: Any, _key: str | None = None) -> Any:
+        """Inverse of ``tokenize_data`` (also restores text tokens inside strings).
+
+        Raises ``SecretRelocationError`` when a token appears under a key it did not come from.
+        """
         if isinstance(data, str):
             if data in self._object_by_token:
+                self._check_origin(data, _key)
                 return self._object_by_token[data]
-            return self.restore(data)
+            return self.restore(data, key=_key, check_origin=True)
         if isinstance(data, dict):
-            return {key: self.restore_data(item) for key, item in data.items()}
+            return {
+                k: self.restore_data(item, k if isinstance(k, str) else None)
+                for k, item in data.items()
+            }
         if isinstance(data, list):
-            return [self.restore_data(item) for item in data]
+            return [self.restore_data(item, _key) for item in data]
         return data
 
-    def restore(self, text: str) -> str:
+    def restore(self, text: str, *, key: str | None = None, check_origin: bool = False) -> str:
         """Put original secrets back. Unknown tokens are left as they are."""
-        return _TOKEN.sub(lambda m: self._secret_by_token.get(m.group(0), m.group(0)), text)
+
+        def put_back(match: re.Match[str]) -> str:
+            token = match.group(0)
+            if check_origin:
+                self._check_origin(token, key)
+            return self._secret_by_token.get(token, token)
+
+        return _TOKEN.sub(put_back, text)
 
     @staticmethod
     def data_contains_placeholder(data: Any) -> bool:

@@ -24,6 +24,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from models.plugins import PluginDefinition
 from models.workflows import StaticAttributeDef
 from services.ai_assistant.redaction import Redactor
+from services.workflow_context.secret_fields import redact_secrets_in_data
 
 STEP_NODE_TYPE = "workflowNode"
 FUNNEL_KIND = "funnel"
@@ -450,7 +451,15 @@ def _summarize(
     after_by_id = {n["id"]: n for n in after_nodes if "id" in n}
 
     added = [
-        {"id": n.id, "kind": n.kind, "title": _title(after_by_id[n.id])}
+        {
+            "id": n.id,
+            "kind": n.kind,
+            "title": _title(after_by_id[n.id]),
+            # Shown to the user before they apply, with secret values masked.
+            "config": _config_text(
+                redact_secrets_in_data(_data(after_by_id[n.id]).get("pluginConfig") or {})
+            ),
+        }
         for n in plan.nodes
         if n.id not in before_managed
     ]
@@ -479,8 +488,8 @@ def _summarize(
                     "kind": _kind(node),
                     "title": _title(after_by_id[node_id]),
                     "fields": fields,
-                    "before": _config_text(old_config),
-                    "after": _config_text(new_config),
+                    "before": _config_text(redact_secrets_in_data(old_config)),
+                    "after": _config_text(redact_secrets_in_data(new_config)),
                 }
             )
 

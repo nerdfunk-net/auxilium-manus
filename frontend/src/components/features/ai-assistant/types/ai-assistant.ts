@@ -135,6 +135,8 @@ export interface WorkflowChangeNode {
   id: string;
   kind: string | null;
   title: string;
+  /** Pretty-printed step config with secret values masked (added steps only). */
+  config?: string;
 }
 
 export interface WorkflowChangedNode extends WorkflowChangeNode {

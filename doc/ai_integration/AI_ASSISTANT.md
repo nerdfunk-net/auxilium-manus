@@ -1,6 +1,6 @@
 # In-App AI Assistant — Requirements & Design
 
-Status (2026-10-10): **phases 1-4 are implemented, phase 5 is half done.** Phases 1-3 (settings,
+Status (2026-10-10): **all six phases are implemented.** Phases 1-3 (settings,
 Claude, template assistant, Gemini, Ollama/OpenAI-compatible) are verified by the product owner
 against real providers. Phase 4 (workflow canvas assistant) is covered by unit/contract tests and by
 checks against the real validator, registry and dev database, but not yet by a real model run or a
@@ -34,7 +34,7 @@ app's own services, observes the results, and corrects itself before presenting 
 | Authoring (as proposals) and explaining | Running/dispatching workflows or any device access |
 | Providers: Anthropic Claude, Google Gemini, OpenAI-compatible (covers Ollama) | Other provider-native features (batch, files API) |
 | Per-user private API key | Shared/global keys |
-| Entry points: template editor, workflow canvas | Run page, inventory, change requests, global panel |
+| Entry points: template editor, workflow canvas, runs page, inventory page | Change requests, global panel |
 | Read tools + proposal-only write tools | Auto-apply, MCP server for external agents |
 
 ## 2. Design principles
@@ -70,12 +70,16 @@ Frontend panel (SSE, proposal cards)  ──►  /api/proxy/ai/*  ──►  rou
                                                 ├─ chat_service.py       one request -> event stream
                                                 ├─ agent_loop.py         tool loop (max 8 steps)
                                                 ├─ surfaces.py           prompt + toolbox per surface
-                                                ├─ tools/                base (choke point), template_tools, workflow_tools
+                                                ├─ tools/                base (choke point), template_tools, workflow_tools,
+                                                │                        run_tools, inventory_tools
                                                 ├─ providers/            anthropic (SDK), gemini, openai_compat (httpx)
                                                 ├─ redaction.py          restorable secret tokens
+                                                ├─ data_sharing.py       opt-in policy (classes B/C), device labels, attribute allow-list
+                                                ├─ audit.py              one log line per chat turn
                                                 ├─ workflow_expand.py    compact plan <-> persisted canvas
                                                 ├─ template_render.py    sandboxed lenient render
-                                                ├─ template_reader.py / workflow_reader.py   per-call DB access + RBAC
+                                                ├─ template_reader.py / workflow_reader.py / run_reader.py /
+                                                │  inventory_reader.py   per-call DB access + RBAC
                                                 ├─ base_url_policy.py    outbound URL check for local servers
                                                 └─ knowledge/            curated reference texts the model can read
                                                              │
@@ -148,6 +152,9 @@ and API key. Requirements:
   still read as the row's provider key.
 - Key resolution goes through the secret-handling path that registers the value for
   run-scoped redaction (`unwrap_secret` / `CredentialsService.get_decrypted_*`).
+- Setting a base URL is **admin-only** (`PATCH /ai/settings` returns 403 `ai_base_url_admin_only`
+  otherwise): it makes the backend send requests to a host the user chose, inside the internal
+  network. The URL may not carry a query, fragment or path parameters.
 - Base URL (OpenAI-compatible only) passes `core/safe_urls.py` through `base_url_policy.py` when it
   is saved **and** again right before every call; redirects are never followed. There is **no
   special bypass** for local servers: a LAN host (RFC1918) works, a server on the backend's own
@@ -161,7 +168,7 @@ and API key. Requirements:
   template editor's buffer, the builder's canvas - which may be unsaved) and renders the event
   stream. The server decides what of that state the model may see.
 - Hard caps: max tool steps per turn, max output tokens, request timeout, and a per-user
-  `rate_limited("ai-assistant", ...)` budget.
+  `rate_limited("ai-chat", ...)` budget (30 / 60 s).
 - Streams events over SSE: `text` deltas, `tool` status (running / done / error), `proposal`,
   `usage`, `error`, `done`. The Next.js proxy must pass streaming through unbuffered —
   verify this early, it is the main frontend unknown.
@@ -177,7 +184,8 @@ discovering everything via tool calls:
 |---------|-------------------|--------|
 | Template editor | current buffer (content, type, description), custom variables with values, names only of device/run variables | built |
 | Workflow canvas | compact view of the current plan (steps with config, edges, run inputs); layout and registry noise stripped | built |
-| Run explanation | run metadata, step result *metadata*, failed step's error - content data fetched on demand | planned (phase 5) |
+| Run explainer | only the open run's id; the model fetches metadata first and content data on demand, behind the opt-in | built (§14) |
+| Inventory | only the Nautobot source id; devices are fetched through tools, behind the opt-in | built (§15) |
 
 Keep it compact: summaries up front, details through tools. Large content data (command
 output, config backups) is truncated with an explicit marker and fetchable via a tool.
@@ -249,11 +257,11 @@ static_attributes, changes, warnings, summary}`.
 ### 3.7 Explain & query features
 
 - **Run debugging:** the model reads run metadata → failed step result → run events,
-  and explains cause and likely fix. Read-only; possibly a "Explain this failure" button
-  on the runs page later (out of scope v1, but the tools above already support it).
+  and explains cause and likely fix. Read-only; built as a panel on the runs page (§14).
 - **Workflow/template explanation:** "what does this do" over the in-context definition.
 - **Inventory questions:** resolved via `resolve_inventory` + `get_device_attributes`;
-  bounded by device-count caps, and the answer must say when it was truncated.
+  bounded by device-count caps, and the answer must say when it was truncated. Built as a panel on
+  the inventory page (§15).
 
 ## 4. Data sharing — opt-in only
 
@@ -340,7 +348,8 @@ the original value back, one that deletes it removes the value. Structured step 
 structured redactor's literal `***REDACTED***` marker is never persisted: any proposal containing it
 is rejected.
 
-The regex set and its fixtures exist (`tests/unit/test_ai_redaction.py`). Not in v1 (documented
+The regex set and its fixtures exist (`tests/unit/test_ai_redaction.py`); phase 6 added a
+multi-vendor corpus and more patterns (§17). Not in v1 (documented
 gaps): registering the user's own credential secrets for exact-match scrubbing, and
 ML/entropy-based detection.
 
@@ -362,7 +371,7 @@ ML/entropy-based detection.
 - Feature dir `components/features/ai-assistant/` (`components/`, `hooks/`, `types/`).
 - One reusable `AssistantPanel` (chat, tool-activity disclosure, proposal card with diff),
   mounted by each surface with a `surface` + context ref. Surfaces: template editor,
-  workflow canvas (v1); more later.
+  workflow canvas, runs page, inventory page; more later.
 - Settings → **AI Assistant** (per-user): enable switch, provider, model, base URL, key, test
   connection, data-sharing switches.
 - **Visibility gate:** one hook, `useAiAssistantAvailable()` (TanStack Query on `/ai/status`),
@@ -532,8 +541,8 @@ canvas and saves with the normal Save, which also runs the server-side validatio
 - SSE through the Next.js dev proxy verified with a probe endpoint (incremental delivery, no
   gzip buffering). **Not yet verified for a production build / Docker ingress.**
 - Key storage is Fernet only (`EncryptionService`); OpenBao storage is deferred.
-- No data-sharing enforcement exists yet because no class B/C tool exists yet; the two switches
-  are stored and shown, and `AiRuntimeConfig` carries them for the phase-5 tool layer.
+- Data-sharing enforcement did not exist yet in this phase (no class B/C tool); it was added in
+  phase 5 (§14, §16).
 - Not done: server-side `fallbacks` for refusals (a refusal is reported as a clear error).
 
 **Phase 2 (template assistant) - verified by the product owner with a real key:**
@@ -551,8 +560,8 @@ canvas and saves with the normal Save, which also runs the server-side validatio
   vitest/tsc/eslint, and by the product owner: template Q&A and added lines through a proposal.
 - Known limits: a pathological template can burn CPU in the render thread after the 5 s timeout
   returns (threads cannot be killed; same exposure as the editor's own preview); only the template
-  *content* is proposable (not variables/options); the opt-in switches are still not consulted
-  because no class B/C data is sent.
+  *content* is proposable (not variables/options); the template surface still sends no class B/C
+  data (device and run variables by name only), so the opt-in switches do not apply to it.
 
 **Phase 3 (Gemini + OpenAI-compatible):**
 
@@ -713,7 +722,7 @@ errors, injected text stays inside JSON) and 3 router tests (saved switches reac
 tools were also run against real rows of the dev database with the switches off and on.
 
 **Not verified:** a real model explaining a real failed run (the dev database has only successful
-runs), the panel in a browser, and the injection corpus is small (§13 open items).
+runs) and the panel in a browser. The injection corpus is in §17.
 
 ## 15. Phase 5 design - inventory assistant
 

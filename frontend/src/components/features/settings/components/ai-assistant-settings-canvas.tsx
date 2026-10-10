@@ -35,6 +35,8 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { ShareConfirmSwitch } from "./share-confirm-switch";
+import { useAuthStore } from "@/lib/auth-store";
+import { hasRole } from "@/lib/permissions";
 import { PROVIDER_LABELS } from "@/components/features/ai-assistant/constants/providers";
 import { useAiSettingsMutations } from "@/hooks/queries/use-ai-settings-mutations";
 import { useAiSettingsQuery } from "@/hooks/queries/use-ai-settings-query";
@@ -108,6 +110,8 @@ export function AiAssistantSettingsCanvas() {
 function AiAssistantSettingsForm({ settings }: { settings: AiSettings }) {
   const { saveSettings, testConnection } = useAiSettingsMutations();
   const available = useAiAssistantAvailable();
+  // Only an administrator may point the backend at a custom server (it is an outbound request).
+  const canSetServerUrl = useAuthStore((state) => hasRole(state.user, "admin"));
 
   const defaultValues = useMemo<FormValues>(
     () => ({
@@ -137,7 +141,7 @@ function AiAssistantSettingsForm({ settings }: { settings: AiSettings }) {
       // the OpenAI-compatible provider.
       const payload = {
         ...rest,
-        ...(rest.provider === "openai_compat"
+        ...(rest.provider === "openai_compat" && canSetServerUrl
           ? { base_url: base_url.trim() }
           : {}),
         ...(api_key.trim() ? { api_key: api_key.trim() } : {}),
@@ -148,7 +152,7 @@ function AiAssistantSettingsForm({ settings }: { settings: AiSettings }) {
         onSuccess: () => form.reset({ ...values, api_key: "" }),
       });
     },
-    [form, saveSettings],
+    [canSetServerUrl, form, saveSettings],
   );
 
   const handleRemoveKey = useCallback(() => {
@@ -260,6 +264,7 @@ function AiAssistantSettingsForm({ settings }: { settings: AiSettings }) {
                           <Input
                             className="font-mono text-xs"
                             placeholder="http://ollama-host:11434/v1"
+                            disabled={!canSetServerUrl}
                             {...field}
                           />
                         </FormControl>
@@ -268,6 +273,8 @@ function AiAssistantSettingsForm({ settings }: { settings: AiSettings }) {
                           Ollama: http://host:11434/v1). A server on the same
                           machine as the backend is only reachable when the
                           backend runs with ALLOW_LOOPBACK_SOURCE_URLS enabled.
+                          {!canSetServerUrl &&
+                            " Only an administrator can change the server URL."}
                         </FormDescription>
                         <FormMessage />
                       </FormItem>

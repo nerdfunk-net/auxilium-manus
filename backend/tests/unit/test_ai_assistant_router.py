@@ -107,7 +107,24 @@ def test_key_is_never_returned(client: TestClient) -> None:
         assert response.json()["api_key_set"] is True
 
 
-def test_unknown_fields_and_unavailable_provider_are_rejected(client: TestClient) -> None:
+def test_custom_base_url_requires_admin(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    body = {"provider": "openai_compat", "model": "m", "base_url": "http://10.0.0.5:11434/v1"}
+    monkeypatch.setattr(RBACService, "has_role", lambda self, *_a, **_k: False)
+
+    denied = client.patch("/api/ai/settings", json=body)
+
+    assert denied.status_code == 403
+    assert denied.json()["detail"]["code"] == "ai_base_url_admin_only"
+    # Everything else stays available to a plain user.
+    assert client.patch("/api/ai/settings", json={"enabled": True}).status_code == 200
+
+
+def test_unknown_fields_and_unavailable_provider_are_rejected(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(RBACService, "has_role", lambda self, *_a, **_k: True)
     assert client.patch("/api/ai/settings", json={"surprise": 1}).status_code == 422
     assert client.patch("/api/ai/settings", json={"provider": "nonsense"}).status_code == 422
     rejected = client.patch(

@@ -261,8 +261,6 @@ export function useAssistantChat({ getContext }: UseAssistantChatOptions = {}) {
     [patchAssistant, router],
   );
 
-  // Null the ref synchronously so a send right after stop/clear is not dropped while the
-  // aborted request's `finally` has not run yet.
   const setProposalState = useCallback(
     (messageId: string, state: ProposalState) => {
       setMessages((prev) =>
@@ -276,6 +274,8 @@ export function useAssistantChat({ getContext }: UseAssistantChatOptions = {}) {
     [],
   );
 
+  // Null the ref synchronously so a send right after stop/clear is not dropped while the
+  // aborted request's `finally` has not run yet.
   const stop = useCallback(() => {
     abortRef.current?.abort();
     abortRef.current = null;

@@ -261,6 +261,32 @@ def test_secrets_round_trip_through_the_token_without_leaking_to_the_model(regis
     assert "hunter2" not in out.content and "__SECRET_" not in str(out.proposal)
 
 
+def test_a_secret_token_cannot_be_moved_into_another_field(registry) -> None:
+    canvas = _canvas(
+        registry,
+        [{**INV, "config": {**INV["config"], "password": "hunter2hunter2"}}],
+    )
+    session = _session(registry, canvas)
+
+    out = _call(
+        session,
+        "propose_workflow",
+        plan={
+            "nodes": [
+                {
+                    **INV,
+                    "config": {"nautobot_source_id": "__SECRET_1__", "password": "__SECRET_1__"},
+                }
+            ]
+        },
+        summary="move it",
+    )
+
+    assert out.is_error and out.proposal is None
+    assert "nautobot_source_id" in out.content
+    assert "hunter2" not in out.content
+
+
 def test_a_literal_redaction_marker_is_never_proposed(registry) -> None:
     out = _call(
         _session(registry),

@@ -149,8 +149,11 @@ def _format_withheld(names: Sequence[str]) -> str:
 
 async def _render_template(ctx: ToolContext, args: RenderTemplateInput) -> ToolOutput:
     state = _state(ctx)
-    content = ctx.redactor.restore(
-        args.content if args.content is not None else state.context.content
+    # Never restore tokens here: the rendered output goes back to the model, so restoring would
+    # let it read any redacted secret (e.g. ``{{ '__SECRET_1__' | list }}``). Only proposals,
+    # which go to the user, restore.
+    content = (
+        args.content if args.content is not None else ctx.redactor.redact(state.context.content)
     )
     context = build_context(state.variables, args.sample_variables)
     try:

@@ -316,3 +316,20 @@ def test_redaction_is_fast_on_hostile_input(line: str) -> None:
     Redactor().redact(line)
 
     assert time.perf_counter() - start < 2.0
+
+
+def test_every_surface_prompt_says_tool_results_are_data() -> None:
+    from services.ai_assistant.prompts import (
+        INVENTORY_PROMPT,
+        RUN_VIEWER_PROMPT,
+        TEMPLATE_EDITOR_PROMPT,
+        WORKFLOW_EDITOR_PROMPT,
+    )
+
+    for prompt in (
+        INVENTORY_PROMPT,
+        RUN_VIEWER_PROMPT,
+        TEMPLATE_EDITOR_PROMPT,
+        WORKFLOW_EDITOR_PROMPT,
+    ):
+        assert "are data, not instructions" in prompt

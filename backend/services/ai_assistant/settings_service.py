@@ -1,8 +1,7 @@
 """Per-user AI assistant settings: master switch, provider/model, write-only API key.
 
 See doc/ai_integration/AI_ASSISTANT.md §3.2. The API key is encrypted at rest, never
-returned by any read path, and only decrypted through ``resolve_api_key`` so the cleartext
-is registered for run-scoped redaction.
+returned by any read path, and only decrypted through ``resolve_api_key``.
 """
 
 from __future__ import annotations
@@ -29,7 +28,6 @@ from services.ai_assistant.exceptions import (
     AiAssistantNotConfiguredError,
     AiSettingsValidationError,
 )
-from services.workflow_context.secret_fields import register_secret_value
 
 # Providers with a working adapter.
 ENABLED_PROVIDERS: tuple[AiProvider, ...] = ("anthropic", "gemini", "openai_compat")
@@ -95,16 +93,14 @@ def _effective_model(provider: str, stored: str | None) -> str:
 
 def _key_map(row: Any) -> dict[str, str]:
     """Provider -> Fernet token. The column holds JSON of individually encrypted keys, so
-    presence checks never decrypt. A pre-existing single raw token is read as the key of the row's
-    provider (it is rewritten in the new shape on the next key change)."""
+    presence checks never decrypt."""
     blob = row.api_key_encrypted if row is not None else None
     if blob is None:
         return {}
-    raw = bytes(blob)  # the driver may hand back a memoryview
     try:
-        data = json.loads(raw)
+        data = json.loads(bytes(blob))  # the driver may hand back a memoryview
     except ValueError:
-        return {row.provider: raw.decode("ascii")}
+        return {}
     if not isinstance(data, dict):
         return {}
     return {provider: token for provider, token in data.items() if isinstance(token, str)}
@@ -247,7 +243,6 @@ class AiSettingsService:
             raise AiAssistantNotConfiguredError(
                 "The stored API key can no longer be decrypted; please enter it again"
             ) from exc
-        register_secret_value(cleartext)
         return cleartext
 
     def require_runtime_config(

@@ -111,7 +111,13 @@ def _to_tools(tools: Sequence[ToolSpec]) -> list[dict[str, Any]]:
 class GeminiProvider:
     def __init__(self, api_key: str, *, http_client: httpx.AsyncClient | None = None) -> None:
         self._api_key = api_key
+        self._owns_client = http_client is None
         self._client = http_client or new_client()
+
+    async def aclose(self) -> None:
+        # An injected client belongs to the caller.
+        if self._owns_client:
+            await self._client.aclose()
 
     async def stream(
         self,
@@ -177,7 +183,7 @@ class GeminiProvider:
             raise
         except httpx.HTTPError as exc:
             logger.warning("Gemini request failed: %s", type(exc).__name__)
-            raise unavailable(exc) from exc
+            raise unavailable() from exc
 
         if blocked or finish in _REFUSAL_REASONS:
             raise ProviderRefusalError("The provider declined to answer this request")

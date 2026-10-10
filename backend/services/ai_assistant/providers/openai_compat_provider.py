@@ -93,7 +93,13 @@ class OpenAiCompatProvider:
     ) -> None:
         self._base_url = base_url.rstrip("/")
         self._api_key = api_key
+        self._owns_client = http_client is None
         self._client = http_client or new_client()
+
+    async def aclose(self) -> None:
+        # An injected client belongs to the caller.
+        if self._owns_client:
+            await self._client.aclose()
 
     async def stream(
         self,
@@ -157,7 +163,7 @@ class OpenAiCompatProvider:
             raise
         except httpx.HTTPError as exc:
             logger.warning("OpenAI-compatible request failed: %s", type(exc).__name__)
-            raise unavailable(exc) from exc
+            raise unavailable() from exc
 
         if finish == "content_filter":
             raise ProviderRefusalError("The provider declined to answer this request")

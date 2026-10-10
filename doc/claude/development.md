@@ -115,8 +115,9 @@ AI collaboration: a seeded `ai-assistant` RBAC principal plus a per-workflow
 `WorkflowAiSession` consent flag gate `backend/scripts/ai_workflow_apply.py`.
 Read `doc/ai_collaboration/PROCESS.md` first.
 
-In-app AI assistant (a chat panel in the template editor and the workflow builder, per-user
-provider and key, proposals applied as unsaved state): `backend/services/ai_assistant/`,
+In-app AI assistant (chat panels in the template editor, the workflow builder, the runs page and the
+inventory page; per-user provider and key; proposals applied as unsaved state; device and run data
+sent only with the user's opt-in): `backend/services/ai_assistant/`,
 `backend/routers/ai_assistant.py`, `frontend/src/components/features/ai-assistant/`. Read
 `doc/ai_integration/AI_ASSISTANT.md` first. Tools there must be pure reads or proposals - never
 persist or execute.

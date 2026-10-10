@@ -111,15 +111,24 @@ export function WorkflowProposalCard({
 
       <ul className="space-y-2">
         {changes.nodes_added.map((step) => (
-          <li
-            key={`add-${step.id}`}
-            className="flex items-center gap-1 text-sm"
-          >
-            <Plus className="size-3 shrink-0 text-primary" aria-hidden />
-            <span className="font-medium">{step.title}</span>
-            <span className="text-xs text-muted-foreground">
-              ({step.kind}) added
-            </span>
+          <li key={`add-${step.id}`} className="space-y-1">
+            <div className="flex items-center gap-1 text-sm">
+              <Plus className="size-3 shrink-0 text-primary" aria-hidden />
+              <span className="font-medium">{step.title}</span>
+              <span className="text-xs text-muted-foreground">
+                ({step.kind}) added
+              </span>
+            </div>
+            {step.config && step.config !== "{}" && (
+              <details className="text-xs">
+                <summary className="cursor-pointer text-muted-foreground">
+                  Configuration
+                </summary>
+                <pre className="max-h-40 overflow-auto rounded border bg-muted/30 p-2 font-mono whitespace-pre-wrap break-all">
+                  {step.config}
+                </pre>
+              </details>
+            )}
           </li>
         ))}
         {changes.nodes_removed.map((step) => (

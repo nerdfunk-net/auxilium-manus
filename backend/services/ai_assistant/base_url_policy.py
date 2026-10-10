@@ -34,10 +34,19 @@ def _check_transport(url: str, *, has_api_key: bool) -> None:
         raise BaseUrlPolicyError("An API key may only be sent to an https URL outside development")
 
 
+def _check_shape(url: str) -> None:
+    # The provider appends ``/chat/completions``; a query, fragment or path parameter would let
+    # the configured URL redirect that request to an arbitrary path on the target host.
+    parsed = urlparse(url)
+    if parsed.query or parsed.fragment or parsed.params or "?" in url or "#" in url:
+        raise BaseUrlPolicyError("The URL must not contain a query string or fragment")
+
+
 def validate_llm_base_url(url: str, *, has_api_key: bool) -> str:
     """Normalised URL (no trailing slash) or ``BaseUrlPolicyError``. Resolves DNS (blocking)."""
     if len(url) > MAX_BASE_URL_CHARS:
         raise BaseUrlPolicyError("The URL is too long")
+    _check_shape(url)
     try:
         safe = validate_outbound_http_url(url)
     except UnsafeURLError as exc:
@@ -48,6 +57,7 @@ def validate_llm_base_url(url: str, *, has_api_key: bool) -> str:
 
 async def validate_llm_base_url_async(url: str, *, has_api_key: bool) -> str:
     """Same check off the event loop; used right before each provider call."""
+    _check_shape(url)
     try:
         safe = await validate_outbound_http_url_async(url)
     except UnsafeURLError as exc:

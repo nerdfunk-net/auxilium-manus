@@ -174,6 +174,21 @@ def test_render_loops_over_withheld_collections_render_nothing() -> None:
     assert not out.is_error and "done" in out.content
 
 
+def test_render_never_reveals_a_redacted_secret_to_the_model() -> None:
+    session = _session(_context(content="enable secret 9 MyS3cretValue99\n"))
+
+    explicit = _call(
+        session,
+        "render_template",
+        content="{{ '__SECRET_1__' | list | join(' ') }} / __SECRET_1__",
+    )
+    default = _call(session, "render_template")
+
+    for out in (explicit, default):
+        assert "MyS3cretValue99" not in out.content
+        assert "M y S 3" not in out.content
+
+
 # -- read tools -----------------------------------------------------------------------
 
 

@@ -111,3 +111,7 @@ class LlmProvider(Protocol):
         max_tokens: int,
         tools: Sequence[ToolSpec] = (),
     ) -> AsyncIterator[StreamEvent]: ...
+
+    async def aclose(self) -> None:
+        """Release the adapter's HTTP connection pool; called once per chat turn / test."""
+        ...

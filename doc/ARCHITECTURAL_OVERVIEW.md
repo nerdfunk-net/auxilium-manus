@@ -778,7 +778,9 @@ section is the short version of how a request actually flows.
 
 1. The browser posts the chat text plus the surface's **current state** to `POST /api/ai/chat`
    (through the Next.js proxy, which streams the response unbuffered): the template editor's buffer
-   or the workflow builder's canvas, saved or not. The server never loads the row itself.
+   or the workflow builder's canvas, saved or not (the server never loads that row itself), or just
+   the open run id (runs page) or Nautobot source id (inventory page). Four surfaces, each with its
+   own prompt and tool set.
 2. The router checks `ai_assistant:use` and the user's **enable switch**, resolves the user's
    provider config, builds a surface *session* (system prompt with the state, plus the tools for
    that surface) and **releases its database session before streaming**: a stream can last minutes
@@ -787,12 +789,17 @@ section is the short version of how a request actually flows.
    behind one `LlmProvider` interface), runs the tools the model asks for, feeds the results back
    and repeats, at most 8 tool steps. Provider-specific blocks (for example thinking blocks) exist
    only inside this loop; the client's history is plain text.
-4. Progress reaches the browser as SSE events: `text`, `tool` status chips, `proposal`, `usage`,
-   `error`, `done`. Provider failures are mapped to neutral messages (HTTP status plus the
+4. Progress reaches the browser as SSE events: `text`, `tool` status chips (with `truncated` and
+   `withheld` hints), `proposal`, `usage`, `error`, `done`. One audit log line per turn is written
+   (`ai_assistant.audit`: user, surface, provider, model, tools, withheld classes, tokens, outcome;
+   never content). Provider failures are mapped to neutral messages (HTTP status plus the
    provider's short error category, never its response body).
 
 ### Why it cannot write
 
+- **Surfaces:** only the template editor and the workflow builder have a proposal tool. The runs page
+  and inventory page surfaces are read-only: they offer no `propose_*`, run, trigger or execute tool,
+  so even a prompt-injected model has nothing to call (asking for one returns "Unknown tool").
 - **Tools** run as the calling user, each opening a short database session of its own and
   re-checking RBAC (`templates:read`, `credentials:read`, `sources.<type>:read`, ...). Input is
   validated with Pydantic, output is redacted and capped, and an exception becomes a generic tool
@@ -808,17 +815,26 @@ section is the short version of how a request actually flows.
 
 ### What the model is allowed to see
 
-Workflow and template *definitions* only. Device- and run-derived values (the editor's `device`,
-`nautobot`, command output, `parsed.*`) are sent by name, never with values, and the two opt-in
-switches in the user's settings are reserved for future tools that would send them. Secrets that
-appear in a definition become request-scoped tokens (`__SECRET_n__`) before the prompt is built and
-are restored when a proposal comes back, so redaction can neither leak a secret nor overwrite one
-with a placeholder. The token table lives for one request and is never stored.
+*Definitions* (workflows, templates, step schemas, credential and repository names) always. Anything
+derived from devices or runs only with the user's **opt-in**, which is enforced in the tool layer, not
+the UI (`services/ai_assistant/data_sharing.py`): a base switch for device basics, three nested switches
+for addresses and serials, custom fields and config context, and one for run and device content
+(command output, errors, run inputs, event text). A withheld value is replaced by a
+`{"not_shared": ...}` marker, so the model can tell the user what to enable, and devices are shown as
+`device-1`, `device-2` unless inventory data is shared. Nautobot attributes go through an allow-list;
+unknown attribute names are never sent. The template editor surface still sends device and run
+variables by name only.
+
+Everything a tool returns is redacted (structured secret keys, then a free-text pass over config
+syntax of several vendors) and size-capped. Secrets that appear in a definition become request-scoped
+tokens (`__SECRET_n__`) before the prompt is built and are restored when a proposal comes back, so
+redaction can neither leak a secret nor overwrite one with a placeholder. The token table lives for one
+request and is never stored. Redaction is best-effort, which is why every opt-in asks for confirmation.
 
 ### Per-user configuration
 
-`user_ai_settings` holds one row per user: master switch (default off), provider, model, and one
-encrypted key *per provider*. Availability is `permission AND switch AND configured`, enforced
+`user_ai_settings` holds one row per user: master switch (default off), provider, model, one
+encrypted key *per provider*, and the data-sharing switches (all default off). Availability is `permission AND switch AND configured`, enforced
 server-side; the frontend hides every assistant surface through one hook when `GET /api/ai/status`
 says unavailable. A user-configured server URL (OpenAI-compatible) goes through the same outbound
 URL policy as the other sources, at save time and before each call, and redirects are never followed.

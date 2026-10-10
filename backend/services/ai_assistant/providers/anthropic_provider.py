@@ -76,6 +76,9 @@ class AnthropicProvider:
         # max_retries: the SDK retries 429/5xx with backoff; keep its default.
         self._client = anthropic.AsyncAnthropic(api_key=api_key, timeout=REQUEST_TIMEOUT_SECONDS)
 
+    async def aclose(self) -> None:
+        await self._client.close()
+
     async def stream(
         self,
         *,

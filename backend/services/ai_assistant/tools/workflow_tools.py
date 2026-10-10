@@ -18,7 +18,7 @@ from typing import Any, Literal, Protocol
 from pydantic import BaseModel, ConfigDict, Field
 
 from models.plugins import PluginDefinition
-from services.ai_assistant.redaction import Redactor
+from services.ai_assistant.redaction import Redactor, SecretRelocationError
 from services.ai_assistant.tools.base import Tool, ToolContext, ToolOutput
 from services.ai_assistant.workflow_expand import (
     ExpandedWorkflow,
@@ -228,7 +228,18 @@ async def _expand_and_validate(
     ctx: ToolContext, plan: WorkflowPlanIn
 ) -> tuple[ExpandedWorkflow | None, list[Any], ToolOutput | None]:
     state = _state(ctx)
-    restored = _restored_plan(ctx, plan)
+    try:
+        restored = _restored_plan(ctx, plan)
+    except SecretRelocationError as exc:
+        return (
+            None,
+            [],
+            ToolOutput(
+                f"The plan is invalid: {exc}. Keep each __SECRET_n__ token in the field it came "
+                "from, or remove it.",
+                is_error=True,
+            ),
+        )
     if Redactor.data_contains_placeholder(restored.model_dump(mode="json")):
         return (
             None,

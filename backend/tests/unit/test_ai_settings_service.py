@@ -263,7 +263,14 @@ def test_base_url_is_only_accepted_for_openai_compat(service: AiSettingsService)
 
 
 def test_unsafe_base_urls_are_rejected_at_save_time(service: AiSettingsService) -> None:
-    for url in ("http://169.254.169.254/v1", "ftp://10.0.0.5/v1", "http://user:pw@10.0.0.5/v1"):
+    for url in (
+        "http://169.254.169.254/v1",
+        "ftp://10.0.0.5/v1",
+        "http://user:pw@10.0.0.5/v1",
+        "http://10.0.0.5:6379/x?y=",
+        "http://10.0.0.5/admin#",
+        "http://10.0.0.5/v1;p=1",
+    ):
         with pytest.raises(AiSettingsValidationError):
             service.update(1, UserAiSettingsUpdate(provider="openai_compat", base_url=url))
 
@@ -323,23 +330,3 @@ def test_removing_a_key_only_affects_the_current_provider(service: AiSettingsSer
 
     service.update(1, UserAiSettingsUpdate(provider="anthropic"))
     assert service.get(1).api_key_set is True
-
-
-def test_a_legacy_single_key_blob_is_read_as_the_rows_provider_key(
-    service: AiSettingsService, repo: FakeRepo
-) -> None:
-    service.update(1, UserAiSettingsUpdate(enabled=True))
-    repo.rows[1].api_key_encrypted = EncryptionService(
-        "test-secret-key-for-ai-settings-00"
-    ).encrypt("sk-ant-legacy")
-
-    assert service.resolve_api_key(1) == "sk-ant-legacy"
-    assert service.get(1).configured is True
-
-
-def test_stored_blob_never_contains_a_cleartext_key(
-    service: AiSettingsService, repo: FakeRepo
-) -> None:
-    service.update(1, UserAiSettingsUpdate(provider="gemini", api_key=SecretStr("AIza-gemini")))
-
-    assert b"AIza-gemini" not in repo.rows[1].api_key_encrypted

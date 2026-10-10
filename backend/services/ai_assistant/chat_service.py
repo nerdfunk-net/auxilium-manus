@@ -58,6 +58,7 @@ async def _stream(
     toolbox: Toolbox | None,
     system: str,
 ) -> AsyncIterator[ChatEvent]:
+    provider: LlmProvider | None = None
     try:
         provider = provider_factory(
             config.provider, api_key=config.api_key, base_url=config.base_url
@@ -81,13 +82,27 @@ async def _stream(
             "error",
             {"code": "internal_error", "message": "The assistant failed unexpectedly"},
         )
+    finally:
+        await _close(provider)
     yield ChatEvent("done", {})
+
+
+async def _close(provider: LlmProvider | None) -> None:
+    """Release the provider's connection pool; a failure here must not mask the turn's outcome."""
+    close = getattr(provider, "aclose", None)
+    if close is None:
+        return
+    try:
+        await close()
+    except Exception:
+        logger.warning("Closing the AI provider client failed", exc_info=True)
 
 
 async def check_connection(
     config: AiRuntimeConfig, *, provider_factory: ProviderFactory = build_provider
 ) -> dict[str, Any]:
     """Cheap request proving the key + model work. Returns ``{ok, code?, message?}``."""
+    provider: LlmProvider | None = None
     try:
         provider = provider_factory(
             config.provider, api_key=config.api_key, base_url=config.base_url
@@ -106,4 +121,6 @@ async def check_connection(
     except Exception:
         logger.exception("Unexpected error testing AI assistant connection")
         return {"ok": False, "code": "internal_error", "message": "The connection test failed"}
+    finally:
+        await _close(provider)
     return {"ok": True}
