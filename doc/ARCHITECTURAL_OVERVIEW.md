@@ -785,7 +785,9 @@ section is the short version of how a request actually flows.
    provider config, builds a surface *session* (system prompt with the state, plus the tools for
    that surface) and **releases its database session before streaming**: a stream can last minutes
    and must not pin a pooled connection.
-3. `agent_loop.run_agent` calls the provider (Anthropic, Gemini or an OpenAI-compatible server,
+3. The history is **client-held**: the browser re-sends the earlier messages as plain role/content
+   each turn and the server keeps nothing between turns (see "Sessions and saved conversations"
+   below). `agent_loop.run_agent` calls the provider (Anthropic, Gemini or an OpenAI-compatible server,
    behind one `LlmProvider` interface), runs the tools the model asks for, feeds the results back
    and repeats, at most 8 tool steps. Provider-specific blocks (for example thinking blocks) exist
    only inside this loop; the client's history is plain text.
@@ -831,14 +833,37 @@ tokens (`__SECRET_n__`) before the prompt is built and are restored when a propo
 redaction can neither leak a secret nor overwrite one with a placeholder. The token table lives for one
 request and is never stored. Redaction is best-effort, which is why every opt-in asks for confirmation.
 
+### Sessions and saved conversations
+
+The server never remembers a chat, so where the conversation lives is a client concern with one
+optional server-side copy:
+
+- **While the user works** it is held in an in-memory Zustand store
+  (`ai-assistant/store/assistant-session-store.ts`) keyed by surface and subject
+  (`workflow_editor:12`, `template_editor:3`, `run_viewer`, `inventory:<source>`), so leaving a page
+  and coming back restores the panel, messages and draft. It is **never written to browser storage**
+  (messages can hold device or run data) and is wiped on reload, logout or a 401. A running turn is
+  cancelled when the user leaves the page, not continued in the background.
+- **For later** the user presses **Save**, which stores the conversation in `ai_conversations`
+  (`POST /api/ai/conversations`, private to the owner, 404 for anyone else). Saving is explicit
+  because a chat may contain text derived from opted-in device or run data. What is stored is
+  redacted by the same `Redactor` the tools use, tool chips keep only name and status, and a proposal
+  is reduced to kind and summary (a stored canvas would be stale on resume). **Resume** loads the
+  messages back into the session as history; no server state is involved, which is why it works
+  across providers and models. Caps: 50 messages, 200,000 characters per conversation, 100 per user.
+  Conversations untouched for `AI_CONVERSATION_RETENTION_DAYS` (default 90, `0` = keep) are purged by
+  the `purge_ai_conversations` task of the daily Hatchet housekeeping workflow.
+
 ### Per-user configuration
 
-`user_ai_settings` holds one row per user: master switch (default off), provider, model, one
+`user_ai_settings` holds one row per user (saved chats are the separate `ai_conversations` table
+above): master switch (default off), provider, model, one
 encrypted key *per provider*, and the data-sharing switches (all default off). Availability is `permission AND switch AND configured`, enforced
 server-side; the frontend hides every assistant surface through one hook when `GET /api/ai/status`
 says unavailable. A user-configured server URL (OpenAI-compatible) goes through the same outbound
 URL policy as the other sources, at save time and before each call, and redirects are never followed.
 
-Code: `backend/routers/ai_assistant.py`, `backend/services/ai_assistant/`,
+Code: `backend/routers/ai_assistant.py`, `backend/routers/ai_conversations.py`,
+`backend/services/ai_assistant/` (`conversation_service.py` for saved chats),
 `frontend/src/components/features/ai-assistant/`.
 

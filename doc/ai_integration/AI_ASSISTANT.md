@@ -370,7 +370,7 @@ ML/entropy-based detection.
 
 ## 6. Frontend
 
-- Feature dir `components/features/ai-assistant/` (`components/`, `hooks/`, `types/`).
+- Feature dir `components/features/ai-assistant/` (`components/`, `hooks/`, `store/`, `types/`, `utils/`).
 - One reusable `AssistantPanel` (chat, tool-activity disclosure, proposal card with diff),
   mounted by each surface with a `surface` + context ref. Surfaces: template editor,
   workflow canvas, runs page, inventory page; more later.
@@ -380,7 +380,9 @@ ML/entropy-based detection.
   is the only way a surface decides whether to render assistant UI. When it reports
   unavailable, nothing assistant-related is rendered — no panel, no button, no empty placeholder.
 - Server state through TanStack Query hooks + `queryKeys`; the stream itself via a small
-  dedicated hook (`use-assistant-chat.ts`) since it is not request/response.
+  dedicated hook (`use-assistant-chat.ts`) since it is not request/response. The chat state itself
+  (messages, draft, open state) lives in an in-memory session store, and the panel header offers Save
+  and a Saved-conversations dialog (§18).
 - Shadcn UI components only. **Diff view (agreed: simple, library-based):** use a small
   text-diff library (`diff`, i.e. jsdiff 9.x - pure JS, no UI, ships its own types) and
   render the result ourselves with Tailwind tokens (`bg-background`, destructive/success
@@ -905,6 +907,8 @@ and subject with Resume and Delete. Only panels given a `conversationScope` show
 **Verified.** Backend unit tests for owner isolation, redaction on save, size and count caps,
 retention and the HTTP status codes (`test_ai_conversation_service.py`,
 `test_ai_conversations_router.py`); frontend tests for the store, the mapping and the Save/Resume/Delete
-flow. The new routes are served by the running dev backend. Not verified: the full flow with a real
-login in a browser.
+flow. The product owner tried it in the browser (2026-10-10): navigating away and back keeps the chat,
+and a conversation can be saved, the page reloaded and the conversation resumed. Not verified: the
+retention purge against a real Hatchet worker, and delete / second-user isolation in the browser (covered
+by the router tests only).
 

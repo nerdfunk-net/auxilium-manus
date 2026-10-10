@@ -19,6 +19,7 @@ VAULT_ENABLED=false    # optional OpenBao secret storage; see doc/VAULT_INTEGRAT
 SESSION_MAX_AGE_HOURS=12        # absolute session lifetime (see doc/claude/auth.md)
 REFRESH_TOKEN_MAX_AGE_HOURS=12   # defaults to SESSION_MAX_AGE_HOURS; must not exceed it
 MAX_REQUEST_BODY_BYTES=26214400  # 413 above this declared Content-Length; 0 disables
+AI_CONVERSATION_RETENTION_DAYS=90  # purge saved AI assistant chats not updated for N days; 0 keeps them
 ```
 
 **Frontend** (`.env.local`):

@@ -499,16 +499,19 @@ pass-throughs, `InterfaceManagerService`, `DeviceUpdateService.update_device`, `
 
 ---
 
-## AI assistant: survive a full page reload
+## AI assistant: keep the session while the user works — IMPLEMENTED
 
-**Added:** 2026-10-10
+**Added:** 2026-10-10 · **Implemented:** 2026-10-10 (tested by the product owner)
 
-- Sessions now survive navigation (in-memory store) and conversations can be saved on the server on
-  request (`doc/ai_integration/AI_ASSISTANT.md` §18).
-- **Still open:** an unsaved chat is lost on a full reload, by design (no browser storage for data that
-  may contain device or run output). If that turns out to hurt, offer an opt-in autosave of the current
-  chat as a draft conversation, or a "Save before reload" prompt, rather than writing to
-  `sessionStorage`.
+- **Done:** the panel (open state, messages, draft) now survives navigation in an in-memory store keyed
+  by surface and subject, and a conversation can be saved on the server with an explicit Save and
+  resumed later (`ai_conversations`, list / resume / delete, 90-day retention). Design and limits:
+  `doc/ai_integration/AI_ASSISTANT.md` §18; overview: `doc/ARCHITECTURAL_OVERVIEW.md` → "Sessions and
+  saved conversations".
+- **Remaining, deliberately not done:** an *unsaved* chat is lost on a full page reload (no browser
+  storage for data that may contain device or run output). Only worth revisiting if it hurts: an opt-in
+  autosave as a draft conversation, or a "Save before reload" prompt, rather than `sessionStorage`.
+- **Not yet verified:** the retention purge on a real Hatchet worker.
 
 ---
 
