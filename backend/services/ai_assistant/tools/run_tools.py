@@ -8,6 +8,7 @@ opt-in (``ctx.sharing``) and is replaced by a ``not_shared`` marker when the cla
 from __future__ import annotations
 
 import json
+from collections import Counter
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
@@ -139,6 +140,29 @@ async def _load_run(ctx: ToolContext, run_id: int) -> dict[str, Any]:
     return state.loaded[run_id]
 
 
+def _device_failures(device: dict[str, Any]) -> list[dict[str, Any]]:
+    """Structured failure records of one device (``models.failure``).
+
+    Closed vocabulary and numbers only, so they are metadata and are not gated; the free-text
+    ``message`` next to them is class C and stays behind the opt-in.
+    """
+    return [
+        {"step_node_id": e.get("node_id"), **e["failure"]}
+        for e in (device.get("errors") or [])
+        if isinstance(e, dict) and isinstance(e.get("failure"), dict)
+    ]
+
+
+def _failure_counts(step: dict[str, Any]) -> dict[str, int]:
+    """How many devices of a step failed per ``phase/kind`` (one count per device and kind)."""
+    counts: Counter[str] = Counter()
+    for envelope in ((step.get("output") or {}).get("outcomes") or {}).values():
+        for device in (envelope.get("devices") or {}).values():
+            kinds = {f"{f.get('phase')}/{f.get('kind')}" for f in _device_failures(device)}
+            counts.update(kinds)
+    return dict(counts)
+
+
 def _step_summary(ctx: ToolContext, step: dict[str, Any]) -> dict[str, Any]:
     summary: dict[str, Any] = {
         "node_id": step.get("step_node_id"),
@@ -150,6 +174,11 @@ def _step_summary(ctx: ToolContext, step: dict[str, Any]) -> dict[str, Any]:
         "error_category": step.get("error_category"),
         "error_id": step.get("error_id"),
     }
+    if isinstance(step.get("failure"), dict):
+        summary["failure"] = step["failure"]
+    failure_counts = _failure_counts(step)
+    if failure_counts:
+        summary["device_failures_by_cause"] = failure_counts
     if step.get("error_message"):
         summary["error_message"] = gated(ctx.sharing, DataClass.CONTENT, step["error_message"])
     return summary
@@ -191,6 +220,9 @@ def _device_summary(ctx: ToolContext, device: dict[str, Any], include: set[str])
         "running_config_artifact": (device.get("running_config_ref") or {}).get("artifact_id"),
         "startup_config_artifact": (device.get("startup_config_ref") or {}).get("artifact_id"),
     }
+    failures = _device_failures(device)
+    if failures:
+        out["failures"] = failures
     if device.get("errors"):
         out["errors"] = gated(ctx.sharing, DataClass.CONTENT, device["errors"])
     if "attributes" in include:
@@ -355,15 +387,18 @@ async def _get_run_workflow(ctx: ToolContext, args: RunRef) -> ToolOutput:
 RUN_VIEWER_TOOLS: tuple[Tool, ...] = (
     Tool(
         "get_run",
-        "Run overview: status, timings, error category, every step with its status, and fan-out "
-        "device groups. Start here when explaining a failure.",
+        "Run overview: status, timings, error category, every step with its status (failed steps "
+        "show device_failures_by_cause, e.g. 'connect/timeout': 14), and fan-out device groups. "
+        "Start here when explaining a failure.",
         RunRef,
         _get_run,
     ),
     Tool(
         "get_step_result",
         "What one step produced, per outcome and device: status, capabilities, commands with "
-        "artifact ids, error text. Pass include=['attributes'] or ['parsed'] for data values.",
+        "artifact ids, structured failures (phase, kind, attempts, elapsed_ms, hint; always "
+        "available) and error text (needs the content opt-in). Pass include=['attributes'] or "
+        "['parsed'] for data values.",
         StepResultInput,
         _get_step_result,
     ),

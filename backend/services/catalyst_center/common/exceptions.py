@@ -2,9 +2,30 @@
 
 from __future__ import annotations
 
+from models.failure import FailureInfo
+
 
 class CatalystCenterError(Exception):
-    """Base class for Catalyst Center integration errors."""
+    """Base class for Catalyst Center integration errors.
+
+    ``http_status`` and ``code`` are the structured facts behind the (human) message; they
+    feed :attr:`failure`. ``code`` is one of the short strings listed in
+    ``services.catalyst_center.common.failure`` - never text taken from a response.
+    """
+
+    def __init__(
+        self, message: str = "", *, http_status: int | None = None, code: str | None = None
+    ) -> None:
+        super().__init__(message)
+        self.http_status = http_status
+        self.code = code
+
+    @property
+    def failure(self) -> FailureInfo:
+        """Structured, non-sensitive classification (see ``models.failure``)."""
+        from services.catalyst_center.common.failure import classify_catalyst_center_exception
+
+        return classify_catalyst_center_exception(self)
 
 
 class CatalystCenterValidationError(CatalystCenterError):

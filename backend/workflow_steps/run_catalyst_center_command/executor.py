@@ -12,6 +12,7 @@ from sqlalchemy.orm import object_session
 import service_factory
 from core.models.runs import WorkflowRun
 from models.catalyst_center import CatalystCenterCommandResult, CatalystCenterCommandStatus
+from models.failure import FailureInfo
 from models.workflow_context import (
     Capability,
     CommandResult,
@@ -126,6 +127,19 @@ def _summary(command_result: CatalystCenterCommandResult | None, cleaned: str) -
     return f"{lines} line(s) · {preview}" if preview else "empty output"
 
 
+def _command_failure(
+    results: dict[str, CatalystCenterCommandResult], commands: tuple[str, ...]
+) -> FailureInfo:
+    """Blocklisted wins over a plain failure: it is a different fix (the command itself)."""
+    blocked = any(
+        (r := results.get(c)) is not None and r.status is CatalystCenterCommandStatus.BLOCKLISTED
+        for c in commands
+    )
+    if blocked:
+        return FailureInfo(phase="command", kind="command_blocked", hint="check_command_syntax")
+    return FailureInfo(phase="command", kind="command_error")
+
+
 async def _record_device(
     *,
     device_id: str,
@@ -174,6 +188,7 @@ async def _record_device(
             code="command_failed",
             message="; ".join(problems),
             command_results=command_results,
+            failure=_command_failure(results, commands),
         )
         return failed, False
     update: dict[str, Any] = {"status": DeviceStatus.OK, "command_results": command_results}
@@ -218,6 +233,7 @@ async def _run_chunk(
                     node_id=node_id,
                     code="catalyst_center_error",
                     message=message,
+                    failure=exc.failure,
                 ),
                 False,
             )

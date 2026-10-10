@@ -22,6 +22,7 @@ import services.execution.step_runner.subgraph as _subgraph
 from core.config import settings
 from core.models.runs import WorkflowRun, WorkflowStepResult
 from core.models.workflows import Workflow
+from models.failure import failure_for_step_exception, failure_to_json
 from models.workflow_context import Capability, StepOutcome, WorkflowContext
 from repositories.plugin_repository import PluginRepository
 from repositories.run_repository import RunRepository
@@ -52,6 +53,11 @@ from services.workflow_context.secret_fields import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _outcome_failure(outcomes: list[StepOutcome]) -> dict[str, Any] | None:
+    """The step-level cause of the first outcome that reports one."""
+    return next((failure_to_json(o.failure) for o in outcomes if o.failure is not None), None)
 
 
 @lru_cache(maxsize=1)
@@ -480,6 +486,7 @@ class StepRunner:
                 step_result,
                 status=step_status,
                 output=persisted_output,
+                failure=_outcome_failure(outcomes),
                 finished_at=datetime.now(UTC),
             )
             summaries = "; ".join(f"{o.name}: {o.summary}" for o in outcomes if o.summary)
@@ -510,6 +517,7 @@ class StepRunner:
                 error_message=scrub_known_secrets(message)[:4000],
                 error_category=category,
                 error_id=error_id,
+                failure=failure_to_json(failure_for_step_exception(exc, category=category)),
                 finished_at=datetime.now(UTC),
             )
             return False
@@ -714,6 +722,7 @@ class StepRunner:
                 name=outcome.name,
                 context=seed_run_input_bag(outcome.context, run.run_inputs),
                 summary=outcome.summary,
+                failure=outcome.failure,
             )
             for outcome in outcomes
         ]

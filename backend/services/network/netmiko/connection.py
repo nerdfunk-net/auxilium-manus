@@ -14,6 +14,9 @@ from typing import Any
 from netmiko import ConnectHandler, file_transfer
 from netmiko.exceptions import NetmikoAuthenticationException, NetmikoTimeoutException
 
+from models.failure import FailureInfo
+from services.network.netmiko.failure import classify_netmiko_exception
+
 logger = logging.getLogger(__name__)
 
 DEFAULT_TIMEOUT = 30
@@ -64,6 +67,7 @@ class CommandResult:
     command_outputs: dict[str, str] = field(default_factory=dict)
     error: str | None = None
     confirmed_prompts: list[str] = field(default_factory=list)
+    failure: FailureInfo | None = None
 
 
 @dataclass
@@ -72,6 +76,7 @@ class ConfigResult:
     running_config: str | None = None
     startup_config: str | None = None
     error: str | None = None
+    failure: FailureInfo | None = None
 
 
 @dataclass
@@ -82,6 +87,7 @@ class DeployResult:
     error: str | None = None
     session_log: str | None = None
     confirmed_prompts: list[str] = field(default_factory=list)
+    failure: FailureInfo | None = None
 
 
 @dataclass
@@ -91,10 +97,19 @@ class FileTransferResult:
     file_verified: bool = False
     file_exists: bool = False
     error: str | None = None
+    failure: FailureInfo | None = None
 
 
 class NetmikoConnectionError(Exception):
-    """Raised when connection or command execution fails."""
+    """Raised when connection or command execution fails.
+
+    ``failure`` is the structured, non-sensitive classification of the cause (see
+    ``models.failure``); callers copy it onto the ``DeviceError`` they record.
+    """
+
+    def __init__(self, message: str, *, failure: FailureInfo | None = None) -> None:
+        super().__init__(message)
+        self.failure = failure
 
 
 @dataclass(frozen=True)
@@ -230,6 +245,17 @@ class NetmikoDeviceSession:
         }
 
         max_attempts = retry.max_attempts if retry else 1
+        started = time.monotonic()
+
+        def _failure(exc: Exception, attempt: int) -> FailureInfo:
+            return classify_netmiko_exception(
+                exc,
+                phase="connect",
+                attempts=attempt,
+                max_attempts=max_attempts,
+                elapsed_ms=int((time.monotonic() - started) * 1000),
+            )
+
         for attempt in range(1, max_attempts + 1):
             try:
                 logger.info(
@@ -277,11 +303,15 @@ class NetmikoDeviceSession:
                     f"Connection timeout to {self.host} after {attempt} attempt(s): "
                     f"{str(exc)[:_EVENT_DETAIL_MAX]}",
                 )
-                raise NetmikoConnectionError(f"Connection timeout: {exc}") from exc
+                raise NetmikoConnectionError(
+                    f"Connection timeout: {exc}", failure=_failure(exc, attempt)
+                ) from exc
             except NetmikoAuthenticationException as exc:
                 # Deliberately no exception text: it can echo credentials.
                 _notify(on_event, "auth_failed", "error", f"Authentication failed for {self.host}")
-                raise NetmikoConnectionError(f"Authentication failed: {exc}") from exc
+                raise NetmikoConnectionError(
+                    f"Authentication failed: {exc}", failure=_failure(exc, attempt)
+                ) from exc
             except Exception as exc:
                 _notify(
                     on_event,
@@ -290,7 +320,9 @@ class NetmikoDeviceSession:
                     f"Connection to {self.host} failed ({type(exc).__name__}): "
                     f"{str(exc)[:_EVENT_DETAIL_MAX]}",
                 )
-                raise NetmikoConnectionError(f"Connection failed: {exc}") from exc
+                raise NetmikoConnectionError(
+                    f"Connection failed: {exc}", failure=_failure(exc, attempt)
+                ) from exc
 
     def disconnect(self) -> None:
         if self._connection is None:
@@ -375,7 +407,8 @@ class NetmikoDeviceSession:
             )
         except Exception as exc:
             raise NetmikoConnectionError(
-                f"Command {command!r} failed on {self.host}: {exc}"
+                f"Command {command!r} failed on {self.host}: {exc}",
+                failure=classify_netmiko_exception(exc, phase="command"),
             ) from exc
 
     def send_commands(
@@ -429,6 +462,7 @@ class NetmikoDeviceSession:
                 command_outputs=outputs,
                 error=str(exc),
                 confirmed_prompts=confirmed,
+                failure=classify_netmiko_exception(exc, phase="command"),
             )
 
     def _confirm_prompt_pattern(self, *, extra_cues: tuple[str, ...] = ()) -> str:
@@ -523,6 +557,7 @@ class NetmikoDeviceSession:
                         f"{_MERGE_MAX_PROMPT_ANSWERS} answered prompt(s); aborted"
                     ),
                     confirmed_prompts=answered,
+                    failure=FailureInfo(phase="config", kind="command_error"),
                 )
 
             error = _copy_error_in(output)
@@ -533,6 +568,9 @@ class NetmikoDeviceSession:
                     command_outputs={command: output},
                     error=error,
                     confirmed_prompts=answered,
+                    failure=FailureInfo(
+                        phase="config", kind="config_rejected", hint="check_command_syntax"
+                    ),
                 )
             return CommandResult(
                 success=True,
@@ -547,6 +585,7 @@ class NetmikoDeviceSession:
                 command_outputs={},
                 error=str(exc),
                 confirmed_prompts=answered,
+                failure=classify_netmiko_exception(exc, phase="config"),
             )
 
     def _send_config_set_confirming(
@@ -605,7 +644,12 @@ class NetmikoDeviceSession:
                 confirmed_prompts=confirmed,
             )
         except Exception as exc:
-            return DeployResult(success=False, error=str(exc), session_log=self.get_session_log())
+            return DeployResult(
+                success=False,
+                error=str(exc),
+                session_log=self.get_session_log(),
+                failure=classify_netmiko_exception(exc, phase="config"),
+            )
 
     def save_running_config(self) -> str:
         try:
@@ -633,9 +677,13 @@ class NetmikoDeviceSession:
                 startup_config=startup,
             )
         except NetmikoConnectionError as exc:
-            return ConfigResult(success=False, error=str(exc))
+            return ConfigResult(success=False, error=str(exc), failure=exc.failure)
         except Exception as exc:
-            return ConfigResult(success=False, error=str(exc))
+            return ConfigResult(
+                success=False,
+                error=str(exc),
+                failure=classify_netmiko_exception(exc, phase="command"),
+            )
 
     def upload_file(
         self,
@@ -673,4 +721,8 @@ class NetmikoDeviceSession:
                 file_exists=bool(result.get("file_exists")),
             )
         except Exception as exc:
-            return FileTransferResult(success=False, error=str(exc))
+            return FileTransferResult(
+                success=False,
+                error=str(exc),
+                failure=classify_netmiko_exception(exc, phase="transfer"),
+            )

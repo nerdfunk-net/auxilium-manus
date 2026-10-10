@@ -64,6 +64,7 @@ async def _fetch_device(
                 node_id=node_id,
                 code="catalyst_center_error",
                 message=f"Catalyst Center request failed: {exc}",
+                failure=exc.failure,
             ),
             False,
         )

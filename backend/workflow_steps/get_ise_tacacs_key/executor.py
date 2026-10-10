@@ -327,6 +327,7 @@ def _ise_unreachable_outcome(
         name="failure",
         context=context,
         summary=f"{prefix} ISE source '{source_id}': {exc}",
+        failure=exc.failure,
     )
 
 

@@ -6,6 +6,7 @@ import asyncio
 import logging
 from typing import Any
 
+from models.failure import failure_from_exception
 from models.workflow_context import (
     CommandResult,
     DeviceContext,
@@ -154,6 +155,7 @@ def _apply_run_command_config_mode_result(
             code="command_failed",
             message=result.error or "run-command (config_mode) failed",
             command_results=updated_command_results,
+            failure=getattr(result, "failure", None),
         )
     enriched = device.model_copy(
         update={
@@ -236,6 +238,7 @@ async def _run_config_mode_on_device(
             node_id=node_id,
             code=type(exc).__name__.lower(),
             message=str(exc),
+            failure=failure_from_exception(exc),
         )
 
 

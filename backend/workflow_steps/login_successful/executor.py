@@ -9,6 +9,7 @@ from typing import Any
 from sqlalchemy.orm import object_session
 
 from core.models.runs import WorkflowRun
+from models.failure import FailureInfo, failure_from_exception
 from models.workflow_context import (
     Capability,
     DeviceContext,
@@ -33,9 +34,16 @@ _STEP_ID = "login-successful"
 
 
 def _device_failure(
-    device: DeviceContext, *, node_id: str, code: str, message: str
+    device: DeviceContext,
+    *,
+    node_id: str,
+    code: str,
+    message: str,
+    failure: FailureInfo | None = None,
 ) -> DeviceContext:
-    err = DeviceError(node_id=node_id, step_id=_STEP_ID, code=code, message=message)
+    err = DeviceError(
+        node_id=node_id, step_id=_STEP_ID, code=code, message=message, failure=failure
+    )
     return device.model_copy(
         update={"status": DeviceStatus.FAILED, "errors": [*device.errors, err]}
     )
@@ -143,6 +151,7 @@ async def _try_login(
             node_id=node_id,
             code=type(exc).__name__.lower(),
             message=str(exc),
+            failure=failure_from_exception(exc),
         )
         return "failure", _with_login_parsed(
             failed,

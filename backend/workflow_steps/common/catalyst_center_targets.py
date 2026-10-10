@@ -13,6 +13,7 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 import service_factory
+from models.failure import FailureInfo
 from models.workflow_context import (
     DeviceContext,
     DeviceError,
@@ -40,9 +41,12 @@ def failed_device(
     node_id: str,
     code: str,
     message: str,
+    failure: FailureInfo | None = None,
     **updates: Any,
 ) -> DeviceContext:
-    error = DeviceError(node_id=node_id, step_id=step_id, code=code, message=message)
+    error = DeviceError(
+        node_id=node_id, step_id=step_id, code=code, message=message, failure=failure
+    )
     return device.model_copy(
         update={"status": DeviceStatus.FAILED, "errors": [*device.errors, error], **updates}
     )

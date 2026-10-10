@@ -145,17 +145,26 @@ class CatalystCenterService:
             auth=(credentials.username, credentials.password),
         )
         if response.status_code in (401, 403):
-            raise CatalystCenterAuthError("Catalyst Center rejected the credentials")
+            raise CatalystCenterAuthError(
+                "Catalyst Center rejected the credentials",
+                http_status=response.status_code,
+                code="token_rejected",
+            )
         if response.status_code != 200:
             raise CatalystCenterAPIError(
-                f"Catalyst Center token request failed with status {response.status_code}"
+                f"Catalyst Center token request failed with status {response.status_code}",
+                http_status=response.status_code,
             )
         try:
             token = response.json().get("Token")
         except (ValueError, AttributeError) as exc:
-            raise CatalystCenterAPIError("Catalyst Center token response was not valid") from exc
+            raise CatalystCenterAPIError(
+                "Catalyst Center token response was not valid", code="invalid_response"
+            ) from exc
         if not isinstance(token, str) or not token:
-            raise CatalystCenterAPIError("Catalyst Center token response had no token")
+            raise CatalystCenterAPIError(
+                "Catalyst Center token response had no token", code="invalid_response"
+            )
         return token
 
     async def _send(
@@ -181,7 +190,9 @@ class CatalystCenterService:
             wait = _retry_wait(response, attempt)
             logger.warning("Catalyst Center rate limited; retrying in %.1fs", wait)
             await self._sleep(wait)
-        raise CatalystCenterRateLimitError("Catalyst Center rate limit exceeded; try again later")
+        raise CatalystCenterRateLimitError(
+            "Catalyst Center rate limit exceeded; try again later", http_status=429
+        )
 
     async def _send_once(
         self,
@@ -218,11 +229,14 @@ class CatalystCenterService:
                 )
         except httpx.TimeoutException as exc:
             raise CatalystCenterAPIError(
-                f"Catalyst Center request timed out after {credentials.timeout} seconds"
+                f"Catalyst Center request timed out after {credentials.timeout} seconds",
+                code="timeout",
             ) from exc
         except Exception as exc:
             logger.error("Catalyst Center request failed: %s", type(exc).__name__)
-            raise CatalystCenterAPIError("Catalyst Center request failed") from exc
+            raise CatalystCenterAPIError(
+                "Catalyst Center request failed", code="transport"
+            ) from exc
 
     def _handle_response(self, response: httpx.Response, path: str) -> Any:
         status = response.status_code
@@ -233,16 +247,22 @@ class CatalystCenterService:
                 return response.json()
             except ValueError as exc:
                 raise CatalystCenterAPIError(
-                    f"Catalyst Center returned a non-JSON body for {path}"
+                    f"Catalyst Center returned a non-JSON body for {path}",
+                    http_status=status,
+                    code="invalid_response",
                 ) from exc
         if status in (401, 403):
-            raise CatalystCenterAuthError("Catalyst Center denied the request")
+            raise CatalystCenterAuthError(
+                "Catalyst Center denied the request", http_status=status, code="request_denied"
+            )
         if status == 404:
-            raise CatalystCenterNotFoundError(f"Catalyst Center resource not found: {path}")
+            raise CatalystCenterNotFoundError(
+                f"Catalyst Center resource not found: {path}", http_status=404
+            )
         if status == 400:
-            raise CatalystCenterValidationError(self._error_message(response))
+            raise CatalystCenterValidationError(self._error_message(response), http_status=400)
         raise CatalystCenterAPIError(
-            f"Catalyst Center request failed with status {status} for {path}"
+            f"Catalyst Center request failed with status {status} for {path}", http_status=status
         )
 
     @staticmethod

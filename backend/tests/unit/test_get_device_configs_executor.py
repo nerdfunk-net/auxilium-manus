@@ -5,9 +5,10 @@ from __future__ import annotations
 import unittest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from models.failure import FailureInfo
 from models.workflow_context import Capability, DeviceContext, DeviceStatus, WorkflowContext
 from services.artifacts import InMemoryArtifactService
-from services.network.netmiko.connection import ConfigResult
+from services.network.netmiko.connection import ConfigResult, NetmikoConnectionError
 from workflow_steps.get_device_configs.executor import execute
 
 
@@ -376,3 +377,53 @@ class GetDeviceConfigsExecutorTests(unittest.IsolatedAsyncioTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+    async def _failed_outcome(self, netmiko_mock: AsyncMock) -> DeviceContext:
+        run = MagicMock()
+        run.id = 1
+        with (
+            patch(
+                "workflow_steps.get_device_configs.executor.object_session",
+                return_value=MagicMock(),
+            ),
+            patch(
+                "workflow_steps.get_device_configs.executor.resolve_ssh_credential",
+                return_value=("admin", "secret"),
+            ),
+            patch("workflow_steps.get_device_configs.executor.NetmikoService") as netmiko_cls,
+        ):
+            netmiko_cls.return_value.get_configs = netmiko_mock
+            outcomes = await execute(
+                config={"credential_reference": "lab-ssh", "config_format": "running"},
+                context=WorkflowContext(
+                    run_id="run-uuid-1", workflow_id="wf-1", devices={"device-1": _device()}
+                ),
+                run=run,
+                artifact_service=InMemoryArtifactService(),
+                node_id="node-1",
+                device_sessions=MagicMock(),
+            )
+        failure = next(o for o in outcomes if o.name == "failure")
+        return failure.context.devices["device-1"]
+
+    async def test_failed_result_records_structured_failure(self) -> None:
+        info = FailureInfo(phase="connect", kind="timeout", attempts=3, max_attempts=3)
+        device = await self._failed_outcome(
+            AsyncMock(return_value=ConfigResult(success=False, error="boom", failure=info))
+        )
+
+        self.assertEqual(device.errors[0].failure, info)
+        self.assertEqual(device.errors[0].message, "boom")
+
+    async def test_raised_connection_error_records_its_failure(self) -> None:
+        info = FailureInfo(phase="connect", kind="auth_failed", attempts=1, max_attempts=1)
+        device = await self._failed_outcome(
+            AsyncMock(side_effect=NetmikoConnectionError("Authentication failed", failure=info))
+        )
+
+        self.assertEqual(device.errors[0].failure, info)
+
+    async def test_unclassified_error_has_no_failure(self) -> None:
+        device = await self._failed_outcome(AsyncMock(side_effect=KeyError("x")))
+
+        self.assertIsNone(device.errors[0].failure)

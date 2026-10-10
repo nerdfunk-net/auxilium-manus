@@ -15,6 +15,7 @@ from typing import Any
 from sqlalchemy.orm import object_session
 
 from core.models.runs import WorkflowRun
+from models.failure import FailureInfo
 from models.workflow_context import (
     CommandResult,
     DeviceContext,
@@ -216,7 +217,7 @@ async def _verify_uploaded_content(
     password: str,
     netmiko: NetmikoService,
     device_type: str | None,
-) -> tuple[bool, CommandResult, str | None]:
+) -> tuple[bool, CommandResult, str | None, FailureInfo | None]:
     local_digest = _compute_local_digest(
         content_text, parsed.verify_algorithm, device_type=device_type
     )
@@ -238,7 +239,7 @@ async def _verify_uploaded_content(
         failed_result = CommandResult(
             node_id=node_id, command=command, success=False, summary=message
         )
-        return False, failed_result, message
+        return False, failed_result, message, result.failure
 
     output = result.command_outputs.get(command, "") or result.output
     match = _VERIFY_HASH_PATTERN.search(output)
@@ -250,7 +251,7 @@ async def _verify_uploaded_content(
         failed_result = CommandResult(
             node_id=node_id, command=command, success=False, summary=message
         )
-        return False, failed_result, message
+        return False, failed_result, message, None
 
     device_digest = match.group(1).lower()
     if device_digest != local_digest.lower():
@@ -261,11 +262,11 @@ async def _verify_uploaded_content(
         failed_result = CommandResult(
             node_id=node_id, command=command, success=False, summary=message
         )
-        return False, failed_result, message
+        return False, failed_result, message, None
 
     summary = f"{parsed.verify_algorithm} checksum verified ({device_digest})"
     ok_result = CommandResult(node_id=node_id, command=command, success=True, summary=summary)
-    return True, ok_result, None
+    return True, ok_result, None, None
 
 
 async def _upload_on_device(
@@ -357,6 +358,7 @@ async def _upload_on_device(
             step_id=_STEP_ID,
             code="upload_failed",
             message=result.error or "Config upload failed",
+            failure=result.failure,
         )
         failed = device.model_copy(
             update={
@@ -368,7 +370,12 @@ async def _upload_on_device(
         return device_id, failed, False
 
     if parsed.verify_content:
-        verify_ok, verify_command_result, verify_message = await _verify_uploaded_content(
+        (
+            verify_ok,
+            verify_command_result,
+            verify_message,
+            verify_failure,
+        ) = await _verify_uploaded_content(
             host=host,
             device=device,
             node_id=node_id,
@@ -389,6 +396,7 @@ async def _upload_on_device(
                 step_id=_STEP_ID,
                 code="verify_failed",
                 message=verify_message or "Content verification failed",
+                failure=verify_failure,
             )
             failed = device.model_copy(
                 update={

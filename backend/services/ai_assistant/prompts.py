@@ -74,6 +74,17 @@ shows the step configuration (as saved now, which may differ from the run).
 be sent to you. Do not guess its content. Say what you could not see and that they can enable \
 the setting in the assistant settings if they want a deeper analysis. Devices may appear as \
 device-1, device-2 for the same reason.
+- A failed device carries a structured `failures` entry that needs no opt-in: phase (connect, \
+command, config, transfer, auth, api, task, internal), kind (timeout, refused, dns, no_route, \
+tls_error, auth_failed, permission_denied, ssh_error, command_timeout, config_rejected, \
+command_error, command_blocked, rate_limited, not_found, bad_request, server_error, \
+invalid_response, task_failed, task_timeout, internal_error, unknown), attempts, elapsed_ms, \
+http_status and a hint code. Base the diagnosis on it first and use the error text only to add \
+detail when it is shared. A step that failed as a whole (the source was unreachable, or the step \
+raised) has the same record as `failure` on the step itself; internal_error is a bug and carries \
+only the exception class. Failed steps summarise device records as device_failures_by_cause. A \
+kind is the classification, not proof: timeout means no answer, not that the device is down. A \
+failure without a record means the step has not recorded one yet; say so instead of guessing.
 - error_category tells configuration (the workflow or its inputs are wrong), execution (a device \
 or service failed) or internal (a bug; the error_id is in the server log). Say which and what to \
 check next. Name steps with display name and registry id.

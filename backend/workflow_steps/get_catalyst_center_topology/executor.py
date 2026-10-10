@@ -13,6 +13,7 @@ from services.artifacts import ArtifactService
 from services.catalyst_center.credentials import CatalystCenterCredentials
 from workflow_steps.common.catalyst_center_facts import (
     Entry,
+    FactError,
     capture,
     error_entry,
     ok_entry,
@@ -29,7 +30,7 @@ DEFAULT_TOPOLOGIES = ("physical",)
 DEFAULT_OUTPUT_KEY = "catalyst_topology"
 
 # name -> topology, or the error text when the controller call failed
-_Fetched = dict[str, CatalystCenterTopology | str]
+_Fetched = dict[str, CatalystCenterTopology | FactError]
 
 
 def _parse_topologies(raw: Any) -> tuple[str, ...]:
@@ -51,14 +52,14 @@ async def _fetch_topologies(
     """The graphs are controller-wide, so fetch each once per controller, not per device."""
     service = service_factory.build_catalyst_center_topology_service(credentials)
 
-    async def fetch(name: str) -> tuple[str, CatalystCenterTopology | str]:
+    async def fetch(name: str) -> tuple[str, CatalystCenterTopology | FactError]:
         if name == "physical":
             graph, error = await capture(service.get_physical_topology)
         else:
             protocol = name.removeprefix("l3_")
             graph, error = await capture(lambda: service.get_l3_topology(protocol))
         if graph is None:
-            return name, error or "Catalyst Center returned no topology"
+            return name, error or FactError("Catalyst Center returned no topology")
         return name, graph
 
     return dict(await asyncio.gather(*[fetch(name) for name in topologies]))
@@ -91,7 +92,7 @@ async def execute(
     ) -> dict[str, Entry]:
         return {
             name: error_entry(graph)
-            if isinstance(graph, str)
+            if isinstance(graph, FactError)
             else ok_entry(graph.for_device(device_id))
             for name, graph in fetched.items()
         }

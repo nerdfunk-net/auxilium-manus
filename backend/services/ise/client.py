@@ -94,12 +94,14 @@ class ISEService:
                 credentials.verify_ssl,
             )
         except httpx.TimeoutException as exc:
-            raise ISEAPIError(f"ISE request timed out after {credentials.timeout} seconds") from exc
+            raise ISEAPIError(
+                f"ISE request timed out after {credentials.timeout} seconds", code="timeout"
+            ) from exc
         except ISEAPIError:
             raise
         except Exception as exc:
             logger.error("ISE ERS request failed: %s", exc)
-            raise ISEAPIError("ISE ERS request failed") from exc
+            raise ISEAPIError("ISE ERS request failed", code="transport") from exc
 
         return self._handle_response(response, endpoint)
 
@@ -114,11 +116,12 @@ class ISEService:
         if response.status_code == 204:
             return {"status": "success", "message": "Resource deleted successfully"}
         if response.status_code == 404:
-            raise ISENotFoundError(f"ISE resource not found: {endpoint}")
+            raise ISENotFoundError(f"ISE resource not found: {endpoint}", http_status=404)
         if response.status_code == 400:
-            raise ISEValidationError(self._extract_error_message(response))
+            raise ISEValidationError(self._extract_error_message(response), http_status=400)
         raise ISEAPIError(
-            f"ISE ERS request failed with status {response.status_code} for endpoint {endpoint}"
+            f"ISE ERS request failed with status {response.status_code} for endpoint {endpoint}",
+            http_status=response.status_code,
         )
 
     @staticmethod

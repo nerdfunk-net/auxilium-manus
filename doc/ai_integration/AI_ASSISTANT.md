@@ -216,7 +216,7 @@ tools, so every value of those classes passes the opt-in of §4.2:
 | Tool | Purpose |
 |------|---------|
 | `get_run` | Status, timings, error category, every step, fan-out groups |
-| `get_step_result` | One step per outcome and device: status, capabilities, commands + artifact ids; `include` = `attributes` (B) / `parsed` (C) |
+| `get_step_result` | One step per outcome and device: status, capabilities, commands + artifact ids, structured `failures` (§19, not gated); `include` = `attributes` (B) / `parsed` (C) |
 | `get_artifact` | Stored command output / config text (C), truncated at 8000 chars |
 | `list_run_events` | Live run events; message text is C |
 | `get_run_workflow` | The run's workflow as the compact view (A), "as saved now" |
@@ -912,3 +912,54 @@ and a conversation can be saved, the page reloaded and the conversation resumed.
 retention purge against a real Hatchet worker, and delete / second-user isolation in the browser (covered
 by the router tests only).
 
+## 19. Structured failure records
+
+**Why.** A failed run's cause (timeout, refused, auth, ...) used to exist only as free text in
+`error_message`, `device.errors` and run-event messages, all class C. With content sharing off
+the run explainer could say which step failed but not why.
+
+**What.** `models/failure.py::FailureInfo` is a closed-vocabulary record: `phase` (connect /
+command / config), `kind` (timeout, refused, dns, no_route, auth_failed, ssh_error,
+command_timeout, config_rejected, command_error, unknown), `retryable`, `attempts`,
+`max_attempts`, `elapsed_ms`, `exception_type` (class name only) and a `hint` code. It has no
+free-text field and the classifier never copies exception text (`test_netmiko_failure.py`), so
+it is metadata (§4.1) and is **not gated**. It lives in `DeviceError.failure`, which is persisted
+in the step output with the rest of the device.
+
+**Where it is produced.**
+- *Netmiko:* `services/network/netmiko/failure.py::classify_netmiko_exception`, called in
+  `NetmikoDeviceSession.connect` (attempts and elapsed time across retries), `send_command(s)`,
+  `deploy_config`, `merge_running_config`, `get_configs` and `upload_file` (phase `transfer`). The
+  steps `run-command`, `get-device-configs`, `merge-config`, `upload-config`,
+  `deploy-rendered-template` and `login-successful` copy it onto the `DeviceError`.
+- *Catalyst Center:* `CatalystCenterError.failure` (a property) is built from the exception class,
+  `http_status` and a short `code` set at the raise site (`services/catalyst_center/common/failure.py`).
+  It covers token rejection (`auth`), denied requests, 404 / 400 / 429 / 5xx, TLS and transport
+  errors and async task failures (`task`). `get-catalyst-center-configs`,
+  `run-catalyst-center-command` (also `command_blocked`) and the fact steps (details, topology,
+  health) copy it. For a fact step it is recorded only when *every* fact failed, i.e. when the
+  device fails; the persisted `{parsed, error}` entry shape is unchanged.
+- *ISE:* `ISEError.failure` (same pattern as Catalyst Center; 401 is `auth_failed`, 403
+  `permission_denied`). `add-to-ise`, `update-ise-tacacs-key` and `get-ise-tacacs-key` copy it to
+  the device error, and to the step for "could not reach / lost connection" outcomes.
+- *Step level (all sources):* `WorkflowStepResult.failure` (JSON, nullable; added by the startup
+  schema sync) holds the cause of a failure that is not tied to one device. A step either sets
+  `StepOutcome.failure` (outcomes that end on `failure` without raising) or raises with the
+  client error in its cause chain (`raise RuntimeError(...) from exc`); `failure_from_exception`
+  follows the chain. An unexpected exception (`internal` category) records only its class name
+  (`internal_error`). Fan-out children carry it through `__step_errors__`. The run explainer shows
+  it as `failure` on the step in `get_run` / `get_step_result`.
+- *Shared:* transport errors (DNS, refused, no route, timeout, TLS) are recognised in one place,
+  `services/network/transport_failure.py`, which ISE, Nautobot and git can reuse.
+
+**What the assistant sees.** `get_step_result` adds `failures` per device (always); `get_run`
+adds `device_failures_by_cause` per step (e.g. `{"connect/timeout": 14}`). The error text next to
+it is still `not_shared` without the opt-in. The run-viewer prompt tells the model to diagnose
+from the record first and to say so when a step recorded none.
+
+**Decisions.** Host and port are not part of the record (device addresses stay class B; strict for
+now). Per-device run history (`get_device_history`) is deferred.
+
+**Not done.** Other sources and steps still record only text, in the agreed order: template
+rendering, git, Nautobot; pyATS steps; the live run events keep their `kind` but carry no record; the runs-page UI does not
+show the record yet. Not verified: a real failed run with a real model.

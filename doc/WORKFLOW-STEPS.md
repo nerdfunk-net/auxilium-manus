@@ -275,6 +275,18 @@ Raise a `ValueError` for configuration errors (bad input, missing field). Raise 
 `RuntimeError` for unexpected execution failures. The `StepRunner` catches all
 exceptions, marks the step failed, and skips remaining steps.
 
+### Structured failure on `DeviceError`
+
+When a step fails a device, pass a `FailureInfo` (`models/failure.py`) as
+`DeviceError.failure` in addition to the free-text `message`. It records *why* in a closed
+vocabulary (`phase`, `kind`, `attempts`, `elapsed_ms`, `hint`) with no free text, so the AI
+assistant shows it without the user's content opt-in while the `message` stays class C
+(`doc/ai_integration/AI_ASSISTANT.md` §19). Netmiko failures arrive already classified:
+`NetmikoConnectionError.failure`, `CommandResult.failure`, `ConfigResult.failure` and
+`DeployResult.failure` (`services/network/netmiko/failure.py`); copy them with
+`failure_from_exception(exc)` or `result.failure`. Never add a free-text field to `FailureInfo`.
+Done for `run-command` and `get-device-configs`; other steps and sources still record only text.
+
 ### Logging — start and finish log lines are required
 
 Every `execute()` must emit **at least two `logger.info()` calls**: one when the step

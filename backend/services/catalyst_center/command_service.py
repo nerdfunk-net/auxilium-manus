@@ -50,7 +50,9 @@ def _opaque_id(value: Any, what: str) -> str:
     try:
         return safe_device_id(value)
     except CatalystCenterValidationError as exc:
-        raise CatalystCenterTaskError(f"Catalyst Center returned an invalid {what}") from exc
+        raise CatalystCenterTaskError(
+            f"Catalyst Center returned an invalid {what}", code="invalid_response"
+        ) from exc
 
 
 class CatalystCenterCommandService:
@@ -125,22 +127,29 @@ class CatalystCenterCommandService:
             payload = await self._client.request(self._credentials, "GET", f"{TASK_PATH}/{task_id}")
             task = payload.get("response") if isinstance(payload, dict) else None
             if not isinstance(task, dict):
-                raise CatalystCenterTaskError("Catalyst Center task response was not valid")
+                raise CatalystCenterTaskError(
+                    "Catalyst Center task response was not valid", code="invalid_response"
+                )
             if task.get("isError"):
                 reason = str(task.get("failureReason") or "unknown reason")
                 raise CatalystCenterTaskError(
-                    f"Catalyst Center command task failed: {reason[:_MAX_FAILURE_REASON_CHARS]}"
+                    f"Catalyst Center command task failed: {reason[:_MAX_FAILURE_REASON_CHARS]}",
+                    code="task_failed",
                 )
             file_id = _file_id_from_progress(task.get("progress"))
             if file_id is not None:
                 return _opaque_id(file_id, "file id")
             await asyncio.sleep(self._poll_interval)
-        raise CatalystCenterTaskError("Catalyst Center command task did not finish in time")
+        raise CatalystCenterTaskError(
+            "Catalyst Center command task did not finish in time", code="task_timeout"
+        )
 
     @staticmethod
     def _parse_results(payload: Any) -> tuple[CatalystCenterCommandResult, ...]:
         if not isinstance(payload, list):
-            raise CatalystCenterTaskError("Catalyst Center command output was not a list")
+            raise CatalystCenterTaskError(
+                "Catalyst Center command output was not a list", code="invalid_response"
+            )
         results: list[CatalystCenterCommandResult] = []
         for entry in payload:
             device_id = entry.get("deviceUuid") if isinstance(entry, dict) else None

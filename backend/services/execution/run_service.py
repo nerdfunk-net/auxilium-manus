@@ -67,6 +67,7 @@ def _step_to_response(step: WorkflowStepResult) -> WorkflowStepResultResponse:
         error_message=step.error_message,
         error_category=step.error_category,
         error_id=step.error_id,
+        failure=step.failure,
         created_at=step.created_at,
         updated_at=step.updated_at,
     )

@@ -168,7 +168,7 @@ def _aggregate_and_persist(
     per_node: dict[str, dict[str, list[WorkflowContext]]] = {nid: {} for nid in child_ids}
     # node_id -> {message, category, error_id} for the first child that reported a
     # step-level exception for that node (see StepRunner.execute_subgraph).
-    node_errors: dict[str, dict[str, str]] = {}
+    node_errors: dict[str, dict[str, Any]] = {}
     has_any_failure = False
 
     for child_result in child_results:
@@ -229,6 +229,7 @@ def _aggregate_and_persist(
                 error_message=err["message"] if err else None,
                 error_category=err["category"] if err else None,
                 error_id=err["error_id"] if err else None,
+                failure=err.get("failure") if err else None,
                 started_at=now,
                 finished_at=now,
             )

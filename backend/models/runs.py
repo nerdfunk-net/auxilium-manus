@@ -51,6 +51,7 @@ class WorkflowStepResultResponse(BaseModel):
     error_message: str | None
     error_category: ErrorCategory | None = None
     error_id: str | None = None
+    failure: dict[str, Any] | None = None
     created_at: datetime
     updated_at: datetime
 

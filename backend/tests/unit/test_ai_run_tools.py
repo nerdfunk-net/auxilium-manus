@@ -361,3 +361,67 @@ def test_injected_text_in_shared_output_stays_inside_json(payload: str) -> None:
     out = _call(session, "get_run")
 
     assert json.loads(out.content)["error_message"] == payload
+
+
+FAILURE = {
+    "phase": "connect",
+    "kind": "timeout",
+    "retryable": True,
+    "attempts": 3,
+    "max_attempts": 3,
+    "elapsed_ms": 93000,
+    "exception_type": "NetmikoTimeoutException",
+    "hint": "check_reachability",
+}
+
+
+def _with_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+    device = STEP["output"]["outcomes"]["failed"]["devices"]["d1"]
+    errors = [
+        {"node_id": "cmd-1", "step_id": "run-command", "code": "x", "message": "10.0.0.9 down",
+         "failure": FAILURE},
+    ]
+    monkeypatch.setitem(device, "errors", errors)
+
+
+def test_failure_record_is_visible_without_any_opt_in(monkeypatch: pytest.MonkeyPatch) -> None:
+    _with_failure(monkeypatch)
+
+    out = _call(_session(), "get_step_result", node_id="cmd-1").content
+    data = json.loads(out)
+    device = data["outcomes"]["failed"][0]
+
+    assert device["failures"] == [{"step_node_id": "cmd-1", **FAILURE}]
+    # the free text beside it stays behind the content opt-in
+    assert device["errors"]["not_shared"]
+    assert "10.0.0.9" not in out
+    assert "core-sw1" not in out
+
+
+def test_run_overview_counts_failures_by_cause(monkeypatch: pytest.MonkeyPatch) -> None:
+    _with_failure(monkeypatch)
+
+    data = json.loads(_call(_session(), "get_run").content)
+
+    assert data["steps"][0]["device_failures_by_cause"] == {"connect/timeout": 1}
+
+
+def test_step_without_failure_records_has_no_summary() -> None:
+    data = json.loads(_call(_session(), "get_run").content)
+
+    assert "device_failures_by_cause" not in data["steps"][0]
+
+
+def test_step_level_failure_is_visible_without_any_opt_in(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setitem(
+        STEP, "failure", {"phase": "api", "kind": "server_error", "http_status": 503}
+    )
+
+    data = json.loads(_call(_session(), "get_run").content)
+
+    assert data["steps"][0]["failure"] == {
+        "phase": "api",
+        "kind": "server_error",
+        "http_status": 503,
+    }
+    assert data["steps"][0]["error_message"]["not_shared"]

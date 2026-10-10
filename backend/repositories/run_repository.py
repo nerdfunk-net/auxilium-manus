@@ -190,6 +190,7 @@ class RunRepository:
         error_message: str | None = None,
         error_category: str | None = None,
         error_id: str | None = None,
+        failure: dict[str, Any] | None = None,
         started_at: datetime | None = None,
         finished_at: datetime | None = None,
     ) -> WorkflowStepResult:
@@ -202,6 +203,8 @@ class RunRepository:
             step_result.error_category = error_category
         if error_id is not None:
             step_result.error_id = error_id
+        if failure is not None:
+            step_result.failure = failure
         if started_at is not None:
             step_result.started_at = started_at
         if finished_at is not None:

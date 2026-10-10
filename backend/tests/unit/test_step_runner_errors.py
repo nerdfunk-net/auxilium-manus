@@ -109,6 +109,39 @@ class StepRunnerErrorPersistenceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(captured_internal.get("error_category"), "internal")
         self.assertTrue(captured_internal.get("error_id"))
 
+    async def test_failure_of_a_chained_client_error_is_persisted(self) -> None:
+        from services.ise.common.exceptions import ISEAPIError
+
+        try:
+            try:
+                raise ISEAPIError("down", http_status=503)
+            except ISEAPIError as inner:
+                raise RuntimeError("get-ise-devices: ISE request failed") from inner
+        except RuntimeError as exc:
+            captured = await self._run_with_exception(exc)
+
+        self.assertEqual(captured["failure"]["kind"], "server_error")
+        self.assertEqual(captured["failure"]["http_status"], 503)
+
+    async def test_internal_error_keeps_only_the_exception_class(self) -> None:
+        captured = await self._run_with_exception(KeyError("secret_internal_key"))
+
+        self.assertEqual(
+            captured["failure"],
+            {
+                "phase": "internal",
+                "kind": "internal_error",
+                "retryable": False,
+                "exception_type": "KeyError",
+            },
+        )
+        self.assertNotIn("secret_internal_key", str(captured["failure"]))
+
+    async def test_plain_runtime_error_has_no_failure(self) -> None:
+        captured = await self._run_with_exception(RuntimeError("device unreachable"))
+
+        self.assertIsNone(captured.get("failure"))
+
 
 if __name__ == "__main__":
     unittest.main()

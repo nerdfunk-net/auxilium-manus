@@ -38,6 +38,7 @@ from sqlalchemy.orm import object_session
 
 import service_factory
 from core.models.runs import WorkflowRun
+from models.failure import FailureInfo
 from models.workflow_context import (
     DeviceContext,
     DeviceError,
@@ -79,8 +80,17 @@ class _UpdateOneResult:
         return self.kind == "ok"
 
 
-def _mark_failed(device: DeviceContext, *, node_id: str, code: str, message: str) -> DeviceContext:
-    error = DeviceError(node_id=node_id, step_id=_STEP_ID, code=code, message=message)
+def _mark_failed(
+    device: DeviceContext,
+    *,
+    node_id: str,
+    code: str,
+    message: str,
+    failure: FailureInfo | None = None,
+) -> DeviceContext:
+    error = DeviceError(
+        node_id=node_id, step_id=_STEP_ID, code=code, message=message, failure=failure
+    )
     return device.model_copy(
         update={"status": DeviceStatus.FAILED, "errors": [*device.errors, error]}
     )
@@ -143,6 +153,7 @@ async def _preflight_ise(
                 name="failure",
                 context=context,
                 summary=f"could not reach ISE source '{source_id}': {exc}",
+                failure=exc.failure,
             )
         ]
     return None
@@ -193,6 +204,7 @@ async def _update_one_device(
                 name="failure",
                 context=context,
                 summary=f"lost connection to ISE source '{parsed.source_id}': {exc}",
+                failure=exc.failure,
             ),
         )
 
@@ -222,6 +234,7 @@ async def _update_one_device(
                 node_id=node_id,
                 code="tacacs_key_update_rejected",
                 message=f"ISE rejected the TACACS+ key update for '{device.name}': {exc}",
+                failure=exc.failure,
             ),
         )
     except ISEAPIError as exc:
@@ -238,6 +251,7 @@ async def _update_one_device(
                 name="failure",
                 context=context,
                 summary=f"lost connection to ISE source '{parsed.source_id}': {exc}",
+                failure=exc.failure,
             ),
         )
 

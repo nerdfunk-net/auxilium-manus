@@ -22,6 +22,7 @@ from typing import TYPE_CHECKING, Any
 
 from core.models.runs import WorkflowRun
 from core.models.workflows import Workflow
+from models.failure import failure_for_step_exception, failure_to_json
 from models.workflow_context import StepOutcome, WorkflowContext
 from services.execution.graph import topological_generations
 from services.execution.run_events_reporter import RunEventContext, bound_run_event_context
@@ -125,7 +126,7 @@ def _record_subgraph_node_error(
     step_type: str,
     run_id: int,
     exc: Exception,
-    step_errors: dict[str, dict[str, str]],
+    step_errors: dict[str, dict[str, Any]],
     step_outcomes: dict[str, dict[str, WorkflowContext]],
     initial_context: WorkflowContext,
 ) -> None:
@@ -146,6 +147,9 @@ def _record_subgraph_node_error(
         "category": category,
         "error_id": error_id,
     }
+    failure = failure_to_json(failure_for_step_exception(exc, category=category))
+    if failure is not None:
+        step_errors[node_id]["failure"] = failure
     runner._store_step_outcomes(
         step_outcomes, node_id, [StepOutcome(name="failure", context=initial_context)]
     )
@@ -159,7 +163,7 @@ async def _run_one_subgraph_node(
     node: dict[str, Any],
     edges: list[dict[str, Any]],
     step_outcomes: dict[str, dict[str, WorkflowContext]],
-    step_errors: dict[str, dict[str, str]],
+    step_errors: dict[str, dict[str, Any]],
     blocked_nodes: set[str],
     initial_context: WorkflowContext,
     progress: SubgraphProgressSink | None = None,
@@ -225,7 +229,7 @@ async def run_subgraph(
     allowed_node_ids: set[str],
     progress: SubgraphProgressSink | None = None,
     child_index: int | None = None,
-) -> tuple[dict[str, dict[str, WorkflowContext]], dict[str, dict[str, str]]]:
+) -> tuple[dict[str, dict[str, WorkflowContext]], dict[str, dict[str, Any]]]:
     """Run only the downstream subgraph without writing WorkflowStepResult records.
 
     Used by child workflows during fan-out. The parent aggregates and persists
@@ -258,7 +262,7 @@ async def run_subgraph(
     step_outcomes: dict[str, dict[str, WorkflowContext]] = {
         inventory_node_id: {"success": initial_context}
     }
-    step_errors: dict[str, dict[str, str]] = {}
+    step_errors: dict[str, dict[str, Any]] = {}
     blocked_nodes: set[str] = set()
 
     for wave in topological_generations(subgraph_nodes, edges):

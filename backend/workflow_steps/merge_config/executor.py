@@ -28,6 +28,7 @@ from typing import Any
 from sqlalchemy.orm import object_session
 
 from core.models.runs import WorkflowRun
+from models.failure import FailureInfo, failure_from_exception
 from models.workflow_context import (
     CommandResult,
     DeviceContext,
@@ -91,8 +92,11 @@ def _fail_device(
     code: str,
     message: str,
     command_results: dict[str, list[CommandResult]] | None = None,
+    failure: FailureInfo | None = None,
 ) -> tuple[str, DeviceContext, bool]:
-    err = DeviceError(node_id=node_id, step_id=_STEP_ID, code=code, message=message)
+    err = DeviceError(
+        node_id=node_id, step_id=_STEP_ID, code=code, message=message, failure=failure
+    )
     update: dict[str, Any] = {"status": DeviceStatus.FAILED, "errors": [*device.errors, err]}
     if command_results is not None:
         update["command_results"] = command_results
@@ -149,6 +153,7 @@ async def _merge_on_device(
             node_id=node_id,
             code=type(exc).__name__.lower(),
             message=str(exc),
+            failure=failure_from_exception(exc),
         )
 
     answered = list(result.confirmed_prompts)
@@ -194,6 +199,7 @@ async def _merge_on_device(
             code="merge_failed",
             message=result.error or f"{command!r} failed",
             command_results=updated_command_results,
+            failure=result.failure,
         )
 
     enriched = device.model_copy(

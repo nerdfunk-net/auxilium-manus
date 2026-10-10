@@ -8,6 +8,8 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_validator
 
+from models.failure import FailureInfo
+
 
 def now_iso() -> str:
     return datetime.now(UTC).isoformat()
@@ -97,6 +99,8 @@ class DeviceError(BaseModel):
     code: str
     message: str
     occurred_at: str = Field(default_factory=now_iso)
+    # Structured cause, safe to show without the content opt-in (models/failure.py).
+    failure: FailureInfo | None = None
 
 
 class DeviceContext(BaseModel):
@@ -180,6 +184,9 @@ class StepOutcome(BaseModel):
     name: str
     context: WorkflowContext
     summary: str | None = None
+    # Why the step as a whole ended on this outcome (e.g. the API was unreachable), for
+    # failures that are not tied to one device. Persisted on the step result.
+    failure: FailureInfo | None = None
 
 
 def bare_hostname(primary_ip4: str | None, fallback: str) -> str:

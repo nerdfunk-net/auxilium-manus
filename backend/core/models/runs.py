@@ -101,6 +101,9 @@ class WorkflowStepResult(Base):
     error_category: Mapped[str | None] = mapped_column(String(20), nullable=True)
     # correlates this failure with the full traceback in worker logs
     error_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    # Structured, non-sensitive cause of a step-level failure (models.failure.FailureInfo as
+    # JSON). Device-level causes live on each DeviceError inside ``output``.
+    failure: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

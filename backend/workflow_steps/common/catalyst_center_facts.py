@@ -12,12 +12,14 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from typing import Any
 
 from pydantic import BaseModel
 from sqlalchemy.orm import object_session
 
 from core.models.runs import WorkflowRun
+from models.failure import FailureInfo
 from models.workflow_context import (
     Capability,
     DeviceContext,
@@ -61,16 +63,31 @@ def ok_entry(value: Any) -> Entry:
     return {"parsed": dump(value), "error": None}
 
 
-def error_entry(message: str) -> Entry:
-    return {"parsed": None, "error": message}
+@dataclass(frozen=True)
+class FactError:
+    """A failed controller call: the readable message plus its structured cause."""
+
+    message: str
+    failure: FailureInfo | None = None
 
 
-async def capture[T](fetch: Callable[[], Awaitable[T]]) -> tuple[T | None, str | None]:
+# Key an entry carries from ``error_entry`` to ``_with_entries``, which removes it again so the
+# persisted ``{parsed, error}`` shape does not change.
+_FAILURE_KEY = "failure"
+
+
+def error_entry(error: FactError | str) -> Entry:
+    if isinstance(error, str):
+        return {"parsed": None, "error": error}
+    return {"parsed": None, "error": error.message, _FAILURE_KEY: error.failure}
+
+
+async def capture[T](fetch: Callable[[], Awaitable[T]]) -> tuple[T | None, FactError | None]:
     """Run one controller call; a Catalyst Center failure becomes an error message."""
     try:
         return await fetch(), None
     except CatalystCenterError as exc:
-        return None, str(exc)
+        return None, FactError(str(exc), exc.failure)
 
 
 async def fact(fetch: Callable[[], Awaitable[Any]]) -> Entry:
@@ -93,10 +110,17 @@ def _with_entries(
     step_id: str,
     node_id: str,
 ) -> tuple[DeviceContext, bool]:
-    parsed = {**device.parsed, output_key: entries}
+    clean = {
+        name: {k: v for k, v in entry.items() if k != _FAILURE_KEY}
+        for name, entry in entries.items()
+    }
+    parsed = {**device.parsed, output_key: clean}
     errors = {name: entry["error"] for name, entry in entries.items() if entry["error"]}
     if entries and len(errors) == len(entries):
         message = "; ".join(f"{name}: {error}" for name, error in errors.items())
+        failure = next(
+            (f for name in errors if (f := entries[name].get(_FAILURE_KEY)) is not None), None
+        )
         return (
             failed_device(
                 device,
@@ -104,6 +128,7 @@ def _with_entries(
                 node_id=node_id,
                 code="catalyst_center_error",
                 message=message,
+                failure=failure,
                 parsed=parsed,
             ),
             False,

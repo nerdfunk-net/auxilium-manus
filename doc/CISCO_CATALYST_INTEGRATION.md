@@ -495,6 +495,14 @@ CatalystCenterError
     └── CatalystCenterTaskError            async command task failed / timed out
 ```
 
+Every error carries `http_status` and a short `code` (`token_rejected`, `request_denied`, `timeout`,
+`transport`, `invalid_response`, `task_failed`, `task_timeout`) and exposes `.failure`, a structured
+`models.failure.FailureInfo` (phase / kind such as `auth_failed`, `permission_denied`, `rate_limited`,
+`tls_error`, `server_error`, `task_timeout` / hint). The steps copy it onto `DeviceError.failure`, so the
+AI assistant can explain a failed run without the user's content opt-in
+(`doc/ai_integration/AI_ASSISTANT.md` §19). Set `code` when you add a raise site; never put response
+text into it.
+
 Test-connection never returns an upstream failure as a 5xx: it returns `{success: false, message: "Connection failed
 (ref: <uuid>)…"}` and logs the detail against that reference.
 

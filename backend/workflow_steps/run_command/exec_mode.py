@@ -7,6 +7,7 @@ import json
 import logging
 from typing import Any
 
+from models.failure import failure_from_exception
 from models.workflow_context import (
     CommandResult,
     DeviceContext,
@@ -151,6 +152,7 @@ async def _run_on_device(
                 code="command_failed",
                 message=result.error or "Command execution failed",
                 command_results=updated_command_results,
+                failure=result.failure,
             )
             return dev_id, failed, ok, {}
 
@@ -168,6 +170,7 @@ async def _run_on_device(
             node_id=node_id,
             code=type(exc).__name__.lower(),
             message=str(exc),
+            failure=failure_from_exception(exc),
         )
         return dev_id, failed, ok, {}
 

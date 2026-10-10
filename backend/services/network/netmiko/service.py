@@ -21,6 +21,7 @@ from services.network.netmiko.connection import (
     NetmikoDeviceSession,
     RetryPolicy,
 )
+from services.network.netmiko.failure import classify_netmiko_exception
 from services.network.netmiko.platform import resolve_netmiko_device_type
 from services.network.netmiko.session_pool import DeviceSessionPool
 
@@ -137,7 +138,10 @@ class NetmikoService:
                 )
             except NetmikoConnectionError as exc:
                 return DeployResult(
-                    success=False, config_output=result.config_output, error=str(exc)
+                    success=False,
+                    config_output=result.config_output,
+                    error=str(exc),
+                    failure=exc.failure,
                 )
 
         return await self._pool.run_on_device(
@@ -351,9 +355,13 @@ class NetmikoService:
                     startup_config=startup,
                 )
             except NetmikoConnectionError as exc:
-                return ConfigResult(success=False, error=str(exc))
+                return ConfigResult(success=False, error=str(exc), failure=exc.failure)
             except Exception as exc:
-                return ConfigResult(success=False, error=str(exc))
+                return ConfigResult(
+                    success=False,
+                    error=str(exc),
+                    failure=classify_netmiko_exception(exc, phase="command"),
+                )
 
         return await self._pool.run_on_device(
             host=host,

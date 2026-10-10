@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from models.failure import FailureInfo
 from models.workflow_context import (
     CommandResult,
     DeviceContext,
@@ -23,12 +24,14 @@ def fail_device(
     code: str,
     message: str,
     command_results: dict[str, list[CommandResult]] | None = None,
+    failure: FailureInfo | None = None,
 ) -> tuple[str, DeviceContext, bool]:
     err = DeviceError(
         node_id=node_id,
         step_id=STEP_ID,
         code=code,
         message=message,
+        failure=failure,
     )
     update: dict[str, Any] = {
         "status": DeviceStatus.FAILED,

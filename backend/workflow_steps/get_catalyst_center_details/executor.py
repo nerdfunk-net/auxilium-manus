@@ -11,6 +11,7 @@ from services.artifacts import ArtifactService
 from services.catalyst_center.credentials import CatalystCenterCredentials
 from workflow_steps.common.catalyst_center_facts import (
     Entry,
+    FactError,
     capture,
     error_entry,
     fact,
@@ -50,7 +51,7 @@ async def _collect(
     service = service_factory.build_catalyst_center_details_service(credentials)
     entries: dict[str, Entry] = {}
 
-    record_error: str | None = None
+    record_error: FactError | None = None
     record: Any = None
     if "device" in facts or "software" in facts:
         record, record_error = await capture(lambda: service.get_device_and_software(device_id))
