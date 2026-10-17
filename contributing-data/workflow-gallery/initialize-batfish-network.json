@@ -1,0 +1,199 @@
+{
+  "export_format": "auxilium-workflow-v1",
+  "exported_at": "2026-09-19T20:34:18.708Z",
+  "name": "Initialize Batfish Network",
+  "description": "Initialize Batfish Network",
+  "folder": "/Batfish",
+  "visibility": "private",
+  "notes": null,
+  "canvas_nodes": [
+    {
+      "id": "get-from-list-2",
+      "type": "workflowNode",
+      "position": {
+        "x": 73.10443350092692,
+        "y": 64.07820321845705
+      },
+      "zIndex": 1,
+      "data": {
+        "kind": "get-from-list",
+        "stepUuid": "2a3feab6-78b3-4967-8de1-923061874f71",
+        "title": "Get from List",
+        "overview": "Configure a static list of devices.",
+        "description": "Enter one or more device names and/or IP addresses to use as workflow targets.\n",
+        "artifactType": "inventory_selector",
+        "requires": [],
+        "requiresParsed": [],
+        "produces": [
+          "identity"
+        ],
+        "producesParsed": [],
+        "consumes": [],
+        "outcomes": [
+          {
+            "name": "success"
+          },
+          {
+            "name": "failure"
+          }
+        ],
+        "pluginConfig": {
+          "devices": [
+            {
+              "name": "LAB",
+              "ip_address": "192.168.178.240/24"
+            },
+            {
+              "name": "lab-2",
+              "ip_address": "192.168.178.241/24"
+            },
+            {
+              "name": "switch",
+              "ip_address": "192.168.178.242/24"
+            }
+          ],
+          "fan_out": {
+            "enabled": false,
+            "mode": "per_device",
+            "chunk_size": 1,
+            "max_concurrency": 0,
+            "approval": {
+              "enabled": false,
+              "batch_size": 1,
+              "first_batch_auto": true
+            }
+          }
+        }
+      },
+      "measured": {
+        "width": 320,
+        "height": 128
+      },
+      "selected": false,
+      "dragging": false
+    },
+    {
+      "id": "batfish-init-snapshot-3",
+      "type": "workflowNode",
+      "position": {
+        "x": 831.7112119665015,
+        "y": 64.07820321845705
+      },
+      "zIndex": 1,
+      "data": {
+        "kind": "batfish-init-snapshot",
+        "stepUuid": "75cc88e5-6654-4cc6-921a-54aaec6cb290",
+        "title": "Init Batfish Snapshot",
+        "overview": "Build a Batfish snapshot from this run's device configs.",
+        "description": "Assembles the current run's device running-configs into a fresh Batfish snapshot and records its location for downstream Batfish query steps (Routing Table, Path Check, ACL Check). Not fan-out-safe -- like store-artifact/git steps, this must run after a Fan In in a fanned-out workflow, never inside the fanned-out branch (see doc/BATFISH_INTEGRATION.md \"Snapshot lifecycle\").\n",
+        "artifactType": "persistent_artifact",
+        "requires": [
+          "identity"
+        ],
+        "requiresParsed": [],
+        "produces": [],
+        "producesParsed": [],
+        "consumes": [],
+        "outcomes": [
+          {
+            "name": "success"
+          }
+        ],
+        "pluginConfig": {
+          "batfish_source_id": "batfish",
+          "network_name": "manus-production"
+        },
+        "outcomeHandleSide": "bottom"
+      },
+      "measured": {
+        "width": 320,
+        "height": 128
+      },
+      "selected": false,
+      "dragging": false
+    },
+    {
+      "id": "get-device-configs-4",
+      "type": "workflowNode",
+      "position": {
+        "x": 445.3317636394662,
+        "y": 64.07820321845705
+      },
+      "zIndex": 1,
+      "data": {
+        "kind": "get-device-configs",
+        "stepUuid": "8a447e02-a6a1-4b5b-a0e9-74eb6c0395bd",
+        "title": "Get Configs",
+        "overview": "Get device configuration in the chosen format.",
+        "description": "Get device configuration in the specified format.",
+        "artifactType": "configuration_retrieval",
+        "requires": [
+          "identity"
+        ],
+        "requiresParsed": [],
+        "produces": [
+          "running_config",
+          "startup_config"
+        ],
+        "producesParsed": [],
+        "consumes": [],
+        "outcomes": [
+          {
+            "name": "success"
+          },
+          {
+            "name": "failure"
+          }
+        ],
+        "pluginConfig": {
+          "credential_reference": "cisco - noc",
+          "config_format": "running"
+        }
+      },
+      "measured": {
+        "width": 320,
+        "height": 128
+      },
+      "dragging": false,
+      "selected": false
+    }
+  ],
+  "canvas_edges": [
+    {
+      "type": "waypoint",
+      "zIndex": 0,
+      "data": {
+        "edgeStyle": "bezier"
+      },
+      "source": "get-from-list-2",
+      "sourceHandle": "success",
+      "target": "get-device-configs-4",
+      "targetHandle": "input",
+      "id": "xy-edge__get-from-list-2success-get-device-configs-4input",
+      "selected": false
+    },
+    {
+      "type": "waypoint",
+      "zIndex": 0,
+      "data": {
+        "edgeStyle": "bezier"
+      },
+      "source": "get-device-configs-4",
+      "sourceHandle": "success",
+      "target": "batfish-init-snapshot-3",
+      "targetHandle": "input",
+      "id": "xy-edge__get-device-configs-4success-batfish-init-snapshot-3input",
+      "selected": false
+    }
+  ],
+  "canvas_groups": [],
+  "static_attributes": [],
+  "credential_references": [
+    {
+      "name": "cisco - noc",
+      "visibility": "global",
+      "owner_username": null
+    }
+  ],
+  "templates": []
+}

@@ -1,0 +1,1671 @@
+{
+  "export_format": "auxilium-workflow-v1",
+  "exported_at": "2026-09-29T19:00:32.915Z",
+  "name": "Onboarding",
+  "description": "Onboarding",
+  "folder": "Gallery",
+  "visibility": "private",
+  "notes": "# Onboarding\n\n## Purpose\n\nOnboard a network device into Nautobot from nothing but an IP address (or\n`name,ip_address`) typed at run start — no saved inventory, no prior Nautobot\nrecord required. Discovers the device's real hostname and serial number live\nfrom the device itself, sets default Nautobot attributes (role, location,\ndevice type, secrets_groups, a serial placeholder) centrally before creation, derives its interfaces via Batfish,\nturns the hostname into an FQDN by appending the device's domain name, then creates it in Nautobot and\nstarts the Nautobot job \"Sync Network Data From Network\".\nReach for this workflow specifically when onboarding a device Nautobot\ndoesn't know about yet; for a device already in Nautobot, a plain\n`Get from Nautobot` → `Update Nautobot Device` workflow is simpler and\ndoesn't need any of the live-discovery machinery below.\n\n## Assumptions / prerequisites\n\n- `Get Configs`/`Run Command` use the `cisco - noc` credential (fixed,\n  `credential_source: \"fixed\"`) — the run fails immediately if that\n  credential no longer resolves.\n- `Init Batfish Snapshot`/`Extract Facts` use the `batfish` source; `Add to\n  Nautobot`/`Start Job` use the `nautobot` source. Both must resolve in\n  Settings → Sources.\n- `Start Job` runs the Nautobot job `Sync Network Data From Network` (a Nautobot\n  onboarding-plugin job) with `namespace: Global`, all three statuses `Active`,\n  and `devices: {nautobot.id}`. That namespace and those status names must\n  exist in Nautobot (they are resolved to UUIDs at run time).\n- The device's domain name must be present in its running config (an `ip domain\n  name ...` line), because `Append domain to Devicename` reads it from\n  `parsed.cisco_config.running.identity.domain_name`.\n- **Nautobot device defaults (role, location, device type, secrets_groups, serial\n  placeholder) live in one place: `Set Default Attributes`'s config, inside\n  the `Set Nautobot Attributes` group — not in `Add to Nautobot` anymore.**\n  `Add to Nautobot`'s `device_fields` (`role`, `status`, `location`,\n  `device_type`, `platform`, `software_version`, `secrets_groups`, `serial`, \n  `asset_tag`, `tags`) are all `{nautobot.origin}` expressions now, reading \n  whatever is in each device's `attribute_bags.nautobot` at that point in the run. \n  Cloning this workflow for a different site/role/model means editing\n  `Set Default Attributes`'s config (currently `role: \"Network\"`,\n  `location: \"City A\"`, `device_type: {model: \"networkA\", manufacturer:\n  \"Cisco\"}`), not hunting through `Add to Nautobot`'s fields.\n- Only Cisco IOS/IOS-XE is exercised (`network_driver_override: \"cisco_ios\"`\n  on both `Parse Cisco Config` and `Run Command`) — `show version`'s TextFSM\n  template and `parse-cisco-config`'s parser are both IOS-specific.\n- `Get from User`'s `lookup_mode` is `\"manual\"` — the operator types the IP\n  (or `name,ip_address`) with no Nautobot-backed suggestions. Fan-out is\n  disabled: this workflow onboards one device per run, not a batch.\n\n## Gotchas\n\n- **The `Funnel` node feeding `Set Default Attributes` is purely cosmetic —\n  it does nothing at run time.** `funnel`'s registry entry\n  (`registry.yaml`) is `executable: false`: \"each incoming edge is resolved\n  directly between its real source and the funnel's one destination before\n  execution.\" So `Set Default Attributes` is the *real* join point for the\n  two parallel branches (`Get Configs`→`Parse Cisco Config`, and\n  `Run Command`) — it receives one device context with both branches'\n  results already merged (same join semantics as any other multi-parent\n  node), the Funnel just tidies up the canvas. Don't read it as a step that\n  runs or changes anything.\n- **`device.name` starts as the raw typed value (often just the IP) and must\n  be renamed to the device's real hostname before Batfish ever runs — this\n  is why `Set device name and serial number` (inside the `Set Nautobot\n  Attributes` group) sits between the join and Fan In, not after.**\n  `Get from User` sets `device.name` to whatever the operator typed (an IP,\n  if no name was given). `Batfish Extract Facts` defaults its node filter to\n  `device.name.lower()` *and* attributes facts back to devices by that same\n  lowercased name — but Batfish's own node name always comes from the\n  `hostname` line inside the actual parsed config, not from anything Manus\n  knows beforehand. A bare IP address isn't even valid Batfish\n  node-specifier syntax (a literal 400 from the Batfish API), and even a\n  valid-looking name wouldn't match. `Set device name and serial number`'s\n  first entry fixes this by copying\n  `parsed.cisco_config.running.hostname` → `device.name` before Fan\n  In/Batfish Init Snapshot run. The rename also means `Add to Nautobot`\n  creates the device under its real name instead of the typed IP (the FQDN\n  suffix is added later, see the next point).\n- **`Append domain to Devicename` (`update-attribute`, `template` mode) must\n  stay *after* `Config to Attributes`, i.e. after Batfish — do not move it up\n  next to `Set device name and serial number`.** It turns `device.name` from\n  the short hostname into `<hostname>.<domain>` (e.g. `LAB` → `LAB.local.zz`).\n  Batfish's node name comes from the `hostname` line of the config (the short\n  name), and `Extract Facts` attributes facts back to devices by that name\n  (see above), so renaming to the FQDN before Batfish would make the facts\n  stop matching the device. It has to be the last rename before `Add to\n  Nautobot`, whose `name` field is `{device.name}`.\n  - It uses `template` mode with `template:\n    \"{device.name}.{parsed.cisco_config.running.identity.domain_name}\"`, not\n    `regex` mode. A regex `destination_template` only understands\n    backreferences (`\\1`) of the *source* value, so `{device.name}` in it\n    would be written literally into the name. `template` mode is the one mode\n    that can combine several attributes, including the destination's own\n    current value.\n  - The domain comes from `Parse Cisco Config`'s output (the running config),\n    not from Batfish, even though it is applied after Batfish runs.\n  - **If the config has no domain name, the step is silently skipped** (a\n    `template` update is skipped for a device when any `{placeholder}` can't\n    be resolved — no exception, no failure outcome), and the device is\n    created in Nautobot with its short hostname. Same \"quiet no-op\" failure\n    mode as the serial extraction below; check the `ip domain name` line in\n    the config first if a device shows up without its FQDN.\n- **`Run Command`'s TextFSM output is always a list, even for a single-row\n  command like `show version` — and ntc-templates declares `serial`,\n  `hardware`, and `mac_address` as `List` fields, so they're a list *inside*\n  that one row too.** The real shape is\n  `parsed.parsed[\"show version\"].parsed` = `[{\"hostname\": \"...\", \"serial\":\n  [\"FCW2148XXXX\"], ...}]`. Reaching the serial number needs a **literal\n  positional index**, not a filter (there's no per-device field known ahead\n  of time to filter on anyway, and a multi-item list would be genuinely\n  ambiguous): `Set device name and serial number`'s second entry uses\n  `source_path: \"parsed.parsed.show version.parsed[0].serial\"`, writing to\n  **`nautobot.serial`** (not `custom.serial` — it has to land in the\n  `nautobot` bag for `Add to Nautobot`'s `{nautobot.origin}` field to pick\n  it up at all). Two syntax traps found live building this: (1) `show\n  version` is a fine plain path segment as-is — only a literal `.` splits\n  segments, spaces don't need quoting or bracketing (`parsed[\"show\n  version\"]` looks natural but is wrong — it's treated as one literal,\n  nonexistent dict key and silently resolves to nothing, no error); (2) the\n  bracket form is `[0]` (a bare digit), not `[]` — an empty bracket isn't\n  recognized at all. A wrong `source_path` here fails **silently** —\n  `Update Attribute` just skips that device for that one attribute (no\n  exception, no failure outcome) — which is exactly why `Set Default\n  Attributes` seeds `nautobot.serial = \"unknown\"` as a placeholder *before*\n  this step runs: if the regex ever stops matching, the device still gets\n  created with a visible, obviously-fake serial instead of a blank/missing\n  one, and it's a cheap tell that this extraction broke — check this path\n  first if a device's serial in Nautobot ever reads \"unknown\".\n- **`Set Location` (the group's exit node) only fires for hostnames matching\n  `^R(\\d+)\\w+.*$`.** For any hostname that doesn't match — including\n  `LAB`, the worked example below — it's a silent no-op (same \"regex\n  doesn't match → skip, no error\" behavior as above), leaving `Set Default\n  Attributes`'s `location: \"City A\"` default untouched. When it *does*\n  match, it overwrites `nautobot.location` with just the captured digit\n  group (e.g. hostname `R42-SW1` → `nautobot.location = \"42\"`) — that's\n  almost certainly not a real Nautobot location name, so if a future device\n  onboarded through this workflow has an `R<digits>...`-shaped hostname,\n  double-check what `Add to Nautobot`'s location resolution actually does\n  with it before trusting the result.\n- **`Add to Nautobot` creates the device including all interfaces\n  (`interfaces_source: \"nautobot_origin\"`, i.e. the `nautobot.interfaces` bag\n  `Config to Attributes` built) and, because `refresh_attributes_after_create`\n  is on, reloads the device from Nautobot to get its real UUID.** `Start Job`\n  passes that UUID (`devices: {nautobot.id}`) to `Sync Network Data From\n  Network`, so the job syncs exactly this one device. Turning the refresh off\n  would leave `{nautobot.id}` empty and the job would have no device to work on.\n- **An already-existing device is not handled by this workflow.** `Add to\n  Nautobot` fails such a device with error code `device_already_exists` on its\n  `failure` outcome, and nothing is wired to that outcome, so `Start Job` never\n  runs for it. The earlier `Update Device` path is gone; use a `Get from\n  Nautobot` → `Update Nautobot Device` workflow for devices Nautobot already\n  knows.\n- **Batfish is used only to derive interfaces here, not for any routing/ACL\n  query** — `Config to Attributes` (`source_format: \"batfish\"`) reads\n  `Extract Facts`' output solely to build the `nautobot.interfaces` bag for\n  the Nautobot write. `network_name` is left at the default\n  (`manus-workflow-29`), and `retain_snapshots` is unset — nothing prunes old\n  snapshots for this workflow, so its Batfish network accumulates one\n  snapshot per run indefinitely.\n\n## Example\n\nOperator enters `192.168.178.240` (no name) when starting the run.\n`Get from User` → `device.name = \"192.168.178.240\"` (the typed value).\nParallel: `Get Configs` fetches the running config → `Parse Cisco Config`\nreads it (config source `running`); `Run Command` runs `show version`\n(TextFSM). Both join at `Set Default Attributes` (the `Funnel` feeding it is\ncosmetic — see Gotchas), which seeds `nautobot.role = \"Network\"`,\n`nautobot.location = \"City A\"`, `nautobot.device_type = {model: \"networkA\",\nmanufacturer: \"Cisco\"}`, and `nautobot.serial = \"unknown\"` (a bag that was\nempty until now, so every enabled default lands). `Set device name and\nserial number` renames `device.name → \"LAB\"` (the device's real configured\nhostname) and overwrites `nautobot.serial = \"FCW2148XXXX\"` (the real\nextracted value, replacing the placeholder). `Set Location` checks `\"LAB\"`\nagainst `^R(\\d+)\\w+.*$` — no match, so it's a no-op and\n`nautobot.location` stays `\"City A\"`. `Fan In` → `Init Batfish Snapshot`\n(network `manus-workflow-29`, snapshot `run-<run id>`) → `Extract Facts` →\n`Config to Attributes` derives interfaces (with `update_primary_ipv4`\nmatching `Ethernet`/`Vlan` interfaces) into `nautobot.interfaces`. The running\nconfig contains `ip domain name local.zz`, so `Append domain to Devicename`\nrenames `device.name` from `\"LAB\"` to `\"LAB.local.zz\"` (Batfish has already\nrun, so the short name it knew is no longer needed). `Add to Nautobot` then\ncreates device `LAB.local.zz` (role `Network`, location `City A`, device type\n`networkA`/Cisco, serial `FCW2148XXXX`, and all interfaces) and reloads it to\nget its Nautobot UUID. Because the device did not exist yet, `Add to Nautobot`\nsucceeds and `Start Job` starts the Nautobot job `Sync Network Data From\nNetwork` for that UUID (`namespace: Global`, statuses `Active`, VLAN/VRF/cable/\nsoftware-version sync enabled). If the device had already existed, `Add to\nNautobot` would fail it with `device_already_exists` and the run would end\nthere without starting the job.\n",
+  "canvas_nodes": [
+    {
+      "id": "batfish-init-snapshot-4",
+      "type": "workflowNode",
+      "position": {
+        "x": 765.1899111203682,
+        "y": 48.943315615732786
+      },
+      "data": {
+        "kind": "batfish-init-snapshot",
+        "stepUuid": "f8427a16-b579-4d3c-adb7-fd3cb14a2ce9",
+        "title": "Init Batfish Snapshot",
+        "overview": "Build a Batfish snapshot from this run's device configs.",
+        "description": "Assembles the current run's device running-configs into a fresh Batfish snapshot and records its location for downstream Batfish query steps (Routing Table, Path Check, ACL Check). Not fan-out-safe -- like store-artifact/git steps, this must run after a Fan In in a fanned-out workflow, never inside the fanned-out branch (see doc/BATFISH_INTEGRATION.md \"Snapshot lifecycle\").\n",
+        "artifactType": "persistent_artifact",
+        "requires": [
+          "identity"
+        ],
+        "requiresParsed": [],
+        "produces": [],
+        "producesParsed": [],
+        "consumes": [],
+        "outcomes": [
+          {
+            "name": "success"
+          }
+        ],
+        "pluginConfig": {
+          "batfish_source_id": "batfish"
+        },
+        "disabled": false,
+        "incomeHandleSide": "right",
+        "outcomeHandleSide": "left"
+      },
+      "measured": {
+        "width": 320,
+        "height": 128
+      },
+      "dragging": false,
+      "selected": false,
+      "parentId": "background-16"
+    },
+    {
+      "id": "get-device-configs-5",
+      "type": "workflowNode",
+      "position": {
+        "x": -290.94752939028785,
+        "y": -177.7763023589177
+      },
+      "zIndex": 1,
+      "data": {
+        "kind": "get-device-configs",
+        "stepUuid": "02a90c27-2751-4823-b7de-7a7c04eedd5b",
+        "title": "Get Configs",
+        "overview": "Get device configuration in the chosen format.",
+        "description": "Get device configuration in the specified format.",
+        "artifactType": "configuration_management",
+        "requires": [
+          "identity"
+        ],
+        "requiresParsed": [],
+        "produces": [
+          "running_config",
+          "startup_config"
+        ],
+        "producesParsed": [],
+        "consumes": [],
+        "outcomes": [
+          {
+            "name": "success"
+          },
+          {
+            "name": "failure"
+          }
+        ],
+        "incomeHandleSide": "left",
+        "outcomeHandleSide": "right",
+        "pluginConfig": {
+          "credential_reference": "cisco - noc",
+          "config_format": "running"
+        },
+        "disabled": false
+      },
+      "measured": {
+        "width": 320,
+        "height": 128
+      },
+      "selected": false,
+      "dragging": false
+    },
+    {
+      "id": "batfish-extract-facts-6",
+      "type": "workflowNode",
+      "position": {
+        "x": 403.17115426959515,
+        "y": 48.943315615732786
+      },
+      "data": {
+        "kind": "batfish-extract-facts",
+        "stepUuid": "70d8ebff-2479-4cc5-b438-cdecd86813f3",
+        "title": "Extract Facts",
+        "overview": "Pull parsed device facts out of a Batfish snapshot via Batfish's extract_facts question.",
+        "description": "Retrieves the configuration facts Batfish parsed (hostname, NTP/ TACACS/DNS servers, interfaces, BGP/OSPF settings, etc.) for a set of nodes in an already-initialized snapshot -- no expected values, just what Batfish actually sees. Writes each device's own facts into device.parsed[output_key] for downstream steps to read, in addition to one workflow-level artifact covering every extracted node.\n",
+        "artifactType": "configuration_management",
+        "requires": [
+          "identity"
+        ],
+        "requiresParsed": [],
+        "produces": [
+          "parsed"
+        ],
+        "producesParsed": [],
+        "consumes": [],
+        "outcomes": [
+          {
+            "name": "success"
+          }
+        ],
+        "disabled": false,
+        "pluginConfig": {
+          "output_key": "parsed_config",
+          "batfish_source_id": "batfish"
+        },
+        "incomeHandleSide": "right",
+        "outcomeHandleSide": "left"
+      },
+      "measured": {
+        "width": 320,
+        "height": 128
+      },
+      "dragging": false,
+      "selected": false,
+      "parentId": "background-16"
+    },
+    {
+      "id": "config-to-attributes-10",
+      "type": "workflowNode",
+      "position": {
+        "x": 26.12990067101657,
+        "y": 48.943315615732786
+      },
+      "data": {
+        "kind": "config-to-attributes",
+        "stepUuid": "639b48d5-6b93-450a-aef0-d0b004290378",
+        "title": "Config to Attributes",
+        "overview": "Turn parsed device config into Nautobot attributes.",
+        "description": "Read a device's parsed config — from Parse Cisco Config or Get & Parse Config (pyATS/Genie) — and populate its Nautobot attribute bag, starting with Layer3 interfaces, for later use by Add to Nautobot or Update Device (interfaces_source: nautobot_origin). A Batfish source_format is planned as a future addition to this same contract. No live Nautobot connection is used.\n",
+        "artifactType": "inventory_selector",
+        "requires": [
+          "identity",
+          "parsed"
+        ],
+        "requiresParsed": [],
+        "produces": [
+          "attributes"
+        ],
+        "producesParsed": [],
+        "consumes": [],
+        "outcomes": [
+          {
+            "name": "success"
+          }
+        ],
+        "pluginConfig": {
+          "source_format": "batfish",
+          "attributes": [
+            "interfaces"
+          ],
+          "parsed_key": "parsed_config",
+          "update_primary_ipv4": true,
+          "primary_ipv4_custom_pattern": "(Ethernet|Vlan)"
+        },
+        "disabled": false,
+        "incomeHandleSide": "right",
+        "outcomeHandleSide": "bottom"
+      },
+      "measured": {
+        "width": 320,
+        "height": 128
+      },
+      "selected": false,
+      "dragging": false,
+      "parentId": "background-16"
+    },
+    {
+      "id": "fan-in-9",
+      "type": "workflowNode",
+      "position": {
+        "x": 507.4920836571753,
+        "y": 24.92355117822379
+      },
+      "zIndex": 1,
+      "data": {
+        "kind": "fan-in",
+        "stepUuid": "05ad1425-6865-46a6-a4c7-cab35d0360b0",
+        "title": "Fan In",
+        "overview": "Rejoin fan-out branches into one execution path.",
+        "description": "Rejoin a fanned-out workflow into a single path. Per-device steps run in parallel child workflows up to this node; steps placed after it run once over all devices. Place git / store-artifact steps after Fan In for safe, single-commit exports.\n",
+        "artifactType": "control_flow",
+        "requires": [
+          "identity"
+        ],
+        "requiresParsed": [],
+        "produces": [],
+        "producesParsed": [],
+        "consumes": [],
+        "outcomes": [
+          {
+            "name": "success"
+          }
+        ],
+        "outcomeHandleSide": "left",
+        "incomeHandleSide": "right"
+      },
+      "measured": {
+        "width": 320,
+        "height": 128
+      },
+      "selected": false,
+      "dragging": false
+    },
+    {
+      "id": "get-from-user-8",
+      "type": "workflowNode",
+      "position": {
+        "x": -667.9887829888664,
+        "y": -271.7962565137673
+      },
+      "zIndex": 1,
+      "data": {
+        "kind": "get-from-user",
+        "stepUuid": "df9465af-3302-4815-8ce8-8ef6ead306e3",
+        "title": "Get from User",
+        "overview": "Ask the operator for devices when the run starts.",
+        "description": "Prompt the operator to enter one or more target devices when starting the workflow run.\n",
+        "artifactType": "inventory_selector",
+        "requires": [],
+        "requiresParsed": [],
+        "produces": [
+          "identity"
+        ],
+        "producesParsed": [],
+        "consumes": [],
+        "outcomes": [
+          {
+            "name": "success"
+          },
+          {
+            "name": "failure"
+          }
+        ],
+        "pluginConfig": {
+          "device_param": "target_devices",
+          "lookup_mode": "manual",
+          "nautobot_source_id": "",
+          "fan_out": {
+            "enabled": false,
+            "mode": "per_device",
+            "chunk_size": 1,
+            "max_concurrency": 0
+          }
+        }
+      },
+      "measured": {
+        "width": 320,
+        "height": 128
+      },
+      "dragging": false,
+      "selected": false
+    },
+    {
+      "id": "add-to-nautobot-7",
+      "type": "workflowNode",
+      "position": {
+        "x": 43.120065654140944,
+        "y": 64.03592752856548
+      },
+      "data": {
+        "kind": "add-to-nautobot",
+        "stepUuid": "22642053-35f5-4bdf-919a-75de0758108e",
+        "title": "Add to Nautobot",
+        "overview": "Create a new device in Nautobot.",
+        "description": "Create each device in Nautobot with its required attributes, plus optional interfaces, rack placement, and virtual chassis membership.\n",
+        "artifactType": "command_execution",
+        "requires": [
+          "identity"
+        ],
+        "requiresParsed": [],
+        "produces": [
+          "attributes"
+        ],
+        "producesParsed": [],
+        "consumes": [],
+        "outcomes": [
+          {
+            "name": "success"
+          },
+          {
+            "name": "failure"
+          }
+        ],
+        "pluginConfig": {
+          "device_fields": {
+            "name": {
+              "enabled": true,
+              "value": "{device.name}"
+            },
+            "role": {
+              "enabled": true,
+              "value": "{nautobot.origin}"
+            },
+            "status": {
+              "enabled": true,
+              "value": "{nautobot.origin | default('Active')}"
+            },
+            "location": {
+              "enabled": true,
+              "value": "{nautobot.origin}"
+            },
+            "device_type": {
+              "enabled": true,
+              "value": "{nautobot.origin}"
+            },
+            "platform": {
+              "enabled": true,
+              "value": "{nautobot.origin}"
+            },
+            "secrets_group": {
+              "enabled": true,
+              "value": "{nautobot.origin}"
+            },
+            "software_version": {
+              "enabled": true,
+              "value": "{nautobot.origin}"
+            },
+            "serial": {
+              "enabled": true,
+              "value": "{nautobot.origin}"
+            },
+            "asset_tag": {
+              "enabled": true,
+              "value": "{nautobot.origin}"
+            },
+            "tags": {
+              "enabled": true,
+              "value": "{nautobot.origin}"
+            },
+            "custom_fields": {}
+          },
+          "nautobot_source_id": "nautobot",
+          "custom_fields_source": "manual",
+          "interfaces": [],
+          "interfaces_source": "nautobot_origin",
+          "virtual_chassis": {
+            "mode": "none",
+            "id": "",
+            "name": ""
+          },
+          "add_prefix": true,
+          "default_prefix_length": "/24",
+          "dry_run": false,
+          "refresh_attributes_after_create": true
+        },
+        "incomeHandleSide": "left",
+        "outcomeHandleSide": "right",
+        "disabled": false
+      },
+      "measured": {
+        "width": 320,
+        "height": 128
+      },
+      "selected": false,
+      "dragging": false,
+      "parentId": "background-19"
+    },
+    {
+      "id": "parse-cisco-config-8",
+      "type": "workflowNode",
+      "position": {
+        "x": 71.07122746048512,
+        "y": -177.7763023589177
+      },
+      "zIndex": 1,
+      "data": {
+        "kind": "parse-cisco-config",
+        "stepUuid": "25304104-1f0e-43a3-a85c-62f9bb6780c0",
+        "title": "Parse Cisco Config",
+        "overview": "Parse a Cisco running/startup config into structured data.",
+        "description": "Parse a Cisco IOS/IOS-XE/NXOS/XR running and/or startup configuration into structured data (hostname, VRFs, VLANs, interfaces, ACLs, routing, etc.) using cisco-config-parser, for use by Jinja templates and Log Attributes.\n",
+        "artifactType": "configuration_management",
+        "requires": [
+          "identity"
+        ],
+        "requiresParsed": [],
+        "produces": [
+          "parsed"
+        ],
+        "producesParsed": [],
+        "consumes": [],
+        "outcomes": [
+          {
+            "name": "success"
+          },
+          {
+            "name": "failure"
+          }
+        ],
+        "pluginConfig": {
+          "network_driver_override": "cisco_ios",
+          "config_source": "running"
+        }
+      },
+      "measured": {
+        "width": 320,
+        "height": 128
+      },
+      "selected": false,
+      "dragging": false
+    },
+    {
+      "id": "update-attribute-9",
+      "type": "workflowNode",
+      "position": {
+        "x": 908.4675403454897,
+        "y": -167.97233010397196
+      },
+      "zIndex": 1,
+      "data": {
+        "kind": "update-attribute",
+        "stepUuid": "4febf5d8-1abe-40da-87d7-352976b097f4",
+        "title": "Set device name and serial number",
+        "overview": "Set or transform device attributes in the workflow.",
+        "description": "Set or transform one or more in-workflow device attributes using a fixed value or a regular expression with capture groups.\n",
+        "artifactType": "control_flow",
+        "requires": [
+          "identity"
+        ],
+        "requiresParsed": [],
+        "produces": [
+          "attributes"
+        ],
+        "producesParsed": [],
+        "consumes": [],
+        "outcomes": [
+          {
+            "name": "success"
+          }
+        ],
+        "pluginConfig": {
+          "attributes": [
+            {
+              "id": "325f8d58-544d-41fb-be6b-a4189ae42ca4",
+              "mode": "regex",
+              "destination_path": "device.name",
+              "fixed_value": "",
+              "source_path": "parsed.cisco_config.running.hostname",
+              "pattern": "^(.*)$",
+              "destination_template": "\\1",
+              "regex_flags": {
+                "case_insensitive": false,
+                "multiline": false,
+                "dotall": false
+              }
+            },
+            {
+              "id": "2ec1f89c-6cf6-4888-b7af-e2f2242730d3",
+              "mode": "regex",
+              "destination_path": "nautobot.serial",
+              "fixed_value": "",
+              "source_path": "parsed.parsed.show version.parsed[0].serial",
+              "pattern": "^(.*)$",
+              "destination_template": "\\1",
+              "regex_flags": {
+                "case_insensitive": false,
+                "multiline": false,
+                "dotall": false
+              }
+            }
+          ]
+        },
+        "outcomeHandleSide": "right",
+        "isGroupEntryPoint": true
+      },
+      "measured": {
+        "width": 320,
+        "height": 128
+      },
+      "dragging": false,
+      "selected": true
+    },
+    {
+      "id": "run-command-12",
+      "type": "workflowNode",
+      "position": {
+        "x": -290.94752939028785,
+        "y": -357.845245184248
+      },
+      "zIndex": 1,
+      "data": {
+        "kind": "run-command",
+        "stepUuid": "471c6292-8dd1-4a85-96dc-efb2b3a95db8",
+        "title": "Run Command",
+        "overview": "Execute CLI commands on connected devices.",
+        "description": "Execute one or more CLI commands on connected devices.",
+        "artifactType": "command_execution",
+        "requires": [
+          "identity"
+        ],
+        "requiresParsed": [],
+        "produces": [
+          "parsed"
+        ],
+        "producesParsed": [],
+        "consumes": [],
+        "outcomes": [
+          {
+            "name": "success"
+          },
+          {
+            "name": "failure"
+          }
+        ],
+        "pluginConfig": {
+          "credential_reference": "cisco - noc",
+          "credential_source": "fixed",
+          "credential_param": "",
+          "commands": [
+            "show version"
+          ],
+          "parser": "textfsm",
+          "network_driver_override": "cisco_ios",
+          "pyats_source_id": "",
+          "parsed_output_key": "parsed",
+          "execution_mode": "exec_mode",
+          "write_config_after_execution": false,
+          "read_timeout": 60,
+          "auto_confirm_prompts": false,
+          "dry_run": false,
+          "retry_backoff_seconds": []
+        }
+      },
+      "measured": {
+        "width": 320,
+        "height": 128
+      },
+      "dragging": false,
+      "selected": false
+    },
+    {
+      "id": "update-attribute-13",
+      "type": "workflowNode",
+      "position": {
+        "x": 1288.2172745098837,
+        "y": -167.97233010397196
+      },
+      "zIndex": 1,
+      "data": {
+        "kind": "update-attribute",
+        "stepUuid": "8b5a0baf-ab39-4c8a-bf3b-6c818946dfe4",
+        "title": "Set Location",
+        "overview": "Set or transform device attributes in the workflow.",
+        "description": "Set or transform one or more in-workflow device attributes using a fixed value or a regular expression with capture groups.\n",
+        "artifactType": "control_flow",
+        "requires": [
+          "identity"
+        ],
+        "requiresParsed": [],
+        "produces": [
+          "attributes"
+        ],
+        "producesParsed": [],
+        "consumes": [],
+        "outcomes": [
+          {
+            "name": "success"
+          }
+        ],
+        "pluginConfig": {
+          "attributes": [
+            {
+              "id": "325f8d58-544d-41fb-be6b-a4189ae42ca4",
+              "mode": "regex",
+              "destination_path": "nautobot.location",
+              "fixed_value": "",
+              "source_path": "parsed.cisco_config.running.hostname",
+              "pattern": "^R(\\d+)\\w+.*$",
+              "destination_template": "\\1",
+              "regex_flags": {
+                "case_insensitive": false,
+                "multiline": false,
+                "dotall": false
+              }
+            }
+          ]
+        },
+        "outcomeHandleSide": "right",
+        "isGroupExitPoint": true,
+        "groupExitHandle": "success"
+      },
+      "measured": {
+        "width": 320,
+        "height": 128
+      },
+      "dragging": false,
+      "selected": false
+    },
+    {
+      "id": "funnel-14",
+      "type": "funnelNode",
+      "position": {
+        "x": 416.15574178346685,
+        "y": -227.79625651376728
+      },
+      "zIndex": 1,
+      "data": {
+        "kind": "funnel",
+        "stepUuid": "362ba777-d98c-4d45-8e76-8d5d04616ffc",
+        "title": "Funnel",
+        "overview": "Merge many connections into one before a shared destination.",
+        "description": "Canvas decoration — accepts edges from many upstream steps and routes them through a single downstream connection, reducing visual clutter for fan-in patterns like Notify On Error. Not executed at runtime; each incoming edge is resolved directly between its real source and the funnel's one destination before execution.\n",
+        "artifactType": "canvas_decoration",
+        "requires": [],
+        "requiresParsed": [],
+        "produces": [],
+        "producesParsed": [],
+        "consumes": [],
+        "outcomes": []
+      },
+      "measured": {
+        "width": 40,
+        "height": 40
+      },
+      "selected": false,
+      "dragging": false
+    },
+    {
+      "id": "set-default-attributes-15",
+      "type": "workflowNode",
+      "position": {
+        "x": 528.5606865913511,
+        "y": -167.97233010397196
+      },
+      "zIndex": 1,
+      "data": {
+        "kind": "set-default-attributes",
+        "stepUuid": "51e1fabe-7d64-4374-8b4a-d8a34e611448",
+        "title": "Set Default Attributes",
+        "overview": "Seed default Nautobot attributes for devices that don't have them yet.",
+        "description": "Fill in default role/status/location/device type/tags/custom fields/interfaces into each device's Nautobot attribute bag, so {nautobot.origin} in Add to Nautobot / Update Device resolves without a live Nautobot lookup.\n",
+        "artifactType": "inventory_selector",
+        "requires": [
+          "identity"
+        ],
+        "requiresParsed": [],
+        "produces": [
+          "attributes"
+        ],
+        "producesParsed": [],
+        "consumes": [],
+        "outcomes": [
+          {
+            "name": "success"
+          }
+        ],
+        "isGroupEntryPoint": true,
+        "pluginConfig": {
+          "overwrite": false,
+          "attributes": {
+            "role": {
+              "enabled": true,
+              "value": "Network"
+            },
+            "status": {
+              "enabled": false,
+              "value": ""
+            },
+            "location": {
+              "enabled": true,
+              "value": "City A"
+            },
+            "platform": {
+              "enabled": false,
+              "value": ""
+            },
+            "secrets_group": {
+              "enabled": true,
+              "value": "ssh_login"
+            },
+            "software_version": {
+              "enabled": false,
+              "value": ""
+            },
+            "serial": {
+              "enabled": true,
+              "value": "unknown"
+            },
+            "asset_tag": {
+              "enabled": false,
+              "value": ""
+            },
+            "tags": {
+              "enabled": false,
+              "value": ""
+            },
+            "device_type": {
+              "enabled": true,
+              "model": "networkA",
+              "manufacturer": "Cisco"
+            },
+            "rack": {
+              "enabled": false,
+              "value": ""
+            },
+            "face": {
+              "enabled": false,
+              "value": ""
+            },
+            "position": {
+              "enabled": false,
+              "value": ""
+            },
+            "custom_fields": {},
+            "interfaces": []
+          }
+        }
+      },
+      "measured": {
+        "width": 320,
+        "height": 128
+      },
+      "selected": false,
+      "dragging": false
+    },
+    {
+      "id": "background-16",
+      "type": "backgroundNode",
+      "position": {
+        "x": -694.118683659883,
+        "y": -24.019764437509
+      },
+      "zIndex": -1,
+      "width": 1158,
+      "height": 200,
+      "style": {
+        "width": 480,
+        "height": 320
+      },
+      "data": {
+        "kind": "background",
+        "stepUuid": "a1c28731-fa92-47aa-b545-e5d719f9d145",
+        "title": "Background",
+        "overview": "Place a colored rectangle behind other canvas steps.",
+        "description": "Canvas decoration — a colored rectangle always drawn behind other steps. Configure size and color. Not executed at runtime and cannot be connected to other steps.\n",
+        "artifactType": "canvas_decoration",
+        "requires": [],
+        "requiresParsed": [],
+        "produces": [],
+        "producesParsed": [],
+        "consumes": [],
+        "outcomes": [],
+        "pluginConfig": {
+          "color": "#e2e8f0",
+          "width": 1158,
+          "height": 200
+        }
+      },
+      "measured": {
+        "width": 1158,
+        "height": 200
+      },
+      "selected": false,
+      "dragging": false,
+      "resizing": false
+    },
+    {
+      "id": "label-17",
+      "type": "labelNode",
+      "position": {
+        "x": -37.32145527742722,
+        "y": 6.294342980574555
+      },
+      "width": 200,
+      "height": 40,
+      "style": {
+        "width": 200,
+        "height": 40
+      },
+      "data": {
+        "kind": "label",
+        "stepUuid": "bf9c8e63-cbc2-42f9-b02e-7cbaf09cca25",
+        "title": "Label",
+        "overview": "Place styled text on the workflow canvas.",
+        "description": "Canvas decoration — configurable text with size, font, and color. Not executed at runtime and cannot be connected to other steps.\n",
+        "artifactType": "canvas_decoration",
+        "requires": [],
+        "requiresParsed": [],
+        "produces": [],
+        "producesParsed": [],
+        "consumes": [],
+        "outcomes": [],
+        "pluginConfig": {
+          "text": "Nautobot",
+          "font_size": 22,
+          "font_family": "sans",
+          "bold": true,
+          "color": "#000000",
+          "width": 200,
+          "height": 40
+        }
+      },
+      "measured": {
+        "width": 200,
+        "height": 40
+      },
+      "selected": false,
+      "dragging": false,
+      "parentId": "background-19"
+    },
+    {
+      "id": "label-18",
+      "type": "labelNode",
+      "position": {
+        "x": -51.99022215878176,
+        "y": -0.8709519872696418
+      },
+      "width": 200,
+      "height": 40,
+      "style": {
+        "width": 200,
+        "height": 40
+      },
+      "data": {
+        "kind": "label",
+        "stepUuid": "c33a0ed5-51ff-446a-b170-1d3e61a63da0",
+        "title": "Label",
+        "overview": "Place styled text on the workflow canvas.",
+        "description": "Canvas decoration — configurable text with size, font, and color. Not executed at runtime and cannot be connected to other steps.\n",
+        "artifactType": "canvas_decoration",
+        "requires": [],
+        "requiresParsed": [],
+        "produces": [],
+        "producesParsed": [],
+        "consumes": [],
+        "outcomes": [],
+        "pluginConfig": {
+          "text": "Batfish",
+          "font_size": 22,
+          "font_family": "sans",
+          "bold": true,
+          "color": "#000000",
+          "width": 200,
+          "height": 40
+        }
+      },
+      "measured": {
+        "width": 200,
+        "height": 40
+      },
+      "selected": false,
+      "dragging": false,
+      "parentId": "background-16"
+    },
+    {
+      "id": "background-19",
+      "type": "backgroundNode",
+      "position": {
+        "x": -334.0675950444288,
+        "y": 195.57139701327912
+      },
+      "zIndex": -1,
+      "width": 796,
+      "height": 256,
+      "style": {
+        "width": 480,
+        "height": 320
+      },
+      "data": {
+        "kind": "background",
+        "stepUuid": "34986d7e-f34c-4fcb-a3b7-4e065fdf9aab",
+        "title": "Background",
+        "overview": "Place a colored rectangle behind other canvas steps.",
+        "description": "Canvas decoration — a colored rectangle always drawn behind other steps. Configure size and color. Not executed at runtime and cannot be connected to other steps.\n",
+        "artifactType": "canvas_decoration",
+        "requires": [],
+        "requiresParsed": [],
+        "produces": [],
+        "producesParsed": [],
+        "consumes": [],
+        "outcomes": [],
+        "pluginConfig": {
+          "color": "#e2e8f0",
+          "width": 796,
+          "height": 256
+        }
+      },
+      "measured": {
+        "width": 796,
+        "height": 256
+      },
+      "selected": false,
+      "dragging": false,
+      "resizing": false
+    },
+    {
+      "id": "start-nautobot-job-18",
+      "type": "workflowNode",
+      "position": {
+        "x": 405.13882250491395,
+        "y": 59.42665062277854
+      },
+      "data": {
+        "kind": "start-nautobot-job",
+        "stepUuid": "3498347d-96fb-4735-a020-0ef212c9b949",
+        "title": "Start Job",
+        "overview": "Start a Nautobot job and record its job result ID for status checks.",
+        "description": "Start a Nautobot job for each selected device, resolving required and optional parameters (literal values or {path} attribute expressions), and record the returned job result ID on each device for a downstream status-check step.\n",
+        "artifactType": "command_execution",
+        "requires": [
+          "identity"
+        ],
+        "requiresParsed": [],
+        "produces": [
+          "nautobot_job"
+        ],
+        "producesParsed": [],
+        "consumes": [],
+        "outcomes": [
+          {
+            "name": "success"
+          },
+          {
+            "name": "failure"
+          }
+        ],
+        "pluginConfig": {
+          "nautobot_source_id": "nautobot",
+          "job_id": "c6d1280f-eb9d-4f55-aa50-82e91cc07436",
+          "job_name": "Sync Network Data From Network",
+          "job_variables_schema": [
+            {
+              "name": "dryrun",
+              "type": "DryRunVar",
+              "label": null,
+              "help_text": "Perform a dry-run, making no actual changes to Nautobot data.",
+              "default": false,
+              "required": false,
+              "min_length": null,
+              "max_length": null,
+              "min_value": null,
+              "max_value": null,
+              "choices": null,
+              "model": null
+            },
+            {
+              "name": "memory_profiling",
+              "type": "BooleanVar",
+              "label": null,
+              "help_text": "Perform a memory profiling analysis.",
+              "default": false,
+              "required": false,
+              "min_length": null,
+              "max_length": null,
+              "min_value": null,
+              "max_value": null,
+              "choices": null,
+              "model": null
+            },
+            {
+              "name": "parallel_loading",
+              "type": "BooleanVar",
+              "label": null,
+              "help_text": "Load source and target adapters in parallel for improved performance.",
+              "default": false,
+              "required": false,
+              "min_length": null,
+              "max_length": null,
+              "min_value": null,
+              "max_value": null,
+              "choices": null,
+              "model": null
+            },
+            {
+              "name": "debug",
+              "type": "BooleanVar",
+              "label": null,
+              "help_text": "Enable for more verbose logging.",
+              "default": null,
+              "required": false,
+              "min_length": null,
+              "max_length": null,
+              "min_value": null,
+              "max_value": null,
+              "choices": null,
+              "model": null
+            },
+            {
+              "name": "connectivity_test",
+              "type": "BooleanVar",
+              "label": null,
+              "help_text": "Enable to test connectivity to the device(s) prior to attempting onboarding.",
+              "default": false,
+              "required": false,
+              "min_length": null,
+              "max_length": null,
+              "min_value": null,
+              "max_value": null,
+              "choices": null,
+              "model": null
+            },
+            {
+              "name": "sync_vlans",
+              "type": "BooleanVar",
+              "label": null,
+              "help_text": "Sync VLANs and interface VLAN assignments.",
+              "default": false,
+              "required": false,
+              "min_length": null,
+              "max_length": null,
+              "min_value": null,
+              "max_value": null,
+              "choices": null,
+              "model": null
+            },
+            {
+              "name": "sync_vrfs",
+              "type": "BooleanVar",
+              "label": null,
+              "help_text": "Sync VRFs and interface VRF assignments.",
+              "default": false,
+              "required": false,
+              "min_length": null,
+              "max_length": null,
+              "min_value": null,
+              "max_value": null,
+              "choices": null,
+              "model": null
+            },
+            {
+              "name": "sync_vrf_to_prefix",
+              "type": "BooleanVar",
+              "label": null,
+              "help_text": "Associate each interface's VRF with the parent prefix of the interface's IP addresses. Requires 'Sync VRFs'. Associations are add-only; stale prefix/VRF links are not removed.",
+              "default": false,
+              "required": false,
+              "min_length": null,
+              "max_length": null,
+              "min_value": null,
+              "max_value": null,
+              "choices": null,
+              "model": null
+            },
+            {
+              "name": "sync_cables",
+              "type": "BooleanVar",
+              "label": null,
+              "help_text": "Sync cables between interfaces via a LLDP or CDP.",
+              "default": false,
+              "required": false,
+              "min_length": null,
+              "max_length": null,
+              "min_value": null,
+              "max_value": null,
+              "choices": null,
+              "model": null
+            },
+            {
+              "name": "sync_software_version",
+              "type": "BooleanVar",
+              "label": null,
+              "help_text": "Sync software version from device.",
+              "default": false,
+              "required": false,
+              "min_length": null,
+              "max_length": null,
+              "min_value": null,
+              "max_value": null,
+              "choices": null,
+              "model": null
+            },
+            {
+              "name": "update_devices_with_changed_serial",
+              "type": "BooleanVar",
+              "label": null,
+              "help_text": "If a device at the specified location already exists in Nautobot but the serial number reported by the device differs from the stored serial (e.g. after a stack master role flip or hardware swap), include this device in the sync anyway. Without this flag the device is excluded from `devices_to_load` because the queryset filter requires both name and serial to match.",
+              "default": false,
+              "required": false,
+              "min_length": null,
+              "max_length": null,
+              "min_value": null,
+              "max_value": null,
+              "choices": null,
+              "model": null
+            },
+            {
+              "name": "namespace",
+              "type": "ObjectVar",
+              "label": null,
+              "help_text": "The namespace for all IP addresses created or updated in the sync.",
+              "default": null,
+              "required": true,
+              "min_length": null,
+              "max_length": null,
+              "min_value": null,
+              "max_value": null,
+              "choices": null,
+              "model": "ipam.namespace"
+            },
+            {
+              "name": "interface_status",
+              "type": "ObjectVar",
+              "label": null,
+              "help_text": "Status to be applied to all synced device interfaces. This will update existing interface statuses.",
+              "default": null,
+              "required": true,
+              "min_length": null,
+              "max_length": null,
+              "min_value": null,
+              "max_value": null,
+              "choices": null,
+              "model": "extras.status"
+            },
+            {
+              "name": "ip_address_status",
+              "type": "ObjectVar",
+              "label": "IP address status",
+              "help_text": "Status to be applied to all synced IP addresses. This will update existing IP address statuses",
+              "default": null,
+              "required": true,
+              "min_length": null,
+              "max_length": null,
+              "min_value": null,
+              "max_value": null,
+              "choices": null,
+              "model": "extras.status"
+            },
+            {
+              "name": "default_prefix_status",
+              "type": "ObjectVar",
+              "label": null,
+              "help_text": "Status to be applied to all new created prefixes. Prefix status does not update with additional syncs.",
+              "default": null,
+              "required": true,
+              "min_length": null,
+              "max_length": null,
+              "min_value": null,
+              "max_value": null,
+              "choices": null,
+              "model": "extras.status"
+            },
+            {
+              "name": "devices",
+              "type": "MultiObjectVar",
+              "label": null,
+              "help_text": "Device(s) to update.",
+              "default": null,
+              "required": false,
+              "min_length": null,
+              "max_length": null,
+              "min_value": null,
+              "max_value": null,
+              "choices": null,
+              "model": "dcim.device"
+            },
+            {
+              "name": "location",
+              "type": "ObjectVar",
+              "label": null,
+              "help_text": "Only update devices at a specific location.",
+              "default": null,
+              "required": false,
+              "min_length": null,
+              "max_length": null,
+              "min_value": null,
+              "max_value": null,
+              "choices": null,
+              "model": "dcim.location"
+            },
+            {
+              "name": "device_role",
+              "type": "ObjectVar",
+              "label": null,
+              "help_text": "Only update devices with the selected role.",
+              "default": null,
+              "required": false,
+              "min_length": null,
+              "max_length": null,
+              "min_value": null,
+              "max_value": null,
+              "choices": null,
+              "model": "extras.role"
+            },
+            {
+              "name": "platform",
+              "type": "ObjectVar",
+              "label": null,
+              "help_text": "Only update devices with the selected platform.",
+              "default": null,
+              "required": false,
+              "min_length": null,
+              "max_length": null,
+              "min_value": null,
+              "max_value": null,
+              "choices": null,
+              "model": "dcim.platform"
+            },
+            {
+              "name": "fail_job_on_task_failure",
+              "type": "BooleanVar",
+              "label": null,
+              "help_text": "If any tasks for any device fails, fail the entire job result.",
+              "default": false,
+              "required": false,
+              "min_length": null,
+              "max_length": null,
+              "min_value": null,
+              "max_value": null,
+              "choices": null,
+              "model": null
+            }
+          ],
+          "parameters": {
+            "required": {
+              "namespace": {
+                "value": "Global",
+                "uuid_resolution": {
+                  "resource_type": "namespace"
+                }
+              },
+              "interface_status": {
+                "value": "Active",
+                "uuid_resolution": {
+                  "resource_type": "status",
+                  "content_type": "dcim.interface"
+                }
+              },
+              "ip_address_status": {
+                "value": "Active",
+                "uuid_resolution": {
+                  "resource_type": "status",
+                  "content_type": "dcim.device"
+                }
+              },
+              "default_prefix_status": {
+                "value": "Active",
+                "uuid_resolution": {
+                  "resource_type": "status",
+                  "content_type": "dcim.device"
+                }
+              }
+            },
+            "optional": {
+              "dryrun": {
+                "enabled": false,
+                "value": ""
+              },
+              "memory_profiling": {
+                "enabled": false,
+                "value": ""
+              },
+              "parallel_loading": {
+                "enabled": false,
+                "value": ""
+              },
+              "debug": {
+                "enabled": false,
+                "value": ""
+              },
+              "connectivity_test": {
+                "enabled": false,
+                "value": ""
+              },
+              "sync_vlans": {
+                "enabled": true,
+                "value": "True"
+              },
+              "sync_vrfs": {
+                "enabled": true,
+                "value": "True"
+              },
+              "sync_vrf_to_prefix": {
+                "enabled": true,
+                "value": "True"
+              },
+              "sync_cables": {
+                "enabled": true,
+                "value": "True"
+              },
+              "sync_software_version": {
+                "enabled": true,
+                "value": "True"
+              },
+              "update_devices_with_changed_serial": {
+                "enabled": false,
+                "value": ""
+              },
+              "devices": {
+                "enabled": true,
+                "value": "{nautobot.id}"
+              },
+              "location": {
+                "enabled": false,
+                "value": ""
+              },
+              "device_role": {
+                "enabled": false,
+                "value": ""
+              },
+              "platform": {
+                "enabled": false,
+                "value": ""
+              },
+              "fail_job_on_task_failure": {
+                "enabled": false,
+                "value": ""
+              }
+            }
+          }
+        },
+        "disabled": false
+      },
+      "measured": {
+        "width": 320,
+        "height": 128
+      },
+      "dragging": false,
+      "parentId": "background-19",
+      "selected": false
+    },
+    {
+      "id": "update-attribute-19",
+      "type": "workflowNode",
+      "position": {
+        "x": -333.92118794443763,
+        "y": 66.48666556542332
+      },
+      "data": {
+        "kind": "update-attribute",
+        "stepUuid": "251b2b32-704b-42bc-9fc0-9675a7f7154b",
+        "title": "Append domain to Devicename",
+        "overview": "Set or transform device attributes in the workflow.",
+        "description": "Set or transform one or more in-workflow device attributes using a fixed value or a regular expression with capture groups.\n",
+        "artifactType": "control_flow",
+        "requires": [
+          "identity"
+        ],
+        "requiresParsed": [],
+        "produces": [
+          "attributes"
+        ],
+        "producesParsed": [],
+        "consumes": [],
+        "outcomes": [
+          {
+            "name": "success"
+          }
+        ],
+        "pluginConfig": {
+          "attributes": [
+            {
+              "id": "fa918764-3db6-4735-b2d7-1c651e2dae69",
+              "mode": "template",
+              "destination_path": "device.name",
+              "fixed_value": "",
+              "source_path": "parsed.cisco_config.running.identity.domain_name",
+              "pattern": "(.*)",
+              "destination_template": "{device.name}.\\1",
+              "template": "{device.name}.{parsed.cisco_config.running.identity.domain_name}",
+              "regex_flags": {
+                "case_insensitive": false,
+                "multiline": false,
+                "dotall": false
+              }
+            }
+          ]
+        },
+        "incomeHandleSide": "top",
+        "outcomeHandleSide": "right"
+      },
+      "measured": {
+        "width": 320,
+        "height": 128
+      },
+      "dragging": false,
+      "parentId": "background-19",
+      "selected": false
+    },
+    {
+      "id": "label-20",
+      "type": "labelNode",
+      "position": {
+        "x": -681.3381542784186,
+        "y": 391.5969019005624
+      },
+      "zIndex": 1,
+      "width": 350,
+      "height": 40,
+      "style": {
+        "width": 350,
+        "height": 40
+      },
+      "data": {
+        "kind": "label",
+        "stepUuid": "ad88b1e1-9ca0-4a29-bb3c-eedab245b9b8",
+        "title": "Label",
+        "overview": "Place styled text on the workflow canvas.",
+        "description": "Canvas decoration — configurable text with size, font, and color. Not executed at runtime and cannot be connected to other steps.\n",
+        "artifactType": "canvas_decoration",
+        "requires": [],
+        "requiresParsed": [],
+        "produces": [],
+        "producesParsed": [],
+        "consumes": [],
+        "outcomes": [],
+        "pluginConfig": {
+          "text": "Disable to use hostname only",
+          "font_size": 22,
+          "font_family": "sans",
+          "bold": true,
+          "color": "#000000",
+          "width": 350,
+          "height": 40
+        }
+      },
+      "measured": {
+        "width": 350,
+        "height": 40
+      },
+      "dragging": false,
+      "selected": false
+    }
+  ],
+  "canvas_edges": [
+    {
+      "type": "waypoint",
+      "zIndex": 0,
+      "data": {
+        "edgeStyle": "bezier"
+      },
+      "source": "batfish-init-snapshot-4",
+      "sourceHandle": "success",
+      "target": "batfish-extract-facts-6",
+      "targetHandle": "input",
+      "id": "xy-edge__batfish-init-snapshot-4success-batfish-extract-facts-6input",
+      "selected": false
+    },
+    {
+      "type": "waypoint",
+      "zIndex": 0,
+      "data": {
+        "edgeStyle": "bezier"
+      },
+      "source": "batfish-extract-facts-6",
+      "sourceHandle": "success",
+      "target": "config-to-attributes-10",
+      "targetHandle": "input",
+      "id": "xy-edge__batfish-extract-facts-6success-config-to-attributes-10input",
+      "selected": false
+    },
+    {
+      "type": "waypoint",
+      "zIndex": 0,
+      "data": {
+        "edgeStyle": "bezier"
+      },
+      "source": "fan-in-9",
+      "sourceHandle": "success",
+      "target": "batfish-init-snapshot-4",
+      "targetHandle": "input",
+      "id": "xy-edge__fan-in-9success-batfish-init-snapshot-4input",
+      "selected": false
+    },
+    {
+      "type": "waypoint",
+      "zIndex": 0,
+      "data": {
+        "edgeStyle": "bezier"
+      },
+      "source": "get-from-user-8",
+      "sourceHandle": "success",
+      "target": "get-device-configs-5",
+      "targetHandle": "input",
+      "id": "xy-edge__get-from-user-8success-get-device-configs-5input",
+      "selected": false
+    },
+    {
+      "type": "waypoint",
+      "zIndex": 0,
+      "data": {
+        "edgeStyle": "bezier"
+      },
+      "source": "get-device-configs-5",
+      "sourceHandle": "success",
+      "target": "parse-cisco-config-8",
+      "targetHandle": "input",
+      "id": "xy-edge__get-device-configs-5success-parse-cisco-config-8input",
+      "selected": false
+    },
+    {
+      "type": "waypoint",
+      "zIndex": 0,
+      "data": {
+        "edgeStyle": "straight"
+      },
+      "source": "get-from-user-8",
+      "sourceHandle": "success",
+      "target": "run-command-12",
+      "targetHandle": "input",
+      "id": "xy-edge__get-from-user-8success-run-command-12input",
+      "selected": false
+    },
+    {
+      "type": "waypoint",
+      "zIndex": 0,
+      "data": {
+        "edgeStyle": "bezier"
+      },
+      "source": "parse-cisco-config-8",
+      "sourceHandle": "success",
+      "target": "funnel-14",
+      "targetHandle": "input",
+      "id": "xy-edge__parse-cisco-config-8success-funnel-14input",
+      "selected": false
+    },
+    {
+      "type": "waypoint",
+      "zIndex": 0,
+      "data": {
+        "edgeStyle": "bezier"
+      },
+      "source": "update-attribute-9",
+      "sourceHandle": "success",
+      "target": "update-attribute-13",
+      "targetHandle": "input",
+      "id": "xy-edge__update-attribute-9success-update-attribute-13input",
+      "selected": false
+    },
+    {
+      "type": "waypoint",
+      "zIndex": 0,
+      "data": {
+        "edgeStyle": "bezier"
+      },
+      "source": "run-command-12",
+      "sourceHandle": "success",
+      "target": "funnel-14",
+      "targetHandle": "input",
+      "id": "xy-edge__run-command-12success-funnel-14input",
+      "selected": false
+    },
+    {
+      "type": "waypoint",
+      "zIndex": 0,
+      "data": {
+        "edgeStyle": "bezier"
+      },
+      "source": "set-default-attributes-15",
+      "sourceHandle": "success",
+      "target": "update-attribute-9",
+      "targetHandle": "input",
+      "id": "xy-edge__set-default-attributes-15success-update-attribute-9input",
+      "selected": false
+    },
+    {
+      "type": "waypoint",
+      "zIndex": 0,
+      "data": {
+        "edgeStyle": "bezier"
+      },
+      "source": "add-to-nautobot-7",
+      "sourceHandle": "success",
+      "target": "start-nautobot-job-18",
+      "targetHandle": "input",
+      "id": "xy-edge__add-to-nautobot-7success-start-nautobot-job-18input",
+      "selected": false
+    },
+    {
+      "type": "waypoint",
+      "zIndex": 0,
+      "data": {
+        "edgeStyle": "smoothstep"
+      },
+      "source": "funnel-14",
+      "sourceHandle": "output",
+      "target": "set-default-attributes-15",
+      "targetHandle": "input",
+      "id": "xy-edge__funnel-14output-set-default-attributes-15input"
+    },
+    {
+      "type": "waypoint",
+      "zIndex": 0,
+      "data": {
+        "edgeStyle": "smoothstep"
+      },
+      "source": "update-attribute-13",
+      "sourceHandle": "success",
+      "target": "fan-in-9",
+      "targetHandle": "input",
+      "id": "xy-edge__update-attribute-13success-fan-in-9input"
+    },
+    {
+      "type": "waypoint",
+      "zIndex": 0,
+      "data": {
+        "edgeStyle": "bezier"
+      },
+      "source": "config-to-attributes-10",
+      "sourceHandle": "success",
+      "target": "update-attribute-19",
+      "targetHandle": "input",
+      "id": "xy-edge__config-to-attributes-10success-update-attribute-19input",
+      "selected": false
+    },
+    {
+      "type": "waypoint",
+      "zIndex": 0,
+      "data": {
+        "edgeStyle": "bezier"
+      },
+      "source": "update-attribute-19",
+      "sourceHandle": "success",
+      "target": "add-to-nautobot-7",
+      "targetHandle": "input",
+      "id": "xy-edge__update-attribute-19success-add-to-nautobot-7input",
+      "selected": false
+    }
+  ],
+  "canvas_groups": [
+    {
+      "id": "group-e3af52c4-a2b3-410f-8b69-dc7d21f0f908",
+      "title": "Set Nautobot Attributes",
+      "nodeIds": [
+        "update-attribute-9",
+        "update-attribute-13",
+        "set-default-attributes-15"
+      ],
+      "entryNodeId": "set-default-attributes-15",
+      "exitNodeId": "update-attribute-13",
+      "position": {
+        "x": 507.4920836571753,
+        "y": -271.7962565137673
+      },
+      "parentGroupId": null,
+      "selected": false
+    }
+  ],
+  "static_attributes": [
+    {
+      "name": "target_devices",
+      "type": "string",
+      "ref_kind": null,
+      "default": null,
+      "required": true
+    }
+  ],
+  "credential_references": [
+    {
+      "name": "cisco - noc",
+      "visibility": "global",
+      "owner_username": null
+    }
+  ],
+  "templates": []
+}

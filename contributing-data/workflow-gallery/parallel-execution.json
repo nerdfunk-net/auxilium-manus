@@ -1,0 +1,522 @@
+{
+  "export_format": "auxilium-workflow-v1",
+  "exported_at": "2026-09-21T18:53:44.757Z",
+  "name": "Parallel Execution",
+  "description": "Parallel Parseing and Batfish",
+  "folder": "/",
+  "visibility": "private",
+  "notes": null,
+  "canvas_nodes": [
+    {
+      "id": "get-nautobot-devices-1",
+      "type": "workflowNode",
+      "position": {
+        "x": -285.8844212239717,
+        "y": 386.8736308743628
+      },
+      "zIndex": 1,
+      "data": {
+        "kind": "get-nautobot-devices",
+        "stepUuid": "8f979c4d-3f6b-48c1-a105-9e3a96986972",
+        "title": "Get from Nautobot",
+        "overview": "Select devices from the Nautobot inventory.",
+        "description": "Select one or more target devices from the inventory.",
+        "artifactType": "inventory_selector",
+        "requires": [],
+        "requiresParsed": [],
+        "produces": [
+          "identity"
+        ],
+        "producesParsed": [],
+        "consumes": [],
+        "outcomes": [
+          {
+            "name": "success"
+          },
+          {
+            "name": "failure"
+          }
+        ],
+        "pluginConfig": {
+          "nautobot_source_id": "nautobot",
+          "inventory_id": 1,
+          "inventory_name": "LAB",
+          "inventory_type": "filter",
+          "device_filter": {
+            "id": "root",
+            "logic": "OR",
+            "negate": false,
+            "items": [
+              {
+                "id": "1789503308731-2ai2ewwhb",
+                "field": "name",
+                "operator": "equals",
+                "value": "LAB"
+              },
+              {
+                "id": "1789503316965-tenmw8ncn",
+                "field": "name",
+                "operator": "equals",
+                "value": "lab-2"
+              },
+              {
+                "id": "1789503322581-si6o2gheu",
+                "field": "name",
+                "operator": "equals",
+                "value": "switch"
+              }
+            ]
+          },
+          "device_ids": []
+        }
+      },
+      "measured": {
+        "width": 320,
+        "height": 128
+      },
+      "selected": false,
+      "dragging": false
+    },
+    {
+      "id": "get-nautobot-attributes-2",
+      "type": "workflowNode",
+      "position": {
+        "x": 108.58625166748632,
+        "y": 386.8736308743628
+      },
+      "zIndex": 1,
+      "data": {
+        "kind": "get-nautobot-attributes",
+        "stepUuid": "7422e6d3-78bc-4aa5-b88d-18614d39d063",
+        "title": "Get Nautobot Attributes",
+        "overview": "Retrieve Nautobot attributes for selected devices.",
+        "description": "Retrieve attributes from Nautobot for selected devices.",
+        "artifactType": "inventory_selector",
+        "requires": [
+          "identity"
+        ],
+        "requiresParsed": [],
+        "produces": [
+          "attributes"
+        ],
+        "producesParsed": [],
+        "consumes": [],
+        "outcomes": [
+          {
+            "name": "success"
+          },
+          {
+            "name": "failure"
+          }
+        ],
+        "pluginConfig": {
+          "nautobot_source_id": "nautobot"
+        }
+      },
+      "measured": {
+        "width": 320,
+        "height": 128
+      },
+      "selected": false,
+      "dragging": false
+    },
+    {
+      "id": "get-device-configs-3",
+      "type": "workflowNode",
+      "position": {
+        "x": 503.0067324729388,
+        "y": 386.8736308743628
+      },
+      "zIndex": 1,
+      "data": {
+        "kind": "get-device-configs",
+        "stepUuid": "b88a6add-9fc0-4845-890c-878b27744da7",
+        "title": "Get Configs",
+        "overview": "Get device configuration in the chosen format.",
+        "description": "Get device configuration in the specified format.",
+        "artifactType": "configuration_management",
+        "requires": [
+          "identity"
+        ],
+        "requiresParsed": [],
+        "produces": [
+          "running_config",
+          "startup_config"
+        ],
+        "producesParsed": [],
+        "consumes": [],
+        "outcomes": [
+          {
+            "name": "success"
+          },
+          {
+            "name": "failure"
+          }
+        ],
+        "pluginConfig": {
+          "credential_reference": "cisco - noc",
+          "config_format": "running"
+        },
+        "outcomeHandleSide": "bottom"
+      },
+      "measured": {
+        "width": 320,
+        "height": 128
+      },
+      "dragging": false,
+      "selected": false
+    },
+    {
+      "id": "parse-cisco-config-4",
+      "type": "workflowNode",
+      "position": {
+        "x": 55.85403235360269,
+        "y": 67.37902686011637
+      },
+      "data": {
+        "kind": "parse-cisco-config",
+        "stepUuid": "884228dc-47db-450e-aa52-986425ac3795",
+        "title": "Parse Cisco Config",
+        "overview": "Parse a Cisco running/startup config into structured data.",
+        "description": "Parse a Cisco IOS/IOS-XE/NXOS/XR running and/or startup configuration into structured data (hostname, VRFs, VLANs, interfaces, ACLs, routing, etc.) using cisco-config-parser, for use by Jinja templates and Log Attributes.\n",
+        "artifactType": "configuration_management",
+        "requires": [
+          "identity"
+        ],
+        "requiresParsed": [],
+        "produces": [
+          "parsed"
+        ],
+        "producesParsed": [],
+        "consumes": [],
+        "outcomes": [
+          {
+            "name": "success"
+          },
+          {
+            "name": "failure"
+          }
+        ],
+        "incomeHandleSide": "top",
+        "outcomeHandleSide": "bottom",
+        "pluginConfig": {
+          "config_source": "running"
+        }
+      },
+      "measured": {
+        "width": 320,
+        "height": 128
+      },
+      "selected": false,
+      "dragging": false,
+      "parentId": "background-8"
+    },
+    {
+      "id": "batfish-init-snapshot-5",
+      "type": "workflowNode",
+      "position": {
+        "x": 424.93344326636065,
+        "y": 67.37902686011637
+      },
+      "data": {
+        "kind": "batfish-init-snapshot",
+        "stepUuid": "290938bd-2d15-4ecb-979d-cc41b118bc54",
+        "title": "Init Batfish Snapshot",
+        "overview": "Build a Batfish snapshot from this run's device configs.",
+        "description": "Assembles the current run's device running-configs into a fresh Batfish snapshot and records its location for downstream Batfish query steps (Routing Table, Path Check, ACL Check). Not concurrency-safe -- like store-artifact/git steps, this must run after a Fan In in a fanned-out workflow, never inside the fanned-out branch, and never on two independent sibling branches in the same run (see doc/BATFISH_INTEGRATION.md \"Snapshot lifecycle\").\n",
+        "artifactType": "persistent_artifact",
+        "requires": [
+          "identity"
+        ],
+        "requiresParsed": [],
+        "produces": [],
+        "producesParsed": [],
+        "consumes": [],
+        "outcomes": [
+          {
+            "name": "success"
+          }
+        ],
+        "incomeHandleSide": "top",
+        "outcomeHandleSide": "bottom",
+        "pluginConfig": {
+          "batfish_source_id": "batfish"
+        }
+      },
+      "measured": {
+        "width": 320,
+        "height": 128
+      },
+      "dragging": false,
+      "parentId": "background-8",
+      "selected": false
+    },
+    {
+      "id": "batfish-extract-facts-6",
+      "type": "workflowNode",
+      "position": {
+        "x": 424.93344326636065,
+        "y": 257.9730547894411
+      },
+      "data": {
+        "kind": "batfish-extract-facts",
+        "stepUuid": "3da13e23-3e55-4edf-96ec-426bb2bc7b49",
+        "title": "Extract Facts",
+        "overview": "Pull parsed device facts out of a Batfish snapshot via Batfish's extract_facts question.",
+        "description": "Retrieves the configuration facts Batfish parsed (hostname, NTP/ TACACS/DNS servers, interfaces, BGP/OSPF settings, etc.) for a set of nodes in an already-initialized snapshot -- no expected values, just what Batfish actually sees. Writes each device's own facts into device.parsed[output_key] for downstream steps to read, in addition to one workflow-level artifact covering every extracted node.\n",
+        "artifactType": "configuration_management",
+        "requires": [
+          "identity"
+        ],
+        "requiresParsed": [],
+        "produces": [
+          "parsed"
+        ],
+        "producesParsed": [],
+        "consumes": [],
+        "outcomes": [
+          {
+            "name": "success"
+          }
+        ],
+        "incomeHandleSide": "top",
+        "outcomeHandleSide": "bottom",
+        "pluginConfig": {
+          "batfish_source_id": "batfish"
+        }
+      },
+      "measured": {
+        "width": 320,
+        "height": 128
+      },
+      "dragging": false,
+      "parentId": "background-8",
+      "selected": false
+    },
+    {
+      "id": "log-attributes-7",
+      "type": "workflowNode",
+      "position": {
+        "x": 503.0067324729388,
+        "y": 1093.8740244747669
+      },
+      "zIndex": 1,
+      "data": {
+        "kind": "log-attributes",
+        "stepUuid": "6c7066a5-f3e7-4d74-a158-2213cfc97426",
+        "title": "Log Attributes",
+        "overview": "Dump workflow context to STDOUT or a file.",
+        "description": "Dump the full workflow context — every device field, attribute bag, parsed value, and metadata entry — to STDOUT or a file.\n",
+        "artifactType": "control_flow",
+        "requires": [
+          "identity"
+        ],
+        "requiresParsed": [],
+        "produces": [],
+        "producesParsed": [],
+        "consumes": [],
+        "outcomes": [
+          {
+            "name": "success"
+          }
+        ],
+        "incomeHandleSide": "top",
+        "outcomeHandleSide": "bottom"
+      },
+      "measured": {
+        "width": 320,
+        "height": 128
+      },
+      "selected": false,
+      "dragging": false
+    },
+    {
+      "id": "background-8",
+      "type": "backgroundNode",
+      "position": {
+        "x": 247.0720703326009,
+        "y": 554.1965972150753
+      },
+      "zIndex": -1,
+      "width": 843,
+      "height": 425,
+      "style": {
+        "width": 480,
+        "height": 320
+      },
+      "data": {
+        "kind": "background",
+        "stepUuid": "e44ebcf4-13e8-4f71-aa6f-05c29c9c712e",
+        "title": "Background",
+        "overview": "Place a colored rectangle behind other canvas steps.",
+        "description": "Canvas decoration — a colored rectangle always drawn behind other steps. Configure size and color. Not executed at runtime and cannot be connected to other steps.\n",
+        "artifactType": "canvas_decoration",
+        "requires": [],
+        "requiresParsed": [],
+        "produces": [],
+        "producesParsed": [],
+        "consumes": [],
+        "outcomes": [],
+        "pluginConfig": {
+          "color": "#e2e8f0",
+          "width": 843,
+          "height": 425
+        }
+      },
+      "measured": {
+        "width": 843,
+        "height": 425
+      },
+      "selected": false,
+      "dragging": false,
+      "resizing": false
+    },
+    {
+      "id": "label-9",
+      "type": "labelNode",
+      "position": {
+        "x": -16.142487042150066,
+        "y": 379.92056193838823
+      },
+      "width": 200,
+      "height": 40,
+      "style": {
+        "width": 200,
+        "height": 40
+      },
+      "data": {
+        "kind": "label",
+        "stepUuid": "420e385e-a849-46a9-a092-182040ef3efa",
+        "title": "Label",
+        "overview": "Place styled text on the workflow canvas.",
+        "description": "Canvas decoration — configurable text with size, font, and color. Not executed at runtime and cannot be connected to other steps.\n",
+        "artifactType": "canvas_decoration",
+        "requires": [],
+        "requiresParsed": [],
+        "produces": [],
+        "producesParsed": [],
+        "consumes": [],
+        "outcomes": [],
+        "pluginConfig": {
+          "text": "Run in parallel",
+          "font_size": 22,
+          "font_family": "sans",
+          "bold": true,
+          "color": "#000000",
+          "width": 200,
+          "height": 40
+        }
+      },
+      "measured": {
+        "width": 200,
+        "height": 40
+      },
+      "selected": false,
+      "dragging": false,
+      "parentId": "background-8"
+    }
+  ],
+  "canvas_edges": [
+    {
+      "type": "waypoint",
+      "zIndex": 0,
+      "data": {
+        "edgeStyle": "bezier"
+      },
+      "source": "get-nautobot-devices-1",
+      "sourceHandle": "success",
+      "target": "get-nautobot-attributes-2",
+      "targetHandle": "input",
+      "id": "xy-edge__get-nautobot-devices-1success-get-nautobot-attributes-2input",
+      "selected": false
+    },
+    {
+      "type": "waypoint",
+      "zIndex": 0,
+      "data": {
+        "edgeStyle": "bezier"
+      },
+      "source": "get-nautobot-attributes-2",
+      "sourceHandle": "success",
+      "target": "get-device-configs-3",
+      "targetHandle": "input",
+      "id": "xy-edge__get-nautobot-attributes-2success-get-device-configs-3input",
+      "selected": false
+    },
+    {
+      "type": "waypoint",
+      "zIndex": 0,
+      "data": {
+        "edgeStyle": "smoothstep"
+      },
+      "source": "get-device-configs-3",
+      "sourceHandle": "success",
+      "target": "parse-cisco-config-4",
+      "targetHandle": "input",
+      "id": "xy-edge__get-device-configs-3success-parse-cisco-config-4input",
+      "selected": false
+    },
+    {
+      "type": "waypoint",
+      "zIndex": 0,
+      "data": {
+        "edgeStyle": "bezier"
+      },
+      "source": "batfish-init-snapshot-5",
+      "sourceHandle": "success",
+      "target": "batfish-extract-facts-6",
+      "targetHandle": "input",
+      "id": "xy-edge__batfish-init-snapshot-5success-batfish-extract-facts-6input",
+      "selected": false
+    },
+    {
+      "type": "waypoint",
+      "zIndex": 0,
+      "data": {
+        "edgeStyle": "smoothstep"
+      },
+      "source": "parse-cisco-config-4",
+      "sourceHandle": "success",
+      "target": "log-attributes-7",
+      "targetHandle": "input",
+      "id": "xy-edge__parse-cisco-config-4success-log-attributes-7input",
+      "selected": false
+    },
+    {
+      "type": "waypoint",
+      "zIndex": 0,
+      "data": {
+        "edgeStyle": "smoothstep"
+      },
+      "source": "batfish-extract-facts-6",
+      "sourceHandle": "success",
+      "target": "log-attributes-7",
+      "targetHandle": "input",
+      "id": "xy-edge__batfish-extract-facts-6success-log-attributes-7input",
+      "selected": false
+    },
+    {
+      "type": "waypoint",
+      "zIndex": 0,
+      "data": {
+        "edgeStyle": "smoothstep"
+      },
+      "source": "get-device-configs-3",
+      "sourceHandle": "success",
+      "target": "batfish-init-snapshot-5",
+      "targetHandle": "input",
+      "id": "xy-edge__get-device-configs-3success-batfish-init-snapshot-5input",
+      "selected": false
+    }
+  ],
+  "canvas_groups": [],
+  "static_attributes": [],
+  "credential_references": [
+    {
+      "name": "cisco - noc",
+      "visibility": "global",
+      "owner_username": null
+    }
+  ],
+  "templates": []
+}

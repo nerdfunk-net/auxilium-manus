@@ -1,0 +1,69 @@
+{#- ============================================================================
+    SNMPv3 reconciliation - Cisco IOS
+    ----------------------------------------------------------------------------
+    Data sources (render-jinja-template Jinja namespace):
+
+      nautobot.config_context.snmp
+          Desired SNMPv3 users. Each item:
+          user, group, auth_protocol, auth_password,
+          priv_protocol, priv_password, access (optional / may be empty)
+
+      commands_by_name['show snmp user'].parsed   (fallback: command.parsed)
+          Existing SNMPv3 users parsed from the live device. Each row:
+          user_name, group_name, authentication_protocol,
+          privacy_protocol, access_list
+
+      parsed.cisco_config.running.identity.snmp
+          Parsed running-config SNMP section (cisco-config-parser nests it
+          under "identity"). The presence of the key "communities" means the
+          device still has SNMPv1 communities.
+
+    Emitted order:
+      1. Remove stale / changed SNMPv3 users
+      2. Remove SNMPv1 communities
+      3. (Re)configure the desired SNMPv3 users
+
+    The trailing "access <acl>" is only emitted when the desired user has a
+    non-empty "access" value.
+   ============================================================================ -#}
+{% set _cc = nautobot.config_context if nautobot.config_context is defined else {} %}
+{% set desired = _cc.snmp if (_cc.snmp is defined and _cc.snmp) else [] %}
+{% set existing = [] %}
+{% if commands_by_name is defined and 'show snmp user' in commands_by_name %}
+{%   set existing = commands_by_name['show snmp user'].parsed or [] %}
+{% elif command is defined and command.name is defined and command.name == 'show snmp user' %}
+{%   set existing = command.parsed or [] %}
+{% endif %}
+{% set _pc = parsed.cisco_config if parsed.cisco_config is defined else {} %}
+{% set _run = _pc.running if _pc.running is defined else {} %}
+{% set _ident = _run.identity if _run.identity is defined else {} %}
+{% set snmp_cfg = _ident.snmp if (_ident.snmp is defined and _ident.snmp)
+                  else (_run.snmp if (_run.snmp is defined and _run.snmp) else {}) %}
+{#- normalise "SHA" / "sha", "AES256" / "aes 256" ... to a comparable token -#}
+{% macro norm(proto) %}
+{{- proto | default('', true) | string | lower | replace(' ', '') -}}
+{% endmacro %}
+{#- render one "snmp-server user ..." line; "access" appended only when set -#}
+{% macro user_line(prefix, u) %}
+{%- set acc = u.access if (u.access is defined and u.access) else '' -%}
+{{ prefix }}snmp-server user {{ u.user }} {{ u.group }} v3 auth {{ u.auth_protocol }} {{ u.auth_password }} priv {{ u.priv_protocol }} {{ u.priv_password }}{% if acc %} access {{ acc }}{% endif %}
+{%- endmacro %}
+{#- 1. remove stale or changed SNMPv3 users -#}
+{% for e in existing %}
+{%   set match = desired | selectattr('user', 'equalto', e.user_name) | list | first %}
+{%   if not match %}
+no snmp-server user {{ e.user_name }} {{ e.group_name }} v3
+{%   elif norm(e.authentication_protocol) != norm(match.auth_protocol) or norm(e.privacy_protocol) != norm(match.priv_protocol) %}
+{{ user_line('no ', match) }}
+{%   endif %}
+{% endfor %}
+{#- 2. remove SNMPv1 communities -#}
+{% if 'communities' in snmp_cfg %}
+{%   for c in snmp_cfg['communities'] %}
+no snmp-server community {{ c.community }}
+{%   endfor %}
+{% endif %}
+{#- 3. (re)configure the desired SNMPv3 users -#}
+{% for u in desired %}
+{{ user_line('', u) }}
+{% endfor %}

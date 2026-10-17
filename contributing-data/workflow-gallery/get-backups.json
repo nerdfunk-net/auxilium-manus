@@ -1,0 +1,1103 @@
+{
+  "export_format": "auxilium-workflow-v1",
+  "exported_at": "2026-09-26T19:48:38.572Z",
+  "name": "Get Backups",
+  "description": "Get Backups",
+  "folder": "Gallery",
+  "visibility": "private",
+  "notes": "# Get Backups\n\n## Purpose\nThis workflow downloads the running and startup configs from the devices, pulls the repository, writes the configs to the repo and pushes the configs to the git. It collects statistical data and sends notifications if a backup fails or at the end of the workflow.\n\n## Assumptions / prerequisites\n* credentials: 'cisco - noc' credentials\n* inventory: 'Full lab env' \n* git repository: the configured git repo for device configs\n* nautobot: the default nautobot source\n\n## Gotchas\nnothing destructive; fan out is used in the \"Get from Nautobot\" step. Fan-in is used before pulling the git repo.\n\n## Example\n\nFor a device named `LAB` at Nautobot location `Hamburg`, this workflow\nwrites:\n\n    configs/Hamburg/LAB.running.cfg\n    configs/Hamburg/LAB.startup.cfg\n\ninto git repository 'device-configs', one commit per run (`git-push`'s\n`commit_message_template`: `\"Backup of {timestamp}\"`) — `git-pull` first\nfast-forwards the local working tree to the remote tip. For N devices, that's\n2×N files touched but exactly one commit/push (both `store-artifact` nodes have\n`commit_after_write`/`push_after_write: false` — only the trailing `Git Push`\nstep commits, over the whole merged set of files).\n",
+  "canvas_nodes": [
+    {
+      "id": "get-nautobot-devices-1",
+      "type": "workflowNode",
+      "position": {
+        "x": -234.25,
+        "y": 225.5
+      },
+      "zIndex": 1,
+      "data": {
+        "kind": "get-nautobot-devices",
+        "stepUuid": "d04be5b4-0315-4c90-87ed-dd6c246982f1",
+        "title": "Get from Nautobot",
+        "overview": "Select devices from the Nautobot inventory.",
+        "description": "Select one or more target devices from the inventory.",
+        "artifactType": "inventory_selector",
+        "requires": [],
+        "requiresParsed": [],
+        "produces": [
+          "identity"
+        ],
+        "producesParsed": [],
+        "consumes": [],
+        "outcomes": [
+          {
+            "name": "success"
+          },
+          {
+            "name": "failure"
+          }
+        ],
+        "pluginConfig": {
+          "nautobot_source_id": "nautobot",
+          "fan_out": {
+            "enabled": true,
+            "mode": "per_device",
+            "chunk_size": 1,
+            "max_concurrency": 10,
+            "approval": {
+              "enabled": false,
+              "batch_size": 1,
+              "first_batch_auto": true
+            }
+          },
+          "inventory_id": 2,
+          "inventory_name": "Full lab env",
+          "inventory_type": "filter",
+          "device_filter": {
+            "id": "root",
+            "logic": "OR",
+            "negate": false,
+            "items": [
+              {
+                "id": "1788330349355-4om3d0nkf",
+                "field": "name",
+                "operator": "equals",
+                "value": "LAB"
+              },
+              {
+                "id": "1788330356487-66b5yp5ip",
+                "field": "name",
+                "operator": "equals",
+                "value": "lab-2"
+              },
+              {
+                "id": "1788330360639-xxtiq943y",
+                "field": "name",
+                "operator": "equals",
+                "value": "switch"
+              }
+            ]
+          },
+          "device_ids": []
+        }
+      },
+      "measured": {
+        "width": 320,
+        "height": 128
+      },
+      "dragging": false,
+      "selected": false
+    },
+    {
+      "id": "get-nautobot-attributes-2",
+      "type": "workflowNode",
+      "position": {
+        "x": 157.71242910864737,
+        "y": 225.5
+      },
+      "zIndex": 1,
+      "data": {
+        "kind": "get-nautobot-attributes",
+        "stepUuid": "76e990dc-05dc-4b2e-b700-9d782acda713",
+        "title": "Get Nautobot Attributes",
+        "overview": "Retrieve Nautobot attributes for selected devices.",
+        "description": "Retrieve attributes from Nautobot for selected devices.",
+        "artifactType": "inventory_selector",
+        "requires": [
+          "identity"
+        ],
+        "requiresParsed": [],
+        "produces": [
+          "attributes"
+        ],
+        "producesParsed": [],
+        "consumes": [],
+        "outcomes": [
+          {
+            "name": "success"
+          },
+          {
+            "name": "failure"
+          }
+        ],
+        "outcomeHandleSide": "bottom",
+        "pluginConfig": {
+          "nautobot_source_id": "nautobot",
+          "list_of_attributes": []
+        }
+      },
+      "measured": {
+        "width": 320,
+        "height": 128
+      },
+      "dragging": false,
+      "selected": false
+    },
+    {
+      "id": "get-device-configs-3",
+      "type": "workflowNode",
+      "position": {
+        "x": 157.71242910864737,
+        "y": 397.32706533999567
+      },
+      "zIndex": 1,
+      "data": {
+        "kind": "get-device-configs",
+        "stepUuid": "9603984a-3d89-475a-a27c-d39ea78c9941",
+        "title": "Get Configs",
+        "overview": "Get device configuration in the chosen format.",
+        "description": "Get device configuration in the specified format.",
+        "artifactType": "configuration_management",
+        "requires": [
+          "identity"
+        ],
+        "requiresParsed": [],
+        "produces": [
+          "running_config",
+          "startup_config"
+        ],
+        "producesParsed": [],
+        "consumes": [],
+        "outcomes": [
+          {
+            "name": "success"
+          },
+          {
+            "name": "failure"
+          }
+        ],
+        "incomeHandleSide": "top",
+        "outcomeHandleSide": "bottom",
+        "pluginConfig": {
+          "credential_reference": "cisco - noc",
+          "retry_backoff_seconds": [
+            10,
+            20
+          ]
+        }
+      },
+      "measured": {
+        "width": 320,
+        "height": 128
+      },
+      "selected": false,
+      "dragging": false
+    },
+    {
+      "id": "fan-in-4",
+      "type": "workflowNode",
+      "position": {
+        "x": 157.71242910864737,
+        "y": 571.5
+      },
+      "zIndex": 1,
+      "data": {
+        "kind": "fan-in",
+        "stepUuid": "41703da9-fe06-4f63-9f64-64c2c10a9bec",
+        "title": "Fan In",
+        "overview": "Rejoin fan-out branches into one execution path.",
+        "description": "Rejoin a fanned-out workflow into a single path. Per-device steps run in parallel child workflows up to this node; steps placed after it run once over all devices. Place git / store-artifact steps after Fan In for safe, single-commit exports.\n",
+        "artifactType": "control_flow",
+        "requires": [
+          "identity"
+        ],
+        "requiresParsed": [],
+        "produces": [],
+        "producesParsed": [],
+        "consumes": [],
+        "outcomes": [
+          {
+            "name": "success"
+          }
+        ],
+        "incomeHandleSide": "top",
+        "outcomeHandleSide": "left"
+      },
+      "measured": {
+        "width": 320,
+        "height": 128
+      },
+      "dragging": false,
+      "selected": false
+    },
+    {
+      "id": "store-artifact-5",
+      "type": "workflowNode",
+      "position": {
+        "x": 461.23109665632387,
+        "y": 72.6588922744728
+      },
+      "data": {
+        "kind": "store-artifact",
+        "stepUuid": "a17f4263-b82c-4df7-a4ad-2ac19243aff0",
+        "title": "Write Running Config",
+        "overview": "Persist backups, reports, or logs.",
+        "description": "Persist generated content such as backups, reports, or logs. Fan-out note: filesystem and git sinks write shared destinations; concurrent child workflows can race on the same path or git working tree. Prefer per-device path templates or disable fan-out when using a shared sink.\n",
+        "artifactType": "persistent_artifact",
+        "requires": [
+          "identity"
+        ],
+        "requiresParsed": [],
+        "produces": [],
+        "producesParsed": [],
+        "consumes": [],
+        "outcomes": [
+          {
+            "name": "success"
+          },
+          {
+            "name": "failure"
+          }
+        ],
+        "incomeHandleSide": "left",
+        "outcomeHandleSide": "right",
+        "pluginConfig": {
+          "destination": "git",
+          "output_subdirectory": "exports",
+          "content_source": "running_config",
+          "source_step_node_id": "get-device-configs-3",
+          "parsed_output_key": "",
+          "filename_template": "{nautobot.location.name}/{device.name}.running.cfg",
+          "strict_templates": true,
+          "retention_policy": "standard-90-days",
+          "git_repository_id": 4,
+          "repository_subdirectory": "configs",
+          "pull_before_write": false,
+          "commit_after_write": false,
+          "push_after_write": false,
+          "commit_message_template": "commit {timestamp}"
+        }
+      },
+      "measured": {
+        "width": 320,
+        "height": 128
+      },
+      "selected": false,
+      "dragging": false,
+      "parentId": "background-13"
+    },
+    {
+      "id": "store-artifact-6",
+      "type": "workflowNode",
+      "position": {
+        "x": 846.3683839822661,
+        "y": 72.6588922744728
+      },
+      "data": {
+        "kind": "store-artifact",
+        "stepUuid": "c0b8861a-0045-4aa6-84e9-bccfd6cf9236",
+        "title": "Write Startup Config",
+        "overview": "Persist backups, reports, or logs.",
+        "description": "Persist generated content such as backups, reports, or logs. Fan-out note: filesystem and git sinks write shared destinations; concurrent child workflows can race on the same path or git working tree. Prefer per-device path templates or disable fan-out when using a shared sink.\n",
+        "artifactType": "persistent_artifact",
+        "requires": [
+          "identity"
+        ],
+        "requiresParsed": [],
+        "produces": [],
+        "producesParsed": [],
+        "consumes": [],
+        "outcomes": [
+          {
+            "name": "success"
+          },
+          {
+            "name": "failure"
+          }
+        ],
+        "incomeHandleSide": "left",
+        "outcomeHandleSide": "right",
+        "pluginConfig": {
+          "destination": "git",
+          "output_subdirectory": "exports",
+          "content_source": "startup_config",
+          "source_step_node_id": "get-device-configs-3",
+          "parsed_output_key": "",
+          "filename_template": "{nautobot.location.name}/{device.name}.startup.cfg",
+          "strict_templates": true,
+          "retention_policy": "standard-90-days",
+          "git_repository_id": 4,
+          "repository_subdirectory": "configs",
+          "pull_before_write": false,
+          "commit_after_write": false,
+          "push_after_write": false,
+          "commit_message_template": "commit {timestamp}"
+        }
+      },
+      "measured": {
+        "width": 320,
+        "height": 128
+      },
+      "selected": false,
+      "dragging": false,
+      "parentId": "background-13"
+    },
+    {
+      "id": "git-pull-7",
+      "type": "workflowNode",
+      "position": {
+        "x": 77.1183839822661,
+        "y": 72.6588922744728
+      },
+      "data": {
+        "kind": "git-pull",
+        "stepUuid": "3fb29749-b043-461b-9b4b-8bc9a4e8c359",
+        "title": "Git Pull",
+        "overview": "Pull latest changes for a git source.",
+        "description": "Pull the latest changes for a configured git source. Fan-out note: mutates a shared local working tree for the git source; not safe to run concurrently across fan-out children for the same source.\n",
+        "artifactType": "persistent_artifact",
+        "requires": [
+          "identity"
+        ],
+        "requiresParsed": [],
+        "produces": [],
+        "producesParsed": [],
+        "consumes": [],
+        "outcomes": [
+          {
+            "name": "success"
+          },
+          {
+            "name": "failure"
+          }
+        ],
+        "incomeHandleSide": "top",
+        "outcomeHandleSide": "right",
+        "pluginConfig": {
+          "git_repository_id": 4,
+          "use_change_request_branch": false
+        }
+      },
+      "measured": {
+        "width": 320,
+        "height": 128
+      },
+      "dragging": false,
+      "selected": false,
+      "parentId": "background-13"
+    },
+    {
+      "id": "git-push-8",
+      "type": "workflowNode",
+      "position": {
+        "x": 1224.0982492859162,
+        "y": 72.6588922744728
+      },
+      "data": {
+        "kind": "git-push",
+        "stepUuid": "0e26386b-d312-4c38-8bf1-7061c6b53557",
+        "title": "Git Push",
+        "overview": "Commit and push changes to git remote.",
+        "description": "Commit exported changes and push them to the configured git source remote. Fan-out note: commits/pushes against a shared remote working tree; concurrent fan-out children for the same source can conflict. Prefer a single push after fan-in, or unique branches/paths per child.\n",
+        "artifactType": "persistent_artifact",
+        "requires": [
+          "identity"
+        ],
+        "requiresParsed": [],
+        "produces": [],
+        "producesParsed": [],
+        "consumes": [],
+        "outcomes": [
+          {
+            "name": "success"
+          },
+          {
+            "name": "failure"
+          }
+        ],
+        "outcomeHandleSide": "bottom",
+        "pluginConfig": {
+          "git_repository_id": 4,
+          "commit_before_push": true,
+          "commit_message_template": "Backup of {timestamp}"
+        }
+      },
+      "measured": {
+        "width": 320,
+        "height": 128
+      },
+      "dragging": false,
+      "selected": false,
+      "parentId": "background-13"
+    },
+    {
+      "id": "notify-mattermost-9",
+      "type": "workflowNode",
+      "position": {
+        "x": 920.5795817382398,
+        "y": 1244.502032583567
+      },
+      "zIndex": 1,
+      "data": {
+        "kind": "notify-mattermost",
+        "stepUuid": "26eb947d-d9ff-40f0-b191-0f495155855c",
+        "title": "Notify Mattermost",
+        "overview": "Post a message to a Mattermost channel.",
+        "description": "Posts one message to a Mattermost channel via a configured Mattermost source, team, and channel. Supports {path.to.value} placeholders resolved against the first device in context (e.g. {device.name}, {nautobot.location.name}), plus {devices} (comma-joined device names) and {device_count} for summarizing a multi-device run. Typically wired to an upstream step's success or failure outcome handle to report a workflow's outcome. Fan-out note: place after Fan In (or at the end of a non-fanned workflow) for one summary message per run; inside fan-out children it posts once per child branch.\n",
+        "artifactType": "control_flow",
+        "requires": [
+          "identity"
+        ],
+        "requiresParsed": [],
+        "produces": [],
+        "producesParsed": [],
+        "consumes": [],
+        "outcomes": [
+          {
+            "name": "success"
+          },
+          {
+            "name": "failure"
+          }
+        ],
+        "incomeHandleSide": "top",
+        "outcomeHandleSide": "bottom",
+        "pluginConfig": {
+          "mattermost_source_id": "mattermost",
+          "team_name": "Manus",
+          "channel_name": "manus",
+          "message": "Backup of {device_count} devices finished"
+        }
+      },
+      "measured": {
+        "width": 320,
+        "height": 128
+      },
+      "dragging": false,
+      "selected": false
+    },
+    {
+      "id": "notify-mattermost-10",
+      "type": "workflowNode",
+      "position": {
+        "x": 941.5549762967531,
+        "y": 397.32706533999567
+      },
+      "zIndex": 1,
+      "data": {
+        "kind": "notify-mattermost",
+        "stepUuid": "12e0690d-8ff2-4f29-a837-a5c6b0440f4a",
+        "title": "Notify Mattermost",
+        "overview": "Post a message to a Mattermost channel.",
+        "description": "Posts one message to a Mattermost channel via a configured Mattermost source, team, and channel. Supports {path.to.value} placeholders resolved against the first device in context (e.g. {device.name}, {nautobot.location.name}), plus {devices} (comma-joined device names) and {device_count} for summarizing a multi-device run. Typically wired to an upstream step's success or failure outcome handle to report a workflow's outcome. Fan-out note: place after Fan In (or at the end of a non-fanned workflow) for one summary message per run; inside fan-out children it posts once per child branch.\n",
+        "artifactType": "control_flow",
+        "requires": [
+          "identity"
+        ],
+        "requiresParsed": [],
+        "produces": [],
+        "producesParsed": [],
+        "consumes": [],
+        "outcomes": [
+          {
+            "name": "success"
+          },
+          {
+            "name": "failure"
+          }
+        ],
+        "pluginConfig": {
+          "mattermost_source_id": "mattermost",
+          "team_name": "Manus",
+          "channel_name": "manus",
+          "message": "Failed to get configs from {device_name}"
+        }
+      },
+      "measured": {
+        "width": 320,
+        "height": 128
+      },
+      "dragging": false,
+      "selected": false
+    },
+    {
+      "id": "notify-on-error-11",
+      "type": "workflowNode",
+      "position": {
+        "x": 406.678257363787,
+        "y": 1367.5494549579164
+      },
+      "zIndex": 1,
+      "data": {
+        "kind": "notify-on-error",
+        "stepUuid": "f32ef817-0330-4b1e-a735-7ab538888ef8",
+        "title": "Notify On Error",
+        "overview": "Write a notification for every accumulated error on every failed device.",
+        "description": "Shared error sink for a workflow: wire many upstream steps' failure outcome handles to this one node instead of adding a notify node after every step. Writes one notification row per (device, error) pair — root-cause step id, node id, and message — from that device's accumulated error list, so a device that failed at more than one point before reaching this node still surfaces every failure, not just the latest. Devices with no accumulated errors (e.g. wired to a success handle by mistake) are skipped. Severity is always error. Place this node after the last step whose failures it should catch — branches converge into it before it runs once. Local notification and Mattermost posting (via a configured Mattermost source, team, and channel) are independently toggleable — either or both can be enabled. A Mattermost post failure is logged and does not fail the step or block local notifications.\n",
+        "artifactType": "control_flow",
+        "requires": [
+          "identity"
+        ],
+        "requiresParsed": [],
+        "produces": [],
+        "producesParsed": [],
+        "consumes": [],
+        "outcomes": [
+          {
+            "name": "success"
+          }
+        ],
+        "pluginConfig": {
+          "message": "Device {device.name} failed at {error.step_id} (node {error.node_id}): {error.message}",
+          "notify_mattermost": true,
+          "mattermost_source_id": "mattermost",
+          "team_name": "Manus",
+          "channel_name": "manus"
+        },
+        "incomeHandleSide": "top",
+        "outcomeHandleSide": "bottom"
+      },
+      "measured": {
+        "width": 320,
+        "height": 128
+      },
+      "dragging": false,
+      "selected": false
+    },
+    {
+      "id": "funnel-12",
+      "type": "funnelNode",
+      "position": {
+        "x": 548.242283417703,
+        "y": 1085.014347158742
+      },
+      "zIndex": 1,
+      "data": {
+        "kind": "funnel",
+        "stepUuid": "2ab24400-c053-4155-b23c-f6442c1c6543",
+        "title": "Funnel",
+        "overview": "Merge many connections into one before a shared destination.",
+        "description": "Canvas decoration — accepts edges from many upstream steps and routes them through a single downstream connection, reducing visual clutter for fan-in patterns like Notify On Error. Not executed at runtime; each incoming edge is resolved directly between its real source and the funnel's one destination before execution.\n",
+        "artifactType": "canvas_decoration",
+        "requires": [],
+        "requiresParsed": [],
+        "produces": [],
+        "producesParsed": [],
+        "consumes": [],
+        "outcomes": [],
+        "outcomeHandleSide": "bottom",
+        "incomeHandleSide": "top"
+      },
+      "measured": {
+        "width": 40,
+        "height": 40
+      },
+      "dragging": false,
+      "selected": false
+    },
+    {
+      "id": "background-13",
+      "type": "backgroundNode",
+      "position": {
+        "x": -303.5186675476765,
+        "y": 739.1691441113365
+      },
+      "zIndex": -1,
+      "width": 1561,
+      "height": 292,
+      "style": {
+        "width": 480,
+        "height": 320
+      },
+      "data": {
+        "kind": "background",
+        "stepUuid": "fffdd19d-f4b1-4878-8c62-4537b44dbcd1",
+        "title": "Background",
+        "overview": "Place a colored rectangle behind other canvas steps.",
+        "description": "Canvas decoration — a colored rectangle always drawn behind other steps. Configure size and color. Not executed at runtime and cannot be connected to other steps.\n",
+        "artifactType": "canvas_decoration",
+        "requires": [],
+        "requiresParsed": [],
+        "produces": [],
+        "producesParsed": [],
+        "consumes": [],
+        "outcomes": [],
+        "pluginConfig": {
+          "color": "#e2e8f0",
+          "width": 1561,
+          "height": 292
+        }
+      },
+      "measured": {
+        "width": 1561,
+        "height": 292
+      },
+      "dragging": false,
+      "selected": false,
+      "resizing": false
+    },
+    {
+      "id": "label-14",
+      "type": "labelNode",
+      "position": {
+        "x": 8.639901539914945,
+        "y": 239.59327726385527
+      },
+      "width": 380,
+      "height": 40,
+      "style": {
+        "width": 380,
+        "height": 40
+      },
+      "data": {
+        "kind": "label",
+        "stepUuid": "c60b9358-5b1f-428c-96eb-0b6f6954162b",
+        "title": "Label",
+        "overview": "Place styled text on the workflow canvas.",
+        "description": "Canvas decoration — configurable text with size, font, and color. Not executed at runtime and cannot be connected to other steps.\n",
+        "artifactType": "canvas_decoration",
+        "requires": [],
+        "requiresParsed": [],
+        "produces": [],
+        "producesParsed": [],
+        "consumes": [],
+        "outcomes": [],
+        "pluginConfig": {
+          "text": "Git management including locking",
+          "font_size": 22,
+          "font_family": "sans",
+          "bold": true,
+          "color": "#000000",
+          "width": 380,
+          "height": 40
+        }
+      },
+      "measured": {
+        "width": 380,
+        "height": 40
+      },
+      "selected": false,
+      "dragging": false,
+      "parentId": "background-13"
+    },
+    {
+      "id": "label-15",
+      "type": "labelNode",
+      "position": {
+        "x": 476.3414208288676,
+        "y": 611.9524617647012
+      },
+      "zIndex": 1,
+      "width": 350,
+      "height": 40,
+      "style": {
+        "width": 350,
+        "height": 40
+      },
+      "data": {
+        "kind": "label",
+        "stepUuid": "37e5ea48-0171-4c9a-9b4a-353abdca6236",
+        "title": "Label",
+        "overview": "Place styled text on the workflow canvas.",
+        "description": "Canvas decoration — configurable text with size, font, and color. Not executed at runtime and cannot be connected to other steps.\n",
+        "artifactType": "canvas_decoration",
+        "requires": [],
+        "requiresParsed": [],
+        "produces": [],
+        "producesParsed": [],
+        "consumes": [],
+        "outcomes": [],
+        "pluginConfig": {
+          "text": "Always use Fan In before Git",
+          "font_size": 22,
+          "font_family": "sans",
+          "bold": true,
+          "color": "#000000",
+          "width": 350,
+          "height": 40
+        }
+      },
+      "measured": {
+        "width": 350,
+        "height": 40
+      },
+      "selected": false,
+      "dragging": false
+    },
+    {
+      "id": "collect-statistics-16",
+      "type": "workflowNode",
+      "position": {
+        "x": 555.3764248872594,
+        "y": 397.32706533999567
+      },
+      "zIndex": 1,
+      "data": {
+        "kind": "collect-statistics",
+        "stepUuid": "543c45a8-b1ee-4b9c-9c07-632f0554a8c3",
+        "title": "Collect Statistics",
+        "overview": "Record a per-device pass/fail outcome for this job, for dashboard reporting.",
+        "description": "Records one row per device reaching this node, tagged with the result configured below (success or failed) — job name/id and run id are resolved automatically from the containing workflow and run. Wire one instance to an upstream step's success handle with result=success and a second instance to its failure handle with result=failed to capture both outcomes. Powers the dashboard's per-job success/failure pie chart.\n",
+        "artifactType": "control_flow",
+        "requires": [
+          "identity"
+        ],
+        "requiresParsed": [],
+        "produces": [],
+        "producesParsed": [],
+        "consumes": [],
+        "outcomes": [
+          {
+            "name": "success"
+          }
+        ],
+        "pluginConfig": {
+          "result": "failed"
+        }
+      },
+      "measured": {
+        "width": 320,
+        "height": 128
+      },
+      "dragging": false,
+      "selected": false
+    },
+    {
+      "id": "collect-statistics-17",
+      "type": "workflowNode",
+      "position": {
+        "x": 920.5795817382398,
+        "y": 1072.409166919967
+      },
+      "zIndex": 1,
+      "data": {
+        "kind": "collect-statistics",
+        "stepUuid": "d307c344-54b0-45b0-96b0-dcfce95c437a",
+        "title": "Collect Statistics",
+        "overview": "Record a per-device pass/fail outcome for this job, for dashboard reporting.",
+        "description": "Records one row per device reaching this node, tagged with the result configured below (success or failed) — job name/id and run id are resolved automatically from the containing workflow and run. Wire one instance to an upstream step's success handle with result=success and a second instance to its failure handle with result=failed to capture both outcomes. Powers the dashboard's per-job success/failure pie chart.\n",
+        "artifactType": "control_flow",
+        "requires": [
+          "identity"
+        ],
+        "requiresParsed": [],
+        "produces": [],
+        "producesParsed": [],
+        "consumes": [],
+        "outcomes": [
+          {
+            "name": "success"
+          }
+        ],
+        "incomeHandleSide": "top",
+        "outcomeHandleSide": "bottom",
+        "pluginConfig": {
+          "result": "success"
+        }
+      },
+      "measured": {
+        "width": 320,
+        "height": 128
+      },
+      "selected": false,
+      "dragging": false
+    },
+    {
+      "id": "collect-statistics-18",
+      "type": "workflowNode",
+      "position": {
+        "x": 406.678257363787,
+        "y": 1189.0010162917833
+      },
+      "zIndex": 1,
+      "data": {
+        "kind": "collect-statistics",
+        "stepUuid": "96f28b42-627f-4685-a69a-4e95bd06534f",
+        "title": "Collect Statistics",
+        "overview": "Record a per-device pass/fail outcome for this job, for dashboard reporting.",
+        "description": "Records one row per device reaching this node, tagged with the result configured below (success or failed) — job name/id and run id are resolved automatically from the containing workflow and run. Wire one instance to an upstream step's success handle with result=success and a second instance to its failure handle with result=failed to capture both outcomes. Powers the dashboard's per-job success/failure pie chart.\n",
+        "artifactType": "control_flow",
+        "requires": [
+          "identity"
+        ],
+        "requiresParsed": [],
+        "produces": [],
+        "producesParsed": [],
+        "consumes": [],
+        "outcomes": [
+          {
+            "name": "success"
+          }
+        ],
+        "incomeHandleSide": "top",
+        "outcomeHandleSide": "bottom",
+        "pluginConfig": {
+          "result": "failed"
+        }
+      },
+      "measured": {
+        "width": 320,
+        "height": 128
+      },
+      "selected": false,
+      "dragging": false
+    }
+  ],
+  "canvas_edges": [
+    {
+      "type": "waypoint",
+      "zIndex": 0,
+      "data": {
+        "edgeStyle": "bezier"
+      },
+      "source": "get-nautobot-devices-1",
+      "sourceHandle": "success",
+      "target": "get-nautobot-attributes-2",
+      "targetHandle": "input",
+      "id": "xy-edge__get-nautobot-devices-1success-get-nautobot-attributes-2input",
+      "selected": false
+    },
+    {
+      "type": "waypoint",
+      "zIndex": 0,
+      "data": {
+        "edgeStyle": "bezier"
+      },
+      "source": "get-nautobot-attributes-2",
+      "sourceHandle": "success",
+      "target": "get-device-configs-3",
+      "targetHandle": "input",
+      "id": "xy-edge__get-nautobot-attributes-2success-get-device-configs-3input",
+      "selected": false
+    },
+    {
+      "type": "waypoint",
+      "zIndex": 0,
+      "data": {
+        "edgeStyle": "bezier"
+      },
+      "source": "get-device-configs-3",
+      "sourceHandle": "success",
+      "target": "fan-in-4",
+      "targetHandle": "input",
+      "id": "xy-edge__get-device-configs-3success-fan-in-4input",
+      "selected": false
+    },
+    {
+      "type": "waypoint",
+      "zIndex": 0,
+      "data": {
+        "edgeStyle": "bezier"
+      },
+      "source": "store-artifact-5",
+      "sourceHandle": "success",
+      "target": "store-artifact-6",
+      "targetHandle": "input",
+      "id": "xy-edge__store-artifact-5success-store-artifact-6input",
+      "selected": false
+    },
+    {
+      "type": "waypoint",
+      "zIndex": 0,
+      "data": {
+        "edgeStyle": "smoothstep"
+      },
+      "source": "fan-in-4",
+      "sourceHandle": "success",
+      "target": "git-pull-7",
+      "targetHandle": "input",
+      "id": "xy-edge__fan-in-4success-git-pull-7input",
+      "selected": false
+    },
+    {
+      "type": "waypoint",
+      "zIndex": 0,
+      "data": {
+        "edgeStyle": "bezier"
+      },
+      "source": "git-pull-7",
+      "sourceHandle": "success",
+      "target": "store-artifact-5",
+      "targetHandle": "input",
+      "id": "xy-edge__git-pull-7success-store-artifact-5input",
+      "selected": false
+    },
+    {
+      "type": "waypoint",
+      "zIndex": 0,
+      "data": {
+        "edgeStyle": "bezier"
+      },
+      "source": "store-artifact-6",
+      "sourceHandle": "success",
+      "target": "git-push-8",
+      "targetHandle": "input",
+      "id": "xy-edge__store-artifact-6success-git-push-8input",
+      "selected": false
+    },
+    {
+      "type": "waypoint",
+      "zIndex": 0,
+      "data": {
+        "edgeStyle": "straight",
+        "waypoints": [
+          {
+            "x": 481.3864531895995,
+            "y": 950.9199938104483
+          }
+        ]
+      },
+      "source": "store-artifact-5",
+      "sourceHandle": "failure",
+      "target": "funnel-12",
+      "targetHandle": "input",
+      "id": "xy-edge__store-artifact-5failure-funnel-12input",
+      "selected": false
+    },
+    {
+      "type": "waypoint",
+      "zIndex": 0,
+      "data": {
+        "edgeStyle": "smoothstep"
+      },
+      "source": "store-artifact-6",
+      "sourceHandle": "failure",
+      "target": "funnel-12",
+      "targetHandle": "input",
+      "id": "xy-edge__store-artifact-6failure-funnel-12input",
+      "selected": false
+    },
+    {
+      "type": "waypoint",
+      "zIndex": 0,
+      "data": {
+        "edgeStyle": "smoothstep"
+      },
+      "source": "git-push-8",
+      "sourceHandle": "failure",
+      "target": "funnel-12",
+      "targetHandle": "input",
+      "id": "xy-edge__git-push-8failure-funnel-12input",
+      "selected": false
+    },
+    {
+      "type": "waypoint",
+      "zIndex": 0,
+      "data": {
+        "edgeStyle": "straight",
+        "waypoints": [
+          {
+            "x": 130.85667818204098,
+            "y": 1080.4925615779036
+          }
+        ]
+      },
+      "source": "git-pull-7",
+      "sourceHandle": "failure",
+      "target": "funnel-12",
+      "targetHandle": "input",
+      "id": "xy-edge__git-pull-7failure-funnel-12input",
+      "selected": false
+    },
+    {
+      "type": "waypoint",
+      "zIndex": 0,
+      "data": {
+        "edgeStyle": "smoothstep"
+      },
+      "source": "get-device-configs-3",
+      "sourceHandle": "failure",
+      "target": "collect-statistics-16",
+      "targetHandle": "input",
+      "id": "xy-edge__get-device-configs-3failure-collect-statistics-16input",
+      "selected": false
+    },
+    {
+      "type": "waypoint",
+      "zIndex": 0,
+      "data": {
+        "edgeStyle": "bezier"
+      },
+      "source": "collect-statistics-16",
+      "sourceHandle": "success",
+      "target": "notify-mattermost-10",
+      "targetHandle": "input",
+      "id": "xy-edge__collect-statistics-16success-notify-mattermost-10input"
+    },
+    {
+      "type": "waypoint",
+      "zIndex": 0,
+      "data": {
+        "edgeStyle": "straight",
+        "waypoints": [
+          {
+            "x": 394.0164158181802,
+            "y": 378.0462733191854
+          },
+          {
+            "x": 542.39703042266,
+            "y": 378.8440185589944
+          }
+        ]
+      },
+      "source": "get-nautobot-attributes-2",
+      "sourceHandle": "failure",
+      "target": "collect-statistics-16",
+      "targetHandle": "input",
+      "id": "xy-edge__get-nautobot-attributes-2failure-collect-statistics-16input",
+      "selected": false
+    },
+    {
+      "type": "waypoint",
+      "zIndex": 0,
+      "data": {
+        "edgeStyle": "bezier"
+      },
+      "source": "git-push-8",
+      "sourceHandle": "success",
+      "target": "collect-statistics-17",
+      "targetHandle": "input",
+      "id": "xy-edge__git-push-8success-collect-statistics-17input",
+      "selected": false
+    },
+    {
+      "type": "waypoint",
+      "zIndex": 0,
+      "data": {
+        "edgeStyle": "bezier"
+      },
+      "source": "collect-statistics-17",
+      "sourceHandle": "success",
+      "target": "notify-mattermost-9",
+      "targetHandle": "input",
+      "id": "xy-edge__collect-statistics-17success-notify-mattermost-9input",
+      "selected": false
+    },
+    {
+      "type": "waypoint",
+      "zIndex": 0,
+      "data": {
+        "edgeStyle": "bezier"
+      },
+      "source": "funnel-12",
+      "sourceHandle": "output",
+      "target": "collect-statistics-18",
+      "targetHandle": "input",
+      "id": "xy-edge__funnel-12output-collect-statistics-18input",
+      "selected": false
+    },
+    {
+      "type": "waypoint",
+      "zIndex": 0,
+      "data": {
+        "edgeStyle": "bezier"
+      },
+      "source": "collect-statistics-18",
+      "sourceHandle": "success",
+      "target": "notify-on-error-11",
+      "targetHandle": "input",
+      "id": "xy-edge__collect-statistics-18success-notify-on-error-11input",
+      "selected": false
+    }
+  ],
+  "canvas_groups": [],
+  "static_attributes": [],
+  "credential_references": [
+    {
+      "name": "cisco - noc",
+      "visibility": "global",
+      "owner_username": null
+    }
+  ],
+  "templates": []
+}

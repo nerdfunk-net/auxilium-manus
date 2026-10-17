@@ -1,0 +1,851 @@
+{
+  "export_format": "auxilium-workflow-v1",
+  "exported_at": "2026-09-26T20:30:36.885Z",
+  "name": "Check VTY",
+  "description": "Check if line vty 0 4 is secured",
+  "folder": "Gallery",
+  "visibility": "private",
+  "notes": "# Check VTY\n\n## Purpose\nThis workflow is checking if an access-class is configured and bound to an existing access list\n\n## Assumptions / prerequisites\n* credentials: 'cisco - noc' credentials (to test the encryption; The credential isn't actually needed for a normal run.)\n* inventory: 'LAB' (that is the correct name of the inventory, not only the device named LAB)\n* nautobot: the default nautobot source\n\n## Gotchas\nIt does the following:\n1. It reads the device configs from the configured git repo\n2. Checks that every `line vty` stanza has an `access-class ... in` configured — independent of how many stanzas exist or how the VTY range is split (e.g. one `line vty 0 4`, or split into `line vty 0 2` / `line vty 3 5` / `line vty 6 10`). If even one stanza is missing it, the device is reported as not secured.\n3. Get the name of the access class by using update attribute (from the first secured stanza found)\n4. Check if the access class exists in the config by using 'List Contains'\n\n**Design note:** step 2 uses two \"Route on Content\" nodes because a single regex search can't both find one good example and prove none are missing at the same time. `check \"unsecured vty\"` runs first and searches for *any* `line vty` stanza lacking `access-class` — a pattern that is count- and position-independent. Only when it finds none does the workflow fall through to `check \"access class\"`, which extracts the ACL name from the first secured stanza. This does **not** verify that every stanza references the *same* ACL — if different stanzas reference different ACLs that both happen to exist, this workflow still reports the device as secured.\n\n## Example\n\nThis config is valid and **passes** the test:\n\n```\nip access-list extended MGMT_in\n 10 permit tcp w.x.y.z any eq 22\n\nline vty 0 2\n access-class MGMT_in in\n exec-timeout 0 0\n transport input ssh\nline vty 3 5\n access-class MGMT_in in\n exec-timeout 0 0\n transport input ssh\nline vty 6 10\n access-class MGMT_in in\n exec-timeout 0 0\n transport input ssh\n```\n",
+  "canvas_nodes": [
+    {
+      "id": "get-device-configs-2",
+      "type": "workflowNode",
+      "position": {
+        "x": 432.2436204601971,
+        "y": -406.5706057789366
+      },
+      "zIndex": 1,
+      "data": {
+        "kind": "get-device-configs",
+        "stepUuid": "5394e389-99d3-4200-906e-efbb0dd21498",
+        "title": "Get Configs",
+        "overview": "Get device configuration in the chosen format.",
+        "description": "Get device configuration in the specified format.",
+        "artifactType": "configuration_management",
+        "requires": [
+          "identity"
+        ],
+        "requiresParsed": [],
+        "produces": [
+          "running_config",
+          "startup_config"
+        ],
+        "producesParsed": [],
+        "consumes": [],
+        "outcomes": [
+          {
+            "name": "success"
+          },
+          {
+            "name": "failure"
+          }
+        ],
+        "pluginConfig": {
+          "credential_reference": "cisco - noc",
+          "config_format": "running"
+        },
+        "disabled": true
+      },
+      "measured": {
+        "width": 320,
+        "height": 128
+      },
+      "dragging": false,
+      "selected": false
+    },
+    {
+      "id": "route-on-content-3",
+      "type": "workflowNode",
+      "position": {
+        "x": -307.4821452939383,
+        "y": 50.76399912055322
+      },
+      "zIndex": 1,
+      "data": {
+        "kind": "route-on-content",
+        "stepUuid": "6cb84911-7b51-4a10-ba0d-ee169e30ac00",
+        "title": "check \"access class\"",
+        "overview": "Branch workflow paths by searching content for text or a pattern.",
+        "description": "Search device content for fixed text or a regular expression and branch on whether it was found.\n",
+        "artifactType": "control_flow",
+        "requires": [
+          "identity"
+        ],
+        "requiresParsed": [],
+        "produces": [
+          "parsed"
+        ],
+        "producesParsed": [],
+        "consumes": [],
+        "outcomes": [
+          {
+            "name": "match"
+          },
+          {
+            "name": "mismatch"
+          },
+          {
+            "name": "failure"
+          }
+        ],
+        "pluginConfig": {
+          "content_source": "running_config",
+          "source_step_node_id": "",
+          "parsed_output_key": "",
+          "match_mode": "regex",
+          "pattern": "line vty\\s+\\d+\\s+\\d+\\r?\\n(?:\\s+\\S.*\\r?\\n)*?\\s*access-class\\s+(\\S+)\\s+in\\b",
+          "case_sensitive": false,
+          "multiline": true
+        },
+        "incomeHandleSide": "left",
+        "outcomeHandleSide": "right"
+      },
+      "measured": {
+        "width": 320,
+        "height": 128
+      },
+      "dragging": false,
+      "selected": false
+    },
+    {
+      "id": "update-attribute-4",
+      "type": "workflowNode",
+      "position": {
+        "x": 60.10455396513768,
+        "y": 50.76399912055322
+      },
+      "zIndex": 1,
+      "data": {
+        "kind": "update-attribute",
+        "stepUuid": "c518ec15-9678-4bb1-88e9-dec1481e0546",
+        "title": "Update Attribute",
+        "overview": "Set or transform device attributes in the workflow.",
+        "description": "Set or transform one or more in-workflow device attributes using a fixed value or a regular expression with capture groups.\n",
+        "artifactType": "control_flow",
+        "requires": [
+          "identity"
+        ],
+        "requiresParsed": [],
+        "produces": [
+          "attributes"
+        ],
+        "producesParsed": [],
+        "consumes": [],
+        "outcomes": [
+          {
+            "name": "success"
+          }
+        ],
+        "pluginConfig": {
+          "attributes": [
+            {
+              "id": "d4489f08-5ccd-4600-a792-4f303710eb76",
+              "mode": "regex",
+              "destination_path": "custom.mgmt_acl_name",
+              "fixed_value": "",
+              "source_path": "parsed.route-on-content-3.content_match.matched_text",
+              "pattern": "access-class\\s+(\\S+)\\s+in",
+              "destination_template": "\\1",
+              "regex_flags": {
+                "case_insensitive": false,
+                "multiline": false,
+                "dotall": false
+              }
+            }
+          ]
+        },
+        "outcomeHandleSide": "right"
+      },
+      "measured": {
+        "width": 320,
+        "height": 128
+      },
+      "selected": false,
+      "dragging": false
+    },
+    {
+      "id": "parse-cisco-config-5",
+      "type": "workflowNode",
+      "position": {
+        "x": 423.2436204601971,
+        "y": 50.76399912055322
+      },
+      "zIndex": 1,
+      "data": {
+        "kind": "parse-cisco-config",
+        "stepUuid": "12e2352a-4c18-4be9-93bf-b0d4e801823e",
+        "title": "Parse Cisco Config",
+        "overview": "Parse a Cisco running/startup config into structured data.",
+        "description": "Parse a Cisco IOS/IOS-XE/NXOS/XR running and/or startup configuration into structured data (hostname, VRFs, VLANs, interfaces, ACLs, routing, etc.) using cisco-config-parser, for use by Jinja templates and Log Attributes.\n",
+        "artifactType": "configuration_management",
+        "requires": [
+          "identity"
+        ],
+        "requiresParsed": [],
+        "produces": [
+          "parsed"
+        ],
+        "producesParsed": [],
+        "consumes": [],
+        "outcomes": [
+          {
+            "name": "success"
+          },
+          {
+            "name": "failure"
+          }
+        ],
+        "incomeHandleSide": "left",
+        "outcomeHandleSide": "right",
+        "pluginConfig": {
+          "config_source": "running"
+        }
+      },
+      "measured": {
+        "width": 320,
+        "height": 128
+      },
+      "dragging": false,
+      "selected": false
+    },
+    {
+      "id": "list-contains-6",
+      "type": "workflowNode",
+      "position": {
+        "x": 809.6390182899584,
+        "y": 50.76399912055322
+      },
+      "zIndex": 1,
+      "data": {
+        "kind": "list-contains",
+        "stepUuid": "99da279b-891d-4292-8999-ab87ace5b043",
+        "title": "List Contains",
+        "overview": "Check whether a value is present anywhere in a parsed list.",
+        "description": "Check whether a specific value — or a specific field of each item — appears in a list resolved from device context, e.g. whether a given TACACS+ server is among a device's parsed AAA servers. No Jinja template required.\n",
+        "artifactType": "control_flow",
+        "requires": [
+          "identity"
+        ],
+        "requiresParsed": [],
+        "produces": [
+          "parsed"
+        ],
+        "producesParsed": [],
+        "consumes": [],
+        "outcomes": [
+          {
+            "name": "match"
+          },
+          {
+            "name": "mismatch"
+          },
+          {
+            "name": "failure"
+          }
+        ],
+        "incomeHandleSide": "left",
+        "outcomeHandleSide": "bottom",
+        "pluginConfig": {
+          "list_path": "parsed.cisco_config.running.access_lists",
+          "field": "name",
+          "value": "{custom.mgmt_acl_name}"
+        }
+      },
+      "measured": {
+        "width": 320,
+        "height": 128
+      },
+      "dragging": false,
+      "selected": false
+    },
+    {
+      "id": "get-nautobot-attributes-7",
+      "type": "workflowNode",
+      "position": {
+        "x": 386.5646849258778,
+        "y": 66.4653325333054
+      },
+      "data": {
+        "kind": "get-nautobot-attributes",
+        "stepUuid": "cfee10ba-6194-47e5-8a78-dc427588f3ae",
+        "title": "Get Nautobot Attributes",
+        "overview": "Retrieve Nautobot attributes for selected devices.",
+        "description": "Retrieve attributes from Nautobot for selected devices.",
+        "artifactType": "inventory_selector",
+        "requires": [
+          "identity"
+        ],
+        "requiresParsed": [],
+        "produces": [
+          "attributes"
+        ],
+        "producesParsed": [],
+        "consumes": [],
+        "outcomes": [
+          {
+            "name": "success"
+          },
+          {
+            "name": "failure"
+          }
+        ],
+        "pluginConfig": {
+          "nautobot_source_id": "nautobot"
+        },
+        "incomeHandleSide": "left",
+        "outcomeHandleSide": "right"
+      },
+      "measured": {
+        "width": 320,
+        "height": 128
+      },
+      "selected": false,
+      "dragging": false,
+      "parentId": "background-13"
+    },
+    {
+      "id": "notify-mattermost-8",
+      "type": "workflowNode",
+      "position": {
+        "x": -307.4821452939383,
+        "y": 266.3382403670999
+      },
+      "zIndex": 1,
+      "data": {
+        "kind": "notify-mattermost",
+        "stepUuid": "2721df53-5573-4baa-abf4-e2625a2b7e51",
+        "title": "Notify Mattermost",
+        "overview": "Post a message to a Mattermost channel.",
+        "description": "Posts one message to a Mattermost channel via a configured Mattermost source, team, and channel. Supports {path.to.value} placeholders resolved against the first device in context (e.g. {device.name}, {nautobot.location.name}), plus {devices} (comma-joined device names) and {device_count} for summarizing a multi-device run. Typically wired to an upstream step's success or failure outcome handle to report a workflow's outcome. Fan-out note: place after Fan In (or at the end of a non-fanned workflow) for one summary message per run; inside fan-out children it posts once per child branch.\n",
+        "artifactType": "control_flow",
+        "requires": [
+          "identity"
+        ],
+        "requiresParsed": [],
+        "produces": [],
+        "producesParsed": [],
+        "consumes": [],
+        "outcomes": [
+          {
+            "name": "success"
+          },
+          {
+            "name": "failure"
+          }
+        ],
+        "pluginConfig": {
+          "mattermost_source_id": "mattermost",
+          "team_name": "Manus",
+          "channel_name": "manus",
+          "message": "VTY of device {device.name} is not secured."
+        }
+      },
+      "measured": {
+        "width": 320,
+        "height": 128
+      },
+      "dragging": false,
+      "selected": false
+    },
+    {
+      "id": "notify-mattermost-9",
+      "type": "workflowNode",
+      "position": {
+        "x": 809.6390182899584,
+        "y": 215.46296109954812
+      },
+      "zIndex": 1,
+      "data": {
+        "kind": "notify-mattermost",
+        "stepUuid": "684a587c-bb78-48b7-a365-54011ef7d10f",
+        "title": "Notify Mattermost",
+        "overview": "Post a message to a Mattermost channel.",
+        "description": "Posts one message to a Mattermost channel via a configured Mattermost source, team, and channel. Supports {path.to.value} placeholders resolved against the first device in context (e.g. {device.name}, {nautobot.location.name}), plus {devices} (comma-joined device names) and {device_count} for summarizing a multi-device run. Typically wired to an upstream step's success or failure outcome handle to report a workflow's outcome. Fan-out note: place after Fan In (or at the end of a non-fanned workflow) for one summary message per run; inside fan-out children it posts once per child branch.\n",
+        "artifactType": "control_flow",
+        "requires": [
+          "identity"
+        ],
+        "requiresParsed": [],
+        "produces": [],
+        "producesParsed": [],
+        "consumes": [],
+        "outcomes": [
+          {
+            "name": "success"
+          },
+          {
+            "name": "failure"
+          }
+        ],
+        "pluginConfig": {
+          "mattermost_source_id": "mattermost",
+          "team_name": "Manus",
+          "channel_name": "manus",
+          "message": "VTY of device {device.name} is not secured."
+        },
+        "incomeHandleSide": "top",
+        "outcomeHandleSide": "left"
+      },
+      "measured": {
+        "width": 320,
+        "height": 128
+      },
+      "dragging": false,
+      "selected": false
+    },
+    {
+      "id": "get-nautobot-devices-9",
+      "type": "workflowNode",
+      "position": {
+        "x": 18.97798566680183,
+        "y": 66.4653325333054
+      },
+      "data": {
+        "kind": "get-nautobot-devices",
+        "stepUuid": "ec97dcb9-a424-4810-8529-5d32199a9c8c",
+        "title": "Get from Nautobot",
+        "overview": "Select devices from the Nautobot inventory.",
+        "description": "Select one or more target devices from the inventory.",
+        "artifactType": "inventory_selector",
+        "requires": [],
+        "requiresParsed": [],
+        "produces": [
+          "identity"
+        ],
+        "producesParsed": [],
+        "consumes": [],
+        "outcomes": [
+          {
+            "name": "success"
+          },
+          {
+            "name": "failure"
+          }
+        ],
+        "pluginConfig": {
+          "nautobot_source_id": "nautobot",
+          "inventory_id": 1,
+          "inventory_name": "LAB",
+          "inventory_type": "filter",
+          "device_filter": {
+            "id": "root",
+            "logic": "OR",
+            "negate": false,
+            "items": [
+              {
+                "id": "1789503308731-2ai2ewwhb",
+                "field": "name",
+                "operator": "equals",
+                "value": "LAB"
+              },
+              {
+                "id": "1789503316965-tenmw8ncn",
+                "field": "name",
+                "operator": "equals",
+                "value": "lab-2"
+              },
+              {
+                "id": "1789503322581-si6o2gheu",
+                "field": "name",
+                "operator": "equals",
+                "value": "switch"
+              }
+            ]
+          },
+          "device_ids": [],
+          "fan_out": {
+            "enabled": true,
+            "mode": "per_device",
+            "chunk_size": 1,
+            "max_concurrency": 10,
+            "approval": {
+              "enabled": false,
+              "batch_size": 1,
+              "first_batch_auto": true
+            }
+          }
+        },
+        "outcomeHandleSide": "right"
+      },
+      "measured": {
+        "width": 320,
+        "height": 128
+      },
+      "dragging": false,
+      "selected": false,
+      "parentId": "background-13"
+    },
+    {
+      "id": "read-config-10",
+      "type": "workflowNode",
+      "position": {
+        "x": 749.7037514209372,
+        "y": 66.4653325333054
+      },
+      "data": {
+        "kind": "read-config",
+        "stepUuid": "5980b00f-8e7d-4336-8d34-d70e6e220263",
+        "title": "Read Config",
+        "overview": "Load a saved config from disk or git and use it as the device's running config.",
+        "description": "Read a configuration file from disk or a Git source, located by a per-device filename template, and set it as the device's running configuration — for restoring a known-good backup onto a device that has no reachable config of its own.\n",
+        "artifactType": "configuration_management",
+        "requires": [
+          "identity"
+        ],
+        "requiresParsed": [],
+        "produces": [
+          "running_config"
+        ],
+        "producesParsed": [],
+        "consumes": [],
+        "outcomes": [
+          {
+            "name": "success"
+          },
+          {
+            "name": "failure"
+          }
+        ],
+        "pluginConfig": {
+          "source": "git",
+          "git_repository_id": 4,
+          "path_template": "configs/{nautobot.location.name}/{device.name}.running.cfg",
+          "overwrite_existing": false
+        },
+        "outcomeHandleSide": "bottom"
+      },
+      "measured": {
+        "width": 320,
+        "height": 128
+      },
+      "dragging": false,
+      "selected": false,
+      "parentId": "background-13"
+    },
+    {
+      "id": "label-11",
+      "type": "labelNode",
+      "position": {
+        "x": 449.89634217029925,
+        "y": -451.81046505867215
+      },
+      "zIndex": 1,
+      "width": 300,
+      "height": 40,
+      "style": {
+        "width": 300,
+        "height": 40
+      },
+      "data": {
+        "kind": "label",
+        "stepUuid": "d972cddd-36db-44d7-948d-013107ec3e1d",
+        "title": "Label",
+        "overview": "Place styled text on the workflow canvas.",
+        "description": "Canvas decoration — configurable text with size, font, and color. Not executed at runtime and cannot be connected to other steps.\n",
+        "artifactType": "canvas_decoration",
+        "requires": [],
+        "requiresParsed": [],
+        "produces": [],
+        "producesParsed": [],
+        "consumes": [],
+        "outcomes": [],
+        "pluginConfig": {
+          "text": "Get live config if needed",
+          "font_size": 22,
+          "font_family": "sans",
+          "bold": false,
+          "color": "#0f172a",
+          "width": 300,
+          "height": 40
+        }
+      },
+      "measured": {
+        "width": 300,
+        "height": 40
+      },
+      "selected": false,
+      "dragging": false
+    },
+    {
+      "id": "label-12",
+      "type": "labelNode",
+      "position": {
+        "x": 8.6852686896068,
+        "y": 5.504688082724755
+      },
+      "width": 350,
+      "height": 40,
+      "style": {
+        "width": 350,
+        "height": 40
+      },
+      "data": {
+        "kind": "label",
+        "stepUuid": "2bfe9279-5c18-4cb0-9981-4ec2b3c1321a",
+        "title": "Label",
+        "overview": "Place styled text on the workflow canvas.",
+        "description": "Canvas decoration — configurable text with size, font, and color. Not executed at runtime and cannot be connected to other steps.\n",
+        "artifactType": "canvas_decoration",
+        "requires": [],
+        "requiresParsed": [],
+        "produces": [],
+        "producesParsed": [],
+        "consumes": [],
+        "outcomes": [],
+        "pluginConfig": {
+          "text": "Get data from Nautobot & Config",
+          "font_size": 22,
+          "font_family": "sans",
+          "bold": false,
+          "color": "#000000",
+          "width": 350,
+          "height": 40
+        }
+      },
+      "measured": {
+        "width": 350,
+        "height": 40
+      },
+      "dragging": false,
+      "parentId": "background-13",
+      "selected": false
+    },
+    {
+      "id": "background-13",
+      "type": "backgroundNode",
+      "position": {
+        "x": -326.4601309607401,
+        "y": -250.62988445179008
+      },
+      "zIndex": -1,
+      "width": 1100,
+      "height": 218,
+      "style": {
+        "width": 480,
+        "height": 320
+      },
+      "data": {
+        "kind": "background",
+        "stepUuid": "a10dbdfe-c305-4c35-a364-156726e2778a",
+        "title": "Background",
+        "overview": "Place a colored rectangle behind other canvas steps.",
+        "description": "Canvas decoration — a colored rectangle always drawn behind other steps. Configure size and color. Not executed at runtime and cannot be connected to other steps.\n",
+        "artifactType": "canvas_decoration",
+        "requires": [],
+        "requiresParsed": [],
+        "produces": [],
+        "producesParsed": [],
+        "consumes": [],
+        "outcomes": [],
+        "pluginConfig": {
+          "color": "#e2e8f0",
+          "width": 1100,
+          "height": 218
+        }
+      },
+      "measured": {
+        "width": 1100,
+        "height": 218
+      },
+      "dragging": false,
+      "selected": false,
+      "resizing": false
+    },
+    {
+      "id": "route-on-content-14",
+      "type": "workflowNode",
+      "position": {
+        "x": -704.6628988028212,
+        "y": 50.76399912055322
+      },
+      "zIndex": 1,
+      "data": {
+        "kind": "route-on-content",
+        "stepUuid": "9b6a1c2d-4e5f-4a1b-8c3d-7f2e6a9b1d05",
+        "title": "check \"unsecured vty\"",
+        "overview": "Branch workflow paths by searching content for text or a pattern.",
+        "description": "Search device content for fixed text or a regular expression and branch on whether it was found.\n",
+        "artifactType": "control_flow",
+        "requires": [
+          "identity"
+        ],
+        "requiresParsed": [],
+        "produces": [
+          "parsed"
+        ],
+        "producesParsed": [],
+        "consumes": [],
+        "outcomes": [
+          {
+            "name": "match"
+          },
+          {
+            "name": "mismatch"
+          },
+          {
+            "name": "failure"
+          }
+        ],
+        "pluginConfig": {
+          "content_source": "running_config",
+          "source_step_node_id": "",
+          "parsed_output_key": "",
+          "match_mode": "regex",
+          "pattern": "line vty\\s+\\d+\\s+\\d+(?:\\r?\\n|\\Z)(?:[ \\t](?!access-class\\b)[^\\r\\n]*(?:\\r?\\n|\\Z))*(?=\\S|\\Z)",
+          "case_sensitive": false,
+          "multiline": true
+        },
+        "incomeHandleSide": "top",
+        "outcomeHandleSide": "right"
+      },
+      "measured": {
+        "width": 320,
+        "height": 128
+      },
+      "dragging": false,
+      "selected": false
+    }
+  ],
+  "canvas_edges": [
+    {
+      "type": "waypoint",
+      "zIndex": 0,
+      "data": {
+        "edgeStyle": "bezier"
+      },
+      "source": "route-on-content-3",
+      "sourceHandle": "match",
+      "target": "update-attribute-4",
+      "targetHandle": "input",
+      "id": "xy-edge__route-on-content-3match-update-attribute-4input",
+      "selected": false
+    },
+    {
+      "type": "waypoint",
+      "zIndex": 0,
+      "data": {
+        "edgeStyle": "bezier"
+      },
+      "source": "update-attribute-4",
+      "sourceHandle": "success",
+      "target": "parse-cisco-config-5",
+      "targetHandle": "input",
+      "id": "xy-edge__update-attribute-4success-parse-cisco-config-5input",
+      "selected": false
+    },
+    {
+      "type": "waypoint",
+      "zIndex": 0,
+      "data": {
+        "edgeStyle": "bezier"
+      },
+      "source": "parse-cisco-config-5",
+      "sourceHandle": "success",
+      "target": "list-contains-6",
+      "targetHandle": "input",
+      "id": "xy-edge__parse-cisco-config-5success-list-contains-6input",
+      "selected": false
+    },
+    {
+      "type": "waypoint",
+      "zIndex": 0,
+      "data": {
+        "edgeStyle": "smoothstep"
+      },
+      "source": "route-on-content-3",
+      "sourceHandle": "mismatch",
+      "target": "notify-mattermost-8",
+      "targetHandle": "input",
+      "id": "xy-edge__route-on-content-3mismatch-notify-mattermost-8input",
+      "selected": false
+    },
+    {
+      "type": "waypoint",
+      "zIndex": 0,
+      "data": {
+        "edgeStyle": "bezier"
+      },
+      "source": "list-contains-6",
+      "sourceHandle": "mismatch",
+      "target": "notify-mattermost-9",
+      "targetHandle": "input",
+      "id": "xy-edge__list-contains-6mismatch-notify-mattermost-9input",
+      "selected": false
+    },
+    {
+      "type": "waypoint",
+      "zIndex": 0,
+      "data": {
+        "edgeStyle": "bezier"
+      },
+      "source": "get-nautobot-devices-9",
+      "sourceHandle": "success",
+      "target": "get-nautobot-attributes-7",
+      "targetHandle": "input",
+      "id": "xy-edge__get-nautobot-devices-9success-get-nautobot-attributes-7input",
+      "selected": false
+    },
+    {
+      "type": "waypoint",
+      "zIndex": 0,
+      "data": {
+        "edgeStyle": "bezier"
+      },
+      "source": "get-nautobot-attributes-7",
+      "sourceHandle": "success",
+      "target": "read-config-10",
+      "targetHandle": "input",
+      "id": "xy-edge__get-nautobot-attributes-7success-read-config-10input",
+      "selected": false
+    },
+    {
+      "type": "waypoint",
+      "zIndex": 0,
+      "data": {
+        "edgeStyle": "smoothstep"
+      },
+      "source": "read-config-10",
+      "sourceHandle": "success",
+      "target": "route-on-content-14",
+      "targetHandle": "input",
+      "id": "xy-edge__read-config-10success-route-on-content-14input",
+      "selected": false
+    },
+    {
+      "type": "waypoint",
+      "zIndex": 0,
+      "data": {
+        "edgeStyle": "bezier"
+      },
+      "source": "route-on-content-14",
+      "sourceHandle": "mismatch",
+      "target": "route-on-content-3",
+      "targetHandle": "input",
+      "id": "xy-edge__route-on-content-14mismatch-route-on-content-3input",
+      "selected": false
+    },
+    {
+      "type": "waypoint",
+      "zIndex": 0,
+      "data": {
+        "edgeStyle": "smoothstep"
+      },
+      "source": "route-on-content-14",
+      "sourceHandle": "match",
+      "target": "notify-mattermost-8",
+      "targetHandle": "input",
+      "id": "xy-edge__route-on-content-14match-notify-mattermost-8input",
+      "selected": false
+    }
+  ],
+  "canvas_groups": [],
+  "static_attributes": [],
+  "credential_references": [
+    {
+      "name": "cisco - noc",
+      "visibility": "global",
+      "owner_username": null
+    }
+  ],
+  "templates": []
+}
