@@ -1,0 +1,143 @@
+"""Device GraphQL queries against Nautobot."""
+
+from __future__ import annotations
+
+import logging
+
+from services.nautobot.client import NautobotService
+from services.nautobot.common.utils import graphql_errors_summary
+from services.nautobot.credentials import NautobotCredentials
+from services.nautobot.devices.attribute_bag import (
+    DEVICE_ATTRIBUTES_QUERY,
+    attributes_from_detail,
+    build_attribute_variables,
+    normalize_attribute_groups,
+)
+
+logger = logging.getLogger(__name__)
+
+DEVICE_CACHE_TTL = 30 * 60  # default 30 minutes
+
+DEVICE_DETAILS_QUERY = """
+query DeviceDetails($deviceId: ID!) {
+    device(id: $deviceId) {
+        id
+        name
+        serial
+        _custom_field_data
+        primary_ip4 { id address }
+        role { id name }
+        device_type { id model manufacturer { id name } }
+        platform { id name }
+        location { id name parent { id name } }
+        status { id name }
+        tags { id name color }
+        interfaces {
+            id name type enabled mtu mac_address description
+            status { id name }
+            ip_addresses { id address ip_version status { id name } }
+        }
+    }
+}
+"""
+
+
+class DeviceQueryService:
+    def __init__(
+        self,
+        nautobot: NautobotService,
+        credentials: NautobotCredentials,
+        cache_service=None,
+        device_ttl: int = DEVICE_CACHE_TTL,
+    ) -> None:
+        self._nautobot = nautobot
+        self._credentials = credentials
+        self._cache = cache_service
+        self._cache_scope = credentials.cache_scope
+        self._device_ttl = device_ttl
+
+    def invalidate_cache(self) -> int:
+        """Drop every cached detail/attribute entry of this Nautobot instance.
+
+        Best-effort (never raises). Returns the number of entries removed.
+        """
+        if self._cache is None:
+            return 0
+        removed = 0
+        for namespace in (
+            f"nautobot:device_details:{self._cache_scope}",
+            f"nautobot:device_attributes:{self._cache_scope}",
+        ):
+            try:
+                removed += self._cache.clear_namespace(namespace)
+            except Exception:
+                logger.warning(
+                    "Could not invalidate cache namespace '%s'", namespace, exc_info=True
+                )
+        return removed
+
+    def _details_cache_key(self, device_id: str) -> str:
+        return f"nautobot:device_details:{self._cache_scope}:{device_id}"
+
+    def _attributes_cache_key(self, device_id: str, groups: list[str]) -> str:
+        suffix = ",".join(sorted(groups)) or "base"
+        return f"nautobot:device_attributes:{self._cache_scope}:{device_id}:{suffix}"
+
+    async def get_device_attributes(
+        self,
+        device_id: str,
+        list_of_attributes: list[str] | None = None,
+        use_cache: bool = True,
+    ) -> dict:
+        """Return the ``nautobot`` attribute bag for a device.
+
+        Uses the same GraphQL query and post-processing as the
+        ``get-nautobot-attributes`` workflow step so the ``nautobot.*`` fields
+        are identical in the template editor preview and at workflow runtime.
+        """
+        groups = normalize_attribute_groups(list_of_attributes)
+        cache_key = self._attributes_cache_key(device_id, groups)
+        if use_cache and self._cache is not None:
+            cached = self._cache.get(cache_key)
+            if cached is not None:
+                return cached
+
+        result = await self._nautobot.graphql_query(
+            DEVICE_ATTRIBUTES_QUERY,
+            {"deviceId": device_id, **build_attribute_variables(groups)},
+            self._credentials,
+        )
+        if "errors" in result:
+            raise ValueError(graphql_errors_summary(result["errors"], "while reading the device"))
+
+        device = (result.get("data") or {}).get("device")
+        if not device:
+            raise ValueError(f"Device {device_id} not found in Nautobot")
+
+        attributes = attributes_from_detail(device)
+        if self._cache is not None:
+            self._cache.set(cache_key, attributes, self._device_ttl)
+        return attributes
+
+    async def get_device_details(self, device_id: str, use_cache: bool = True) -> dict:
+        cache_key = self._details_cache_key(device_id)
+        if use_cache and self._cache is not None:
+            cached = self._cache.get(cache_key)
+            if cached is not None:
+                return cached
+
+        result = await self._nautobot.graphql_query(
+            DEVICE_DETAILS_QUERY,
+            {"deviceId": device_id},
+            self._credentials,
+        )
+        if "errors" in result:
+            raise ValueError(graphql_errors_summary(result["errors"], "while reading the device"))
+
+        device = (result.get("data") or {}).get("device")
+        if not device:
+            raise ValueError(f"Device {device_id} not found in Nautobot")
+
+        if self._cache is not None:
+            self._cache.set(cache_key, device, self._device_ttl)
+        return device

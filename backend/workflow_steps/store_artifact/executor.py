@@ -1,0 +1,460 @@
+"""Executor for the store-artifact step.
+
+The git destination holds a per-repository advisory lock
+(``services.git.repo_lock``) across the whole prepare -> per-device write ->
+finalize sequence, so two concurrent callers against the same
+``GitRepository`` -- fan-out children, independent sibling branches, or
+separate runs -- never race on the shared working tree.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import logging
+from dataclasses import dataclass
+from pathlib import Path
+from typing import TYPE_CHECKING, Any
+
+from core.database import get_db_session
+from core.models.runs import WorkflowRun
+from models.workflow_context import (
+    DeviceContext,
+    DeviceError,
+    DeviceStatus,
+    StepOutcome,
+    WorkflowContext,
+)
+from services.artifacts import ArtifactService
+from services.artifacts.sinks import (
+    ArtifactSink,
+    FilesystemArtifactSink,
+    GitArtifactSink,
+    StoredExport,
+)
+from services.general.general_settings_service import GeneralSettingsService
+from services.git.repo_lock import acquire_git_repo_lock, release_git_repo_lock
+from services.workflow_context.device_template import (
+    TemplateRenderOptions,
+    parse_strict_templates,
+    render_device_template,
+    render_step_template,
+)
+from workflow_steps.common.content_resolver import (
+    ExportableContent,
+    list_exportable_content,
+    parse_content_source,
+)
+from workflow_steps.common.git_repository_loader import load_git_repository
+from workflow_steps.common.step_flags import parse_bool_flag
+
+if TYPE_CHECKING:
+    from services.network.netmiko.session_pool import DeviceSessionPool
+
+logger = logging.getLogger(__name__)
+
+_DESTINATIONS = frozenset({"filesystem", "git"})
+
+
+@dataclass(frozen=True)
+class _ParsedStoreConfig:
+    content_source: str
+    source_step_node_id: str | None
+    parsed_output_key: str | None
+
+
+def _default_config() -> dict[str, Any]:
+    from workflow_steps.store_artifact.config import get_config
+
+    return get_config()
+
+
+def _parse_store_config(config: dict[str, Any]) -> _ParsedStoreConfig:
+    return _ParsedStoreConfig(
+        content_source=parse_content_source(config),
+        source_step_node_id=str(config.get("source_step_node_id") or "").strip() or None,
+        parsed_output_key=str(config.get("parsed_output_key") or "").strip() or None,
+    )
+
+
+def _load_git_repository(git_repository_id: int) -> dict[str, Any]:
+    return load_git_repository(git_repository_id)
+
+
+def _build_sink(config: dict[str, Any], *, base_dir: Path) -> ArtifactSink:
+    destination = str(config.get("destination") or "filesystem").strip().lower()
+    if destination not in _DESTINATIONS:
+        raise ValueError(f"store-artifact: destination must be one of {sorted(_DESTINATIONS)}")
+    if destination == "filesystem":
+        output_subdirectory = str(
+            config.get("output_subdirectory")
+            or _default_config().get("output_subdirectory")
+            or "exports"
+        ).strip()
+        return FilesystemArtifactSink(
+            base_dir,
+            output_subdirectory=output_subdirectory,
+        )
+    if destination == "git":
+        raw_repository_id = config.get("git_repository_id")
+        if raw_repository_id in (None, ""):
+            raise ValueError("store-artifact: git_repository_id is required when destination=git")
+        repository = _load_git_repository(int(raw_repository_id))
+        return GitArtifactSink(
+            repository,
+            repository_subdirectory=str(
+                config.get("repository_subdirectory")
+                or _default_config().get("repository_subdirectory")
+                or ""
+            ),
+            pull_before_write=parse_bool_flag({**_default_config(), **config}, "pull_before_write"),
+            commit_after_write=parse_bool_flag(
+                {**_default_config(), **config}, "commit_after_write"
+            ),
+            push_after_write=parse_bool_flag({**_default_config(), **config}, "push_after_write"),
+        )
+    raise ValueError(f"store-artifact: unsupported destination {destination!r}")
+
+
+def _filename_template(config: dict[str, Any], item: ExportableContent) -> str:
+    del item
+    return str(
+        config.get("filename_template")
+        or _default_config().get("filename_template")
+        or "{device.name}_{run.timestamp}.cfg"
+    ).strip()
+
+
+def _commit_message_template(config: dict[str, Any]) -> str:
+    return str(
+        config.get("commit_message_template")
+        or _default_config().get("commit_message_template")
+        or "commit {timestamp}"
+    ).strip()
+
+
+def _render_commit_message(config: dict[str, Any], context: WorkflowContext) -> str:
+    return render_step_template(
+        _commit_message_template(config),
+        run_id=context.run_id,
+        workflow_id=context.workflow_id,
+    )
+
+
+def _relative_export_path(
+    *,
+    device: DeviceContext,
+    item: ExportableContent,
+    config: dict[str, Any],
+    index: int,
+    run_id: str,
+) -> str:
+    template = _filename_template(config, item)
+    extra = dict(item.extra)
+    extra["index"] = index + 1
+    return render_device_template(
+        template,
+        device,
+        extra=extra,
+        options=TemplateRenderOptions(
+            strict=parse_strict_templates(config),
+            run_id=run_id,
+        ),
+    )
+
+
+def _device_failure(
+    *,
+    device: DeviceContext,
+    node_id: str,
+    exc: Exception,
+) -> DeviceContext:
+    err = DeviceError(
+        node_id=node_id,
+        step_id="store-artifact",
+        code=type(exc).__name__.lower(),
+        message=str(exc),
+    )
+    return device.model_copy(
+        update={
+            "status": DeviceStatus.FAILED,
+            "errors": [*device.errors, err],
+        }
+    )
+
+
+async def _prepare_git_sink_or_fail(
+    *,
+    git_sink: GitArtifactSink | None,
+    context: WorkflowContext,
+    node_id: str,
+    run_id: Any,
+) -> list[StepOutcome] | None:
+    if git_sink is None:
+        return None
+    try:
+        await git_sink.prepare()
+    except Exception as exc:
+        logger.error("store-artifact git prepare failed run_id=%s: %s", run_id, exc)
+        failed_devices = {
+            device_id: _device_failure(device=device, node_id=node_id, exc=exc)
+            for device_id, device in context.devices.items()
+        }
+        return [
+            StepOutcome(
+                name="success",
+                context=context.model_copy(update={"devices": {}}),
+            ),
+            StepOutcome(
+                name="failure",
+                context=context.model_copy(update={"devices": failed_devices}),
+            ),
+        ]
+    return None
+
+
+async def _store_for_device(
+    *,
+    device_id: str,
+    device: DeviceContext,
+    parsed: _ParsedStoreConfig,
+    sink: ArtifactSink,
+    config: dict[str, Any],
+    node_id: str,
+    context: WorkflowContext,
+    artifact_service: ArtifactService,
+) -> tuple[str, DeviceContext, bool, list[dict[str, Any]]]:
+    export_items = list_exportable_content(
+        device,
+        content_source=parsed.content_source,
+        source_step_node_id=parsed.source_step_node_id,
+        parsed_output_key=parsed.parsed_output_key,
+    )
+    if not export_items:
+        err = DeviceError(
+            node_id=node_id,
+            step_id="store-artifact",
+            code="missing_content",
+            message=(
+                f"No {parsed.content_source!r} content available for device {device_id}. "
+                "Ensure an upstream step produced the selected data."
+            ),
+        )
+        failed = device.model_copy(
+            update={
+                "status": DeviceStatus.FAILED,
+                "errors": [*device.errors, err],
+            }
+        )
+        return device_id, failed, False, []
+
+    stored_records: list[dict[str, Any]] = []
+    try:
+        for index, item in enumerate(export_items):
+            content = await artifact_service.resolve(item.artifact_ref)
+            relative_path = _relative_export_path(
+                device=device,
+                item=item,
+                config=config,
+                index=index,
+                run_id=context.run_id,
+            )
+            export: StoredExport = await sink.write_text(
+                relative_path=relative_path,
+                content=content,
+                workflow_id=context.workflow_id,
+                run_id=context.run_id,
+            )
+            stored_records.append(
+                {
+                    "device_id": device_id,
+                    "content_source": parsed.content_source,
+                    "kind": item.kind,
+                    "path": export.path,
+                    "destination": export.destination,
+                    "size_bytes": export.size_bytes,
+                    "sha256": export.sha256,
+                    **item.extra,
+                }
+            )
+
+        enriched = device.model_copy(update={"status": DeviceStatus.OK})
+        return device_id, enriched, True, stored_records
+    except Exception as exc:
+        failed = _device_failure(device=device, node_id=node_id, exc=exc)
+        return device_id, failed, False, stored_records
+
+
+def _partition_store_results(
+    results: list[tuple[str, DeviceContext, bool, list[dict[str, Any]]]],
+) -> tuple[dict[str, DeviceContext], dict[str, DeviceContext], list[dict[str, Any]]]:
+    success_devices: dict[str, DeviceContext] = {}
+    failed_devices: dict[str, DeviceContext] = {}
+    all_stored: list[dict[str, Any]] = []
+    for device_id, updated_device, ok, stored_records in results:
+        all_stored.extend(stored_records)
+        if ok:
+            success_devices[device_id] = updated_device
+        else:
+            failed_devices[device_id] = updated_device
+    return success_devices, failed_devices, all_stored
+
+
+async def _finalize_git_sink(
+    *,
+    git_sink: GitArtifactSink | None,
+    config: dict[str, Any],
+    context: WorkflowContext,
+    node_id: str,
+    run_id: Any,
+    metadata: dict[str, Any],
+    success_devices: dict[str, DeviceContext],
+    failed_devices: dict[str, DeviceContext],
+    lease: Any = None,
+) -> None:
+    if git_sink is None or not git_sink.has_writes or not success_devices:
+        return
+    try:
+        if lease is not None:
+            # A lease that expired while the files were written means another run may have
+            # touched the tree: do not commit or push into it (C1-07).
+            lease.ensure_held()
+        finalize_result = await git_sink.finalize(_render_commit_message(config, context))
+        if finalize_result is not None:
+            metadata[f"{node_id}.git_export"] = {
+                "git_repository_id": git_sink.repository_ref,
+                "committed": finalize_result.committed,
+                "pushed": finalize_result.pushed,
+                "commit_sha": finalize_result.commit_sha,
+                "files_changed": finalize_result.files_changed,
+                "message": finalize_result.message,
+            }
+    except Exception as exc:
+        logger.error("store-artifact git finalize failed run_id=%s: %s", run_id, exc)
+        for device_id in list(success_devices):
+            device = success_devices.pop(device_id)
+            failed_devices[device_id] = _device_failure(
+                device=device,
+                node_id=node_id,
+                exc=exc,
+            )
+
+
+def _build_store_outcomes(
+    *,
+    context: WorkflowContext,
+    success_devices: dict[str, DeviceContext],
+    failed_devices: dict[str, DeviceContext],
+    metadata: dict[str, Any],
+) -> list[StepOutcome]:
+    outcomes = [
+        StepOutcome(
+            name="success",
+            context=context.model_copy(update={"devices": success_devices, "metadata": metadata}),
+        )
+    ]
+    if failed_devices:
+        outcomes.append(
+            StepOutcome(
+                name="failure",
+                context=context.model_copy(
+                    update={"devices": failed_devices, "metadata": metadata}
+                ),
+            )
+        )
+    return outcomes
+
+
+async def execute(
+    *,
+    config: dict[str, Any],
+    context: WorkflowContext,
+    run: WorkflowRun,
+    artifact_service: ArtifactService,
+    node_id: str,
+    device_sessions: DeviceSessionPool,
+) -> list[StepOutcome]:
+    if not context.devices:
+        return [StepOutcome(name="success", context=context)]
+
+    parsed = _parse_store_config(config)
+    db = get_db_session()
+    try:
+        base_dir = GeneralSettingsService(db).resolved_export_directory()
+    finally:
+        db.close()
+    sink = _build_sink(config, base_dir=base_dir)
+    git_sink = sink if isinstance(sink, GitArtifactSink) else None
+    metadata = dict(context.metadata)
+
+    logger.info(
+        "store-artifact run_id=%s devices=%d source=%s destination=%s",
+        run.id,
+        len(context.devices),
+        parsed.content_source,
+        sink.destination,
+    )
+
+    # Held across prepare -> per-device writes -> finalize, not just one
+    # GitService call -- two concurrent callers (fan-out children, independent
+    # sibling branches, or separate runs) against the same repository must
+    # not interleave their clone/pull/write/commit/push sequences.
+    git_repository_id = git_sink.repository_id if git_sink is not None else None
+    lease = None
+    if git_repository_id is not None:
+        lease = await asyncio.to_thread(acquire_git_repo_lock, git_repository_id)
+
+    try:
+        prepare_failure = await _prepare_git_sink_or_fail(
+            git_sink=git_sink,
+            context=context,
+            node_id=node_id,
+            run_id=run.id,
+        )
+        if prepare_failure is not None:
+            return prepare_failure
+
+        results = await asyncio.gather(
+            *[
+                _store_for_device(
+                    device_id=device_id,
+                    device=device,
+                    parsed=parsed,
+                    sink=sink,
+                    config=config,
+                    node_id=node_id,
+                    context=context,
+                    artifact_service=artifact_service,
+                )
+                for device_id, device in context.devices.items()
+            ]
+        )
+        success_devices, failed_devices, all_stored = _partition_store_results(results)
+        await _finalize_git_sink(
+            git_sink=git_sink,
+            config=config,
+            context=context,
+            node_id=node_id,
+            run_id=run.id,
+            metadata=metadata,
+            success_devices=success_devices,
+            failed_devices=failed_devices,
+            lease=lease,
+        )
+    finally:
+        if lease is not None:
+            await asyncio.to_thread(release_git_repo_lock, lease)
+    if all_stored:
+        metadata[f"{node_id}.stored_artifacts"] = all_stored
+    logger.info(
+        "store-artifact wrote %d file(s) for %d/%d devices run_id=%s",
+        len(all_stored),
+        len(success_devices),
+        len(context.devices),
+        run.id,
+    )
+    return _build_store_outcomes(
+        context=context,
+        success_devices=success_devices,
+        failed_devices=failed_devices,
+        metadata=metadata,
+    )

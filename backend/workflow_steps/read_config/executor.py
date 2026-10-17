@@ -1,0 +1,253 @@
+"""Executor for the read-config step."""
+
+from __future__ import annotations
+
+import asyncio
+import logging
+from contextlib import AsyncExitStack
+from dataclasses import dataclass
+from pathlib import Path
+from typing import TYPE_CHECKING, Any
+
+from core.database import get_db_session
+from core.models.runs import WorkflowRun
+from models.workflow_context import (
+    Capability,
+    DeviceContext,
+    DeviceError,
+    DeviceStatus,
+    StepOutcome,
+    WorkflowContext,
+)
+from services.artifacts import ArtifactService
+from services.general.general_settings_service import GeneralSettingsService
+from services.git.sync import agit_checkout
+from services.workflow_context.device_template import (
+    TemplateRenderOptions,
+    render_device_template,
+)
+from workflow_steps.common.git_repository_loader import load_git_repository
+from workflow_steps.common.step_flags import parse_bool_flag
+
+if TYPE_CHECKING:
+    from services.network.netmiko.session_pool import DeviceSessionPool
+
+logger = logging.getLogger(__name__)
+
+_STEP_ID = "read-config"
+_SOURCES = frozenset({"filesystem", "git"})
+
+
+@dataclass(frozen=True)
+class _ParsedReadConfig:
+    source: str
+    git_repository_id: int | None
+    path_template: str
+    overwrite_existing: bool
+
+
+def _parse_read_config(config: dict[str, Any]) -> _ParsedReadConfig:
+    source = str(config.get("source") or "filesystem").strip().lower()
+    if source not in _SOURCES:
+        raise ValueError(f"{_STEP_ID}: source must be one of {sorted(_SOURCES)}")
+
+    raw_repository_id = config.get("git_repository_id")
+    git_repository_id = int(raw_repository_id) if raw_repository_id not in (None, "") else None
+    if source == "git" and git_repository_id is None:
+        raise ValueError(f"{_STEP_ID}: git_repository_id is required when source=git")
+
+    path_template = str(config.get("path_template") or "").strip()
+    if not path_template:
+        raise ValueError(f"{_STEP_ID}: path_template is required")
+
+    return _ParsedReadConfig(
+        source=source,
+        git_repository_id=git_repository_id,
+        path_template=path_template,
+        overwrite_existing=parse_bool_flag(config, "overwrite_existing"),
+    )
+
+
+def _resolve_filesystem_root() -> Path:
+    db = get_db_session()
+    try:
+        return GeneralSettingsService(db).resolved_export_directory()
+    finally:
+        db.close()
+
+
+async def _resolve_git_root(
+    git_repository_id: int,
+    loop: asyncio.AbstractEventLoop,
+    stack: AsyncExitStack,
+    *,
+    allow_stale: bool = False,
+) -> Path:
+    """Check the repository out; the lease is held until *stack* closes (C2-06)."""
+    repository = await loop.run_in_executor(None, lambda: load_git_repository(git_repository_id))
+    return await stack.enter_async_context(agit_checkout(repository, allow_stale=allow_stale))
+
+
+def _resolve_target_path(root: Path, relative_path: str) -> Path:
+    root = root.resolve()
+    target = (root / relative_path).resolve()
+    try:
+        target.relative_to(root)
+    except ValueError as exc:
+        raise ValueError(f"{_STEP_ID}: unsafe path {relative_path!r}") from exc
+    return target
+
+
+def _fail_device(
+    *, device: DeviceContext, device_id: str, node_id: str, code: str, message: str
+) -> tuple[str, DeviceContext, bool]:
+    err = DeviceError(node_id=node_id, step_id=_STEP_ID, code=code, message=message)
+    failed = device.model_copy(
+        update={"status": DeviceStatus.FAILED, "errors": [*device.errors, err]}
+    )
+    return device_id, failed, False
+
+
+async def _read_for_device(
+    *,
+    device_id: str,
+    device: DeviceContext,
+    node_id: str,
+    root: Path,
+    parsed: _ParsedReadConfig,
+    context_run_id: str,
+    artifact_service: ArtifactService,
+) -> tuple[str, DeviceContext, bool]:
+    if device.running_config_ref is not None and not parsed.overwrite_existing:
+        return device_id, device, True
+
+    try:
+        relative_path = render_device_template(
+            parsed.path_template,
+            device,
+            options=TemplateRenderOptions(strict=True, run_id=context_run_id),
+        )
+        target = _resolve_target_path(root, relative_path)
+        if not target.is_file():
+            raise FileNotFoundError(f"config file not found: {relative_path}")
+
+        content = await asyncio.to_thread(target.read_text, encoding="utf-8")
+        ref = await artifact_service.store(
+            content=content,
+            kind="running_config",
+            device_id=device_id,
+            run_id=context_run_id,
+        )
+        enriched = device.model_copy(
+            update={
+                "status": DeviceStatus.OK,
+                "running_config_ref": ref,
+                "capabilities": device.capabilities | {Capability.RUNNING_CONFIG},
+            }
+        )
+        return device_id, enriched, True
+    except Exception as exc:
+        return _fail_device(
+            device=device,
+            device_id=device_id,
+            node_id=node_id,
+            code=type(exc).__name__.lower(),
+            message=str(exc),
+        )
+
+
+def _partition_device_results(
+    results: list[tuple[str, DeviceContext, bool]],
+) -> tuple[dict[str, DeviceContext], dict[str, DeviceContext]]:
+    success_devices: dict[str, DeviceContext] = {}
+    failed_devices: dict[str, DeviceContext] = {}
+    for device_id, updated_device, ok in results:
+        if ok:
+            success_devices[device_id] = updated_device
+        else:
+            failed_devices[device_id] = updated_device
+    return success_devices, failed_devices
+
+
+def _build_outcomes(
+    context: WorkflowContext,
+    success_devices: dict[str, DeviceContext],
+    failed_devices: dict[str, DeviceContext],
+) -> list[StepOutcome]:
+    outcomes = [
+        StepOutcome(
+            name="success",
+            context=context.model_copy(update={"devices": success_devices}),
+        )
+    ]
+    if failed_devices:
+        outcomes.append(
+            StepOutcome(
+                name="failure",
+                context=context.model_copy(update={"devices": failed_devices}),
+            )
+        )
+    return outcomes
+
+
+async def execute(
+    *,
+    config: dict[str, Any],
+    context: WorkflowContext,
+    run: WorkflowRun,
+    artifact_service: ArtifactService,
+    node_id: str,
+    device_sessions: DeviceSessionPool,
+) -> list[StepOutcome]:
+    del device_sessions  # unused: this step never connects to a device
+
+    parsed = _parse_read_config(config)
+
+    if not context.devices:
+        return [StepOutcome(name="success", context=context)]
+
+    logger.info(
+        "read-config started run_id=%s node_id=%s devices=%d source=%s",
+        run.id,
+        node_id,
+        len(context.devices),
+        parsed.source,
+    )
+
+    loop = asyncio.get_running_loop()
+    async with AsyncExitStack() as stack:
+        if parsed.source == "git":
+            if parsed.git_repository_id is None:
+                raise ValueError(f"{_STEP_ID}: git_repository_id is required when source=git")
+            root = await _resolve_git_root(
+                parsed.git_repository_id,
+                loop,
+                stack,
+                allow_stale=parse_bool_flag(config, "allow_stale_repository"),
+            )
+        else:
+            root = await loop.run_in_executor(None, _resolve_filesystem_root)
+
+        results = await asyncio.gather(
+            *[
+                _read_for_device(
+                    device_id=device_id,
+                    device=device,
+                    node_id=node_id,
+                    root=root,
+                    parsed=parsed,
+                    context_run_id=context.run_id,
+                    artifact_service=artifact_service,
+                )
+                for device_id, device in context.devices.items()
+            ]
+        )
+    success_devices, failed_devices = _partition_device_results(results)
+
+    logger.info(
+        "read-config finished success=%d failure=%d run_id=%s",
+        len(success_devices),
+        len(failed_devices),
+        run.id,
+    )
+    return _build_outcomes(context, success_devices, failed_devices)

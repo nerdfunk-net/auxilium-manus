@@ -1,0 +1,205 @@
+"""TestClient coverage for routers/oidc.py::handle_callback identity-conflict
+mapping (doc/plans/FABE_BACKEND_ISSUES.md §1.5, §1.7)."""
+
+from __future__ import annotations
+
+from unittest.mock import AsyncMock, MagicMock
+
+import pytest
+from _auth_helpers import make_auth_db
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+
+import routers.oidc as oidc_router_module
+from core.database import get_db
+from dependencies import get_oidc_service
+from routers.oidc import router as oidc_router
+from services.auth.oidc_service import OIDCError, OIDCIdentityConflictError
+
+REDIRECT_URI = "http://localhost:3000/login/callback"
+
+
+class _FakeCache:
+    def __init__(self) -> None:
+        self._store: dict[str, object] = {}
+
+    def set(self, key: str, value: object, ttl_seconds: int) -> None:  # noqa: ARG002
+        self._store[key] = value
+
+    def get(self, key: str) -> object | None:
+        return self._store.get(key)
+
+    def delete(self, key: str) -> None:
+        self._store.pop(key, None)
+
+
+@pytest.fixture
+def ctx(monkeypatch):
+    fake_cache = _FakeCache()
+    monkeypatch.setattr(
+        oidc_router_module.service_factory, "build_cache_service", lambda: fake_cache
+    )
+
+    app = FastAPI()
+    app.include_router(oidc_router, prefix="/api")
+    app.dependency_overrides[get_db] = lambda: make_auth_db()
+
+    oidc_service = MagicMock()
+    oidc_service.generate_state.return_value = "state123"
+    oidc_service.generate_nonce.return_value = "nonce123"
+    oidc_service.generate_pkce_pair.return_value = ("verifier123", "challenge123")
+    oidc_service.generate_authorization_url = AsyncMock(return_value="https://idp.example/auth")
+    oidc_service.exchange_code_for_tokens = AsyncMock(return_value={"id_token": "token"})
+    oidc_service.verify_id_token = AsyncMock(return_value={"sub": "abc123"})
+    oidc_service.extract_user_data.return_value = {
+        "username": "jdoe",
+        "email": "jdoe@example.com",
+        "sub": "abc123",
+        "provider_id": "corporate",
+    }
+    app.dependency_overrides[get_oidc_service] = lambda: oidc_service
+
+    with TestClient(app) as client:
+        yield client, oidc_service, fake_cache
+
+
+def _seed_state(fake_cache: _FakeCache, state: str, redirect_uri: str) -> None:
+    fake_cache.set(
+        f"oidc-state:{state}",
+        {
+            "redirect_uri": redirect_uri,
+            "nonce": "nonce123",
+            "code_verifier": "verifier123",
+        },
+        ttl_seconds=600,
+    )
+
+
+class TestHandleCallback:
+    def test_identity_conflict_returns_403_and_issues_no_token(self, ctx) -> None:
+        client, oidc_service, fake_cache = ctx
+        state = "corporate:state123"
+        _seed_state(fake_cache, state, REDIRECT_URI)
+        oidc_service.provision_or_get_user.side_effect = OIDCIdentityConflictError(
+            "This identity cannot be linked to an existing account; ask an administrator"
+        )
+
+        response = client.post(
+            "/api/auth/oidc/corporate/callback",
+            json={"code": "authcode", "state": state, "redirect_uri": REDIRECT_URI},
+        )
+
+        assert response.status_code == 403
+        assert "access_token" not in response.text
+
+    def test_matched_identity_returns_token(self, ctx) -> None:
+        client, oidc_service, fake_cache = ctx
+        state = "corporate:state123"
+        _seed_state(fake_cache, state, REDIRECT_URI)
+        user = MagicMock(id=1, username="jdoe", token_version=0)
+        oidc_service.provision_or_get_user.return_value = user
+
+        response = client.post(
+            "/api/auth/oidc/corporate/callback",
+            json={"code": "authcode", "state": state, "redirect_uri": REDIRECT_URI},
+        )
+
+        assert response.status_code == 200
+        assert "access_token" in response.json()
+
+    def test_callback_with_the_exact_frontend_body(self, ctx) -> None:
+        """The shipped frontend posts only {code, state} (S1-01)."""
+        client, oidc_service, fake_cache = ctx
+        state = "corporate:state123"
+        _seed_state(fake_cache, state, REDIRECT_URI)
+        oidc_service.provision_or_get_user.return_value = MagicMock(
+            id=1, username="jdoe", token_version=0
+        )
+
+        response = client.post(
+            "/api/auth/oidc/corporate/callback", json={"code": "authcode", "state": state}
+        )
+
+        assert response.status_code == 200
+        args = oidc_service.exchange_code_for_tokens.await_args.args
+        assert args[2] == REDIRECT_URI  # the value stored with the state
+
+    def test_callback_with_a_different_redirect_uri_is_400(self, ctx) -> None:
+        client, oidc_service, fake_cache = ctx
+        state = "corporate:state123"
+        _seed_state(fake_cache, state, REDIRECT_URI)
+
+        response = client.post(
+            "/api/auth/oidc/corporate/callback",
+            json={"code": "authcode", "state": state, "redirect_uri": "https://evil.example/cb"},
+        )
+
+        assert response.status_code == 400
+        oidc_service.exchange_code_for_tokens.assert_not_called()
+
+    def test_callback_missing_state_is_400(self, ctx) -> None:
+        client, _oidc_service, _cache = ctx
+        response = client.post("/api/auth/oidc/corporate/callback", json={"code": "authcode"})
+        assert response.status_code == 400
+
+    def test_callback_rejects_legacy_string_state(self, ctx) -> None:
+        """A pre-S13 cache entry (a bare redirect-uri string) must not be accepted."""
+        client, _oidc_service, fake_cache = ctx
+        state = "corporate:state123"
+        fake_cache.set(f"oidc-state:{state}", REDIRECT_URI, ttl_seconds=600)
+
+        response = client.post(
+            "/api/auth/oidc/corporate/callback",
+            json={"code": "authcode", "state": state, "redirect_uri": REDIRECT_URI},
+        )
+
+        assert response.status_code == 400
+        assert "access_token" not in response.text
+
+    def test_callback_rejects_wrong_nonce(self, ctx) -> None:
+        client, oidc_service, fake_cache = ctx
+        state = "corporate:state123"
+        _seed_state(fake_cache, state, REDIRECT_URI)
+        oidc_service.verify_id_token = AsyncMock(
+            side_effect=OIDCError("Invalid ID token from provider 'corporate'")
+        )
+
+        response = client.post(
+            "/api/auth/oidc/corporate/callback",
+            json={"code": "authcode", "state": state, "redirect_uri": REDIRECT_URI},
+        )
+
+        assert response.status_code == 401
+        oidc_service.verify_id_token.assert_awaited_once()
+        assert oidc_service.verify_id_token.await_args.kwargs["nonce"] == "nonce123"
+
+
+class TestInitiateLogin:
+    def test_login_stores_nonce_and_verifier_in_cache(self, ctx) -> None:
+        client, _oidc_service, fake_cache = ctx
+
+        response = client.get(
+            "/api/auth/oidc/corporate/login",
+            params={"redirect_uri": REDIRECT_URI},
+        )
+
+        assert response.status_code == 200
+        stored = next(iter(fake_cache._store.values()))
+        assert isinstance(stored, dict)
+        assert stored["nonce"] == "nonce123"
+        assert stored["code_verifier"] == "verifier123"
+        assert stored["redirect_uri"] == REDIRECT_URI
+
+
+def test_login_start_is_rate_limited(ctx) -> None:
+    from dependencies import get_oidc_login_rate_limiter
+    from services.auth.login_rate_limiter import RateLimitExceededError
+
+    client, _oidc_service, _cache = ctx
+    limiter = MagicMock()
+    limiter.check.side_effect = RateLimitExceededError("k")
+    client.app.dependency_overrides[get_oidc_login_rate_limiter] = lambda: limiter
+    response = client.get(
+        "/api/auth/oidc/corporate/login", params={"redirect_uri": REDIRECT_URI}
+    )
+    assert response.status_code == 429

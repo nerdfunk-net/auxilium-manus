@@ -1,0 +1,234 @@
+"use client";
+
+import type { ChangeEvent } from "react";
+import { useCallback } from "react";
+
+import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
+import type {
+  PluginConfigPanelProps,
+  PluginUIComponent,
+} from "@/components/features/workflows/types/plugin-ui";
+
+import { ConfigureReplaceConfigHelpPanel } from "./help-panel";
+
+const DESTINATION_FILENAME_KEY = "destination_filename";
+const FILE_SYSTEM_KEY = "file_system";
+const TIMEOUT_MINUTES_KEY = "timeout_minutes";
+const JOB_TIMEOUT_SECONDS_KEY = "job_timeout_seconds";
+const DEFAULT_JOB_TIMEOUT_SECONDS = 120;
+const SKIP_IF_NO_PENDING_CHANGES_KEY = "skip_if_no_pending_changes";
+const VERIFY_DIFF_AFTER_REPLACE_KEY = "verify_diff_after_replace";
+const DEFAULT_FILE_SYSTEM = "bootflash:";
+const DEFAULT_TIMEOUT_MINUTES = 2;
+
+function booleanFromConfig(
+  config: Record<string, unknown>,
+  key: string,
+  fallback: boolean,
+): boolean {
+  const raw = config[key];
+  return typeof raw === "boolean" ? raw : fallback;
+}
+
+function stringFromConfig(config: Record<string, unknown>, key: string, fallback = ""): string {
+  const raw = config[key];
+  return typeof raw === "string" ? raw : fallback;
+}
+
+function numberFromConfig(
+  config: Record<string, unknown>,
+  key: string,
+  fallback: number,
+): number {
+  const raw = config[key];
+  return typeof raw === "number" ? raw : fallback;
+}
+
+function ConfigureReplaceConfigConfigPanel({ config, onChange }: PluginConfigPanelProps) {
+  const destinationFilename = stringFromConfig(config, DESTINATION_FILENAME_KEY);
+  const fileSystem = stringFromConfig(config, FILE_SYSTEM_KEY, DEFAULT_FILE_SYSTEM);
+  const timeoutMinutes = numberFromConfig(config, TIMEOUT_MINUTES_KEY, DEFAULT_TIMEOUT_MINUTES);
+  const jobTimeoutSeconds = numberFromConfig(
+    config,
+    JOB_TIMEOUT_SECONDS_KEY,
+    DEFAULT_JOB_TIMEOUT_SECONDS,
+  );
+  const skipIfNoPendingChanges = booleanFromConfig(config, SKIP_IF_NO_PENDING_CHANGES_KEY, true);
+  const verifyDiffAfterReplace = booleanFromConfig(config, VERIFY_DIFF_AFTER_REPLACE_KEY, true);
+
+  const handleDestinationFilenameChange = useCallback(
+    (event: ChangeEvent<HTMLInputElement>) => {
+      onChange({ ...config, [DESTINATION_FILENAME_KEY]: event.target.value });
+    },
+    [config, onChange],
+  );
+
+  const handleFileSystemChange = useCallback(
+    (event: ChangeEvent<HTMLInputElement>) => {
+      onChange({ ...config, [FILE_SYSTEM_KEY]: event.target.value });
+    },
+    [config, onChange],
+  );
+
+  const handleTimeoutMinutesChange = useCallback(
+    (event: ChangeEvent<HTMLInputElement>) => {
+      const value = Number(event.target.value);
+      onChange({
+        ...config,
+        [TIMEOUT_MINUTES_KEY]: Number.isFinite(value) ? value : DEFAULT_TIMEOUT_MINUTES,
+      });
+    },
+    [config, onChange],
+  );
+
+  const handleJobTimeoutSecondsChange = useCallback(
+    (event: ChangeEvent<HTMLInputElement>) => {
+      const value = Number(event.target.value);
+      onChange({
+        ...config,
+        [JOB_TIMEOUT_SECONDS_KEY]: Number.isFinite(value) ? value : DEFAULT_JOB_TIMEOUT_SECONDS,
+      });
+    },
+    [config, onChange],
+  );
+
+  const handleSkipIfNoPendingChangesChange = useCallback(
+    (checked: boolean) => {
+      onChange({ ...config, [SKIP_IF_NO_PENDING_CHANGES_KEY]: checked });
+    },
+    [config, onChange],
+  );
+
+  const handleVerifyDiffAfterReplaceChange = useCallback(
+    (checked: boolean) => {
+      onChange({ ...config, [VERIFY_DIFF_AFTER_REPLACE_KEY]: checked });
+    },
+    [config, onChange],
+  );
+
+  return (
+    <div className="flex flex-col gap-4">
+      <p className="rounded-lg bg-step-surface px-3 py-2 text-xs text-step-surface-foreground">
+        Requires an upstream <span className="font-medium">Add Testbed</span> step for
+        credentials and device connection info.
+      </p>
+
+      <div className="space-y-1.5">
+        <div className="flex items-center gap-1.5">
+          <span className="font-mono text-xs font-medium">{DESTINATION_FILENAME_KEY}</span>
+          <Badge className="h-4 rounded px-1 text-[10px]" variant="secondary">
+            string
+          </Badge>
+        </div>
+        <Input
+          value={destinationFilename}
+          onChange={handleDestinationFilenameChange}
+          placeholder="startup-config-new.cfg"
+          className="h-8 font-mono text-xs"
+        />
+        <p className="text-[11px] text-muted-foreground">
+          Filename of the config file already present on the device.
+        </p>
+      </div>
+
+      <div className="space-y-1.5">
+        <div className="flex items-center gap-1.5">
+          <span className="font-mono text-xs font-medium">{FILE_SYSTEM_KEY}</span>
+          <Badge className="h-4 rounded px-1 text-[10px]" variant="secondary">
+            string
+          </Badge>
+        </div>
+        <Input
+          value={fileSystem}
+          onChange={handleFileSystemChange}
+          placeholder="bootflash:"
+          className="h-8 font-mono text-xs"
+        />
+        <p className="text-[11px] text-muted-foreground">
+          Filesystem on the device where the file lives, e.g. bootflash: or nvram:.
+        </p>
+      </div>
+
+      <div className="space-y-1.5">
+        <div className="flex items-center gap-1.5">
+          <span className="font-mono text-xs font-medium">{TIMEOUT_MINUTES_KEY}</span>
+          <Badge className="h-4 rounded px-1 text-[10px]" variant="secondary">
+            integer
+          </Badge>
+        </div>
+        <Input
+          type="number"
+          min={1}
+          max={120}
+          value={timeoutMinutes}
+          onChange={handleTimeoutMinutesChange}
+          className="h-8 font-mono text-xs"
+        />
+        <p className="text-[11px] text-muted-foreground">
+          Minutes before the device auto-reverts if not confirmed (1-120).
+        </p>
+      </div>
+
+      <div className="space-y-1.5">
+        <div className="flex items-center gap-1.5">
+          <span className="font-mono text-xs font-medium">{JOB_TIMEOUT_SECONDS_KEY}</span>
+          <Badge className="h-4 rounded px-1 text-[10px]" variant="secondary">
+            integer
+          </Badge>
+        </div>
+        <Input
+          type="number"
+          min={30}
+          max={600}
+          value={jobTimeoutSeconds}
+          onChange={handleJobTimeoutSecondsChange}
+          className="h-8 font-mono text-xs"
+        />
+        <p className="text-[11px] text-muted-foreground">
+          Budget per pyATS job (30-600 s). A timeout leaves the outcome unknown: the replace may
+          still have been applied, check the device before re-running.
+        </p>
+      </div>
+
+      <div className="flex items-center justify-between gap-3">
+        <div className="space-y-0.5">
+          <Label className="text-xs font-medium">Skip if no pending changes</Label>
+          <p className="text-[11px] text-muted-foreground">
+            Diff the target file against the running config first (
+            <span className="font-mono">show archive config differences</span>). If
+            there are no differences, skip the replace entirely and report success.
+          </p>
+        </div>
+        <Switch
+          checked={skipIfNoPendingChanges}
+          onCheckedChange={handleSkipIfNoPendingChangesChange}
+          className="data-[state=checked]:bg-step"
+        />
+      </div>
+
+      <div className="flex items-center justify-between gap-3">
+        <div className="space-y-0.5">
+          <Label className="text-xs font-medium">Verify diff after replace</Label>
+          <p className="text-[11px] text-muted-foreground">
+            After <span className="font-mono">configure confirm</span> succeeds, diff
+            again and fail the device if the running config still differs from the
+            target file.
+          </p>
+        </div>
+        <Switch
+          checked={verifyDiffAfterReplace}
+          onCheckedChange={handleVerifyDiffAfterReplaceChange}
+          className="data-[state=checked]:bg-step"
+        />
+      </div>
+    </div>
+  );
+}
+
+export const ConfigureReplaceConfigPlugin: PluginUIComponent = {
+  ConfigPanel: ConfigureReplaceConfigConfigPanel,
+  HelpPanel: ConfigureReplaceConfigHelpPanel,
+};

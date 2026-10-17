@@ -1,0 +1,29 @@
+.git
+.gitignore
+.venv
+.pytest_cache
+.ruff_cache
+.mypy_cache
+**/__pycache__
+**/*.pyc
+**/.coverage*
+**/node_modules
+**/.next
+**/*.tsbuildinfo
+# never ship local environment files (backend/.env, backend/.env.test, frontend/.env.local, docker/.env, ...)
+**/.env
+**/.env.*
+!**/.env.example
+# local runtime data (anchored: a source directory called "data" elsewhere must still be copied)
+/data
+/docker/data
+/docker/logs
+/docker/infisical
+/docker/airgap-artifacts
+# not needed in any image
+/doc
+/screenshots
+/tools
+/backend/tests
+/frontend/**/*.test.ts
+/frontend/**/*.test.tsx

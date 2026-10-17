@@ -1,0 +1,344 @@
+"""Deterministic WorkflowContext merge (see doc/MANUS_BASIS_DATATYPE.md)."""
+
+from __future__ import annotations
+
+import logging
+from typing import Any
+
+from models.workflow_context import (
+    ArtifactRef,
+    CommandResult,
+    DeviceContext,
+    DeviceError,
+    RequestRecord,
+    WorkflowContext,
+    worst_device_status,
+)
+
+logger = logging.getLogger(__name__)
+
+_IDENTITY_SCALAR_FIELDS = (
+    "id",
+    "name",
+    "hostname",
+    "platform",
+    "network_driver",
+    "primary_ip4",
+    "source",
+    "source_id",
+)
+
+
+def merge_workflow_contexts(contexts: list[WorkflowContext]) -> WorkflowContext:
+    """Merge parent contexts when branches converge."""
+    if not contexts:
+        raise ValueError("merge_workflow_contexts requires at least one context")
+
+    base = contexts[0]
+    for other in contexts[1:]:
+        _assert_same_invariants(base, other)
+        base = _merge_two_contexts(base, other)
+
+    return base
+
+
+def flatten_pending_commands(
+    pending_by_node: dict[str, list[str]],
+    node_order: list[str],
+) -> list[str]:
+    """Flatten per-device pending commands in topological node order."""
+    flattened: list[str] = []
+    for node_id in node_order:
+        commands = pending_by_node.get(node_id)
+        if commands:
+            flattened.extend(commands)
+    return flattened
+
+
+def _assert_same_invariants(left: WorkflowContext, right: WorkflowContext) -> None:
+    if left.run_id != right.run_id:
+        raise ValueError("Cannot merge contexts with different run_id")
+    if left.workflow_id != right.workflow_id:
+        raise ValueError("Cannot merge contexts with different workflow_id")
+    if left.schema_version != right.schema_version:
+        raise ValueError("Cannot merge contexts with different schema_version")
+
+
+def _merge_two_contexts(left: WorkflowContext, right: WorkflowContext) -> WorkflowContext:
+    device_ids = set(left.devices) | set(right.devices)
+    merged_devices: dict[str, DeviceContext] = {}
+    for device_id in device_ids:
+        left_device = left.devices.get(device_id)
+        right_device = right.devices.get(device_id)
+        if left_device is None:
+            merged_devices[device_id] = right_device  # type: ignore[assignment]
+        elif right_device is None:
+            merged_devices[device_id] = left_device
+        else:
+            merged_devices[device_id] = merge_device_contexts([left_device, right_device])
+
+    return left.model_copy(
+        update={
+            "devices": merged_devices,
+            "pending_commands": _merge_pending_commands(
+                left.pending_commands,
+                right.pending_commands,
+            ),
+            "metadata": _merge_metadata(left.metadata, right.metadata),
+        }
+    )
+
+
+def merge_device_contexts(devices: list[DeviceContext]) -> DeviceContext:
+    if not devices:
+        raise ValueError("merge_device_contexts requires at least one device")
+    if len(devices) == 1:
+        return devices[0]
+
+    result = devices[0]
+    for other in devices[1:]:
+        result = _merge_two_devices(result, other)
+    return result
+
+
+def _merge_two_devices(left: DeviceContext, right: DeviceContext) -> DeviceContext:
+    updates: dict[str, Any] = {}
+    extra_errors: list[DeviceError] = []
+
+    for field_name in _IDENTITY_SCALAR_FIELDS:
+        left_value = getattr(left, field_name)
+        right_value = getattr(right, field_name)
+        merged_value, conflict_error = _merge_scalar_identity(left_value, right_value)
+        updates[field_name] = merged_value
+        if conflict_error is not None:
+            extra_errors.append(conflict_error)
+
+    updates["attribute_bags"] = _merge_attribute_bags(
+        left.attribute_bags,
+        right.attribute_bags,
+    )
+    updates["parsed"] = _merge_shallow_dicts(left.parsed, right.parsed, label="parsed")
+    updates["running_config_ref"] = _merge_artifact_ref(
+        left.running_config_ref,
+        right.running_config_ref,
+    )
+    updates["startup_config_ref"] = _merge_artifact_ref(
+        left.startup_config_ref,
+        right.startup_config_ref,
+    )
+    updates["command_results"] = _merge_command_results(left.command_results, right.command_results)
+    updates["requests"] = _merge_requests(left.requests, right.requests)
+    updates["capabilities"] = left.capabilities | right.capabilities
+    updates["status"] = worst_device_status(left.status, right.status)
+    updates["errors"] = _merge_errors(left.errors, [*right.errors, *extra_errors])
+
+    return left.model_copy(update=updates)
+
+
+def _merge_scalar_identity(
+    left: Any,
+    right: Any,
+) -> tuple[Any, DeviceError | None]:
+    if left == right or right is None:
+        return left, None
+    if left is None:
+        return right, None
+    return left, DeviceError(
+        node_id="",
+        step_id="merge",
+        code="identity_conflict",
+        message=f"Conflicting identity values during merge: {left!r} vs {right!r}",
+    )
+
+
+def _merge_attribute_bags(
+    left: dict[str, dict[str, Any]],
+    right: dict[str, dict[str, Any]],
+) -> dict[str, dict[str, Any]]:
+    merged = dict(left)
+    for bag_name, bag_value in right.items():
+        if bag_name in merged:
+            merged[bag_name] = _merge_shallow_dicts(
+                merged[bag_name],
+                bag_value,
+                label=f"attribute_bags[{bag_name!r}]",
+            )
+        else:
+            merged[bag_name] = dict(bag_value)
+    return merged
+
+
+def _merge_shallow_dicts(
+    left: dict[str, Any],
+    right: dict[str, Any],
+    *,
+    label: str,
+) -> dict[str, Any]:
+    merged = dict(left)
+    for key, value in right.items():
+        if key in merged and merged[key] != value:
+            raise ValueError(f"Conflict merging {label} key {key!r}")
+        merged[key] = value
+    return merged
+
+
+def _merge_artifact_ref(left: ArtifactRef | None, right: ArtifactRef | None) -> ArtifactRef | None:
+    if left is None:
+        return right
+    if right is None:
+        return left
+    if left != right:
+        raise ValueError("Conflict merging artifact refs with different values")
+    return left
+
+
+def _merge_command_results(
+    left: dict[str, list[CommandResult]],
+    right: dict[str, list[CommandResult]],
+) -> dict[str, list[CommandResult]]:
+    merged = dict(left)
+    for node_id, results in right.items():
+        if node_id in merged and merged[node_id] != results:
+            raise ValueError(f"Conflict merging command_results for node_id {node_id!r}")
+        merged[node_id] = results
+    return merged
+
+
+def _merge_requests(
+    left: dict[str, list[RequestRecord]],
+    right: dict[str, list[RequestRecord]],
+) -> dict[str, list[RequestRecord]]:
+    merged = dict(left)
+    for node_id, records in right.items():
+        if node_id in merged and merged[node_id] != records:
+            raise ValueError(f"Conflict merging requests for node_id {node_id!r}")
+        merged[node_id] = records
+    return merged
+
+
+def _merge_errors(left: list[DeviceError], right: list[DeviceError]) -> list[DeviceError]:
+    seen = {(error.node_id, error.step_id) for error in left}
+    merged = list(left)
+    for error in right:
+        key = (error.node_id, error.step_id)
+        if key in seen:
+            continue
+        merged.append(error)
+        seen.add(key)
+    return merged
+
+
+def _merge_pending_commands(
+    left: dict[str, dict[str, list[str]]],
+    right: dict[str, dict[str, list[str]]],
+) -> dict[str, dict[str, list[str]]]:
+    merged: dict[str, dict[str, list[str]]] = {}
+    for device_id in set(left) | set(right):
+        left_per_device = left.get(device_id, {})
+        right_per_device = right.get(device_id, {})
+        merged[device_id] = _merge_pending_commands_for_device(left_per_device, right_per_device)
+    return merged
+
+
+def _merge_pending_commands_for_device(
+    left: dict[str, list[str]],
+    right: dict[str, list[str]],
+) -> dict[str, list[str]]:
+    merged = dict(left)
+    for node_id, commands in right.items():
+        if node_id in merged and merged[node_id] != commands:
+            raise ValueError(f"Conflict merging pending_commands for node_id {node_id!r}")
+        merged[node_id] = commands
+    return merged
+
+
+def merge_fan_out_contexts(
+    contexts: list[WorkflowContext], *, own_node_id: str | None = None
+) -> WorkflowContext:
+    """Merge child-workflow contexts produced by fan-out execution.
+
+    Unlike ``merge_workflow_contexts`` (branch convergence), every child ran the
+    same downstream steps with disjoint device sets.  Rules:
+    - Devices: plain union (no overlap expected).
+    - Metadata: lists are concatenated; per-child counters (``*_count``, ``*.total``,
+      ``*_total``, ``*_counts`` dicts) are summed; other collisions keep the first value.
+      ``own_node_id`` names the node whose result is being merged: its own counters are
+      per-child by construction and are summed even when two children happen to agree.
+    - Command results, errors, capabilities: union.
+    """
+    if not contexts:
+        raise ValueError("merge_fan_out_contexts requires at least one context")
+
+    base = contexts[0]
+    for other in contexts[1:]:
+        _assert_same_invariants(base, other)
+        base = _fan_in_two_contexts(base, other, own_node_id=own_node_id)
+    return base
+
+
+def _fan_in_two_contexts(
+    left: WorkflowContext, right: WorkflowContext, *, own_node_id: str | None = None
+) -> WorkflowContext:
+    # Devices are disjoint in fan-out — plain union
+    merged_devices = {**left.devices, **right.devices}
+    return left.model_copy(
+        update={
+            "devices": merged_devices,
+            "pending_commands": _merge_pending_commands(
+                left.pending_commands,
+                right.pending_commands,
+            ),
+            "metadata": _merge_metadata_fan_out(
+                left.metadata, right.metadata, own_node_id=own_node_id
+            ),
+        }
+    )
+
+
+_SUMMED_SUFFIXES = ("_count", ".total", "_total")
+
+
+def _is_count(value: Any) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
+def _is_count_dict(value: Any) -> bool:
+    return isinstance(value, dict) and all(_is_count(item) for item in value.values())
+
+
+def _merge_metadata_fan_out(
+    left: dict[str, Any], right: dict[str, Any], *, own_node_id: str | None = None
+) -> dict[str, Any]:
+    """Fan-out metadata merge: concatenate lists, sum per-child counters, keep the first value
+    on other scalar conflicts."""
+    merged = dict(left)
+    for key, value in right.items():
+        if key not in merged:
+            merged[key] = value
+            continue
+        current = merged[key]
+        own = own_node_id is not None and key.startswith(f"{own_node_id}.")
+        counter = key.endswith(_SUMMED_SUFFIXES) and _is_count(current) and _is_count(value)
+        counts = key.endswith("_counts") and _is_count_dict(current) and _is_count_dict(value)
+        if counter and (own or current != value):
+            merged[key] = current + value  # per-child counters add up
+        elif counts and (own or current != value):
+            merged[key] = {
+                name: current.get(name, 0) + value.get(name, 0) for name in {*current, *value}
+            }
+        elif current == value:
+            continue  # identical (shared upstream metadata): nothing to add
+        elif isinstance(current, list) and isinstance(value, list):
+            merged[key] = current + value
+        else:
+            logger.debug("fan-in metadata collision on %r: keeping the first child's value", key)
+    return merged
+
+
+def _merge_metadata(left: dict[str, Any], right: dict[str, Any]) -> dict[str, Any]:
+    merged = dict(left)
+    for key, value in right.items():
+        if key in merged and merged[key] != value:
+            raise ValueError(f"Conflict merging metadata key {key!r}")
+        merged[key] = value
+    return merged

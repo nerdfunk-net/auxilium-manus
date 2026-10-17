@@ -1,0 +1,518 @@
+"use client";
+
+import { Search } from "lucide-react";
+import { useCallback, useState } from "react";
+
+import { Checkbox } from "@/components/ui/checkbox";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+
+import { AttributePathPicker } from "@/components/features/workflow-steps/shared/attribute-path-picker";
+import type {
+  PersistedCanvasNode,
+  WorkflowCanvasEdge,
+} from "@/components/features/workflows/types/workflow-canvas";
+
+import {
+  createAttributeUpdate,
+  type AttributeUpdate,
+  type RegexFlags,
+  type UpdateAttributeMode,
+} from "./update-attribute-config";
+
+function AttributePathHelp() {
+  return (
+    <p className="text-[11px] leading-4 text-muted-foreground">
+      Use <span className="font-mono">device.name</span> for core device fields,{" "}
+      <span className="font-mono">nautobot.location.name</span> for Nautobot attributes, or{" "}
+      <span className="font-mono">custom.field</span> for user-defined attribute bags. Index into
+      a list with <span className="font-mono">field[key=value]</span> (matches a field) or{" "}
+      <span className="font-mono">field[0]</span> (a literal position, e.g. a single-row Run
+      Command output). The text inside the brackets may be a{" "}
+      <span className="font-mono">{"{placeholder}"}</span>, e.g.{" "}
+      <span className="font-mono">{"serial[{virtual_chassis.stack_index}]"}</span>.
+    </p>
+  );
+}
+
+function RegexFlagsFields({
+  flags,
+  fieldId,
+  onChange,
+}: {
+  flags: RegexFlags;
+  fieldId: string;
+  onChange: (patch: Partial<RegexFlags>) => void;
+}) {
+  const items: Array<{ key: keyof RegexFlags; label: string; description: string }> = [
+    {
+      key: "case_insensitive",
+      label: "case_insensitive",
+      description: "Ignore letter case when matching.",
+    },
+    {
+      key: "multiline",
+      label: "multiline",
+      description: "Treat start/end anchors per line.",
+    },
+    {
+      key: "dotall",
+      label: "dotall",
+      description: "Let . match newline characters.",
+    },
+  ];
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center gap-1.5">
+        <span className="font-mono text-xs font-medium">regex_flags</span>
+        <Badge className="h-4 rounded px-1 text-[10px]" variant="secondary">
+          object
+        </Badge>
+      </div>
+      <div className="space-y-2 rounded-lg border p-3">
+        {items.map((item) => (
+          <div key={item.key} className="flex items-start gap-2">
+            <Checkbox
+              id={`${item.key}-${fieldId}`}
+              checked={flags[item.key]}
+              onCheckedChange={(checked) => onChange({ [item.key]: checked === true })}
+              className="mt-0.5"
+            />
+            <div className="space-y-0.5">
+              <Label htmlFor={`${item.key}-${fieldId}`} className="font-mono text-xs font-medium">
+                {item.label}
+              </Label>
+              <p className="text-[11px] text-muted-foreground">{item.description}</p>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+export interface AttributeUpdateEditorProps {
+  value: AttributeUpdate;
+  onChange: (value: AttributeUpdate) => void;
+  fieldId?: string;
+  /** Renders a "Browse attributes" icon button next to destination_path when provided. */
+  onBrowseDestination?: () => void;
+  /** Renders a "Browse attributes" icon button next to source_path when provided. */
+  onBrowseSource?: () => void;
+  /** Renders a "Browse attributes" icon button next to template that inserts a placeholder. */
+  onBrowseTemplate?: () => void;
+}
+
+export function AttributeUpdateEditor({
+  value,
+  onChange,
+  fieldId = "attribute-editor",
+  onBrowseDestination,
+  onBrowseSource,
+  onBrowseTemplate,
+}: AttributeUpdateEditorProps) {
+  const handleModeChange = useCallback(
+    (mode: UpdateAttributeMode) => {
+      onChange({ ...value, mode });
+    },
+    [onChange, value],
+  );
+
+  const handleRegexFlagsChange = useCallback(
+    (patch: Partial<RegexFlags>) => {
+      onChange({
+        ...value,
+        regex_flags: {
+          ...value.regex_flags,
+          ...patch,
+        },
+      });
+    },
+    [onChange, value],
+  );
+
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="space-y-1.5">
+        <div className="flex items-center gap-1.5">
+          <span className="font-mono text-xs font-medium">mode</span>
+          <Badge className="h-4 rounded px-1 text-[10px]" variant="secondary">
+            string
+          </Badge>
+        </div>
+        <Select
+          value={value.mode}
+          onValueChange={(next) => handleModeChange(next as UpdateAttributeMode)}
+        >
+          <SelectTrigger className="h-8 text-xs">
+            <SelectValue placeholder="Select mode" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="fixed">Fixed value</SelectItem>
+            <SelectItem value="regex">Regular expression</SelectItem>
+            <SelectItem value="template">Template</SelectItem>
+          </SelectContent>
+        </Select>
+        <p className="text-[11px] leading-4 text-muted-foreground">
+          Fixed value writes a literal to the destination path. Regular expression reads a
+          source attribute, matches a pattern, and writes an expanded destination value. Template
+          combines any number of attributes and literal text into one value.
+        </p>
+      </div>
+
+      <div className="space-y-1.5">
+        <div className="flex items-center gap-1.5">
+          <span className="font-mono text-xs font-medium">destination_path</span>
+          <Badge className="h-4 rounded px-1 text-[10px]" variant="secondary">
+            string
+          </Badge>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <Input
+            value={value.destination_path}
+            onChange={(event) =>
+              onChange({ ...value, destination_path: event.target.value })
+            }
+            placeholder="custom.location"
+            className="h-8 font-mono text-xs"
+          />
+          {onBrowseDestination ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="icon"
+              className="size-8 shrink-0"
+              onClick={onBrowseDestination}
+              title="Browse attributes"
+            >
+              <Search className="size-3.5" />
+            </Button>
+          ) : null}
+        </div>
+        <AttributePathHelp />
+      </div>
+
+      {value.mode === "fixed" ? (
+        <div className="space-y-1.5">
+          <div className="flex items-center gap-1.5">
+            <span className="font-mono text-xs font-medium">fixed_value</span>
+            <Badge className="h-4 rounded px-1 text-[10px]" variant="secondary">
+              string
+            </Badge>
+          </div>
+          <Input
+            value={value.fixed_value}
+            onChange={(event) => onChange({ ...value, fixed_value: event.target.value })}
+            placeholder="office-a"
+            className="h-8 font-mono text-xs"
+          />
+          <p className="text-[11px] leading-4 text-muted-foreground">
+            The value is written to the destination path, creating or overwriting the attribute
+            in the workflow context.
+          </p>
+        </div>
+      ) : value.mode === "template" ? (
+        <div className="space-y-1.5">
+          <div className="flex items-center gap-1.5">
+            <span className="font-mono text-xs font-medium">template</span>
+            <Badge className="h-4 rounded px-1 text-[10px]" variant="secondary">
+              string
+            </Badge>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <Input
+              value={value.template}
+              onChange={(event) => onChange({ ...value, template: event.target.value })}
+              placeholder="{device.name}.{parsed.cisco_config.running.identity.domain_name}"
+              className="h-8 font-mono text-xs"
+            />
+            {onBrowseTemplate ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                className="size-8 shrink-0"
+                onClick={onBrowseTemplate}
+                title="Insert attribute placeholder"
+              >
+                <Search className="size-3.5" />
+              </Button>
+            ) : null}
+          </div>
+          <p className="text-[11px] leading-4 text-muted-foreground">
+            Wrap an attribute path in braces, e.g.{" "}
+            <span className="font-mono">{"{device.name}"}</span>, to insert its value. Everything
+            else is written literally. The update is skipped for a device when any placeholder
+            cannot be resolved.
+          </p>
+        </div>
+      ) : (
+        <>
+          <div className="space-y-1.5">
+            <div className="flex items-center gap-1.5">
+              <span className="font-mono text-xs font-medium">source_path</span>
+              <Badge className="h-4 rounded px-1 text-[10px]" variant="secondary">
+                string
+              </Badge>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <Input
+                value={value.source_path}
+                onChange={(event) => onChange({ ...value, source_path: event.target.value })}
+                placeholder="device.name"
+                className="h-8 font-mono text-xs"
+              />
+              {onBrowseSource ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  className="size-8 shrink-0"
+                  onClick={onBrowseSource}
+                  title="Browse attributes"
+                >
+                  <Search className="size-3.5" />
+                </Button>
+              ) : null}
+            </div>
+            <AttributePathHelp />
+          </div>
+
+          <div className="space-y-1.5">
+            <div className="flex items-center gap-1.5">
+              <span className="font-mono text-xs font-medium">pattern</span>
+              <Badge className="h-4 rounded px-1 text-[10px]" variant="secondary">
+                string
+              </Badge>
+            </div>
+            <Input
+              value={value.pattern}
+              onChange={(event) => onChange({ ...value, pattern: event.target.value })}
+              placeholder={String.raw`^([^-]+)-`}
+              className="h-8 font-mono text-xs"
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <div className="flex items-center gap-1.5">
+              <span className="font-mono text-xs font-medium">destination_template</span>
+              <Badge className="h-4 rounded px-1 text-[10px]" variant="secondary">
+                string
+              </Badge>
+            </div>
+            <Input
+              value={value.destination_template}
+              onChange={(event) =>
+                onChange({ ...value, destination_template: event.target.value })
+              }
+              placeholder={String.raw`DC-\1`}
+              className="h-8 font-mono text-xs"
+            />
+            <p className="text-[11px] leading-4 text-muted-foreground">
+              Use Python backrefs such as <span className="font-mono">{"\\1"}</span> or{" "}
+              <span className="font-mono">{"\\g<location>"}</span> with named groups.
+            </p>
+          </div>
+
+          <RegexFlagsFields
+            flags={value.regex_flags}
+            fieldId={fieldId}
+            onChange={handleRegexFlagsChange}
+          />
+        </>
+      )}
+    </div>
+  );
+}
+
+function validateAttributeDraft(draft: AttributeUpdate): string | null {
+  if (!draft.destination_path.trim()) {
+    return "destination_path is required.";
+  }
+  if (draft.mode === "fixed") {
+    if (!draft.fixed_value.trim()) {
+      return "fixed_value is required in fixed mode.";
+    }
+    return null;
+  }
+  if (draft.mode === "template") {
+    return draft.template.trim() ? null : "template is required in template mode.";
+  }
+  if (!draft.source_path.trim()) {
+    return "source_path is required in regex mode.";
+  }
+  if (!draft.pattern.trim()) {
+    return "pattern is required in regex mode.";
+  }
+  if (!draft.destination_template.trim()) {
+    return "destination_template is required in regex mode.";
+  }
+  return null;
+}
+
+interface AttributeUpdateDialogProps {
+  open: boolean;
+  mode: "add" | "edit";
+  initialValue: AttributeUpdate | null;
+  onClose: () => void;
+  onSave: (value: AttributeUpdate) => void;
+  nodeId: string;
+  workflowNodes: PersistedCanvasNode[];
+  workflowEdges: WorkflowCanvasEdge[];
+}
+
+function AttributeUpdateDialogForm({
+  mode,
+  initialValue,
+  onClose,
+  onSave,
+  nodeId,
+  workflowNodes,
+  workflowEdges,
+}: Omit<AttributeUpdateDialogProps, "open">) {
+  const [draft, setDraft] = useState<AttributeUpdate>(
+    () => initialValue ?? createAttributeUpdate(),
+  );
+  const [error, setError] = useState<string | null>(null);
+  const [pickerTarget, setPickerTarget] = useState<"destination" | "source" | "template" | null>(null);
+
+  const handleSave = useCallback(() => {
+    const validationError = validateAttributeDraft(draft);
+    if (validationError) {
+      setError(validationError);
+      return;
+    }
+    onSave({
+      ...draft,
+      destination_path: draft.destination_path.trim(),
+      source_path: draft.source_path.trim(),
+      pattern: draft.pattern,
+      destination_template: draft.destination_template,
+      template: draft.template,
+      fixed_value: draft.fixed_value,
+    });
+    setError(null);
+  }, [draft, onSave]);
+
+  return (
+    <>
+      <DialogContent className="flex max-h-[85vh] flex-col gap-0 overflow-hidden p-0 sm:max-w-lg">
+        <DialogHeader className="shrink-0 border-b step-header px-4 py-3">
+          <DialogTitle className="text-base text-step-header-foreground">
+            {mode === "add" ? "Add attribute update" : "Edit attribute update"}
+          </DialogTitle>
+          <DialogDescription className="sr-only">
+            Configure mode, destination path, and value or regex transform for this attribute
+            update.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="overflow-y-auto bg-muted p-4">
+          <AttributeUpdateEditor
+            value={draft}
+            onChange={(next) => {
+              setDraft(next);
+              setError(null);
+            }}
+            fieldId="attribute-dialog"
+            onBrowseDestination={() => setPickerTarget("destination")}
+            onBrowseSource={draft.mode === "regex" ? () => setPickerTarget("source") : undefined}
+            onBrowseTemplate={
+              draft.mode === "template" ? () => setPickerTarget("template") : undefined
+            }
+          />
+          {error ? (
+            <p className="mt-3 rounded-lg border border-warning-border bg-warning px-3 py-2 text-xs text-warning-foreground">
+              {error}
+            </p>
+          ) : null}
+        </div>
+
+        <DialogFooter className="shrink-0 border-t bg-card px-4 py-3">
+          <Button type="button" variant="outline" size="sm" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            className="bg-step text-step-foreground hover:bg-step-hover"
+            onClick={handleSave}
+          >
+            {mode === "add" ? "Add" : "Save"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+
+      <AttributePathPicker
+        open={pickerTarget !== null}
+        onClose={() => setPickerTarget(null)}
+        onSelect={(path) => {
+          setDraft((current) => ({
+            ...current,
+            ...(pickerTarget === "source"
+              ? { source_path: path }
+              : pickerTarget === "template"
+                ? { template: `${current.template}{${path}}` }
+                : { destination_path: path }),
+          }));
+          setError(null);
+        }}
+        nodeId={nodeId}
+        workflowNodes={workflowNodes}
+        workflowEdges={workflowEdges}
+      />
+    </>
+  );
+}
+
+export function AttributeUpdateDialog({
+  open,
+  mode,
+  initialValue,
+  onClose,
+  onSave,
+  nodeId,
+  workflowNodes,
+  workflowEdges,
+}: AttributeUpdateDialogProps) {
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(isOpen) => {
+        if (!isOpen) {
+          onClose();
+        }
+      }}
+    >
+      {open ? (
+        <AttributeUpdateDialogForm
+          mode={mode}
+          initialValue={initialValue}
+          onClose={onClose}
+          onSave={onSave}
+          nodeId={nodeId}
+          workflowNodes={workflowNodes}
+          workflowEdges={workflowEdges}
+        />
+      ) : null}
+    </Dialog>
+  );
+}

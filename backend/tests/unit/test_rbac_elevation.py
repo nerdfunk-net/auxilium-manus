@@ -1,0 +1,527 @@
+"""RBAC anti-elevation: system-role mutations require the actor to hold the
+admin role (H3). See services/auth/rbac_service.py::RBACService._require_admin_actor."""
+
+from __future__ import annotations
+
+import unittest
+
+from sqlalchemy import create_engine
+from sqlalchemy.orm import Session, sessionmaker
+
+from core.domain_exceptions import AccessDeniedError
+from core.models.rbac import Permission, Role, RolePermission, UserPermission, UserRole
+from core.models.users import User
+from services.auth.rbac_service import RBACService
+
+
+def _make_session() -> Session:
+    engine = create_engine("sqlite:///:memory:")
+    User.metadata.create_all(
+        engine,
+        tables=[
+            User.__table__,
+            Role.__table__,
+            Permission.__table__,
+            RolePermission.__table__,
+            UserRole.__table__,
+            UserPermission.__table__,
+        ],
+    )
+    return sessionmaker(bind=engine)()
+
+
+def _make_user(db: Session, username: str) -> User:
+    user = User(username=username, password_hash="hash", is_active=True)
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    return user
+
+
+class RBACElevationTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.db = _make_session()
+        self.addCleanup(self.db.get_bind().dispose)
+        self.addCleanup(self.db.close)
+        self.service = RBACService(self.db)
+        self.admin_role = self.service.create_role("admin", is_system=True)
+        self.viewer_role = self.service.create_role("viewer", is_system=True)
+        self.admin_user = _make_user(self.db, "admin_user")
+        self.non_admin_user = _make_user(self.db, "non_admin_user")
+        self.target_user = _make_user(self.db, "target_user")
+        self.service.assign_role_to_user(self.admin_user.id, self.admin_role.id)
+
+    def test_non_admin_actor_cannot_assign_system_role(self) -> None:
+        with self.assertRaises(AccessDeniedError):
+            self.service.assign_role_to_user(
+                self.target_user.id, self.admin_role.id, actor_user_id=self.non_admin_user.id
+            )
+
+    def test_admin_actor_can_assign_system_role(self) -> None:
+        self.service.assign_role_to_user(
+            self.target_user.id, self.admin_role.id, actor_user_id=self.admin_user.id
+        )
+        self.assertTrue(self.service.has_role(self.target_user.id, "admin"))
+
+    def test_non_admin_actor_cannot_assign_permission_to_system_role(self) -> None:
+        permission = self.service.create_permission("workflows", "write")
+        with self.assertRaises(AccessDeniedError):
+            self.service.assign_permission_to_role(
+                self.admin_role.id, permission.id, actor_user_id=self.non_admin_user.id
+            )
+
+    def test_non_admin_actor_cannot_remove_permission_from_system_role(self) -> None:
+        permission = self.service.create_permission("workflows", "write")
+        self.service.assign_permission_to_role(self.admin_role.id, permission.id)
+        with self.assertRaises(AccessDeniedError):
+            self.service.remove_permission_from_role(
+                self.admin_role.id, permission.id, actor_user_id=self.non_admin_user.id
+            )
+
+    def test_assign_role_to_user_by_name_without_actor_still_succeeds(self) -> None:
+        self.service.assign_role_to_user_by_name(self.target_user.id, "admin")
+        self.assertTrue(self.service.has_role(self.target_user.id, "admin"))
+
+    def test_non_admin_actor_cannot_create_system_role(self) -> None:
+        with self.assertRaises(AccessDeniedError):
+            self.service.create_role(
+                "new-system-role", is_system=True, actor_user_id=self.non_admin_user.id
+            )
+
+    def test_admin_actor_can_create_system_role(self) -> None:
+        role = self.service.create_role(
+            "new-system-role", is_system=True, actor_user_id=self.admin_user.id
+        )
+        self.assertTrue(role.is_system)
+
+    def test_non_admin_actor_can_assign_non_system_role(self) -> None:
+        custom_role = self.service.create_role("custom")
+        self.service.assign_role_to_user(
+            self.target_user.id, custom_role.id, actor_user_id=self.non_admin_user.id
+        )
+        self.assertTrue(self.service.has_role(self.target_user.id, "custom"))
+
+
+class RBACGrantPolicyTests(unittest.TestCase):
+    """P1-P7 policy tests (doc/plans/FABE_BACKEND_ISSUES.md §2.7)."""
+
+    def setUp(self) -> None:
+        self.db = _make_session()
+        self.addCleanup(self.db.get_bind().dispose)
+        self.addCleanup(self.db.close)
+        self.service = RBACService(self.db)
+        self.admin_role = self.service.create_role("admin", is_system=True)
+        self.admin_user = _make_user(self.db, "admin_user")
+        self.service.assign_role_to_user(self.admin_user.id, self.admin_role.id)
+        self.other_admin_user = _make_user(self.db, "other_admin_user")
+        self.service.assign_role_to_user(self.other_admin_user.id, self.admin_role.id)
+        self.non_admin_user = _make_user(self.db, "non_admin_user")
+        self.target_user = _make_user(self.db, "target_user")
+        self.users_write = self.service.create_permission("users", "write")
+        self.workflows_write = self.service.create_permission("workflows", "write")
+
+    def test_users_write_holder_cannot_override_protected_permission_for_self(self) -> None:
+        # non_admin_user holds users:write (a protected resource) and tries to grant
+        # it to themself — blocked by P1 (self-target) before P3 is even reached.
+        self.service.assign_permission_to_user(self.non_admin_user.id, self.users_write.id)
+        with self.assertRaises(AccessDeniedError):
+            self.service.assign_permission_to_user(
+                self.non_admin_user.id,
+                self.users_write.id,
+                actor_user_id=self.non_admin_user.id,
+            )
+
+    def test_users_write_holder_cannot_override_permission_they_do_not_hold(self) -> None:
+        self.service.assign_permission_to_user(self.non_admin_user.id, self.users_write.id)
+        with self.assertRaises(AccessDeniedError):
+            self.service.assign_permission_to_user(
+                self.target_user.id,
+                self.workflows_write.id,
+                actor_user_id=self.non_admin_user.id,
+            )
+
+    def test_users_write_holder_cannot_touch_admin_user(self) -> None:
+        self.service.assign_permission_to_user(self.non_admin_user.id, self.workflows_write.id)
+        with self.assertRaises(AccessDeniedError):
+            self.service.assign_permission_to_user(
+                self.other_admin_user.id,
+                self.workflows_write.id,
+                actor_user_id=self.non_admin_user.id,
+            )
+
+    def test_non_admin_cannot_override_secret_manager_permission_via_override(self) -> None:
+        # SM2/P3: secret_manager.* is protected -- even a holder of the
+        # permission cannot grant it to someone else without being admin.
+        secret_manager_write = self.service.create_permission(
+            "secret_manager.connections", "write"
+        )
+        self.service.assign_permission_to_user(
+            self.non_admin_user.id, secret_manager_write.id
+        )
+        with self.assertRaises(AccessDeniedError):
+            self.service.assign_permission_to_user(
+                self.target_user.id,
+                secret_manager_write.id,
+                actor_user_id=self.non_admin_user.id,
+            )
+
+    def test_non_admin_cannot_grant_secret_manager_permission_via_custom_role(self) -> None:
+        secret_manager_write = self.service.create_permission(
+            "secret_manager.connections", "write"
+        )
+        self.service.assign_permission_to_user(
+            self.non_admin_user.id, secret_manager_write.id
+        )
+        custom_role = self.service.create_role("custom")
+        with self.assertRaises(AccessDeniedError):
+            self.service.assign_permission_to_role(
+                custom_role.id,
+                secret_manager_write.id,
+                actor_user_id=self.non_admin_user.id,
+            )
+
+    def test_admin_can_override_secret_manager_permission(self) -> None:
+        secret_manager_write = self.service.create_permission(
+            "secret_manager.connections", "write"
+        )
+        self.service.assign_permission_to_user(
+            self.target_user.id,
+            secret_manager_write.id,
+            actor_user_id=self.admin_user.id,
+        )
+        self.assertTrue(
+            self.service.has_permission(
+                self.target_user.id, "secret_manager.connections", "write"
+            )
+        )
+
+    def test_non_admin_cannot_remove_system_role_from_user(self) -> None:
+        viewer_role = self.service.create_role("viewer", is_system=True)
+        self.service.assign_role_to_user(self.target_user.id, viewer_role.id)
+        with self.assertRaises(AccessDeniedError):
+            self.service.remove_role_from_user(
+                self.target_user.id, viewer_role.id, actor_user_id=self.non_admin_user.id
+            )
+
+    def test_last_admin_cannot_lose_admin_role(self) -> None:
+        # P6 is an invariant, not an actor-gated rule: an actor able to legitimately
+        # touch an admin target is by definition also an admin, so removing one of
+        # (at least) two admins never trips it — it only fires once exactly one
+        # admin remains, which callers reach via the actor_user_id=None (internal)
+        # path, same as seed/lifespan callers.
+        self.service.remove_role_from_user(
+            self.other_admin_user.id, self.admin_role.id, actor_user_id=None
+        )
+        with self.assertRaises(AccessDeniedError):
+            self.service.remove_role_from_user(
+                self.admin_user.id, self.admin_role.id, actor_user_id=None
+            )
+
+    def test_inactive_admin_does_not_count_toward_last_admin(self) -> None:
+        # R2: other_admin_user is deactivated, so admin_user is effectively the
+        # last *active* admin and cannot be removed even though the admin role
+        # still technically has two members.
+        self.other_admin_user.is_active = False
+        self.db.commit()
+        with self.assertRaises(AccessDeniedError):
+            self.service.remove_role_from_user(
+                self.admin_user.id, self.admin_role.id, actor_user_id=None
+            )
+
+    def test_removing_an_inactive_admin_is_allowed_when_an_active_one_remains(self) -> None:
+        self.other_admin_user.is_active = False
+        self.db.commit()
+        # Removing the role from the already-inactive admin is fine: an active
+        # admin (admin_user) remains.
+        self.service.remove_role_from_user(
+            self.other_admin_user.id, self.admin_role.id, actor_user_id=None
+        )
+
+    def test_non_admin_cannot_add_unheld_permission_to_custom_role(self) -> None:
+        custom_role = self.service.create_role("custom")
+        with self.assertRaises(AccessDeniedError):
+            self.service.assign_permission_to_role(
+                custom_role.id, self.workflows_write.id, actor_user_id=self.non_admin_user.id
+            )
+
+    def test_non_admin_cannot_assign_custom_role_containing_unheld_permission(self) -> None:
+        custom_role = self.service.create_role("custom")
+        self.service.assign_permission_to_role(custom_role.id, self.workflows_write.id)
+        with self.assertRaises(AccessDeniedError):
+            self.service.assign_role_to_user(
+                self.target_user.id, custom_role.id, actor_user_id=self.non_admin_user.id
+            )
+
+    def test_system_role_cannot_be_renamed(self) -> None:
+        with self.assertRaises(AccessDeniedError):
+            self.service.update_role(self.admin_role.id, name="root")
+
+    def test_system_role_description_can_still_be_updated(self) -> None:
+        role = self.service.update_role(self.admin_role.id, description="Full access")
+        self.assertEqual(role.description, "Full access")
+
+    def test_actor_none_bypasses_policy(self) -> None:
+        # Internal callers (seed, lifespan) pass actor_user_id=None.
+        custom_role = self.service.create_role("internal-role")
+        self.service.assign_permission_to_role(custom_role.id, self.workflows_write.id)
+        self.service.assign_role_to_user(self.target_user.id, custom_role.id)
+        self.service.assign_permission_to_user(self.target_user.id, self.users_write.id)
+        self.assertTrue(self.service.has_role(self.target_user.id, "internal-role"))
+
+    def test_admin_can_do_all_of_the_above(self) -> None:
+        custom_role = self.service.create_role("custom")
+        self.service.assign_permission_to_role(
+            custom_role.id, self.workflows_write.id, actor_user_id=self.admin_user.id
+        )
+        self.service.assign_role_to_user(
+            self.target_user.id, custom_role.id, actor_user_id=self.admin_user.id
+        )
+        self.service.assign_permission_to_user(
+            self.target_user.id, self.users_write.id, actor_user_id=self.admin_user.id
+        )
+        self.service.update_role(custom_role.id, name="custom-renamed")
+        self.service.remove_role_from_user(
+            self.target_user.id, custom_role.id, actor_user_id=self.admin_user.id
+        )
+        self.assertFalse(self.service.has_role(self.target_user.id, "custom-renamed"))
+
+
+class UserServiceSelfProtectionTests(unittest.TestCase):
+    """P1/P4/P6 for delete/deactivate (doc/plans/FABE_BACKEND_ISSUES.md §2.4)."""
+
+    def setUp(self) -> None:
+        self.db = _make_session()
+        self.addCleanup(self.db.get_bind().dispose)
+        self.addCleanup(self.db.close)
+        self.rbac = RBACService(self.db)
+        self.admin_role = self.rbac.create_role("admin", is_system=True)
+        self.admin_user = _make_user(self.db, "admin_user")
+        self.rbac.assign_role_to_user(self.admin_user.id, self.admin_role.id)
+
+    def _user_service(self):
+        from services.users.user_service import UserService
+
+        return UserService(self.db)
+
+    def test_actor_cannot_delete_self(self) -> None:
+        service = self._user_service()
+        with self.assertRaises(AccessDeniedError):
+            service.delete_user(self.admin_user.id, actor_user_id=self.admin_user.id)
+
+    def test_actor_cannot_deactivate_self(self) -> None:
+        service = self._user_service()
+        with self.assertRaises(AccessDeniedError):
+            service.set_active(self.admin_user.id, False, actor_user_id=self.admin_user.id)
+
+    def test_cannot_remove_last_admin(self) -> None:
+        # See the comment on test_last_admin_cannot_lose_admin_role: only an
+        # actor_user_id=None (internal) caller can reach a sole remaining admin
+        # without first tripping P1 (self) or P4 (non-admin touching an admin).
+        service = self._user_service()
+        with self.assertRaises(AccessDeniedError):
+            service.delete_user(self.admin_user.id, actor_user_id=None)
+
+    def test_cannot_deactivate_last_active_admin(self) -> None:
+        # R2: a second admin exists but is already inactive, so admin_user is
+        # the last *active* admin and cannot be deactivated.
+        inactive_admin = _make_user(self.db, "inactive_admin")
+        self.rbac.assign_role_to_user(inactive_admin.id, self.admin_role.id)
+        inactive_admin.is_active = False
+        self.db.commit()
+        service = self._user_service()
+        with self.assertRaises(AccessDeniedError):
+            service.set_active(self.admin_user.id, False, actor_user_id=None)
+
+
+class UserServiceTakeoverPolicyTests(unittest.TestCase):
+    """R1/P8: password reset and username change are bounded by the target's
+    effective rights (services/users/user_service.py::update_user,
+    services/auth/rbac_service.py::assert_may_take_over)."""
+
+    def setUp(self) -> None:
+        self.db = _make_session()
+        self.addCleanup(self.db.get_bind().dispose)
+        self.addCleanup(self.db.close)
+        self.rbac = RBACService(self.db)
+        self.admin_role = self.rbac.create_role("admin", is_system=True)
+        self.admin_user = _make_user(self.db, "admin_user")
+        self.rbac.assign_role_to_user(self.admin_user.id, self.admin_role.id)
+
+        self.non_admin = _make_user(self.db, "non_admin_user")
+        self.target = _make_user(self.db, "target_user")
+
+        self.users_write = self.rbac.create_permission("users", "write")
+        self.credentials_reveal = self.rbac.create_permission("credentials", "reveal")
+        self.workflows_read = self.rbac.create_permission("workflows", "read")
+
+        self.rbac.assign_permission_to_user(self.non_admin.id, self.users_write.id)
+        self.rbac.assign_permission_to_user(self.non_admin.id, self.workflows_read.id)
+        self.rbac.assign_permission_to_user(self.target.id, self.credentials_reveal.id)
+        self.rbac.assign_permission_to_user(self.target.id, self.workflows_read.id)
+
+    def _user_service(self):
+        from services.users.user_service import UserService
+
+        return UserService(self.db)
+
+    def test_users_write_holder_cannot_reset_password_of_user_with_unheld_permission(
+        self,
+    ) -> None:
+        service = self._user_service()
+        with self.assertRaises(AccessDeniedError):
+            service.update_user(
+                self.target.id,
+                password="a-valid-password-123",
+                actor_user_id=self.non_admin.id,
+            )
+        with self.assertRaises(AccessDeniedError):
+            service.update_user(
+                self.target.id,
+                username="renamed",
+                actor_user_id=self.non_admin.id,
+            )
+
+    def test_users_write_holder_can_reset_password_when_target_rights_are_subset(
+        self,
+    ) -> None:
+        self.rbac.assign_permission_to_user(self.non_admin.id, self.credentials_reveal.id)
+        service = self._user_service()
+        updated = service.update_user(
+            self.target.id,
+            password="a-valid-password-123",
+            actor_user_id=self.non_admin.id,
+        )
+        self.assertTrue(updated.must_change_password)
+
+    def test_takeover_of_protected_permission_holder_requires_admin(self) -> None:
+        # The target also holds users:write (protected); even an actor who
+        # holds users:write themselves cannot take over a protected holder.
+        self.rbac.assign_permission_to_user(self.target.id, self.users_write.id)
+        service = self._user_service()
+        with self.assertRaises(AccessDeniedError):
+            service.update_user(
+                self.target.id,
+                password="a-valid-password-123",
+                actor_user_id=self.non_admin.id,
+            )
+        # An admin actor succeeds.
+        service.update_user(
+            self.target.id,
+            password="a-valid-password-123",
+            actor_user_id=self.admin_user.id,
+        )
+
+    def test_is_active_only_update_is_not_a_takeover(self) -> None:
+        service = self._user_service()
+        service.update_user(
+            self.target.id,
+            is_active=True,
+            actor_user_id=self.non_admin.id,
+        )
+
+    def test_internal_caller_bypasses_takeover_rule(self) -> None:
+        service = self._user_service()
+        updated = service.update_user(
+            self.target.id,
+            password="a-valid-password-123",
+            actor_user_id=None,
+        )
+        self.assertTrue(updated.must_change_password)
+
+    def test_user_cannot_change_own_password_via_update_user(self) -> None:
+        # T2: self-service is POST /auth/change-password (checks the old password).
+        service = self._user_service()
+        with self.assertRaises(AccessDeniedError):
+            service.update_user(
+                self.non_admin.id,
+                password="a-valid-password-123",
+                actor_user_id=self.non_admin.id,
+            )
+
+    def test_admin_cannot_rename_self_via_update_user(self) -> None:
+        service = self._user_service()
+        with self.assertRaises(AccessDeniedError):
+            service.update_user(
+                self.admin_user.id, username="renamed", actor_user_id=self.admin_user.id
+            )
+
+    def test_admin_can_reset_other_users_password(self) -> None:
+        service = self._user_service()
+        updated = service.update_user(
+            self.target.id,
+            password="a-valid-password-123",
+            actor_user_id=self.admin_user.id,
+        )
+        self.assertTrue(updated.must_change_password)
+
+    def test_non_admin_cannot_reactivate_admin(self) -> None:
+        # R3 / P4
+        other_admin = _make_user(self.db, "other_admin")
+        self.rbac.assign_role_to_user(other_admin.id, self.admin_role.id)
+        other_admin.is_active = False
+        self.db.commit()
+        service = self._user_service()
+        with self.assertRaises(AccessDeniedError):
+            service.set_active(other_admin.id, True, actor_user_id=self.non_admin.id)
+        service.set_active(other_admin.id, True, actor_user_id=self.admin_user.id)
+
+    def test_non_admin_can_activate_pending_non_admin_user(self) -> None:
+        self.target.is_active = False
+        self.db.commit()
+        service = self._user_service()
+        updated = service.set_active(self.target.id, True, actor_user_id=self.non_admin.id)
+        self.assertTrue(updated.is_active)
+
+
+class RbacCatalogAndRoleDeleteTests(unittest.TestCase):
+    """R4 (seeded permissions are not deletable) and R5 (P4 for role deletion)."""
+
+    def setUp(self) -> None:
+        self.db = _make_session()
+        self.addCleanup(self.db.get_bind().dispose)
+        self.addCleanup(self.db.close)
+        self.rbac = RBACService(self.db)
+        self.admin_role = self.rbac.create_role("admin", is_system=True)
+        self.admin_user = _make_user(self.db, "admin_user")
+        self.rbac.assign_role_to_user(self.admin_user.id, self.admin_role.id)
+        self.non_admin = _make_user(self.db, "non_admin_user")
+
+    def test_delete_seeded_permission_conflicts(self) -> None:
+        from core.domain_exceptions import ConflictError
+        from services.auth.rbac_seed import DEFAULT_PERMISSIONS
+
+        resource, action, _ = DEFAULT_PERMISSIONS[0]
+        seeded = self.rbac.create_permission(resource, action)
+        with self.assertRaises(ConflictError):
+            self.rbac.delete_permission(seeded.id)
+
+    def test_delete_custom_permission_succeeds(self) -> None:
+        custom = self.rbac.create_permission("custom-resource", "custom-action")
+        self.assertTrue(self.rbac.delete_permission(custom.id))
+
+    def test_delete_role_held_by_admin_requires_admin(self) -> None:
+        role = self.rbac.create_role("ops")
+        holder = _make_user(self.db, "admin_holder")
+        self.rbac.assign_role_to_user(holder.id, self.admin_role.id)
+        self.rbac.assign_role_to_user(holder.id, role.id)
+        with self.assertRaises(AccessDeniedError):
+            self.rbac.delete_role(role.id, actor_user_id=self.non_admin.id)
+
+    def test_delete_role_held_by_admin_allowed_for_admin(self) -> None:
+        role = self.rbac.create_role("ops")
+        self.rbac.assign_role_to_user(self.admin_user.id, role.id)
+        self.assertTrue(self.rbac.delete_role(role.id, actor_user_id=self.admin_user.id))
+
+    def test_delete_role_held_by_admin_actor_none_bypasses(self) -> None:
+        role = self.rbac.create_role("ops")
+        self.rbac.assign_role_to_user(self.admin_user.id, role.id)
+        self.assertTrue(self.rbac.delete_role(role.id, actor_user_id=None))
+
+    def test_non_admin_may_delete_role_held_by_non_admins(self) -> None:
+        role = self.rbac.create_role("ops")
+        self.rbac.assign_role_to_user(self.non_admin.id, role.id)
+        self.assertTrue(self.rbac.delete_role(role.id, actor_user_id=self.non_admin.id))
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -1,0 +1,35 @@
+# Attach the application containers to the private networks of the optional integrations you run.
+#
+# Each optional stack (docker/pyats, batfish, openbao, mattermost, litellm-proxy) creates its own
+# network (manus-pyats, manus-batfish, ...) shared only with its consumers. Copy this file, delete
+# the integrations you do not run (an unknown external network makes `docker compose up` fail),
+# and start the application with both files:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.integrations.yml up -d
+#
+# Without compose, the one-off equivalent is `docker network connect manus-pyats manus-worker`
+# (it is lost when the container is recreated, which is why this file exists).
+
+services:
+  manus-web:
+    networks:
+      - manus-openbao      # credential writes (management role) and Settings -> OpenBao
+      - manus-litellm      # AI assistant through the proxy
+  manus-worker:
+    networks:
+      - manus-pyats
+      - manus-batfish
+      - manus-openbao
+      - manus-mattermost
+
+networks:
+  manus-pyats:
+    external: true
+  manus-batfish:
+    external: true
+  manus-openbao:
+    external: true
+  manus-mattermost:
+    external: true
+  manus-litellm:
+    external: true

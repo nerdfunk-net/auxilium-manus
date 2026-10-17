@@ -1,0 +1,304 @@
+import type { Edge, Node } from "@xyflow/react";
+
+import type { Capability } from "@/lib/capability-types";
+
+// Plugin ids are loaded from the backend registry at startup, so node kinds are dynamic.
+export type WorkflowNodeKind = string;
+
+export interface WorkflowOutcomeField {
+  name: string;
+}
+
+/** Which side of the node a handle attaches to. */
+export type HandleSide = "top" | "bottom" | "left" | "right";
+
+export interface WorkflowNodeData extends Record<string, unknown> {
+  kind: WorkflowNodeKind;
+  stepUuid?: string;
+  title: string;
+  overview?: string;
+  description: string;
+  artifactType?: string;
+  requires?: Capability[];
+  requiresParsed?: string[];
+  produces?: Capability[];
+  producesParsed?: string[];
+  consumes?: Capability[];
+  command?: string;
+  condition?: string;
+  artifactPath?: string;
+  outcomes?: WorkflowOutcomeField[];
+  pluginConfig?: Record<string, unknown>;
+  /**
+   * Author toggle: when true the step is skipped at run time. StepRunner
+   * (`_resolve_disabled_steps`) splices it out of the graph — a disabled step
+   * wired between neighbours is bypassed (its inbound edges rewire to the next
+   * enabled step, and a chain of disabled steps collapses to a pass-through),
+   * a disabled step with no connections is simply parked. The step's
+   * `pluginConfig` is kept intact so re-enabling needs no reconfiguration.
+   */
+  disabled?: boolean;
+  /** Side the input handle attaches to. Default "left". Must differ from outcomeHandleSide. */
+  incomeHandleSide?: HandleSide;
+  /** Side the outcome handles attach to. Default "right". Must differ from incomeHandleSide. */
+  outcomeHandleSide?: HandleSide;
+  /**
+   * View-only annotations set by projectCanvasView's inner-group projection —
+   * never present on allNodes/persisted canvas_nodes, only on the projected
+   * copy, so they mark the entry/exit step of the group currently being viewed.
+   */
+  isGroupEntryPoint?: boolean;
+  isGroupExitPoint?: boolean;
+  /** Outcome handle names of this step whose edges leave the group. */
+  groupExitHandles?: string[];
+  /**
+   * View-only annotation merged in by WorkflowCanvas from the last Validate
+   * run's findings, keyed by node id — never present on allNodes/persisted
+   * canvas_nodes, only on the projected copy passed to React Flow. See
+   * doc/ai_collaboration/VALIDATION_PLAN.md.
+   */
+  validation?: { errorCount: number; warningCount: number };
+}
+
+export interface Waypoint {
+  x: number;
+  y: number;
+}
+
+export interface StepPayload {
+  kind: WorkflowNodeKind;
+  title: string;
+  overview: string;
+  description: string;
+  artifactType: string;
+  requires: Capability[];
+  requiresParsed: string[];
+  produces: Capability[];
+  producesParsed: string[];
+  consumes: Capability[];
+  outcomes: WorkflowOutcomeField[];
+}
+
+/**
+ * Edge path style. Names match React Flow's built-in edge types
+ * (https://reactflow.dev/examples/edges/edge-types) except "straight", which
+ * in this app is a custom editable polyline (draggable bend points) rather
+ * than React Flow's plain point-to-point straight line.
+ */
+export type EdgeStyle = "straight" | "bezier" | "step" | "smoothstep";
+
+/** Default edge path style for new connections and unset `edgeStyle`. */
+export const DEFAULT_EDGE_STYLE: EdgeStyle = "bezier";
+
+/** Default font size (px) for debug edge labels when `labelFontSize` is unset. */
+export const DEFAULT_EDGE_LABEL_FONT_SIZE = 10;
+
+export interface WorkflowEdgeData extends Record<string, unknown> {
+  waypoints?: Waypoint[];
+  edgeStyle?: EdgeStyle;
+  /** Free-text debug annotation shown at the edge midpoint via EdgeLabelRenderer. */
+  label?: string;
+  /** Free-text debug annotation shown near the edge's source end via EdgeLabelRenderer. */
+  startLabel?: string;
+  /** Free-text debug annotation shown near the edge's target end via EdgeLabelRenderer. */
+  endLabel?: string;
+  /** Bold styling applied to all debug labels on this edge. Default false. */
+  labelBold?: boolean;
+  /** Font size (px) applied to all debug labels on this edge. Default 10. */
+  labelFontSize?: number;
+  /** Set only on synthetic group-boundary proxy edges in the root projection. */
+  realEdgeId?: string;
+}
+
+export type WorkflowCanvasNode = Node<WorkflowNodeData, "workflowNode">;
+export type LabelCanvasNode = Node<WorkflowNodeData, "labelNode">;
+export type BackgroundCanvasNode = Node<WorkflowNodeData, "backgroundNode">;
+export type FunnelCanvasNode = Node<WorkflowNodeData, "funnelNode">;
+
+/** Persisted canvas nodes: executable steps plus canvas-only decorations. */
+export type PersistedCanvasNode =
+  | WorkflowCanvasNode
+  | LabelCanvasNode
+  | BackgroundCanvasNode
+  | FunnelCanvasNode;
+
+export type WorkflowCanvasEdge = Edge<WorkflowEdgeData, "waypoint">;
+
+export interface CanvasGroup {
+  /** Stable id, e.g. "group-1". Never reuse after delete. */
+  id: string;
+  /**
+   * True for groups dragged from the palette ("Step Group"): they start empty
+   * and are never auto-dissolved when they shrink. Groups made with "Group
+   * selected steps" leave this unset and dissolve below two members.
+   */
+  isContainer?: boolean;
+  /** Display title on the collapsed Group node. */
+  title: string;
+  /** Member step node ids (must all exist in canvas_nodes). */
+  nodeIds: string[];
+  /** Position of the collapsed Group node on the root canvas. */
+  position: { x: number; y: number };
+  /** Reserved for v2 nested groups. Always null in v1. */
+  parentGroupId: string | null;
+  /**
+   * Id of the background node this group is attached to (same single-level
+   * containment as steps, see canvas-containment.ts). When set, `position` is
+   * relative to that background; otherwise it is absolute. Not to be confused
+   * with `parentGroupId`, which is for nested groups.
+   */
+  parentId?: string;
+  /**
+   * Mirrors the synthetic Group node's React Flow `selected` state. The
+   * synthetic node is rebuilt from scratch on every projection (see
+   * `synthesizeGroupNode`), so without this it can never carry a "select"
+   * NodeChange across a re-render — the group could never join a multi-select
+   * alongside ordinary step nodes.
+   */
+  selected?: boolean;
+  /** Side the collapsed Group node's input handle attaches to. Default "left". */
+  incomeHandleSide?: HandleSide;
+  /** Side the collapsed Group node's outcome handle attaches to. Default "right". */
+  outcomeHandleSide?: HandleSide;
+}
+
+/** Render-ready boundary port: handle id plus the inner step's title. */
+export interface GroupPortView {
+  /** React Flow handle id on the collapsed group node, e.g. "in:<edgeId>". */
+  handleId: string;
+  edgeId: string;
+  label: string;
+}
+
+export interface GroupNodeData extends Record<string, unknown> {
+  kind: "__canvas-group__";
+  title: string;
+  memberCount: number;
+  groupId: string;
+  requires?: Capability[];
+  requiresParsed?: string[];
+  outcomes?: WorkflowOutcomeField[];
+  produces?: Capability[];
+  producesParsed?: string[];
+  consumes?: Capability[];
+  /** View-only: true while a dragged step hovers this group (see WorkflowCanvas). */
+  isDropTarget?: boolean;
+  /** Boundary ports derived from membership + edges (see canvas-group-ports.ts). */
+  inputPorts: GroupPortView[];
+  outputPorts: GroupPortView[];
+  /** Mirrors CanvasGroup.incomeHandleSide — see there. */
+  incomeHandleSide?: HandleSide;
+  /** Mirrors CanvasGroup.outcomeHandleSide — see there. */
+  outcomeHandleSide?: HandleSide;
+}
+
+export type GroupCanvasNode = Node<GroupNodeData, "groupNode">;
+
+/** Nodes flowing through the canvas after group projection: real steps, decorations, or synthetic groups. */
+export type ProjectedCanvasNode = PersistedCanvasNode | GroupCanvasNode;
+
+/** Registry id of the palette entry that creates a container group. */
+export const STEP_GROUP_KIND = "step-group";
+
+export const GROUP_NODE_ID_PREFIX = "__group__";
+export const GROUP_EDGE_ID_PREFIX = "__group-edge__";
+
+/** Canvas decoration kinds — no handles, not executed at runtime. */
+export const CANVAS_DECORATION_KINDS = new Set(["label", "background"]);
+
+export function isCanvasDecorationKind(kind: string | undefined): boolean {
+  return !!kind && CANVAS_DECORATION_KINDS.has(kind);
+}
+
+/**
+ * The funnel kind is deliberately NOT part of CANVAS_DECORATION_KINDS: unlike
+ * label/background it accepts connection handles (many in, one out) and is
+ * spliced — not just filtered — out of the graph before execution (see
+ * StepRunner._resolve_funnels). Kept as its own check so callers don't
+ * accidentally lump it in with edge-rejecting decorations.
+ */
+export const FUNNEL_KIND = "funnel";
+
+export function isFunnelKind(kind: string | undefined): boolean {
+  return kind === FUNNEL_KIND;
+}
+
+/**
+ * Kinds that cannot be disabled via the "disable step" toggle: decorations,
+ * funnels, and graph-structure nodes like `fan-in` whose removal would
+ * silently reshape fan-out join semantics. Mirrors `_STRUCTURAL_KINDS` /
+ * `_is_author_disabled` in `backend/services/execution/step_runner.py`.
+ */
+export const NON_DISABLEABLE_KINDS = new Set<string>([
+  ...CANVAS_DECORATION_KINDS,
+  FUNNEL_KIND,
+  "fan-in",
+]);
+
+export function isDisableableStepKind(kind: string | undefined): boolean {
+  return !!kind && !NON_DISABLEABLE_KINDS.has(kind);
+}
+
+export function reactFlowTypeForKind(kind: string): PersistedCanvasNode["type"] {
+  if (kind === "label") return "labelNode";
+  if (kind === "background") return "backgroundNode";
+  if (kind === FUNNEL_KIND) return "funnelNode";
+  return "workflowNode";
+}
+
+export const DEFAULT_LABEL_CONFIG = {
+  text: "Label",
+  font_size: 16,
+  font_family: "sans",
+  bold: false,
+  color: "#0f172a",
+  width: 200,
+  height: 40,
+} as const;
+
+export const DEFAULT_BACKGROUND_CONFIG = {
+  color: "#e2e8f0",
+  width: 480,
+  height: 320,
+} as const;
+
+/**
+ * Stacking order in React Flow (edges and nodes are sibling layers):
+ * background (-1) < edges (0) < steps/labels (1).
+ * A non-negative background z-index paints above the edge SVG and hides wires.
+ */
+export const BACKGROUND_Z_INDEX = -1;
+export const FOREGROUND_Z_INDEX = 1;
+export const EDGE_Z_INDEX = 0;
+
+export const LABEL_FONT_STACKS: Record<string, string> = {
+  sans: 'ui-sans-serif, system-ui, sans-serif',
+  serif: 'ui-serif, Georgia, Cambria, "Times New Roman", Times, serif',
+  mono: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
+};
+
+/**
+ * Keep background nodes first in the array. This serves two purposes:
+ * 1. Cosmetic — a step not yet attached to a background but visually overlapping
+ *    it should still paint above (equal-z paint order otherwise follows array order).
+ * 2. Structural — React Flow requires a parent node to appear before its children.
+ *    Since only `backgroundNode`s can be a `parentId` target (single-level nesting,
+ *    see canvas-containment.ts), sorting all backgrounds before all non-backgrounds
+ *    is sufficient to guarantee every child appears after its parent.
+ */
+export function sortNodesForContainment<T extends { type?: string }>(
+  nodes: T[],
+): T[] {
+  return [...nodes].sort((a, b) => {
+    const aRank = a.type === "backgroundNode" ? 0 : 1;
+    const bRank = b.type === "backgroundNode" ? 0 : 1;
+    return aRank - bRank;
+  });
+}
+
+/** True if `node` is currently attached as a child of a background node. */
+export function hasBackgroundParent(
+  node: PersistedCanvasNode,
+): node is PersistedCanvasNode & { parentId: string } {
+  return typeof node.parentId === "string" && node.parentId.length > 0;
+}

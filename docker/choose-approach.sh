@@ -1,0 +1,31 @@
+#!/bin/bash
+# choose-approach.sh - Help choose the right air-gap deployment approach
+
+set -e
+
+echo "🤔 Auxilium Manus Air-Gap Deployment"
+echo "===================================="
+echo ""
+echo "📋 Recommended Approach: All-in-One"
+echo ""
+echo "   ✅ Single Docker image file to transfer"
+echo "   ✅ Simple deployment (one command)"
+echo "   ✅ Complete self-contained application image"
+echo "   ✅ Built-in health checks"
+echo "   ✅ Proxy support during build"
+echo ""
+echo "   📁 File to transfer: docker/airgap-artifacts/auxilium-manus-all-in-one.tar.gz"
+echo ""
+echo "🚀 Get started:"
+echo "   1. Build:  ./docker/prepare-all-in-one.sh"
+echo "   2. Transfer the .tar.gz to your air-gapped environment"
+echo "   3. Deploy: ./docker/deploy-all-in-one.sh"
+echo "   4. Validate: ./docker/validate-all-in-one.sh"
+echo ""
+echo "📖 Full guide: docker/README-ALL-IN-ONE.md"
+echo ""
+echo "⚠️  External dependencies still required at runtime:"
+echo "   - PostgreSQL (app database)"
+echo "   - Redis (device cache)"
+echo "   - Hatchet workflow engine (see root docker-compose.yml)"
+echo ""

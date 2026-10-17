@@ -1,0 +1,381 @@
+# Auxilium Manus — application stack
+#
+# Start Hatchet first (see docker/README.md):
+#   docker network create --internal hatchet 2>/dev/null || true
+#   cd docker/hatchet && docker compose up -d
+#
+# Then start the application stack from this directory:
+#   docker compose up -d
+#
+# Backend settings for manus-web / manus-worker / manus-background-worker are
+# declared in x-manus-common-env / x-manus-web-only-env below. Secrets (SECRET_KEY, INITIAL_PASSWORD,
+# CREDENTIAL_ENCRYPTION_KEY, DATABASE_PASSWORD, MANUS_REDIS_PASSWORD,
+# HATCHET_CLIENT_TOKEN) come from docker/.env — copy docker/.env.example to
+# docker/.env and fill it in; `docker compose up` refuses to start without
+# it. Non-secret defaults (ENV, DOCS_ENABLED, INITIAL_USERNAME,
+# INSTALL_CERTIFICATE_FILES) can also be overridden there but need not be.
+#
+# Networks (declared at the end of this file):
+#   data    — internal only: postgres, redis, web, worker, background-worker
+#   hatchet — external, internal-only: web and workers <-> the Hatchet engine
+#   ingress — web only (published port, reverse proxy)
+#   egress  — workers (outbound to devices, Nautobot, git remotes)
+#
+# manus-web: bind address, backend port, BACKEND_URL, and NODE_ENV are set by
+# supervisord-web.conf. manus-worker runs only the live Hatchet worker
+# (python -m hatchet.worker); manus-background-worker runs only the
+# background-tier Hatchet worker (python -m hatchet.dynamic_worker) — see
+# doc/ARCHITECTURAL_OVERVIEW.md "Background-tier workflows" for what that
+# split is for. Optional URL overrides (DATABASE_URL, MAINTENANCE_DATABASE_URL,
+# MANUS_REDIS_URL, PLUGINS_FILE) are omitted — values are built from the
+# fields below. INITIAL_PERMISSIONS is omitted (unused by the backend).
+
+x-manus-common-env: &manus-common-env
+  # Application
+  ENV: "${ENV:-production}"
+  SECRET_KEY: "${SECRET_KEY:?SECRET_KEY is required. Generate one with `openssl rand -hex 32`}"
+  ACCESS_TOKEN_EXPIRE_MINUTES: 60
+  DOCS_ENABLED: "${DOCS_ENABLED:-false}"
+  # all-in-one: Next.js proxies to the backend over loopback. Split deployment: the frontend host/CIDR.
+  TRUSTED_PROXY_IPS: "${TRUSTED_PROXY_IPS:-127.0.0.1}"
+
+  # Credential vault
+  CREDENTIAL_ENCRYPTION_KEY: "${CREDENTIAL_ENCRYPTION_KEY:?CREDENTIAL_ENCRYPTION_KEY is required and must differ from SECRET_KEY. Generate one with `openssl rand -hex 32`}"
+  DATA_DIRECTORY: /app/data
+  KDF_ITERATIONS: "${KDF_ITERATIONS:-600000}"
+
+  # PostgreSQL (host/port point at the compose postgres service)
+  DATABASE_HOST: manus-postgres
+  DATABASE_PORT: 5432
+  DATABASE_NAME: manus
+  DATABASE_MAINTENANCE_NAME: postgres
+  # The unprivileged application role (docker/postgres-init); never the superuser.
+  DATABASE_USERNAME: manus
+  DATABASE_PASSWORD: "${DATABASE_PASSWORD:?DATABASE_PASSWORD is required}"
+
+  # Redis (host/port point at the compose redis service)
+  MANUS_REDIS_HOST: manus-redis
+  MANUS_REDIS_PORT: 6379
+  MANUS_REDIS_PASSWORD: "${MANUS_REDIS_PASSWORD:?MANUS_REDIS_PASSWORD is required}"
+  MANUS_REDIS_KEY_PREFIX: manus-cache
+  # Redis unreachable: the login / refresh / OIDC-login / webhook limiters count in-process instead
+  # (exact with the single web process shipped here). true refuses those requests, which stops
+  # every login until Redis is back; only useful behind several web replicas.
+  RATE_LIMIT_FAIL_CLOSED: "${RATE_LIMIT_FAIL_CLOSED:-false}"
+  # A git step takes a per-repository lock in Redis; without it the step fails (retryable) rather
+  # than writing to the shared working tree unprotected. false restores the old lock-less behaviour.
+  GIT_REPO_LOCK_REQUIRED: "${GIT_REPO_LOCK_REQUIRED:-true}"
+
+  # Hatchet workflow engine (reached on the isolated hatchet network)
+  # Create a token in the Hatchet dashboard (Settings → API Tokens); set it in docker/.env
+  HATCHET_CLIENT_TOKEN: "${HATCHET_CLIENT_TOKEN:?HATCHET_CLIENT_TOKEN is required. Create one at the Hatchet dashboard (Settings, API Tokens)}"
+  HATCHET_CLIENT_HOST_PORT: hatchet-engine:7070
+  # Hatchet's REST API (schedules / cron registration, worker pause on shutdown). The token embeds
+  # the address the Hatchet stack was configured with (http://localhost:8080), which is the
+  # container itself from in here, so the API address has to be given explicitly (O4-01).
+  HATCHET_CLIENT_SERVER_URL: "${HATCHET_CLIENT_SERVER_URL:-http://hatchet-dashboard:8080}"
+  HATCHET_CLIENT_TLS_STRATEGY: "${HATCHET_CLIENT_TLS_STRATEGY:-none}"
+  HATCHET_CLIENT_DEBUG: "false"
+  # Browser-reachable dashboard URL for Settings → Hatchet's "Open Dashboard" link.
+  # HATCHET_CLIENT_SERVER_URL above is a Docker-internal address the browser cannot resolve,
+  # so this defaults to the loopback port the Hatchet stack publishes; set your ingress URL
+  # when the dashboard sits behind a reverse proxy (e.g. https://hatchet.example.com).
+  HATCHET_DASHBOARD_URL: "${HATCHET_DASHBOARD_URL:-http://localhost:8888}"
+
+  # Logging
+  LOG_LEVEL: INFO
+  LOG_FORMAT: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  LOG_DIRECTORY: /app/data/logs
+  LOG_MAX_BYTES: 10485760
+  LOG_BACKUP_COUNT: 5
+
+  # Session lifetime and request limits
+  SESSION_MAX_AGE_HOURS: "${SESSION_MAX_AGE_HOURS:-12}"
+  REFRESH_TOKEN_MAX_AGE_HOURS: "${REFRESH_TOKEN_MAX_AGE_HOURS:-12}"
+  MAX_REQUEST_BODY_BYTES: "${MAX_REQUEST_BODY_BYTES:-26214400}"
+
+  # AI assistant operator limits. Off by default; a user's own switches can only narrow these.
+  # AI_ALLOWED_PROVIDERS: anthropic, gemini, openai_compat. AI_ALLOWED_DATA: inventory,
+  # addresses, custom_fields, config_context, content, report.
+  AI_ASSISTANT_ENABLED: "${AI_ASSISTANT_ENABLED:-false}"
+  AI_ALLOWED_PROVIDERS: "${AI_ALLOWED_PROVIDERS:-}"
+  AI_ALLOWED_DATA: "${AI_ALLOWED_DATA:-}"
+
+  # Retention (scripts/purge_retention.py); 0 keeps everything where a day count applies
+  AI_CONVERSATION_RETENTION_DAYS: "${AI_CONVERSATION_RETENTION_DAYS:-90}"
+  REPORT_DATA_RETENTION_DAYS: "${REPORT_DATA_RETENTION_DAYS:-365}"
+  RUN_RETENTION_ENABLED: "${RUN_RETENTION_ENABLED:-true}"
+  RUN_RETENTION_DAYS: "${RUN_RETENTION_DAYS:-90}"
+  RUN_RETENTION_BATCH_SIZE: "${RUN_RETENTION_BATCH_SIZE:-500}"
+  RUN_RETENTION_CRON_SCHEDULE: "${RUN_RETENTION_CRON_SCHEDULE:-0 3 * * *}"
+  RUN_REAPER_CRON_SCHEDULE: "${RUN_REAPER_CRON_SCHEDULE:-*/10 * * * *}"
+  RUN_REAPER_GRACE_MINUTES: "${RUN_REAPER_GRACE_MINUTES:-15}"
+
+  # Persisted step output cap (the live context is not capped)
+  STEP_OUTPUT_VALUE_MAX_BYTES: "${STEP_OUTPUT_VALUE_MAX_BYTES:-65536}"
+  STEP_OUTPUT_MAX_BYTES: "${STEP_OUTPUT_MAX_BYTES:-8388608}"
+
+  # Netmiko session pooling and the file extensions the file API may serve
+  NETMIKO_SESSION_POOLING: "${NETMIKO_SESSION_POOLING:-true}"
+  NETMIKO_POOL_WORKERS: "${NETMIKO_POOL_WORKERS:-10}"
+  NETMIKO_KEEPALIVE_SECONDS: "${NETMIKO_KEEPALIVE_SECONDS:-30}"
+  ALLOWED_FILE_EXTENSIONS: "${ALLOWED_FILE_EXTENSIONS:-.cfg,.conf,.txt,.yaml,.yml,.json,.xml,.ini,.md}"
+
+  # Local model servers on loopback (docker/DOCKER.md): off by default
+  ALLOW_LOOPBACK_SOURCE_URLS: "${ALLOW_LOOPBACK_SOURCE_URLS:-false}"
+
+  # Database schema sync (see doc/MIGRATION_SYSTEM.md)
+  APPLY_SAFE_DATABASE_MIGRATION: "false"
+  APPLY_RISKY_DATABASE_MIGRATION: "false"
+
+  # Install config/certs/*.crt into the system trust store on startup (every
+  # service). Requires update-ca-certificates (present in the image).
+  INSTALL_CERTIFICATE_FILES: "${INSTALL_CERTIFICATE_FILES:-false}"
+
+  # OpenBao (Vault) — OPTIONAL. Disabled unless VAULT_ENABLED=true. When on,
+  # VAULT_ADDR + the AppRole material (runtime + management) must be provided.
+  # See doc/VAULT_INTEGRATION.md. https:// is required outside development.
+  VAULT_ENABLED: "${VAULT_ENABLED:-false}"
+  VAULT_ADDR: "${VAULT_ADDR:-}"
+  VAULT_KV_MOUNT: "${VAULT_KV_MOUNT:-manus}"
+  VAULT_NAMESPACE: "${VAULT_NAMESPACE:-}"
+  VAULT_AUTH_METHOD: "${VAULT_AUTH_METHOD:-approle}"
+  VAULT_VERIFY_SSL: "${VAULT_VERIFY_SSL:-true}"
+  VAULT_CACERT: "${VAULT_CACERT:-}"
+  VAULT_ROLE_ID: "${VAULT_ROLE_ID:-}"
+  VAULT_SECRET_ID: "${VAULT_SECRET_ID:-}"
+  VAULT_SECRET_ID_FILE: "${VAULT_SECRET_ID_FILE:-}"
+  VAULT_CLIENT_CERT: "${VAULT_CLIENT_CERT:-}"
+  VAULT_CLIENT_KEY: "${VAULT_CLIENT_KEY:-}"
+  VAULT_TOKEN_PERIOD_SECONDS: "${VAULT_TOKEN_PERIOD_SECONDS:-3600}"
+  VAULT_RENEW_BUFFER_SECONDS: "${VAULT_RENEW_BUFFER_SECONDS:-600}"
+  VAULT_TIMEOUT_SECONDS: "${VAULT_TIMEOUT_SECONDS:-5}"
+  VAULT_CACHE_TTL_SECONDS: "${VAULT_CACHE_TTL_SECONDS:-45}"
+
+# Only the web container (API + frontend) seeds the admin account, handles SSO and writes
+# credentials to OpenBao, so only it receives these. The workers get x-manus-common-env alone
+# (a worker only reads OpenBao with the runtime role).
+x-manus-web-only-env: &manus-web-only-env
+  INITIAL_USERNAME: "${INITIAL_USERNAME:-admin}"
+  INITIAL_PASSWORD: "${INITIAL_PASSWORD:?INITIAL_PASSWORD is required and must be 12+ characters}"
+  # OIDC (required when SSO is used): exact redirect URIs, comma separated (S1-01/S6-06).
+  # Client secrets go into docker/oidc.env (OIDC_<PROVIDER_ID>_CLIENT_SECRET), see manus-web.
+  OIDC_REDIRECT_URI_ALLOWLIST: "${OIDC_REDIRECT_URI_ALLOWLIST:-}"
+  # OpenBao management role (credential writes); see doc/VAULT_INTEGRATION.md.
+  VAULT_MANAGE_ROLE_ID: "${VAULT_MANAGE_ROLE_ID:-}"
+  VAULT_MANAGE_SECRET_ID: "${VAULT_MANAGE_SECRET_ID:-}"
+  VAULT_MANAGE_SECRET_ID_FILE: "${VAULT_MANAGE_SECRET_ID_FILE:-}"
+
+# Container hardening shared by the three application services. Root is needed only to chown the
+# bind mounts and to let supervisord open the log descriptors before it drops each program to the
+# unprivileged "manus" user, so everything else is dropped.
+x-manus-hardening: &manus-hardening
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+  cap_add:
+    - CHOWN
+    - DAC_OVERRIDE
+    - FOWNER
+    - KILL
+    - SETGID
+    - SETUID
+  pids_limit: 512
+  mem_limit: "${MANUS_MEM_LIMIT:-4g}"
+
+services:
+  manus-postgres:
+    image: postgres:17
+    container_name: manus-postgres
+    hostname: manus-postgres
+    environment:
+      POSTGRES_DB: manus
+      POSTGRES_USER: postgres
+      # Superuser password: used by this container only, never passed to the application.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      # Password of the application role "manus" created on first start (10-app-role.sh).
+      APP_DB_PASSWORD: ${DATABASE_PASSWORD:?DATABASE_PASSWORD is required}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./postgres-init:/docker-entrypoint-initdb.d:ro
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - data
+
+  manus-redis:
+    image: redis:8-alpine
+    container_name: manus-redis
+    hostname: manus-redis
+    command: redis-server --appendonly yes --requirepass ${MANUS_REDIS_PASSWORD:?MANUS_REDIS_PASSWORD is required}
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${MANUS_REDIS_PASSWORD:?MANUS_REDIS_PASSWORD is required}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - data
+
+  manus-web:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.all-in-one
+    container_name: manus-web
+    ports:
+      # Loopback by default: put your TLS ingress on this host, or attach it to the compose
+      # network (it then targets http://manus-web:3000 and needs no published port) and set
+      # MANUS_WEB_PUBLISH to the address you want. The backend port 8000 is never published.
+      - "${MANUS_WEB_PUBLISH:-127.0.0.1:3000}:3000"
+    env_file:
+      # Optional: OIDC_<PROVIDER_ID>_CLIENT_SECRET=... (dynamic names, see docker/oidc.env.example)
+      - path: ./oidc.env
+        required: false
+    <<: *manus-hardening
+    environment:
+      <<: [*manus-common-env, *manus-web-only-env]
+      MANUS_PROCESS_ROLE: web
+      DATABASE_POOL_SIZE: "${DATABASE_POOL_SIZE:-10}"
+      DATABASE_MAX_OVERFLOW: "${DATABASE_MAX_OVERFLOW:-10}"
+      DATABASE_POOL_TIMEOUT: "${DATABASE_POOL_TIMEOUT:-30}"
+      # Frontend / process manager (not in backend/.env.example)
+      FRONTEND_PORT: 3000
+      NEXT_TELEMETRY_DISABLED: "1"
+      SUPERVISORD_CONF: /etc/supervisor/conf.d/supervisord-web.conf
+    volumes:
+      - ./data:/app/data
+      # Repo-root config/ — holds config/certs/*.crt (INSTALL_CERTIFICATE_FILES)
+      # and config/oidc_providers.yaml. Writable: the /tools cert-upload API
+      # writes into config/certs/.
+      - ../config:/app/config
+      - ./logs:/app/data/logs
+    depends_on:
+      manus-postgres:
+        condition: service_healthy
+      manus-redis:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "sh", "-c", "curl -f http://localhost:3000 && curl -f http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    networks:
+      - data
+      - hatchet
+      - ingress
+    command: ["/app/start.sh"]
+
+  manus-worker:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.all-in-one
+    container_name: manus-worker
+    # The Hatchet worker drains running tasks on SIGTERM (supervisord waits 600 s, see
+    # supervisord-worker.conf). Docker's default of 10 s would SIGKILL a run mid-push (O2-04).
+    stop_grace_period: 10m
+    <<: *manus-hardening
+    environment:
+      <<: *manus-common-env
+      MANUS_PROCESS_ROLE: worker
+      DATABASE_POOL_SIZE: "${DATABASE_POOL_SIZE:-20}"
+      DATABASE_MAX_OVERFLOW: "${DATABASE_MAX_OVERFLOW:-20}"
+      DATABASE_POOL_TIMEOUT: "${DATABASE_POOL_TIMEOUT:-30}"
+      # Live worker: runs python -m hatchet.worker only (no API bootstrap /
+      # frontend). Handles every unpublished workflow — the default for all
+      # workflows. See doc/ARCHITECTURAL_OVERVIEW.md "Background-tier workflows".
+      SUPERVISORD_CONF: /etc/supervisor/conf.d/supervisord-worker.conf
+    volumes:
+      - ./data:/app/data
+      # Read-only: the worker only reads config/certs/*.crt at startup.
+      - ../config:/app/config:ro
+      - ./logs:/app/data/logs
+    depends_on:
+      manus-postgres:
+        condition: service_healthy
+      manus-redis:
+        condition: service_healthy
+      # Wait for web so init_db / admin seed finish before the worker accepts jobs.
+      manus-web:
+        condition: service_healthy
+    restart: unless-stopped
+    # The image HEALTHCHECK probes the web ports, which a worker does not serve.
+    healthcheck:
+      disable: true
+    networks:
+      - data
+      - hatchet
+      - egress
+    command: ["/app/start.sh"]
+
+  manus-background-worker:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.all-in-one
+    container_name: manus-background-worker
+    # The Hatchet worker drains running tasks on SIGTERM (supervisord waits 600 s, see
+    # supervisord-worker.conf). Docker's default of 10 s would SIGKILL a run mid-push (O2-04).
+    stop_grace_period: 10m
+    <<: *manus-hardening
+    environment:
+      <<: *manus-common-env
+      MANUS_PROCESS_ROLE: worker
+      DATABASE_POOL_SIZE: "${DATABASE_POOL_SIZE:-20}"
+      DATABASE_MAX_OVERFLOW: "${DATABASE_MAX_OVERFLOW:-20}"
+      DATABASE_POOL_TIMEOUT: "${DATABASE_POOL_TIMEOUT:-30}"
+      # Background worker: runs python -m hatchet.dynamic_worker only. Only
+      # handles workflows explicitly published to the background tier (see
+      # doc/ARCHITECTURAL_OVERVIEW.md "Background-tier workflows") — a
+      # separate container from manus-worker so it can restart itself to pick
+      # up a publish/unpublish/edit (polls every
+      # HATCHET_DYNAMIC_WORKER_POLL_INTERVAL_SECONDS) without ever disrupting
+      # a live/interactive run on manus-worker.
+      SUPERVISORD_CONF: /etc/supervisor/conf.d/supervisord-background-worker.conf
+    volumes:
+      - ./data:/app/data
+      # Read-only: the worker only reads config/certs/*.crt at startup.
+      - ../config:/app/config:ro
+      - ./logs:/app/data/logs
+    depends_on:
+      manus-postgres:
+        condition: service_healthy
+      manus-redis:
+        condition: service_healthy
+      # Wait for web so init_db / admin seed finish before the worker accepts jobs.
+      manus-web:
+        condition: service_healthy
+    restart: unless-stopped
+    # The image HEALTHCHECK probes the web ports, which a worker does not serve.
+    healthcheck:
+      disable: true
+    networks:
+      - data
+      - hatchet
+      - egress
+    command: ["/app/start.sh"]
+
+volumes:
+  postgres_data:
+  redis_data:
+
+# Networks. The two data services and the application share an internal-only network (no route
+# out). Hatchet is created once by the operator (docker network create --internal hatchet; the
+# Hatchet compose project attaches its engine to it). "ingress" is where the operator's reverse
+# proxy joins the web container; "egress" gives the workers their route to devices, Nautobot and
+# git remotes. Postgres and Redis are on "data" only.
+networks:
+  data:
+    internal: true
+  hatchet:
+    external: true
+  ingress: {}
+  egress: {}

@@ -1,0 +1,73 @@
+# Multi-stage Docker build for Auxilium Manus (development / online builds)
+FROM node:24-slim AS frontend-builder
+
+WORKDIR /app/frontend
+
+COPY frontend/package*.json ./
+RUN npm ci --ignore-scripts
+
+COPY frontend/ ./
+
+# Self-host the Monaco editor assets (scripts/copy-monaco-editor.mjs) instead
+# of letting @monaco-editor/react fetch them from the jsdelivr CDN at runtime.
+RUN node scripts/copy-monaco-editor.mjs
+
+RUN DOCKER_BUILD=true npm run build
+
+FROM python:3.14.5-slim
+
+RUN apt-get update && apt-get install -y \
+    git \
+    curl \
+    nodejs \
+    npm \
+    supervisor \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+COPY docker/certs/ /tmp/certs/
+RUN if ls /tmp/certs/*.crt >/dev/null 2>&1; then \
+      cp /tmp/certs/*.crt /usr/local/share/ca-certificates/ && update-ca-certificates; \
+    fi
+
+COPY backend/requirements.txt ./backend/
+RUN pip install --no-cache-dir -r backend/requirements.txt
+
+COPY backend/ ./backend/
+COPY contributing-data/ ./contributing-data/
+
+COPY --from=frontend-builder /app/frontend/.next ./frontend/.next
+COPY --from=frontend-builder /app/frontend/public ./frontend/public
+COPY --from=frontend-builder /app/frontend/package*.json ./frontend/
+COPY --from=frontend-builder /app/frontend/next.config.ts ./frontend/
+COPY --from=frontend-builder /app/frontend/node_modules ./frontend/node_modules
+COPY frontend/postcss.config.mjs ./frontend/
+COPY frontend/tsconfig.json ./frontend/
+
+ENV BACKEND_HOST=127.0.0.1
+ENV BACKEND_PORT=8000
+ENV FRONTEND_PORT=3000
+ENV NODE_ENV=production
+ENV ENV=production
+ENV ENABLE_DEV_TOOLS=false
+ENV ALLOW_LOOPBACK_SOURCE_URLS=false
+ENV BACKEND_URL=http://127.0.0.1:8000
+
+# Unprivileged runtime account. start.sh runs as root only long enough to
+# install operator CA certs and fix bind-mount ownership, then drops to it —
+# see start.sh for the setpriv re-exec.
+RUN groupadd --system manus \
+ && useradd --system --gid manus --home-dir /app --shell /usr/sbin/nologin manus \
+ && mkdir -p /app/data /app/config/certs /var/log/supervisor /run/supervisor \
+ && chown -R manus:manus /app/data /app/config /var/log/supervisor /run/supervisor
+
+COPY docker/supervisord-web.conf /etc/supervisor/conf.d/supervisord.conf
+COPY docker/start.sh /app/start.sh
+RUN chmod 755 /app/start.sh
+
+EXPOSE 3000 8000
+
+# No USER here on purpose: the entrypoint drops privileges (see start.sh).
+CMD ["/app/start.sh"]

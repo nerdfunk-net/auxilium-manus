@@ -1,0 +1,256 @@
+from __future__ import annotations
+
+import logging
+
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy.orm import Session
+
+from core.auth import get_current_user, require_permission
+from core.database import get_db
+from core.models.users import User
+from core.rate_limit import rate_limited
+from core.safe_http_errors import raise_internal_server_error
+from models.templates import (
+    ParseStructuredRequest,
+    ParseStructuredResponse,
+    TemplateCreate,
+    TemplateListResponse,
+    TemplateRenderRequest,
+    TemplateRenderResponse,
+    TemplateResponse,
+    TemplateUpdate,
+)
+from services.ai_assistant.render_isolated import render_isolated
+from services.parsing import parse_structured_document
+from services.templates.exceptions import (
+    TemplateCredentialNotFoundError,
+    TemplateNameConflictError,
+    TemplateNotFoundError,
+    TemplateValidationError,
+)
+from services.templates.templates_service import TemplatesService
+
+logger = logging.getLogger(__name__)
+
+RENDER_TIMEOUT_SECONDS = 5.0
+
+router = APIRouter(
+    prefix="/templates",
+    tags=["templates"],
+    dependencies=[Depends(get_current_user)],
+)
+
+
+def _service(db: Session = Depends(get_db)) -> TemplatesService:
+    return TemplatesService(db)
+
+
+@router.get(
+    "",
+    response_model=TemplateListResponse,
+    dependencies=[Depends(require_permission("templates", "read"))],
+)
+def list_templates(
+    category: str | None = Query(None),
+    search: str | None = Query(None),
+    _current_user: User = Depends(get_current_user),
+    service: TemplatesService = Depends(_service),
+) -> TemplateListResponse:
+    templates = service.list_templates(category=category, search=search)
+    return TemplateListResponse.model_validate(
+        {"templates": templates, "total": len(templates)}
+    )
+
+
+@router.post(
+    "/render",
+    response_model=TemplateRenderResponse,
+    dependencies=[
+        Depends(require_permission("templates", "read")),
+        Depends(rate_limited("template-render", attempts=60, window_seconds=60)),
+    ],
+)
+async def render_template(
+    payload: TemplateRenderRequest,
+    _current_user: User = Depends(get_current_user),
+    service: TemplatesService = Depends(_service),
+) -> TemplateRenderResponse:
+    # A template is a program: it runs in a killable child process with CPU and memory limits,
+    # never in the API process (S4-07).
+    try:
+        outcome = await render_isolated(
+            payload.template_content,
+            payload.variables,
+            timeout=RENDER_TIMEOUT_SECONDS,
+            strict=True,
+            wait_seconds=2.0,
+        )
+    except TimeoutError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Rendering was stopped: it used too much time or memory",
+        ) from exc
+    except Exception as exc:
+        raise_internal_server_error(logger, "Failed to render template", exc)
+    if not outcome.ok:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=outcome.error or "Render failed"
+        )
+    return TemplateRenderResponse(
+        rendered_content=outcome.output,
+        variables_used=service.variables_used(payload.template_content),
+        warnings=[],
+    )
+
+
+@router.post(
+    "/parse-structured",
+    response_model=ParseStructuredResponse,
+    dependencies=[
+        Depends(require_permission("templates", "read")),
+        Depends(rate_limited("parse-structured", attempts=30, window_seconds=60)),
+    ],
+)
+def parse_structured(
+    payload: ParseStructuredRequest,
+    _current_user: User = Depends(get_current_user),
+) -> ParseStructuredResponse:
+    """Parse a YAML/JSON blob for the template editor's "Load from file" flow."""
+    try:
+        return ParseStructuredResponse(
+            parsed=parse_structured_document(payload.content, fmt=payload.format)
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
+        ) from exc
+
+
+@router.get(
+    "/{template_id}",
+    response_model=TemplateResponse,
+    dependencies=[Depends(require_permission("templates", "read"))],
+)
+def get_template(
+    template_id: int,
+    _current_user: User = Depends(get_current_user),
+    service: TemplatesService = Depends(_service),
+) -> TemplateResponse:
+    try:
+        return TemplateResponse.model_validate(service.get_template(template_id))
+    except TemplateNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except Exception as exc:
+        raise_internal_server_error(logger, "Failed to fetch template", exc)
+
+
+@router.post(
+    "",
+    response_model=TemplateResponse,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_permission("templates", "write"))],
+)
+def create_template(
+    payload: TemplateCreate,
+    current_user: User = Depends(get_current_user),
+    service: TemplatesService = Depends(_service),
+) -> TemplateResponse:
+    try:
+        result = service.create_template(
+            name=payload.name,
+            description=payload.description,
+            notes=payload.notes,
+            template_type=payload.template_type,
+            category=payload.category,
+            content=payload.content,
+            variables={key: value.model_dump() for key, value in payload.variables.items()},
+            pre_run_commands=payload.pre_run_commands,
+            pre_run_use_textfsm=payload.pre_run_use_textfsm,
+            nautobot_attributes=payload.nautobot_attributes,
+            credential_id=payload.credential_id,
+            batfish_config=payload.batfish_config.model_dump()
+            if payload.batfish_config is not None
+            else None,
+            created_by=current_user.username,
+            acting_user_id=current_user.id,
+        )
+        return TemplateResponse.model_validate(result)
+    except TemplateNameConflictError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    except TemplateValidationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
+        ) from exc
+    except TemplateCredentialNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except Exception as exc:
+        raise_internal_server_error(logger, "Failed to create template", exc)
+
+
+@router.put(
+    "/{template_id}",
+    response_model=TemplateResponse,
+    dependencies=[Depends(require_permission("templates", "write"))],
+)
+def update_template(
+    template_id: int,
+    payload: TemplateUpdate,
+    current_user: User = Depends(get_current_user),
+    service: TemplatesService = Depends(_service),
+) -> TemplateResponse:
+    try:
+        variables = (
+            {key: value.model_dump() for key, value in payload.variables.items()}
+            if payload.variables is not None
+            else None
+        )
+        result = service.update_template(
+            template_id,
+            name=payload.name,
+            description=payload.description,
+            notes=payload.notes,
+            template_type=payload.template_type,
+            category=payload.category,
+            content=payload.content,
+            variables=variables,
+            pre_run_commands=payload.pre_run_commands,
+            pre_run_use_textfsm=payload.pre_run_use_textfsm,
+            nautobot_attributes=payload.nautobot_attributes,
+            credential_id=payload.credential_id,
+            batfish_config=payload.batfish_config.model_dump()
+            if payload.batfish_config is not None
+            else None,
+            acting_user_id=current_user.id,
+        )
+        return TemplateResponse.model_validate(result)
+    except TemplateNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except TemplateNameConflictError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    except TemplateValidationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
+        ) from exc
+    except TemplateCredentialNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except Exception as exc:
+        raise_internal_server_error(logger, "Failed to update template", exc)
+
+
+@router.delete(
+    "/{template_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(require_permission("templates", "delete"))],
+)
+def delete_template(
+    template_id: int,
+    hard_delete: bool = Query(True),
+    _current_user: User = Depends(get_current_user),
+    service: TemplatesService = Depends(_service),
+) -> None:
+    try:
+        service.delete_template(template_id, hard_delete=hard_delete)
+    except TemplateNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except Exception as exc:
+        raise_internal_server_error(logger, "Failed to delete template", exc)

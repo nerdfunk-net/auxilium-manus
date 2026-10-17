@@ -1,0 +1,110 @@
+"""Periodic Hatchet workflow for background housekeeping.
+
+Four independent tasks run on the same cron:
+
+* ``purge_retention`` — deletes workflow_runs in terminal states older than
+  RUN_RETENTION_DAYS (gated on RUN_RETENTION_ENABLED), then sweeps
+  data/artifacts/ for any artifact whose run_id no longer matches a run. Same
+  RetentionService as scripts/purge_retention.py.
+* ``purge_ai_conversations`` — deletes saved AI assistant conversations not updated for
+  AI_CONVERSATION_RETENTION_DAYS (0 keeps them). Not gated on RUN_RETENTION_ENABLED.
+* ``purge_report_data`` — deletes report_data_records older than REPORT_DATA_RETENTION_DAYS
+  (0 keeps them), always keeping each device's newest collection per dataset.
+* ``reconcile_change_requests`` — expires stale ``staged`` change requests past
+  their TTL and finalises any ``deploying`` change request whose deploy run
+  already reached a terminal status but whose detail page nobody opened (the
+  detail GET reconciles on read; this catches the rest). See
+  ``doc/CICD_PIPELINE.md``.
+
+Runs automatically inside the app whenever the Hatchet worker is up — no
+external crontab required.
+"""
+
+from __future__ import annotations
+
+import logging
+
+from hatchet_sdk import Context, EmptyModel
+
+from core.config import settings
+from hatchet.client import hatchet
+
+logger = logging.getLogger(__name__)
+
+workflow = hatchet.workflow(
+    name="PurgeWorkflowRunRetention",
+    on_crons=[settings.run_retention_cron_schedule],
+)
+
+
+@workflow.task(name="purge_retention")
+async def purge_retention(input: EmptyModel, ctx: Context) -> dict:
+    from core.database import SessionLocal
+    from services.execution.retention_service import RetentionService
+
+    if not settings.run_retention_enabled:
+        logger.info("Run retention disabled (RUN_RETENTION_ENABLED=false); skipping purge")
+        return {"skipped": True}
+
+    with SessionLocal() as db:
+        result = RetentionService(db).purge_workflow_runs(
+            retention_days=settings.run_retention_days,
+            batch_size=settings.run_retention_batch_size,
+        )
+
+    logger.info(
+        "Purged %s run(s) and %s orphaned artifact(s) older than %s day(s)",
+        result.runs_deleted,
+        result.artifacts_deleted,
+        result.retention_days,
+    )
+    return {
+        "runs_deleted": result.runs_deleted,
+        "artifacts_deleted": result.artifacts_deleted,
+        "retention_days": result.retention_days,
+    }
+
+
+@workflow.task(name="reconcile_change_requests")
+async def reconcile_change_requests(input: EmptyModel, ctx: Context) -> dict:
+    from core.database import SessionLocal
+    from services.change_requests.change_request_service import ChangeRequestService
+
+    with SessionLocal() as db:
+        service = ChangeRequestService(db)
+        expired = service.expire_sweep()
+        finalised = service.reconcile_all_in_flight()
+
+    if expired or finalised:
+        logger.info("Change-request sweep: %s expired, %s finalised", expired, finalised)
+    return {"expired": expired, "finalised": finalised}
+
+
+@workflow.task(name="purge_ai_conversations")
+async def purge_ai_conversations(input: EmptyModel, ctx: Context) -> dict:
+    from core.database import SessionLocal
+    from services.ai_assistant.conversation_service import AiConversationService
+
+    days = settings.ai_conversation_retention_days
+    if days < 1:
+        return {"skipped": True}
+
+    with SessionLocal() as db:
+        deleted = AiConversationService.from_session(db).purge_older_than_days(days)
+    return {"deleted": deleted, "retention_days": days}
+
+
+@workflow.task(name="purge_report_data")
+async def purge_report_data(input: EmptyModel, ctx: Context) -> dict:
+    from core.database import SessionLocal
+    from services.report_data.report_data_service import ReportDataService
+
+    days = settings.report_data_retention_days
+    if days < 1:
+        return {"skipped": True}
+
+    with SessionLocal() as db:
+        deleted = ReportDataService(db).purge_older_than_days(
+            days, batch_size=settings.run_retention_batch_size
+        )
+    return {"deleted": deleted, "retention_days": days}

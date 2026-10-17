@@ -1,0 +1,53 @@
+"""Request/response models for the encrypt-attribute / decrypt-attribute
+editor "Test" APIs.
+
+The caller supplies the value plus exactly one shared-secret source:
+``shared_secret`` (typed inline) or ``credential_reference`` (a
+``shared_secret``-type credential name resolved server-side, same as the step
+itself does at run time). Neither the typed secret nor a resolved
+credential's passphrase is ever echoed back in the response.
+"""
+
+from __future__ import annotations
+
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+from core.cisco_secret import is_cisco_algorithm
+
+
+class _SharedSecretSourceMixin(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    shared_secret: str | None = Field(default=None, min_length=1, max_length=1024)
+    credential_reference: str | None = Field(default=None, min_length=1, max_length=255)
+
+    @model_validator(mode="after")
+    def _exactly_one_secret_source(self) -> _SharedSecretSourceMixin:
+        # Cisco type 7/8/9 are keyless: no shared secret is needed (or used).
+        if is_cisco_algorithm(getattr(self, "algorithm", None)):
+            return self
+        if bool(self.shared_secret) == bool(self.credential_reference):
+            raise ValueError(
+                "exactly one of shared_secret or credential_reference is required"
+            )
+        return self
+
+
+class EncryptAttributeTestRequest(_SharedSecretSourceMixin):
+    plaintext: str = Field(min_length=1, max_length=65_536)
+    algorithm: str | None = None
+
+
+class EncryptAttributeTestResponse(BaseModel):
+    ciphertext: str
+    algorithm: str
+
+
+class DecryptAttributeTestRequest(_SharedSecretSourceMixin):
+    ciphertext: str = Field(min_length=1, max_length=65_536)
+    algorithm: str | None = None
+
+
+class DecryptAttributeTestResponse(BaseModel):
+    plaintext: str
+    algorithm: str

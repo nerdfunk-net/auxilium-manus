@@ -1,0 +1,153 @@
+"""Git repository management models."""
+
+from __future__ import annotations
+
+from enum import StrEnum
+
+from pydantic import BaseModel, Field, field_validator
+
+from services.git.refs import validate_branch_name
+
+WEBHOOK_SECRET_MIN_LENGTH = 16
+
+
+def validate_webhook_secret(value: str | None) -> str | None:
+    """None keeps, '' clears, anything else must be a real secret (W2)."""
+    if value and len(value) < WEBHOOK_SECRET_MIN_LENGTH:
+        raise ValueError(f"webhook_secret must be at least {WEBHOOK_SECRET_MIN_LENGTH} characters")
+    return value
+
+
+class GitCategory(StrEnum):
+    CONFIGS = "device_configs"
+    COCKPIT_CONFIGS = "cockpit_configs"
+    TEMPLATES = "templates"
+    AGENT = "agent"
+    CSV_IMPORTS = "csv_imports"
+    CSV_EXPORTS = "csv_exports"
+    WORKFLOWS = "workflows"
+    WORKFLOW_STEPS = "workflow_steps"
+    CICD_PIPELINE = "cicd_pipeline"
+    BATFISH = "batfish"
+
+
+class GitAuthType(StrEnum):
+    NONE = "none"
+    TOKEN = "token"
+    SSH_KEY = "ssh_key"
+    GENERIC = "generic"
+
+
+class GitRepositoryRequest(BaseModel):
+    name: str = Field(..., description="Unique repository name")
+    category: GitCategory = Field(..., description="Repository category")
+    url: str = Field(..., description="Git repository URL")
+    branch: str = Field(default="main", max_length=255, description="Default branch")
+    auth_type: GitAuthType = Field(default=GitAuthType.TOKEN, description="Authentication type")
+    credential_name: str | None = Field(None, description="Name of stored credential")
+    path: str | None = Field(None, description="On-disk sub-path override")
+    verify_ssl: bool = Field(default=True, description="Verify SSL certificates")
+    git_author_name: str | None = Field(None, description="Git author name for commits")
+    git_author_email: str | None = Field(None, description="Git author email for commits")
+    description: str | None = Field(None, description="Repository description")
+
+    @field_validator("branch")
+    @classmethod
+    def _branch(cls, value: str) -> str:
+        return validate_branch_name(value)
+    is_active: bool = Field(default=True, description="Repository is active")
+    webhook_secret: str | None = Field(
+        None,
+        description="Inbound git-webhook secret (GitHub HMAC secret / GitLab token), "
+        "at least 16 characters. Write-only; never returned.",
+    )
+
+    @field_validator("webhook_secret")
+    @classmethod
+    def _webhook_secret_min_length(cls, value: str | None) -> str | None:
+        return validate_webhook_secret(value)
+    webhook_auto_deploy: bool = Field(
+        default=False,
+        description="When true a verified webhook dispatches the deploy run immediately; "
+        "otherwise it only marks the change request reviewed.",
+    )
+
+
+class GitRepositoryResponse(BaseModel):
+    id: int
+    name: str
+    category: GitCategory
+    url: str
+    branch: str
+    auth_type: str | None = "token"
+    credential_name: str | None = None
+    path: str | None = None
+    verify_ssl: bool
+    git_author_name: str | None = None
+    git_author_email: str | None = None
+    description: str | None = None
+    is_active: bool
+    created_at: str
+    updated_at: str
+    last_sync: str | None = None
+    sync_status: str | None = None
+    has_webhook_secret: bool = False
+    webhook_auto_deploy: bool = False
+
+
+class GitRepositoryListResponse(BaseModel):
+    repositories: list[GitRepositoryResponse]
+    total: int
+
+
+class GitRepositoryUpdateRequest(BaseModel):
+    name: str | None = None
+    category: GitCategory | None = None
+    url: str | None = None
+    branch: str | None = None
+    auth_type: GitAuthType | None = None
+    credential_name: str | None = None
+    path: str | None = None
+    verify_ssl: bool | None = None
+    git_author_name: str | None = None
+    git_author_email: str | None = None
+    description: str | None = None
+    is_active: bool | None = None
+    # An empty string clears the stored secret; omitting the field keeps it.
+    webhook_secret: str | None = None
+
+    @field_validator("branch")
+    @classmethod
+    def _branch(cls, value: str | None) -> str | None:
+        return None if value is None else validate_branch_name(value)
+
+    @field_validator("webhook_secret")
+    @classmethod
+    def _webhook_secret_min_length(cls, value: str | None) -> str | None:
+        return validate_webhook_secret(value)
+    webhook_auto_deploy: bool | None = None
+
+
+class GitConnectionTestRequest(BaseModel):
+    url: str
+    branch: str = Field(default="main", max_length=255)
+    auth_type: GitAuthType = GitAuthType.TOKEN
+    username: str | None = None
+    token: str | None = None
+    credential_name: str | None = None
+    verify_ssl: bool = True
+
+    @field_validator("branch")
+    @classmethod
+    def _branch(cls, value: str) -> str:
+        return validate_branch_name(value)
+
+
+class GitConnectionTestResponse(BaseModel):
+    success: bool
+    message: str
+    details: dict | None = None
+
+
+class GitSyncRequest(BaseModel):
+    repository_id: int | None = None

@@ -1,0 +1,758 @@
+# How to Build Workflows: Designing for Throughput
+
+This guide answers a question that comes up for any workflow that targets a large
+device count: **when I run a step against hundreds of devices, how are they
+actually processed, and what do I configure to make it fast without overloading
+the devices or the worker?**
+
+It uses one running example — a nightly configuration backup — to walk through
+every option. For the full step contract and fan-out mechanics, see
+[`doc/WORKFLOW-STEPS.md`](./WORKFLOW-STEPS.md) → **Fan-out execution**; this
+document is the practical, example-driven companion to that reference.
+
+Everything through "Quick decision table" below controls devices *within one
+run*. A separate, later section — "A separate axis: overlapping runs of the
+same workflow" — covers the complementary question: what stops the *same
+workflow* from running twice at once and doubling your concurrent device
+load, regardless of how it's configured internally.
+
+---
+
+## The example: backing up 300 devices overnight
+
+A workflow with three nodes:
+
+```
+Get from Nautobot  →  Get Device Configs  →  Store Artifact (git)
+   (300 devices)         (running-config)         (commit + push)
+```
+
+`Get from Nautobot` (`get-nautobot-devices`) resolves a filter to 300 devices.
+`Get Device Configs` (`get-device-configs`) opens an SSH session to each device
+and pulls its running config. `Store Artifact` commits all 300 files to a git
+repository and pushes once.
+
+The question is entirely about the middle node: **how many of those 300 SSH
+sessions does `Get Device Configs` open at once, and in what order?**
+
+---
+
+## Option 1 — Fan-out disabled (the default)
+
+Every inventory step (`get-nautobot-devices`, `get-virtual-chassis`, `get-git-devices`,
+`get-ise-devices`, `get-catalyst-center-devices`, `get-from-list`) ships with fan-out **off** by default:
+
+```python
+"fan_out": {
+    "enabled": False,
+    "mode": "per_device",
+    "chunk_size": 1,
+    "max_concurrency": 0,
+}
+```
+
+If you drop `Get from Nautobot` → `Get Device Configs` on the canvas and never
+open the fan-out block, this is what you get. There is no batching at all: the
+whole workflow runs once, as a single Hatchet task, with all 300 devices
+sharing one `WorkflowContext`.
+
+Inside that one execution, `get-device-configs`' executor does this
+(`backend/workflow_steps/get_device_configs/executor.py:277-294`):
+
+```python
+results = await asyncio.gather(
+    *[_fetch_device_logged(...) for device in context.devices]
+)
+```
+
+**All 300 devices are dispatched concurrently, with no internal throttle.**
+There is no "10 at a time" behavior anywhere in this path — that was never a
+fan-out default; it was `HATCHET_WORKER_SLOTS` (see the callout below) being
+misread as one.
+
+```
+┌─────────────────────────── one Hatchet task ───────────────────────────┐
+│  Get Device Configs                                                    │
+│                                                                        │
+│   device 1   ─┐                                                        │
+│   device 2   ─┤                                                        │
+│   device 3   ─┤                                                        │
+│      ...      ├─►  asyncio.gather()  ─►  all 300 SSH sessions at once  │
+│   device 299 ─┤                                                        │
+│   device 300 ─┘                                                        │
+└────────────────────────────────────────────────────────────────────────┘
+```
+
+**When this is fine:** small-to-medium device counts, or devices/jump hosts
+that comfortably tolerate a burst of concurrent SSH sessions.
+
+**When this bites you:** at 300 devices, you're asking for 300 simultaneous
+SSH login attempts against your credential source, your TACACS+/RADIUS server,
+and every device's SSH daemon (which itself usually caps concurrent sessions,
+often well under 300) — all at the same instant. Expect timeouts, throttling,
+and possibly locked-out accounts, not a fast backup.
+
+> **A second, unrelated concurrency cap still applies.** The single Hatchet
+> task above still has to be picked up and run by a worker process, and that
+> worker will only run so many tasks at once — governed by `HATCHET_WORKER_SLOTS`
+> (Settings → Hatchet → *Worker Slots*, default `10`). But that cap is
+> **per worker process, shared by every workflow and workflow type currently
+> running** — it does not carve your 300 devices into groups of 10. With
+> fan-out disabled, this workflow is *one* task, so it either gets a slot and
+> runs (dispatching all 300 devices at once, as above) or waits for a slot like
+> any other task on that worker.
+
+---
+
+## Option 2 — Fan-out enabled
+
+Turning fan-out on (in `Get from Nautobot`'s config panel, under **Fan Out**)
+splits the 300 devices across independent Hatchet **child workflows**
+(`DeviceGroupExecution`) instead of one shared execution. This is what actually
+gives you controlled batching.
+
+```
+Get from Nautobot (fan_out.enabled = true)
+        │
+        ▼
+   StepRunner.execute_all() sees fan-out → STOPS after the inventory step,
+   returns a FanOutSignal
+        │
+        ▼
+   _dispatch_children() splits 300 devices into groups, per `mode`/`chunk_size`,
+   and runs the groups bounded by `max_concurrency`
+        │
+        ├──► child 1: Get Device Configs → (per its own group of devices)
+        ├──► child 2: Get Device Configs → ...
+        └──► child N: Get Device Configs → ...
+        │
+        ▼
+   results merged back together, then Store Artifact runs ONCE on the union
+   (only if a Fan In node sits before it — see the warning at the end)
+```
+
+Two independent knobs decide how those groups are built and released:
+
+### `mode` — how devices are grouped into one child
+
+| `mode` | Devices per child | What happens inside that child |
+|---|---|---|
+| `per_device` | 1 | `get-device-configs` sees a context with 1 device — nothing to `gather()` over. |
+| `chunked` | `chunk_size` | `get-device-configs` sees a context with `chunk_size` devices — and still runs `asyncio.gather()` over **all of them at once**, same as Option 1, just on a smaller group. |
+
+This is the detail that's easy to get backwards: **`chunk_size` is not a
+concurrency limit.** It only decides how many devices are bundled into one
+child's context. Whatever ends up in that context is still hit fully
+concurrently, unthrottled, by the executor. A `chunk_size: 10` chunk is a
+10-wide burst, not a paced trickle.
+
+### `max_concurrency` — how many children run at once
+
+This is the actual throttle. `_run_groups` (`backend/hatchet/workflows/workflow_run.py:566-587`)
+implements it as a semaphore over the child-workflow calls:
+
+```python
+if max_concurrency <= 0:
+    tasks = [child_workflow.aio_run(inp) for inp in child_inputs]
+    return await asyncio.gather(*tasks, return_exceptions=True)   # unlimited
+
+semaphore = asyncio.Semaphore(max_concurrency)
+async def _run_one(inp):
+    async with semaphore:
+        return await child_workflow.aio_run(inp)
+```
+
+With a semaphore in play, this is a **rolling pool**, not a lockstep batch:
+every child that finishes immediately frees a slot for the next one to start.
+It is *not* "run 10, wait for all 10 to finish, then run the next 10" — devices
+stream through continuously.
+
+```
+mode: per_device, max_concurrency: 10   (recommended shape for this example)
+
+ time ──────────────────────────────────────────────────────────────►
+
+ slot 1  [dev 1]───►[dev 11]──────►[dev 23]───►...
+ slot 2  [dev 2]────────►[dev 12]─►[dev 24]───►...
+ slot 3  [dev 3]──►[dev 13]───────►[dev 25]───►...
+   ...
+ slot 10 [dev 10]──────►[dev 20]──►[dev 30]───►...
+
+ → never more than 10 SSH sessions open at once, but a slot never sits idle
+   waiting for the other 9 to finish — the moment one device is done, the
+   next queued device starts immediately.
+```
+
+### `max_concurrency: 0` isn't "safe unlimited" — it's a gap, not a limit
+
+It's tempting to enable fan-out, set `mode: "per_device"`, and leave
+`max_concurrency` at its default `0` ("unlimited") expecting the per-device
+split alone to have tamed the problem. It hasn't — `0` skips the semaphore
+branch entirely, so **all N devices are submitted as separate Hatchet child
+tasks essentially simultaneously**, with no cap coming from this step at all:
+
+```python
+if max_concurrency <= 0:
+    tasks = [child_workflow.aio_run(inp) for inp in child_inputs]
+    return await asyncio.gather(*tasks, return_exceptions=True)   # no semaphore
+```
+
+This is not identical to fan-out being off — with fan-out off, all 300 SSH
+sessions open inside *one* Python coroutine, guaranteed. With fan-out on and
+`max_concurrency: 0`, 300 *separate Hatchet tasks* get queued instead, and
+Hatchet itself won't run more of them at once than the worker process has
+capacity for (`HATCHET_WORKER_SLOTS`, default `10` — Settings → Hatchet).
+
+That can make `max_concurrency: 0` *look* safe in a typical single-worker dev
+setup, where it quietly ends up around ~10 concurrent devices anyway — but
+that's an accident of `HATCHET_WORKER_SLOTS`, which is a **global** cap shared
+by every other workflow running on that worker, not something this step
+controls or that's scoped to this run. Add a second worker process, or raise
+`HATCHET_WORKER_SLOTS`, and the real concurrency ceiling rises with it — with
+nothing in the step's own configuration reflecting that. Relying on it means
+your device count's actual concurrency ceiling lives in worker deployment
+config you may not be looking at, not in the workflow you're designing.
+
+The config panel now flags this directly: with fan-out enabled and
+`max_concurrency` left at `0`, a `!` warning appears reminding you that
+concurrency is effectively determined by Worker Slots, not by this step (a
+sibling `!` warning covers Option 1 too, appearing whenever fan-out is off
+entirely). Set an explicit number — `10`–`20` for the 300-device example —
+whenever you want the limit to actually live in the workflow, not in shared
+worker capacity.
+
+Compare that to `mode: chunked, chunk_size: 10, max_concurrency: 1`, which
+*is* a strict wait-for-the-batch model, because each "slot" here is itself a
+10-device burst that must fully complete before the next chunk starts:
+
+```
+mode: chunked, chunk_size: 10, max_concurrency: 1
+
+ chunk 1 (devices 1-10)    [██████████ 10 concurrent SSH ██████████]
+                                                                     │ waits
+ chunk 2 (devices 11-20)                                            └►[██████████]
+                                                                                  │ waits
+ chunk 3 (devices 21-30)                                                         └►[██████████]
+```
+
+This shape is occasionally what you want (e.g. you need a `Fan In` per batch,
+or you're deliberately throttling for a change window), but it is **not** a
+smooth "10 at a time" pipeline — it's 10 devices bursting, then a full stop,
+repeated.
+
+### `approval.enabled` — a third, unrelated gate
+
+If `fan_out.approval.enabled: true` (the **Wait & Run** feature), dispatch
+groups are batched into sets of `approval.batch_size` and the run **pauses**
+after each set until an operator clicks *Run next batch* in the UI — regardless
+of `max_concurrency`. This is for canary/staged rollouts of risky changes
+(e.g. a TACACS+ key), not for throughput tuning. Leave it `false` for a backup
+job; you want continuous streaming, not an operator gate every N devices.
+
+---
+
+## What to actually set for a fast, safe 300-device backup
+
+1. Enable fan-out on `Get from Nautobot`.
+2. `mode: "per_device"` — one device per child, so nothing inside a single
+   child can burst past what `max_concurrency` allows.
+3. `max_concurrency: 10–20` — pick a number your devices' SSH daemons, your
+   credential/TACACS+ source, and your network can sustain concurrently. Start
+   at 10 and raise it if backups finish comfortably with no timeouts; lower it
+   if you see auth throttling or connection failures.
+4. `approval.enabled: false` — no operator gate; this is a routine backup, not
+   a staged rollout.
+5. Put a **Fan In** node between `Get Device Configs` and `Store Artifact`.
+   `store-artifact (git)` opens one shared working tree per git source — if it
+   ran once per child instead of once after the join, 300 children would race
+   on `index.lock` and produce 300 single-file commits instead of one clean
+   commit. See `doc/WORKFLOW-STEPS.md` → **Writing concurrency-safe steps**.
+
+Final shape:
+
+```
+Get from Nautobot          Get Device Configs           Fan In        Store Artifact (git)
+ (fan_out: per_device,  →   (runs once per device,   →  (rejoin)  →    (runs ONCE, all
+  max_concurrency: 10)       10 in flight at a time)                    300 configs, one commit)
+```
+
+This gives you a continuous pipeline of ~10 devices in flight at any moment,
+300 devices flowing through without ever waiting on a full batch to drain, and
+exactly one git commit/push at the end.
+
+---
+
+## Quick decision table
+
+| Your goal | Fan-out? | `mode` | `chunk_size` | `max_concurrency` |
+|---|---|---|---|---|
+| A handful of devices, simplicity over control | Off (default) | — | — | — |
+| Hundreds of devices, fastest safe throughput | On | `per_device` | — | `10`–`20` |
+| Devices must be processed in fixed-size batches with a hard pause between them for review | On | `per_device` or `chunked` | as needed | any, plus `approval.enabled: true` |
+| A step genuinely needs several devices in one context together | On | `chunked` | small (e.g. 5) | set deliberately — remember `chunk_size × max_concurrency` is your real concurrent SSH ceiling |
+
+And regardless of any of the above: `HATCHET_WORKER_SLOTS` (Settings →
+Hatchet) is a **separate, global** cap on how many Hatchet tasks the worker
+process runs at once, shared with every other workflow running on it at the
+time. It is not a per-workflow setting and does not substitute for configuring
+`max_concurrency` on a specific fan-out step.
+
+---
+
+## Independent branches run concurrently
+
+Everything above answers "how many devices are in flight at once." A related
+but different question: if the canvas has two independent branches after a
+single step —
+
+```
+        ┌─► b1 ─┐
+   a ───┤        ├─► c
+        └─► b2 ─┘
+```
+
+— do `b1` and `b2` run concurrently? **Yes**, when neither depends on the
+other's output.
+
+### Only two Hatchet tasks exist per run
+
+A run's entire Hatchet-level task graph is fixed and tiny: `prepare_task` →
+`execute_steps` (`hatchet/workflows/workflow_run/__init__.py`). Hatchet's own
+native DAG feature (`.task(parents=[...])`) is used for exactly that one
+pipeline — never per canvas node. Hatchet has no idea `b1` or `c` exist; it
+sees one opaque task that happens to run a lot of application code before
+returning. This part is unchanged.
+
+### Inside that task, the canvas is walked one *generation* at a time
+
+`execute_steps` calls into `StepRunner` (`services/execution/step_runner/runner.py`),
+which groups the topologically-sorted `canvas_nodes`/`canvas_edges` into
+dependency layers (`services/execution/graph.py::topological_generations`) —
+every node in one layer has all its parents in strictly earlier layers, so
+nodes within a layer never depend on each other. `execute_all()`/
+`resume_after_join()` walk layer by layer; within a layer, every node's
+`execute()` runs concurrently via `asyncio.gather()`
+(`StepRunner._run_wave`), and the walk only moves to the next layer once the
+current one finishes. So `b1` and `b2` — both depending only on `a`, not on
+each other — land in the same layer and genuinely overlap.
+
+`c` correctly waits for both `b1` and `b2` before its own layer starts —
+`_assemble_input_context` merges `b1` and `b2`'s outcomes (already recorded
+in `step_outcomes` once their layer completes) via
+`merge_workflow_contexts` (`services/workflow_context/merge.py`), the same
+merge already used for any multi-parent node. A conflict between the two
+branches (e.g. both writing the same `parsed[output_key]` with different
+data) still raises rather than being silently merged.
+
+A single shared `SQLAlchemy Session` backs the whole walk; concurrent
+siblings never corrupt it because every `WorkflowStepResult` write already
+self-commits (`RunRepository.update_step_result`/`create_step_result`) and
+`StepRunner` serializes those writes with an internal `asyncio.Lock` — the
+lock only brackets the write itself, never a sibling's actual step work (SSH
+sessions, HTTP calls), so it costs nothing meaningful.
+
+### Fan-out multiplies this per device — both axes now compose
+
+> **What may sit next to a fan-out branch.** Only one step may have fan-out enabled; every
+> step that is not below it must run before it; steps below it may only be fed from the
+> fan-out branch. A workflow that breaks one of these is refused at save time and at run
+> time, because the unconnected steps would never execute (rules R1–R3 in
+> `doc/WORKFLOW-STEPS.md`).
+
+Enabling fan-out on an upstream inventory step gives you real, Hatchet-visible
+concurrency — but **across devices**, by spawning one `DeviceGroupExecution`
+child workflow per device/chunk (see **Option 2** above). Each child walks its
+own downstream subgraph — including `b1`/`b2` — through the same
+generation-based walk
+(`services/execution/step_runner/subgraph.py::run_subgraph`), just without
+writing `WorkflowStepResult` rows during the walk (the parent persists after
+aggregating every child's result, so this walk needs no `asyncio.Lock` around
+step rows the way phase 1/4 do). It does report live per-node state to the
+child's `WorkflowRunDeviceGroup` row through a progress sink, which owns its
+own write lock — see "Live progress while a run executes" in
+`doc/WORKFLOW-STEPS.md`. So with fan-out on:
+
+- N devices → N children running concurrently (bounded by `max_concurrency`).
+- Inside **any one** child, `b1` and `b2` also run concurrently with each
+  other — same as outside fan-out.
+
+In other words: fan-out parallelizes "the same branch across devices"; branch
+concurrency (this section) parallelizes "different branches for the same
+device/run" — the two axes are independent and both apply everywhere in the
+engine now, fan-out included.
+
+Relatedly, a node only acts as the fan-out rejoin point when it is explicitly
+a **Fan In** node (`data.kind == "fan-in"`,
+`services/execution/graph.py::find_join_node_id`) — two edges converging on an
+ordinary step like `c` does not make it one. Without an explicit Fan In node
+upstream of it, `c` simply runs once per device, inside every child, like any
+other step on the child branch.
+
+
+### Cancelling a run, and a run whose worker died
+
+Cancel records `cancelled` in the database first and only then asks Hatchet to cancel. The walk
+checks the run row between layers, stops, and marks the steps that did not start as `skipped`, so a
+cancel works even when Hatchet does not deliver it. A step that is already running finishes its
+current work; it is not interrupted mid-command. `cancelled` is final: a worker that finishes
+afterwards cannot turn the run back into `success`.
+
+If the worker dies, nothing reports an end for the run. A reaper (`RUN_REAPER_CRON_SCHEDULE`, after
+`RUN_REAPER_GRACE_MINUTES`) asks Hatchet for the engine status and finalises the run. It does
+nothing while Hatchet cannot be reached. Only the person who started a run (or an administrator)
+may cancel it.
+
+---
+
+## A fuller example: fan-out + Fan In with the whole Git feature
+
+The 3-node example above is deliberately minimal. A real backup usually also:
+
+- reads a **per-device attribute** (site / role / region) so each config file
+  lands in the right place in the repo;
+- stores **two** files per device — running-config *and* startup-config;
+- **pulls** the repo before it commits, so the local working tree is
+  fast-forwarded to the remote tip before new files are added.
+
+The full node list:
+
+```
+1. Get from Nautobot        fan_out: per_device, max_concurrency: 10
+2. Get Nautobot Attributes  ── per-device: site/role for the path template
+3. Get Device Configs       ── per-device: running-config + startup-config
+4. Fan In
+5. Git Pull
+6. Store Artifact (running) ── destination: git
+7. Store Artifact (startup) ── destination: git
+8. Git Push
+```
+
+### Every Git step sits *after* the Fan In — including the pull
+
+It is tempting to run Git Pull early — "refresh the repo, then start pulling
+configs". You can't put it before the fan-out, and you must not put it inside
+the fanned-out branch:
+
+- `git-clone`, `git-pull`, and `git-push` all declare `requires: [identity]` in
+  `registry.yaml`, so the canvas will not let you wire one as a bare root node —
+  it has to be downstream of an inventory step. But the fan-out happens **at**
+  `Get from Nautobot`, so "downstream of the inventory step" and "inside the
+  per-device child branch" are the *same place*. There is no "after the
+  inventory step but before the fan-out" slot.
+- Anything on the child branch runs **once per child** — once per device in
+  `per_device` mode. A Git Pull there is **not** "one pull per group of 10";
+  `max_concurrency: 10` only caps how many device-children run at once. 300
+  devices → 300 pulls, 10 racing at any given moment.
+- `git-pull` / `git-push` / `store-artifact → git` are all **not
+  concurrency-safe** (`doc/WORKFLOW-STEPS.md` → *Writing concurrency-safe steps*): each
+  opens the one shared on-disk working tree for the repo (`load_git_repository`
+  → a single `path`). Concurrent children collide on `index.lock`, produce N
+  single-file commits instead of one, and reject each other's non-fast-forward
+  pushes.
+
+The **Fan In** node is the fix. It also declares `requires: [identity]` and
+`produces: []`, and it passes every device capability through unchanged — so
+`identity`, `running_config`, `startup_config`, and every attribute bag are
+still available to steps placed after it. Wiring `Git Pull` to the Fan In's
+`success` handle satisfies the canvas rule **and** runs it exactly once on the
+merged 300-device context.
+
+```
+        ┌─────────── runs once PER DEVICE (10 in flight) ───────────┐
+Get from Nautobot → Get Nautobot Attributes → Get Device Configs → [FAN IN]
+ (fan_out: per_device,                                                │
+  max_concurrency: 10)                                                ▼
+                       ┌──────────────── runs ONCE on all 300 devices ────────────────┐
+                       Git Pull → Store Artifact (running) → Store Artifact (startup) → Git Push
+                       │ one ff-  │ writes 300 files        │ writes 300 files         │ one commit
+                       │ merge    │ into the working tree   │ into the working tree    │ one push
+```
+
+### What runs where
+
+| Node | Where it runs | Times (300 devices) | Why |
+|---|---|---|---|
+| `get-nautobot-devices` | parent, phase 1 | 1 | Emits the fan-out signal, then the parent stops. |
+| `get-nautobot-attributes` | child branch | 300 (10 concurrent) | Per-device read, fan-out-safe — no shared sink. |
+| `get-device-configs` | child branch | 300 (10 concurrent) | Per-device SSH, fan-out-safe. |
+| `fan-in` | parent, phase 4 | 1 | Merges child contexts back into one. |
+| `git-pull` | parent, phase 4 | 1 | Shared working tree — must be post-join. |
+| `store-artifact` (git) ×2 | parent, phase 4 | 1 each | Writes every device's file into the one working tree. |
+| `git-push` | parent, phase 4 | 1 | One commit over all 600 files, one push. |
+
+### Do you even need the explicit Git Pull?
+
+`store-artifact → git` and `git-push` already ensure the working tree exists
+(they clone-or-pull on first use). An explicit `git-pull` before the stores
+adds one guarantee: the local branch is fast-forwarded to the **remote** tip
+before new files are committed, so a `git-push` with `commit_before_push: true`
+is not rejected non-fast-forward because something else pushed to the same repo
+in the meantime. For a repo only this workflow writes to, it's optional; for a
+shared repo, keep it — placed after the Fan In it costs one extra network
+round-trip per *run*, not per device.
+
+### Gating a config change on human review
+
+When the render should be **reviewed before it touches devices**, end the stage
+workflow with `open-change-request` instead of `git-push`: it commits the
+rendered configs to a per-change branch and records a change request. Approval
+(a UI click or a signed git webhook) then dispatches a separate deploy workflow
+(`from-change-request` → `configure-replace-config`).
+`open-change-request` is a git step like the rest — it must sit **after the Fan
+In**. Full design: [`doc/CICD_PIPELINE.md`](./CICD_PIPELINE.md).
+
+---
+
+## When an SSH session opens and closes
+
+Fan-out decides *how many* SSH sessions are open at once. This section covers
+the other half: for any one device, **when does its SSH connection open, and
+when is it torn down?** The short answer is that connections are managed by a
+`DeviceSessionPool` (`backend/services/network/netmiko/session_pool.py`) whose
+lifetime is tied to an **execution segment**, not to the run as a whole — and
+closing is deterministic (end of a segment), never an idle timer.
+
+### A "segment" is one `StepRunner`'s lifetime
+
+`StepRunner` (`backend/services/execution/step_runner.py`) creates exactly one
+`DeviceSessionPool` in its constructor, and whoever builds a `StepRunner` is
+required to `close()` that pool in a `finally` when the segment ends. A run has
+one segment when fan-out is off, and several when it's on:
+
+| Segment | What runs in it | Owns a pool |
+|---|---|---|
+| Parent, phase 1 | Everything up to and including the inventory step | yes |
+| Fan-out child (`DeviceGroupExecution`) | The child branch — inventory step's downstream nodes, up to but **not** including Fan In — for one device (`per_device`) or one chunk (`chunked`) | yes, one per child |
+| Parent, phase 4 (post-join resume) | Fan In and every node after it | yes, a fresh one |
+
+There is no shared, run-wide connection pool. Each segment's pool is
+independent and is disconnected + shut down when that segment finishes.
+
+### How a session is acquired and reused
+
+Every SSH step reaches the network only through
+`DeviceSessionPool.run_on_device(...)`. The pool keys live connections by
+`(host, device_type, credential_reference)`:
+
+- **Open:** lazily, on the **first** `run_on_device` call for a given key in
+  that segment — i.e. when the first SSH step in the segment actually runs
+  against that device. Merely reaching the segment opens nothing.
+- **Reuse:** a second SSH step against the same device *in the same segment*
+  reuses the already-open session — no re-login. Between steps the session is
+  held open and kept warm with a TCP keepalive (`NETMIKO_KEEPALIVE_SECONDS`,
+  default `30`). Each step must leave the session in privileged-exec base mode
+  so the next step can reuse it.
+- **Reconnect:** if the pooled session has dropped (`is_alive()` is false) when
+  the next step needs it, the pool transparently reconnects before running the
+  op.
+- **Close:** when the owning segment ends. `close()` disconnects every live
+  session and shuts down the pool's thread executor. It is idempotent and
+  never raises — a segment that opened no sessions still calls it harmlessly.
+
+### Fan-out **off**: one login per device, held for the whole run
+
+With fan-out disabled the entire run is a single segment. A device's session
+opens when the first SSH step runs against it and stays open until the run
+finishes. If the workflow has
+`Get Device Configs` followed later by `Deploy Rendered Template` against the
+same devices, both steps share one login per device.
+
+### Fan-out **on**: one login per device, closed when its child finishes
+
+This is the important case for the 300-device backup. With
+`mode: per_device, max_concurrency: 10`:
+
+```
+        ┌──────────── one child = one segment = one SSH login ────────────┐
+Get from Nautobot ─► Get Nautobot Attributes ─► Get Device Configs ─► (child ends)
+ (parent, phase 1)   (child: HTTP, no SSH)      (child: opens the        │
+  no SSH — emits                                 SSH session here)       ▼
+  fan-out signal)                                                  pool.close()
+                                                                   → SSH closed
+                     ┌─────────── parent, phase 4: fresh empty pool ───────────┐
+                     Fan In ─► Git Pull ─► Store Artifact ×N ─► Git Push
+                     (no SSH steps — this segment's pool stays empty)
+```
+
+Concretely:
+
+1. `get-nautobot-devices` runs in the parent's phase-1 segment and emits the
+   fan-out signal. No SSH. That segment's pool is closed immediately after
+   (`workflow_run.py` phase-1 `finally`).
+2. Each device runs as its own `DeviceGroupExecution` child with its own
+   `StepRunner` and pool. `Get Nautobot Attributes` is an HTTP read (no
+   session). `Get Device Configs` calls `run_on_device` — **that** is where
+   the one SSH login for this device happens.
+3. When the child finishes its branch (the last node before Fan In), its
+   `finally` runs `close_device_sessions()` and the SSH connection is torn
+   down. **The session closes at the end of the child, which is before Fan In —
+   not at Fan In.** By the time Fan In runs, every child's session is already
+   gone.
+4. Fan In, Git Pull, Store Artifact and Git Push run in the parent's phase-4
+   segment. It has its own pool, but none of those are SSH steps, so it never
+   opens a connection.
+
+So "10 concurrent SSH sessions" = `max_concurrency: 10` children in flight,
+each holding exactly one session. The moment a child completes, its session
+closes, its semaphore slot frees, and the next queued device's child starts
+and opens a fresh session. It is a rolling pool, not a batch — see the slot
+diagram under **`max_concurrency`** above.
+
+### `suspend` vs `close`
+
+`DeviceSessionPool` has a `suspend()` primitive (disconnect every live
+session, an idle device would drop the TCP session anyway, but keep the pool
+usable — the next network step reconnects lazily) distinct from `close()`
+(disconnect everything **and** shut down the pool's thread executor).
+`close()` calls `suspend()` internally as an implementation detail. Nothing
+in `StepRunner` calls `suspend()` on its own today — its only call site was
+the per-node debug-mode pause, which has been removed (inspecting values
+mid-run is now done via the `stop-here` step instead — see
+`doc/WORKFLOW-STEPS.md` → **Fan-out execution**). The `Wait & Run` fan-out
+approval gate was never one of these cases either — it pauses in the parent
+during child dispatch, where no pool is held at all.
+
+### The pooling toggle
+
+`NETMIKO_SESSION_POOLING` (Settings → Netmiko, default `true`) controls reuse
+*within* a segment. With it off, `run_on_device` falls back to legacy
+per-call behaviour: every SSH step connects, runs one command batch, and
+disconnects before returning. The "opens in the child, closes when the child
+ends" boundary is unchanged — you just get one login per SSH step instead of
+one shared login per child. `NETMIKO_POOL_WORKERS` (default `10`) sizes each
+pool's thread executor; a `per_device` child only ever touches one device, so
+it uses one.
+
+### Summary
+
+| | Fan-out off | Fan-out on (`per_device`) |
+|---|---|---|
+| Session opens | First SSH step to touch the device, in the single run-wide segment | First SSH step in that device's child |
+| Session reused by later SSH steps | Yes, for the whole run | Yes, within that child only |
+| Session closes | End of the run | End of that child (before Fan In) |
+| What closes it | `StepRunner` `finally` → `pool.close()` | Same, per child |
+
+---
+
+## A separate axis: overlapping *runs* of the same workflow (background tier)
+
+Everything above controls devices *within one run*. It says nothing about
+what happens if the **same workflow gets triggered twice** before the first
+run finishes — a slow device holds up run 1 past its next scheduled fire, an
+operator manually re-triggers while yesterday's run is still draining, or a
+retry fires on top of an in-flight run. By default nothing prevents that:
+both runs execute fully independently, each opening its own
+`fan_out.max_concurrency` devices — so your real concurrent SSH load can
+silently become `2 × max_concurrency` (or worse) with nothing in the fan-out
+config reflecting it, because fan-out concurrency is scoped to one run, not
+to the workflow as a whole.
+
+**Publishing a workflow to the background tier** (Properties panel →
+"Publish to background tier", admin-only) closes that gap — see
+`doc/ARCHITECTURAL_OVERVIEW.md` → "Background-tier workflows" for the full
+mechanism. It assigns the workflow its own dedicated Hatchet workflow
+identity and an optional native **concurrency limit**, which caps
+**overlapping runs**, not devices:
+
+```
+Nightly Backup, published, concurrency_limit: 1
+
+ run A (triggered 02:00)   [████████ still running (slow device) ████████]
+ run B (triggered 02:05,                                                  │ queued by
+        cron re-fires)                                                    │ Hatchet
+                                                                            └►[████████]
+```
+
+With `concurrency_limit: 1`, run B simply waits in Hatchet's queue until run
+A finishes — it never starts a second, overlapping set of devices. That makes
+`fan_out.max_concurrency` a real ceiling on total concurrent SSH load for
+that workflow, not just a per-run one.
+
+**This is orthogonal to fan-out, not a replacement for it** — set both:
+`fan_out.max_concurrency` still controls devices-per-run exactly as described
+above; `concurrency_limit` on publish controls how many runs can hold that
+allowance at once. For the 300-device nightly backup, publishing with
+`concurrency_limit: 1` on top of `fan_out: per_device, max_concurrency: 10`
+guarantees "never more than 10 devices in flight for this workflow, ever,"
+regardless of how many times it happens to get triggered.
+
+Worth doing for any workflow that runs unattended on a schedule (the whole
+point is a safety net for triggers you don't control in the moment); lower
+value for a workflow only ever run manually by one operator who watches it
+finish before running it again.
+
+---
+
+## Documenting the workflow: wiki notes
+
+Every workflow has two text fields beyond its canvas: a short `description` and
+a free-form Markdown `notes` field — the **Wiki** tab in the workflow builder
+(`WorkflowService.update_notes`, edited independently of the canvas save, never
+synced to git). `description` is a one-line label for the workflow list;
+`notes` is where the *why*, the *assumptions*, and the *gotchas* actually
+belong — none of which the canvas itself can express. The same field is what
+gets exported as `notes` in `contributing-data/workflow-gallery/*.json` — a
+gallery entry's notes are this exact Wiki content, just serialized to a file.
+
+### Why this matters
+
+A workflow's canvas tells you *what* runs; it doesn't tell you *why it's built
+that way*, *what it assumes exists*, or *what happens if you reuse it
+carelessly*. Fan-out settings, a Fan In placement, a specific credential name —
+all of that is visible in the config panels, but only if you already know
+which node to open and what question to ask. Good notes answer that up front,
+for two audiences at once:
+
+- **A human** picking a workflow to clone or extend, who shouldn't have to
+  reverse-engineer 10 nodes to learn that, say, this workflow removes every
+  other user from the device's config.
+- **The AI collaborator** (`doc/ai_collaboration/PROCESS.md` → "The workflow
+  gallery"), which is instructed to skim every gallery workflow's
+  `name`/`description`/`notes` before proposing a plan for a new one, precisely
+  so it can reuse an existing pattern or avoid stepping on a documented
+  gotcha instead of guessing from the canvas alone. Notes that are missing,
+  generic, or out of date are worse than useless here — they cost a skim-pass
+  read for zero information, or worse, feed a wrong assumption into a proposed
+  plan.
+
+In other words: this isn't documentation for its own sake. A well-written
+`notes` field is live input into future workflow-building decisions, human or
+AI — it's worth the same care as the canvas itself.
+
+### A structure to reuse
+
+Not every workflow needs every section below — include only what's actually
+true for that workflow:
+
+```markdown
+# <Workflow Name>
+
+## Purpose
+One or two sentences: what problem this solves, when you'd reach for this
+workflow over a different one.
+
+## Assumptions / prerequisites
+Named credentials, inventories, git repos, or Nautobot data shape this
+workflow expects to exist. Skip if there's nothing beyond the obvious.
+
+## Gotchas
+Anything destructive, irreversible, or order-dependent that isn't obvious
+from the canvas alone — a config that gets removed, a non-fast-forward push
+that will be rejected, a step that must run before another for a reason the
+wiring alone doesn't explain.
+
+## Example
+A worked input/output or pass/fail case, if there is a natural one — most
+useful for verification/check-style workflows, less so for pure ETL ones.
+```
+
+### Two things that matter more than the exact headers
+
+1. **Omit empty sections.** A `## Gotchas` header with nothing under it is
+   worse than no header at all — it costs a skim-pass read for zero
+   information. Only write a section when there's something real to say.
+2. **Consistency across workflows matters more than depth in any one
+   workflow.** Every workflow reliably having a one-line `## Purpose` is more
+   valuable than one workflow having an exhaustive wiki while the rest have
+   nothing — a skim pass across many workflows depends on knowing where to
+   look, not on any single file being thorough.

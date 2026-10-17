@@ -1,0 +1,98 @@
+import type { LucideIcon } from "lucide-react";
+
+import type { Capability } from "@/lib/capability-types";
+
+import type { PluginDefinition } from "../types/plugin-registry";
+import type { StepPayload, WorkflowOutcomeField } from "../types/workflow-canvas";
+import {
+  ARTIFACT_TYPE_ORDER,
+  CATEGORY_STEP_ORDER,
+  formatPaletteCategory,
+  resolveStepIcon,
+} from "./step-visuals";
+
+export interface PaletteItem extends StepPayload {
+  icon: LucideIcon;
+  paletteCategory: string;
+}
+
+export interface PaletteGroup {
+  categoryKey: string;
+  label: string;
+  items: PaletteItem[];
+}
+
+function resolvePaletteCategory(plugin: PluginDefinition): string {
+  return plugin.palette_category?.trim() || plugin.artifact_type;
+}
+
+export function toStepPayload(plugin: PluginDefinition): StepPayload {
+  return {
+    kind: plugin.id,
+    title: plugin.name,
+    overview: plugin.overview,
+    description: plugin.description,
+    artifactType: plugin.artifact_type,
+    requires: (plugin.requires ?? []) as Capability[],
+    requiresParsed: plugin.requires_parsed ?? [],
+    produces: (plugin.produces ?? []) as Capability[],
+    producesParsed: plugin.produces_parsed ?? [],
+    consumes: (plugin.consumes ?? []) as Capability[],
+    outcomes: plugin.outcomes.map((outcome): WorkflowOutcomeField => ({ name: outcome.name })),
+  };
+}
+
+function toPaletteItem(plugin: PluginDefinition): PaletteItem {
+  const paletteCategory = resolvePaletteCategory(plugin);
+  return {
+    ...toStepPayload(plugin),
+    paletteCategory,
+    icon: resolveStepIcon(plugin.id, paletteCategory),
+  };
+}
+
+/** Sorts a category's palette items by CATEGORY_STEP_ORDER when the category
+ * has an explicit order, falling back to alphabetical-by-title (the default
+ * for every other category, and for any item not listed in an explicit
+ * order). */
+function sortPaletteItems(categoryKey: string, items: PaletteItem[]): PaletteItem[] {
+  const explicitOrder = CATEGORY_STEP_ORDER[categoryKey];
+  if (!explicitOrder) {
+    return [...items].sort((left, right) => left.title.localeCompare(right.title));
+  }
+  return [...items].sort((left, right) => {
+    const leftIndex = explicitOrder.indexOf(left.kind);
+    const rightIndex = explicitOrder.indexOf(right.kind);
+    const leftOrder = leftIndex === -1 ? Number.MAX_SAFE_INTEGER : leftIndex;
+    const rightOrder = rightIndex === -1 ? Number.MAX_SAFE_INTEGER : rightIndex;
+    return leftOrder - rightOrder || left.title.localeCompare(right.title);
+  });
+}
+
+export function groupPaletteItems(plugins: PluginDefinition[]): PaletteGroup[] {
+  const groups = new Map<string, PaletteItem[]>();
+
+  for (const plugin of plugins) {
+    const categoryKey = resolvePaletteCategory(plugin);
+    const items = groups.get(categoryKey) ?? [];
+    items.push(toPaletteItem(plugin));
+    groups.set(categoryKey, items);
+  }
+
+  return Array.from(groups.entries())
+    .sort(([left], [right]) => {
+      const leftIndex = ARTIFACT_TYPE_ORDER.indexOf(left);
+      const rightIndex = ARTIFACT_TYPE_ORDER.indexOf(right);
+      const leftOrder = leftIndex === -1 ? Number.MAX_SAFE_INTEGER : leftIndex;
+      const rightOrder = rightIndex === -1 ? Number.MAX_SAFE_INTEGER : rightIndex;
+      return leftOrder - rightOrder || left.localeCompare(right);
+    })
+    .map(([categoryKey, items]) => ({
+      categoryKey,
+      label: formatPaletteCategory(categoryKey),
+      items: sortPaletteItems(categoryKey, items),
+    }));
+}
+
+/** dataTransfer MIME type used when dragging the "Add new Step" button onto the canvas. */
+export const ADD_STEP_BUTTON_DRAG_MIME_TYPE = "application/x-am-add-step";

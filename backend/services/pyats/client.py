@@ -1,0 +1,291 @@
+"""pyATS shim HTTP client. App-scoped httpx clients; credentials per call."""
+
+from __future__ import annotations
+
+import logging
+import time
+from dataclasses import dataclass
+from typing import Any
+from urllib.parse import urlparse
+
+import httpx
+
+from core.safe_urls import UnsafeURLError, validate_outbound_http_url_async
+from core.ssl_config import create_verified_ssl_context, verify_option
+from services.pyats.common.exceptions import PyATSAPIError, PyATSValidationError
+from services.pyats.credentials import PyATSCredentials
+
+logger = logging.getLogger(__name__)
+
+# The HTTP timeout of a job request is the job budget plus this margin: a source ``timeout``
+# below the job budget must not cut a running job short (the device would still be changed).
+_HTTP_MARGIN_SECONDS = 15.0
+_LIMITS_TTL_SECONDS = 300.0
+
+
+@dataclass(frozen=True)
+class ShimLimits:
+    """What the shim can do at once; a client that stays within it never makes the shim queue."""
+
+    max_concurrent_jobs: int = 4
+    job_timeout_seconds: float = 120.0
+
+
+class PyATSShimService:
+    """Async client for the pyATS HTTP shim (health checks + job execution).
+
+    Keeps two app-scoped ``httpx.AsyncClient`` pools (TLS-verifying and
+    non-verifying) since ``verify_ssl`` is a per-source setting, mirroring
+    ``services.ise.client.ISEService``. The verifying pool trusts the OS trust
+    store (custom CAs installed via ``INSTALL_CERTIFICATE_FILES``) in addition to
+    the ``certifi`` bundle.
+    """
+
+    def __init__(self) -> None:
+        self._client_verify: httpx.AsyncClient | None = None
+        self._client_no_verify: httpx.AsyncClient | None = None
+        self._limits_cache: dict[str, tuple[float, ShimLimits]] = {}
+
+    async def startup(self) -> None:
+        self._client_verify = httpx.AsyncClient(verify=create_verified_ssl_context())
+        # verify=False is an opt-in per-source setting (verify_ssl); see doc/SECURITY-NOTES.md
+        self._client_no_verify = httpx.AsyncClient(verify=False)  # noqa: S501
+        logger.info("PyATSShimService started")
+
+    async def shutdown(self) -> None:
+        if self._client_verify is not None:
+            await self._client_verify.aclose()
+            self._client_verify = None
+        if self._client_no_verify is not None:
+            await self._client_no_verify.aclose()
+            self._client_no_verify = None
+        logger.info("PyATSShimService shut down")
+
+    async def check_health(self, credentials: PyATSCredentials) -> dict[str, Any]:
+        return await self._get(f"{await self._base_url(credentials)}/health", credentials)
+
+    async def check_pyats_health(self, credentials: PyATSCredentials) -> dict[str, Any]:
+        return await self._get(f"{await self._base_url(credentials)}/health/pyats", credentials)
+
+    async def limits(self, credentials: PyATSCredentials) -> ShimLimits:
+        """The shim's concurrency and job-timeout limits, read from ``/health/pyats`` once per
+        base URL per five minutes. Falls back to the defaults for an older shim (field missing)
+        or when the call fails."""
+        base = await self._base_url(credentials)
+        cached = self._limits_cache.get(base)
+        now = time.monotonic()
+        if cached is not None and now - cached[0] < _LIMITS_TTL_SECONDS:
+            return cached[1]
+        limits = ShimLimits()
+        try:
+            health = await self.check_pyats_health(credentials)
+            jobs = health.get("max_concurrent_jobs")
+            timeout = health.get("job_timeout_seconds")
+            limits = ShimLimits(
+                max_concurrent_jobs=int(jobs) if isinstance(jobs, int) and jobs >= 1 else 4,
+                job_timeout_seconds=(
+                    float(timeout) if isinstance(timeout, (int, float)) and timeout > 0 else 120.0
+                ),
+            )
+        except Exception:  # noqa: BLE001 - limits are advisory; defaults keep the step working
+            logger.debug("pyATS shim limits unavailable base=%s", base, exc_info=True)
+        self._limits_cache[base] = (now, limits)
+        return limits
+
+    async def run_job(
+        self,
+        credentials: PyATSCredentials,
+        *,
+        operation: str,
+        devices: list[dict[str, Any]],
+        commands: list[str],
+        timeout_seconds: float | None = None,
+    ) -> dict[str, Any]:
+        base = await self._base_url(credentials)
+        body: dict[str, Any] = {"operation": operation, "devices": devices, "commands": commands}
+        if timeout_seconds is not None:
+            body["timeout_seconds"] = timeout_seconds
+        request_timeout = (
+            timeout_seconds + _HTTP_MARGIN_SECONDS if timeout_seconds else credentials.timeout
+        )
+        headers = {"Authorization": f"Bearer {credentials.token}"}
+
+        try:
+            response = await self._do_request(
+                "POST",
+                f"{base}/v1/jobs",
+                credentials.verify_ssl,
+                request_timeout,
+                json=body,
+                headers=headers,
+            )
+        except httpx.TimeoutException as exc:
+            raise PyATSAPIError(
+                f"pyATS shim job request timed out after {request_timeout} seconds",
+                code="timeout",
+            ) from exc
+        except PyATSAPIError:
+            raise
+        except Exception as exc:
+            logger.error("pyATS shim job request failed: %s", exc)
+            raise PyATSAPIError("pyATS shim job request failed", code="transport") from exc
+
+        if response.status_code == 400:
+            raise PyATSValidationError(self._extract_error_message(response))
+        if response.status_code >= 400:
+            raise PyATSAPIError(
+                f"pyATS shim job request failed with status {response.status_code}",
+                http_status=response.status_code,
+            )
+        return response.json()
+
+    async def parse_batch(
+        self,
+        credentials: PyATSCredentials,
+        *,
+        devices: dict[str, dict[str, Any]],
+        timeout_seconds: float | None = None,
+    ) -> dict[str, Any]:
+        base = await self._base_url(credentials)
+        body: dict[str, Any] = {"devices": devices}
+        request_timeout = timeout_seconds or credentials.timeout
+        headers = {"Authorization": f"Bearer {credentials.token}"}
+
+        try:
+            response = await self._do_request(
+                "POST",
+                f"{base}/v1/parse",
+                credentials.verify_ssl,
+                request_timeout,
+                json=body,
+                headers=headers,
+            )
+        except httpx.TimeoutException as exc:
+            raise PyATSAPIError(
+                f"pyATS shim parse request timed out after {request_timeout} seconds",
+                code="timeout",
+            ) from exc
+        except PyATSAPIError:
+            raise
+        except Exception as exc:
+            logger.error("pyATS shim parse request failed: %s", exc)
+            raise PyATSAPIError("pyATS shim parse request failed", code="transport") from exc
+
+        if response.status_code == 400:
+            raise PyATSValidationError(self._extract_error_message(response))
+        if response.status_code >= 400:
+            raise PyATSAPIError(
+                f"pyATS shim parse request failed with status {response.status_code}",
+                http_status=response.status_code,
+            )
+        return response.json()
+
+    async def diff(
+        self,
+        credentials: PyATSCredentials,
+        *,
+        snapshot_a: dict[str, Any],
+        snapshot_b: dict[str, Any],
+        exclude_keys: list[str] | None = None,
+        timeout_seconds: float | None = None,
+    ) -> dict[str, Any]:
+        base = await self._base_url(credentials)
+        body: dict[str, Any] = {"snapshot_a": snapshot_a, "snapshot_b": snapshot_b}
+        if exclude_keys:
+            body["exclude"] = exclude_keys
+        request_timeout = timeout_seconds or credentials.timeout
+        headers = {"Authorization": f"Bearer {credentials.token}"}
+
+        try:
+            response = await self._do_request(
+                "POST",
+                f"{base}/v1/diff",
+                credentials.verify_ssl,
+                request_timeout,
+                json=body,
+                headers=headers,
+            )
+        except httpx.TimeoutException as exc:
+            raise PyATSAPIError(
+                f"pyATS shim diff request timed out after {request_timeout} seconds",
+                code="timeout",
+            ) from exc
+        except PyATSAPIError:
+            raise
+        except Exception as exc:
+            logger.error("pyATS shim diff request failed: %s", exc)
+            raise PyATSAPIError("pyATS shim diff request failed", code="transport") from exc
+
+        if response.status_code == 400:
+            raise PyATSValidationError(self._extract_error_message(response))
+        if response.status_code >= 400:
+            raise PyATSAPIError(
+                f"pyATS shim diff request failed with status {response.status_code}",
+                http_status=response.status_code,
+            )
+        return response.json()
+
+    async def _get(self, url: str, credentials: PyATSCredentials) -> dict[str, Any]:
+        headers = {"Authorization": f"Bearer {credentials.token}"} if credentials.token else {}
+        try:
+            response = await self._do_request(
+                "GET",
+                url,
+                credentials.verify_ssl,
+                credentials.timeout,
+                headers=headers,
+            )
+        except httpx.TimeoutException as exc:
+            raise PyATSAPIError(
+                f"pyATS shim request timed out after {credentials.timeout} seconds",
+                code="timeout",
+            ) from exc
+        except Exception as exc:
+            logger.error("pyATS shim health request failed: %s", exc)
+            raise PyATSAPIError("pyATS shim health request failed", code="transport") from exc
+
+        if response.status_code >= 400:
+            raise PyATSAPIError(
+                f"pyATS shim request failed with status {response.status_code}",
+                http_status=response.status_code,
+            )
+        return response.json()
+
+    async def _base_url(self, credentials: PyATSCredentials) -> str:
+        if not credentials.base_url:
+            raise PyATSValidationError("pyATS shim URL is required")
+        try:
+            return await validate_outbound_http_url_async(credentials.base_url)
+        except UnsafeURLError as exc:
+            raise PyATSValidationError(str(exc)) from exc
+
+    def _client_for(self, verify_ssl: bool) -> httpx.AsyncClient | None:
+        return self._client_verify if verify_ssl else self._client_no_verify
+
+    async def _do_request(
+        self,
+        method: str,
+        url: str,
+        verify_ssl: bool,
+        timeout: float,
+        **kwargs: Any,
+    ) -> httpx.Response:
+        if not verify_ssl:
+            logger.warning(
+                "pyATS shim request with verify_ssl=False url_host=%s",
+                urlparse(url).hostname,
+            )
+        client = self._client_for(verify_ssl)
+        if client is not None:
+            return await client.request(method, url, timeout=timeout, **kwargs)
+        async with httpx.AsyncClient(verify=verify_option(verify_ssl)) as fallback_client:
+            return await fallback_client.request(method, url, timeout=timeout, **kwargs)
+
+    @staticmethod
+    def _extract_error_message(response: httpx.Response) -> str:
+        try:
+            payload = response.json()
+        except ValueError:
+            return "pyATS shim rejected the request (400 Bad Request)"
+        detail = payload.get("detail")
+        return str(detail) if detail else "pyATS shim rejected the request (400 Bad Request)"

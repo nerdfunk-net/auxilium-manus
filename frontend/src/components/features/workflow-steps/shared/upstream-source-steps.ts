@@ -1,0 +1,51 @@
+import type { PersistedCanvasNode } from "@/components/features/workflows/types/workflow-canvas";
+
+export interface UpstreamSourceStep {
+  nodeId: string;
+  title: string;
+  stepKind: string;
+  outputKey?: string;
+}
+
+const SOURCE_STEP_KIND: Partial<Record<string, string>> = {
+  command_output: "run-command",
+  rendered_template: "render-jinja-template",
+  merged_content: "merge-content",
+  comparison_diff: "compare-data",
+  filtered_output: "filter-output",
+  pyats_snapshot: "get-pyats-snapshot",
+  updated_content: "update-content",
+};
+
+function readOutputKey(node: PersistedCanvasNode, fallback: string): string {
+  const pluginConfig = (node.data.pluginConfig ?? {}) as Record<string, unknown>;
+  if (typeof pluginConfig.output_key === "string" && pluginConfig.output_key.trim()) {
+    return pluginConfig.output_key.trim();
+  }
+  return fallback;
+}
+
+export function listUpstreamSourceSteps(
+  nodes: PersistedCanvasNode[],
+  contentSource: string,
+  currentNodeId: string,
+): UpstreamSourceStep[] {
+  const stepKind = SOURCE_STEP_KIND[contentSource];
+  if (!stepKind) {
+    return [];
+  }
+
+  return nodes
+    .filter((node) => node.id !== currentNodeId && node.data.kind === stepKind)
+    .map((node) => ({
+      nodeId: node.id,
+      title: node.data.title?.trim() || node.id,
+      stepKind: node.data.kind,
+      outputKey:
+        stepKind === "render-jinja-template"
+          ? readOutputKey(node, "device_config")
+          : stepKind === "get-pyats-snapshot"
+            ? readOutputKey(node, "pyats_snapshot")
+            : undefined,
+    }));
+}

@@ -1,0 +1,347 @@
+"""Tests for update-attribute executor."""
+
+from __future__ import annotations
+
+import os
+import unittest
+from unittest.mock import MagicMock, patch
+
+from core.crypto import EncryptionService
+from models.workflow_context import Capability, DeviceContext, DeviceStatus, WorkflowContext
+from services.workflow_context.attribute_path import resolve_device_attribute
+from services.workflow_context.secret_fields import is_sealed_secret, seal_secret, unwrap_secret
+from workflow_steps.update_attribute.executor import execute
+
+_ENC = EncryptionService("test-secret-key-for-update-attribute")
+
+
+def _device(
+    device_id: str,
+    *,
+    name: str | None = None,
+    attribute_bags: dict | None = None,
+) -> DeviceContext:
+    resolved_name = name or device_id
+    return DeviceContext(
+        id=device_id,
+        name=resolved_name,
+        hostname=resolved_name,
+        attribute_bags=attribute_bags or {},
+        capabilities={Capability.IDENTITY},
+        status=DeviceStatus.OK,
+    )
+
+
+@patch.dict(os.environ, {"CREDENTIAL_ENCRYPTION_KEY": "test-secret-key-for-update-attribute"})
+class UpdateAttributeExecutorTests(unittest.IsolatedAsyncioTestCase):
+    async def test_fixed_mode_writes_literal_value(self) -> None:
+        run = MagicMock()
+        context = WorkflowContext(
+            run_id="run-1",
+            workflow_id="wf-1",
+            devices={"dev-1": _device("dev-1")},
+        )
+
+        outcomes = await execute(
+            config={
+                "attributes": [
+                    {
+                        "mode": "fixed",
+                        "destination_path": "custom.location",
+                        "fixed_value": "office-a",
+                    }
+                ],
+            },
+            context=context,
+            run=run,
+            artifact_service=MagicMock(),
+            node_id="node-1",
+            device_sessions=MagicMock(),
+        )
+
+        self.assertEqual(len(outcomes), 1)
+        updated = outcomes[0].context.devices["dev-1"]
+        self.assertEqual(resolve_device_attribute(updated, "custom.location"), "office-a")
+        self.assertIn(Capability.ATTRIBUTES, updated.capabilities)
+
+    async def test_legacy_flat_config_still_works(self) -> None:
+        run = MagicMock()
+        context = WorkflowContext(
+            run_id="run-1",
+            workflow_id="wf-1",
+            devices={"dev-1": _device("dev-1")},
+        )
+
+        outcomes = await execute(
+            config={
+                "mode": "fixed",
+                "destination_path": "custom.location",
+                "fixed_value": "office-a",
+            },
+            context=context,
+            run=run,
+            artifact_service=MagicMock(),
+            node_id="node-1",
+            device_sessions=MagicMock(),
+        )
+
+        updated = outcomes[0].context.devices["dev-1"]
+        self.assertEqual(resolve_device_attribute(updated, "custom.location"), "office-a")
+
+    async def test_multiple_attributes_applied_in_order(self) -> None:
+        run = MagicMock()
+        context = WorkflowContext(
+            run_id="run-1",
+            workflow_id="wf-1",
+            devices={"dev-1": _device("dev-1", name="l123-router-1.local.zz")},
+        )
+
+        outcomes = await execute(
+            config={
+                "attributes": [
+                    {
+                        "mode": "fixed",
+                        "destination_path": "custom.site",
+                        "fixed_value": "office-a",
+                    },
+                    {
+                        "mode": "regex",
+                        "source_path": "device.name",
+                        "destination_path": "custom.location",
+                        "pattern": r"^([^-]+)-",
+                        "destination_template": r"DC-\1",
+                    },
+                ],
+            },
+            context=context,
+            run=run,
+            artifact_service=MagicMock(),
+            node_id="node-1",
+            device_sessions=MagicMock(),
+        )
+
+        updated = outcomes[0].context.devices["dev-1"]
+        self.assertEqual(resolve_device_attribute(updated, "custom.site"), "office-a")
+        self.assertEqual(resolve_device_attribute(updated, "custom.location"), "DC-l123")
+        self.assertEqual(outcomes[0].context.metadata["node-1.attribute_count"], 2)
+        self.assertEqual(outcomes[0].context.metadata["node-1.write_count"], 2)
+
+    async def test_regex_mode_skips_when_pattern_does_not_match(self) -> None:
+        run = MagicMock()
+        context = WorkflowContext(
+            run_id="run-1",
+            workflow_id="wf-1",
+            devices={"dev-1": _device("dev-1", name="switchonly.local.zz")},
+        )
+
+        outcomes = await execute(
+            config={
+                "attributes": [
+                    {
+                        "mode": "regex",
+                        "source_path": "device.name",
+                        "destination_path": "custom.location",
+                        "pattern": r"^([^-]+)-",
+                        "destination_template": r"DC-\1",
+                    }
+                ],
+            },
+            context=context,
+            run=run,
+            artifact_service=MagicMock(),
+            node_id="node-1",
+            device_sessions=MagicMock(),
+        )
+
+        updated = outcomes[0].context.devices["dev-1"]
+        self.assertIsNone(resolve_device_attribute(updated, "custom.location"))
+        self.assertEqual(outcomes[0].context.metadata["node-1.skipped_count"], 1)
+
+    async def test_regex_mode_writes_expanded_value(self) -> None:
+        run = MagicMock()
+        context = WorkflowContext(
+            run_id="run-1",
+            workflow_id="wf-1",
+            devices={"dev-1": _device("dev-1", name="l123-router-1.local.zz")},
+        )
+
+        outcomes = await execute(
+            config={
+                "attributes": [
+                    {
+                        "mode": "regex",
+                        "source_path": "device.name",
+                        "destination_path": "custom.location",
+                        "pattern": r"^([^-]+)-",
+                        "destination_template": r"DC-\1",
+                    }
+                ],
+            },
+            context=context,
+            run=run,
+            artifact_service=MagicMock(),
+            node_id="node-1",
+            device_sessions=MagicMock(),
+        )
+
+        updated = outcomes[0].context.devices["dev-1"]
+        self.assertEqual(resolve_device_attribute(updated, "custom.location"), "DC-l123")
+        self.assertEqual(outcomes[0].context.metadata["node-1.updated_count"], 1)
+
+    async def test_fixed_mode_writing_known_secret_path_is_sealed(self) -> None:
+        run = MagicMock()
+        context = WorkflowContext(
+            run_id="run-1",
+            workflow_id="wf-1",
+            devices={"dev-1": _device("dev-1")},
+        )
+
+        outcomes = await execute(
+            config={
+                "attributes": [
+                    {
+                        "mode": "fixed",
+                        "destination_path": "tacacs.shared_secret",
+                        "fixed_value": "mykey",
+                    }
+                ],
+            },
+            context=context,
+            run=run,
+            artifact_service=MagicMock(),
+            node_id="node-1",
+            device_sessions=MagicMock(),
+        )
+
+        updated = outcomes[0].context.devices["dev-1"]
+        stored = updated.attribute_bags["tacacs"]["shared_secret"]
+        self.assertTrue(is_sealed_secret(stored))
+        self.assertEqual(unwrap_secret(stored), "mykey")
+
+    async def test_sealed_source_fails_that_device_only(self) -> None:
+        """Regression for the sealing bypass: update-attribute must not rehydrate a sealed secret
+        and copy it into an arbitrary plaintext destination. It fails that device closed (DN-A)
+        while the other devices go on."""
+        sealed = seal_secret("s3cr3t", encryption=_ENC)
+        secret_device = _device("dev-1", attribute_bags={"tacacs": {"shared_secret": sealed}})
+        plain_device = _device("dev-2", attribute_bags={"tacacs": {"shared_secret": "plain"}})
+        context = WorkflowContext(
+            run_id="run-1",
+            workflow_id="wf-1",
+            devices={"dev-1": secret_device, "dev-2": plain_device},
+        )
+
+        outcomes = await execute(
+            config={
+                "attributes": [
+                    {
+                        "mode": "regex",
+                        "source_path": "tacacs.shared_secret",
+                        "destination_path": "backup.token",
+                        "pattern": r"(.*)",
+                        "destination_template": r"\1",
+                    }
+                ],
+            },
+            context=context,
+            run=MagicMock(),
+            artifact_service=MagicMock(),
+            node_id="node-1",
+            device_sessions=MagicMock(),
+        )
+
+        by_name = {o.name: o for o in outcomes}
+        self.assertEqual(list(by_name["success"].context.devices), ["dev-2"])
+        failed = by_name["failure"].context.devices["dev-1"]
+        self.assertEqual(failed.errors[-1].code, "source_is_secret")
+        self.assertIn("sealed secret", failed.errors[-1].message)
+        self.assertNotIn("backup", failed.attribute_bags)
+
+    async def test_bad_configuration_still_raises(self) -> None:
+        context = WorkflowContext(
+            run_id="run-1", workflow_id="wf-1", devices={"dev-1": _device("dev-1")}
+        )
+        with self.assertRaises(ValueError):
+            await execute(
+                config={
+                    "attributes": [{"mode": "regex", "source_path": "", "destination_path": "x.y"}]
+                },
+                context=context,
+                run=MagicMock(),
+                artifact_service=MagicMock(),
+                node_id="node-1",
+                device_sessions=MagicMock(),
+            )
+
+    async def _run_template(self, device: DeviceContext, template: str, **extra):
+        context = WorkflowContext(run_id="run-1", workflow_id="wf-1", devices={"dev-1": device})
+        outcomes = await execute(
+            config={
+                "attributes": [
+                    {
+                        "mode": "template",
+                        "destination_path": "device.name",
+                        "template": template,
+                        **extra,
+                    }
+                ],
+            },
+            context=context,
+            run=MagicMock(),
+            artifact_service=MagicMock(),
+            node_id="node-1",
+            device_sessions=MagicMock(),
+        )
+        return outcomes[0]
+
+    async def test_template_mode_appends_domain_to_device_name(self) -> None:
+        device = _device("dev-1", name="router1").model_copy(
+            update={
+                "parsed": {"cisco_config": {"running": {"identity": {"domain_name": "local.zz"}}}}
+            }
+        )
+
+        outcome = await self._run_template(
+            device, "{device.name}.{parsed.cisco_config.running.identity.domain_name}"
+        )
+
+        updated = outcome.context.devices["dev-1"]
+        self.assertEqual(updated.name, "router1.local.zz")
+        self.assertEqual(outcome.context.metadata["node-1.write_count"], 1)
+
+    async def test_template_mode_reads_attribute_bags_and_keeps_literals(self) -> None:
+        device = _device("dev-1", attribute_bags={"nautobot": {"site": {"name": "dc1"}}})
+
+        outcome = await self._run_template(device, "{nautobot.site.name}-{device.name}")
+
+        self.assertEqual(outcome.context.devices["dev-1"].name, "dc1-dev-1")
+
+    async def test_template_mode_skips_when_placeholder_unresolved(self) -> None:
+        device = _device("dev-1", name="router1")
+
+        outcome = await self._run_template(device, "{device.name}.{parsed.missing.path}")
+
+        self.assertEqual(outcome.context.devices["dev-1"].name, "router1")
+        self.assertEqual(outcome.context.metadata["node-1.write_count"], 0)
+        self.assertEqual(outcome.context.metadata["node-1.skipped_count"], 1)
+
+    async def test_template_mode_requires_template(self) -> None:
+        with self.assertRaises(ValueError) as ctx:
+            await self._run_template(_device("dev-1"), "   ")
+
+        self.assertIn("template is required", str(ctx.exception))
+
+    async def test_template_mode_cannot_read_a_sealed_secret(self) -> None:
+        device = _device(
+            "dev-1",
+            attribute_bags={"tacacs": {"shared_secret": seal_secret("s3cr3t")}},
+        )
+
+        with self.assertRaises(ValueError) as ctx:
+            await self._run_template(device, "x-{tacacs.shared_secret}")
+
+        self.assertIn("sealed secret", str(ctx.exception))
+
+
+if __name__ == "__main__":
+    unittest.main()

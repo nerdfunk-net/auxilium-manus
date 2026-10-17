@@ -1,0 +1,216 @@
+"""Wrapper workflow that Hatchet cron/scheduled triggers dispatch into.
+
+`hatchet.cron.create`/`hatchet.scheduled.create` replay a fixed `input` payload
+on every fire — they don't call back into the app to mint a fresh WorkflowRun
+row first. This workflow is that missing glue: it looks up the WorkflowSchedule
+row referenced by its input, creates a new WorkflowRun for the target workflow,
+and dispatches it into the normal WorkflowExecution engine exactly like a
+manual trigger (RunService.trigger_run) would.
+"""
+
+from __future__ import annotations
+
+import logging
+from datetime import UTC, datetime, timedelta
+from uuid import uuid4
+
+from hatchet_sdk import Context
+from pydantic import BaseModel
+
+from hatchet.client import hatchet
+
+logger = logging.getLogger(__name__)
+
+
+class ScheduledTriggerInput(BaseModel):
+    workflow_id: int
+    schedule_id: int
+
+
+workflow = hatchet.workflow(name="ScheduledWorkflowTrigger", input_validator=ScheduledTriggerInput)
+
+
+@workflow.task(name="dispatch", execution_timeout=timedelta(seconds=30))
+async def dispatch(input: ScheduledTriggerInput, ctx: Context) -> dict:
+    from core.config import settings
+    from core.database import SessionLocal
+    from hatchet.workflows.dispatch import resolve_dispatch_workflow
+    from hatchet.workflows.workflow_run import WorkflowRunInput
+    from hatchet.workflows.workflow_run import workflow as workflow_execution
+    from repositories.plugin_repository import PluginRepository
+    from repositories.run_repository import RunRepository
+    from repositories.schedule_repository import ScheduleRepository
+    from repositories.workflow_repository import WorkflowRepository
+    from services.execution.reference_resolver import (
+        ReferenceValidationError,
+        validate_reference_inputs,
+    )
+    from services.execution.run_input_validation import (
+        RunInputValidationError,
+        resolve_run_inputs,
+    )
+    from services.plugin_registry.plugin_registry_service import PluginRegistryService
+    from services.workflow.workflow_validation_service import WorkflowValidationService
+
+    with SessionLocal() as db:
+        schedule_repo = ScheduleRepository(db)
+        schedule = schedule_repo.get_by_id(input.schedule_id)
+        # Guard: the schedule may have been disabled/deleted between the
+        # Hatchet trigger firing and this task running (e.g. deleted just
+        # before a cron tick) — skip rather than run against a stale config.
+        if schedule is None or not schedule.enabled or schedule.workflow_id != input.workflow_id:
+            logger.info(
+                "Skipping scheduled trigger: schedule_id=%s no longer active", input.schedule_id
+            )
+            return {"skipped": True}
+
+        wf_result = WorkflowRepository(db).get_by_id(input.workflow_id)
+        static_attributes = wf_result[0].static_attributes if wf_result else None
+
+        # Re-validated on every fire (S2-04): the creator must still be active, still hold
+        # workflows:execute, and still be able to see the workflow. Otherwise the schedule is
+        # switched off instead of running with rights its creator no longer has.
+        from repositories.user_repository import UserRepository
+        from services.auth.rbac_service import RBACService
+
+        owner = (
+            UserRepository(db).get_by_id(schedule.created_by_id) if schedule.created_by_id else None
+        )
+        authorised = (
+            owner is not None
+            and owner.is_active
+            and RBACService(db).has_permission(owner.id, "workflows", "execute")
+            and wf_result is not None
+            and not (wf_result[0].visibility == "private" and wf_result[0].creator_id != owner.id)
+        )
+        if not authorised:
+            schedule_repo.update(schedule, enabled=False)
+            logger.warning(
+                "Schedule %s disabled: its creator is no longer allowed to run workflow %s",
+                schedule.id,
+                input.workflow_id,
+            )
+            return {"skipped": True, "reason": "creator_not_authorised"}
+
+        run_repo = RunRepository(db)
+        run = run_repo.create_run(
+            workflow_id=input.workflow_id,
+            triggered_by_id=schedule.created_by_id,
+            trigger_type="scheduled",
+            device_ids=[],
+        )
+
+        # A one-time trigger is consumed on fire; a cron keeps repeating —
+        # mark it triggered regardless of whether dispatch below succeeds,
+        # so a workflow permanently missing a required input doesn't spin.
+        schedule_repo.mark_triggered(schedule, disable=(schedule.schedule_type == "once"))
+
+        # Pre-run gate (doc/ai_collaboration/PROCESS.md): a scheduled run has no
+        # operator to prompt, so an unresolved Tier 1-3 validation error
+        # (broken reference, unreachable capability requirement) hard-fails
+        # here exactly like the run-input checks below — same shape, same
+        # error_category, no override. This mirrors
+        # RunService._assert_no_blocking_validation_errors (the interactive
+        # trigger paths' equivalent check) rather than calling it directly:
+        # this task runs in a separate Hatchet worker process with no FastAPI
+        # app.state, so it builds its own PluginRegistryService fresh, the
+        # same one-off construction ai_workflow_apply.py/ai_defaults.py use.
+        if wf_result is not None:
+            plugin_registry_service = PluginRegistryService(
+                PluginRepository(plugins_file=settings.plugins_file)
+            )
+            validation = WorkflowValidationService(db, plugin_registry_service).validate(
+                wf_result[0].canvas_nodes or [],
+                wf_result[0].canvas_edges or [],
+                acting_user_id=schedule.created_by_id,
+            )
+            if validation.has_errors:
+                error_summary = "; ".join(
+                    f"{f.code}: {f.message}" for f in validation.findings if f.severity == "error"
+                )
+                run_repo.update_run_status(
+                    run,
+                    status="failed",
+                    error_message=f"Blocked by pre-run validation: {error_summary}",
+                    error_category="configuration",
+                )
+                logger.info(
+                    "Scheduled trigger blocked by pre-run validation run_id=%s workflow_id=%s "
+                    "schedule_id=%s error=%s",
+                    run.id,
+                    input.workflow_id,
+                    input.schedule_id,
+                    error_summary,
+                )
+                return {"run_id": run.id, "status": "failed"}
+
+        # A scheduled run has no operator to prompt: values come from the
+        # schedule's own run_inputs merged with the workflow's declared
+        # defaults. A required attribute still missing here, or a `reference`
+        # value that no longer resolves for the schedule owner (inventory
+        # deleted, credential rotated), fails this run immediately with a
+        # configuration error rather than dispatching an incomplete bag.
+        try:
+            run_inputs = resolve_run_inputs(static_attributes, schedule.run_inputs or {})
+            validate_reference_inputs(
+                static_attributes,
+                run_inputs,
+                db=db,
+                acting_user_id=schedule.created_by_id,
+            )
+        except (RunInputValidationError, ReferenceValidationError) as exc:
+            run_repo.update_run_status(
+                run,
+                status="failed",
+                error_message=str(exc),
+                error_category="configuration",
+            )
+            logger.info(
+                "Scheduled trigger failed run input validation run_id=%s workflow_id=%s "
+                "schedule_id=%s error=%s",
+                run.id,
+                input.workflow_id,
+                input.schedule_id,
+                exc,
+            )
+            return {"run_id": run.id, "status": "failed"}
+
+        run.run_inputs = run_inputs
+        db.commit()
+
+        dispatch_workflow = (
+            resolve_dispatch_workflow(wf_result[0], db) if wf_result else workflow_execution
+        )
+        try:
+            ref = dispatch_workflow.run_no_wait(WorkflowRunInput(run_id=run.id))
+        except Exception:
+            # A run that was never handed to the engine must not stay 'pending' (C1-04).
+            error_id = str(uuid4())
+            logger.error(
+                "Scheduled dispatch failed run_id=%s schedule_id=%s error_id=%s",
+                run.id,
+                input.schedule_id,
+                error_id,
+                exc_info=True,
+            )
+            run_repo.update_run_status(
+                run,
+                status="failed",
+                error_category="internal",
+                error_id=error_id,
+                error_message="Workflow execution engine unavailable",
+                finished_at=datetime.now(UTC),
+            )
+            return {"run_id": run.id, "status": "failed"}
+        run_repo.update_run_status(
+            run, status="pending", hatchet_run_id=str(ref.workflow_run_id or "")
+        )
+
+        logger.info(
+            "Scheduled trigger dispatched run_id=%s workflow_id=%s schedule_id=%s",
+            run.id,
+            input.workflow_id,
+            input.schedule_id,
+        )
+
+    return {"run_id": run.id}

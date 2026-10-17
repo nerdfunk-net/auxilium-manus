@@ -1,0 +1,45 @@
+name: docker-ci
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "docker/**"
+      - ".dockerignore"
+      - "backend/requirements.txt"
+      - "frontend/package.json"
+      - "frontend/package-lock.json"
+      - ".github/workflows/docker-ci.yml"
+  pull_request:
+    paths:
+      - "docker/**"
+      - ".dockerignore"
+      - "backend/requirements.txt"
+      - "frontend/package.json"
+      - "frontend/package-lock.json"
+      - ".github/workflows/docker-ci.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: docker-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  compose:
+    # `docker compose config` for the application stack, the Hatchet stack, their overlays and the
+    # optional services, with dummy values for the variables they refuse to start without.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: validate compose files
+        run: docker/check-compose.sh
+
+  image:
+    # Builds the application image (nothing is pushed) and checks Node v26 and that `next start`
+    # serves /login. A broken Dockerfile or runtime stage otherwise shows up only on a deploy.
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: build and check the image
+        run: docker/check-image.sh manus-ci-check:latest

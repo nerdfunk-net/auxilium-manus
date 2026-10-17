@@ -1,0 +1,178 @@
+"""Tests for workflow step capability guards."""
+
+from __future__ import annotations
+
+import unittest
+
+from models.workflow_context import Capability, DeviceContext, StepOutcome, WorkflowContext
+from services.workflow_context.guards import (
+    StepCapabilitySpec,
+    effective_produces,
+    post_step_guard,
+    pre_step_guard,
+)
+
+
+class WorkflowContextGuardTests(unittest.TestCase):
+    def test_pre_step_guard_skips_empty_inventory(self) -> None:
+        spec = StepCapabilitySpec(
+            step_id="parse-bgp",
+            requires=frozenset({Capability.RUNNING_CONFIG}),
+        )
+        context = WorkflowContext(run_id="run-1", workflow_id="wf-1")
+        pre_step_guard(spec=spec, context=context)
+
+    def test_pre_step_guard_missing_capability(self) -> None:
+        spec = StepCapabilitySpec(
+            step_id="parse-bgp",
+            requires=frozenset({Capability.RUNNING_CONFIG}),
+        )
+        context = WorkflowContext(
+            run_id="run-1",
+            workflow_id="wf-1",
+            devices={
+                "device-1": DeviceContext(
+                    id="device-1",
+                    name="device-1",
+                    hostname="10.0.0.1",
+                    capabilities={Capability.IDENTITY},
+                )
+            },
+        )
+        with self.assertRaises(ValueError):
+            pre_step_guard(spec=spec, context=context)
+
+    def test_pre_step_guard_missing_parsed_key(self) -> None:
+        spec = StepCapabilitySpec(
+            step_id="build-bgp",
+            requires=frozenset({Capability.PARSED}),
+            requires_parsed=frozenset({"bgp"}),
+        )
+        context = WorkflowContext(
+            run_id="run-1",
+            workflow_id="wf-1",
+            devices={
+                "device-1": DeviceContext(
+                    id="device-1",
+                    name="device-1",
+                    hostname="10.0.0.1",
+                    capabilities={Capability.PARSED},
+                    parsed={"vlans": [10]},
+                )
+            },
+        )
+        with self.assertRaises(ValueError):
+            pre_step_guard(spec=spec, context=context)
+
+    def test_post_step_guard_missing_produces(self) -> None:
+        spec = StepCapabilitySpec(
+            step_id="get-running-config",
+            produces=frozenset({Capability.RUNNING_CONFIG}),
+        )
+        input_context = WorkflowContext(
+            run_id="run-1",
+            workflow_id="wf-1",
+            devices={
+                "device-1": DeviceContext(
+                    id="device-1",
+                    name="device-1",
+                    hostname="10.0.0.1",
+                    capabilities={Capability.IDENTITY},
+                )
+            },
+        )
+        success_context = input_context.model_copy(
+            update={
+                "devices": {
+                    "device-1": input_context.devices["device-1"].model_copy(
+                        update={"capabilities": {Capability.IDENTITY}}
+                    )
+                }
+            }
+        )
+        outcomes = [StepOutcome(name="success", context=success_context)]
+        with self.assertRaises(RuntimeError):
+            post_step_guard(spec=spec, input_context=input_context, outcomes=outcomes)
+
+    def test_post_step_guard_leaked_consumes(self) -> None:
+        spec = StepCapabilitySpec(
+            step_id="send-config",
+            consumes=frozenset({Capability.PENDING_COMMANDS}),
+        )
+        input_context = WorkflowContext(
+            run_id="run-1",
+            workflow_id="wf-1",
+            devices={
+                "device-1": DeviceContext(
+                    id="device-1",
+                    name="device-1",
+                    hostname="10.0.0.1",
+                    capabilities={Capability.IDENTITY, Capability.PENDING_COMMANDS},
+                )
+            },
+        )
+        success_context = input_context
+        outcomes = [StepOutcome(name="success", context=success_context)]
+        with self.assertRaises(RuntimeError):
+            post_step_guard(spec=spec, input_context=input_context, outcomes=outcomes)
+
+    def test_effective_produces_relaxes_crypto_attribute_steps(self) -> None:
+        spec = StepCapabilitySpec(
+            step_id="decrypt-attribute",
+            requires=frozenset({Capability.IDENTITY}),
+            produces=frozenset({Capability.ATTRIBUTES}),
+        )
+        for step_type in ("encrypt-attribute", "decrypt-attribute"):
+            self.assertEqual(
+                effective_produces(spec=spec, step_type=step_type, config={}),
+                frozenset(),
+            )
+
+    def test_effective_produces_relaxes_per_device_ise_steps(self) -> None:
+        spec = StepCapabilitySpec(
+            step_id="get-ise-tacacs-key",
+            requires=frozenset({Capability.IDENTITY}),
+            produces=frozenset({Capability.ATTRIBUTES}),
+        )
+        for step_type in ("get-ise-tacacs-key", "add-to-ise"):
+            self.assertEqual(
+                effective_produces(spec=spec, step_type=step_type, config={}),
+                frozenset(),
+            )
+        # DN-A: every device on update-ise-tacacs-key's success carries the new key.
+        self.assertEqual(
+            effective_produces(spec=spec, step_type="update-ise-tacacs-key", config={}),
+            spec.produces,
+        )
+
+    def test_unfound_device_passes_relaxed_post_step_guard(self) -> None:
+        """A Get from List device (IDENTITY only) that ISE has no key for."""
+        spec = StepCapabilitySpec(
+            step_id="get-ise-tacacs-key",
+            requires=frozenset({Capability.IDENTITY}),
+            produces=frozenset({Capability.ATTRIBUTES}),
+        )
+        device = DeviceContext(
+            id="list-1",
+            name="r1",
+            hostname="r1",
+            source="list",
+            capabilities={Capability.IDENTITY},
+        )
+        context = WorkflowContext(run_id="run-1", workflow_id="wf-1", devices={"list-1": device})
+        outcomes = [StepOutcome(name="success", context=context)]
+
+        with self.assertRaises(RuntimeError):
+            post_step_guard(spec=spec, input_context=context, outcomes=outcomes)
+        post_step_guard(
+            spec=spec,
+            input_context=context,
+            outcomes=outcomes,
+            expected_produces=effective_produces(
+                spec=spec, step_type="get-ise-tacacs-key", config={}
+            ),
+        )
+
+
+if __name__ == "__main__":
+    unittest.main()

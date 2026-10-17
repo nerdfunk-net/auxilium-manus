@@ -1,0 +1,68 @@
+# Auxilium Manus — pyATS shim (optional)
+#
+# Runs Cisco pyATS/Genie in its own container behind a thin HTTP shim, so the
+# main app never installs pyATS into its own Python environment (pyATS's
+# published wheels only confirm Python 3.12/3.13 support, and its dependency
+# tree risks colliding with the app's own deps). See doc/PYATS_INTEGRATION.md
+# at the repo root for the full design.
+#
+# Prerequisite: the app stack's `manus-pyats` network must already exist (created
+# automatically the first time `docker/docker-compose.yml` is brought up).
+#
+# Start:
+#   cp .env.example .env   # set PYATS_SHIM_TOKEN to a random secret
+#   cd docker/pyats && docker compose up -d --build
+#
+# Then, in the app: Settings → Sources → Add pyATS source. Which URL to use
+# depends on where the backend itself runs:
+#
+#   - Backend also containerized on the `manus-pyats` Docker network (manus-web /
+#     manus-worker from docker/docker-compose.yml):
+#       URL: http://pyats-shim:8100   (container DNS name)
+#
+#   - Backend running natively on the host (the CLAUDE.md dev workflow —
+#     `python start.py` / `python scripts/run_worker_dev.py`, NOT in Docker):
+#       URL: http://localhost:8100    (the published port below)
+#       The backend rejects loopback source URLs by default — set
+#       ALLOW_LOOPBACK_SOURCE_URLS=true in backend/.env for this local-lab case
+#       (see backend/.env.example).
+#
+#   Token (either case): same value as PYATS_SHIM_TOKEN in .env
+#
+# The published port is bound to 127.0.0.1 only — reachable from the same
+# machine (native backend, curl, browser), not the LAN. Combined with the
+# `manus-pyats` Docker network (for a containerized backend), this keeps the same
+# trust boundary in both cases: only local processes on the app's own host
+# can ever reach the shim.
+
+services:
+  pyats-shim:
+    # No raw sockets: nothing here needs to craft packets.
+    cap_drop:
+      - NET_RAW
+    build:
+      context: ../../pyats-shim
+      dockerfile: Dockerfile
+    container_name: pyats-shim
+    environment:
+      PYATS_SHIM_TOKEN: "${PYATS_SHIM_TOKEN:?Set PYATS_SHIM_TOKEN in docker/pyats/.env}"
+      PYATS_SHIM_PORT: 8100
+      PYATS_SHIM_MAX_CONCURRENT_JOBS: 4
+      PYATS_SHIM_JOB_TIMEOUT_SECONDS: 120
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8100:8100"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8100/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    networks:
+      - pyats
+
+networks:
+  pyats:
+    # Private to this stack and its consumers; attach them with docker network connect
+    # (see docker/README.md, "Optional integrations").
+    name: manus-pyats

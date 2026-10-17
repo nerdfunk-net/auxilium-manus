@@ -1,0 +1,453 @@
+"use client";
+
+import { useCallback, useEffect, useMemo, useRef } from "react";
+
+import { EMPTY_WORKFLOW_NODES } from "@/components/features/workflows/constants/empty-canvas";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import type {
+  PluginConfigPanelProps,
+  PluginUIComponent,
+} from "@/components/features/workflows/types/plugin-ui";
+import { listUpstreamSourceSteps } from "@/components/features/workflow-steps/shared/upstream-source-steps";
+
+import { SshCredentialField } from "@/components/features/workflow-steps/shared/ssh-credential-field";
+import {
+  RetryBackoffSecondsField,
+  parseRetryBackoffSeconds,
+} from "@/components/features/workflow-steps/shared/retry-backoff-fields";
+import { DeployReadTimeoutFields } from "./deploy-fields";
+import { DeployRenderedTemplateHelpPanel } from "./help-panel";
+
+const DEFAULT_READ_TIMEOUT = 60;
+const MIN_READ_TIMEOUT = 5;
+const MAX_READ_TIMEOUT = 600;
+
+const EXECUTION_MODE_OPTIONS = [
+  {
+    value: "config_mode",
+    label: "Configuration mode",
+    hint: "Enters configuration mode once, sends every rendered line, then exits.",
+  },
+  {
+    value: "exec_mode",
+    label: "Exec mode",
+    hint: "Sends each rendered line individually as an exec-level command, like Run Command.",
+  },
+] as const;
+
+type ExecutionMode = (typeof EXECUTION_MODE_OPTIONS)[number]["value"];
+
+function buildDeployRenderedTemplateConfig(
+  config: Record<string, unknown>,
+  patch: Record<string, unknown> = {},
+): Record<string, unknown> {
+  return {
+    credential_reference:
+      typeof config.credential_reference === "string" ? config.credential_reference : "",
+    credential_source: config.credential_source === "run_param" ? "run_param" : "fixed",
+    credential_param:
+      typeof config.credential_param === "string" ? config.credential_param : "",
+    source_step_node_id:
+      typeof config.source_step_node_id === "string" ? config.source_step_node_id : "",
+    parsed_output_key:
+      typeof config.parsed_output_key === "string" ? config.parsed_output_key : "",
+    execution_mode:
+      config.execution_mode === "config_mode" || config.execution_mode === "exec_mode"
+        ? config.execution_mode
+        : "config_mode",
+    network_driver_override:
+      typeof config.network_driver_override === "string" ? config.network_driver_override : "",
+    write_config_after_execution: config.write_config_after_execution === true,
+    read_timeout:
+      typeof config.read_timeout === "number" && Number.isFinite(config.read_timeout)
+        ? config.read_timeout
+        : DEFAULT_READ_TIMEOUT,
+    auto_confirm_prompts: config.auto_confirm_prompts === true,
+    fail_on_cli_error: config.fail_on_cli_error !== false,
+    dry_run: config.dry_run === true,
+    retry_backoff_seconds: parseRetryBackoffSeconds(config),
+    ...patch,
+  };
+}
+
+function DeployRenderedTemplateConfigPanel({
+  config,
+  onChange,
+  nodeId,
+  workflowNodes = EMPTY_WORKFLOW_NODES,
+}: PluginConfigPanelProps) {
+  const initializedForNode = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (initializedForNode.current === nodeId) {
+      return;
+    }
+    initializedForNode.current = nodeId;
+    if (config.execution_mode === undefined) {
+      onChange(buildDeployRenderedTemplateConfig(config));
+    }
+  }, [nodeId, config, onChange]);
+
+  const sourceStepNodeId =
+    typeof config.source_step_node_id === "string" ? config.source_step_node_id : "";
+  const parsedOutputKey =
+    typeof config.parsed_output_key === "string" ? config.parsed_output_key : "";
+  const executionMode = (config.execution_mode as ExecutionMode) || "config_mode";
+  const networkDriverOverride =
+    typeof config.network_driver_override === "string" ? config.network_driver_override : "";
+  const writeConfigAfterExecution = config.write_config_after_execution === true;
+  const readTimeout =
+    typeof config.read_timeout === "number" && Number.isFinite(config.read_timeout)
+      ? config.read_timeout
+      : DEFAULT_READ_TIMEOUT;
+  const autoConfirmPrompts = config.auto_confirm_prompts === true;
+  const failOnCliError = config.fail_on_cli_error !== false;
+  const dryRun = config.dry_run === true;
+  const retryBackoffSeconds = useMemo(() => parseRetryBackoffSeconds(config), [config]);
+
+  const sourceSteps = useMemo(
+    () => listUpstreamSourceSteps(workflowNodes, "rendered_template", nodeId),
+    [workflowNodes, nodeId],
+  );
+  const selectedSourceStep = useMemo(
+    () => sourceSteps.find((step) => step.nodeId === sourceStepNodeId) ?? null,
+    [sourceSteps, sourceStepNodeId],
+  );
+
+  const handleSourceStepSelect = useCallback(
+    (selectedNodeId: string) => {
+      const step = sourceSteps.find((candidate) => candidate.nodeId === selectedNodeId);
+      const patch: Record<string, unknown> = { source_step_node_id: selectedNodeId };
+      if (step?.outputKey) {
+        const currentKey = parsedOutputKey.trim();
+        if (!currentKey) {
+          patch.parsed_output_key = step.outputKey;
+        }
+      }
+      onChange(buildDeployRenderedTemplateConfig(config, patch));
+    },
+    [config, onChange, parsedOutputKey, sourceSteps],
+  );
+
+  useEffect(() => {
+    if (sourceSteps.length !== 1 || sourceStepNodeId) {
+      return;
+    }
+    handleSourceStepSelect(sourceSteps[0].nodeId);
+  }, [sourceStepNodeId, sourceSteps, handleSourceStepSelect]);
+
+  const handleSourceStepNodeIdChange = useCallback(
+    (value: string) => {
+      onChange(buildDeployRenderedTemplateConfig(config, { source_step_node_id: value }));
+    },
+    [config, onChange],
+  );
+
+  const handleParsedOutputKeyChange = useCallback(
+    (value: string) => {
+      onChange(buildDeployRenderedTemplateConfig(config, { parsed_output_key: value }));
+    },
+    [config, onChange],
+  );
+
+  const handleExecutionModeChange = useCallback(
+    (value: string) => {
+      onChange(buildDeployRenderedTemplateConfig(config, { execution_mode: value }));
+    },
+    [config, onChange],
+  );
+
+  const handleDriverOverrideChange = useCallback(
+    (value: string) => {
+      onChange(buildDeployRenderedTemplateConfig(config, { network_driver_override: value }));
+    },
+    [config, onChange],
+  );
+
+  const handleWriteConfigChange = useCallback(
+    (checked: boolean) => {
+      onChange(
+        buildDeployRenderedTemplateConfig(config, { write_config_after_execution: checked }),
+      );
+    },
+    [config, onChange],
+  );
+
+  const handleFailOnCliErrorChange = useCallback(
+    (checked: boolean) => {
+      onChange(buildDeployRenderedTemplateConfig(config, { fail_on_cli_error: checked }));
+    },
+    [config, onChange],
+  );
+
+  const handleAutoConfirmPromptsChange = useCallback(
+    (checked: boolean) => {
+      onChange(buildDeployRenderedTemplateConfig(config, { auto_confirm_prompts: checked }));
+    },
+    [config, onChange],
+  );
+
+  const handleDryRunChange = useCallback(
+    (checked: boolean) => {
+      onChange(buildDeployRenderedTemplateConfig(config, { dry_run: checked }));
+    },
+    [config, onChange],
+  );
+
+  const handleReadTimeoutChange = useCallback(
+    (value: string) => {
+      const parsed = Number.parseInt(value, 10);
+      const clamped = Number.isFinite(parsed)
+        ? Math.min(MAX_READ_TIMEOUT, Math.max(MIN_READ_TIMEOUT, parsed))
+        : DEFAULT_READ_TIMEOUT;
+      onChange(buildDeployRenderedTemplateConfig(config, { read_timeout: clamped }));
+    },
+    [config, onChange],
+  );
+
+  const handleRetryBackoffSecondsChange = useCallback(
+    (next: number[]) => {
+      onChange(buildDeployRenderedTemplateConfig(config, { retry_backoff_seconds: next }));
+    },
+    [config, onChange],
+  );
+
+  const executionModeHint = useMemo(
+    () => EXECUTION_MODE_OPTIONS.find((option) => option.value === executionMode)?.hint,
+    [executionMode],
+  );
+
+  return (
+    <div className="flex flex-col gap-4">
+      <SshCredentialField config={config} onChange={onChange} />
+
+      <div className="space-y-1.5">
+        <div className="flex items-center gap-1.5">
+          <span className="font-mono text-xs font-medium">source_step</span>
+          <Badge className="h-4 rounded px-1 text-[10px]" variant="secondary">
+            step
+          </Badge>
+        </div>
+        {sourceSteps.length > 0 ? (
+          <Select value={sourceStepNodeId || ""} onValueChange={handleSourceStepSelect}>
+            <SelectTrigger className="h-8 text-xs">
+              <SelectValue placeholder="Choose render step…" />
+            </SelectTrigger>
+            <SelectContent>
+              {sourceSteps.map((step) => (
+                <SelectItem key={step.nodeId} value={step.nodeId}>
+                  {step.title} ({step.nodeId})
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        ) : (
+          <p className="text-[11px] text-warning-foreground">
+            Add a Render Jinja Template step to this workflow first.
+          </p>
+        )}
+        {selectedSourceStep ? (
+          <p className="text-[11px] text-muted-foreground">
+            Selected <span className="font-mono">{selectedSourceStep.nodeId}</span>
+            {selectedSourceStep.outputKey ? ` · output_key ${selectedSourceStep.outputKey}` : ""}
+          </p>
+        ) : sourceStepNodeId && sourceSteps.length > 0 ? (
+          <p className="text-[11px] text-warning-foreground">
+            Saved node id <span className="font-mono">{sourceStepNodeId}</span> is not on this
+            canvas. Pick a step above or enter an id manually.
+          </p>
+        ) : null}
+        <details className="rounded-lg border bg-muted/20 px-3 py-2">
+          <summary className="cursor-pointer text-[11px] font-medium text-muted-foreground">
+            Advanced: enter node id manually
+          </summary>
+          <div className="mt-2 space-y-1.5">
+            <Input
+              value={sourceStepNodeId}
+              onChange={(event) => handleSourceStepNodeIdChange(event.target.value)}
+              placeholder="render-jinja-template-3"
+              className="h-8 font-mono text-xs"
+            />
+            <p className="text-[11px] text-muted-foreground">
+              Only needed when reusing an id from an older workflow or run results.
+            </p>
+          </div>
+        </details>
+      </div>
+
+      <div className="space-y-1.5">
+        <div className="flex items-center gap-1.5">
+          <span className="font-mono text-xs font-medium">parsed_output_key</span>
+          <Badge className="h-4 rounded px-1 text-[10px]" variant="secondary">
+            string
+          </Badge>
+        </div>
+        <Input
+          value={parsedOutputKey}
+          onChange={(event) => handleParsedOutputKeyChange(event.target.value)}
+          placeholder="device_config"
+          className="h-8 font-mono text-xs"
+        />
+        <p className="text-[11px] text-muted-foreground">
+          Optional output_key from the render step. Leave empty to use the template produced by
+          the selected step.
+        </p>
+      </div>
+
+      <div className="space-y-1.5">
+        <div className="flex items-center gap-1.5">
+          <span className="font-mono text-xs font-medium">execution_mode</span>
+          <Badge className="h-4 rounded px-1 text-[10px]" variant="secondary">
+            string
+          </Badge>
+        </div>
+        <Select value={executionMode} onValueChange={handleExecutionModeChange}>
+          <SelectTrigger className="h-8 text-xs">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {EXECUTION_MODE_OPTIONS.map((option) => (
+              <SelectItem key={option.value} value={option.value}>
+                {option.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        {executionModeHint ? (
+          <p className="text-[11px] text-muted-foreground">{executionModeHint}</p>
+        ) : null}
+      </div>
+
+      <div className="space-y-1.5">
+        <div className="flex items-start gap-2">
+          <Checkbox
+            id="dry-run"
+            checked={dryRun}
+            onCheckedChange={(checked) => handleDryRunChange(checked === true)}
+            className="mt-0.5"
+          />
+          <div className="space-y-0.5">
+            <Label htmlFor="dry-run" className="font-mono text-xs font-medium">
+              dry_run
+            </Label>
+            <p className="text-[11px] text-muted-foreground">
+              Do not deploy anything to devices. Records what would happen under{" "}
+              <span className="font-mono">dry_run_results</span> for this step, visible in the
+              run&apos;s detail view.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div className="space-y-1.5">
+        <div className="flex items-center gap-1.5">
+          <span className="font-mono text-xs font-medium">network_driver_override</span>
+          <Badge className="h-4 rounded px-1 text-[10px]" variant="secondary">
+            string
+          </Badge>
+        </div>
+        <Input
+          value={networkDriverOverride}
+          onChange={(event) => handleDriverOverrideChange(event.target.value)}
+          placeholder="cisco_ios (optional)"
+          className="h-8 font-mono text-xs"
+        />
+        <p className="text-[11px] text-muted-foreground">
+          Overrides each device&apos;s network driver for Netmiko in this step.
+        </p>
+      </div>
+
+      <DeployReadTimeoutFields
+        readTimeout={readTimeout}
+        onReadTimeoutChange={handleReadTimeoutChange}
+      />
+
+      <RetryBackoffSecondsField
+        retryBackoffSeconds={retryBackoffSeconds}
+        onRetryBackoffSecondsChange={handleRetryBackoffSecondsChange}
+      />
+
+      <div className="flex items-start gap-2">
+        <Checkbox
+          id="write-config-after-execution"
+          checked={writeConfigAfterExecution}
+          onCheckedChange={(checked) => handleWriteConfigChange(checked === true)}
+          className="mt-0.5"
+        />
+        <div className="space-y-0.5">
+          <Label
+            htmlFor="write-config-after-execution"
+            className="font-mono text-xs font-medium"
+          >
+            write_config_after_execution
+          </Label>
+          <p className="text-[11px] text-muted-foreground">
+            After a successful deployment, run &ldquo;copy running-config startup-config&rdquo; and
+            confirm the prompt automatically. Skipped when the deployment itself fails.
+          </p>
+        </div>
+      </div>
+
+      <div className="space-y-1.5">
+        <div className="flex items-start gap-2">
+          <Checkbox
+            id="auto-confirm-prompts"
+            checked={autoConfirmPrompts}
+            onCheckedChange={(checked) => handleAutoConfirmPromptsChange(checked === true)}
+            className="mt-0.5"
+          />
+          <div className="space-y-0.5">
+            <Label htmlFor="auto-confirm-prompts" className="font-mono text-xs font-medium">
+              auto_confirm_prompts
+            </Label>
+            <p className="text-[11px] text-muted-foreground">
+              Automatically press Enter to accept a device&apos;s interactive confirmation (e.g.
+              &ldquo;...Do you want to continue? [confirm]&rdquo;) instead of failing.
+            </p>
+          </div>
+        </div>
+        {autoConfirmPrompts ? (
+          <p className="rounded-lg border border-warning-border bg-warning px-3 py-2 text-[11px] text-warning-foreground">
+            Risky: any command in the rendered template that raises a confirmation prompt will be
+            accepted automatically, with no human review. Only enable this when every command is
+            expected and safe to auto-accept.
+          </p>
+        ) : null}
+      </div>
+
+      <div className="flex items-start gap-2">
+        <Checkbox
+          id="fail-on-cli-error"
+          checked={failOnCliError}
+          onCheckedChange={(checked) => handleFailOnCliErrorChange(checked === true)}
+          className="mt-0.5"
+        />
+        <div className="space-y-0.5">
+          <Label htmlFor="fail-on-cli-error" className="font-mono text-xs font-medium">
+            fail_on_cli_error
+          </Label>
+          <p className="text-[11px] text-muted-foreground">
+            Fail the device when its CLI refuses a command (&ldquo;% Invalid input detected&rdquo;,
+            &ldquo;Command authorization failed&rdquo;, ...). The remaining commands are not sent
+            and write-config is skipped. Turn off only when refusals are expected.
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export const DeployRenderedTemplatePlugin: PluginUIComponent = {
+  ConfigPanel: DeployRenderedTemplateConfigPanel,
+  HelpPanel: DeployRenderedTemplateHelpPanel,
+};

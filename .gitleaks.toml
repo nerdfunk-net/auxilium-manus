@@ -1,0 +1,42 @@
+# gitleaks configuration (used by .github/workflows/secret-scan.yml and for local runs:
+#   gitleaks detect --source . --no-git --redact -v
+# The default rules stay on. Only files that deliberately contain secret-looking test data are
+# allowed, and only for the rule that fires there, so a real key committed anywhere else still fails.
+title = "auxilium-manus gitleaks config"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Test fixtures that exercise secret redaction, scrubbing and encryption (fake values)"
+targetRules = ["generic-api-key", "private-key"]
+paths = [
+  '''^backend/tests/unit/test_ai_redaction\.py$''',
+  '''^backend/tests/unit/test_ai_redaction_corpus\.py$''',
+  '''^backend/tests/unit/test_artifact_scrub\.py$''',
+  '''^backend/tests/unit/test_crypto\.py$''',
+  '''^backend/tests/unit/test_device_group_secret_scrub\.py$''',
+  '''^backend/tests/unit/test_netmiko_failure\.py$''',
+  '''^backend/tests/unit/test_production_startup_matrix\.py$''',
+  '''^backend/tests/unit/test_secret_run_inputs\.py$''',
+  '''^backend/tests/unit/test_workflow_crypto_attribute_router\.py$''',
+]
+
+[[allowlists]]
+description = "Source lines that only look like keys (docstring text, attribute names, Batfish fact names)"
+targetRules = ["generic-api-key"]
+paths = [
+  '''^backend/core/passphrase_cipher\.py$''',
+  '''^backend/tests/integration/conftest\.py$''',
+  '''^frontend/src/components/features/workflow-steps/shared/batfish-fact-keys\.ts$''',
+]
+
+[[allowlists]]
+description = "Documentation and a CLI helper that quote the ISE sandbox placeholder or the fixtures above"
+targetRules = ["generic-api-key"]
+paths = [
+  '''^doc/ISE-REST-API\.md$''',
+  '''^tools/ise/ise_test\.py$''',
+  '''^doc/analysis/''',
+  '''^doc/plans/SECURITY_FIXES\.md$''',
+]

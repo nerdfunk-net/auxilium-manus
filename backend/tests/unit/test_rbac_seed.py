@@ -1,0 +1,194 @@
+"""Tests for admin_reseed_rbac, in particular the remove_existing wipe path:
+FK cascades must clear role/user assignments, and the calling admin must be
+self-healed back into the admin role within the same call (no restart)."""
+
+from __future__ import annotations
+
+import unittest
+
+from sqlalchemy import create_engine, select
+from sqlalchemy.orm import Session, sessionmaker
+
+from core.config import settings
+from core.models.rbac import Permission, Role, RolePermission, UserPermission, UserRole
+from core.models.users import User
+from services.auth.rbac_seed import (
+    DEFAULT_PERMISSIONS,
+    SYSTEM_ROLES,
+    VIEWER_PERMISSIONS,
+    admin_reseed_rbac,
+    seed_rbac,
+)
+
+
+def _make_session() -> Session:
+    engine = create_engine("sqlite:///:memory:")
+    User.metadata.create_all(
+        engine,
+        tables=[
+            User.__table__,
+            Role.__table__,
+            Permission.__table__,
+            RolePermission.__table__,
+            UserRole.__table__,
+            UserPermission.__table__,
+        ],
+    )
+    return sessionmaker(bind=engine)()
+
+
+class AdminReseedRbacTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.db = _make_session()
+        self.addCleanup(self.db.get_bind().dispose)
+        self.addCleanup(self.db.close)
+        self.admin_user = User(
+            username=settings.initial_username,
+            password_hash="hash",
+            is_active=True,
+        )
+        self.db.add(self.admin_user)
+        self.db.commit()
+        self.db.refresh(self.admin_user)
+
+    def test_seed_creates_catalog_and_assigns_admin_role(self) -> None:
+        result = admin_reseed_rbac(self.db, remove_existing=False)
+
+        self.assertEqual(result.permissions_seeded, len(DEFAULT_PERMISSIONS))
+        self.assertEqual(result.roles_seeded, len(SYSTEM_ROLES))
+        self.assertFalse(result.removed_existing)
+
+        admin_role = self.db.scalar(select(Role).where(Role.name == "admin"))
+        self.assertIsNotNone(admin_role)
+        user_roles = list(
+            self.db.scalars(select(UserRole).where(UserRole.user_id == self.admin_user.id))
+        )
+        self.assertEqual([ur.role_id for ur in user_roles], [admin_role.id])
+
+    def test_remove_existing_wipes_and_reseeds_without_locking_out_admin(self) -> None:
+        admin_reseed_rbac(self.db, remove_existing=False)
+
+        result = admin_reseed_rbac(self.db, remove_existing=True)
+
+        self.assertTrue(result.removed_existing)
+        self.assertEqual(result.permissions_seeded, len(DEFAULT_PERMISSIONS))
+        self.assertEqual(result.roles_seeded, len(SYSTEM_ROLES))
+
+        # Exactly one role/permission row per catalog entry — no stale
+        # duplicates survived from before the wipe (the whole point of the
+        # FK-cascade wipe, as opposed to just re-running the idempotent seed).
+        self.assertEqual(len(list(self.db.scalars(select(Role)))), len(SYSTEM_ROLES))
+        self.assertEqual(len(list(self.db.scalars(select(Permission)))), len(DEFAULT_PERMISSIONS))
+
+        # The calling admin is self-healed back into the admin role within
+        # this same call — exactly one assignment, not zero (locked out) or
+        # two (a stale one plus a fresh one).
+        new_admin_role = self.db.scalar(select(Role).where(Role.name == "admin"))
+        user_roles = list(
+            self.db.scalars(select(UserRole).where(UserRole.user_id == self.admin_user.id))
+        )
+        self.assertEqual(len(user_roles), 1)
+        self.assertEqual(user_roles[0].role_id, new_admin_role.id)
+
+    def test_viewer_does_not_receive_batfish_query(self) -> None:
+        # B2: sources.batfish:query is deliberately not a "read" action, so
+        # the seeded read-only viewer role must not receive it, while admin
+        # (which receives every permission) does.
+        admin_reseed_rbac(self.db, remove_existing=False)
+
+        def _role_permission_pairs(role_name: str) -> set[tuple[str, str]]:
+            role = self.db.scalar(select(Role).where(Role.name == role_name))
+            self.assertIsNotNone(role)
+            rows = self.db.scalars(
+                select(Permission)
+                .join(RolePermission, RolePermission.permission_id == Permission.id)
+                .where(RolePermission.role_id == role.id)
+            )
+            return {(p.resource, p.action) for p in rows}
+
+        viewer_permissions = _role_permission_pairs("viewer")
+        admin_permissions = _role_permission_pairs("admin")
+
+        self.assertNotIn(("sources.batfish", "read"), viewer_permissions)
+        self.assertNotIn(("sources.batfish", "query"), viewer_permissions)
+        self.assertIn(("sources.batfish", "query"), admin_permissions)
+
+    def test_non_wipe_reseed_respects_deliberate_demotion(self) -> None:
+        # S10: once another admin exists, a non-wipe reseed must NOT re-grant
+        # the admin role to INITIAL_USERNAME after it was deliberately demoted.
+        admin_reseed_rbac(self.db, remove_existing=False)
+        admin_role = self.db.scalar(select(Role).where(Role.name == "admin"))
+
+        other = User(username="ops", password_hash="hash", is_active=True)
+        self.db.add(other)
+        self.db.commit()
+        self.db.refresh(other)
+        self.db.add(UserRole(user_id=other.id, role_id=admin_role.id))
+        # demote INITIAL_USERNAME
+        self.db.query(UserRole).filter(
+            UserRole.user_id == self.admin_user.id, UserRole.role_id == admin_role.id
+        ).delete()
+        self.db.commit()
+
+        admin_reseed_rbac(self.db, remove_existing=False)
+
+        initial_user_roles = list(
+            self.db.scalars(select(UserRole).where(UserRole.user_id == self.admin_user.id))
+        )
+        self.assertEqual(initial_user_roles, [])
+        # the other admin is untouched
+        other_roles = list(self.db.scalars(select(UserRole).where(UserRole.user_id == other.id)))
+        self.assertEqual([ur.role_id for ur in other_roles], [admin_role.id])
+
+
+if __name__ == "__main__":
+    unittest.main()
+
+
+class ViewerRoleTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.db = _make_session()
+        self.addCleanup(self.db.get_bind().dispose)
+        self.addCleanup(self.db.close)
+        seed_rbac(self.db)
+
+    def _viewer_pairs(self) -> set[tuple[str, str]]:
+        role = self.db.scalar(select(Role).where(Role.name == "viewer"))
+        rows = self.db.scalars(
+            select(Permission)
+            .join(RolePermission, RolePermission.permission_id == Permission.id)
+            .where(RolePermission.role_id == role.id, RolePermission.granted.is_(True))
+        )
+        return {(p.resource, p.action) for p in rows}
+
+    def test_viewer_has_exactly_the_curated_set(self) -> None:
+        self.assertEqual(self._viewer_pairs(), set(VIEWER_PERMISSIONS))
+
+    def test_reseed_revokes_old_broad_viewer_grants(self) -> None:
+        role = self.db.scalar(select(Role).where(Role.name == "viewer"))
+        for resource, action in [
+            ("credentials", "read"),
+            ("users", "read"),
+            ("settings", "read"),
+            ("git.debug", "read"),
+            ("secret_manager.connections", "read"),
+        ]:
+            permission = self.db.scalar(
+                select(Permission).where(
+                    Permission.resource == resource, Permission.action == action
+                )
+            )
+            if permission is not None:
+                self.db.add(
+                    RolePermission(role_id=role.id, permission_id=permission.id, granted=True)
+                )
+        self.db.commit()
+        seed_rbac(self.db)
+        pairs = self._viewer_pairs()
+        for forbidden in [("credentials", "read"), ("users", "read"), ("settings", "read")]:
+            self.assertNotIn(forbidden, pairs)
+        self.assertEqual(pairs, set(VIEWER_PERMISSIONS))
+
+    def test_every_viewer_permission_exists_in_the_catalog(self) -> None:
+        catalog = {(r, a) for r, a, _ in DEFAULT_PERMISSIONS}
+        self.assertTrue(set(VIEWER_PERMISSIONS) <= catalog)

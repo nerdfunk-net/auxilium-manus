@@ -1,0 +1,221 @@
+"""Redis-backed login rate limiting, shared across worker processes.
+
+Replaces the per-process ``defaultdict`` limiter that used to live in
+``routers/auth.py`` — see doc/analysis/FABLE_BACKEND_20260912.md §4.2 (T1).
+Falls back to an in-process sliding window when Redis is unreachable at check
+time, so a transient Redis outage degrades rate-limit fidelity (per-worker
+instead of global) rather than blocking login entirely, mirroring the
+fail-soft pattern already used by ``service_factory.build_cache_service()``.
+"""
+
+from __future__ import annotations
+
+import logging
+import threading
+import time
+import uuid
+from collections import defaultdict, deque
+
+import redis
+
+logger = logging.getLogger(__name__)
+
+# Attempt budget for change-password and the git webhook (every call counts).
+LOGIN_RATE_LIMIT_ATTEMPTS = 5
+LOGIN_RATE_LIMIT_WINDOW_SECONDS = 60
+# Login: two independent *failure* budgets (T1 / D2).
+LOGIN_IP_RATE_LIMIT_ATTEMPTS = 20
+LOGIN_IP_RATE_LIMIT_WINDOW_SECONDS = 60
+LOGIN_USER_RATE_LIMIT_ATTEMPTS = 100
+LOGIN_USER_RATE_LIMIT_WINDOW_SECONDS = 15 * 60
+# Inbound git webhooks: a push burst from CI must not be throttled like a password guess (W1).
+WEBHOOK_RATE_LIMIT_ATTEMPTS = 60
+WEBHOOK_RATE_LIMIT_WINDOW_SECONDS = 60
+
+
+# Atomic trim + count + (conditional) record, so concurrent requests cannot all observe a
+# count under the budget and proceed together. Returns 1 when the attempt was recorded,
+# 0 when the budget is exhausted.
+_CHECK_AND_RECORD_LUA = """
+redis.call('ZREMRANGEBYSCORE', KEYS[1], 0, ARGV[1])
+if redis.call('ZCARD', KEYS[1]) >= tonumber(ARGV[3]) then
+  return 0
+end
+redis.call('ZADD', KEYS[1], ARGV[2], ARGV[4])
+redis.call('EXPIRE', KEYS[1], ARGV[5])
+return 1
+"""
+
+
+class RateLimitExceededError(Exception):
+    """Raised when a rate-limit key has exceeded its attempt budget."""
+
+
+class LoginRateLimiter:
+    """Sliding-window login-attempt limiter.
+
+    Uses one Redis sorted set per key (member and score are both the attempt
+    timestamp): entries older than the window are trimmed on every check via
+    ``ZREMRANGEBYSCORE``, then ``ZCARD`` gives the current attempt count. This
+    is the standard sliding-window-log pattern and keeps Redis memory bounded
+    without a background sweep — ``EXPIRE`` on the key means an abandoned key
+    (no further attempts) disappears on its own after the window elapses,
+    unlike the previous in-process dict, which kept an empty deque forever
+    once touched.
+    """
+
+    def __init__(
+        self,
+        redis_url: str,
+        key_prefix: str = "manus-login-rl",
+        *,
+        fail_closed: bool = False,
+        attempts: int = LOGIN_RATE_LIMIT_ATTEMPTS,
+        window_seconds: int = LOGIN_RATE_LIMIT_WINDOW_SECONDS,
+    ) -> None:
+        # redis.from_url does not connect eagerly, so constructing this is
+        # always safe even if Redis is down — failures only surface, and are
+        # only handled, inside check()/clear().
+        self._redis = redis.from_url(redis_url, decode_responses=True)
+        self._prefix = key_prefix
+        self._fail_closed = fail_closed
+        self._attempts = attempts
+        self._window = window_seconds
+        # (monotonic time, member id) per key; the member id lets reserve()/release() refund
+        # exactly one attempt.
+        self._fallback_attempts: defaultdict[str, deque[tuple[float, str]]] = defaultdict(deque)
+        # FastAPI runs sync dependencies on worker threads; the in-process window is shared.
+        self._fallback_lock = threading.RLock()
+
+    def check(self, key: str) -> None:
+        """Raise RateLimitExceededError if key is over budget; else record this attempt.
+
+        Count and record are one atomic step (Redis Lua script, or the in-process lock),
+        so a parallel burst cannot overshoot the budget.
+        """
+        try:
+            allowed = self._check_and_record_redis(key)
+        except redis.RedisError:
+            if self._fail_closed:
+                logger.error("Rate limiter: Redis unavailable, failing closed")
+                raise RateLimitExceededError(key) from None
+            logger.warning("Rate limiter: Redis unavailable, using in-process fallback")
+            allowed = self._check_and_record_fallback(key)
+        if not allowed:
+            raise RateLimitExceededError(key)
+
+    def reserve(self, key: str) -> str:
+        """Atomically count this attempt against the budget and return its member id.
+
+        Raises RateLimitExceededError when the budget is exhausted. Pair with
+        :meth:`release` to refund the attempt (a successful login refunds only its own)."""
+        member = f"{time.time()!r}:{uuid.uuid4().hex}"
+        try:
+            allowed = self._check_and_record_redis(key, member)
+        except redis.RedisError:
+            if self._fail_closed:
+                logger.error("Rate limiter: Redis unavailable, failing closed")
+                raise RateLimitExceededError(key) from None
+            logger.warning("Rate limiter: Redis unavailable, using in-process fallback")
+            allowed = self._check_and_record_fallback(key, member)
+        if not allowed:
+            raise RateLimitExceededError(key)
+        return member
+
+    def release(self, key: str, member: str) -> None:
+        """Refund one reserved attempt; other attempts under the key are untouched."""
+        try:
+            self._redis.zrem(self._redis_key(key), member)
+        except redis.RedisError:
+            logger.debug("Could not release rate-limit member", exc_info=True)
+        with self._fallback_lock:
+            attempts = self._fallback_attempts.get(key)
+            if attempts:
+                self._fallback_attempts[key] = type(attempts)(
+                    entry for entry in attempts if entry[1] != member
+                )
+
+    def assert_allowed(self, key: str) -> None:
+        """Raise RateLimitExceededError if key is over budget. Records nothing."""
+        try:
+            count = self._count_redis(key)
+        except redis.RedisError:
+            if self._fail_closed:
+                logger.error("Login rate limiter: Redis unavailable, failing closed")
+                raise RateLimitExceededError(key) from None
+            logger.warning(
+                "Login rate limiter: Redis unavailable, using in-process fallback for this check"
+            )
+            count = self._count_fallback(key)
+        if count >= self._attempts:
+            raise RateLimitExceededError(key)
+
+    def record(self, key: str) -> None:
+        """Record one attempt (or failure, depending on the caller's policy) for key."""
+        try:
+            self._record_redis(key)
+        except redis.RedisError:
+            logger.warning("Login rate limiter: Redis unavailable, recording in-process only")
+            self._record_fallback(key)
+
+    def clear(self, key: str) -> None:
+        """Reset a key's attempt history (called after a successful login)."""
+        try:
+            self._redis.delete(self._redis_key(key))
+        except redis.RedisError:
+            logger.debug("Could not clear rate-limit key", exc_info=True)
+        with self._fallback_lock:
+            self._fallback_attempts.pop(key, None)
+
+    def _redis_key(self, key: str) -> str:
+        return f"{self._prefix}:{key}"
+
+    def _count_redis(self, key: str) -> int:
+        redis_key = self._redis_key(key)
+        window_start = time.time() - self._window
+        trim_and_count = self._redis.pipeline()
+        trim_and_count.zremrangebyscore(redis_key, 0, window_start)
+        trim_and_count.zcard(redis_key)
+        _removed, attempt_count = trim_and_count.execute()
+        return int(attempt_count)
+
+    def _record_redis(self, key: str) -> None:
+        redis_key = self._redis_key(key)
+        now = time.time()
+        record_attempt = self._redis.pipeline()
+        record_attempt.zadd(redis_key, {f"{now!r}": now})
+        record_attempt.expire(redis_key, self._window)
+        record_attempt.execute()
+
+    def _check_and_record_redis(self, key: str, member: str | None = None) -> bool:
+        now = time.time()
+        result = self._redis.eval(
+            _CHECK_AND_RECORD_LUA,
+            1,
+            self._redis_key(key),
+            now - self._window,
+            now,
+            self._attempts,
+            member or f"{now!r}:{uuid.uuid4().hex}",
+            self._window,
+        )
+        return int(result) == 1
+
+    def _check_and_record_fallback(self, key: str, member: str | None = None) -> bool:
+        with self._fallback_lock:
+            if self._count_fallback(key) >= self._attempts:
+                return False
+            self._record_fallback(key, member)
+            return True
+
+    def _count_fallback(self, key: str) -> int:
+        with self._fallback_lock:
+            now = time.monotonic()
+            attempts = self._fallback_attempts[key]
+            while attempts and now - attempts[0][0] > self._window:
+                attempts.popleft()
+            return len(attempts)
+
+    def _record_fallback(self, key: str, member: str | None = None) -> None:
+        with self._fallback_lock:
+            self._fallback_attempts[key].append((time.monotonic(), member or uuid.uuid4().hex))

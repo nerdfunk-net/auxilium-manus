@@ -1,0 +1,164 @@
+"use client";
+
+import { Search } from "lucide-react";
+import { useCallback, useMemo, useState } from "react";
+
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import type {
+  PluginConfigPanelProps,
+  PluginUIComponent,
+} from "@/components/features/workflows/types/plugin-ui";
+import { AttributePathPicker } from "@/components/features/workflow-steps/shared/attribute-path-picker";
+import { SharedSecretCredentialField } from "@/components/features/workflow-steps/shared/shared-secret-credential-field";
+import { ENCRYPT_STEP_ALGORITHMS, isKeylessAlgorithm } from "@/lib/shared-secret-algorithms";
+
+import {
+  buildEncryptAttributeConfig,
+  parseEncryptAttributeConfig,
+} from "./config";
+import { EncryptAttributeHelpPanel } from "./help-panel";
+import { EncryptAttributeTestDialog } from "./test-dialog";
+
+const ALGORITHM_DEFAULT_SENTINEL = "__default__";
+
+function EncryptAttributeConfigPanel({
+  config,
+  onChange,
+  nodeId,
+  workflowNodes,
+  workflowEdges,
+}: PluginConfigPanelProps) {
+  const parsed = useMemo(() => parseEncryptAttributeConfig(config), [config]);
+  const [testOpen, setTestOpen] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(false);
+
+  const setField = useCallback(
+    (key: "source_path" | "destination_path" | "algorithm", value: string) => {
+      onChange(buildEncryptAttributeConfig(config, { [key]: value }));
+    },
+    [config, onChange],
+  );
+
+  const keyless = isKeylessAlgorithm(parsed.algorithm);
+  const isConfigured =
+    Boolean(parsed.source_path.trim()) &&
+    Boolean(parsed.destination_path.trim()) &&
+    (keyless || Boolean(parsed.credential_reference.trim()));
+
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="space-y-1.5">
+        <Label className="font-mono text-xs font-medium" htmlFor="encrypt-attribute-source">
+          source_path
+        </Label>
+        <div className="flex items-center gap-1.5">
+          <Input
+            id="encrypt-attribute-source"
+            className="h-8 font-mono text-xs"
+            placeholder="run_input.enable_password"
+            value={parsed.source_path}
+            onChange={(event) => setField("source_path", event.target.value)}
+          />
+          <Button
+            type="button"
+            variant="outline"
+            size="icon"
+            className="size-8 shrink-0"
+            onClick={() => setPickerOpen(true)}
+            title="Browse attributes"
+          >
+            <Search className="size-3.5" />
+          </Button>
+        </div>
+        <p className="text-[11px] text-muted-foreground">
+          Dot path to the cleartext value. Sealed secrets are rejected.
+        </p>
+        <AttributePathPicker
+          open={pickerOpen}
+          onClose={() => setPickerOpen(false)}
+          onSelect={(path) => setField("source_path", path)}
+          nodeId={nodeId}
+          workflowNodes={workflowNodes ?? []}
+          workflowEdges={workflowEdges ?? []}
+        />
+      </div>
+
+      <div className="space-y-1.5">
+        <Label className="font-mono text-xs font-medium" htmlFor="encrypt-attribute-destination">
+          destination_path
+        </Label>
+        <Input
+          id="encrypt-attribute-destination"
+          className="h-8 font-mono text-xs"
+          placeholder="secrets.enable_password_enc"
+          value={parsed.destination_path}
+          onChange={(event) => setField("destination_path", event.target.value)}
+        />
+        <p className="text-[11px] text-muted-foreground">
+          Where the ciphertext token is written (<span className="font-mono">bag.field</span>).
+        </p>
+      </div>
+
+      {keyless ? null : <SharedSecretCredentialField config={config} onChange={onChange} />}
+
+      <div className="space-y-1.5">
+        <Label className="font-mono text-xs font-medium">algorithm</Label>
+        <Select
+          value={parsed.algorithm || ALGORITHM_DEFAULT_SENTINEL}
+          onValueChange={(value) =>
+            setField("algorithm", value === ALGORITHM_DEFAULT_SENTINEL ? "" : value)
+          }
+        >
+          <SelectTrigger className="h-8 text-xs">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={ALGORITHM_DEFAULT_SENTINEL}>Use credential default</SelectItem>
+            {ENCRYPT_STEP_ALGORITHMS.map((option) => (
+              <SelectItem key={option.value} value={option.value}>
+                {option.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        {keyless ? (
+          <p className="text-[11px] text-muted-foreground">
+            Keyless Cisco format: no shared-secret credential is used.
+          </p>
+        ) : null}
+      </div>
+
+      <Button
+        className="h-7 w-full text-xs"
+        size="sm"
+        type="button"
+        variant="secondary"
+        disabled={!isConfigured}
+        onClick={() => setTestOpen(true)}
+      >
+        Test Encryption
+      </Button>
+
+      {testOpen ? (
+        <EncryptAttributeTestDialog
+          onClose={() => setTestOpen(false)}
+          algorithm={parsed.algorithm}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+export const EncryptAttributePlugin: PluginUIComponent = {
+  ConfigPanel: EncryptAttributeConfigPanel,
+  HelpPanel: EncryptAttributeHelpPanel,
+};

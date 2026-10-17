@@ -1,0 +1,285 @@
+"use client";
+
+import { useCallback, useMemo, useState } from "react";
+import { Eye, FileText } from "lucide-react";
+
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import type {
+  PluginConfigPanelProps,
+  PluginUIComponent,
+} from "@/components/features/workflows/types/plugin-ui";
+import { useNautobotSourceCredentials } from "@/hooks/queries/use-nautobot-source-credentials";
+
+import {
+  NAUTOBOT_SOURCE_ID_KEY,
+  isNautobotSourceConfigured,
+  nautobotSourceIdFromConfig,
+} from "../shared/nautobot-source-config";
+import { NautobotSourceSelectDialog } from "../shared/nautobot-source-select-dialog";
+import {
+  RunParamSourceField,
+  type RunParamSourceMode,
+} from "../shared/run-param-source-field";
+import {
+  FanOutConfigSection,
+  fanOutFromConfig,
+  type FanOutConfig,
+} from "../shared/fan-out-config";
+import {
+  countConditions,
+  emptyTree,
+  type FilterTree,
+} from "./condition-builder/types";
+import { GetNautobotDevicesHelpPanel } from "./help-panel";
+import { LoadInventoryDialog } from "./load-inventory-dialog";
+import { DeviceSelectionPreviewDialog } from "./preview-dialog";
+import type { SavedInventory } from "./types/saved-inventory";
+import { inventoryLinkPatch } from "./utils/inventory-link";
+
+function filterFromConfig(config: Record<string, unknown>): FilterTree {
+  const raw = config.device_filter;
+  if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+    const f = raw as Record<string, unknown>;
+    if (Array.isArray(f.items)) {
+      return raw as FilterTree;
+    }
+  }
+  return emptyTree();
+}
+
+function deviceIdsFromConfig(config: Record<string, unknown>): string[] {
+  const raw = config.device_ids;
+  return Array.isArray(raw) ? raw.filter((id): id is string => typeof id === "string") : [];
+}
+
+function inventoryTypeFromConfig(config: Record<string, unknown>): "filter" | "static" {
+  return config.inventory_type === "static" ? "static" : "filter";
+}
+
+function inventoryMetaFromConfig(config: Record<string, unknown>) {
+  const id = typeof config.inventory_id === "number" ? config.inventory_id : null;
+  const name =
+    typeof config.inventory_name === "string" && config.inventory_name.trim()
+      ? config.inventory_name.trim()
+      : null;
+  return { id, name };
+}
+
+function DeviceSelectionConfigPanel({
+  config,
+  onChange,
+}: PluginConfigPanelProps) {
+  const sourceId = useMemo(() => nautobotSourceIdFromConfig(config), [config]);
+  const filterTree = useMemo(() => filterFromConfig(config), [config]);
+  const deviceIds = useMemo(() => deviceIdsFromConfig(config), [config]);
+  const inventoryType = useMemo(() => inventoryTypeFromConfig(config), [config]);
+  const fanOut = useMemo(() => fanOutFromConfig(config), [config]);
+  const inventoryMeta = useMemo(() => inventoryMetaFromConfig(config), [config]);
+  const credentials = useNautobotSourceCredentials({ sourceId });
+
+  const inventorySource: RunParamSourceMode =
+    config.inventory_source === "run_param" ? "run_param" : "fixed";
+  const inventoryParam =
+    typeof config.inventory_param === "string" ? config.inventory_param : "";
+
+  const handleInventorySourceChange = useCallback(
+    (mode: RunParamSourceMode) => onChange({ ...config, inventory_source: mode }),
+    [config, onChange],
+  );
+  const handleInventoryParamChange = useCallback(
+    (name: string) => onChange({ ...config, inventory_param: name }),
+    [config, onChange],
+  );
+
+  const [sourceOpen, setSourceOpen] = useState(false);
+  const [selectOpen, setSelectOpen] = useState(false);
+  const [previewOpen, setPreviewOpen] = useState(false);
+
+  const handleSourceIdChange = useCallback(
+    (newSourceId: string) => {
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const { inventory_source, ...rest } = config;
+      onChange({ ...rest, [NAUTOBOT_SOURCE_ID_KEY]: newSourceId });
+    },
+    [config, onChange],
+  );
+
+  const handleInventorySelect = useCallback(
+    (inventory: SavedInventory) => {
+      onChange({ ...config, ...inventoryLinkPatch(inventory) });
+    },
+    [config, onChange],
+  );
+
+  const handleClearInventory = useCallback(() => {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { inventory_id, inventory_name, ...rest } = config;
+    onChange({
+      ...rest,
+      inventory_type: "filter",
+      device_filter: emptyTree(),
+      device_ids: [],
+    });
+  }, [config, onChange]);
+
+  const handleFanOutChange = useCallback(
+    (patch: Partial<FanOutConfig>) => {
+      onChange({ ...config, fan_out: { ...fanOut, ...patch } });
+    },
+    [config, fanOut, onChange],
+  );
+
+  const conditionCount = useMemo(() => countConditions(filterTree), [filterTree]);
+  const isSourceConfigured = isNautobotSourceConfigured(config);
+  const hasInventory = inventoryMeta.id !== null || conditionCount > 0 || deviceIds.length > 0;
+  const canPreview = hasInventory && credentials.isReady;
+
+  const inventoryLabel = inventoryMeta.name
+    ? inventoryMeta.name
+    : conditionCount > 0
+      ? `${conditionCount} condition${conditionCount !== 1 ? "s" : ""} (legacy filter)`
+      : deviceIds.length > 0
+        ? `${deviceIds.length} device${deviceIds.length !== 1 ? "s" : ""} (selection)`
+        : null;
+
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="space-y-1.5">
+        <div className="flex items-center gap-1.5">
+          <span className="font-mono text-xs font-medium">
+            {NAUTOBOT_SOURCE_ID_KEY}
+          </span>
+          <Badge className="h-4 rounded px-1 text-[10px]" variant="secondary">
+            nautobot
+          </Badge>
+        </div>
+
+        {isSourceConfigured ? (
+          <p className="font-mono text-[11px] text-muted-foreground">
+            {sourceId}
+            {credentials.isReady ? (
+              <span className="block truncate font-sans text-muted-foreground">
+                {credentials.url}
+              </span>
+            ) : credentials.isLoading ? (
+              <span className="block font-sans">Loading credentials…</span>
+            ) : (
+              <span className="block font-sans text-warning-foreground">
+                Source not found in settings
+              </span>
+            )}
+          </p>
+        ) : (
+          <p className="text-[11px] text-warning-foreground">Not configured</p>
+        )}
+
+        <Button
+          className="h-7 w-full text-xs"
+          size="sm"
+          type="button"
+          variant="outline"
+          onClick={() => setSourceOpen(true)}
+        >
+          {isSourceConfigured ? "Edit Source" : "Configure Source"}
+        </Button>
+      </div>
+
+      <RunParamSourceField
+        label="Inventory"
+        refKind="inventory"
+        mode={inventorySource}
+        paramName={inventoryParam}
+        onModeChange={handleInventorySourceChange}
+        onParamNameChange={handleInventoryParamChange}
+      >
+        <div className="space-y-1.5">
+        {inventoryLabel ? (
+          <div className="flex items-start gap-2 rounded-md border border-step-border bg-step-surface/50 px-2.5 py-2">
+            <FileText className="mt-0.5 size-3.5 shrink-0 text-step-hover" aria-hidden />
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-xs font-medium text-step-surface-foreground">{inventoryLabel}</p>
+              {inventoryMeta.id !== null ? (
+                <p className="text-[10px] text-step-muted-foreground/80">ID {inventoryMeta.id}</p>
+              ) : null}
+            </div>
+          </div>
+        ) : (
+          <p className="text-[11px] text-muted-foreground">No inventory selected</p>
+        )}
+
+        <div className="flex gap-2">
+          <Button
+            className="h-7 flex-1 text-xs"
+            size="sm"
+            type="button"
+            variant="outline"
+            onClick={() => setSelectOpen(true)}
+          >
+            {inventoryLabel ? "Change inventory" : "Select inventory"}
+          </Button>
+          {inventoryLabel ? (
+            <Button
+              className="h-7 text-xs"
+              size="sm"
+              type="button"
+              variant="ghost"
+              onClick={handleClearInventory}
+            >
+              Clear
+            </Button>
+          ) : null}
+        </div>
+
+        <Button
+          className="h-7 w-full text-xs"
+          disabled={!canPreview}
+          size="sm"
+          type="button"
+          variant="secondary"
+          onClick={() => setPreviewOpen(true)}
+        >
+          <Eye className="mr-1.5 size-3.5" aria-hidden />
+          Preview devices
+        </Button>
+        {!canPreview && hasInventory && !credentials.isReady ? (
+          <p className="text-[11px] text-warning-foreground">Configure a Nautobot source to preview.</p>
+        ) : null}
+        </div>
+      </RunParamSourceField>
+
+      <FanOutConfigSection value={fanOut} onChange={handleFanOutChange} />
+
+      <NautobotSourceSelectDialog
+        open={sourceOpen}
+        selectedSourceId={sourceId}
+        onClose={() => setSourceOpen(false)}
+        onSave={handleSourceIdChange}
+      />
+
+      <LoadInventoryDialog
+        open={selectOpen}
+        onClose={() => setSelectOpen(false)}
+        onLoad={handleInventorySelect}
+      />
+
+      <DeviceSelectionPreviewDialog
+        open={previewOpen}
+        config={{
+          source_id: sourceId,
+          inventory_id: inventoryMeta.id,
+          inventory_type: inventoryType,
+          device_filter: filterTree,
+          device_ids: deviceIds,
+        }}
+        inventoryName={inventoryMeta.name}
+        onClose={() => setPreviewOpen(false)}
+      />
+    </div>
+  );
+}
+
+export const GetNautobotDevicesPlugin: PluginUIComponent = {
+  ConfigPanel: DeviceSelectionConfigPanel,
+  HelpPanel: GetNautobotDevicesHelpPanel,
+};

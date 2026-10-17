@@ -1,0 +1,109 @@
+"""Write dot-path attribute values onto a DeviceContext."""
+
+from __future__ import annotations
+
+from typing import Any
+
+from models.workflow_context import Capability, DeviceContext
+from services.workflow_context.attribute_path import DEVICE_SCALAR_FIELDS
+
+_READ_ONLY_DEVICE_FIELDS = frozenset({"id", "source", "source_id"})
+
+# "parsed" is a reserved read namespace backed by DeviceContext.parsed (see
+# attribute_path.py) — populated only by step executors (parse-cisco-config,
+# render-jinja-template, filter-output, ...), never by generic attribute
+# writes. Writing "parsed.foo" here would land in attribute_bags["parsed"]
+# instead, which the read side ignores entirely (it always reads
+# DeviceContext.parsed for this name), making the write silently unreadable.
+#
+# "run_input" is reserved for the same reason as "parsed" is precious but for
+# the opposite direction: StepRunner stamps it onto every device from
+# WorkflowRun.run_inputs (see services/workflow_context/run_inputs.py) and a
+# generic write here could silently overwrite what the operator supplied at
+# trigger time for the rest of the run.
+_RESERVED_BAG_NAMES = frozenset({"parsed", "run_input"})
+
+# Public alias for reuse by other attribute writers (e.g. attribute_merge.py).
+RESERVED_BAG_NAMES = _RESERVED_BAG_NAMES
+
+
+def _set_nested(root: dict[str, Any], path: str, value: Any) -> None:
+    """Set *value* at *path* inside *root*, which must be a fresh (already copied) dict.
+
+    Every dict on the way down is copied before it is written to, so the dicts of the
+    original device - which other devices and sibling branches may share - are never
+    mutated.
+    """
+    parts = path.split(".")
+    current = root
+    for part in parts[:-1]:
+        existing = current.get(part)
+        next_value = dict(existing) if isinstance(existing, dict) else {}
+        current[part] = next_value
+        current = next_value
+    current[parts[-1]] = value
+
+
+def set_device_attribute(device: DeviceContext, attribute_path: str, value: Any) -> DeviceContext:
+    """Set *value* at *attribute_path*, creating nested bags as needed.
+
+    *value* is normally a string, but may be a sealed-secret envelope dict
+    (see ``services.workflow_context.secret_fields.seal_secret``) for known
+    secret paths.
+    """
+    path = attribute_path.strip()
+    if not path:
+        raise ValueError("attribute path is required")
+
+    if path.startswith("device."):
+        field_name = path[len("device.") :]
+        if "." in field_name:
+            raise ValueError(
+                "device.* paths support only top-level scalar fields "
+                "(for example device.name or device.platform)"
+            )
+        if field_name not in DEVICE_SCALAR_FIELDS:
+            raise ValueError(f"unknown device field: {field_name}")
+        if field_name in _READ_ONLY_DEVICE_FIELDS:
+            raise ValueError(f"device field is read-only: {field_name}")
+        return device.model_copy(
+            update={
+                field_name: value,
+                "capabilities": device.capabilities | {Capability.ATTRIBUTES},
+            }
+        )
+
+    if "." not in path:
+        if path in DEVICE_SCALAR_FIELDS:
+            if path in _READ_ONLY_DEVICE_FIELDS:
+                raise ValueError(f"device field is read-only: {path}")
+            return device.model_copy(
+                update={
+                    path: value,
+                    "capabilities": device.capabilities | {Capability.ATTRIBUTES},
+                }
+            )
+        raise ValueError(
+            "attribute path must use bag.field form (for example nautobot.location.name)"
+        )
+
+    bag_name, remainder = path.split(".", 1)
+    if bag_name in DEVICE_SCALAR_FIELDS:
+        raise ValueError("use device.* prefix for device scalar fields")
+    if bag_name in _RESERVED_BAG_NAMES:
+        raise ValueError(
+            f"{bag_name!r} is a reserved namespace (populated by the workflow engine, "
+            "not by update-attribute) and cannot be written to"
+        )
+
+    attribute_bags = {name: dict(bag) for name, bag in device.attribute_bags.items()}
+    bag = dict(attribute_bags.get(bag_name, {}))
+    _set_nested(bag, remainder, value)
+    attribute_bags[bag_name] = bag
+
+    return device.model_copy(
+        update={
+            "attribute_bags": attribute_bags,
+            "capabilities": device.capabilities | {Capability.ATTRIBUTES},
+        }
+    )

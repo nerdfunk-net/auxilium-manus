@@ -1,0 +1,260 @@
+from __future__ import annotations
+
+import logging
+from datetime import datetime
+from uuid import UUID
+
+from fastapi import APIRouter, Depends, Query, status
+from sqlalchemy.orm import Session
+
+from core.auth import get_current_user, require_permission
+from core.database import get_db
+from core.models.users import User
+from models.artifacts import ArtifactContentResponse
+from models.attribute_path import (
+    AttributePathResolveRequest,
+    AttributePathResolveResponse,
+    AttributePathTreeResponse,
+)
+from models.runs import (
+    RunProgress,
+    WorkflowRunCreate,
+    WorkflowRunEventListResponse,
+    WorkflowRunListResponse,
+    WorkflowRunResponse,
+)
+from routers.workflow_steps import get_plugin_service
+from services.execution.run_service import RunService
+from services.plugin_registry.plugin_registry_service import PluginRegistryService
+
+logger = logging.getLogger(__name__)
+
+router = APIRouter(
+    tags=["workflow-runs"],
+    dependencies=[Depends(get_current_user)],
+)
+
+
+def _service(db: Session = Depends(get_db)) -> RunService:
+    return RunService(db)
+
+
+def _service_for_trigger(
+    db: Session = Depends(get_db),
+    plugin_service: PluginRegistryService = Depends(get_plugin_service),
+) -> RunService:
+    # Only trigger_run needs the pre-run validation gate (which needs a
+    # PluginRegistryService) — every other endpoint on this router uses
+    # _service above, so a plugin-registry hiccup can't take down read-only
+    # run history/status endpoints too.
+    return RunService(db, plugin_service)
+
+
+@router.post(
+    "/workflows/{workflow_id}/runs",
+    response_model=WorkflowRunResponse,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_permission("workflows", "execute"))],
+)
+def trigger_run(
+    workflow_id: int,
+    body: WorkflowRunCreate,
+    current_user: User = Depends(get_current_user),
+    service: RunService = Depends(_service_for_trigger),
+) -> WorkflowRunResponse:
+    return service.trigger_run(workflow_id=workflow_id, data=body, user_id=current_user.id)
+
+
+@router.get(
+    "/workflows/{workflow_id}/runs",
+    response_model=WorkflowRunListResponse,
+    dependencies=[Depends(require_permission("workflow_runs", "read"))],
+)
+def list_runs(
+    workflow_id: int,
+    status: list[str] | None = Query(
+        None,
+        description=(
+            "Filter by run status (pending, running, success, failed, cancelled) "
+            "or 'skipped' for runs with at least one skipped step. Repeat for multiple."
+        ),
+    ),
+    created_from: datetime | None = Query(
+        None,
+        description="Include runs created at or after this time (ISO 8601).",
+    ),
+    created_to: datetime | None = Query(
+        None,
+        description="Include runs created at or before this time (ISO 8601).",
+    ),
+    limit: int = Query(50, ge=1, le=200, description="Page size (newest runs first)."),
+    offset: int = Query(0, ge=0, description="Number of runs to skip."),
+    current_user: User = Depends(get_current_user),
+    service: RunService = Depends(_service),
+) -> WorkflowRunListResponse:
+    return service.list_runs(
+        workflow_id=workflow_id,
+        user_id=current_user.id,
+        statuses=status,
+        created_from=created_from,
+        created_to=created_to,
+        limit=limit,
+        offset=offset,
+    )
+
+
+@router.get(
+    "/runs/{run_id}",
+    response_model=WorkflowRunResponse,
+    dependencies=[Depends(require_permission("workflow_runs", "read"))],
+)
+def get_run(
+    run_id: int,
+    current_user: User = Depends(get_current_user),
+    service: RunService = Depends(_service),
+) -> WorkflowRunResponse:
+    return service.get_run(run_id=run_id, user_id=current_user.id)
+
+
+@router.get(
+    "/runs/{run_id}/progress",
+    response_model=RunProgress,
+    dependencies=[Depends(require_permission("workflow_runs", "read"))],
+)
+def get_run_progress(
+    run_id: int,
+    current_user: User = Depends(get_current_user),
+    service: RunService = Depends(_service),
+) -> RunProgress:
+    """A few hundred bytes per step instead of every step's output: what the run page polls."""
+    return service.get_run_progress(run_id=run_id, user_id=current_user.id)
+
+
+@router.get(
+    "/runs/{run_id}/events",
+    response_model=WorkflowRunEventListResponse,
+    dependencies=[Depends(require_permission("workflow_runs", "read"))],
+)
+def list_run_events(
+    run_id: int,
+    after_id: int = Query(0, ge=0, description="Only return events with a larger id."),
+    limit: int = Query(500, ge=1, le=1000),
+    current_user: User = Depends(get_current_user),
+    service: RunService = Depends(_service),
+) -> WorkflowRunEventListResponse:
+    return service.list_events(
+        run_id=run_id, user_id=current_user.id, after_id=after_id, limit=limit
+    )
+
+
+@router.get(
+    "/runs/{run_id}/artifacts/{artifact_id}",
+    response_model=ArtifactContentResponse,
+    dependencies=[Depends(require_permission("workflow_runs", "read"))],
+)
+def get_run_artifact(
+    run_id: int,
+    artifact_id: UUID,
+    current_user: User = Depends(get_current_user),
+    service: RunService = Depends(_service),
+) -> ArtifactContentResponse:
+    return service.get_run_artifact(
+        run_id=run_id,
+        artifact_id=str(artifact_id),
+        user_id=current_user.id,
+    )
+
+
+@router.get(
+    "/runs/{run_id}/attribute-tree",
+    response_model=AttributePathTreeResponse,
+    dependencies=[Depends(require_permission("workflow_runs", "read"))],
+)
+def get_attribute_path_tree(
+    run_id: int,
+    ancestor_node_id: list[str] = Query(
+        default=[],
+        description=(
+            "Node ids in the current canvas graph that are ancestors of the step "
+            "being configured. Only step results for these nodes are considered."
+        ),
+    ),
+    current_user: User = Depends(get_current_user),
+    service: RunService = Depends(_service),
+) -> AttributePathTreeResponse:
+    return service.get_attribute_path_tree(
+        run_id=run_id,
+        user_id=current_user.id,
+        ancestor_node_ids=ancestor_node_id,
+    )
+
+
+@router.post(
+    "/runs/{run_id}/resolve-attribute-path",
+    response_model=AttributePathResolveResponse,
+    dependencies=[Depends(require_permission("workflow_runs", "read"))],
+)
+def resolve_attribute_path(
+    run_id: int,
+    body: AttributePathResolveRequest,
+    current_user: User = Depends(get_current_user),
+    service: RunService = Depends(_service),
+) -> AttributePathResolveResponse:
+    return service.resolve_attribute_path(
+        run_id=run_id,
+        user_id=current_user.id,
+        path=body.path,
+        ancestor_node_ids=body.ancestor_node_ids,
+    )
+
+
+@router.delete(
+    "/runs/{run_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(require_permission("workflow_runs", "delete"))],
+)
+def delete_run(
+    run_id: int,
+    current_user: User = Depends(get_current_user),
+    service: RunService = Depends(_service),
+) -> None:
+    service.delete_run(run_id=run_id, user_id=current_user.id)
+
+
+@router.post(
+    "/runs/{run_id}/cancel",
+    response_model=WorkflowRunResponse,
+    dependencies=[Depends(require_permission("workflows", "execute"))],
+)
+def cancel_run(
+    run_id: int,
+    current_user: User = Depends(get_current_user),
+    service: RunService = Depends(_service),
+) -> WorkflowRunResponse:
+    return service.cancel_run(run_id=run_id, user_id=current_user.id)
+
+
+@router.post(
+    "/runs/{run_id}/approve-batch",
+    response_model=WorkflowRunResponse,
+    dependencies=[Depends(require_permission("workflows", "execute"))],
+)
+def approve_batch(
+    run_id: int,
+    current_user: User = Depends(get_current_user),
+    service: RunService = Depends(_service),
+) -> WorkflowRunResponse:
+    return service.approve_batch(run_id=run_id, user_id=current_user.id)
+
+
+@router.post(
+    "/runs/{run_id}/approve-all",
+    response_model=WorkflowRunResponse,
+    dependencies=[Depends(require_permission("workflows", "execute"))],
+)
+def approve_all(
+    run_id: int,
+    current_user: User = Depends(get_current_user),
+    service: RunService = Depends(_service),
+) -> WorkflowRunResponse:
+    return service.approve_all(run_id=run_id, user_id=current_user.id)

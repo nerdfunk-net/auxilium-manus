@@ -1,0 +1,186 @@
+# Auxilium Manus — Hatchet workflow infrastructure
+#
+# Services:
+#   hatchet-*     — workflow orchestration engine (dashboard: http://localhost:8888, loopback only)
+#
+# Prerequisite (once): docker network create --internal hatchet
+#   (the "internal" and "admin" networks below are created by this project)
+#
+# Hatchet first-time setup:
+#   0. cp .env.example .env and fill in every value (openssl rand -hex 24 for the passwords).
+#      HATCHET_ADMIN_EMAIL / HATCHET_ADMIN_PASSWORD become the dashboard login.
+#   1. cd docker/hatchet && docker compose up -d
+#   2. Wait ~60s for hatchet-setup-config to complete and hatchet-dashboard to start
+#   3. ./create-token.sh prints an API token (or: dashboard → Settings → API Tokens)
+#   4. In docker/.env set HATCHET_CLIENT_TOKEN=<token>
+#   5. Start the app stack — see docker/README.md
+#
+# Host-run backend and workers (development, INSTALL.md) reach the engine on 127.0.0.1:7077:
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+#
+# Production: docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+# (no published ports, secure cookie; reach the dashboard through your ingress).
+
+services:
+  # ─── Hatchet infrastructure ──────────────────────────────────────────────────
+  # App postgres/redis live in docker/docker-compose.yml (not needed here).
+  # Hatchet uses hatchet-postgres + RabbitMQ for its own state/messaging.
+  hatchet-postgres:
+    # No raw sockets: nothing here needs to craft packets.
+    cap_drop:
+      - NET_RAW
+    image: postgres:17-alpine
+    restart: unless-stopped
+    networks:
+      - internal
+    environment:
+      POSTGRES_USER: hatchet
+      POSTGRES_PASSWORD: "${HATCHET_DB_PASSWORD:?set HATCHET_DB_PASSWORD in docker/hatchet/.env}"
+      POSTGRES_DB: hatchet
+    volumes:
+      - hatchet_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hatchet"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  hatchet-rabbitmq:
+    # No raw sockets: nothing here needs to craft packets.
+    cap_drop:
+      - NET_RAW
+    image: rabbitmq:3-management
+    restart: unless-stopped
+    networks:
+      - internal
+    environment:
+      RABBITMQ_DEFAULT_USER: hatchet
+      RABBITMQ_DEFAULT_PASS: "${HATCHET_RABBITMQ_PASSWORD:?set HATCHET_RABBITMQ_PASSWORD in docker/hatchet/.env}"
+    volumes:
+      - hatchet_rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+
+  # Step 1: run DB migrations
+  hatchet-migrate:
+    # No raw sockets: nothing here needs to craft packets.
+    cap_drop:
+      - NET_RAW
+    image: ghcr.io/hatchet-dev/hatchet/hatchet-migrate:v0.107.2
+    command: /hatchet/hatchet-migrate
+    depends_on:
+      hatchet-postgres:
+        condition: service_healthy
+    networks:
+      - internal
+    environment:
+      DATABASE_URL: "postgres://hatchet:${HATCHET_DB_PASSWORD:?set HATCHET_DB_PASSWORD in docker/hatchet/.env}@hatchet-postgres:5432/hatchet"
+
+  # Step 2: generate encryption keys, seed admin user (skips cert generation)
+  hatchet-setup-config:
+    # No raw sockets: nothing here needs to craft packets.
+    cap_drop:
+      - NET_RAW
+    image: ghcr.io/hatchet-dev/hatchet/hatchet-admin:v0.107.2
+    command: /hatchet/hatchet-admin quickstart --skip certs --generated-config-dir /hatchet/config --overwrite=false
+    depends_on:
+      hatchet-migrate:
+        condition: service_completed_successfully
+      hatchet-rabbitmq:
+        condition: service_healthy
+      hatchet-postgres:
+        condition: service_healthy
+    networks:
+      - internal
+    environment:
+      DATABASE_URL: "postgres://hatchet:${HATCHET_DB_PASSWORD:?set HATCHET_DB_PASSWORD in docker/hatchet/.env}@hatchet-postgres:5432/hatchet"
+      SERVER_MSGQUEUE_RABBITMQ_URL: "amqp://hatchet:${HATCHET_RABBITMQ_PASSWORD:?set HATCHET_RABBITMQ_PASSWORD in docker/hatchet/.env}@hatchet-rabbitmq:5672/"
+      SERVER_AUTH_COOKIE_DOMAIN: "${HATCHET_COOKIE_DOMAIN:-localhost:8888}"
+      SERVER_AUTH_COOKIE_INSECURE: "t"
+      SERVER_GRPC_BIND_ADDRESS: "0.0.0.0"
+      SERVER_GRPC_INSECURE: "t"
+      SERVER_GRPC_BROADCAST_ADDRESS: "localhost:7077"
+      SERVER_DEFAULT_ENGINE_VERSION: "V1"
+      SERVER_INTERNAL_CLIENT_INTERNAL_GRPC_BROADCAST_ADDRESS: "hatchet-engine:7070"
+      SERVER_OBSERVABILITY_ENABLED: true
+      # The dashboard account the quickstart seeds. Required, so no publicly documented default
+      # password ever exists on this stack (applied only the first time the volume is set up).
+      ADMIN_EMAIL: "${HATCHET_ADMIN_EMAIL:?set HATCHET_ADMIN_EMAIL in docker/hatchet/.env}"
+      ADMIN_PASSWORD: "${HATCHET_ADMIN_PASSWORD:?set HATCHET_ADMIN_PASSWORD in docker/hatchet/.env}"
+    volumes:
+      - hatchet_config:/hatchet/config
+      - hatchet_certs:/hatchet/certs
+
+  # Step 3: engine (gRPC on :7070 via the isolated hatchet network; host :7077 for bare-metal clients)
+  hatchet-engine:
+    # No raw sockets: nothing here needs to craft packets.
+    cap_drop:
+      - NET_RAW
+    image: ghcr.io/hatchet-dev/hatchet/hatchet-engine:v0.107.2
+    command: /hatchet/hatchet-engine --config /hatchet/config
+    restart: on-failure
+    depends_on:
+      hatchet-migrate:
+        condition: service_completed_successfully
+      hatchet-setup-config:
+        condition: service_completed_successfully
+    networks:
+      - internal
+      - hatchet
+    environment:
+      DATABASE_URL: "postgres://hatchet:${HATCHET_DB_PASSWORD:?set HATCHET_DB_PASSWORD in docker/hatchet/.env}@hatchet-postgres:5432/hatchet"
+      SERVER_GRPC_BIND_ADDRESS: "0.0.0.0"
+      SERVER_GRPC_INSECURE: "t"
+      SERVER_OBSERVABILITY_ENABLED: true
+    volumes:
+      - hatchet_config:/hatchet/config
+      - hatchet_certs:/hatchet/certs
+    # No host port: the application containers reach gRPC on the isolated hatchet network.
+    # Host-run development backends use docker-compose.dev.yml (127.0.0.1:7077).
+
+  # Step 4: dashboard (API + UI combined, port 8888)
+  hatchet-dashboard:
+    # No raw sockets: nothing here needs to craft packets.
+    cap_drop:
+      - NET_RAW
+    image: ghcr.io/hatchet-dev/hatchet/hatchet-dashboard:v0.107.2
+    command: sh ./entrypoint.sh --config /hatchet/config
+    restart: on-failure
+    depends_on:
+      hatchet-migrate:
+        condition: service_completed_successfully
+      hatchet-setup-config:
+        condition: service_completed_successfully
+    networks:
+      - internal
+      - hatchet
+      # Docker cannot publish a port for a container that is only on internal networks, so the
+      # dashboard (and only the dashboard) also joins this ordinary network for its loopback port.
+      - admin
+    environment:
+      DATABASE_URL: "postgres://hatchet:${HATCHET_DB_PASSWORD:?set HATCHET_DB_PASSWORD in docker/hatchet/.env}@hatchet-postgres:5432/hatchet"
+      SERVER_OBSERVABILITY_ENABLED: true
+    volumes:
+      - hatchet_config:/hatchet/config
+      - hatchet_certs:/hatchet/certs
+    ports:
+      # Loopback only. For production use docker-compose.prod.yml and a TLS ingress.
+      - "127.0.0.1:8888:80"
+
+volumes:
+  hatchet_postgres_data:
+  hatchet_rabbitmq_data:
+  hatchet_config:
+  hatchet_certs:
+
+networks:
+  hatchet:
+    external: true
+  # Hatchet-private (postgres, rabbitmq, migrate, setup); created by this compose project.
+  internal:
+    internal: true
+  # Ordinary bridge: carries nothing but the dashboard's loopback-published port.
+  admin: {}

@@ -1,0 +1,415 @@
+"""Executor for the add-to-nautobot workflow step."""
+
+from __future__ import annotations
+
+import asyncio
+import logging
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any
+
+from sqlalchemy.orm import object_session
+
+import service_factory
+from core.models.runs import WorkflowRun
+from models.failure import FailureInfo, failure_from_exception
+from models.workflow_context import (
+    Capability,
+    DeviceContext,
+    DeviceError,
+    DeviceStatus,
+    StepOutcome,
+    WorkflowContext,
+)
+from services.artifacts import ArtifactService
+from services.nautobot.common.exceptions import NautobotAPIError, is_duplicate_error
+from services.nautobot.credentials_bound_client import CredentialsBoundNautobotClient
+from services.nautobot.devices.creation import DeviceCreationService
+from services.nautobot.devices.types import AddDeviceRequest
+from workflow_steps.common.nautobot_interfaces import (
+    build_interfaces_from_config,
+    interfaces_from_nautobot_bag,
+    normalize_interfaces,
+)
+from workflow_steps.common.nautobot_source import resolve_nautobot_credentials
+from workflow_steps.common.nautobot_update_fields import extract_update_fields_from_nautobot_bag
+from workflow_steps.common.step_flags import parse_bool_flag
+from workflow_steps.common.update_field_expression import build_resolved_update_data
+
+if TYPE_CHECKING:
+    from services.network.netmiko.session_pool import DeviceSessionPool
+
+logger = logging.getLogger(__name__)
+
+_STEP_ID = "add-to-nautobot"
+_REQUIRED_FIELDS = ("name", "role", "status", "location", "device_type")
+_SOURCE_MODES = frozenset({"manual", "nautobot_origin"})
+
+
+@dataclass(frozen=True)
+class _ParsedConfig:
+    source_id: str
+    raw_device_fields: dict[str, Any]
+    custom_fields_source: str
+    interfaces_source: str
+    default_prefix_length: str
+    manual_interfaces: list[dict[str, Any]]
+    refresh_attributes_after_create: bool
+
+
+def _all_custom_fields_from_bag(device: DeviceContext) -> dict[str, str] | None:
+    bag = device.attribute_bags.get("nautobot") or {}
+    extracted = extract_update_fields_from_nautobot_bag({"custom_fields": bag.get("custom_fields")})
+    return extracted.get("custom_fields")
+
+
+def _tags_as_list(value: Any) -> list[str] | None:
+    if value is None:
+        return None
+    if isinstance(value, list):
+        return value
+    return [str(value)]
+
+
+def _position_as_int(value: Any) -> int | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    try:
+        return int(text)
+    except ValueError:
+        logger.warning("%s: position '%s' is not an integer — omitting", _STEP_ID, text)
+        return None
+
+
+def _build_request(
+    *,
+    resolved: dict[str, Any],
+    config: dict[str, Any],
+    interfaces: list[dict[str, Any]],
+) -> AddDeviceRequest:
+    virtual_chassis = config.get("virtual_chassis") or {}
+    vc_mode = str(virtual_chassis.get("mode") or "none").strip()
+
+    return AddDeviceRequest(
+        name=resolved["name"],
+        role=resolved["role"],
+        status=resolved["status"],
+        location=resolved["location"],
+        device_type=resolved["device_type"],
+        platform=resolved.get("platform"),
+        secrets_group=resolved.get("secrets_group"),
+        software_version=resolved.get("software_version"),
+        serial=resolved.get("serial"),
+        asset_tag=resolved.get("asset_tag"),
+        tags=_tags_as_list(resolved.get("tags")),
+        custom_fields=resolved.get("custom_fields"),
+        rack=resolved.get("rack"),
+        face=resolved.get("face"),
+        position=_position_as_int(resolved.get("position")),
+        interfaces=interfaces,
+        add_prefix=parse_bool_flag(config, "add_prefix", default=True),
+        default_prefix_length=str(config.get("default_prefix_length") or "/24"),
+        virtual_chassis_id=str(virtual_chassis.get("id") or "").strip() or None
+        if vc_mode == "join"
+        else None,
+        new_virtual_chassis_name=str(virtual_chassis.get("name") or "").strip() or None
+        if vc_mode == "create"
+        else None,
+        dry_run=parse_bool_flag(config, "dry_run", default=False),
+    )
+
+
+def _parse_config(config: dict[str, Any]) -> _ParsedConfig:
+    source_id = str(config.get("nautobot_source_id") or "").strip()
+    if not source_id:
+        raise ValueError(f"{_STEP_ID}: nautobot_source_id is not configured")
+
+    raw_device_fields = config.get("device_fields") or {}
+    if not isinstance(raw_device_fields, dict):
+        raise ValueError(f"{_STEP_ID}: device_fields must be an object")
+
+    custom_fields_source = str(config.get("custom_fields_source") or "manual").strip().lower()
+    if custom_fields_source not in _SOURCE_MODES:
+        raise ValueError(
+            f"{_STEP_ID}: custom_fields_source must be one of {sorted(_SOURCE_MODES)}, "
+            f"got {custom_fields_source!r}"
+        )
+
+    interfaces_source = str(config.get("interfaces_source") or "manual").strip().lower()
+    if interfaces_source not in _SOURCE_MODES:
+        raise ValueError(
+            f"{_STEP_ID}: interfaces_source must be one of {sorted(_SOURCE_MODES)}, "
+            f"got {interfaces_source!r}"
+        )
+
+    default_prefix_length = str(config.get("default_prefix_length") or "/24")
+    manual_interfaces = normalize_interfaces(
+        build_interfaces_from_config(config, step_id=_STEP_ID),
+        default_prefix_length,
+    )
+
+    return _ParsedConfig(
+        source_id=source_id,
+        raw_device_fields=raw_device_fields,
+        custom_fields_source=custom_fields_source,
+        interfaces_source=interfaces_source,
+        default_prefix_length=default_prefix_length,
+        manual_interfaces=manual_interfaces,
+        refresh_attributes_after_create=parse_bool_flag(
+            config, "refresh_attributes_after_create", default=True
+        ),
+    )
+
+
+def _bind_creation_service(db: Any, source_id: str) -> DeviceCreationService:
+    credentials = resolve_nautobot_credentials(db, source_id, step_id=_STEP_ID)
+    nautobot_service = service_factory.get_nautobot_app_service()
+    bound_client = CredentialsBoundNautobotClient(nautobot_service, credentials)
+    return DeviceCreationService(bound_client)
+
+
+def _is_already_exists(exc: Exception) -> bool:
+    """Distinguish Nautobot's uniqueness-violation 400 from any other API
+    failure, so a workflow can route the failure outcome by ``error.code``
+    (device_already_exists -> update instead of create) rather than treat
+    every rejection the same way. Reuses the shared classifier already used
+    by ``services.nautobot.devices.common`` for the same distinction.
+    """
+    return isinstance(exc, NautobotAPIError) and is_duplicate_error(exc)
+
+
+def _create_failure(exc: Exception) -> FailureInfo | None:
+    """A duplicate the API did not flag as 409 is still ``already_exists`` for the assistant."""
+    if _is_already_exists(exc):
+        return FailureInfo(phase="api", kind="already_exists", exception_type=type(exc).__name__)
+    return failure_from_exception(exc)
+
+
+def _fail_device(
+    *,
+    device: DeviceContext,
+    device_key: str,
+    node_id: str,
+    code: str,
+    message: str,
+    failure: FailureInfo | None = None,
+) -> tuple[str, DeviceContext, bool]:
+    err = DeviceError(
+        node_id=node_id,
+        step_id=_STEP_ID,
+        code=code,
+        message=message,
+        failure=failure,
+    )
+    failed = device.model_copy(
+        update={"status": DeviceStatus.FAILED, "errors": [*device.errors, err]}
+    )
+    return device_key, failed, False
+
+
+async def _create_one_device(
+    *,
+    device_key: str,
+    device: DeviceContext,
+    node_id: str,
+    config: dict[str, Any],
+    run_id: str | None,
+    parsed: _ParsedConfig,
+    creation_service: DeviceCreationService,
+) -> tuple[str, DeviceContext, bool]:
+    try:
+        resolved = build_resolved_update_data(
+            device=device, raw_fields=parsed.raw_device_fields, run_id=run_id
+        )
+
+        if parsed.custom_fields_source == "nautobot_origin":
+            all_custom_fields = _all_custom_fields_from_bag(device)
+            if all_custom_fields:
+                resolved["custom_fields"] = all_custom_fields
+            else:
+                resolved.pop("custom_fields", None)
+
+        if parsed.interfaces_source == "nautobot_origin":
+            interfaces = interfaces_from_nautobot_bag(
+                device.attribute_bags.get("nautobot"),
+                default_prefix_length=parsed.default_prefix_length,
+            )
+        else:
+            interfaces = parsed.manual_interfaces
+
+        missing = [key for key in _REQUIRED_FIELDS if not resolved.get(key)]
+        if missing:
+            return _fail_device(
+                device=device,
+                device_key=device_key,
+                node_id=node_id,
+                code="missing_required_field",
+                message=(f"Required field(s) could not be resolved: {', '.join(missing)}"),
+            )
+
+        request = _build_request(resolved=resolved, config=config, interfaces=interfaces)
+        result = await creation_service.create_device(request)
+
+        if request.dry_run:
+            if not result.get("success"):
+                return _fail_device(
+                    device=device,
+                    device_key=device_key,
+                    node_id=node_id,
+                    code="dry_run_validation_failed",
+                    message="; ".join(result.get("errors") or ["dry run validation failed"]),
+                )
+            enriched = device.model_copy(
+                update={
+                    "status": DeviceStatus.OK,
+                    "capabilities": device.capabilities | {Capability.ATTRIBUTES},
+                }
+            )
+            return device_key, enriched, True
+
+        problems: list[str] = []
+        if int(result.get("interfaces_failed") or 0) > 0:
+            problems.append(f"{result['interfaces_failed']} interface(s) could not be created")
+        problems.extend(str(warning) for warning in result.get("warnings") or [])
+        if problems:
+            # The device exists in Nautobot now: keep its id on the failed device so an
+            # update-nautobot-device step on the 'failure' branch can repair it.
+            created = device.model_copy(
+                update={"id": str(result.get("device_id") or device.id), "source": "nautobot"}
+            )
+            return _fail_device(
+                device=created,
+                device_key=device_key,
+                node_id=node_id,
+                code="device_created_incomplete",
+                message="; ".join(problems),
+                failure=FailureInfo(phase="api", kind="server_error"),
+            )
+
+        update_fields: dict[str, Any] = {
+            "name": result.get("device_name") or device.name,
+            "status": DeviceStatus.OK,
+            "capabilities": device.capabilities | {Capability.ATTRIBUTES},
+        }
+        if parsed.refresh_attributes_after_create:
+            # Merge (never replace) the freshly created device's REST response into
+            # the existing bag: it has no `interfaces` key (device interfaces are a
+            # separate Nautobot resource), so a wholesale replace here silently wiped
+            # out `interfaces`/anything else an upstream step (e.g.
+            # config-to-attributes) had already written into `attribute_bags.nautobot`
+            # for a later `update-nautobot-device` step to push.
+            existing_bag = device.attribute_bags.get("nautobot") or {}
+            update_fields["id"] = str(result["device_id"])
+            update_fields["source"] = "nautobot"
+            update_fields["attribute_bags"] = {
+                **device.attribute_bags,
+                "nautobot": {**existing_bag, **(result.get("device") or {})},
+            }
+
+        enriched = device.model_copy(update=update_fields)
+        return device_key, enriched, True
+    except Exception as exc:
+        code = "device_already_exists" if _is_already_exists(exc) else type(exc).__name__.lower()
+        return _fail_device(
+            device=device,
+            device_key=device_key,
+            node_id=node_id,
+            code=code,
+            message=str(exc),
+            failure=_create_failure(exc),
+        )
+
+
+def _partition_and_build_outcomes(
+    *,
+    context: WorkflowContext,
+    results: list[tuple[str, DeviceContext, bool]],
+) -> list[StepOutcome]:
+    success_devices: dict[str, DeviceContext] = {}
+    failed_devices: dict[str, DeviceContext] = {}
+    for device_key, updated_device, ok in results:
+        if ok:
+            success_devices[device_key] = updated_device
+        else:
+            failed_devices[device_key] = updated_device
+
+    outcomes = [
+        StepOutcome(
+            name="success",
+            context=context.model_copy(update={"devices": success_devices}),
+        )
+    ]
+    if failed_devices:
+        outcomes.append(
+            StepOutcome(
+                name="failure",
+                context=context.model_copy(update={"devices": failed_devices}),
+            )
+        )
+    return outcomes
+
+
+async def execute(
+    *,
+    config: dict[str, Any],
+    context: WorkflowContext,
+    run: WorkflowRun,
+    artifact_service: ArtifactService,
+    node_id: str,
+    device_sessions: DeviceSessionPool,
+) -> list[StepOutcome]:
+    del artifact_service, device_sessions
+
+    parsed = _parse_config(config)
+
+    # An empty branch (e.g. the "non_existing" side of an exists-in-nautobot split when
+    # everything exists) is a no-op, not an error.
+    if not context.devices:
+        return [StepOutcome(name="success", context=context)]
+
+    db = object_session(run)
+    if db is None:
+        raise RuntimeError(f"{_STEP_ID}: WorkflowRun has no active DB session")
+
+    creation_service = _bind_creation_service(db, parsed.source_id)
+    device_items = list(context.devices.items())
+    run_id = str(context.run_id) if context.run_id else None
+
+    logger.info(
+        "%s started run_id=%s source_id=%s devices=%d custom_fields_source=%s interfaces_source=%s",
+        _STEP_ID,
+        run.id,
+        parsed.source_id,
+        len(device_items),
+        parsed.custom_fields_source,
+        parsed.interfaces_source,
+    )
+
+    results = await asyncio.gather(
+        *[
+            _create_one_device(
+                device_key=device_key,
+                device=device,
+                node_id=node_id,
+                config=config,
+                run_id=run_id,
+                parsed=parsed,
+                creation_service=creation_service,
+            )
+            for device_key, device in device_items
+        ]
+    )
+
+    success_count = sum(1 for _, _, ok in results if ok)
+    failed_count = len(results) - success_count
+    logger.info(
+        "%s finished success=%d failure=%d run_id=%s",
+        _STEP_ID,
+        success_count,
+        failed_count,
+        run.id,
+    )
+
+    return _partition_and_build_outcomes(context=context, results=results)

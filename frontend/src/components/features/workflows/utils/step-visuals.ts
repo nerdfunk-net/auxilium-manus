@@ -1,0 +1,336 @@
+import {
+  Bell,
+  BellRing,
+  Camera,
+  CheckCircle2,
+  Combine,
+  ClipboardList,
+  Database,
+  Dices,
+  Diff,
+  Eye,
+  FileArchive,
+  FileInput,
+  FileJson2,
+  FileText,
+  Filter,
+  FolderOpen,
+  Funnel,
+  FlaskConical,
+  GitBranch,
+  GitMerge,
+  HardDriveDownload,
+  HeartPulse,
+  HardDriveUpload,
+  Key,
+  KeyRound,
+  KeySquare,
+  Layers,
+  List,
+  ListTree,
+  Lock,
+  LockOpen,
+  LogIn,
+  Mail,
+  MapPin,
+  MapPinned,
+  MessageSquare,
+  Network,
+  PackagePlus,
+  PlayCircle,
+  Replace,
+  RefreshCw,
+  Route,
+  Router,
+  Scale,
+  SearchCode,
+  Settings2,
+  ShieldAlert,
+  ShieldCheck,
+  Signpost,
+  Server,
+  Shapes,
+  Split,
+  Square,
+  Table2,
+  Tags,
+  TerminalSquare,
+  Type,
+  type LucideIcon,
+  CloudCog,
+  UserRound,
+  Wifi,
+} from "lucide-react";
+
+// Shared with the canvas node renderer, the step catalog, and the properties
+// panel so every surface agrees on icon/colour per artifact_type or step kind.
+
+export const ARTIFACT_TYPE_ORDER = [
+  "nautobot",
+  "inventory_selector",
+  "routing",
+  "attributes",
+  "command_execution",
+  "configuration_management",
+  "template_rendering",
+  "persistent_artifact",
+  "content_tools",
+  "debug",
+  "visuals",
+  "notify",
+  "secrets",
+  "cisco",
+  "pyats",
+  "batfish",
+];
+
+// Explicit intra-category step order, for categories where the default
+// alphabetical-by-title order (see groupPaletteItems) doesn't reflect the
+// natural build sequence of a workflow. Any step id not listed here falls
+// back to alphabetical, so adding a new step to this category is safe by
+// default even if this list isn't updated immediately.
+export const CATEGORY_STEP_ORDER: Record<string, string[]> = {
+  batfish: [
+    "get-batfish-devices",
+    "batfish-init-snapshot",
+    "batfish-extract-facts",
+    "batfish-validate-facts",
+    "batfish-routing-table",
+    "batfish-acl-check",
+    "batfish-path-check",
+  ],
+};
+
+export interface CategorySubgroup {
+  label: string;
+  kinds: string[];
+}
+
+// Optional sub-groups inside a palette category, shown as labelled sections in
+// the Steps library. Steps of the category that no sub-group lists end up in a
+// trailing "Other" section, so a new step is safe by default.
+export const CATEGORY_SUBGROUPS: Record<string, CategorySubgroup[]> = {
+  cisco: [
+    {
+      label: "ISE",
+      kinds: ["get-ise-devices", "get-ise-tacacs-key", "update-ise-tacacs-key", "add-to-ise"],
+    },
+    {
+      label: "Catalyst Center",
+      kinds: [
+        "get-catalyst-center-devices",
+        "run-catalyst-center-command",
+        "get-catalyst-center-configs",
+        "get-catalyst-center-details",
+        "get-catalyst-center-topology",
+        "get-catalyst-center-health",
+      ],
+    },
+  ],
+};
+
+export const SUBGROUP_OTHER_LABEL = "Other";
+
+export const PALETTE_CATEGORY_LABELS: Record<string, string> = {
+  nautobot: "Nautobot",
+  cisco: "Cisco",
+  pyats: "PyATS",
+  batfish: "Batfish",
+  configuration_management: "Configuration Management",
+  notify: "Notify",
+  secrets: "Secrets",
+};
+
+export function formatPaletteCategory(category: string): string {
+  return (
+    PALETTE_CATEGORY_LABELS[category] ??
+    formatArtifactType(category)
+  );
+}
+
+export function formatArtifactType(artifactType: string): string {
+  return artifactType
+    .split("_")
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+const nodeIconsByKind: Record<string, LucideIcon> = {
+  "compare-data": Scale,
+  "route-on-content": SearchCode,
+  "fan-in": GitMerge,
+  "filter-output": Filter,
+  "merge-content": Combine,
+  "update-nautobot-device": CloudCog,
+  "add-nautobot-metadata": MapPin,
+  "get-virtual-chassis": Layers,
+  "get-device-location": MapPinned,
+  "split-virtual-chassis": Split,
+  "start-nautobot-job": PlayCircle,
+  "check-nautobot-job": CheckCircle2,
+  "update-config-context": FileJson2,
+  "set-default-attributes": Settings2,
+  "update-attribute": Tags,
+  "read-from-file": FileInput,
+  "encrypt-attribute": Lock,
+  "decrypt-attribute": LockOpen,
+  "update-content": Replace,
+  "log-attributes": Eye,
+  "log-message": List,
+  "show-summary": Table2,
+  notify: Bell,
+  "notify-mattermost": MessageSquare,
+  "notify-on-error": BellRing,
+  "send-mail": Mail,
+  label: Type,
+  background: Square,
+  funnel: Funnel,
+  "step-group": FolderOpen,
+  // palette_category: cisco disables the artifact_type icon fallback, so each cisco step needs one.
+  "get-catalyst-center-devices": Server,
+  "get-catalyst-center-configs": HardDriveDownload,
+  "get-catalyst-center-details": ListTree,
+  "get-catalyst-center-topology": Network,
+  "get-catalyst-center-health": HeartPulse,
+  "run-catalyst-center-command": TerminalSquare,
+  "get-ise-devices": ShieldCheck,
+  "get-ise-tacacs-key": Key,
+  reachable: Wifi,
+  "login-successful": LogIn,
+  "add-pyats-testbed": FlaskConical,
+  // resolveStepIcon's artifact_type fallback is keyed off palette_category
+  // (not the step's real artifact_type) once a custom palette_category is
+  // set, so any pyats-category step needs an explicit entry here too.
+  "get-pyats-running-config": HardDriveDownload,
+  "get-pyats-snapshot": Camera,
+  "compare-pyats-snapshot": Diff,
+  "upload-config": HardDriveUpload,
+  "get-from-user": UserRound,
+  // Same reason as the pyats entries above: palette_category: batfish means
+  // the artifact_type icon fallback doesn't apply, so every batfish step
+  // needs its own entry here too.
+  "get-batfish-devices": Router,
+  "batfish-init-snapshot": PackagePlus,
+  "batfish-routing-table": Route,
+  "batfish-path-check": Signpost,
+  "batfish-acl-check": ShieldAlert,
+  // Same reason as the pyats/batfish entries above: palette_category:
+  // secrets means the artifact_type icon fallback doesn't apply.
+  "secret-get": KeyRound,
+  "secret-set": KeySquare,
+  "secret-generate": RefreshCw,
+  "generate-password": Dices,
+  "store-in-db": Database,
+  "store-for-report": ClipboardList,
+  "get-from-db": Database,
+};
+
+const nodeIconsByType: Record<string, LucideIcon> = {
+  command_execution: TerminalSquare,
+  configuration_management: HardDriveDownload,
+  control_flow: GitBranch,
+  routing: GitBranch,
+  attributes: Tags,
+  content_tools: Combine,
+  debug: Eye,
+  visuals: Shapes,
+  canvas_decoration: Square,
+  inventory_selector: Router,
+  persistent_artifact: FileArchive,
+  template_rendering: FileText,
+  trigger: GitBranch,
+  result: CheckCircle2,
+};
+
+export function resolveStepIcon(kind: string, artifactType: string): LucideIcon {
+  return nodeIconsByKind[kind] ?? nodeIconsByType[artifactType] ?? Database;
+}
+
+/** Icon tile background/text — canvas node icon, catalog tiles, properties header. */
+export const categoryTileClasses: Record<string, string> = {
+  command_execution: "bg-emerald-100 text-emerald-700",
+  configuration_management: "bg-indigo-100 text-indigo-700",
+  control_flow: "bg-amber-100 text-amber-700",
+  routing: "bg-amber-100 text-amber-700",
+  attributes: "bg-pink-100 text-pink-700",
+  content_tools: "bg-lime-100 text-lime-700",
+  debug: "bg-purple-100 text-purple-700",
+  visuals: "bg-purple-100 text-purple-700",
+  canvas_decoration: "bg-purple-100 text-purple-700",
+  inventory_selector: "bg-sky-100 text-sky-700",
+  nautobot: "bg-step-surface text-step-muted-foreground",
+  cisco: "bg-cyan-100 text-cyan-700",
+  pyats: "bg-fuchsia-100 text-fuchsia-700",
+  batfish: "bg-rose-100 text-rose-700",
+  persistent_artifact: "bg-violet-100 text-violet-700",
+  template_rendering: "bg-orange-100 text-orange-700",
+  trigger: "bg-muted text-muted-foreground",
+  result: "bg-step-surface text-step-muted-foreground",
+  notify: "bg-blue-100 text-blue-700",
+  secrets: "bg-teal-100 text-teal-700",
+};
+
+export const CATEGORY_TILE_FALLBACK = "bg-muted text-muted-foreground";
+
+/** Canvas node left accent border, colour-matched to the category's darker shade. */
+export const categoryBorderAccentClasses: Record<string, string> = {
+  command_execution: "border-l-emerald-700",
+  configuration_management: "border-l-indigo-700",
+  control_flow: "border-l-amber-700",
+  routing: "border-l-amber-700",
+  attributes: "border-l-pink-700",
+  content_tools: "border-l-lime-700",
+  debug: "border-l-purple-700",
+  visuals: "border-l-purple-700",
+  canvas_decoration: "border-l-purple-700",
+  inventory_selector: "border-l-sky-700",
+  nautobot: "border-l-step-hover",
+  cisco: "border-l-cyan-700",
+  pyats: "border-l-fuchsia-700",
+  batfish: "border-l-rose-700",
+  persistent_artifact: "border-l-violet-700",
+  template_rendering: "border-l-orange-700",
+  notify: "border-l-blue-700",
+  secrets: "border-l-teal-700",
+};
+
+export const CATEGORY_BORDER_FALLBACK = "border-l-border";
+
+export function outcomeClasses(name: string): string {
+  const lower = name.toLowerCase();
+  if (lower === "success" || lower === "match" || lower === "pass" || lower === "clean") {
+    return "bg-success text-success-foreground border border-success-border";
+  }
+  if (lower === "failure" || lower === "fail" || lower === "error" || lower === "mismatch") {
+    return "bg-error text-error-foreground border border-error-border";
+  }
+  if (lower === "default" || lower === "dirty") {
+    return "bg-warning text-warning-foreground border border-warning-border";
+  }
+  return "bg-info text-info-foreground border border-info-border";
+}
+
+export function outcomeHandleClasses(name: string): string {
+  const lower = name.toLowerCase();
+  if (lower === "success" || lower === "match" || lower === "pass" || lower === "clean") {
+    return "!bg-success-foreground !border-success-foreground";
+  }
+  if (lower === "failure" || lower === "fail" || lower === "error" || lower === "mismatch") {
+    return "!bg-error-foreground !border-error-foreground";
+  }
+  if (lower === "default" || lower === "dirty") {
+    return "!bg-warning-foreground !border-warning-foreground";
+  }
+  return "!bg-info-foreground !border-info-foreground";
+}
+
+export function outcomeDotClasses(name: string): string {
+  const lower = name.toLowerCase();
+  if (lower === "success" || lower === "match" || lower === "pass" || lower === "clean") return "bg-success-foreground";
+  if (lower === "failure" || lower === "fail" || lower === "error" || lower === "mismatch") {
+    return "bg-error-foreground";
+  }
+  if (lower === "default" || lower === "dirty") return "bg-warning-foreground";
+  return "bg-info-foreground";
+}

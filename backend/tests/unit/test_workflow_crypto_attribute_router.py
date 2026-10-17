@@ -1,0 +1,233 @@
+"""TestClient tests for the encrypt/decrypt-attribute editor Test APIs."""
+
+from __future__ import annotations
+
+from collections.abc import Iterator
+from unittest.mock import MagicMock
+
+import pytest
+from _auth_helpers import make_auth_db, token_payload
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+
+from core.auth import get_current_user, verify_token
+from core.database import get_db
+from core.models.users import User
+from routers import workflow_crypto_attribute
+from routers.workflow_crypto_attribute import router as crypto_router
+from services.auth.rbac_service import RBACService
+from workflow_steps.common.credential_resolver import CredentialReferenceNotFoundError
+
+
+def _make_user(user_id: int = 1) -> User:
+    user = User(username="tester", password_hash="hash", is_active=True)
+    user.id = user_id
+    return user
+
+
+def _override_db() -> Iterator[MagicMock]:
+    yield make_auth_db()
+
+
+@pytest.fixture
+def client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
+    monkeypatch.setattr(RBACService, "has_permission", lambda self, *_a, **_k: True)
+    app = FastAPI()
+    app.include_router(crypto_router, prefix="/api")
+    app.dependency_overrides[verify_token] = lambda: token_payload()
+    app.dependency_overrides[get_current_user] = lambda: _make_user(1)
+    app.dependency_overrides[get_db] = _override_db
+    return TestClient(app)
+
+
+def test_encrypt_then_decrypt_round_trip(client: TestClient) -> None:
+    enc = client.post(
+        "/api/workflow-steps/encrypt-attribute/test",
+        json={"plaintext": "cisco123", "shared_secret": "vault-key-passphrase"},
+    )
+    assert enc.status_code == 200, enc.text
+    body = enc.json()
+    assert body["algorithm"] == "aes-256-gcm"
+    token = body["ciphertext"]
+
+    dec = client.post(
+        "/api/workflow-steps/decrypt-attribute/test",
+        json={"ciphertext": token, "shared_secret": "vault-key-passphrase"},
+    )
+    assert dec.status_code == 200, dec.text
+    assert dec.json() == {"plaintext": "cisco123", "algorithm": "aes-256-gcm"}
+
+
+def test_decrypt_wrong_secret_is_400(client: TestClient) -> None:
+    token = client.post(
+        "/api/workflow-steps/encrypt-attribute/test",
+        json={"plaintext": "x", "shared_secret": "right-passphrase-1"},
+    ).json()["ciphertext"]
+
+    resp = client.post(
+        "/api/workflow-steps/decrypt-attribute/test",
+        json={"ciphertext": token, "shared_secret": "wrong-passphrase-1"},
+    )
+    assert resp.status_code == 400
+
+
+def test_encrypt_unknown_algorithm_is_400(client: TestClient) -> None:
+    resp = client.post(
+        "/api/workflow-steps/encrypt-attribute/test",
+        json={"plaintext": "x", "shared_secret": "key-of-12-chars", "algorithm": "rot13"},
+    )
+    assert resp.status_code == 400
+
+
+def test_decrypt_malformed_token_is_400(client: TestClient) -> None:
+    resp = client.post(
+        "/api/workflow-steps/decrypt-attribute/test",
+        json={"ciphertext": "not-a-real-token", "shared_secret": "key-of-12-chars"},
+    )
+    assert resp.status_code == 400
+
+
+def test_both_secret_sources_is_422(client: TestClient) -> None:
+    resp = client.post(
+        "/api/workflow-steps/encrypt-attribute/test",
+        json={
+            "plaintext": "x",
+            "shared_secret": "key-of-12-chars",
+            "credential_reference": "vault-cred",
+        },
+    )
+    assert resp.status_code == 422
+
+
+def test_neither_secret_source_is_422(client: TestClient) -> None:
+    resp = client.post(
+        "/api/workflow-steps/encrypt-attribute/test",
+        json={"plaintext": "x"},
+    )
+    assert resp.status_code == 422
+
+
+def test_encrypt_with_credential_reference_resolves_from_vault(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        workflow_crypto_attribute,
+        "resolve_shared_secret_credential",
+        lambda db, name, *, acting_user_id: ("aes-256-gcm", "vault-key-passphrase"),
+    )
+
+    enc = client.post(
+        "/api/workflow-steps/encrypt-attribute/test",
+        json={"plaintext": "cisco123", "credential_reference": "tacacs-vault"},
+    )
+    assert enc.status_code == 200, enc.text
+    token = enc.json()["ciphertext"]
+
+    dec = client.post(
+        "/api/workflow-steps/decrypt-attribute/test",
+        json={"ciphertext": token, "credential_reference": "tacacs-vault"},
+    )
+    assert dec.status_code == 200, dec.text
+    assert dec.json() == {"plaintext": "cisco123", "algorithm": "aes-256-gcm"}
+
+
+def test_unknown_credential_reference_is_400(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def _raise(db, name, *, acting_user_id):
+        raise CredentialReferenceNotFoundError(f"credential {name!r} not found")
+
+    monkeypatch.setattr(workflow_crypto_attribute, "resolve_shared_secret_credential", _raise)
+
+    resp = client.post(
+        "/api/workflow-steps/encrypt-attribute/test",
+        json={"plaintext": "x", "credential_reference": "missing"},
+    )
+    assert resp.status_code == 400
+
+
+def test_cisco_type7_round_trip_needs_no_secret(client: TestClient) -> None:
+    enc = client.post(
+        "/api/workflow-steps/encrypt-attribute/test",
+        json={"plaintext": "tacacs-key", "algorithm": "cisco-type7"},
+    )
+    assert enc.status_code == 200, enc.text
+    assert enc.json()["algorithm"] == "cisco-type7"
+
+    dec = client.post(
+        "/api/workflow-steps/decrypt-attribute/test",
+        json={"ciphertext": enc.json()["ciphertext"], "algorithm": "cisco-type7"},
+    )
+    assert dec.status_code == 200, dec.text
+    assert dec.json()["plaintext"] == "tacacs-key"
+
+
+@pytest.mark.parametrize("algorithm,prefix", [("cisco-type8", "$8$"), ("cisco-type9", "$9$")])
+def test_cisco_hash_types_encrypt(client: TestClient, algorithm: str, prefix: str) -> None:
+    enc = client.post(
+        "/api/workflow-steps/encrypt-attribute/test",
+        json={"plaintext": "S3cret", "algorithm": algorithm},
+    )
+    assert enc.status_code == 200, enc.text
+    assert enc.json()["ciphertext"].startswith(prefix)
+
+
+def test_cisco_hash_types_cannot_decrypt(client: TestClient) -> None:
+    dec = client.post(
+        "/api/workflow-steps/decrypt-attribute/test",
+        json={"ciphertext": "$8$abcdefghijklmn$x", "algorithm": "cisco-type8"},
+    )
+    assert dec.status_code == 400
+    assert "one-way" in dec.json()["detail"]
+
+
+def _client_with(monkeypatch: pytest.MonkeyPatch, held: set[tuple[str, str]]) -> TestClient:
+    monkeypatch.setattr(RBACService, "has_permission", lambda self, _u, r, a: (r, a) in held)
+    app = FastAPI()
+    app.include_router(crypto_router, prefix="/api")
+    app.dependency_overrides[verify_token] = lambda: token_payload()
+    app.dependency_overrides[get_current_user] = lambda: _make_user(1)
+    app.dependency_overrides[get_db] = _override_db
+    return TestClient(app)
+
+
+def test_credential_reference_needs_workflows_execute(monkeypatch: pytest.MonkeyPatch) -> None:
+    """S2-07: a read-only user must not turn the route into a decryption oracle."""
+    resolve = MagicMock(return_value=("aes-256-gcm", "stored-passphrase"))
+    monkeypatch.setattr(workflow_crypto_attribute, "resolve_shared_secret_credential", resolve)
+    body = {"plaintext": "x", "credential_reference": "shared-1"}
+
+    read_only = _client_with(monkeypatch, {("workflow_steps", "read")})
+    for path in ("encrypt-attribute", "decrypt-attribute"):
+        payload = (
+            body
+            if path.startswith("encrypt")
+            else {"ciphertext": "x", "credential_reference": "shared-1"}
+        )
+        assert read_only.post(f"/api/workflow-steps/{path}/test", json=payload).status_code == 403
+    resolve.assert_not_called()
+
+    author = _client_with(monkeypatch, {("workflow_steps", "read"), ("workflows", "execute")})
+    assert author.post("/api/workflow-steps/encrypt-attribute/test", json=body).status_code == 200
+
+
+def test_inline_shared_secret_still_works_for_read_only(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = _client_with(monkeypatch, {("workflow_steps", "read")})
+    response = client.post(
+        "/api/workflow-steps/encrypt-attribute/test",
+        json={"plaintext": "p", "shared_secret": "typed-by-the-caller"},
+    )
+    assert response.status_code == 200
+
+
+def test_oversized_plaintext_and_unknown_field_are_422(client: TestClient) -> None:
+    big = client.post(
+        "/api/workflow-steps/encrypt-attribute/test",
+        json={"plaintext": "x" * 70_000, "shared_secret": "key-of-12-chars"},
+    )
+    assert big.status_code == 422
+    extra = client.post(
+        "/api/workflow-steps/encrypt-attribute/test",
+        json={"plaintext": "x", "shared_secret": "key-of-12-chars", "surprise": 1},
+    )
+    assert extra.status_code == 422

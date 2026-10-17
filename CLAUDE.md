@@ -1,0 +1,154 @@
+# Auxilium Manus - Technical Reference
+
+## Overview
+Auxilium Manus means "helping hand". The application is a NetDevOps workflow builder that
+lets users select network devices from an inventory, design simple or complex workflows in
+a visual canvas, and execute those workflows either manually or in the background.
+
+Workflows consist of ordered and dependency-aware steps. The output of one step can become
+the input of another step. Runtime data must distinguish between metadata (status,
+timestamps, device identifiers, execution context) and content data (command output,
+configuration backups, generated artifacts).
+
+## Tech Stack
+
+**Frontend:** Next.js 16.4 (App Router), React 19, React Flow, TypeScript 6,
+Tailwind CSS 4, Shadcn UI, TanStack Query v5, Zustand, React Hook Form, Zod, Lucide Icons
+
+**Backend:** FastAPI, Python 3.14, PostgreSQL, SQLAlchemy, Redis, JWT auth, Hatchet,
+Netmiko, GitPython
+
+**Integrations:** Nautobot API, Cisco Catalyst Center (REST Intent API) — read
+`doc/CISCO_CATALYST_INTEGRATION.md` before changing it or adding Catalyst Center features/steps
+
+## Architecture
+
+### Core Principles
+- **Complete separation**: Frontend (port 3000) ↔ Backend (port 8000)
+- **API proxy pattern**: Frontend → Next.js `/api/proxy/*` → Backend (NEVER direct backend calls)
+- **PostgreSQL single database** (32 tables, 5 of them RBAC), defined in `/backend/core/models/`; the list lives in `doc/claude/database.md`, not here
+- **Layered backend**: Model → Repository → Service → Router
+- **Feature-based organization**: Group by domain, not by technical role
+- **Server Components default**: Use `'use client'` only when necessary
+
+### Workflow Builder Product Direction
+- **Primary UI**: Top menu bar and a large React Flow canvas where users design workflows
+- **Device-first flow**: Users select inventory devices, then compose workflow steps for those devices
+- **Visual workflow model**: React Flow for canvas state, node rendering, edges, connection validation
+- **Executable workflow model**: Backend-owned JSON workflow definition separate from React Flow UI state
+- **Run model**: Persist every workflow run separately (status, logs, step results, metadata, content data)
+- **Background execution**: Hatchet for long-running orchestration, retries, step state; Redis for caching
+- **Network execution**: Netmiko for SSH/CLI operations; Nornir/NAPALM/scrapli only when justified
+
+### Workflow Domain Model
+
+Keep these concepts separate in both frontend and backend code:
+
+- **Canvas model**: React Flow nodes, edges, positions, viewport, selection state
+- **Workflow definition**: Persisted business definition with steps, dependencies, input/output mappings
+- **Workflow run**: One concrete execution with status, trigger source, user context, timestamps, logs
+- **Step result**: Result of one step, split into metadata and content data
+- **Artifact**: Durable content produced by a run (device config backups, reports)
+
+### Recommended Libraries
+
+**Frontend:** React Flow, Zustand (editor state), TanStack Query (server data), React Hook Form
++ Zod (forms), Shadcn UI + Tailwind, Monaco Editor (advanced templates only)
+
+**Backend:** Hatchet (orchestration), PostgreSQL (definitions/runs/artifacts), Redis (cache/locks),
+Pydantic (validation), Netmiko (network execution)
+
+## CRITICAL: Architectural Standards
+
+### Backend Layer Pattern
+```
+1. SQLAlchemy Model    → /backend/core/models/{domain}.py
+2. Pydantic Models     → /backend/models/{domain}.py
+3. Repository          → /backend/repositories/{domain}_repository.py
+4. Service             → /backend/services/{domain}/{domain}_service.py
+5. Router              → /backend/routers/{domain}.py
+6. Register in main.py → app.include_router({domain}_router)
+```
+
+### Frontend Structure
+```
+/components/features/{domain}/
+  ├── components/     # Feature-specific components
+  ├── constants/      # Constants (if any)
+  ├── hooks/          # Custom hooks (use-{name}.ts)
+  ├── dialogs/        # Modal dialogs
+  ├── tabs/           # Tab components
+  ├── types/          # TypeScript types
+  └── utils/          # Utility functions
+
+/app/(dashboard)/{feature}/page.tsx  # Route stubs only
+```
+
+### Route File Rule — Stubs Only
+
+`/app/(dashboard)/*/page.tsx` files MUST be pure route stubs:
+
+```tsx
+// CORRECT
+import { MyFeaturePage } from '@/components/features/domain/my-feature-page'
+export default function MyFeatureRoute() {
+  return <MyFeaturePage />
+}
+```
+- ❌ No logic, state, or hooks in route files
+- ❌ No `'use client'` directive (add it to the feature component)
+- ❌ No `components/` or `dialogs/` subdirectories inside route directories
+- ✅ `export const metadata: Metadata` and Next.js segment config are allowed
+
+### Naming Conventions
+- **Database**: `snake_case` (tables: `job_templates`, columns: `created_at`)
+- **Backend**: `snake_case` (files: `user_repository.py`, functions: `create_user()`)
+- **Frontend**: `kebab-case` dirs and component files (`bulk-edit/`, `bulk-edit-dialog.tsx`)
+- **Models**: `PascalCase` (`JobTemplate`, `UserProfile`)
+
+### Database Requirements
+- ✅ SQLAlchemy models in `/backend/core/models/` (one file per domain), all exported from `__init__.py`
+- ✅ Indexes, foreign keys, timestamps (`created_at`, `updated_at`)
+- ✅ Repository pattern (`BaseRepository` in `/backend/repositories/base.py`)
+- ✅ Schema changes: edit the model; `AutoSchemaMigration` creates missing tables, columns (with their foreign keys), and indexes on start: `doc/MIGRATION_SYSTEM.md`
+- ✅ `AutoSchemaMigration` (startup schema sync) runs under a `pg_advisory_xact_lock` — safety net only
+- ✅ Prefer SQLAlchemy ORM/Core for all runtime data access
+- ✅ Repository-layer `sqlalchemy.text()` only where `backend/scripts/check_text_sql.py` allow-lists it (bound parameters, named constants, no value composition)
+- ❌ Never call `text()` from routers, services, or Hatchet workers
+- ❌ Never compose runtime values into SQL via f-strings or string concatenation
+- ❌ Never bypass repository layer
+
+## Key File Locations
+
+**Backend Core:**
+- `/backend/core/models/` — SQLAlchemy table definitions (one file per domain)
+- `/backend/core/database.py` — DB session, `get_db()` dependency
+- `/backend/core/auth.py` — `verify_token`, `get_current_user`, `require_permission`,
+  `require_any_permission`, `require_all_permissions`, `require_role`
+- `/backend/main.py` — FastAPI app, router registration
+- `/backend/core/production_guards.py` — refuses unsafe config outside `ENV=development`
+- `/backend/core/safe_urls.py`, `safe_hosts.py` — outbound URL / Netmiko host policy (SSRF)
+- `/backend/core/crypto_policy.py`, `secret_policy.py` — KDF floor / credential secret rules;
+  `/backend/core/regex_isolated.py` — killable child for caller-supplied regex and Jinja
+- `/backend/services/git/paths.py`, `refs.py` — path containment and branch-name validation
+- `/backend/core/client_ip.py` — trusted-proxy client IP resolution
+- `/backend/core/rate_limit.py` — `rate_limited(...)` per-user dependency
+- `/backend/core/vault.py`, `/backend/services/vault/` — OpenBao client; `/backend/services/secret_manager/` — Secret Manager connections
+- `/backend/core/dev_tools.py` — `ENABLE_DEV_TOOLS` gate
+
+**Frontend Core:**
+- `/frontend/src/lib/auth-store.ts` — Zustand auth state
+- `/frontend/src/lib/query-client.ts` — TanStack Query configuration
+- `/frontend/src/lib/query-keys.ts` — Query key factory (hierarchical)
+- `/frontend/src/hooks/use-api.ts` — API calling hook
+- `/frontend/src/hooks/queries/*` — TanStack Query hooks
+- `/frontend/src/app/api/proxy/[...path]/route.ts` — Backend proxy
+- `/frontend/src/components/ui/*` — Shadcn UI primitives
+
+---
+
+@doc/claude/auth.md
+@doc/claude/database.md
+@doc/claude/frontend.md
+@doc/claude/backend.md
+@doc/claude/development.md

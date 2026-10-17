@@ -1,0 +1,185 @@
+"""Regular-expression transforms for workflow attribute updates."""
+
+from __future__ import annotations
+
+import re
+from collections.abc import Callable
+from typing import Any
+
+# ``{{ \1 | upper }}`` — a replacement template followed by ``|`` modifiers.
+_MODIFIER_BLOCK = re.compile(r"\{\{(.*?)\}\}", re.DOTALL)
+
+# Closed vocabulary: modifiers are plain string functions, never user code.
+_MODIFIERS: dict[str, Callable[[str], str]] = {
+    "upper": str.upper,
+    "lower": str.lower,
+    "title": str.title,
+    "capitalize": str.capitalize,
+    "strip": str.strip,
+}
+
+
+class RegexFlagsConfig(dict[str, bool]):
+    """Normalized regex flag mapping from step config or API requests."""
+
+    @classmethod
+    def from_mapping(cls, raw: Any) -> RegexFlagsConfig:
+        if not isinstance(raw, dict):
+            return cls(
+                case_insensitive=False,
+                multiline=False,
+                dotall=False,
+            )
+        return cls(
+            case_insensitive=_coerce_bool(raw.get("case_insensitive")),
+            multiline=_coerce_bool(raw.get("multiline")),
+            dotall=_coerce_bool(raw.get("dotall")),
+        )
+
+
+def _coerce_bool(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "on"}
+    return bool(value)
+
+
+def compile_regex_flags(flags: RegexFlagsConfig | dict[str, bool]) -> int:
+    """Build a Python ``re`` flags bitmask from user-facing toggles."""
+    normalized = (
+        flags if isinstance(flags, RegexFlagsConfig) else RegexFlagsConfig.from_mapping(flags)
+    )
+    compiled = 0
+    if normalized.get("case_insensitive"):
+        compiled |= re.IGNORECASE
+    if normalized.get("multiline"):
+        compiled |= re.MULTILINE
+    if normalized.get("dotall"):
+        compiled |= re.DOTALL
+    return compiled
+
+
+def compile_pattern(pattern: str, flags: RegexFlagsConfig | dict[str, bool]) -> re.Pattern[str]:
+    """Compile *pattern* or raise ``ValueError`` with a user-safe message."""
+    try:
+        return re.compile(pattern, compile_regex_flags(flags))
+    except re.error as exc:
+        raise ValueError(f"invalid regular expression: {exc}") from exc
+
+
+def _expand(match: re.Match[str], template: str) -> str:
+    try:
+        return match.expand(template)
+    except (re.error, IndexError) as exc:
+        raise ValueError(f"invalid destination_template: {exc}") from exc
+
+
+def _expand_modifier_block(match: re.Match[str], body: str) -> str:
+    template, *names = (part.strip() for part in body.split("|"))
+    value = _expand(match, template)
+    for name in names:
+        modifier = _MODIFIERS.get(name)
+        if modifier is None:
+            allowed = ", ".join(sorted(_MODIFIERS))
+            raise ValueError(f"unknown modifier '{name}' (available: {allowed})")
+        value = modifier(value)
+    return value
+
+
+def expand_destination_template(match: re.Match[str], template: str) -> str:
+    """Expand backrefs (``\\1``, ``\\g<name>``) and ``{{ ... | modifier }}`` blocks.
+
+    Text outside ``{{ }}`` behaves exactly like ``re.Match.expand``. Inside a block the
+    part before the first ``|`` is expanded the same way, then each modifier is applied
+    left to right (``upper``, ``lower``, ``title``, ``capitalize``, ``strip``).
+    """
+    pieces: list[str] = []
+    cursor = 0
+    for block in _MODIFIER_BLOCK.finditer(template):
+        pieces.append(_expand(match, template[cursor : block.start()]))
+        pieces.append(_expand_modifier_block(match, block.group(1)))
+        cursor = block.end()
+    pieces.append(_expand(match, template[cursor:]))
+    return "".join(pieces)
+
+
+def probe_regex_transform(
+    *,
+    source_text: str,
+    pattern: str,
+    destination_template: str,
+    flags: RegexFlagsConfig | dict[str, bool] | None = None,
+) -> dict[str, Any]:
+    """Return match metadata and the expanded destination value for UI probing."""
+    normalized_flags = RegexFlagsConfig.from_mapping(flags or {})
+    compiled = compile_pattern(pattern, normalized_flags)
+    match = compiled.search(source_text)
+    if match is None:
+        return {
+            "matched": False,
+            "source_text": source_text,
+            "full_match": None,
+            "groups": {},
+            "named_groups": {},
+            "destination_value": None,
+        }
+
+    groups = {
+        str(index): group
+        for index, group in enumerate(match.groups(), start=1)
+        if group is not None
+    }
+    named_groups = {name: value for name, value in match.groupdict().items() if value is not None}
+    destination_value = expand_destination_template(match, destination_template)
+
+    return {
+        "matched": True,
+        "source_text": source_text,
+        "full_match": match.group(0),
+        "groups": groups,
+        "named_groups": named_groups,
+        "destination_value": destination_value,
+    }
+
+
+def apply_regex_transform(
+    *,
+    source_text: str,
+    pattern: str,
+    destination_template: str,
+    flags: RegexFlagsConfig | dict[str, bool] | None = None,
+) -> str | None:
+    """Apply the first regex match or return ``None`` when there is no match."""
+    result = probe_regex_transform(
+        source_text=source_text,
+        pattern=pattern,
+        destination_template=destination_template,
+        flags=flags,
+    )
+    if not result["matched"]:
+        return None
+    return str(result["destination_value"])
+
+
+def apply_regex_content_replace(
+    *,
+    source_text: str,
+    pattern: str,
+    replacement: str,
+    flags: RegexFlagsConfig | dict[str, bool] | None = None,
+    replace_all: bool = True,
+) -> tuple[str, int]:
+    """Replace all (or only the first) regex matches in ``source_text``.
+
+    Unlike ``apply_regex_transform`` (single match, extracts one value),
+    this rewrites the whole document via ``re.Pattern.subn``. ``replacement``
+    supports the same Python backref syntax (``\\1``, ``\\g<name>``) as
+    ``destination_template`` above. Returns ``(new_text, match_count)``.
+    """
+    compiled = compile_pattern(pattern, RegexFlagsConfig.from_mapping(flags or {}))
+    count = 0 if replace_all else 1
+    try:
+        return compiled.subn(replacement, source_text, count=count)
+    except re.error as exc:
+        raise ValueError(f"invalid replacement template: {exc}") from exc

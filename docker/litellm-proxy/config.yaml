@@ -1,0 +1,27 @@
+# LiteLLM proxy model list. `model_name` is what you enter as the model in Settings -> AI
+# Assistant. Provider keys come from .env via os.environ/<NAME>. Keep only what you use.
+# Provider and model syntax: https://docs.litellm.ai/docs/providers
+#
+# Use models with solid tool/function calling; the assistant is a tool-using agent.
+model_list:
+  # AWS Bedrock (credentials: AWS_* in .env). Replace with a model id enabled in your account.
+  - model_name: bedrock-claude
+    litellm_params:
+      model: bedrock/<bedrock-model-id>
+      aws_region_name: os.environ/AWS_REGION_NAME
+
+  # Azure OpenAI (`azure/<your-deployment-name>`).
+  - model_name: azure-gpt
+    litellm_params:
+      model: azure/<your-deployment-name>
+      api_base: os.environ/AZURE_API_BASE
+      api_key: os.environ/AZURE_API_KEY
+      api_version: os.environ/AZURE_API_VERSION
+
+litellm_settings:
+  drop_params: true        # silently drop request params a provider does not support
+  num_retries: 1
+  request_timeout: 120
+
+general_settings:
+  master_key: os.environ/LITELLM_MASTER_KEY

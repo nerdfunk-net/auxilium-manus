@@ -1,0 +1,206 @@
+"""Integration test: NetmikoService against a real DeviceSessionPool reuses one
+session across multiple calls with the same key — see the "normal linear run,
+2 SSH steps, same credential" row of the lifecycle matrix in
+doc/DURABLE_SSH_SESSION.md §6."""
+
+from __future__ import annotations
+
+import unittest
+from unittest.mock import patch
+
+from services.network.netmiko.connection import CommandResult
+from services.network.netmiko.service import NetmikoService
+from services.network.netmiko.session_pool import DeviceSessionPool
+
+
+class FakeSession:
+    instances: list[FakeSession] = []
+
+    def __init__(
+        self, *, host: str, device_type: str, username: str, password: str, keepalive: int = 30
+    ) -> None:
+        self.host = host
+        self.connected = False
+        self.connect_calls = 0
+        self.disconnect_calls = 0
+        FakeSession.instances.append(self)
+
+    def connect(self, *, privileged: bool = True, retry: object | None = None) -> None:
+        self.connect_calls += 1
+        self.connected = True
+
+    def disconnect(self) -> None:
+        if self.connected:
+            self.disconnect_calls += 1
+        self.connected = False
+
+    def is_alive(self) -> bool:
+        return self.connected
+
+    def send_commands(
+        self,
+        commands: list[str],
+        *,
+        use_textfsm: bool = False,
+        read_timeout: int | None = None,
+        auto_confirm_prompts: bool = False,
+        fail_on_cli_error: bool = False,
+    ) -> CommandResult:
+        return CommandResult(success=True, output="ok", command_outputs={c: "ok" for c in commands})
+
+    def merge_running_config(
+        self, source_filename: str, *, read_timeout: int | None = None
+    ) -> CommandResult:
+        command = f"copy {source_filename} running-config"
+        self.last_merge = (source_filename, read_timeout)
+        return CommandResult(
+            success=True,
+            output="1024 bytes copied",
+            command_outputs={command: "1024 bytes copied"},
+            confirmed_prompts=["destination filename"],
+        )
+
+
+class NetmikoServicePoolReuseTests(unittest.IsolatedAsyncioTestCase):
+    def setUp(self) -> None:
+        FakeSession.instances = []
+
+    async def test_two_calls_same_key_reuse_one_session(self) -> None:
+        with patch("services.network.netmiko.session_pool.NetmikoDeviceSession", FakeSession):
+            pool = DeviceSessionPool(max_workers=2)
+            service = NetmikoService(pool=pool)
+
+            for _ in range(2):
+                result = await service.send_commands(
+                    host="10.0.0.1",
+                    network_driver="cisco_ios",
+                    platform=None,
+                    username="admin",
+                    password="secret",
+                    commands=["show version"],
+                    credential_reference="lab-ssh",
+                )
+                self.assertTrue(result.success)
+
+            entry = next(iter(pool._sessions.values()))
+            self.assertEqual(entry.session.connect_calls, 1)
+            await pool.close()
+
+    async def test_different_credential_reference_gets_its_own_session(self) -> None:
+        with patch("services.network.netmiko.session_pool.NetmikoDeviceSession", FakeSession):
+            pool = DeviceSessionPool(max_workers=2)
+            service = NetmikoService(pool=pool)
+
+            for credential_reference in ("lab-ssh", "other-ssh"):
+                await service.send_commands(
+                    host="10.0.0.1",
+                    network_driver="cisco_ios",
+                    platform=None,
+                    username="admin",
+                    password="secret",
+                    commands=["show version"],
+                    credential_reference=credential_reference,
+                )
+
+            self.assertEqual(len(pool._sessions), 2)
+            await pool.close()
+
+    async def test_test_login_leaves_pooled_session_open(self) -> None:
+        with patch("services.network.netmiko.session_pool.NetmikoDeviceSession", FakeSession):
+            pool = DeviceSessionPool(max_workers=2)
+            service = NetmikoService(pool=pool)
+
+            result = await service.send_commands(
+                host="10.0.0.1",
+                network_driver="cisco_ios",
+                platform=None,
+                username="admin",
+                password="secret",
+                commands=["show version"],
+                credential_reference="lab-ssh",
+            )
+            self.assertTrue(result.success)
+
+            pooled_entry = next(iter(pool._sessions.values()))
+            self.assertEqual(pooled_entry.session.connect_calls, 1)
+
+            alive = await service.test_login(
+                host="10.0.0.1",
+                network_driver="cisco_ios",
+                platform=None,
+                username="admin",
+                password="secret",
+                credential_reference="lab-ssh",
+            )
+
+            self.assertTrue(alive)
+            self.assertEqual(len(FakeSession.instances), 2)
+            self.assertTrue(pooled_entry.session.connected)
+            self.assertEqual(pooled_entry.session.connect_calls, 1)
+            self.assertEqual(pooled_entry.session.disconnect_calls, 0)
+
+            probe_session = FakeSession.instances[-1]
+            self.assertIsNot(probe_session, pooled_entry.session)
+            self.assertFalse(probe_session.connected)
+            self.assertEqual(probe_session.disconnect_calls, 1)
+            await pool.close()
+
+    async def test_merge_config_routes_through_pool(self) -> None:
+        with patch("services.network.netmiko.session_pool.NetmikoDeviceSession", FakeSession):
+            pool = DeviceSessionPool(max_workers=2)
+            service = NetmikoService(pool=pool)
+
+            result = await service.merge_config(
+                host="10.0.0.1",
+                network_driver="cisco_ios",
+                platform=None,
+                username="admin",
+                password="secret",
+                source_filename="flash:partial.cfg",
+                credential_reference="lab-ssh",
+                read_timeout=120,
+            )
+
+            self.assertTrue(result.success)
+            self.assertEqual(result.confirmed_prompts, ["destination filename"])
+            pooled_entry = next(iter(pool._sessions.values()))
+            self.assertEqual(pooled_entry.session.last_merge, ("flash:partial.cfg", 120))
+            self.assertEqual(pooled_entry.session.connect_calls, 1)
+            await pool.close()
+
+
+class NetmikoServiceGetConfigsTests(unittest.IsolatedAsyncioTestCase):
+    """C2-07: the live path (NetmikoService.get_configs) rejects a refused show."""
+
+    async def _get_configs(self, outputs: list[str], **kwargs: bool):
+        with patch("services.network.netmiko.connection.ConnectHandler") as handler:
+            handler.return_value.send_command.side_effect = outputs
+            handler.return_value.is_alive.return_value = True
+            pool = DeviceSessionPool(max_workers=1)
+            try:
+                return await NetmikoService(pool=pool).get_configs(
+                    host="10.0.0.1",
+                    network_driver="cisco_ios",
+                    platform=None,
+                    username="admin",
+                    password="secret",
+                    credential_reference="lab-ssh",
+                    **kwargs,
+                )
+            finally:
+                await pool.close()
+
+    async def test_refused_startup_config_is_not_a_backup(self) -> None:
+        result = await self._get_configs(["hostname r1\nend", "Command authorization failed."])
+        self.assertFalse(result.success)
+        self.assertIsNone(result.startup_config)
+
+    async def test_running_only_ignores_startup(self) -> None:
+        result = await self._get_configs(["hostname r1\nend"], include_startup=False)
+        self.assertTrue(result.success)
+        self.assertEqual(result.running_config, "hostname r1\nend")
+        self.assertIsNone(result.startup_config)
+
+
+if __name__ == "__main__":
+    unittest.main()

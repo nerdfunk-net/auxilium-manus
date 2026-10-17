@@ -1,0 +1,223 @@
+"""Registry mapping step type identifiers to async executor functions.
+
+Each executor lives in workflow_steps/{step_dir}/executor.py and must expose:
+
+    async def execute(
+        *, config, context, run, artifact_service, node_id, device_sessions
+    ) -> list[StepOutcome]: ...
+
+``device_sessions`` is a run-segment-scoped ``DeviceSessionPool`` (see
+services/network/netmiko/session_pool.py and doc/DURABLE_SSH_SESSION.md).
+Non-SSH executors take it but never use it — import ``DeviceSessionPool``
+under ``TYPE_CHECKING`` for those; SSH executors pass it to
+``NetmikoService(pool=device_sessions)``.
+
+To add a new step type:
+  1. Create workflow_steps/{step_dir}/executor.py with an `execute` function.
+  2. Import it below and add an entry to STEP_REGISTRY.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Awaitable, Callable
+
+from models.workflow_context import StepOutcome
+from workflow_steps.add_nautobot_metadata.executor import execute as add_nautobot_metadata
+from workflow_steps.add_pyats_testbed.executor import execute as add_pyats_testbed
+from workflow_steps.add_to_ise.executor import execute as add_to_ise
+from workflow_steps.add_to_nautobot.executor import execute as add_to_nautobot
+from workflow_steps.batfish_acl_check.executor import execute as batfish_acl_check
+from workflow_steps.batfish_bgp_facts.executor import execute as batfish_bgp_facts
+from workflow_steps.batfish_extract_facts.executor import execute as batfish_extract_facts
+from workflow_steps.batfish_init_snapshot.executor import execute as batfish_init_snapshot
+from workflow_steps.batfish_interface_properties.executor import (
+    execute as batfish_interface_properties,
+)
+from workflow_steps.batfish_node_properties.executor import execute as batfish_node_properties
+from workflow_steps.batfish_ospf_facts.executor import execute as batfish_ospf_facts
+from workflow_steps.batfish_path_check.executor import execute as batfish_path_check
+from workflow_steps.batfish_routing_table.executor import execute as batfish_routing_table
+from workflow_steps.batfish_validate_facts.executor import execute as batfish_validate_facts
+from workflow_steps.check_nautobot_job.executor import execute as check_nautobot_job
+from workflow_steps.collect_statistics.executor import execute as collect_statistics
+from workflow_steps.compare_data.executor import execute as compare_data
+from workflow_steps.compare_pyats_snapshot.executor import execute as compare_pyats_snapshot
+from workflow_steps.config_to_attributes.executor import execute as config_to_attributes
+from workflow_steps.configure_replace_config.executor import execute as configure_replace_config
+from workflow_steps.decrypt_attribute.executor import execute as decrypt_attribute
+from workflow_steps.deploy_rendered_template.executor import execute as deploy_rendered_template
+from workflow_steps.encrypt_attribute.executor import execute as encrypt_attribute
+from workflow_steps.exists_in_nautobot.executor import execute as exists_in_nautobot
+from workflow_steps.fan_in.executor import execute as fan_in
+from workflow_steps.filter_output.executor import execute as filter_output
+from workflow_steps.from_change_request.executor import execute as from_change_request
+from workflow_steps.generate_password.executor import execute as generate_password
+from workflow_steps.get_batfish_devices.executor import execute as get_batfish_devices
+from workflow_steps.get_catalyst_center_configs.executor import (
+    execute as get_catalyst_center_configs,
+)
+from workflow_steps.get_catalyst_center_details.executor import (
+    execute as get_catalyst_center_details,
+)
+from workflow_steps.get_catalyst_center_devices.executor import (
+    execute as get_catalyst_center_devices,
+)
+from workflow_steps.get_catalyst_center_health.executor import (
+    execute as get_catalyst_center_health,
+)
+from workflow_steps.get_catalyst_center_topology.executor import (
+    execute as get_catalyst_center_topology,
+)
+from workflow_steps.get_device_configs.executor import execute as get_device_configs
+from workflow_steps.get_device_location.executor import execute as get_device_location
+from workflow_steps.get_from_config.executor import execute as get_from_config
+from workflow_steps.get_from_db.executor import execute as get_from_db
+from workflow_steps.get_from_list.executor import execute as get_from_list
+from workflow_steps.get_from_user.executor import execute as get_from_user
+from workflow_steps.get_git_devices.executor import execute as get_git_devices
+from workflow_steps.get_ise_devices.executor import execute as get_ise_devices
+from workflow_steps.get_ise_tacacs_key.executor import execute as get_ise_tacacs_key
+from workflow_steps.get_nautobot_attributes.executor import execute as get_nautobot_attributes
+from workflow_steps.get_nautobot_devices.executor import execute as get_nautobot_devices
+from workflow_steps.get_pyats_running_config.executor import execute as get_pyats_running_config
+from workflow_steps.get_pyats_snapshot.executor import execute as get_pyats_snapshot
+from workflow_steps.get_virtual_chassis.executor import execute as get_virtual_chassis
+from workflow_steps.git_clone.executor import execute as git_clone
+from workflow_steps.git_pull.executor import execute as git_pull
+from workflow_steps.git_push.executor import execute as git_push
+from workflow_steps.git_status.executor import execute as git_status
+from workflow_steps.list_contains.executor import execute as list_contains
+from workflow_steps.log_attributes.executor import execute as log_attributes
+from workflow_steps.log_message.executor import execute as log_message
+from workflow_steps.login_successful.executor import execute as login_successful
+from workflow_steps.merge_config.executor import execute as merge_config
+from workflow_steps.merge_content.executor import execute as merge_content
+from workflow_steps.notify.executor import execute as notify
+from workflow_steps.notify_mattermost.executor import execute as notify_mattermost
+from workflow_steps.notify_on_error.executor import execute as notify_on_error
+from workflow_steps.open_change_request.executor import execute as open_change_request
+from workflow_steps.parse_cisco_config.executor import execute as parse_cisco_config
+from workflow_steps.reachable.executor import execute as reachable
+from workflow_steps.read_config.executor import execute as read_config
+from workflow_steps.read_from_file.executor import execute as read_from_file
+from workflow_steps.render_jinja_template.executor import execute as render_jinja_template
+from workflow_steps.route_on_attribute.executor import execute as route_on_attribute
+from workflow_steps.route_on_content.executor import execute as route_on_content
+from workflow_steps.run_catalyst_center_command.executor import (
+    execute as run_catalyst_center_command,
+)
+from workflow_steps.run_command.executor import execute as run_command
+from workflow_steps.secret_generate.executor import execute as secret_generate
+from workflow_steps.secret_get.executor import execute as secret_get
+from workflow_steps.secret_set.executor import execute as secret_set
+from workflow_steps.send_mail.executor import execute as send_mail
+from workflow_steps.set_default_attributes.executor import execute as set_default_attributes
+from workflow_steps.show_summary.executor import execute as show_summary
+from workflow_steps.split_virtual_chassis.executor import execute as split_virtual_chassis
+from workflow_steps.start_nautobot_job.executor import execute as start_nautobot_job
+from workflow_steps.stop_here.executor import execute as stop_here
+from workflow_steps.store_artifact.executor import execute as store_artifact
+from workflow_steps.store_for_report.executor import execute as store_for_report
+from workflow_steps.store_in_db.executor import execute as store_in_db
+from workflow_steps.undefined_and_unused.executor import execute as undefined_and_unused
+from workflow_steps.update_attribute.executor import execute as update_attribute
+from workflow_steps.update_config_context.executor import execute as update_config_context
+from workflow_steps.update_content.executor import execute as update_content
+from workflow_steps.update_ise_tacacs_key.executor import execute as update_ise_tacacs_key
+from workflow_steps.update_nautobot_device.executor import execute as update_nautobot_device
+from workflow_steps.upload_config.executor import execute as upload_config
+
+StepExecutor = Callable[..., Awaitable[list[StepOutcome]]]
+
+STEP_REGISTRY: dict[str, StepExecutor] = {
+    "get-nautobot-devices": get_nautobot_devices,
+    "get-from-list": get_from_list,
+    "get-from-user": get_from_user,
+    "get-from-config": get_from_config,
+    "get-git-devices": get_git_devices,
+    "from-change-request": from_change_request,
+    "get-catalyst-center-devices": get_catalyst_center_devices,
+    "get-catalyst-center-configs": get_catalyst_center_configs,
+    "get-catalyst-center-details": get_catalyst_center_details,
+    "get-catalyst-center-topology": get_catalyst_center_topology,
+    "get-catalyst-center-health": get_catalyst_center_health,
+    "run-catalyst-center-command": run_catalyst_center_command,
+    "get-ise-devices": get_ise_devices,
+    "get-ise-tacacs-key": get_ise_tacacs_key,
+    "add-to-ise": add_to_ise,
+    "add-to-nautobot": add_to_nautobot,
+    "add-nautobot-metadata": add_nautobot_metadata,
+    "get-nautobot-attributes": get_nautobot_attributes,
+    "get-device-location": get_device_location,
+    "get-virtual-chassis": get_virtual_chassis,
+    "split-virtual-chassis": split_virtual_chassis,
+    "set-default-attributes": set_default_attributes,
+    "config-to-attributes": config_to_attributes,
+    "get-device-configs": get_device_configs,
+    "read-config": read_config,
+    "read-from-file": read_from_file,
+    "parse-cisco-config": parse_cisco_config,
+    "add-pyats-testbed": add_pyats_testbed,
+    "get-pyats-running-config": get_pyats_running_config,
+    "get-pyats-snapshot": get_pyats_snapshot,
+    "get-batfish-devices": get_batfish_devices,
+    "batfish-init-snapshot": batfish_init_snapshot,
+    "batfish-routing-table": batfish_routing_table,
+    "batfish-node-properties": batfish_node_properties,
+    "batfish-interface-properties": batfish_interface_properties,
+    "batfish-ospf-facts": batfish_ospf_facts,
+    "batfish-path-check": batfish_path_check,
+    "batfish-acl-check": batfish_acl_check,
+    "batfish-bgp-facts": batfish_bgp_facts,
+    "batfish-validate-facts": batfish_validate_facts,
+    "batfish-extract-facts": batfish_extract_facts,
+    "undefined-and-unused": undefined_and_unused,
+    "render-jinja-template": render_jinja_template,
+    "run-command": run_command,
+    "deploy-rendered-template": deploy_rendered_template,
+    "route-on-attribute": route_on_attribute,
+    "route-on-content": route_on_content,
+    "list-contains": list_contains,
+    "exists-in-nautobot": exists_in_nautobot,
+    "reachable": reachable,
+    "login-successful": login_successful,
+    "fan-in": fan_in,
+    "stop-here": stop_here,
+    "merge-config": merge_config,
+    "merge-content": merge_content,
+    "filter-output": filter_output,
+    "collect-statistics": collect_statistics,
+    "compare-data": compare_data,
+    "compare-pyats-snapshot": compare_pyats_snapshot,
+    "configure-replace-config": configure_replace_config,
+    "store-artifact": store_artifact,
+    "store-in-db": store_in_db,
+    "store-for-report": store_for_report,
+    "get-from-db": get_from_db,
+    "open-change-request": open_change_request,
+    "git-clone": git_clone,
+    "git-pull": git_pull,
+    "git-push": git_push,
+    "git-status": git_status,
+    "update-attribute": update_attribute,
+    "encrypt-attribute": encrypt_attribute,
+    "decrypt-attribute": decrypt_attribute,
+    "update-content": update_content,
+    "update-ise-tacacs-key": update_ise_tacacs_key,
+    "start-nautobot-job": start_nautobot_job,
+    "check-nautobot-job": check_nautobot_job,
+    "update-nautobot-device": update_nautobot_device,
+    "update-config-context": update_config_context,
+    "upload-config": upload_config,
+    "log-message": log_message,
+    "log-attributes": log_attributes,
+    "show-summary": show_summary,
+    "notify": notify,
+    "notify-mattermost": notify_mattermost,
+    "notify-on-error": notify_on_error,
+    "send-mail": send_mail,
+    "secret-get": secret_get,
+    "secret-set": secret_set,
+    "secret-generate": secret_generate,
+    "generate-password": generate_password,
+}

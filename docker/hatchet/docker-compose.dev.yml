@@ -1,0 +1,12 @@
+# Development overlay for the Hatchet stack: publishes the engine's gRPC port on loopback so a
+# backend and workers running on the host (INSTALL.md) can use HATCHET_CLIENT_HOST_PORT=localhost:7077.
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+# The application containers do not need this; they reach the engine on the hatchet network.
+services:
+  hatchet-engine:
+    networks:
+      - internal
+      - hatchet
+      - admin
+    ports:
+      - "127.0.0.1:7077:7070"

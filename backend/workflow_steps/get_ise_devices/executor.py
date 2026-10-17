@@ -1,0 +1,391 @@
+"""Executor for the get-ise-devices step."""
+
+from __future__ import annotations
+
+import ipaddress
+import logging
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any
+
+from sqlalchemy.orm import Session, object_session
+
+import service_factory
+from core.models.runs import WorkflowRun
+from models.sources_nautobot import DeviceInfo, LogicalCondition, LogicalOperation
+from models.workflow_context import (
+    DeviceContext,
+    DeviceError,
+    DeviceStatus,
+    StepOutcome,
+    WorkflowContext,
+)
+from services.artifacts import ArtifactService
+from services.ise.common.exceptions import ISEAPIError, ISENotFoundError, ISEValidationError
+from services.ise.network_device_service import ISENetworkDeviceService
+from services.ise.source_config_service import ISESourceNotFoundError
+from services.sources.nautobot.source_service import NautobotSourceService
+from workflow_steps.common.device_builders import (
+    device_context_from_ise,
+    device_context_from_nautobot,
+)
+from workflow_steps.common.fan_out import build_fan_out_metadata
+from workflow_steps.common.ise_lookup import fetch_ise_device_details, paginate_ise_summaries
+from workflow_steps.common.nautobot_source import resolve_nautobot_credentials
+from workflow_steps.common.step_flags import parse_bool_flag
+
+if TYPE_CHECKING:
+    from services.network.netmiko.session_pool import DeviceSessionPool
+
+logger = logging.getLogger(__name__)
+
+_QUERY_MODES = {"name", "cidr", "group"}
+_LIST_PAGE_SIZE = 100
+
+IPNetwork = ipaddress.IPv4Network | ipaddress.IPv6Network
+
+
+def _ip_in_network(detail: dict[str, Any], network: IPNetwork) -> bool:
+    for entry in detail.get("NetworkDeviceIPList") or []:
+        raw_ip = entry.get("ipaddress")
+        if not raw_ip:
+            continue
+        try:
+            if ipaddress.ip_address(raw_ip) in network:
+                return True
+        except ValueError:  # noqa: S112  # not an IP address: cannot match the network
+            continue
+    return False
+
+
+async def _fetch_by_name(
+    device_service: ISENetworkDeviceService, names: list[str]
+) -> tuple[list[dict[str, Any]], list[str]]:
+    """Returns ``(details, missing_names)``: names ISE does not know are reported, not dropped."""
+    details: list[dict[str, Any]] = []
+    missing: list[str] = []
+    for raw_name in names:
+        name = raw_name.strip()
+        if not name:
+            continue
+        try:
+            result = await device_service.get_device_by_name(name)
+        except ISENotFoundError:
+            logger.warning("get-ise-devices: device name '%s' not found in ISE", name)
+            missing.append(name)
+            continue
+        detail = result.get("NetworkDevice")
+        if detail:
+            details.append(detail)
+    return details, missing
+
+
+async def _fetch_by_group(
+    device_service: ISENetworkDeviceService, group_name: str
+) -> list[dict[str, Any]]:
+    summaries = await paginate_ise_summaries(
+        lambda page: device_service.list_devices_by_group(
+            group_name, page=page, size=_LIST_PAGE_SIZE
+        )
+    )
+    return await fetch_ise_device_details(device_service, summaries)
+
+
+async def _fetch_by_cidr(
+    device_service: ISENetworkDeviceService, cidr: str
+) -> list[dict[str, Any]]:
+    network = ipaddress.ip_network(cidr, strict=False)
+
+    if network.prefixlen == network.max_prefixlen:
+        host = str(network.network_address)
+        result = await device_service.list_devices(filter_=f"ipaddress.EQ.{host}")
+        summaries = result.get("SearchResult", {}).get("resources", [])
+        return await fetch_ise_device_details(device_service, summaries)
+
+    # ISE's ERS filter only supports exact-IP matching, not CIDR ranges — scan
+    # the full device inventory and filter client-side. Reuses the existing
+    # list/get endpoints rather than adding a new ISE-side filter.
+    summaries = await paginate_ise_summaries(
+        lambda page: device_service.list_devices(page=page, size=_LIST_PAGE_SIZE)
+    )
+    details = await fetch_ise_device_details(device_service, summaries)
+    return [detail for detail in details if _ip_in_network(detail, network)]
+
+
+async def _fetch_devices(
+    device_service: ISENetworkDeviceService, config: dict[str, Any]
+) -> tuple[list[dict[str, Any]], list[str]]:
+    query_mode = config.get("query_mode", "name")
+
+    if query_mode == "name":
+        names = config.get("device_names") or []
+        if not names:
+            raise ValueError("get-ise-devices: device_names is required for query_mode 'name'")
+        return await _fetch_by_name(device_service, names)
+
+    if query_mode == "group":
+        group_name = (config.get("group_name") or "").strip()
+        if not group_name:
+            raise ValueError("get-ise-devices: group_name is required for query_mode 'group'")
+        return await _fetch_by_group(device_service, group_name), []
+
+    if query_mode == "cidr":
+        cidr = (config.get("cidr") or "").strip()
+        if not cidr:
+            raise ValueError("get-ise-devices: cidr is required for query_mode 'cidr'")
+        try:
+            return await _fetch_by_cidr(device_service, cidr), []
+        except ValueError as exc:
+            raise ValueError(f"get-ise-devices: invalid cidr '{cidr}': {exc}") from exc
+
+    raise ValueError(f"get-ise-devices: unsupported query_mode '{query_mode}'")
+
+
+def _cidr_for_group_or_prefix(device: dict[str, Any]) -> str | None:
+    """Canonical CIDR (network address/prefix) for an ISE entry's first IP/mask."""
+    ip_list = device.get("NetworkDeviceIPList") or []
+    if not ip_list:
+        return None
+    ip = ip_list[0].get("ipaddress")
+    mask = ip_list[0].get("mask")
+    if not ip or mask is None:
+        return None
+    try:
+        return str(ipaddress.ip_network(f"{ip}/{mask}", strict=False))
+    except ValueError:
+        return None
+
+
+def _build_nautobot_source_service(db: Session, nautobot_source_id: str) -> NautobotSourceService:
+    credentials = resolve_nautobot_credentials(db, nautobot_source_id, step_id="get-ise-devices")
+    return service_factory.build_nautobot_source_service(credentials, db)
+
+
+async def _resolve_devices_via_nautobot(
+    nautobot_source_service: NautobotSourceService, cidr: str
+) -> list[DeviceInfo]:
+    """Resolve a subnet/group entry into its member devices via Nautobot's
+    "Primary Prefix" filter — devices whose primary_ip4 falls within `cidr`.
+    """
+    condition = LogicalCondition(field="primary_prefix", operator="within_include", value=cidr)
+    operation = LogicalOperation(operation_type="AND", conditions=[condition])
+    devices, _ = await nautobot_source_service.preview_inventory([operation])
+    return devices
+
+
+@dataclass(frozen=True)
+class _ParsedGetIseDevicesConfig:
+    source_id: str
+    query_mode: str
+    resolve_to_devices: bool
+    nautobot_source_id: str
+
+
+def _parse_get_ise_devices_config(config: dict[str, Any]) -> _ParsedGetIseDevicesConfig:
+    source_id = (config.get("ise_source_id") or "").strip()
+    if not source_id:
+        raise ValueError("get-ise-devices: ise_source_id is not configured")
+
+    query_mode = config.get("query_mode", "name")
+    if query_mode not in _QUERY_MODES:
+        raise ValueError(f"get-ise-devices: unsupported query_mode '{query_mode}'")
+
+    resolve_to_devices = parse_bool_flag(config, "resolve_to_devices", default=False)
+    nautobot_source_id = (config.get("nautobot_source_id") or "").strip()
+    if resolve_to_devices and not nautobot_source_id:
+        raise ValueError(
+            "get-ise-devices: nautobot_source_id is required when resolve_to_devices is enabled"
+        )
+
+    return _ParsedGetIseDevicesConfig(
+        source_id=source_id,
+        query_mode=query_mode,
+        resolve_to_devices=resolve_to_devices,
+        nautobot_source_id=nautobot_source_id,
+    )
+
+
+def _build_ise_services(
+    db: Session,
+    parsed: _ParsedGetIseDevicesConfig,
+) -> tuple[ISENetworkDeviceService, NautobotSourceService | None]:
+    source_config_service = service_factory.build_ise_source_config_service(db)
+    try:
+        credentials = source_config_service.resolve_credentials(parsed.source_id)
+    except ISESourceNotFoundError as exc:
+        raise ValueError(f"get-ise-devices: ISE source '{parsed.source_id}' not found") from exc
+    except ISEValidationError as exc:
+        raise ValueError(f"get-ise-devices: {exc}") from exc
+
+    device_service = service_factory.build_ise_network_device_service(credentials)
+
+    nautobot_source_service: NautobotSourceService | None = None
+    if parsed.resolve_to_devices:
+        nautobot_source_service = _build_nautobot_source_service(db, parsed.nautobot_source_id)
+
+    return device_service, nautobot_source_service
+
+
+async def _expand_ise_devices(
+    *,
+    raw_devices: list[dict[str, Any]],
+    source_id: str,
+    resolve_to_devices: bool,
+    nautobot_source_id: str,
+    nautobot_source_service: NautobotSourceService | None,
+) -> dict[str, DeviceContext]:
+    new_devices: dict[str, DeviceContext] = {}
+    cidr_cache: dict[str, list[DeviceInfo]] = {}
+
+    for raw_device in raw_devices:
+        device_context = device_context_from_ise(raw_device, source_id=source_id)
+        is_group_or_prefix = bool(
+            device_context.attribute_bags.get("ise", {}).get("is_group_or_prefix")
+        )
+
+        if resolve_to_devices and is_group_or_prefix and nautobot_source_service is not None:
+            cidr = _cidr_for_group_or_prefix(raw_device)
+            resolved_devices: list[DeviceInfo] = []
+            if cidr is not None:
+                if cidr not in cidr_cache:
+                    cidr_cache[cidr] = await _resolve_devices_via_nautobot(
+                        nautobot_source_service, cidr
+                    )
+                resolved_devices = cidr_cache[cidr]
+
+            if resolved_devices:
+                for nautobot_device in resolved_devices:
+                    resolved_context = device_context_from_nautobot(
+                        nautobot_device, source_id=nautobot_source_id
+                    )
+                    new_devices[resolved_context.id] = resolved_context
+                continue
+
+            logger.warning(
+                "get-ise-devices: resolve_to_devices found no Nautobot devices for '%s' "
+                "(cidr=%s); keeping the raw ISE entry",
+                raw_device.get("name"),
+                cidr,
+            )
+
+        new_devices[device_context.id] = device_context
+
+    return new_devices
+
+
+def _build_get_ise_devices_outcome(
+    *,
+    context: WorkflowContext,
+    node_id: str,
+    config: dict[str, Any],
+    source_id: str,
+    new_devices: dict[str, DeviceContext],
+    missing_names: list[str] | None = None,
+) -> list[StepOutcome]:
+    fan_out_metadata = build_fan_out_metadata(config.get("fan_out"), node_id)
+
+    metadata_update: dict = {
+        **context.metadata,
+        f"{node_id}.source_id": source_id,
+        f"{node_id}.total": len(new_devices),
+    }
+    if fan_out_metadata is not None:
+        metadata_update["_fan_out"] = fan_out_metadata
+
+    new_context = context.model_copy(
+        update={
+            "devices": {**context.devices, **new_devices},
+            "metadata": metadata_update,
+        }
+    )
+
+    outcomes = [
+        StepOutcome(
+            name="success",
+            context=new_context,
+            summary=f"found {len(new_devices)} device(s)",
+        )
+    ]
+    if missing_names:
+        # Names ISE does not know become stub devices on the declared 'failure' handle (C3R-08).
+        stubs = {
+            name: DeviceContext(
+                id=name,
+                name=name,
+                hostname=name,
+                source="ise",
+                status=DeviceStatus.FAILED,
+                errors=[
+                    DeviceError(
+                        node_id=node_id,
+                        step_id="get-ise-devices",
+                        code="ise_device_not_found",
+                        message=f"device '{name}' is not known to ISE source '{source_id}'",
+                    )
+                ],
+            )
+            for name in missing_names
+        }
+        outcomes.append(
+            StepOutcome(
+                name="failure",
+                context=context.model_copy(update={"devices": stubs, "metadata": metadata_update}),
+                summary=f"{len(stubs)} name(s) not found in ISE",
+            )
+        )
+    return outcomes
+
+
+async def execute(
+    *,
+    config: dict[str, Any],
+    context: WorkflowContext,
+    run: WorkflowRun,
+    artifact_service: ArtifactService,
+    node_id: str,
+    device_sessions: DeviceSessionPool,
+) -> list[StepOutcome]:
+    del artifact_service  # unused for this step
+
+    parsed = _parse_get_ise_devices_config(config)
+
+    db = object_session(run)
+    if db is None:
+        raise RuntimeError("get-ise-devices: WorkflowRun has no active DB session")
+
+    device_service, nautobot_source_service = _build_ise_services(db, parsed)
+
+    logger.info(
+        "get-ise-devices started run_id=%s node_id=%s query_mode=%s resolve_to_devices=%s",
+        context.run_id,
+        node_id,
+        parsed.query_mode,
+        parsed.resolve_to_devices,
+    )
+
+    try:
+        raw_devices, missing_names = await _fetch_devices(device_service, config)
+    except (ISEValidationError, ISEAPIError) as exc:
+        raise RuntimeError(f"get-ise-devices: ISE request failed: {exc}") from exc
+
+    new_devices = await _expand_ise_devices(
+        raw_devices=raw_devices,
+        source_id=parsed.source_id,
+        resolve_to_devices=parsed.resolve_to_devices,
+        nautobot_source_id=parsed.nautobot_source_id,
+        nautobot_source_service=nautobot_source_service,
+    )
+
+    logger.info(
+        "get-ise-devices finished count=%d run_id=%s",
+        len(new_devices),
+        context.run_id,
+    )
+
+    return _build_get_ise_devices_outcome(
+        context=context,
+        node_id=node_id,
+        config=config,
+        source_id=parsed.source_id,
+        new_devices=new_devices,
+        missing_names=missing_names,
+    )

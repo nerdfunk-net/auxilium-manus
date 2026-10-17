@@ -1,0 +1,957 @@
+"""Executor-level tests for workflow_steps/update_config_context/executor.py."""
+
+from __future__ import annotations
+
+import json
+import unittest
+from unittest.mock import AsyncMock, MagicMock, patch
+
+from models.workflow_context import DeviceContext, DeviceStatus, WorkflowContext
+from services.workflow_context.secret_fields import seal_secret
+from workflow_steps.update_config_context import executor as mod
+from workflow_steps.update_config_context.executor import (
+    _apply_mode,
+    _apply_updates,
+    _explicit_device_context,
+    _parse_config,
+    _render_path,
+    _resolve_value,
+    _update_one_device,
+    execute,
+)
+
+
+def _device(did: str = "d1", **bags: dict) -> DeviceContext:
+    device = DeviceContext(id=did, name=did, hostname=did, primary_ip4="10.0.0.1")
+    if bags:
+        device = device.model_copy(update={"attribute_bags": bags})
+    return device
+
+
+def _attribute_config(
+    path: str, *, mode: str = "write", cfg_path: str = "", create_local: bool | None = None
+) -> dict:
+    value_source = {"type": "attribute", "attribute_path": path}
+    config: dict = {"nautobot_source_id": "src-1", "mode": mode}
+    if mode == "update":
+        config["updates"] = [{"path": cfg_path, "value_source": value_source}]
+    else:
+        config["path"] = cfg_path
+        config["value_source"] = value_source
+    if create_local is not None:
+        config["create_local_if_missing"] = create_local
+    return config
+
+
+def _update_entry(path: str, attribute_path: str = "x") -> dict:
+    return {"path": path, "value_source": {"type": "attribute", "attribute_path": attribute_path}}
+
+
+def _updates_config(*entries: dict, create_local: bool | None = None) -> dict:
+    config: dict = {
+        "nautobot_source_id": "src-1",
+        "mode": "update",
+        "updates": list(entries),
+    }
+    if create_local is not None:
+        config["create_local_if_missing"] = create_local
+    return config
+
+
+class ParseConfigTests(unittest.TestCase):
+    def test_requires_source_id(self) -> None:
+        with self.assertRaises(ValueError):
+            _parse_config({})
+
+    def test_rejects_unknown_mode(self) -> None:
+        with self.assertRaises(ValueError):
+            _parse_config({"nautobot_source_id": "s", "mode": "delete"})
+
+    def test_update_requires_path(self) -> None:
+        with self.assertRaises(ValueError):
+            _parse_config({"nautobot_source_id": "s", "mode": "update"})
+
+    def test_update_requires_at_least_one_entry(self) -> None:
+        with self.assertRaisesRegex(ValueError, "updates"):
+            _parse_config(_updates_config())
+
+    def test_update_entry_requires_path(self) -> None:
+        with self.assertRaisesRegex(ValueError, r"updates\[1\]\.path"):
+            _parse_config(_updates_config(_update_entry("a.b"), _update_entry("  ")))
+
+    def test_update_entry_requires_attribute_path(self) -> None:
+        entry = {"path": "a", "value_source": {"type": "attribute"}}
+        with self.assertRaisesRegex(ValueError, r"updates\[0\]\.value_source"):
+            _parse_config(_updates_config(entry))
+
+    def test_update_entry_template_requires_template_id(self) -> None:
+        entry = {"path": "a", "value_source": {"type": "template"}}
+        with self.assertRaisesRegex(ValueError, r"updates\[0\]\.value_source"):
+            _parse_config(_updates_config(entry))
+
+    def test_update_entry_must_be_an_object(self) -> None:
+        with self.assertRaisesRegex(ValueError, r"updates\[0\]"):
+            _parse_config(_updates_config("tacacs"))  # type: ignore[arg-type]
+
+    def test_update_parses_every_entry_in_order(self) -> None:
+        parsed = _parse_config(
+            _updates_config(
+                _update_entry("tacacs.key", "custom.new_key"),
+                {
+                    "path": "tacacs.level",
+                    "value_source": {"type": "template", "template_id": "7"},
+                },
+            )
+        )
+        self.assertEqual([entry.path for entry in parsed.updates], ["tacacs.key", "tacacs.level"])
+        self.assertEqual(parsed.updates[0].value_source.attribute_path, "custom.new_key")
+        self.assertEqual(parsed.updates[1].value_source.template_id, 7)
+
+    def test_update_ignores_top_level_path_and_value_source(self) -> None:
+        config = _updates_config(_update_entry("a.b"))
+        config["path"] = "ignored"
+        config["value_source"] = {"type": "attribute"}  # would be invalid in write mode
+        parsed = _parse_config(config)
+        self.assertEqual(len(parsed.updates), 1)
+
+    def test_write_and_append_ignore_updates(self) -> None:
+        for mode in ("write", "append"):
+            config = _attribute_config("x", mode=mode)
+            config["updates"] = [{"path": "", "value_source": {}}]
+            self.assertEqual(_parse_config(config).updates, ())
+
+    def test_append_does_not_require_path(self) -> None:
+        parsed = _parse_config(
+            {
+                "nautobot_source_id": "s",
+                "mode": "append",
+                "value_source": {"type": "attribute", "attribute_path": "tacacs"},
+            }
+        )
+        self.assertEqual(parsed.path, "")
+
+    def test_write_mode_does_not_require_path(self) -> None:
+        parsed = _parse_config(
+            {
+                "nautobot_source_id": "s",
+                "mode": "write",
+                "value_source": {"type": "attribute", "attribute_path": "tacacs"},
+            }
+        )
+        self.assertEqual(parsed.mode, "write")
+
+    def test_attribute_source_requires_attribute_path(self) -> None:
+        with self.assertRaises(ValueError):
+            _parse_config({"nautobot_source_id": "s", "value_source": {"type": "attribute"}})
+
+    def test_template_source_requires_template_id(self) -> None:
+        with self.assertRaises(ValueError):
+            _parse_config({"nautobot_source_id": "s", "value_source": {"type": "template"}})
+
+    def test_template_source_parses_int(self) -> None:
+        parsed = _parse_config(
+            {
+                "nautobot_source_id": "s",
+                "value_source": {"type": "template", "template_id": "7"},
+            }
+        )
+        self.assertEqual(parsed.value_source.template_id, 7)
+
+
+class ExplicitDeviceContextTests(unittest.TestCase):
+    def test_uses_id_when_given(self) -> None:
+        device = _explicit_device_context({"id": "abc-123"})
+        self.assertEqual(device.id, "abc-123")
+        self.assertEqual(device.source, "nautobot")
+
+    def test_falls_back_to_name(self) -> None:
+        device = _explicit_device_context({"name": "router1"})
+        self.assertEqual(device.name, "router1")
+
+
+class ResolveValueTests(unittest.TestCase):
+    def test_attribute_source_returns_raw_value(self) -> None:
+        device = _device(tacacs={"shared_secret": "plain-key"})
+        parsed = _parse_config(_attribute_config("tacacs.shared_secret"))
+        value = _resolve_value(
+            value_source=parsed.value_source,
+            device=device,
+            run_id="r",
+            workflow_id="w",
+        )
+        self.assertEqual(value, "plain-key")
+
+    def test_attribute_source_unwraps_sealed_secret(self) -> None:
+        device = _device(tacacs={"shared_secret": seal_secret("s3cr3t")})
+        parsed = _parse_config(_attribute_config("tacacs.shared_secret"))
+        value = _resolve_value(
+            value_source=parsed.value_source,
+            device=device,
+            run_id="r",
+            workflow_id="w",
+        )
+        self.assertEqual(value, "s3cr3t")
+
+    def test_attribute_source_can_return_structured_value(self) -> None:
+        device = _device(credentials={"list": [{"username": "noc", "password": "pw"}]})
+        parsed = _parse_config(_attribute_config("credentials.list"))
+        value = _resolve_value(
+            value_source=parsed.value_source,
+            device=device,
+            run_id="r",
+            workflow_id="w",
+        )
+        self.assertEqual(value, [{"username": "noc", "password": "pw"}])
+
+    def test_attribute_source_without_device_raises(self) -> None:
+        parsed = _parse_config(_attribute_config("tacacs.shared_secret"))
+        with self.assertRaises(ValueError):
+            _resolve_value(
+                value_source=parsed.value_source,
+                device=None,
+                run_id="r",
+                workflow_id="w",
+            )
+
+    def test_template_source_parses_json_output(self) -> None:
+        config = {
+            "nautobot_source_id": "s",
+            "value_source": {"type": "template", "template_id": 1},
+        }
+        parsed = _parse_config(config)
+        with (
+            patch.object(mod, "load_stored_template", return_value='{"shared_secret": "x"}'),
+            patch.object(mod, "render_jinja_template", return_value='{"shared_secret": "x"}'),
+        ):
+            value = _resolve_value(
+                value_source=parsed.value_source,
+                device=_device(),
+                run_id="r",
+                workflow_id="w",
+            )
+        self.assertEqual(value, {"shared_secret": "x"})
+
+    def test_invalid_json_output_fails_the_device(self) -> None:
+        # C3-04: the raw string used to be PATCHed into the config context.
+        config = {
+            "nautobot_source_id": "s",
+            "value_source": {"type": "template", "template_id": 1},
+        }
+        parsed = _parse_config(config)
+        with (
+            patch.object(mod, "load_stored_template", return_value="not-json"),
+            patch.object(mod, "render_jinja_template", return_value='{"owner": "O"Brien"}'),
+        ):
+            with self.assertRaisesRegex(ValueError, "not valid JSON"):
+                _resolve_value(
+                    value_source=parsed.value_source,
+                    device=_device(),
+                    run_id="r",
+                    workflow_id="w",
+                )
+
+    def test_tojson_filter_keeps_quotes_valid(self) -> None:
+        from workflow_steps.common.jinja_render import render_jinja_template
+
+        rendered = render_jinja_template(
+            '{"owner": {{ owner | tojson }}}', {"owner": 'O"Brien'}, allow_multiline_values=True
+        )
+        self.assertEqual(json.loads(rendered), {"owner": 'O"Brien'})
+
+    def test_list_with_sealed_passwords_is_written_in_clear(self) -> None:
+        from services.workflow_context.secret_fields import is_sealed_secret, seal_secret
+
+        device = _device(
+            tacacs={"servers": [{"address": "1.2.3.4", "key": seal_secret("clear-key")}]}
+        )
+        parsed = _parse_config(_attribute_config("tacacs.servers"))
+        value = _resolve_value(
+            value_source=parsed.value_source, device=device, run_id="r", workflow_id="w"
+        )
+        self.assertEqual(value, [{"address": "1.2.3.4", "key": "clear-key"}])
+        self.assertFalse(is_sealed_secret(value[0]["key"]))
+
+
+class ApplyModeTests(unittest.IsolatedAsyncioTestCase):
+    async def test_write_requires_dict_value(self) -> None:
+        parsed = _parse_config(_attribute_config("tacacs", mode="write"))
+        update_service = MagicMock()
+        with self.assertRaises(ValueError):
+            await _apply_mode(
+                update_service=update_service, device_id="nb-1", parsed=parsed, value="not-a-dict"
+            )
+
+    async def test_write_patches_directly_without_get(self) -> None:
+        parsed = _parse_config(_attribute_config("tacacs", mode="write"))
+        update_service = MagicMock()
+        update_service.set_local_config_context = AsyncMock()
+        update_service.get_local_config_context = AsyncMock()
+        await _apply_mode(
+            update_service=update_service,
+            device_id="nb-1",
+            parsed=parsed,
+            value={"tacacs": {"shared_secret": "x"}},
+        )
+        update_service.get_local_config_context.assert_not_awaited()
+        update_service.set_local_config_context.assert_awaited_once_with(
+            "nb-1", {"tacacs": {"shared_secret": "x"}}
+        )
+
+    async def test_update_replaces_leaf_and_preserves_siblings(self) -> None:
+        update_service = MagicMock()
+        update_service.get_local_config_context = AsyncMock(
+            return_value={"credentials": [{"username": "noc", "password": "old"}]}
+        )
+        update_service.set_local_config_context = AsyncMock()
+        await _apply_updates(
+            update_service=update_service,
+            device_id="nb-1",
+            updates=[("credentials.0.password", "new")],
+            create_local_if_missing=False,
+        )
+        new_doc = update_service.set_local_config_context.call_args.args[1]
+        self.assertEqual(new_doc["credentials"][0]["password"], "new")
+        self.assertEqual(new_doc["credentials"][0]["username"], "noc")
+
+    async def test_append_merges_into_existing_object(self) -> None:
+        parsed = _parse_config(_attribute_config("x", mode="append", cfg_path="tacacs"))
+        update_service = MagicMock()
+        update_service.get_local_config_context = AsyncMock(
+            return_value={"credentials": [{"username": "noc"}], "tacacs": {"port": 49}}
+        )
+        update_service.set_local_config_context = AsyncMock()
+        await _apply_mode(
+            update_service=update_service,
+            device_id="nb-1",
+            parsed=parsed,
+            value={"shared_secret": "newkey"},
+        )
+        new_doc = update_service.set_local_config_context.call_args.args[1]
+        self.assertEqual(new_doc["tacacs"], {"port": 49, "shared_secret": "newkey"})
+        self.assertEqual(new_doc["credentials"], [{"username": "noc"}])
+
+    async def test_append_sets_new_root_key_when_absent(self) -> None:
+        parsed = _parse_config(_attribute_config("x", mode="append", cfg_path="tacacs"))
+        update_service = MagicMock()
+        update_service.get_local_config_context = AsyncMock(
+            return_value={"credentials": [{"username": "noc"}]}
+        )
+        update_service.set_local_config_context = AsyncMock()
+        await _apply_mode(
+            update_service=update_service,
+            device_id="nb-1",
+            parsed=parsed,
+            value={"shared_secret": "newkey"},
+        )
+        new_doc = update_service.set_local_config_context.call_args.args[1]
+        self.assertEqual(new_doc["tacacs"], {"shared_secret": "newkey"})
+        self.assertEqual(new_doc["credentials"], [{"username": "noc"}])
+
+    async def test_append_with_empty_path_merges_into_root(self) -> None:
+        parsed = _parse_config(_attribute_config("x", mode="append", cfg_path=""))
+        update_service = MagicMock()
+        update_service.get_local_config_context = AsyncMock(
+            return_value={"credentials": [{"username": "noc"}]}
+        )
+        update_service.set_local_config_context = AsyncMock()
+        await _apply_mode(
+            update_service=update_service,
+            device_id="nb-1",
+            parsed=parsed,
+            value={"xxx": {"key": "value"}},
+        )
+        new_doc = update_service.set_local_config_context.call_args.args[1]
+        self.assertEqual(new_doc, {"credentials": [{"username": "noc"}], "xxx": {"key": "value"}})
+
+    async def test_append_with_empty_path_requires_dict_value(self) -> None:
+        parsed = _parse_config(_attribute_config("x", mode="append", cfg_path=""))
+        update_service = MagicMock()
+        update_service.get_local_config_context = AsyncMock(return_value={})
+        with self.assertRaises(ValueError):
+            await _apply_mode(
+                update_service=update_service,
+                device_id="nb-1",
+                parsed=parsed,
+                value="not-a-dict",
+            )
+
+
+_GLOBAL_CONTEXT = {
+    "somethingelse": [{"xyz": "abc"}],
+    "tacacs": [
+        {"key": "mykey", "level": 7, "server": "tacacs-server", "address": "1.2.3.4"},
+    ],
+}
+_TACACS_PATH = "tacacs[address=1.2.3.4].key"
+
+
+def _seeding_service(*, local: dict, merged: dict | None = None) -> MagicMock:
+    service = MagicMock()
+    service.get_local_config_context = AsyncMock(return_value=local)
+    service.get_config_context = AsyncMock(
+        return_value=_GLOBAL_CONTEXT if merged is None else merged
+    )
+    service.set_local_config_context = AsyncMock()
+    return service
+
+
+class CreateLocalIfMissingParseTests(unittest.TestCase):
+    def test_defaults_to_false(self) -> None:
+        parsed = _parse_config(_attribute_config("x", mode="update", cfg_path=_TACACS_PATH))
+        self.assertFalse(parsed.create_local_if_missing)
+
+    def test_accepts_bool_and_truthy_strings(self) -> None:
+        for raw, expected in ((True, True), ("true", True), ("no", False), (False, False)):
+            parsed = _parse_config(
+                _attribute_config("x", mode="update", cfg_path=_TACACS_PATH, create_local=raw)
+            )
+            self.assertEqual(parsed.create_local_if_missing, expected, raw)
+
+
+class CreateLocalIfMissingTests(unittest.IsolatedAsyncioTestCase):
+    async def _run(
+        self,
+        service: MagicMock,
+        *,
+        mode: str = "update",
+        create_local: bool = True,
+        cfg_path: str = _TACACS_PATH,
+        value: object = "newkey",
+    ) -> None:
+        parsed = _parse_config(
+            _attribute_config("x", mode=mode, cfg_path=cfg_path, create_local=create_local)
+        )
+        if mode == "update":
+            await _apply_updates(
+                update_service=service,
+                device_id="nb-1",
+                updates=[(cfg_path, value)],
+                create_local_if_missing=parsed.create_local_if_missing,
+            )
+            return
+        await _apply_mode(update_service=service, device_id="nb-1", parsed=parsed, value=value)
+
+    async def test_null_local_context_is_seeded_from_global_in_one_patch(self) -> None:
+        service = _seeding_service(local={})
+        await self._run(service)
+        service.set_local_config_context.assert_awaited_once()
+        new_doc = service.set_local_config_context.call_args.args[1]
+        self.assertEqual(
+            new_doc,
+            {
+                "tacacs": [
+                    {"key": "newkey", "level": 7, "server": "tacacs-server", "address": "1.2.3.4"}
+                ]
+            },
+        )
+        self.assertNotIn("somethingelse", new_doc)
+
+    async def test_non_empty_local_without_the_key_keeps_its_other_keys(self) -> None:
+        service = _seeding_service(local={"credentials": [{"username": "noc"}]})
+        await self._run(service)
+        new_doc = service.set_local_config_context.call_args.args[1]
+        self.assertEqual(new_doc["credentials"], [{"username": "noc"}])
+        self.assertEqual(new_doc["tacacs"][0]["key"], "newkey")
+
+    async def test_local_with_the_key_is_updated_in_place_without_global_fetch(self) -> None:
+        local = {"tacacs": [{"key": "old", "address": "1.2.3.4", "server": "local-srv"}]}
+        service = _seeding_service(local=local)
+        await self._run(service)
+        service.get_config_context.assert_not_awaited()
+        new_doc = service.set_local_config_context.call_args.args[1]
+        self.assertEqual(
+            new_doc["tacacs"], [{"key": "newkey", "address": "1.2.3.4", "server": "local-srv"}]
+        )
+
+    async def test_local_key_without_matching_item_fails_and_does_not_copy_global(self) -> None:
+        local = {"tacacs": [{"key": "old", "address": "9.9.9.9"}]}
+        service = _seeding_service(local=local)
+        with self.assertRaisesRegex(ValueError, "no item"):
+            await self._run(service)
+        service.get_config_context.assert_not_awaited()
+        service.set_local_config_context.assert_not_awaited()
+
+    async def test_flag_off_keeps_existing_behaviour(self) -> None:
+        service = _seeding_service(local={})
+        with self.assertRaisesRegex(ValueError, "not a list"):
+            await self._run(service, create_local=False)
+        service.get_config_context.assert_not_awaited()
+        service.set_local_config_context.assert_not_awaited()
+
+    async def test_key_missing_in_global_too_falls_through(self) -> None:
+        service = _seeding_service(local={}, merged={"other": 1})
+        await self._run(service, cfg_path="brand.new", value="x")
+        new_doc = service.set_local_config_context.call_args.args[1]
+        self.assertEqual(new_doc, {"brand": {"new": "x"}})
+
+    async def test_seeded_value_is_a_deep_copy_of_global(self) -> None:
+        merged = {"tacacs": [{"key": "mykey", "address": "1.2.3.4"}]}
+        service = _seeding_service(local={}, merged=merged)
+        await self._run(service)
+        self.assertEqual(merged["tacacs"][0]["key"], "mykey")
+
+    async def test_append_with_a_path_is_seeded_too(self) -> None:
+        service = _seeding_service(local={})
+        await self._run(service, mode="append", cfg_path="tacacs", value=[{"address": "5.6.7.8"}])
+        new_doc = service.set_local_config_context.call_args.args[1]
+        self.assertEqual(new_doc["tacacs"], [{"address": "5.6.7.8"}])
+        service.get_config_context.assert_awaited_once()
+
+    async def test_write_and_empty_path_append_never_fetch_global(self) -> None:
+        service = _seeding_service(local={})
+        await self._run(service, mode="write", cfg_path="", value={"a": 1})
+        await self._run(service, mode="append", cfg_path="", value={"b": 2})
+        service.get_config_context.assert_not_awaited()
+
+
+class AppendRetryTests(unittest.IsolatedAsyncioTestCase):
+    """C3-07: ``append`` re-reads before it writes, like ``update``."""
+
+    def _parsed(self):
+        return _parse_config(_attribute_config("tacacs", mode="append", cfg_path=""))
+
+    async def test_concurrent_change_between_read_and_write_is_not_overwritten(self) -> None:
+        reads = [
+            {"a": 1},  # first read
+            {"a": 1, "other_writer": True},  # changed before our write
+            {"a": 1, "other_writer": True},  # second attempt, read
+            {"a": 1, "other_writer": True},  # second attempt, unchanged -> write
+        ]
+        service = _seeding_service(local={})
+        service.get_local_config_context = AsyncMock(side_effect=reads)
+        await _apply_mode(
+            update_service=service, device_id="nb-1", parsed=self._parsed(), value={"b": 2}
+        )
+        service.set_local_config_context.assert_awaited_once()
+        self.assertEqual(
+            service.set_local_config_context.call_args.args[1],
+            {"a": 1, "other_writer": True, "b": 2},
+        )
+
+    async def test_gives_up_after_three_changes(self) -> None:
+        counter = {"n": 0}
+
+        async def changing(_device_id):
+            counter["n"] += 1
+            return {"n": counter["n"]}
+
+        service = _seeding_service(local={})
+        service.get_local_config_context = AsyncMock(side_effect=changing)
+        with self.assertRaisesRegex(RuntimeError, "kept changing"):
+            await _apply_mode(
+                update_service=service, device_id="nb-1", parsed=self._parsed(), value={"b": 2}
+            )
+        service.set_local_config_context.assert_not_awaited()
+
+
+class ApplyUpdatesTests(unittest.IsolatedAsyncioTestCase):
+    async def test_several_updates_use_one_get_and_one_patch(self) -> None:
+        service = _seeding_service(
+            local={"tacacs": [{"address": "1.2.3.4", "key": "old", "level": 1}], "keep": True}
+        )
+        await _apply_updates(
+            update_service=service,
+            device_id="nb-1",
+            updates=[(_TACACS_PATH, "newkey"), ("tacacs[address=1.2.3.4].level", 15)],
+            create_local_if_missing=False,
+        )
+        # one read to build the document, one re-read right before the PATCH (C3-07)
+        self.assertEqual(service.get_local_config_context.await_count, 2)
+        service.set_local_config_context.assert_awaited_once()
+        new_doc = service.set_local_config_context.call_args.args[1]
+        self.assertEqual(
+            new_doc,
+            {"tacacs": [{"address": "1.2.3.4", "key": "newkey", "level": 15}], "keep": True},
+        )
+
+    async def test_concurrent_change_between_read_and_write_is_not_overwritten(self) -> None:
+        reads = [
+            {"a": 1},  # first read
+            {"a": 1, "other_writer": True},  # changed before our write
+            {"a": 1, "other_writer": True},  # second attempt, read
+            {"a": 1, "other_writer": True},  # second attempt, unchanged -> write
+        ]
+        service = _seeding_service(local={})
+        service.get_local_config_context = AsyncMock(side_effect=reads)
+        await _apply_updates(
+            update_service=service,
+            device_id="nb-1",
+            updates=[("a", 2)],
+            create_local_if_missing=False,
+        )
+        service.set_local_config_context.assert_awaited_once()
+        self.assertEqual(
+            service.set_local_config_context.call_args.args[1], {"a": 2, "other_writer": True}
+        )
+
+    async def test_gives_up_after_three_changes(self) -> None:
+        counter = {"n": 0}
+
+        async def changing(_device_id):
+            counter["n"] += 1
+            return {"n": counter["n"]}
+
+        service = _seeding_service(local={})
+        service.get_local_config_context = AsyncMock(side_effect=changing)
+        with self.assertRaisesRegex(RuntimeError, "kept changing"):
+            await _apply_updates(
+                update_service=service,
+                device_id="nb-1",
+                updates=[("a", 2)],
+                create_local_if_missing=False,
+            )
+        service.set_local_config_context.assert_not_awaited()
+
+    async def test_a_failing_entry_aborts_without_any_patch(self) -> None:
+        service = _seeding_service(local={"tacacs": [{"address": "1.2.3.4", "key": "old"}]})
+        with self.assertRaisesRegex(ValueError, "no item"):
+            await _apply_updates(
+                update_service=service,
+                device_id="nb-1",
+                updates=[(_TACACS_PATH, "newkey"), ("tacacs[address=9.9.9.9].key", "x")],
+                create_local_if_missing=False,
+            )
+        service.set_local_config_context.assert_not_awaited()
+
+    async def test_later_entry_sees_the_result_of_an_earlier_one(self) -> None:
+        service = _seeding_service(local={})
+        await _apply_updates(
+            update_service=service,
+            device_id="nb-1",
+            updates=[("a.b", 1), ("a.c", 2)],
+            create_local_if_missing=False,
+        )
+        self.assertEqual(
+            service.set_local_config_context.call_args.args[1], {"a": {"b": 1, "c": 2}}
+        )
+
+    async def test_same_missing_key_is_seeded_once_and_global_fetched_once(self) -> None:
+        service = _seeding_service(local={})
+        await _apply_updates(
+            update_service=service,
+            device_id="nb-1",
+            updates=[(_TACACS_PATH, "newkey"), ("tacacs[address=1.2.3.4].level", 15)],
+            create_local_if_missing=True,
+        )
+        service.get_config_context.assert_awaited_once()
+        service.set_local_config_context.assert_awaited_once()
+        self.assertEqual(
+            service.set_local_config_context.call_args.args[1],
+            {
+                "tacacs": [
+                    {"key": "newkey", "level": 15, "server": "tacacs-server", "address": "1.2.3.4"}
+                ]
+            },
+        )
+
+    async def test_different_missing_keys_are_each_seeded_with_one_global_fetch(self) -> None:
+        merged = {"tacacs": [{"address": "1.2.3.4", "key": "g"}], "radius": {"port": 1812}}
+        service = _seeding_service(local={}, merged=merged)
+        await _apply_updates(
+            update_service=service,
+            device_id="nb-1",
+            updates=[(_TACACS_PATH, "newkey"), ("radius.port", 1645)],
+            create_local_if_missing=True,
+        )
+        service.get_config_context.assert_awaited_once()
+        self.assertEqual(
+            service.set_local_config_context.call_args.args[1],
+            {"tacacs": [{"address": "1.2.3.4", "key": "newkey"}], "radius": {"port": 1645}},
+        )
+        self.assertEqual(merged["radius"], {"port": 1812})
+
+    async def test_no_global_fetch_when_every_key_exists_locally(self) -> None:
+        service = _seeding_service(local={"a": {"b": 0}})
+        await _apply_updates(
+            update_service=service,
+            device_id="nb-1",
+            updates=[("a.b", 1), ("a.c", 2)],
+            create_local_if_missing=True,
+        )
+        service.get_config_context.assert_not_awaited()
+
+
+class MultiUpdateEndToEndTests(unittest.IsolatedAsyncioTestCase):
+    async def _run(
+        self, device: DeviceContext, local: dict
+    ) -> tuple[bool, DeviceContext, MagicMock]:
+        parsed = _parse_config(
+            _updates_config(
+                _update_entry("tacacs[server={custom.tacacs_server}].key", "custom.new_key"),
+                _update_entry("tacacs[server={custom.tacacs_server}].level", "custom.new_level"),
+            )
+        )
+        update_service = MagicMock()
+        update_service.get_local_config_context = AsyncMock(return_value=local)
+        update_service.set_local_config_context = AsyncMock()
+        with patch.object(mod, "resolve_nautobot_device_id", AsyncMock(return_value="nb-1")):
+            _, dev, ok = await _update_one_device(
+                device_key="d1",
+                device=device,
+                parsed=parsed,
+                context=WorkflowContext(run_id="r", workflow_id="w", devices={}),
+                node_id="n",
+                nautobot_service=MagicMock(),
+                credentials=MagicMock(),
+                update_service=update_service,
+            )
+        assert dev is not None
+        return ok, dev, update_service
+
+    async def test_updates_key_and_level_in_one_patch(self) -> None:
+        device = _device(
+            "d1", custom={"tacacs_server": "backup", "new_key": "s3cret", "new_level": 15}
+        )
+        local = {
+            "tacacs": [
+                {"server": "primary", "key": "k1", "level": 1},
+                {"server": "backup", "key": "k2", "level": 1},
+            ]
+        }
+        ok, dev, service = await self._run(device, local)
+        self.assertTrue(ok)
+        self.assertEqual(dev.status, DeviceStatus.OK)
+        service.set_local_config_context.assert_awaited_once()
+        new_doc = service.set_local_config_context.call_args.args[1]
+        self.assertEqual(new_doc["tacacs"][0], {"server": "primary", "key": "k1", "level": 1})
+        self.assertEqual(new_doc["tacacs"][1], {"server": "backup", "key": "s3cret", "level": 15})
+
+    async def test_unresolved_placeholder_in_any_path_fails_without_writing(self) -> None:
+        device = _device("d1", custom={"new_key": "s3cret", "new_level": 15})
+        ok, dev, service = await self._run(device, {"tacacs": []})
+        self.assertFalse(ok)
+        self.assertIn("custom.tacacs_server", dev.errors[-1].message)
+        service.set_local_config_context.assert_not_awaited()
+
+
+class RenderPathTests(unittest.TestCase):
+    def test_substitutes_a_hyphenated_custom_attribute(self) -> None:
+        device = _device("d1", custom={"tacacs-server": "tacacs-server"})
+        self.assertEqual(
+            _render_path("tacacs[server={custom.tacacs-server}].key", device),
+            "tacacs[server=tacacs-server].key",
+        )
+
+    def test_substitutes_several_placeholders(self) -> None:
+        device = _device("d1", custom={"srv": "a", "lvl": "7"})
+        self.assertEqual(
+            _render_path("tacacs[server={custom.srv}].levels[x={custom.lvl}]", device),
+            "tacacs[server=a].levels[x=7]",
+        )
+
+    def test_value_with_dots_is_kept_whole(self) -> None:
+        device = _device("d1", custom={"ip": "1.2.3.4"})
+        self.assertEqual(
+            _render_path("tacacs[address={custom.ip}].key", device),
+            "tacacs[address=1.2.3.4].key",
+        )
+
+    def test_path_without_placeholders_is_unchanged(self) -> None:
+        self.assertEqual(
+            _render_path("tacacs[address=1.2.3.4].key", None), "tacacs[address=1.2.3.4].key"
+        )
+
+    def test_unresolved_placeholder_raises_naming_it(self) -> None:
+        with self.assertRaisesRegex(ValueError, r"\{custom\.missing\}"):
+            _render_path("tacacs[server={custom.missing}].key", _device("d1"))
+
+    def test_placeholder_without_a_workflow_device_raises(self) -> None:
+        with self.assertRaisesRegex(ValueError, "workflow device"):
+            _render_path("tacacs[server={custom.srv}].key", None)
+
+    def test_sealed_secret_value_fails_instead_of_substituting_the_redaction(self) -> None:
+        device = _device("d1", custom={"srv": seal_secret("hunter2")})
+        with self.assertRaisesRegex(ValueError, "secret"):
+            _render_path("tacacs[server={custom.srv}].key", device)
+
+    def test_dotted_value_outside_brackets_is_rejected(self) -> None:
+        # servers.{x}.key with x="foo.bar" would silently walk an extra level.
+        device = _device("d1", custom={"name": "foo.bar"})
+        with self.assertRaisesRegex(ValueError, "dot"):
+            _render_path("servers.{custom.name}.key", device)
+
+    def test_plain_value_outside_brackets_is_substituted(self) -> None:
+        device = _device("d1", custom={"name": "foo"})
+        self.assertEqual(_render_path("servers.{custom.name}.key", device), "servers.foo.key")
+
+    def test_value_containing_brackets_is_rejected(self) -> None:
+        device = _device("d1", custom={"srv": "a]b"})
+        with self.assertRaisesRegex(ValueError, "brackets"):
+            _render_path("tacacs[server={custom.srv}].key", device)
+
+
+class PathPlaceholderEndToEndTests(unittest.IsolatedAsyncioTestCase):
+    async def _run(
+        self, device: DeviceContext, local: dict
+    ) -> tuple[bool, DeviceContext, MagicMock]:
+        parsed = _parse_config(
+            _attribute_config(
+                "custom.new_key",
+                mode="update",
+                cfg_path="tacacs[server={custom.tacacs_server}].key",
+            )
+        )
+        update_service = MagicMock()
+        update_service.get_local_config_context = AsyncMock(return_value=local)
+        update_service.set_local_config_context = AsyncMock()
+        with patch.object(mod, "resolve_nautobot_device_id", AsyncMock(return_value="nb-1")):
+            _, dev, ok = await _update_one_device(
+                device_key="d1",
+                device=device,
+                parsed=parsed,
+                context=WorkflowContext(run_id="r", workflow_id="w", devices={}),
+                node_id="n",
+                nautobot_service=MagicMock(),
+                credentials=MagicMock(),
+                update_service=update_service,
+            )
+        assert dev is not None
+        return ok, dev, update_service
+
+    async def test_updates_the_entry_selected_by_the_custom_attribute(self) -> None:
+        device = _device("d1", custom={"tacacs_server": "backup", "new_key": "s3cret"})
+        local = {
+            "tacacs": [
+                {"server": "primary", "key": "old1"},
+                {"server": "backup", "key": "old2"},
+            ]
+        }
+        ok, _, service = await self._run(device, local)
+        self.assertTrue(ok)
+        new_doc = service.set_local_config_context.call_args.args[1]
+        self.assertEqual(new_doc["tacacs"][0]["key"], "old1")
+        self.assertEqual(new_doc["tacacs"][1]["key"], "s3cret")
+
+    async def test_unresolved_placeholder_fails_the_device_without_writing(self) -> None:
+        device = _device("d1", custom={"new_key": "s3cret"})
+        ok, dev, service = await self._run(device, {"tacacs": [{"server": "a", "key": "k"}]})
+        self.assertFalse(ok)
+        self.assertEqual(dev.status, DeviceStatus.FAILED)
+        self.assertIn("custom.tacacs_server", dev.errors[-1].message)
+        service.set_local_config_context.assert_not_awaited()
+
+
+class UpdateOneDeviceTests(unittest.IsolatedAsyncioTestCase):
+    async def test_unresolved_device_fails(self) -> None:
+        parsed = _parse_config(_attribute_config("tacacs", mode="write"))
+        update_service = MagicMock()
+        with patch.object(mod, "resolve_nautobot_device_id", AsyncMock(return_value=None)):
+            key, dev, ok = await _update_one_device(
+                device_key="d1",
+                device=_device("d1"),
+                parsed=parsed,
+                context=WorkflowContext(run_id="r", workflow_id="w", devices={}),
+                node_id="n",
+                nautobot_service=MagicMock(),
+                credentials=MagicMock(),
+                update_service=update_service,
+            )
+        self.assertFalse(ok)
+        self.assertEqual(dev.errors[-1].code, "not_found")
+
+    async def test_success_marks_device_ok(self) -> None:
+        parsed = _parse_config(_attribute_config("tacacs.shared_secret", mode="write"))
+        update_service = MagicMock()
+        update_service.set_local_config_context = AsyncMock()
+        device = _device("d1", tacacs={"shared_secret": {"port": 49}})
+        with patch.object(mod, "resolve_nautobot_device_id", AsyncMock(return_value="nb-1")):
+            key, dev, ok = await _update_one_device(
+                device_key="d1",
+                device=device,
+                parsed=parsed,
+                context=WorkflowContext(run_id="r", workflow_id="w", devices={}),
+                node_id="n",
+                nautobot_service=MagicMock(),
+                credentials=MagicMock(),
+                update_service=update_service,
+            )
+        self.assertTrue(ok)
+        self.assertEqual(dev.status, DeviceStatus.OK)
+
+    async def test_apply_exception_is_caught(self) -> None:
+        parsed = _parse_config(_attribute_config("tacacs", mode="write"))
+        update_service = MagicMock()
+        update_service.set_local_config_context = AsyncMock(side_effect=RuntimeError("boom"))
+        device = _device("d1", tacacs={"shared_secret": {"port": 49}})
+        with patch.object(mod, "resolve_nautobot_device_id", AsyncMock(return_value="nb-1")):
+            key, dev, ok = await _update_one_device(
+                device_key="d1",
+                device=device,
+                parsed=parsed,
+                context=WorkflowContext(run_id="r", workflow_id="w", devices={}),
+                node_id="n",
+                nautobot_service=MagicMock(),
+                credentials=MagicMock(),
+                update_service=update_service,
+            )
+        self.assertFalse(ok)
+
+
+class ExecuteTests(unittest.IsolatedAsyncioTestCase):
+    async def test_no_db_session_raises(self) -> None:
+        with patch.object(mod, "object_session", return_value=None):
+            with self.assertRaises(RuntimeError):
+                await execute(
+                    config=_attribute_config("tacacs", mode="write"),
+                    context=WorkflowContext(
+                        run_id="r", workflow_id="w", devices={"d1": _device("d1")}
+                    ),
+                    run=MagicMock(),
+                    artifact_service=MagicMock(),
+                    node_id="n",
+                    device_sessions=MagicMock(),
+                )
+
+    async def test_full_success_path(self) -> None:
+        update_service = MagicMock()
+        update_service.set_local_config_context = AsyncMock()
+        run = MagicMock()
+        run.id = 1
+        device = _device("d1", tacacs={"shared_secret": {"port": 49}})
+        ctx = WorkflowContext(run_id="r", workflow_id="w", devices={"d1": device})
+        with (
+            patch.object(mod, "object_session", return_value=MagicMock()),
+            patch.object(
+                mod,
+                "_build_update_service",
+                return_value=(MagicMock(), MagicMock(), update_service),
+            ),
+            patch.object(mod, "resolve_nautobot_device_id", AsyncMock(return_value="nb-1")),
+        ):
+            outcomes = await execute(
+                config=_attribute_config("tacacs.shared_secret", mode="write"),
+                context=ctx,
+                run=run,
+                artifact_service=MagicMock(),
+                node_id="n",
+                device_sessions=MagicMock(),
+            )
+        success = next(o for o in outcomes if o.name == "success")
+        self.assertIn("d1", success.context.devices)
+        self.assertEqual(success.context.devices["d1"].status, DeviceStatus.OK)
+        update_service.set_local_config_context.assert_awaited_once_with("nb-1", {"port": 49})
+
+
+class EmptyDeviceSetTests(unittest.IsolatedAsyncioTestCase):
+    """An empty branch (nothing matched, nothing failed) is a no-op, not an error."""
+
+    async def test_empty_context_is_a_noop_success(self) -> None:
+        context = WorkflowContext(run_id="r1", workflow_id="w1", devices={}, metadata={})
+        outcomes = await execute(
+            config={
+                "nautobot_source_id": "s",
+                "mode": "write",
+                "value_source": {"type": "attribute", "attribute_path": "a.b"},
+            },
+            context=context,
+            run=MagicMock(),
+            artifact_service=MagicMock(),
+            node_id="n1",
+            device_sessions=MagicMock(),
+        )
+        self.assertEqual([o.name for o in outcomes], ["success"])
+        self.assertEqual(outcomes[0].context.devices, {})
+
+
+if __name__ == "__main__":
+    unittest.main()

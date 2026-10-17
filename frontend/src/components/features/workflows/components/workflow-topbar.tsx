@@ -1,0 +1,190 @@
+"use client";
+
+import {
+  ChevronDown,
+  FastForward,
+  FilePlus,
+  FolderOpen,
+  FolderCog,
+  History,
+  Play,
+  Save,
+  SaveAll,
+  ShieldCheck,
+  Sparkles,
+  StepForward,
+} from "lucide-react";
+
+import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { useWorkflowRunQuery } from "@/hooks/queries/use-workflow-run-query";
+import {
+  useApproveAllMutation,
+  useApproveBatchMutation,
+} from "@/hooks/queries/use-workflow-run-mutations";
+
+import { useWorkflowBuilderStore } from "../hooks/use-workflow-builder-store";
+
+const SHORTCUT_MODIFIER = "Ctrl+";
+
+interface WorkflowTopbarProps {
+  onNew: () => void;
+  onOpen: () => void;
+  onManage: () => void;
+  onSave: () => void;
+  onSaveAs: () => void;
+  onVersionControl: () => void;
+  onRun: () => void;
+  onValidate: () => void;
+  isValidating: boolean;
+  /** Provided only when the AI assistant is available to the user; hides the button otherwise. */
+  onToggleAssistant?: () => void;
+  isAssistantOpen?: boolean;
+}
+
+export function WorkflowTopbar({
+  onNew,
+  onOpen,
+  onManage,
+  onSave,
+  onSaveAs,
+  onVersionControl,
+  onRun,
+  onValidate,
+  isValidating,
+  onToggleAssistant,
+  isAssistantOpen = false,
+}: WorkflowTopbarProps) {
+  const workflowId = useWorkflowBuilderStore((state) => state.workflowId);
+  const workflowName = useWorkflowBuilderStore((state) => state.workflowName);
+  const isDirty = useWorkflowBuilderStore((state) => state.isDirty);
+  const activeRunId = useWorkflowBuilderStore((state) => state.activeRunId);
+
+  const { data: activeRun } = useWorkflowRunQuery(activeRunId);
+  const approveBatch = useApproveBatchMutation(workflowId);
+  const approveAll = useApproveAllMutation(workflowId);
+  const approvalState = activeRun?.approval_state;
+  const isAwaitingBatch =
+    activeRun?.status === "paused" && approvalState?.awaiting === true;
+
+  return (
+    <header className="flex h-16 items-center justify-between border-b bg-card px-5">
+      <div className="flex items-center gap-4">
+        <div>
+          <h1 className="text-sm font-semibold">
+            {workflowName}
+            {isDirty ? (
+              <span className="ml-1 text-muted-foreground">●</span>
+            ) : null}
+          </h1>
+          <p className="text-xs text-muted-foreground">
+            Select devices, run commands, and store artifacts.
+          </p>
+        </div>
+      </div>
+
+      <div className="flex items-center gap-3">
+        {isAwaitingBatch && approvalState ? (
+          <>
+            <Button
+              variant="outline"
+              disabled={approveBatch.isPending || !activeRunId}
+              onClick={() => activeRunId && approveBatch.mutate(activeRunId)}
+            >
+              <StepForward className="size-4" />
+              Run next batch ({approvalState.next_batch_index + 1}/
+              {approvalState.total_batches})
+            </Button>
+            <Button
+              variant="outline"
+              disabled={approveAll.isPending || !activeRunId}
+              onClick={() => activeRunId && approveAll.mutate(activeRunId)}
+            >
+              <FastForward className="size-4" />
+              Run all remaining
+            </Button>
+          </>
+        ) : null}
+
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="outline">
+              File
+              <ChevronDown className="size-4" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem onSelect={onNew}>
+              <FilePlus className="size-4" />
+              New
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={onOpen}>
+              <FolderOpen className="size-4" />
+              Open…
+              <span className="ml-auto text-xs tracking-widest text-muted-foreground">
+                {SHORTCUT_MODIFIER}O
+              </span>
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={onManage}>
+              <FolderCog className="size-4" />
+              Manage…
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onSelect={onSave}>
+              <Save className="size-4" />
+              Save
+              <span className="ml-auto text-xs tracking-widest text-muted-foreground">
+                {SHORTCUT_MODIFIER}S
+              </span>
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={onSaveAs}>
+              <SaveAll className="size-4" />
+              Save As…
+              <span className="ml-auto text-xs tracking-widest text-muted-foreground">
+                {SHORTCUT_MODIFIER}Shift+S
+              </span>
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              onSelect={onVersionControl}
+              disabled={!workflowId}
+            >
+              <History className="size-4" />
+              Version Control…
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+
+        {onToggleAssistant ? (
+          <Button
+            variant={isAssistantOpen ? "default" : "outline"}
+            onClick={onToggleAssistant}
+          >
+            <Sparkles className="size-4" />
+            AI Assistant
+          </Button>
+        ) : null}
+
+        <Button
+          variant="outline"
+          disabled={!workflowId || isValidating}
+          onClick={onValidate}
+        >
+          <ShieldCheck className="size-4" />
+          {isValidating ? "Validating…" : "Validate"}
+        </Button>
+
+        <Button onClick={onRun}>
+          <Play className="size-4" />
+          Run
+        </Button>
+      </div>
+    </header>
+  );
+}

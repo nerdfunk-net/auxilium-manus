@@ -1,0 +1,216 @@
+import { NextResponse } from "next/server";
+import { cookies } from "next/headers";
+
+import { AUTH_COOKIE_NAME } from "@/lib/auth";
+import { isSameOriginRequest } from "@/lib/same-origin";
+
+const DEFAULT_BACKEND_URL = "http://127.0.0.1:8000";
+const HOP_BY_HOP_HEADERS = new Set([
+  "connection",
+  "content-length",
+  "host",
+  "keep-alive",
+  "proxy-authenticate",
+  "proxy-authorization",
+  "te",
+  "trailer",
+  "transfer-encoding",
+  "upgrade",
+]);
+// "x-real-ip" and "forwarded" are stripped so the backend's client-IP resolution
+// (backend/core/client_ip.py) only ever sees "x-forwarded-for". Next.js sets
+// x-forwarded-for from the socket when the browser did not send one; an ingress
+// in front of this server should overwrite or append it (see docker/DOCKER.md).
+const STRIP_REQUEST_HEADERS = new Set(["authorization", "cookie", "x-real-ip", "forwarded"]);
+// "location" is stripped because the server-side fetch to the backend uses
+// redirect: "manual" (so *we* don't follow it), but useApi's browser fetch
+// uses the default redirect: "follow" — forwarding Location would let a
+// future backend 3xx be followed client-side with no proxy-side review.
+const STRIP_RESPONSE_HEADERS = new Set(["set-cookie", "location"]);
+
+export interface ProxyRequestOptions {
+  path: string[];
+  request: Request;
+  authorization?: string;
+  body?: BodyInit | null;
+}
+
+// Matches the backend's MAX_REQUEST_BODY_BYTES default. Above it the backend answers 413 anyway;
+// refusing here keeps an oversized body from being buffered in this process first.
+const MAX_PROXY_BODY_BYTES = Number(process.env.MAX_PROXY_BODY_BYTES ?? 25 * 1024 * 1024);
+
+class BodyTooLargeError extends Error {}
+
+export async function proxyRequest({
+  authorization,
+  body,
+  path,
+  request,
+}: ProxyRequestOptions) {
+  if (!isSameOriginRequest(request)) {
+    return NextResponse.json({ message: "Cross-origin request refused" }, { status: 403 });
+  }
+  let targetUrl: string;
+  try {
+    targetUrl = buildBackendUrl(path, request.url);
+  } catch (error) {
+    if (error instanceof Error && error.message === "Invalid proxy path") {
+      return NextResponse.json({ message: "Not found" }, { status: 404 });
+    }
+    throw error;
+  }
+  let headers: Headers;
+  let requestBody: BodyInit | null;
+  try {
+    [headers, requestBody] = await Promise.all([
+      buildForwardHeaders(request.headers, authorization),
+      body !== undefined ? Promise.resolve(body) : readRequestBody(request),
+    ]);
+  } catch (error) {
+    if (error instanceof BodyTooLargeError) {
+      return NextResponse.json({ message: "Request body too large" }, { status: 413 });
+    }
+    throw error;
+  }
+
+  try {
+    const backendResponse = await fetch(targetUrl, {
+      body: requestBody,
+      cache: "no-store",
+      headers,
+      method: request.method,
+      redirect: "manual",
+      // Cancel the backend request when the browser goes away (e.g. the AI assistant's Stop
+      // button), so a streaming response does not keep running and spending quota.
+      signal: request.signal,
+    });
+
+    return toNextResponse(backendResponse);
+  } catch {
+    return NextResponse.json({ message: "Backend unavailable" }, { status: 503 });
+  }
+}
+
+export function buildBackendUrl(path: string[], requestUrl: string) {
+  const backendUrl = (process.env.BACKEND_URL ?? DEFAULT_BACKEND_URL).replace(/\/$/, "");
+  const sourceUrl = new URL(requestUrl);
+  const normalizedPath = normalizeProxyPath(path);
+
+  return `${backendUrl}${normalizedPath}${sourceUrl.search}`;
+}
+
+const FORBIDDEN_SEGMENTS = new Set(["", ".", ".."]);
+
+export function normalizeProxyPath(path: string[]) {
+  // Next.js decodes each catch-all segment before handing it to us, so a
+  // literal "#" (or other reserved char) in a segment — e.g. an ISE group
+  // name like "myGroup#myGroup#my-test-001" — must be re-encoded before
+  // going into a plain string URL. Left decoded, fetch() treats a bare "#"
+  // as the start of a URL fragment and silently drops everything after it,
+  // including the query string.
+  if (path.some((segment) => FORBIDDEN_SEGMENTS.has(segment))) {
+    throw new Error("Invalid proxy path");
+  }
+  const requestedPath = path.map((segment) => encodeURIComponent(segment)).join("/");
+
+  if (requestedPath.startsWith("api/")) {
+    return `/${requestedPath}`;
+  }
+
+  return `/api/${requestedPath}`;
+}
+
+async function buildForwardHeaders(sourceHeaders: Headers, authorization?: string) {
+  const headers = new Headers();
+
+  for (const [key, value] of sourceHeaders.entries()) {
+    const lowerKey = key.toLowerCase();
+
+    if (!HOP_BY_HOP_HEADERS.has(lowerKey) && !STRIP_REQUEST_HEADERS.has(lowerKey)) {
+      headers.set(key, value);
+    }
+  }
+
+  const cookieToken = (await cookies()).get(AUTH_COOKIE_NAME)?.value;
+  const authHeader = authorization ?? (cookieToken ? `Bearer ${cookieToken}` : null);
+
+  if (authHeader) {
+    headers.set("Authorization", authHeader);
+  }
+
+  return headers;
+}
+
+async function readRequestBody(request: Request): Promise<ArrayBuffer | null> {
+  if (request.method === "GET" || request.method === "HEAD") {
+    return null;
+  }
+
+  const declared = Number(request.headers.get("content-length") ?? 0);
+  if (declared > MAX_PROXY_BODY_BYTES) {
+    throw new BodyTooLargeError();
+  }
+
+  // Next.js App Router cannot forward request.body (ReadableStream) directly to
+  // another fetch() call — read it into an ArrayBuffer first, bounded as it arrives.
+  const reader = request.body?.getReader();
+  if (!reader) {
+    return null;
+  }
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.byteLength;
+    if (size > MAX_PROXY_BODY_BYTES) {
+      await reader.cancel();
+      throw new BodyTooLargeError();
+    }
+    chunks.push(value);
+  }
+  const joined = new Uint8Array(size);
+  let offset = 0;
+  for (const chunk of chunks) {
+    joined.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return joined.buffer;
+}
+
+async function toNextResponse(response: Response) {
+  if (response.status === 204) {
+    return new NextResponse(null, { status: 204 });
+  }
+
+  const headers = copyResponseHeaders(response.headers);
+  const contentType = response.headers.get("content-type") ?? "";
+
+  if (contentType.includes("application/json")) {
+    const data = await response.json();
+
+    return NextResponse.json(data, {
+      headers,
+      status: response.status,
+    });
+  }
+
+  return new NextResponse(response.body, {
+    headers,
+    status: response.status,
+  });
+}
+
+function copyResponseHeaders(sourceHeaders: Headers) {
+  const headers = new Headers();
+
+  for (const [key, value] of sourceHeaders.entries()) {
+    const lowerKey = key.toLowerCase();
+
+    if (!HOP_BY_HOP_HEADERS.has(lowerKey) && !STRIP_RESPONSE_HEADERS.has(lowerKey)) {
+      headers.set(key, value);
+    }
+  }
+
+  return headers;
+}

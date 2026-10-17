@@ -1,0 +1,186 @@
+"""Tests for store-artifact content resolution."""
+
+from __future__ import annotations
+
+import unittest
+
+from models.workflow_context import ArtifactRef, DeviceContext, DeviceStatus
+from workflow_steps.common.content_resolver import list_exportable_content
+
+
+def _device_with_rendered_template() -> DeviceContext:
+    artifact_ref = ArtifactRef(
+        artifact_id="artifact-rendered",
+        kind="rendered_template",
+        size_bytes=24,
+    )
+    return DeviceContext(
+        id="device-1",
+        name="lab",
+        hostname="lab",
+        parsed={
+            "device_config": {
+                "artifact_ref": artifact_ref.model_dump(mode="json"),
+                "step_node_id": "render-jinja-template-3",
+                "output_key": "device_config",
+                "size_bytes": 24,
+                "kind": "rendered_template",
+            }
+        },
+        status=DeviceStatus.OK,
+    )
+
+
+def _device_with_pyats_snapshot() -> DeviceContext:
+    artifact_ref = ArtifactRef(
+        artifact_id="artifact-snapshot",
+        kind="pyats_snapshot",
+        media_type="application/json",
+        size_bytes=42,
+    )
+    return DeviceContext(
+        id="device-1",
+        name="lab",
+        hostname="lab",
+        parsed={
+            "pyats_snapshot": {
+                "kind": "pyats_snapshot",
+                "artifact_ref": artifact_ref.model_dump(mode="json"),
+                "step_node_id": "get-pyats-snapshot-5",
+                "features": {
+                    "bgp": {"success": True, "error": None},
+                    "interface": {"success": True, "error": None},
+                },
+            }
+        },
+        status=DeviceStatus.OK,
+    )
+
+
+class ContentResolverTests(unittest.TestCase):
+    def test_rendered_template_requires_source_step_node_id(self) -> None:
+        device = _device_with_rendered_template()
+        with self.assertRaises(ValueError) as ctx:
+            list_exportable_content(device, content_source="rendered_template")
+        self.assertIn("source_step_node_id", str(ctx.exception))
+
+    def test_rendered_template_resolves_matching_step(self) -> None:
+        device = _device_with_rendered_template()
+        items = list_exportable_content(
+            device,
+            content_source="rendered_template",
+            source_step_node_id="render-jinja-template-3",
+        )
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0].kind, "rendered_template")
+        self.assertEqual(items[0].artifact_ref.artifact_id, "artifact-rendered")
+        self.assertEqual(items[0].extra["output_key"], "device_config")
+
+    def test_rendered_template_filters_by_parsed_output_key(self) -> None:
+        device = _device_with_rendered_template()
+        items = list_exportable_content(
+            device,
+            content_source="rendered_template",
+            source_step_node_id="render-jinja-template-3",
+            parsed_output_key="device_config",
+        )
+        self.assertEqual(len(items), 1)
+
+        missing = list_exportable_content(
+            device,
+            content_source="rendered_template",
+            source_step_node_id="render-jinja-template-3",
+            parsed_output_key="other_key",
+        )
+        self.assertEqual(missing, [])
+
+    def test_rendered_template_ignores_other_steps(self) -> None:
+        device = _device_with_rendered_template()
+        items = list_exportable_content(
+            device,
+            content_source="rendered_template",
+            source_step_node_id="render-jinja-template-9",
+        )
+        self.assertEqual(items, [])
+
+    def test_pyats_snapshot_requires_source_step_node_id(self) -> None:
+        device = _device_with_pyats_snapshot()
+        with self.assertRaises(ValueError) as ctx:
+            list_exportable_content(device, content_source="pyats_snapshot")
+        self.assertIn("source_step_node_id", str(ctx.exception))
+
+    def test_pyats_snapshot_resolves_matching_step(self) -> None:
+        device = _device_with_pyats_snapshot()
+        items = list_exportable_content(
+            device,
+            content_source="pyats_snapshot",
+            source_step_node_id="get-pyats-snapshot-5",
+        )
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0].kind, "pyats_snapshot")
+        self.assertEqual(items[0].artifact_ref.artifact_id, "artifact-snapshot")
+        self.assertEqual(items[0].extra["output_key"], "pyats_snapshot")
+        self.assertEqual(items[0].extra["features"], ["bgp", "interface"])
+
+    def test_pyats_snapshot_filters_by_parsed_output_key(self) -> None:
+        device = _device_with_pyats_snapshot()
+        items = list_exportable_content(
+            device,
+            content_source="pyats_snapshot",
+            source_step_node_id="get-pyats-snapshot-5",
+            parsed_output_key="pyats_snapshot",
+        )
+        self.assertEqual(len(items), 1)
+
+        missing = list_exportable_content(
+            device,
+            content_source="pyats_snapshot",
+            source_step_node_id="get-pyats-snapshot-5",
+            parsed_output_key="other_key",
+        )
+        self.assertEqual(missing, [])
+
+    def test_pyats_snapshot_ignores_other_steps(self) -> None:
+        device = _device_with_pyats_snapshot()
+        items = list_exportable_content(
+            device,
+            content_source="pyats_snapshot",
+            source_step_node_id="get-pyats-snapshot-9",
+        )
+        self.assertEqual(items, [])
+
+    def test_comparison_diff_resolves_matching_step(self) -> None:
+        artifact_ref = ArtifactRef(
+            artifact_id="artifact-diff",
+            kind="comparison_diff",
+            size_bytes=42,
+        )
+        device = DeviceContext(
+            id="device-1",
+            name="lab",
+            hostname="lab",
+            parsed={
+                "compare-data-2": {
+                    "comparison_diff": {
+                        "artifact_ref": artifact_ref.model_dump(mode="json"),
+                        "step_node_id": "compare-data-2",
+                        "kind": "comparison_diff",
+                        "matched": False,
+                        "reference_path": "lab.cfg",
+                    }
+                }
+            },
+            status=DeviceStatus.OK,
+        )
+        items = list_exportable_content(
+            device,
+            content_source="comparison_diff",
+            source_step_node_id="compare-data-2",
+        )
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0].kind, "comparison_diff")
+        self.assertEqual(items[0].artifact_ref.artifact_id, "artifact-diff")
+
+
+if __name__ == "__main__":
+    unittest.main()

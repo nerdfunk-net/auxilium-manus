@@ -1,0 +1,149 @@
+name: backend-ci
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "backend/**"
+      # Unit tests read the compose files, docker/.env.example and .dockerignore
+      # (test_compose_env_coverage.py, test_compose_networks.py, test_dockerignore.py), and the
+      # version in frontend/package.json and CHANGELOG.md (test_version_source.py).
+      - "docker/**"
+      - ".dockerignore"
+      - "frontend/package.json"
+      - "CHANGELOG.md"
+      - ".github/workflows/backend-ci.yml"
+  pull_request:
+    paths:
+      - "backend/**"
+      # Unit tests read the compose files, docker/.env.example and .dockerignore
+      # (test_compose_env_coverage.py, test_compose_networks.py, test_dockerignore.py), and the
+      # version in frontend/package.json and CHANGELOG.md (test_version_source.py).
+      - "docker/**"
+      - ".dockerignore"
+      - "frontend/package.json"
+      - "CHANGELOG.md"
+      - ".github/workflows/backend-ci.yml"
+
+defaults:
+  run:
+    working-directory: backend
+
+concurrency:
+  group: backend-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.14"
+      - run: pip install -r requirements-dev.txt
+      # ruff lint covers flake8-bandit (`S`) and flake8-async (`ASYNC`); see pyproject.toml.
+      - name: ruff check
+        run: ruff check --output-format=github .
+
+  types:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.14"
+      - run: pip install -r requirements-dev.txt
+      - name: pyright
+        run: pyright
+
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.14"
+      - run: pip install pip-audit==2.9.0
+      - name: pip-audit
+        # PYSEC-2026-2858: paramiko (transitive via netmiko) accepts SHA-1 for RSA
+        # keys; no fixed release yet. Re-check when a fixed paramiko ships.
+        run: pip-audit -r requirements.txt -r requirements-dev.txt --ignore-vuln PYSEC-2026-2858
+
+  guards:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.14"
+      - run: pip install -r requirements-dev.txt
+      - run: python scripts/check_asyncio_run.py
+      - run: python scripts/check_http_500_leaks.py
+      - run: python scripts/check_router_repositories.py
+      - run: python scripts/check_text_sql.py
+      - run: python scripts/check_flag_parsing.py
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.14"
+      - run: pip install -r requirements-dev.txt
+      # tests/unit uses in-memory SQLite + fakeredis — no Postgres/Redis services.
+      # addopts in pyproject.toml enforces --cov-fail-under=81.
+      - name: pytest (unit) + coverage ratchet
+        env:
+          ENV: development
+          # Executors must not mutate their input context (DN-D, branches share contexts).
+          MANUS_STRICT_CONTEXT: "1"
+        run: python -m pytest
+
+  integration-postgres:
+    # The unit job runs on SQLite, which turns the partial unique indexes into full ones and has no
+    # JSONB or advisory locks. These integration files need only a PostgreSQL server (no Nautobot,
+    # Gitea, OpenBao or device), so GitHub's own service container is enough.
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: manus_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      # A skipped suite is green: make an unreachable database a failure instead.
+      MANUS_REQUIRE_POSTGRES: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.14"
+      - run: pip install -r requirements-dev.txt
+      # tests/integration/conftest.py loads backend/.env.test with override=True.
+      - name: write .env.test
+        run: |
+          cat > .env.test <<'ENVEOF'
+          ENV=development
+          SECRET_KEY=ci-only-not-a-secret
+          DATABASE_HOST=localhost
+          DATABASE_PORT=5432
+          DATABASE_NAME=manus_test
+          DATABASE_USERNAME=postgres
+          DATABASE_PASSWORD=postgres
+          DATABASE_MAINTENANCE_NAME=postgres
+          INITIAL_USERNAME=admin
+          INITIAL_PASSWORD=admin-ci-password-123
+          ENVEOF
+      - name: pytest (integration, Postgres only)
+        # Modules that need only PostgreSQL carry `pytest.mark.postgres`; a new one is picked up by
+        # adding the marker, not by editing this file.
+        run: python -m pytest --no-cov -m postgres tests/integration

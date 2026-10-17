@@ -1,0 +1,22 @@
+def get_config() -> dict:
+    return {
+        "attributes": [],
+    }
+
+
+def get_default_attribute() -> dict:
+    """Default fields for a single attribute update entry."""
+    return {
+        "mode": "fixed",
+        "destination_path": "custom.location",
+        "fixed_value": "",
+        "source_path": "device.name",
+        "pattern": r"^([^-]+)-",
+        "destination_template": r"DC-\1",
+        "template": "",
+        "regex_flags": {
+            "case_insensitive": False,
+            "multiline": False,
+            "dotall": False,
+        },
+    }

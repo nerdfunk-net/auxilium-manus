@@ -1,0 +1,216 @@
+"""Device and content-search preview operations for a configured git repository."""
+
+from __future__ import annotations
+
+import asyncio
+import logging
+from typing import Any
+
+from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+from sqlalchemy.orm import Session
+
+from core.auth import get_current_user, require_permission
+from core.database import get_db
+from core.domain_exceptions import DomainError
+from core.models.users import User
+from core.safe_http_errors import raise_internal_server_error
+from services.git.content_search_service import GitContentSearchService
+from services.git.device_service import GitDeviceService
+from services.git.paths import validate_relative_glob
+from services.git.repository_service import GitRepositoryService
+from services.git.sync import agit_checkout
+from services.network.cisco_config_parsing import parse_cisco_config_text
+
+logger = logging.getLogger(__name__)
+router = APIRouter(prefix="/git/{repo_id}", tags=["git-devices"])
+
+
+class GitDevicePreviewRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    filename_pattern: str = Field(..., min_length=1, max_length=256)
+    directory: str = Field(default="", max_length=256)
+    device_mapping: list[dict[str, Any]] | None = None
+    file_format: str = "yaml"
+    csv_delimiter: str = ";"
+    csv_multiline: bool = False
+
+    @field_validator("filename_pattern")
+    @classmethod
+    def _pattern(cls, v: str) -> str:
+        return validate_relative_glob(v, field="filename_pattern")
+
+    @field_validator("directory")
+    @classmethod
+    def _directory(cls, v: str) -> str:
+        return validate_relative_glob(v.lstrip("/\\"), field="directory", allow_empty=True)
+
+
+class GitDevicePreviewResponse(BaseModel):
+    devices: list[dict[str, Any]]
+    total_count: int
+    files_read: int
+    available_keys: list[str]
+    warnings: list[str]
+
+
+class GitContentSearchPreviewRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    directory: str = Field(default="", max_length=256)
+    file_filter: str = Field(default="", max_length=256)
+    recursive: bool = True
+    include_history: bool = False
+    search_text: str
+    case_sensitive: bool = False
+
+    @field_validator("directory")
+    @classmethod
+    def _directory(cls, v: str) -> str:
+        return validate_relative_glob(v.lstrip("/\\"), field="directory", allow_empty=True)
+
+    @field_validator("file_filter")
+    @classmethod
+    def _file_filter(cls, v: str) -> str:
+        # file_filter is a filename glob matched against the file name only.
+        if "/" in v or "\\" in v or "\x00" in v:
+            raise ValueError("file_filter must be a file name pattern without path separators")
+        return v.strip()
+
+
+class GitContentSearchPreviewMatch(BaseModel):
+    file_path: str
+    line_content: str
+    hostname: str | None
+    commit: str | None
+
+
+class GitContentSearchPreviewResponse(BaseModel):
+    matches: list[GitContentSearchPreviewMatch]
+    total_matches: int
+    files_scanned: int
+    # The scan stopped at the file cap: the matches are a partial list.
+    truncated: bool = False
+
+
+def _load_repository(repo_id: int, db: Session) -> dict[str, Any]:
+    repository = GitRepositoryService(db).get_repository(repo_id)
+    if repository is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Repository not found")
+    return repository
+
+
+@router.post(
+    "/preview-devices",
+    response_model=GitDevicePreviewResponse,
+    dependencies=[Depends(require_permission("git.files", "read"))],
+)
+async def preview_git_devices(
+    repo_id: int,
+    request: GitDevicePreviewRequest,
+    _: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> GitDevicePreviewResponse:
+    pattern = request.filename_pattern.strip()
+    if not pattern:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="filename_pattern is required"
+        )
+
+    repository = _load_repository(repo_id, db)
+    service = GitDeviceService()
+    loop = asyncio.get_running_loop()
+    try:
+        result = await loop.run_in_executor(
+            None,
+            lambda: service.fetch_records(
+                repository,
+                pattern,
+                request.directory,
+                request.device_mapping,
+                file_format=request.file_format,
+                csv_delimiter=request.csv_delimiter,
+                csv_multiline=request.csv_multiline,
+            ),
+        )
+        return GitDevicePreviewResponse(
+            devices=[record.mapped for record in result.records],
+            total_count=len(result.records),
+            files_read=result.files_read,
+            available_keys=result.available_keys,
+            warnings=result.warnings,
+        )
+    except (HTTPException, DomainError):
+        raise
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except Exception as exc:
+        raise_internal_server_error(logger, "Failed to preview git devices: ", exc)
+
+
+@router.post(
+    "/content-search-preview",
+    response_model=GitContentSearchPreviewResponse,
+    dependencies=[Depends(require_permission("git.files", "read"))],
+)
+async def preview_git_content_search(
+    repo_id: int,
+    request: GitContentSearchPreviewRequest,
+    _: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> GitContentSearchPreviewResponse:
+    if not request.search_text.strip():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="search_text is required"
+        )
+
+    repository = _load_repository(repo_id, db)
+    loop = asyncio.get_running_loop()
+    try:
+        search_service = GitContentSearchService()
+        # the repository lease stays held while the files are searched
+        async with agit_checkout(repository) as repo_dir:
+            matches, files_scanned, truncated = await loop.run_in_executor(
+                None,
+                lambda: search_service.search_with_status(
+                    repo_dir,
+                    directory=request.directory,
+                    file_filter=request.file_filter,
+                    recursive=request.recursive,
+                    include_history=request.include_history,
+                    search_text=request.search_text,
+                    case_sensitive=request.case_sensitive,
+                ),
+            )
+
+        preview_matches: list[GitContentSearchPreviewMatch] = []
+        for match in matches:
+            hostname: str | None = None
+            try:
+                parsed = parse_cisco_config_text(match.content, None)
+                candidate = str(parsed.get("hostname") or "").strip()
+                hostname = candidate or None
+            except ValueError:
+                hostname = None
+            preview_matches.append(
+                GitContentSearchPreviewMatch(
+                    file_path=match.file_path,
+                    line_content=match.line_content,
+                    hostname=hostname,
+                    commit=match.commit,
+                )
+            )
+
+        return GitContentSearchPreviewResponse(
+            matches=preview_matches,
+            total_matches=len(preview_matches),
+            files_scanned=files_scanned,
+            truncated=truncated,
+        )
+    except (HTTPException, DomainError):
+        raise
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except Exception as exc:
+        raise_internal_server_error(logger, "Failed to preview git content search: ", exc)

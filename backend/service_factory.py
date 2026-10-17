@@ -1,0 +1,507 @@
+"""Service factory for constructing application services."""
+
+from __future__ import annotations
+
+import logging
+from typing import TYPE_CHECKING
+
+from sqlalchemy.orm import Session
+
+if TYPE_CHECKING:
+    from services.secret_manager.registry import SecretManagerClientRegistry
+    from services.vault.client import OpenBaoService
+
+from core.config import settings
+from repositories.inventory_repository import InventoryRepository
+from services.auth.login_rate_limiter import (
+    LOGIN_IP_RATE_LIMIT_ATTEMPTS,
+    LOGIN_IP_RATE_LIMIT_WINDOW_SECONDS,
+    LOGIN_USER_RATE_LIMIT_ATTEMPTS,
+    LOGIN_USER_RATE_LIMIT_WINDOW_SECONDS,
+    WEBHOOK_RATE_LIMIT_ATTEMPTS,
+    WEBHOOK_RATE_LIMIT_WINDOW_SECONDS,
+    LoginRateLimiter,
+)
+from services.batfish.client import BatfishService
+from services.batfish.preview_service import BatfishPreviewService
+from services.batfish.source_config_service import BatfishSourceConfigService
+from services.cache.redis_cache_service import RedisCacheService
+from services.catalyst_center.client import CatalystCenterService
+from services.catalyst_center.command_service import CatalystCenterCommandService
+from services.catalyst_center.credentials import CatalystCenterCredentials
+from services.catalyst_center.details_service import CatalystCenterDetailsService
+from services.catalyst_center.device_service import CatalystCenterDeviceService
+from services.catalyst_center.health_service import CatalystCenterHealthService
+from services.catalyst_center.source_config_service import CatalystCenterSourceConfigService
+from services.catalyst_center.topology_service import CatalystCenterTopologyService
+from services.ise.client import ISEService
+from services.ise.credentials import ISECredentials
+from services.ise.network_device_group_service import ISENetworkDeviceGroupService
+from services.ise.network_device_service import ISENetworkDeviceService
+from services.ise.source_config_service import ISESourceConfigService
+from services.mattermost.client import MattermostService
+from services.mattermost.source_config_service import MattermostSourceConfigService
+from services.nautobot.client import NautobotService
+from services.nautobot.credentials import NautobotCredentials
+from services.nautobot.metadata_service import NautobotMetadataService
+from services.pyats.client import PyATSShimService
+from services.pyats.source_config_service import PyATSSourceConfigService
+from services.sources.nautobot.persistence_service import InventoryService
+from services.sources.nautobot.source_service import NautobotSourceService
+
+logger = logging.getLogger(__name__)
+
+_cache_service: RedisCacheService | None = None
+_cache_failure_logged = False
+_nautobot_service: NautobotService | None = None
+_ise_service: ISEService | None = None
+_catalyst_center_service: CatalystCenterService | None = None
+_pyats_service: PyATSShimService | None = None
+_batfish_service: BatfishService | None = None
+_mattermost_service: MattermostService | None = None
+_login_rate_limiter: LoginRateLimiter | None = None
+_login_ip_rate_limiter: LoginRateLimiter | None = None
+_login_user_rate_limiter: LoginRateLimiter | None = None
+_refresh_rate_limiter: LoginRateLimiter | None = None
+_oidc_login_rate_limiter: LoginRateLimiter | None = None
+_webhook_rate_limiter: LoginRateLimiter | None = None
+_user_rate_limiters: dict[str, LoginRateLimiter] = {}
+# OpenBao (Vault). Both are None unless VAULT_ENABLED. `_vault_service` is the
+# read-only runtime client (manus-app policy); `_vault_management_service` is the
+# write-capable client (manus-manage policy), injected only into credential-manager
+# write endpoints. See doc/VAULT_INTEGRATION.md.
+_vault_service: OpenBaoService | None = None
+_vault_management_service: OpenBaoService | None = None
+# Secret Manager (OpenBao network-secret connections). Lazily built
+# on first access — connections are DB rows, not known at boot. See
+# doc/SECRET_MANAGER_INTEGRATION.md.
+_secret_manager_registry: SecretManagerClientRegistry | None = None
+
+
+def get_nautobot_app_service() -> NautobotService:
+    if _nautobot_service is None:
+        raise RuntimeError("NautobotService is not initialized")
+    return _nautobot_service
+
+
+def set_nautobot_app_service(service: NautobotService) -> None:
+    global _nautobot_service
+    _nautobot_service = service
+
+
+def get_ise_app_service() -> ISEService:
+    if _ise_service is None:
+        raise RuntimeError("ISEService is not initialized")
+    return _ise_service
+
+
+def set_ise_app_service(service: ISEService) -> None:
+    global _ise_service
+    _ise_service = service
+
+
+def build_ise_source_config_service(db: Session) -> ISESourceConfigService:
+    return ISESourceConfigService(db)
+
+
+def get_catalyst_center_app_service() -> CatalystCenterService:
+    if _catalyst_center_service is None:
+        raise RuntimeError("CatalystCenterService is not initialized")
+    return _catalyst_center_service
+
+
+def set_catalyst_center_app_service(service: CatalystCenterService) -> None:
+    global _catalyst_center_service
+    _catalyst_center_service = service
+
+
+def build_catalyst_center_source_config_service(db: Session) -> CatalystCenterSourceConfigService:
+    return CatalystCenterSourceConfigService(db)
+
+
+def build_catalyst_center_device_service(
+    credentials: CatalystCenterCredentials,
+) -> CatalystCenterDeviceService:
+    return CatalystCenterDeviceService(get_catalyst_center_app_service(), credentials)
+
+
+def build_catalyst_center_command_service(
+    credentials: CatalystCenterCredentials,
+) -> CatalystCenterCommandService:
+    return CatalystCenterCommandService(get_catalyst_center_app_service(), credentials)
+
+
+def build_catalyst_center_details_service(
+    credentials: CatalystCenterCredentials,
+) -> CatalystCenterDetailsService:
+    return CatalystCenterDetailsService(get_catalyst_center_app_service(), credentials)
+
+
+def build_catalyst_center_topology_service(
+    credentials: CatalystCenterCredentials,
+) -> CatalystCenterTopologyService:
+    return CatalystCenterTopologyService(get_catalyst_center_app_service(), credentials)
+
+
+def build_catalyst_center_health_service(
+    credentials: CatalystCenterCredentials,
+) -> CatalystCenterHealthService:
+    return CatalystCenterHealthService(get_catalyst_center_app_service(), credentials)
+
+
+def get_pyats_app_service() -> PyATSShimService:
+    if _pyats_service is None:
+        raise RuntimeError("PyATSShimService is not initialized")
+    return _pyats_service
+
+
+def set_pyats_app_service(service: PyATSShimService) -> None:
+    global _pyats_service
+    _pyats_service = service
+
+
+def build_pyats_source_config_service(db: Session) -> PyATSSourceConfigService:
+    return PyATSSourceConfigService(db)
+
+
+def get_batfish_app_service() -> BatfishService:
+    if _batfish_service is None:
+        raise RuntimeError("BatfishService is not initialized")
+    return _batfish_service
+
+
+def set_batfish_app_service(service: BatfishService) -> None:
+    global _batfish_service
+    _batfish_service = service
+
+
+def build_batfish_source_config_service(db: Session) -> BatfishSourceConfigService:
+    return BatfishSourceConfigService(db)
+
+
+def build_batfish_preview_service(db: Session) -> BatfishPreviewService:
+    return BatfishPreviewService(
+        source_config_service=BatfishSourceConfigService(db),
+        batfish_service=get_batfish_app_service(),
+    )
+
+
+def get_mattermost_app_service() -> MattermostService:
+    if _mattermost_service is None:
+        raise RuntimeError("MattermostService is not initialized")
+    return _mattermost_service
+
+
+def set_mattermost_app_service(service: MattermostService) -> None:
+    global _mattermost_service
+    _mattermost_service = service
+
+
+def build_mattermost_source_config_service(db: Session) -> MattermostSourceConfigService:
+    return MattermostSourceConfigService(db)
+
+
+def build_ise_network_device_service(
+    credentials: ISECredentials,
+) -> ISENetworkDeviceService:
+    return ISENetworkDeviceService(get_ise_app_service(), credentials)
+
+
+def build_ise_network_device_group_service(
+    credentials: ISECredentials,
+) -> ISENetworkDeviceGroupService:
+    return ISENetworkDeviceGroupService(get_ise_app_service(), credentials)
+
+
+def build_cache_service() -> RedisCacheService | None:
+    global _cache_service, _cache_failure_logged
+    if _cache_service is not None:
+        return _cache_service
+    try:
+        _cache_service = RedisCacheService(
+            redis_url=settings.redis_url,
+            key_prefix=settings.redis_key_prefix,
+        )
+        _cache_failure_logged = False
+        return _cache_service
+    except Exception:
+        # Callers degrade silently without a cache (OIDC login 503, no dedup, no repo lock):
+        # make the cause visible once instead of on every call.
+        if not _cache_failure_logged:
+            logger.warning("Redis cache could not be created; running without it", exc_info=True)
+            _cache_failure_logged = True
+        return None
+
+
+def build_login_rate_limiter() -> LoginRateLimiter:
+    global _login_rate_limiter
+    if _login_rate_limiter is None:
+        _login_rate_limiter = LoginRateLimiter(
+            redis_url=settings.redis_url,
+            fail_closed=settings.rate_limit_fail_closed,
+        )
+    return _login_rate_limiter
+
+
+def build_login_ip_rate_limiter() -> LoginRateLimiter:
+    """Per-client-IP *failure* budget for POST /auth/login (T1 / D2)."""
+    global _login_ip_rate_limiter
+    if _login_ip_rate_limiter is None:
+        _login_ip_rate_limiter = LoginRateLimiter(
+            redis_url=settings.redis_url,
+            key_prefix="manus-login-ip-rl",
+            fail_closed=settings.rate_limit_fail_closed,
+            attempts=LOGIN_IP_RATE_LIMIT_ATTEMPTS,
+            window_seconds=LOGIN_IP_RATE_LIMIT_WINDOW_SECONDS,
+        )
+    return _login_ip_rate_limiter
+
+
+def build_webhook_rate_limiter() -> LoginRateLimiter:
+    """Per repo+client-IP budget for the inbound git webhook (W1)."""
+    global _webhook_rate_limiter
+    if _webhook_rate_limiter is None:
+        _webhook_rate_limiter = LoginRateLimiter(
+            redis_url=settings.redis_url,
+            key_prefix="manus-webhook-rl",
+            fail_closed=settings.rate_limit_fail_closed,
+            attempts=WEBHOOK_RATE_LIMIT_ATTEMPTS,
+            window_seconds=WEBHOOK_RATE_LIMIT_WINDOW_SECONDS,
+        )
+    return _webhook_rate_limiter
+
+
+def build_user_rate_limiter(bucket: str, attempts: int, window_seconds: int) -> LoginRateLimiter:
+    """One sliding-window limiter per named bucket (S9). Falls back to an in-process
+    window when Redis is down rather than blocking the endpoint."""
+    limiter = _user_rate_limiters.get(bucket)
+    if limiter is None:
+        limiter = _user_rate_limiters[bucket] = LoginRateLimiter(
+            redis_url=settings.redis_url,
+            key_prefix=f"manus-rl:{bucket}",
+            fail_closed=False,
+            attempts=attempts,
+            window_seconds=window_seconds,
+        )
+    return limiter
+
+
+def build_refresh_rate_limiter() -> LoginRateLimiter:
+    """Per-client-address budget for POST /auth/refresh (S1-12): refresh accepts an expired token,
+    so it cannot use the per-user limiter."""
+    global _refresh_rate_limiter
+    if _refresh_rate_limiter is None:
+        _refresh_rate_limiter = LoginRateLimiter(
+            redis_url=settings.redis_url,
+            key_prefix="manus-refresh-rl",
+            fail_closed=settings.rate_limit_fail_closed,
+            attempts=60,
+            window_seconds=60,
+        )
+    return _refresh_rate_limiter
+
+
+def build_oidc_login_rate_limiter() -> LoginRateLimiter:
+    """Per-client-address budget for the unauthenticated OIDC login start (S1-15)."""
+    global _oidc_login_rate_limiter
+    if _oidc_login_rate_limiter is None:
+        _oidc_login_rate_limiter = LoginRateLimiter(
+            redis_url=settings.redis_url,
+            key_prefix="manus-oidc-login-rl",
+            fail_closed=settings.rate_limit_fail_closed,
+            attempts=30,
+            window_seconds=60,
+        )
+    return _oidc_login_rate_limiter
+
+
+def build_login_user_rate_limiter() -> LoginRateLimiter:
+    """Per-username *failure* budget for POST /auth/login (T1 / D2)."""
+    global _login_user_rate_limiter
+    if _login_user_rate_limiter is None:
+        _login_user_rate_limiter = LoginRateLimiter(
+            redis_url=settings.redis_url,
+            key_prefix="manus-login-user-rl",
+            fail_closed=settings.rate_limit_fail_closed,
+            attempts=LOGIN_USER_RATE_LIMIT_ATTEMPTS,
+            window_seconds=LOGIN_USER_RATE_LIMIT_WINDOW_SECONDS,
+        )
+    return _login_user_rate_limiter
+
+
+def credentials_from_connection(
+    nautobot_url: str,
+    nautobot_token: str,
+    timeout: float = 30.0,
+    verify_ssl: bool = True,
+) -> NautobotCredentials:
+    """Build NautobotCredentials, normalizing url/token once for every caller.
+
+    NautobotCredentials.cache_scope hashes the raw url+token to key the Redis
+    bulk device cache. Callers resolve the same stored config with inconsistent
+    whitespace handling (some .strip(), some don't); normalizing here — the one
+    place every call site already routes through — keeps the hash (and thus the
+    cache key) identical regardless of caller, even when the stored token has
+    accidental leading/trailing whitespace.
+    """
+    return NautobotCredentials(
+        url=nautobot_url.strip().rstrip("/"),
+        token=nautobot_token.strip(),
+        timeout=timeout,
+        verify_ssl=verify_ssl,
+    )
+
+
+def build_inventory_service(db: Session) -> InventoryService:
+    return InventoryService(repository=InventoryRepository(db))
+
+
+def build_nautobot_source_service(
+    credentials: NautobotCredentials,
+    db: Session | None = None,
+) -> NautobotSourceService:
+    persistence = build_inventory_service(db) if db is not None else None
+    cache_svc = build_cache_service()
+    device_ttl = 1800
+    location_ttl = 600
+
+    if db is not None and cache_svc is not None:
+        from services.cache.cache_settings_service import CacheSettingsService
+
+        cfg = CacheSettingsService(db, cache_svc).get_settings()
+        if not cfg.enabled:
+            cache_svc = None
+        else:
+            device_ttl = cfg.device_ttl_seconds
+            location_ttl = cfg.location_ttl_seconds
+
+    return NautobotSourceService(
+        nautobot=get_nautobot_app_service(),
+        credentials=credentials,
+        cache_service=cache_svc,
+        persistence_service=persistence,
+        device_ttl=device_ttl,
+        location_ttl=location_ttl,
+    )
+
+
+def build_nautobot_metadata_service(
+    credentials: NautobotCredentials,
+) -> NautobotMetadataService:
+    return NautobotMetadataService(get_nautobot_app_service(), credentials)
+
+
+def build_git_service():
+    from services.git.service import GitService
+
+    return GitService()
+
+
+def build_git_auth_service():
+    from services.git.auth import GitAuthenticationService
+
+    return GitAuthenticationService()
+
+
+def build_git_cache_service():
+    from services.git.cache import GitCacheService
+
+    cache = build_cache_service()
+    return GitCacheService(cache)
+
+
+def build_git_operations_service():
+    from services.git.operations import GitOperationsService
+
+    return GitOperationsService()
+
+
+def build_git_connection_service():
+    from services.git.connection import GitConnectionService
+
+    return GitConnectionService()
+
+
+def get_vault_service() -> OpenBaoService | None:
+    return _vault_service
+
+
+def set_vault_service(service: OpenBaoService | None) -> None:
+    global _vault_service
+    _vault_service = service
+
+
+def get_vault_management_service() -> OpenBaoService | None:
+    return _vault_management_service
+
+
+def set_vault_management_service(service: OpenBaoService | None) -> None:
+    global _vault_management_service
+    _vault_management_service = service
+
+
+def get_secret_manager_registry() -> SecretManagerClientRegistry:
+    """Lazily create the process-wide Secret Manager client registry.
+
+    Unlike the vault singletons above, this never needs eager startup —
+    connections are DB rows, discovered on first use (see
+    services/secret_manager/registry.py).
+    """
+    global _secret_manager_registry
+    if _secret_manager_registry is None:
+        from services.secret_manager.registry import SecretManagerClientRegistry
+
+        _secret_manager_registry = SecretManagerClientRegistry()
+    return _secret_manager_registry
+
+
+async def stop_secret_manager_services() -> None:
+    """Shut down every lazily-created Secret Manager client. Called from both
+    the FastAPI lifespan and each Hatchet worker's shutdown, mirroring
+    ``stop_vault_services``."""
+    global _secret_manager_registry
+    if _secret_manager_registry is not None:
+        await _secret_manager_registry.shutdown_all()
+        _secret_manager_registry = None
+
+
+def build_credentials_service(db: Session | None = None, *, with_management: bool = False):
+    from core.database import SessionLocal
+    from services.credentials.credentials_service import CredentialsService
+
+    session = db if db is not None else SessionLocal()
+    return CredentialsService(
+        session,
+        vault_reader=_vault_service,
+        vault_writer=_vault_management_service if with_management else None,
+    )
+
+
+def build_git_debug_service():
+    from services.git.debug_service import GitDebugService
+
+    return GitDebugService()
+
+
+def build_git_version_control_service():
+    from services.git.version_control_service import GitVersionControlService
+
+    return GitVersionControlService()
+
+
+def build_git_file_service():
+    from services.git.file_service import GitFileService
+
+    return GitFileService()
+
+
+def build_oidc_config_service():
+    from services.auth.oidc_config_service import OidcConfigService
+
+    return OidcConfigService()
+
+
+def build_oidc_service():
+    from services.auth.oidc_service import OIDCService
+
+    return OIDCService(build_oidc_config_service())

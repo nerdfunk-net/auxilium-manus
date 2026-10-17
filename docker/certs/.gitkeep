@@ -1,0 +1,2 @@
+# Place custom CA certificates here (*.crt) for git/HTTPS access during builds.
+# Used by Dockerfile.basic when building with private certificate authorities.

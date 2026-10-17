@@ -1,0 +1,307 @@
+"""Executor for the route-on-content control-flow step."""
+
+from __future__ import annotations
+
+import asyncio
+import logging
+import re
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any
+
+from core.models.runs import WorkflowRun
+from models.failure import FailureInfo
+from models.workflow_context import (
+    Capability,
+    DeviceContext,
+    DeviceError,
+    DeviceStatus,
+    StepOutcome,
+    WorkflowContext,
+)
+from services.artifacts import ArtifactService
+from services.workflow_context.node_result import set_node_result
+from workflow_steps.common.content_resolver import (
+    AMBIGUOUS_CONTENT_FAILURE,
+    ambiguous_content_message,
+    list_exportable_content,
+    parse_content_source,
+)
+from workflow_steps.common.partial_outcomes import device_error_from_exception
+from workflow_steps.common.placeholder_template import render_placeholder_template
+from workflow_steps.common.step_flags import parse_bool_flag
+from workflow_steps.route_on_content.config import get_config
+
+if TYPE_CHECKING:
+    from services.network.netmiko.session_pool import DeviceSessionPool
+
+logger = logging.getLogger(__name__)
+
+_OUTCOME_NAMES = ("match", "mismatch", "failure")
+_MATCH_MODES = frozenset({"fixed_text", "regex"})
+_MATCHED_TEXT_MAX_LENGTH = 200
+
+
+@dataclass(frozen=True)
+class _ParsedRouteConfig:
+    content_source: str
+    source_step_node_id: str | None
+    parsed_output_key: str | None
+    match_mode: str
+    pattern: str
+    case_sensitive: bool
+    multiline: bool
+
+
+def _default_config() -> dict[str, Any]:
+    return get_config()
+
+
+def _parse_route_config(config: dict[str, Any]) -> _ParsedRouteConfig:
+    content_source = parse_content_source(
+        {"content_source": str(config.get("content_source") or _default_config()["content_source"])}
+    )
+    source_step_node_id = str(config.get("source_step_node_id") or "").strip() or None
+    parsed_output_key = str(config.get("parsed_output_key") or "").strip() or None
+
+    match_mode = str(config.get("match_mode") or _default_config()["match_mode"]).strip().lower()
+    if match_mode not in _MATCH_MODES:
+        raise ValueError(
+            f"route-on-content: match_mode {match_mode!r} must be one of {sorted(_MATCH_MODES)}"
+        )
+
+    pattern = str(config.get("pattern") or "").strip()
+    if not pattern:
+        raise ValueError("route-on-content: pattern is required")
+
+    return _ParsedRouteConfig(
+        content_source=content_source,
+        source_step_node_id=source_step_node_id,
+        parsed_output_key=parsed_output_key,
+        match_mode=match_mode,
+        pattern=pattern,
+        case_sensitive=parse_bool_flag(
+            {**_default_config(), **config}, "case_sensitive", default=False
+        ),
+        multiline=parse_bool_flag({**_default_config(), **config}, "multiline", default=False),
+    )
+
+
+def _match_fixed_text(
+    content_text: str, pattern: str, *, case_sensitive: bool
+) -> tuple[bool, str | None]:
+    haystack = content_text if case_sensitive else content_text.casefold()
+    needle = pattern if case_sensitive else pattern.casefold()
+    if needle in haystack:
+        return True, pattern[:_MATCHED_TEXT_MAX_LENGTH]
+    return False, None
+
+
+def _match_regex(
+    content_text: str, pattern: str, *, case_sensitive: bool, multiline: bool
+) -> tuple[bool, str | None]:
+    flags = 0
+    if multiline:
+        flags |= re.MULTILINE
+    if not case_sensitive:
+        flags |= re.IGNORECASE
+    found = re.compile(pattern, flags).search(content_text)
+    if found is None:
+        return False, None
+    return True, found.group(0)[:_MATCHED_TEXT_MAX_LENGTH]
+
+
+def _device_failure(
+    *,
+    device: DeviceContext,
+    node_id: str,
+    code: str,
+    message: str,
+    failure: FailureInfo | None = None,
+) -> DeviceContext:
+    err = DeviceError(
+        node_id=node_id, step_id="route-on-content", code=code, message=message, failure=failure
+    )
+    return device.model_copy(
+        update={"status": DeviceStatus.FAILED, "errors": [*device.errors, err]}
+    )
+
+
+async def _process_device(
+    *,
+    device_id: str,
+    device: DeviceContext,
+    parsed: _ParsedRouteConfig,
+    node_id: str,
+    artifact_service: ArtifactService,
+) -> tuple[str, DeviceContext, str]:
+    export_items = list_exportable_content(
+        device,
+        content_source=parsed.content_source,
+        source_step_node_id=parsed.source_step_node_id,
+        parsed_output_key=parsed.parsed_output_key,
+    )
+    if not export_items:
+        failed = _device_failure(
+            device=device,
+            node_id=node_id,
+            code="missing_content",
+            message=(
+                f"No {parsed.content_source!r} content available for device {device_id}. "
+                "Ensure an upstream step produced the selected data."
+            ),
+        )
+        return device_id, failed, "failure"
+
+    if len(export_items) > 1:
+        failed = _device_failure(
+            device=device,
+            node_id=node_id,
+            code="ambiguous_content",
+            message=ambiguous_content_message(len(export_items)),
+            failure=AMBIGUOUS_CONTENT_FAILURE,
+        )
+        return device_id, failed, "failure"
+    item = export_items[0]
+
+    try:
+        content_text = await artifact_service.resolve(item.artifact_ref)
+    except Exception as exc:  # noqa: BLE001 - surfaced as a per-device failure below
+        err = device_error_from_exception(exc, node_id=node_id, step_id="route-on-content")
+        failed = _device_failure(
+            device=device,
+            node_id=node_id,
+            code="content_unavailable",
+            message=err.message,
+            failure=err.failure,
+        )
+        return device_id, failed, "failure"
+
+    rendered_pattern = render_placeholder_template(
+        parsed.pattern,
+        device,
+        value_transform=re.escape if parsed.match_mode == "regex" else None,
+    )
+    if not rendered_pattern:
+        failed = _device_failure(
+            device=device,
+            node_id=node_id,
+            code="pattern_unresolved",
+            message=(
+                "pattern rendered to an empty string for this device — a "
+                "{path.to.attribute} placeholder may not have resolved"
+            ),
+        )
+        return device_id, failed, "failure"
+
+    try:
+        if parsed.match_mode == "fixed_text":
+            matched, matched_text = _match_fixed_text(
+                content_text, rendered_pattern, case_sensitive=parsed.case_sensitive
+            )
+        else:
+            matched, matched_text = _match_regex(
+                content_text,
+                rendered_pattern,
+                case_sensitive=parsed.case_sensitive,
+                multiline=parsed.multiline,
+            )
+    except re.error as exc:
+        failed = _device_failure(
+            device=device,
+            node_id=node_id,
+            code="invalid_regex",
+            message=f"invalid regular expression {rendered_pattern!r}: {exc}",
+        )
+        return device_id, failed, "failure"
+
+    device_parsed = set_node_result(
+        device.parsed,
+        node_id,
+        "content_match",
+        {
+            "kind": "content_match_result",
+            "matched": matched,
+            "content_source": parsed.content_source,
+            "match_mode": parsed.match_mode,
+            "case_sensitive": parsed.case_sensitive,
+            "multiline": parsed.multiline,
+            **({"matched_text": matched_text} if matched_text is not None else {}),
+        },
+    )
+    enriched = device.model_copy(
+        update={
+            "parsed": device_parsed,
+            "capabilities": device.capabilities | {Capability.PARSED},
+            "status": DeviceStatus.OK,
+        }
+    )
+    return device_id, enriched, "match" if matched else "mismatch"
+
+
+def _build_route_outcomes(
+    *,
+    context: WorkflowContext,
+    node_id: str,
+    results: list[tuple[str, DeviceContext, str]],
+) -> list[StepOutcome]:
+    buckets: dict[str, dict[str, DeviceContext]] = {name: {} for name in _OUTCOME_NAMES}
+    for device_id, updated_device, bucket_name in results:
+        buckets[bucket_name][device_id] = updated_device
+
+    counts = {name: len(buckets[name]) for name in _OUTCOME_NAMES}
+    metadata = {**context.metadata, f"{node_id}.content_match_counts": counts}
+
+    logger.info(
+        "route-on-content finished run_id=%s node_id=%s counts=%s",
+        context.run_id,
+        node_id,
+        counts,
+    )
+
+    return [
+        StepOutcome(
+            name=name,
+            context=context.model_copy(
+                update={"devices": dict(buckets[name]), "metadata": metadata}
+            ),
+        )
+        for name in _OUTCOME_NAMES
+    ]
+
+
+async def execute(
+    *,
+    config: dict[str, Any],
+    context: WorkflowContext,
+    run: WorkflowRun,
+    artifact_service: ArtifactService,
+    node_id: str,
+    device_sessions: DeviceSessionPool,
+) -> list[StepOutcome]:
+    del run
+
+    if not context.devices:
+        return [StepOutcome(name=name, context=context) for name in _OUTCOME_NAMES]
+
+    parsed = _parse_route_config(config)
+    logger.info(
+        "route-on-content started run_id=%s node_id=%s content_source=%s match_mode=%s",
+        context.run_id,
+        node_id,
+        parsed.content_source,
+        parsed.match_mode,
+    )
+
+    results = await asyncio.gather(
+        *[
+            _process_device(
+                device_id=device_id,
+                device=device,
+                parsed=parsed,
+                node_id=node_id,
+                artifact_service=artifact_service,
+            )
+            for device_id, device in context.devices.items()
+        ]
+    )
+    return _build_route_outcomes(context=context, node_id=node_id, results=results)

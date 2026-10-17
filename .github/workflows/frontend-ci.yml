@@ -1,0 +1,56 @@
+name: frontend-ci
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "frontend/**"
+      # Contract tests read these backend files (device_mapping.test.ts).
+      - "backend/services/git/device_mapping.py"
+      - ".github/workflows/frontend-ci.yml"
+  pull_request:
+    paths:
+      - "frontend/**"
+      # Contract tests read these backend files (device_mapping.test.ts).
+      - "backend/services/git/device_mapping.py"
+      - ".github/workflows/frontend-ci.yml"
+
+defaults:
+  run:
+    working-directory: frontend
+
+concurrency:
+  group: frontend-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: frontend/.nvmrc
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - name: eslint
+        run: npm run lint
+      - name: tsc
+        run: npx tsc --noEmit
+      - name: vitest
+        run: npm test
+      - name: next build
+        run: npm run build
+      - name: print first-load JS per route
+        run: |
+          node -e 'const r=require("./.next/diagnostics/route-bundle-stats.json").sort((a,b)=>b.firstLoadUncompressedJsBytes-a.firstLoadUncompressedJsBytes);for(const x of r)console.log((x.firstLoadUncompressedJsBytes/1024).toFixed(0).padStart(6)+" KB  "+x.route)'
+
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: frontend/.nvmrc
+      - run: npm audit --omit=dev

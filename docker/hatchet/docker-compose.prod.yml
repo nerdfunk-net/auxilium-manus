@@ -1,0 +1,20 @@
+# Production override for the Hatchet stack (S6-01):
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+#
+# No port is published on the host. Attach the dashboard to the network your TLS ingress
+# (any reverse proxy) shares and route to http://hatchet-dashboard:80. Set HATCHET_COOKIE_DOMAIN
+# in .env to the public dashboard host name. Once gRPC TLS is configured on the engine, set
+# HATCHET_CLIENT_TLS_STRATEGY in docker/.env for the application stack.
+services:
+  hatchet-engine:
+    ports: !reset []
+  hatchet-dashboard:
+    ports: !reset []
+    # The loopback-port network is not needed without a published port.
+    networks: !override
+      - internal
+      - hatchet
+  hatchet-setup-config:
+    environment:
+      SERVER_AUTH_COOKIE_DOMAIN: "${HATCHET_COOKIE_DOMAIN:?set HATCHET_COOKIE_DOMAIN in docker/hatchet/.env}"
+      SERVER_AUTH_COOKIE_INSECURE: "f"

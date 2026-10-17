@@ -1,0 +1,257 @@
+"use client";
+
+import {
+  Boxes,
+  Building2,
+  FlaskConical,
+  Globe,
+  KeyRound,
+  Loader2,
+  LogIn,
+  Shield,
+  Users,
+} from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
+import { useRouter } from "next/navigation";
+import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { useOidcProvidersQuery } from "@/hooks/queries/use-oidc-providers-query";
+import { useApi } from "@/hooks/use-api";
+import { useAuthStore } from "@/lib/auth-store";
+
+const PROVIDER_ICONS: Record<string, typeof LogIn> = {
+  building: Building2,
+  flask: FlaskConical,
+  users: Users,
+  shield: Shield,
+  key: KeyRound,
+  globe: Globe,
+};
+
+function getProviderIcon(icon?: string | null) {
+  return (icon && PROVIDER_ICONS[icon]) || LogIn;
+}
+
+export function LoginPage() {
+  const router = useRouter();
+  const login = useAuthStore((state) => state.login);
+  const queryClient = useQueryClient();
+  const isLoading = useAuthStore((state) => state.isLoading);
+  const authError = useAuthStore((state) => state.error);
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const { data: oidcData } = useOidcProvidersQuery();
+  const oidcProviders = useMemo(
+    () => oidcData?.providers ?? [],
+    [oidcData?.providers],
+  );
+  const allowTraditionalLogin = oidcData?.allow_traditional_login ?? true;
+  const [oidcError, setOidcError] = useState("");
+  const [oidcLoadingProvider, setOidcLoadingProvider] = useState<string | null>(null);
+  const { apiCall } = useApi();
+  const [notice, setNotice] = useState("");
+  useEffect(() => {
+    // Read the query param on the client only, after hydration, so the
+    // server-rendered markup (no query-param access) and the client's
+    // first render match; the notice then appears in a follow-up update.
+    const applyNoticeFromQuery = async () => {
+      const reason = new URLSearchParams(window.location.search).get("reason");
+      if (reason === "idle") {
+        setNotice("You were signed out due to inactivity.");
+      } else if (reason === "expired") {
+        setNotice("Your session expired. Please sign in again.");
+      }
+    };
+    void applyNoticeFromQuery();
+  }, []);
+
+  const handleSubmit = useCallback(
+    async (event: FormEvent<HTMLFormElement>) => {
+      event.preventDefault();
+
+      try {
+        await login({ username, password }, queryClient);
+        router.replace("/workflows");
+        router.refresh();
+      } catch {
+        // The auth store exposes the user-facing error message.
+      }
+    },
+    [login, password, queryClient, router, username],
+  );
+
+  const handleOidcLogin = useCallback(async (providerId: string) => {
+    setOidcLoadingProvider(providerId);
+    setOidcError("");
+
+    try {
+      const redirectUri = `${window.location.origin}/login/callback`;
+      const data = await apiCall<{ authorization_url: string; state: string }>(
+        `auth/oidc/${providerId}/login?redirect_uri=${encodeURIComponent(redirectUri)}`,
+      );
+      sessionStorage.setItem("oidc_state", data.state);
+      window.location.assign(data.authorization_url);
+    } catch (err) {
+      setOidcError(err instanceof Error ? err.message : "SSO login failed");
+      setOidcLoadingProvider(null);
+    }
+  }, [apiCall]);
+
+  return (
+    <main className="flex min-h-screen items-center justify-center bg-background px-4 py-10 text-foreground">
+      <section className="w-full max-w-md rounded-2xl border bg-card p-8 shadow-sm">
+        <div className="mb-8 flex items-center gap-3">
+          <div className="flex size-11 items-center justify-center rounded-xl bg-primary text-primary-foreground">
+            <Boxes className="size-6" />
+          </div>
+          <div>
+            <h1 className="text-lg font-semibold">Auxilium Manus</h1>
+            <p className="text-sm text-muted-foreground">
+              Sign in to the NetDevOps workflow builder.
+            </p>
+          </div>
+        </div>
+
+        {notice ? (
+          <p
+            className="mb-5 rounded-lg border border-border bg-muted px-3 py-2 text-sm text-muted-foreground"
+            role="status"
+          >
+            {notice}
+          </p>
+        ) : null}
+
+        {oidcError ? (
+          <p
+            className="mb-5 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive"
+            role="alert"
+          >
+            {oidcError}
+          </p>
+        ) : null}
+
+        {!allowTraditionalLogin && oidcProviders.length > 0 ? (
+          <div className="space-y-3">
+            <p className="text-center text-sm text-muted-foreground">
+              Choose how you&apos;d like to sign in
+            </p>
+            {oidcProviders.map((provider) => {
+              const Icon = getProviderIcon(provider.icon);
+              const isLoadingThis = oidcLoadingProvider === provider.provider_id;
+              return (
+                <Button
+                  className="h-auto w-full justify-start gap-3 py-3"
+                  disabled={oidcLoadingProvider !== null}
+                  key={provider.provider_id}
+                  onClick={() => handleOidcLogin(provider.provider_id)}
+                  type="button"
+                  variant="outline"
+                >
+                  {isLoadingThis ? <Loader2 className="size-4 animate-spin" /> : <Icon className="size-4" />}
+                  <div className="flex flex-col items-start text-left">
+                    <span className="font-medium">{provider.name}</span>
+                    {provider.description ? (
+                      <span className="text-xs text-muted-foreground">{provider.description}</span>
+                    ) : null}
+                  </div>
+                </Button>
+              );
+            })}
+          </div>
+        ) : (
+          <form className="space-y-5" onSubmit={handleSubmit}>
+            <div className="space-y-2">
+              <label className="text-sm font-medium" htmlFor="username">
+                Username
+              </label>
+              <Input
+                autoComplete="username"
+                className="h-10"
+                id="username"
+                maxLength={255}
+                onChange={(event) => setUsername(event.target.value)}
+                required
+                type="text"
+                value={username}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-sm font-medium" htmlFor="password">
+                Password
+              </label>
+              <Input
+                autoComplete="current-password"
+                className="h-10"
+                id="password"
+                maxLength={128}
+                onChange={(event) => setPassword(event.target.value)}
+                required
+                type="password"
+                value={password}
+              />
+            </div>
+
+            {authError ? (
+              <p
+                className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive"
+                role="alert"
+              >
+                {authError}
+              </p>
+            ) : null}
+
+            <Button className="w-full" disabled={isLoading} type="submit">
+              {isLoading ? <Loader2 className="size-4 animate-spin" /> : <LogIn className="size-4" />}
+              Sign in
+            </Button>
+
+            {oidcProviders.length > 0 ? (
+              <>
+                <div className="relative">
+                  <div className="absolute inset-0 flex items-center">
+                    <span className="w-full border-t" />
+                  </div>
+                  <div className="relative flex justify-center text-xs uppercase">
+                    <span className="bg-card px-2 text-muted-foreground">Or continue with</span>
+                  </div>
+                </div>
+
+                {oidcProviders.map((provider) => {
+                  const Icon = getProviderIcon(provider.icon);
+                  const isLoadingThis = oidcLoadingProvider === provider.provider_id;
+                  return (
+                    <Button
+                      className="h-auto w-full justify-start gap-3 py-3"
+                      disabled={oidcLoadingProvider !== null}
+                      key={provider.provider_id}
+                      onClick={() => handleOidcLogin(provider.provider_id)}
+                      type="button"
+                      variant="outline"
+                    >
+                      {isLoadingThis ? (
+                        <Loader2 className="size-4 animate-spin" />
+                      ) : (
+                        <Icon className="size-4" />
+                      )}
+                      <div className="flex flex-col items-start text-left">
+                        <span className="font-medium">{provider.name}</span>
+                        {provider.description ? (
+                          <span className="text-xs text-muted-foreground">
+                            {provider.description}
+                          </span>
+                        ) : null}
+                      </div>
+                    </Button>
+                  );
+                })}
+              </>
+            ) : null}
+          </form>
+        )}
+      </section>
+    </main>
+  );
+}

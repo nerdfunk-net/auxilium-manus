@@ -1,0 +1,105 @@
+"use client";
+
+import {
+  HelpCode,
+  HelpExample,
+  HelpSection,
+  HelpWarning,
+} from "../shared/step-help";
+
+/**
+ * Built-in Help tab content for Git Clone.
+ * Covers every Configuration control with practical examples.
+ */
+export function GitCloneHelpPanel() {
+  return (
+    <div className="space-y-6">
+      <HelpSection title="What this step does">
+        <p>
+          Clones or re-clones the selected Settings git source into the worker&apos;s
+          local working tree before other steps run. Use at the start of a workflow
+          that reads from or writes to a repository — or after a long gap when you
+          need a fresh clone.
+        </p>
+        <p>
+          Downstream steps such as Get from Git, Store Artifact (git), Git Pull, and
+          Git Push all reference the same <HelpCode>git_repository_id</HelpCode> working
+          tree once it exists.
+        </p>
+      </HelpSection>
+
+      <HelpSection title="git_repository_id">
+        <p>
+          Click{" "}
+          <span className="font-medium text-foreground">Choose repository</span>{" "}
+          (or Change repository) and select a repository created under Settings →
+          Git Repositories. The step stores that repository&apos;s numeric ID as{" "}
+          <HelpCode>git_repository_id</HelpCode>.
+        </p>
+        <p>
+          Credentials and remote URL are resolved from the repository configuration
+          at run time — they are not pasted into the step config. Same repository
+          picker as Get from Git and Store Artifact.
+        </p>
+        <HelpExample>
+          git_repository_id: 3
+          <br />
+          <span className="text-muted-foreground">
+            → clone https://git.example.com/network/configs.git into the worker cache
+          </span>
+        </HelpExample>
+        <HelpWarning title="Source required">
+          <p>
+            Without a valid <HelpCode>git_repository_id</HelpCode> the step cannot clone.
+            Configuration shows &quot;Not configured&quot; until you pick a repository.
+          </p>
+        </HelpWarning>
+      </HelpSection>
+
+      <HelpWarning title="Still wants a Fan In for the same source">
+        <p>
+          A per-repository lock keeps concurrent clones against the same{" "}
+          <HelpCode>git_repository_id</HelpCode> from corrupting the working tree —
+          whether from fan-out children or two independent (non-fan-out) branches in
+          one run — but each caller is only serialised, not merged: running Git Clone
+          on every child still means N clones back-to-back, not one.
+        </p>
+        <p>
+          Pattern: Git Clone once before fan-out, or clone on the main path only;
+          per-device work on fanned branches;{" "}
+          <span className="font-medium text-foreground">Fan In</span> before shared
+          git steps (Store Artifact, Git Push).
+        </p>
+      </HelpWarning>
+
+      <HelpSection title="Outcomes">
+        <ul className="list-disc space-y-1 pl-4">
+          <li>
+            <span className="font-medium text-foreground">success</span> — repository
+            is cloned or refreshed in the worker cache. Downstream git steps can
+            operate on it.
+          </li>
+          <li>
+            <span className="font-medium text-foreground">failure</span> — clone failed
+            (bad credentials, network, or missing source). Fix Settings → Git Repositories and
+            check run logs.
+          </li>
+        </ul>
+      </HelpSection>
+
+      <HelpSection title="Typical setup">
+        <ol className="list-decimal space-y-1.5 pl-4">
+          <li>Configure a git source under Settings → Git Repositories.</li>
+          <li>
+            Add Git Clone as the first git step; select the same{" "}
+            <HelpCode>git_repository_id</HelpCode> later steps will use.
+          </li>
+          <li>
+            Follow with Get from Git, Store Artifact, or Git Pull/Push as needed — after
+            Fan In if the workflow fans out per device.
+          </li>
+        </ol>
+      </HelpSection>
+    </div>
+  );
+}

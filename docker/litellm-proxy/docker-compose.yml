@@ -1,0 +1,109 @@
+# Auxilium Manus — LiteLLM proxy (optional LLM gateway for the AI assistant)
+#
+# The proxy exposes one OpenAI-compatible endpoint (/v1/chat/completions) in front of many
+# providers (AWS Bedrock, Azure OpenAI, Vertex AI, Cohere, Mistral, Groq, ...). The app needs no
+# code change: in Settings -> AI Assistant pick the `openai_compat` provider, set the base URL,
+# use LITELLM_MASTER_KEY as the API key and enter a `model_name` defined in config.yaml.
+# The real provider credentials live in this container, not in the app.
+# See doc/ai_integration/AI_ASSISTANT.md §3.1.
+#
+# Network: this stack creates its own private network `manus-litellm`. The app containers that
+# talk to it are attached once with `docker network connect` (see docker/README.md,
+# "Optional integrations"); nothing else shares it.
+#
+# Start:
+#   cd docker/litellm-proxy
+#   cp .env.example .env     # set LITELLM_MASTER_KEY + the provider keys you use
+#   $EDITOR config.yaml      # declare the models you want to expose
+#   docker compose up -d
+#
+# Verify:
+#   curl -s http://127.0.0.1:4000/health/liveliness
+#   curl -s http://127.0.0.1:4000/v1/models -H "Authorization: Bearer $LITELLM_MASTER_KEY"
+#
+# Reachability (same pattern as docker/openbao and docker/mattermost):
+#   - Backend containerized on the `manus-litellm` network:   Base URL: http://litellm:4000/v1
+#   - Backend running natively on the host:             Base URL: http://127.0.0.1:4000/v1
+#     The backend rejects loopback URLs by default; set ALLOW_LOOPBACK_SOURCE_URLS=true in
+#     backend/.env for this local-lab case. Outside ENV=development the backend also refuses to
+#     send an API key over plain http, so put the proxy behind TLS for anything but a lab.
+#
+# The published port is bound to 127.0.0.1 only. This proxy sees every prompt and every provider
+# key: pin the image to a reviewed tag or digest (do not follow `main-stable` blindly) and keep
+# it patched.
+#
+# A dedicated postgres:17-alpine (litellm-db) backs virtual keys, spend tracking and the admin UI
+# (http://127.0.0.1:4000/ui, log in with the master key). It sits on a private `litellm` network
+# shared only with the proxy and is not published to the host or the `manus-litellm` network. Models
+# are still declared in config.yaml (STORE_MODEL_IN_DB stays off).
+
+services:
+  litellm:
+    # No raw sockets: nothing here needs to craft packets.
+    cap_drop:
+      - NET_RAW
+    image: ghcr.io/berriai/litellm:${LITELLM_IMAGE_TAG:?Set LITELLM_IMAGE_TAG to a reviewed release tag (no moving tags)}
+    container_name: litellm
+    hostname: litellm
+    restart: unless-stopped
+    command: ["--config", "/app/config.yaml", "--port", "4000"]
+    env_file:
+      - .env
+    depends_on:
+      litellm-db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: "postgresql://litellm:${LITELLM_DB_PASSWORD:?Set LITELLM_DB_PASSWORD in docker/litellm-proxy/.env}@litellm-db:5432/litellm"
+      LITELLM_MASTER_KEY: "${LITELLM_MASTER_KEY:?Set LITELLM_MASTER_KEY in docker/litellm-proxy/.env}"
+      LITELLM_TELEMETRY: "False"
+    ports:
+      - "127.0.0.1:4000:4000"
+    volumes:
+      - ./config.yaml:/app/config.yaml:ro
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:4000/health/liveliness', timeout=4)"
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - llm
+      - litellm
+
+  litellm-db:
+    # No raw sockets: nothing here needs to craft packets.
+    cap_drop:
+      - NET_RAW
+    image: postgres:17-alpine
+    container_name: litellm-db
+    hostname: litellm-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: litellm
+      POSTGRES_PASSWORD: "${LITELLM_DB_PASSWORD:?Set LITELLM_DB_PASSWORD in docker/litellm-proxy/.env}"
+      POSTGRES_DB: litellm
+    volumes:
+      - litellm_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U litellm -d litellm"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - litellm
+
+volumes:
+  litellm_db_data:
+
+networks:
+  llm:
+    # Private to this stack and its consumers; attach them with docker network connect
+    # (see docker/README.md, "Optional integrations").
+    name: manus-litellm
+  litellm:
+    internal: true

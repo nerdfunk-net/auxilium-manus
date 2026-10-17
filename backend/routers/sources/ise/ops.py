@@ -1,0 +1,259 @@
+"""Cisco ISE network device CRUD and connectivity check, per configured source."""
+
+from __future__ import annotations
+
+import logging
+
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+
+import service_factory
+from core.auth import get_current_user, require_permission
+from core.models.users import User
+from core.rate_limit import rate_limited
+from core.safe_urls import UnsafeURLError
+from dependencies import get_ise_source_config_service
+from models.ise import (
+    ISEDeviceGroupAllResponse,
+    ISEDeviceGroupListResponse,
+    ISEDeviceGroupResponse,
+    ISEDeviceGroupSummary,
+    ISEDeviceGroupUpdateRequest,
+    ISENetworkDeviceCreate,
+    ISENetworkDeviceListResponse,
+    ISENetworkDeviceUpdate,
+)
+from routers.sources.ise.errors import ise_errors
+from services.ise.common.exceptions import (
+    ISEValidationError,
+)
+from services.ise.credentials import ISECredentials
+from services.ise.redaction import redact_ise_secrets
+from services.ise.source_config_service import (
+    ISESourceConfigService,
+    ISESourceNotFoundError,
+)
+
+logger = logging.getLogger(__name__)
+
+router = APIRouter(
+    prefix="/sources/ise/{source_id}",
+    tags=["sources-ise"],
+    dependencies=[
+        Depends(require_permission("sources.ise", "read")),
+        Depends(rate_limited("ise-ops", attempts=120, window_seconds=60)),
+    ],
+)
+
+
+def _resolve_credentials(
+    source_id: str,
+    config: ISESourceConfigService,
+) -> ISECredentials:
+    try:
+        return config.resolve_credentials(source_id)
+    except ISESourceNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except (ISEValidationError, UnsafeURLError) as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
+def _resolve_device_service(source_id: str, config: ISESourceConfigService):
+    credentials = _resolve_credentials(source_id, config)
+    return service_factory.build_ise_network_device_service(credentials)
+
+
+def _resolve_group_service(source_id: str, config: ISESourceConfigService):
+    credentials = _resolve_credentials(source_id, config)
+    return service_factory.build_ise_network_device_group_service(credentials)
+
+
+@router.get("/devices", response_model=ISENetworkDeviceListResponse)
+@ise_errors("list devices")
+async def list_devices(
+    source_id: str,
+    page: int = Query(default=1, ge=1),
+    size: int = Query(default=20, ge=1, le=100),
+    filter: str | None = Query(default=None, max_length=255),  # noqa: A002
+    _: User = Depends(get_current_user),
+    config: ISESourceConfigService = Depends(get_ise_source_config_service),
+) -> ISENetworkDeviceListResponse:
+    device_service = _resolve_device_service(source_id, config)
+    result = await device_service.list_devices(page=page, size=size, filter_=filter)
+    search_result = result.get("SearchResult", {})
+    return ISENetworkDeviceListResponse(
+        total=search_result.get("total", 0),
+        resources=search_result.get("resources", []),
+        next_page=(search_result.get("nextPage") or {}).get("href"),
+    )
+
+
+@router.get("/devices/name/{name}")
+@ise_errors("get device by name")
+async def get_device_by_name(
+    source_id: str,
+    name: str,
+    _: User = Depends(get_current_user),
+    config: ISESourceConfigService = Depends(get_ise_source_config_service),
+) -> dict:
+    device_service = _resolve_device_service(source_id, config)
+    return redact_ise_secrets(await device_service.get_device_by_name(name))
+
+
+@router.get("/devices/ndg/{group_name}", response_model=ISENetworkDeviceListResponse)
+@ise_errors("list devices by group")
+async def list_devices_by_group(
+    source_id: str,
+    group_name: str,
+    page: int = Query(default=1, ge=1),
+    size: int = Query(default=20, ge=1, le=100),
+    _: User = Depends(get_current_user),
+    config: ISESourceConfigService = Depends(get_ise_source_config_service),
+) -> ISENetworkDeviceListResponse:
+    device_service = _resolve_device_service(source_id, config)
+    result = await device_service.list_devices_by_group(group_name, page=page, size=size)
+    search_result = result.get("SearchResult", {})
+    return ISENetworkDeviceListResponse(
+        total=search_result.get("total", 0),
+        resources=search_result.get("resources", []),
+        next_page=(search_result.get("nextPage") or {}).get("href"),
+    )
+
+
+@router.get("/devices/{device_id}")
+@ise_errors("get device")
+async def get_device(
+    source_id: str,
+    device_id: str,
+    _: User = Depends(get_current_user),
+    config: ISESourceConfigService = Depends(get_ise_source_config_service),
+) -> dict:
+    device_service = _resolve_device_service(source_id, config)
+    return redact_ise_secrets(await device_service.get_device(device_id))
+
+
+@router.post(
+    "/devices",
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_permission("sources.ise", "write"))],
+)
+@ise_errors("create device")
+async def create_device(
+    source_id: str,
+    request: ISENetworkDeviceCreate,
+    _: User = Depends(get_current_user),
+    config: ISESourceConfigService = Depends(get_ise_source_config_service),
+) -> dict:
+    device_service = _resolve_device_service(source_id, config)
+    payload = request.model_dump(exclude_none=True)
+    return redact_ise_secrets(await device_service.create_device(payload))
+
+
+@router.put(
+    "/devices/{device_id}",
+    dependencies=[Depends(require_permission("sources.ise", "write"))],
+)
+@ise_errors("update device")
+async def update_device(
+    source_id: str,
+    device_id: str,
+    request: ISENetworkDeviceUpdate,
+    _: User = Depends(get_current_user),
+    config: ISESourceConfigService = Depends(get_ise_source_config_service),
+) -> dict:
+    device_service = _resolve_device_service(source_id, config)
+    payload = request.model_dump(exclude_none=True)
+    return redact_ise_secrets(await device_service.update_device(device_id, payload))
+
+
+@router.delete(
+    "/devices/{device_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(require_permission("sources.ise", "delete"))],
+)
+@ise_errors("delete device")
+async def delete_device(
+    source_id: str,
+    device_id: str,
+    _: User = Depends(get_current_user),
+    config: ISESourceConfigService = Depends(get_ise_source_config_service),
+) -> None:
+    device_service = _resolve_device_service(source_id, config)
+    await device_service.delete_device(device_id)
+
+
+@router.get("/network-device-groups/", response_model=ISEDeviceGroupListResponse)
+@ise_errors("list device groups")
+async def list_network_device_groups(
+    source_id: str,
+    page: int = Query(default=1, ge=1),
+    size: int = Query(default=20, ge=1, le=100),
+    filter: str | None = Query(default=None, max_length=255),  # noqa: A002
+    _: User = Depends(get_current_user),
+    config: ISESourceConfigService = Depends(get_ise_source_config_service),
+) -> ISEDeviceGroupListResponse:
+    group_service = _resolve_group_service(source_id, config)
+    result = await group_service.list_groups(page=page, size=size, filter_=filter)
+    search_result = result.get("SearchResult", {})
+    return ISEDeviceGroupListResponse(
+        total=search_result.get("total", 0),
+        resources=search_result.get("resources", []),
+        next_page=(search_result.get("nextPage") or {}).get("href"),
+    )
+
+
+@router.get("/network-device-groups/all", response_model=ISEDeviceGroupAllResponse)
+@ise_errors("list all device groups")
+async def list_all_network_device_groups(
+    source_id: str,
+    filter: str | None = Query(default=None, max_length=255),  # noqa: A002
+    _: User = Depends(get_current_user),
+    config: ISESourceConfigService = Depends(get_ise_source_config_service),
+) -> ISEDeviceGroupAllResponse:
+    group_service = _resolve_group_service(source_id, config)
+    groups, truncated = await group_service.list_all_groups(filter_=filter)
+    return ISEDeviceGroupAllResponse(
+        total=len(groups),
+        groups=[ISEDeviceGroupSummary(**group) for group in groups],
+        truncated=truncated,
+    )
+
+
+@router.put(
+    "/network-device-groups/{group_id}",
+    response_model=ISEDeviceGroupResponse,
+    dependencies=[Depends(require_permission("sources.ise", "write"))],
+)
+@ise_errors("update device group")
+async def update_network_device_group(
+    source_id: str,
+    group_id: str,
+    request: ISEDeviceGroupUpdateRequest,
+    _: User = Depends(get_current_user),
+    config: ISESourceConfigService = Depends(get_ise_source_config_service),
+) -> ISEDeviceGroupResponse:
+    group_service = _resolve_group_service(source_id, config)
+    await group_service.update_group(group_id, description=request.description)
+    updated = await group_service.get_group(group_id)
+    group = updated["NetworkDeviceGroup"]
+    return ISEDeviceGroupResponse(
+        id=group.get("id"),
+        name=group.get("name"),
+        description=group.get("description"),
+        othername=group.get("othername"),
+    )
+
+
+@router.delete(
+    "/network-device-groups/{group_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(require_permission("sources.ise", "delete"))],
+)
+@ise_errors("delete device group")
+async def delete_network_device_group(
+    source_id: str,
+    group_id: str,
+    _: User = Depends(get_current_user),
+    config: ISESourceConfigService = Depends(get_ise_source_config_service),
+) -> None:
+    group_service = _resolve_group_service(source_id, config)
+    await group_service.delete_group(group_id)

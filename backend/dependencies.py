@@ -1,0 +1,166 @@
+"""FastAPI dependency providers."""
+
+from __future__ import annotations
+
+from fastapi import Depends, Query
+from sqlalchemy.orm import Session
+
+import service_factory
+from core.database import get_db
+from models.sources_nautobot import NautobotSourceRef
+from services.auth.login_rate_limiter import LoginRateLimiter
+from services.batfish.preview_service import BatfishPreviewService
+from services.batfish.source_config_service import BatfishSourceConfigService
+from services.catalyst_center.source_config_service import CatalystCenterSourceConfigService
+from services.ise.source_config_service import ISESourceConfigService
+from services.mattermost.source_config_service import MattermostSourceConfigService
+from services.nautobot.credentials import NautobotCredentials
+from services.pyats.source_config_service import PyATSSourceConfigService
+from services.settings.settings_service import SettingsService
+from services.sources.nautobot.persistence_service import InventoryService
+
+
+def get_inventory_service(
+    db: Session = Depends(get_db),
+) -> InventoryService:
+    return service_factory.build_inventory_service(db)
+
+
+def get_ise_source_config_service(
+    db: Session = Depends(get_db),
+) -> ISESourceConfigService:
+    return service_factory.build_ise_source_config_service(db)
+
+
+def get_catalyst_center_source_config_service(
+    db: Session = Depends(get_db),
+) -> CatalystCenterSourceConfigService:
+    return service_factory.build_catalyst_center_source_config_service(db)
+
+
+def get_pyats_source_config_service(
+    db: Session = Depends(get_db),
+) -> PyATSSourceConfigService:
+    return service_factory.build_pyats_source_config_service(db)
+
+
+def get_batfish_source_config_service(
+    db: Session = Depends(get_db),
+) -> BatfishSourceConfigService:
+    return service_factory.build_batfish_source_config_service(db)
+
+
+def get_batfish_preview_service(
+    db: Session = Depends(get_db),
+) -> BatfishPreviewService:
+    return service_factory.build_batfish_preview_service(db)
+
+
+def get_mattermost_source_config_service(
+    db: Session = Depends(get_db),
+) -> MattermostSourceConfigService:
+    return service_factory.build_mattermost_source_config_service(db)
+
+
+def _credentials_from_source_config(
+    config: dict,
+    timeout: float = 30.0,
+) -> NautobotCredentials:
+    return service_factory.credentials_from_connection(
+        str(config.get("url") or ""),
+        str(config.get("token") or ""),
+        timeout,
+        verify_ssl=config.get("verify_ssl", True),
+    )
+
+
+def nautobot_credentials_from_source_id(
+    source_id: str = Query(..., min_length=1, max_length=64),
+    db: Session = Depends(get_db),
+) -> NautobotCredentials:
+    config = SettingsService(db).get_source_config("nautobot", source_id)
+    return _credentials_from_source_config(config)
+
+
+def nautobot_credentials_from_source_ref(
+    ref: NautobotSourceRef,
+    db: Session,
+) -> NautobotCredentials:
+    config = SettingsService(db).get_source_config("nautobot", ref.source_id)
+    return _credentials_from_source_config(config, ref.timeout)
+
+
+def get_git_repository_service(db: Session = Depends(get_db)):
+    from services.git.repository_service import GitRepositoryService
+
+    return GitRepositoryService(db)
+
+
+def get_secret_manager_connection_service(db: Session = Depends(get_db)):
+    from services.secret_manager.connection_service import SecretManagerConnectionService
+
+    return SecretManagerConnectionService(db)
+
+
+def get_git_auth_service():
+    return service_factory.build_git_auth_service()
+
+
+def get_git_cache_service():
+    return service_factory.build_git_cache_service()
+
+
+def get_git_operations_service(
+    repos=Depends(get_git_repository_service),
+):
+    from services.git.operations import GitOperationsService
+
+    return GitOperationsService(repos)
+
+
+def get_git_connection_service():
+    return service_factory.build_git_connection_service()
+
+
+def get_git_debug_service(
+    repos=Depends(get_git_repository_service),
+):
+    from services.git.debug_service import GitDebugService
+
+    return GitDebugService(repos)
+
+
+def get_git_file_service(
+    repos=Depends(get_git_repository_service),
+):
+    from services.git.file_service import GitFileService
+
+    return GitFileService(repos)
+
+
+def get_oidc_config_service():
+    return service_factory.build_oidc_config_service()
+
+
+def get_oidc_service():
+    return service_factory.build_oidc_service()
+
+
+def get_login_rate_limiter() -> LoginRateLimiter:
+    return service_factory.build_login_rate_limiter()
+
+
+def get_login_ip_rate_limiter() -> LoginRateLimiter:
+    return service_factory.build_login_ip_rate_limiter()
+
+
+def get_refresh_rate_limiter() -> LoginRateLimiter:
+    return service_factory.build_refresh_rate_limiter()
+
+
+def get_oidc_login_rate_limiter() -> LoginRateLimiter:
+    return service_factory.build_oidc_login_rate_limiter()
+
+
+def get_login_user_rate_limiter() -> LoginRateLimiter:
+    return service_factory.build_login_user_rate_limiter()

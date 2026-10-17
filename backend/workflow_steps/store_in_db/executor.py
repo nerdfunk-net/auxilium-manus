@@ -1,0 +1,284 @@
+"""Executor for the store-in-db step.
+
+Rows are keyed by (device_name, storage_key), so fan-out children and
+independent sibling branches within one run never collide (each processes a
+disjoint device set). A same-device/same-key race across concurrent runs is
+resolved by DeviceDataRecordRepository.upsert's IntegrityError retry — no
+Fan-In node is required here, unlike store-artifact's git/filesystem sinks.
+"""
+
+from __future__ import annotations
+
+import logging
+from typing import TYPE_CHECKING, Any
+
+from core.database import get_db_session
+from core.models.runs import WorkflowRun
+from models.workflow_context import (
+    DeviceContext,
+    DeviceError,
+    DeviceStatus,
+    StepOutcome,
+    WorkflowContext,
+)
+from services.artifacts import ArtifactService
+from services.device_data.device_data_service import DeviceDataService
+from services.workflow_context.attribute_path import resolve_device_value
+from services.workflow_context.secret_fields import (
+    contains_sealed_secret,
+    is_sealed_secret,
+    redact_secrets_in_data,
+    unwrap_all_secrets,
+    unwrap_secret,
+)
+from workflow_steps.common.content_resolver import list_exportable_content
+from workflow_steps.common.duplicate_keys import (
+    DUPLICATE_KEY_CODE,
+    DUPLICATE_KEY_FAILURE,
+    find_duplicate_keys,
+)
+from workflow_steps.common.partial_outcomes import mark_device_failed
+from workflow_steps.common.placeholder_template import render_placeholder_template
+from workflow_steps.common.step_flags import parse_bool_flag
+
+if TYPE_CHECKING:
+    from services.network.netmiko.session_pool import DeviceSessionPool
+
+logger = logging.getLogger(__name__)
+
+_CONTENT_SOURCES = frozenset(
+    {"device_data", "attribute_bags", "single_attribute", "rendered_template"}
+)
+
+
+def _parse_storage_key(config: dict[str, Any]) -> str:
+    storage_key = str(config.get("storage_key") or "").strip()
+    if not storage_key:
+        raise ValueError("store-in-db: storage_key is required")
+    return storage_key
+
+
+def _parse_content_source(config: dict[str, Any]) -> str:
+    content_source = str(config.get("content_source") or "").strip().lower()
+    if content_source not in _CONTENT_SOURCES:
+        raise ValueError(f"store-in-db: content_source must be one of {sorted(_CONTENT_SOURCES)}")
+    return content_source
+
+
+async def _resolve_rendered_template(
+    device: DeviceContext,
+    *,
+    config: dict[str, Any],
+    artifact_service: ArtifactService,
+) -> Any:
+    source_step_node_id = str(config.get("source_step_node_id") or "").strip()
+    if not source_step_node_id:
+        raise ValueError(
+            "store-in-db: source_step_node_id is required when content_source=rendered_template"
+        )
+    parsed_output_key = str(config.get("parsed_output_key") or "").strip() or None
+
+    items = list_exportable_content(
+        device,
+        content_source="rendered_template",
+        source_step_node_id=source_step_node_id,
+        parsed_output_key=parsed_output_key,
+    )
+    if not items:
+        return None
+
+    rendered: dict[str, str] = {}
+    for item in items:
+        content = await artifact_service.resolve(item.artifact_ref)
+        rendered[str(item.extra.get("output_key") or item.kind)] = content
+
+    if parsed_output_key and len(rendered) == 1:
+        return next(iter(rendered.values()))
+    return rendered
+
+
+def _guard_secrets(data: Any, *, allow_secret_storage: bool) -> Any:
+    """The database is not a protected secret store: sealed envelopes and known secret leaves
+    are stored as ``***REDACTED***`` unless the operator explicitly accepted cleartext storage."""
+    if allow_secret_storage:
+        return unwrap_all_secrets(data)
+    return redact_secrets_in_data(data)
+
+
+def _device_holds_sealed_secret(device: DeviceContext) -> bool:
+    return contains_sealed_secret(device.attribute_bags) or contains_sealed_secret(device.parsed)
+
+
+async def _resolve_device_data(
+    device: DeviceContext,
+    *,
+    content_source: str,
+    config: dict[str, Any],
+    artifact_service: ArtifactService,
+) -> Any:
+    allow_secret_storage = parse_bool_flag(config, "allow_secret_storage")
+
+    if content_source == "device_data":
+        return _guard_secrets(
+            {"attribute_bags": device.attribute_bags, "parsed": device.parsed},
+            allow_secret_storage=allow_secret_storage,
+        )
+
+    if content_source == "attribute_bags":
+        guarded = _guard_secrets(
+            {"attribute_bags": dict(device.attribute_bags)},
+            allow_secret_storage=allow_secret_storage,
+        )
+        return guarded["attribute_bags"]
+
+    if content_source == "single_attribute":
+        attribute_path = str(config.get("attribute_path") or "").strip()
+        if not attribute_path:
+            raise ValueError(
+                "store-in-db: attribute_path is required when content_source=single_attribute"
+            )
+        value = resolve_device_value(device, attribute_path)
+        if is_sealed_secret(value):
+            if not allow_secret_storage:
+                raise ValueError(
+                    f"store-in-db: attribute_path {attribute_path!r} resolves to a "
+                    "secret-valued attribute, which cannot be stored in the database "
+                    "unless allow_secret_storage is enabled"
+                )
+            # Operator explicitly accepted the risk (allow_secret_storage) — decrypt
+            # and store the cleartext value, per doc/WORKFLOW-STEPS.md's "Secret-valued
+            # attributes": this is only ever an explicit, documented operator choice.
+            return unwrap_secret(value)
+        return value
+
+    if content_source == "rendered_template":
+        if not allow_secret_storage and _device_holds_sealed_secret(device):
+            raise ValueError(
+                "store-in-db: this device holds sealed secrets and the rendered template may "
+                "embed them in clear text; enable allow_secret_storage to store it anyway, or "
+                "drop the secret attributes before this step"
+            )
+        return await _resolve_rendered_template(
+            device, config=config, artifact_service=artifact_service
+        )
+
+    raise ValueError(f"store-in-db: unsupported content_source {content_source!r}")
+
+
+def _device_failure(*, device: DeviceContext, node_id: str, exc: Exception) -> DeviceContext:
+    err = DeviceError(
+        node_id=node_id,
+        step_id="store-in-db",
+        code=type(exc).__name__.lower(),
+        message=str(exc),
+    )
+    return device.model_copy(
+        update={
+            "status": DeviceStatus.FAILED,
+            "errors": [*device.errors, err],
+        }
+    )
+
+
+def _duplicate_key_failure(
+    *, device: DeviceContext, node_id: str, rendered_key: str
+) -> DeviceContext:
+    return mark_device_failed(
+        device,
+        node_id=node_id,
+        step_id="store-in-db",
+        code=DUPLICATE_KEY_CODE,
+        message=(
+            f"another device in this step has the same name and storage key as "
+            f"{device.name!r} ({rendered_key!r}); records are keyed by device name, so add a "
+            "placeholder such as {nautobot.location.name} to storage_key"
+        ),
+        failure=DUPLICATE_KEY_FAILURE,
+    )
+
+
+async def execute(
+    *,
+    config: dict[str, Any],
+    context: WorkflowContext,
+    run: WorkflowRun,
+    artifact_service: ArtifactService,
+    node_id: str,
+    device_sessions: DeviceSessionPool,
+) -> list[StepOutcome]:
+    del device_sessions
+
+    if not context.devices:
+        return [StepOutcome(name="success", context=context)]
+
+    storage_key = _parse_storage_key(config)
+    content_source = _parse_content_source(config)
+
+    logger.info(
+        "store-in-db started run_id=%s node_id=%s devices=%d storage_key=%s content_source=%s",
+        run.id,
+        node_id,
+        len(context.devices),
+        storage_key,
+        content_source,
+    )
+
+    db = get_db_session()
+    try:
+        service = DeviceDataService(db)
+        success_devices: dict[str, DeviceContext] = {}
+        failed_devices: dict[str, DeviceContext] = {}
+        # storage_key is a per-device template; the record key is (device name, rendered key),
+        # so two devices of one step may not share both (the second would silently overwrite).
+        rendered_keys = {
+            device_id: render_placeholder_template(storage_key, device)
+            for device_id, device in context.devices.items()
+        }
+        duplicates = find_duplicate_keys(
+            (device_id, f"{device.name}\x00{rendered_keys[device_id]}")
+            for device_id, device in context.devices.items()
+        )
+        for device_id, device in context.devices.items():
+            if device_id in duplicates:
+                failed_devices[device_id] = _duplicate_key_failure(
+                    device=device, node_id=node_id, rendered_key=rendered_keys[device_id]
+                )
+                continue
+            try:
+                data = await _resolve_device_data(
+                    device,
+                    content_source=content_source,
+                    config=config,
+                    artifact_service=artifact_service,
+                )
+                if data is None:
+                    raise ValueError(
+                        f"No {content_source!r} content available for device {device.name}. "
+                        "Ensure an upstream step produced the selected data."
+                    )
+                service.store_device_data(
+                    device_name=device.name, storage_key=rendered_keys[device_id], data=data
+                )
+                success_devices[device_id] = device.model_copy(update={"status": DeviceStatus.OK})
+            except Exception as exc:
+                failed_devices[device_id] = _device_failure(device=device, node_id=node_id, exc=exc)
+    finally:
+        db.close()
+
+    logger.info(
+        "store-in-db finished success=%d failure=%d run_id=%s",
+        len(success_devices),
+        len(failed_devices),
+        run.id,
+    )
+
+    outcomes = [
+        StepOutcome(name="success", context=context.model_copy(update={"devices": success_devices}))
+    ]
+    if failed_devices:
+        outcomes.append(
+            StepOutcome(
+                name="failure", context=context.model_copy(update={"devices": failed_devices})
+            )
+        )
+    return outcomes

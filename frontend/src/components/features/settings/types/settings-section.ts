@@ -1,0 +1,12 @@
+export type SettingsSection =
+  | "general"
+  | "sources"
+  | "credentials"
+  | "users"
+  | "hatchet"
+  | "redis"
+  | "logging"
+  | "git-repositories"
+  | "secret-manager"
+  | "ai-assistant"
+  | "mail";

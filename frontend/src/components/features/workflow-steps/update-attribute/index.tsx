@@ -1,0 +1,352 @@
+"use client";
+
+import { ArrowDown, ArrowUp, Minus, Pencil, Plus } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import type { PluginConfigPanelProps } from "@/components/features/workflows/types/plugin-ui";
+
+import { AttributeUpdateDialog } from "./attribute-update-dialog";
+import { UpdateAttributeHelpPanel } from "./help-panel";
+import { RegexProbePanel } from "./regex-probe-panel";
+import {
+  buildUpdateAttributeConfig,
+  createAttributeUpdate,
+  parseUpdateAttributeConfig,
+  summarizeAttributeUpdate,
+  type AttributeUpdate,
+} from "./update-attribute-config";
+
+type EditorState =
+  | { open: false }
+  | { open: true; mode: "add" | "edit"; index: number | null; value: AttributeUpdate };
+
+const CLOSED_EDITOR: EditorState = { open: false };
+
+function UpdateAttributeConfigPanel({
+  config,
+  onChange,
+  nodeId,
+  workflowNodes,
+  workflowEdges,
+}: PluginConfigPanelProps) {
+  const initializedForNode = useRef<string | null>(null);
+  const parsed = useMemo(() => parseUpdateAttributeConfig(config), [config]);
+  const [editor, setEditor] = useState<EditorState>(CLOSED_EDITOR);
+
+  useEffect(() => {
+    if (initializedForNode.current === nodeId) {
+      return;
+    }
+    initializedForNode.current = nodeId;
+    // Migrate legacy flat configs and ensure new nodes start with attributes: [].
+    if (!Array.isArray(config.attributes)) {
+      onChange(buildUpdateAttributeConfig(config, parsed));
+    }
+  }, [nodeId, config, onChange, parsed]);
+
+  const handleAdd = useCallback(() => {
+    setEditor({
+      open: true,
+      mode: "add",
+      index: null,
+      value: createAttributeUpdate(),
+    });
+  }, []);
+
+  const handleEdit = useCallback(
+    (index: number) => {
+      const attribute = parsed.attributes[index];
+      if (!attribute) {
+        return;
+      }
+      setEditor({
+        open: true,
+        mode: "edit",
+        index,
+        value: { ...attribute, regex_flags: { ...attribute.regex_flags } },
+      });
+    },
+    [parsed.attributes],
+  );
+
+  const handleRemove = useCallback(
+    (index: number) => {
+      const nextAttributes = parsed.attributes.filter((_, itemIndex) => itemIndex !== index);
+      onChange(buildUpdateAttributeConfig(config, { attributes: nextAttributes }));
+    },
+    [config, onChange, parsed.attributes],
+  );
+
+  const handleMove = useCallback(
+    (index: number, direction: -1 | 1) => {
+      const targetIndex = index + direction;
+      if (targetIndex < 0 || targetIndex >= parsed.attributes.length) {
+        return;
+      }
+      const nextAttributes = [...parsed.attributes];
+      [nextAttributes[index], nextAttributes[targetIndex]] = [
+        nextAttributes[targetIndex],
+        nextAttributes[index],
+      ];
+      onChange(buildUpdateAttributeConfig(config, { attributes: nextAttributes }));
+    },
+    [config, onChange, parsed.attributes],
+  );
+
+  const handleSave = useCallback(
+    (value: AttributeUpdate) => {
+      if (!editor.open) {
+        return;
+      }
+      const nextAttributes =
+        editor.mode === "add"
+          ? [...parsed.attributes, value]
+          : parsed.attributes.map((attribute, index) =>
+              index === editor.index ? value : attribute,
+            );
+      onChange(buildUpdateAttributeConfig(config, { attributes: nextAttributes }));
+      setEditor(CLOSED_EDITOR);
+    },
+    [config, editor, onChange, parsed.attributes],
+  );
+
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="space-y-2">
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-1.5">
+            <span className="font-mono text-xs font-medium">attributes</span>
+            <Badge className="h-4 rounded px-1 text-[10px]" variant="secondary">
+              object_list
+            </Badge>
+            {parsed.attributes.length > 0 ? (
+              <Badge className="h-4 rounded bg-step-surface px-1 text-[10px] text-step-surface-foreground" variant="outline">
+                {parsed.attributes.length}
+              </Badge>
+            ) : null}
+          </div>
+          <Button
+            type="button"
+            variant="outline"
+            size="icon"
+            className="size-7"
+            onClick={handleAdd}
+            title="Add attribute"
+          >
+            <Plus className="size-3.5" aria-hidden />
+          </Button>
+        </div>
+
+        {parsed.attributes.length === 0 ? (
+          <p className="text-[11px] text-warning-foreground">
+            No attribute updates yet. Click + to add one.
+          </p>
+        ) : (
+          <div className="space-y-2">
+            {parsed.attributes.map((attribute, index) => (
+              <div
+                key={attribute.id}
+                className="flex items-start gap-1.5 rounded-lg border border-border bg-card p-2"
+              >
+                <div className="flex shrink-0 flex-col gap-0.5">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    className="size-7"
+                    onClick={() => handleMove(index, -1)}
+                    disabled={index === 0}
+                    title="Move up (lower priority)"
+                  >
+                    <ArrowUp className="size-3.5" aria-hidden />
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    className="size-7"
+                    onClick={() => handleMove(index, 1)}
+                    disabled={index === parsed.attributes.length - 1}
+                    title="Move down (higher priority)"
+                  >
+                    <ArrowDown className="size-3.5" aria-hidden />
+                  </Button>
+                </div>
+                <div className="min-w-0 flex-1 space-y-1">
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <Badge className="h-4 rounded px-1 text-[10px]" variant="outline">
+                      #{index + 1}
+                    </Badge>
+                    <Badge
+                      className="h-4 rounded px-1 text-[10px]"
+                      variant={attribute.mode === "fixed" ? "secondary" : "outline"}
+                    >
+                      {attribute.mode}
+                    </Badge>
+                    <span className="truncate font-mono text-[11px] text-foreground">
+                      {attribute.destination_path}
+                    </span>
+                  </div>
+                  <p className="truncate text-[11px] text-muted-foreground">
+                    {summarizeAttributeUpdate(attribute)}
+                  </p>
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  className="size-7 shrink-0"
+                  onClick={() => handleEdit(index)}
+                  title="Edit attribute"
+                >
+                  <Pencil className="size-3.5" aria-hidden />
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  className="size-7 shrink-0"
+                  onClick={() => handleRemove(index)}
+                  title="Remove attribute"
+                >
+                  <Minus className="size-3.5" aria-hidden />
+                </Button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <p className="text-[11px] leading-4 text-muted-foreground">
+          Updates run in list order for each device — use the arrows to reorder. Regex
+          entries that do not match and template entries with an unresolved placeholder are
+          skipped; fixed-value entries always write. Put
+          your default first and later, higher-priority overrides last.
+        </p>
+      </div>
+
+      <AttributeUpdateDialog
+        open={editor.open}
+        mode={editor.open ? editor.mode : "add"}
+        initialValue={editor.open ? editor.value : null}
+        onClose={() => setEditor(CLOSED_EDITOR)}
+        onSave={handleSave}
+        nodeId={nodeId}
+        workflowNodes={workflowNodes ?? []}
+        workflowEdges={workflowEdges ?? []}
+      />
+    </div>
+  );
+}
+
+interface IndexedAttribute {
+  attribute: AttributeUpdate;
+  position: number;
+}
+
+function describeRegexAttribute({ attribute, position }: IndexedAttribute): string {
+  const pattern = attribute.pattern.trim();
+  const destination = attribute.destination_path || "(no destination)";
+  return pattern ? `#${position} · ${pattern} → ${destination}` : `#${position} · ${destination}`;
+}
+
+function UpdateAttributeProbeTabPanel({ config }: PluginConfigPanelProps) {
+  const parsed = useMemo(() => parseUpdateAttributeConfig(config), [config]);
+  const regexAttributes = useMemo(
+    () =>
+      parsed.attributes.reduce<IndexedAttribute[]>((acc, attribute, index) => {
+        if (attribute.mode === "regex") {
+          acc.push({ attribute, position: index + 1 });
+        }
+        return acc;
+      }, []),
+    [parsed.attributes],
+  );
+  const [selectedId, setSelectedId] = useState<string>("");
+
+  const effectiveSelectedId = useMemo(() => {
+    if (regexAttributes.length === 0) {
+      return "";
+    }
+    if (regexAttributes.some(({ attribute }) => attribute.id === selectedId)) {
+      return selectedId;
+    }
+    return regexAttributes[0].attribute.id;
+  }, [regexAttributes, selectedId]);
+
+  const selectedEntry = useMemo(
+    () => regexAttributes.find(({ attribute }) => attribute.id === effectiveSelectedId) ?? null,
+    [regexAttributes, effectiveSelectedId],
+  );
+  const selected = selectedEntry?.attribute ?? null;
+
+  if (regexAttributes.length === 0) {
+    return (
+      <p className="text-[11px] text-muted-foreground">
+        Add a regex attribute update in Configuration to use Probe.
+      </p>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      {regexAttributes.length > 1 ? (
+        <div className="space-y-1.5">
+          <div className="flex items-center gap-1.5">
+            <span className="font-mono text-xs font-medium">probe_attribute</span>
+            <Badge className="h-4 rounded px-1 text-[10px]" variant="secondary">
+              string
+            </Badge>
+          </div>
+          <Select value={effectiveSelectedId} onValueChange={setSelectedId}>
+            <SelectTrigger className="h-8 text-xs">
+              <SelectValue placeholder="Select attribute to probe">
+                {selectedEntry ? describeRegexAttribute(selectedEntry) : undefined}
+              </SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              {regexAttributes.map((entry) => (
+                <SelectItem key={entry.attribute.id} value={entry.attribute.id}>
+                  {describeRegexAttribute(entry)}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      ) : null}
+
+      {selected ? (
+        <RegexProbePanel
+          pattern={selected.pattern}
+          destinationTemplate={selected.destination_template}
+          regexFlags={selected.regex_flags}
+          sourcePath={selected.source_path}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+export const UpdateAttributePlugin = {
+  ConfigPanel: UpdateAttributeConfigPanel,
+  HelpPanel: UpdateAttributeHelpPanel,
+  modalTabs: [
+    {
+      id: "probe",
+      label: "Probe",
+      Panel: UpdateAttributeProbeTabPanel,
+      isVisible: (config: Record<string, unknown>) =>
+        parseUpdateAttributeConfig(config).attributes.some(
+          (attribute) => attribute.mode === "regex",
+        ),
+    },
+  ],
+};

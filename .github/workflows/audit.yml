@@ -1,0 +1,40 @@
+name: audit
+
+# The audits in backend-ci and frontend-ci run only when code changes. A new advisory against a
+# dependency we already ship appears on a quiet repository too, so run them weekly as well.
+on:
+  schedule:
+    - cron: "17 5 * * 1" # Mondays 05:17 UTC
+  workflow_dispatch:
+
+jobs:
+  pip-audit:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.14"
+      - run: pip install pip-audit==2.9.0
+      - name: pip-audit
+        # Keep the ignore list identical to the audit job in backend-ci.yml.
+        run: pip-audit -r requirements.txt -r requirements-dev.txt --ignore-vuln PYSEC-2026-2858
+
+  # pyats-shim is not audited here on purpose: pyats[full] pins transitive packages with known
+  # advisories (python-socketio, python-engineio, setuptools), so the job would be red from the
+  # first run. Dependabot still watches it (.github/dependabot.yml).
+
+  npm-audit:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: frontend/.nvmrc
+      - run: npm audit --omit=dev

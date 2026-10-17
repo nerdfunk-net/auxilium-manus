@@ -1,0 +1,59 @@
+[tool.ruff]
+line-length = 100
+target-version = "py314"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "S", "ASYNC"]
+ignore = [
+    "B008",     # FastAPI Depends() in argument defaults is the framework idiom
+    "S105",     # false positives: OAuth2 "token_type"/"bearer" values, enum members, and the
+                # DEFAULT_* sentinels production_guards rejects at startup — none are real secrets
+    "S106",     # same class of false positive, predominantly in test fixtures
+    "ASYNC109", # service methods deliberately accept an explicit `timeout=` forwarded to the
+                # httpx transport; the asyncio.timeout() context-manager rewrite is not wanted
+]
+
+[tool.ruff.lint.flake8-bandit]
+check-typed-exception = true   # S110/S112 also fire for `except ValueError: pass`
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S", "ASYNC"]         # asserts, tmp paths, sync sleeps are fine in test code
+"scripts/**" = ["S101", "S603", "S607"]  # dev/CI helpers assert and shell out to known binaries
+"migrations/**" = ["S"]
+# Vetted subprocess call sites: fixed argv lists, no shell, binaries are `git` /
+# `update-ca-certificates` on PATH by design. See doc/SECURITY-NOTES.md.
+"core/cert_installer.py" = ["S607"]
+"services/certificates/certificate_service.py" = ["S607"]
+"services/git/cache.py" = ["S603", "S607"]
+"services/git/connection.py" = ["S603"]
+
+[tool.pyright]
+include = [
+    "core", "models", "repositories", "services", "routers", "hatchet",
+    "workflow_steps", "main.py", "dependencies.py", "service_factory.py",
+]
+exclude = ["**/__pycache__", ".venv", "tests", "scripts", "migrations"]
+pythonVersion = "3.14"
+typeCheckingMode = "basic"
+reportMissingImports = true
+reportMissingModuleSource = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests/unit"]
+python_files = ["test_*.py"]
+pythonpath = ["."]
+# Coverage is always measured so the ratchet below can only move up. Raise
+# --cov-fail-under at the end of every phase of doc/plans/PYTEST_COVERAGE_80PERCENT.md.
+# Running a subset of tests? Add --no-cov to skip the (whole-suite) threshold check.
+addopts = "--cov --cov-report=term-missing --cov-fail-under=81"
+markers = [
+    "integration: heavy tests against real devices or live services (opt-in)",
+]
+
+[tool.coverage.run]
+source = ["."]
+omit = ["tests/*", "migrations/*", "scripts/*", ".venv/*"]
+
+[tool.coverage.report]
+show_missing = true
+skip_empty = true
