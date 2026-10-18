@@ -1,25 +1,42 @@
 version: 2
+# Minor and patch updates are grouped into one PR per ecosystem per week.
+# Major updates are not grouped, so each one gets its own PR to review.
 updates:
   - package-ecosystem: pip
     directory: /backend
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    groups:
+      backend-minor-patch:
+        update-types: [minor, patch]
   - package-ecosystem: pip
     directory: /pyats-shim
     schedule:
       interval: weekly
     open-pull-requests-limit: 3
+    groups:
+      pyats-shim-minor-patch:
+        update-types: [minor, patch]
   - package-ecosystem: npm
     directory: /frontend
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    groups:
+      frontend-minor-patch:
+        update-types: [minor, patch]
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
+    groups:
+      github-actions-minor-patch:
+        update-types: [minor, patch]
   - package-ecosystem: docker
     directory: /docker
     schedule:
       interval: weekly
+    groups:
+      docker-minor-patch:
+        update-types: [minor, patch]
