@@ -15,9 +15,25 @@ with a visual, repeatable workflow model:
 - **Design workflows on a canvas** — compose steps (get config, run a command, render a
   Jinja template, evaluate a condition, write to Git, update Nautobot/ISE, store an
   artifact, snapshot and diff structured device state via pyATS, analyze routing,
-  reachability, and ACLs offline via Batfish, …) as nodes on a React Flow canvas,
+  reachability, and ACLs offline via Batfish, read devices from Cisco Catalyst Center,
+  send an email, start another workflow, …) as nodes on a React Flow canvas,
   connected by dependency-aware edges. The output of one step becomes the input of the
   next.
+- **Compose workflows from workflows** — a **Run Workflow** step starts another workflow
+  (a backup workflow, say) as a run of its own and hands it the current devices, either as
+  one run for all devices or one run per device. It can wait for the child runs to finish
+  and routes each device through success or failure by the child's result. The child runs
+  as the triggering user, so it cannot do anything that user could not do by hand.
+- **Report across the whole fleet** — a workflow runs per device, so nothing else sees the
+  fleet as a whole. A **Store for Report** step records small per-device facts (serial,
+  model, interface states, …) and the **Reports** app turns them into tables, numbers and
+  charts across all devices, as saved reports, stored snapshots, PDF exports, and email.
+  See [doc/REPORTS.md](doc/REPORTS.md).
+- **Ask the built-in AI assistant** — configure your own LLM provider and key, then use
+  chat panels in the template editor, workflow builder, runs page, inventory page, and
+  Reports app to draft workflows and templates, explain why a run failed, or query
+  inventory. It reads freely but only *proposes* changes, which you review as a diff.
+  See [doc/ai_integration/AI_ASSISTANT.md](doc/ai_integration/AI_ASSISTANT.md).
 - **Run once or fan out** — execute a workflow interactively against a single device, or
   fan it out into a parallel per-device child workflow across an entire device group.
 - **Independent branches run in parallel automatically** — if the canvas has two (or
@@ -70,6 +86,15 @@ trigger specific workflows and settings.
 - Device-first design: select inventory targets, then build the workflow around them
 - Nautobot integration for device inventory, attributes, and updates
 - Optional Cisco ISE integration (device add, TACACS+ key management)
+- Cisco Catalyst Center integration: select devices, run read-only commands, fetch running
+  configs, and read device details, topology, and health scores through the REST Intent API
+  (see [doc/CISCO_CATALYST_INTEGRATION.md](doc/CISCO_CATALYST_INTEGRATION.md))
+- Deeper Nautobot steps: start and check Nautobot jobs, update devices, interfaces and
+  config contexts, add metadata (locations, device types), and read or split virtual
+  chassis (switch stacks)
+- Workflow-calls-workflow: the **Run Workflow** step starts another workflow with the
+  current devices, per run or per device, optionally waits for it, and branches on its
+  result
 - Git-backed steps for cloning, pulling, and pushing configuration/templates
 - Jinja2 template rendering and config deployment to devices via Netmiko/SSH
 - Durable, retryable background execution via Hatchet, with per-run logs and artifacts
@@ -84,6 +109,16 @@ trigger specific workflows and settings.
   and answer routing, reachability, and ACL questions against it — routing tables, path
   checks, ACL checks, OSPF/BGP facts, node/interface properties, and general config-fact
   extraction/validation — without touching live devices
+- Reports app: **Store for Report** collects per-device facts in the database; a
+  declarative query engine (filters, grouping, metrics, history over time) feeds an Explore
+  tab, saved reports with table/number/bar/line sections, immutable snapshots, report
+  templates, PDF export, and email delivery
+- In-app AI assistant: bring your own provider (Anthropic Claude, Google Gemini, or any
+  OpenAI-compatible endpoint such as Ollama) and private API key; the assistant acts with
+  your own permissions, has no execution tools, proposes changes as reviewable diffs
+  validated before you see them, and sees device, run, or report data only with your
+  opt-in; saved conversations
+- Email: **Send Mail** step through a mail server an administrator configures
 - Notifications: write in-app notifications and/or post to a Mattermost channel, either
   per-step or from a shared error sink that reports every accumulated failure across a
   run's fanned-out devices
@@ -111,7 +146,7 @@ UI, TanStack Query, Zustand, React Hook Form, Zod
 **Backend:** FastAPI, Python, PostgreSQL, SQLAlchemy, Redis, JWT auth, Hatchet, Netmiko,
 GitPython, pyATS/Genie
 
-**Integrations:** Nautobot API, Cisco ISE, pyATS, Batfish, Mattermost, OpenBao
+**Integrations:** Nautobot API, Cisco ISE, Cisco Catalyst Center, pyATS, Batfish, Mattermost, OpenBao
 
 ## The app
 
@@ -163,10 +198,52 @@ unsecured, posting a Mattermost notification for whichever condition matches:
 
 ![Check VTY workflow: parses device config, checks VTY lines for a missing access-class or unsecured configuration, and notifies Mattermost on a match](screenshots/check-vty.png)
 
+## Reports
+
+A workflow runs once per device, so a single run never shows the whole fleet. Reports
+close that gap:
+
+- **Collect** — add a **Store for Report** step to a workflow. It writes small, flat facts
+  per device (or per list element, such as one row per interface) into a named dataset.
+  Each execution is one *collection*; reports read the newest collection per device, or the
+  full history.
+- **Explore** — pick a dataset from the catalog, filter, group, and aggregate (count,
+  distinct count, sum, average, min, max) and see the result as a table, number, bar, or
+  line chart. Queries are declarative JSON; there is no free SQL.
+- **Save and share** — compose sections into a saved report, generate immutable snapshots
+  of it, start from report templates, export to PDF, or send it by email.
+- **Ask the AI** — the Reports page has an assistant panel (see below) that can build
+  queries from your question, but only sees report data if you opt in.
+
+See [doc/REPORTS.md](doc/REPORTS.md) for the data model and query spec.
+
+## In-app AI assistant
+
+Separate from AI collaboration below (an *external* AI session writing into a workflow),
+the in-app assistant is a chat panel inside the product itself:
+
+- **Your provider, your key.** Each user configures Anthropic Claude, Google Gemini, or an
+  OpenAI-compatible endpoint (which covers Ollama), with a private API key. Operators
+  control which providers and which kinds of data are allowed at all.
+- **Where it lives.** Template editor, workflow builder, runs page, inventory page, and
+  Reports page.
+- **What it does.** Author workflows and Jinja templates, explain a failed run, answer
+  questions about inventory and device attributes, and build report queries.
+- **It acts as you.** Every tool call goes through the same services and permission checks
+  as the matching REST call; there is no assistant super-user.
+- **Read freely, write by proposal.** Write tools never persist. They produce a proposal
+  that is validated (and, for templates, rendered) and shown as a diff; accepting it uses
+  the normal save path, so audit and version control apply.
+- **No execution.** The assistant cannot run workflows, open SSH sessions, or push to Git.
+  Device, run, and report data is sent to the provider only if you opt in.
+
+See [doc/ai_integration/AI_ASSISTANT.md](doc/ai_integration/AI_ASSISTANT.md).
+
 ## AI collaboration
 
 Most workflow builders stop at letting an AI assistant suggest a script in a chat
-window that you then copy in by hand. Auxilium Manus goes further: an AI collaborator
+window that you then copy in by hand. Beyond the in-app assistant above, Auxilium Manus
+goes further: an external AI collaborator
 can write directly into an open workflow, in place, through the same code path the
 UI itself uses — a rare capability among NetDevOps tools.
 
