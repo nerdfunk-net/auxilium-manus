@@ -246,3 +246,7 @@ docker/data/
 backend/.env.test
 backend/tests/nautobot-baseline.yaml
 temp
+
+# our analysis and our plans
+doc/analysis/
+doc/plans/
