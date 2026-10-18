@@ -4,5 +4,5 @@
 # (year) component -- CalVer means a new year can be a breaking jump.
 pyats[full]>=26.0,<27.0
 fastapi>=0.115,<1.0
-uvicorn[standard]>=0.30,<1.0
+uvicorn[standard]>=0.54.0,<1.0
 pyyaml>=6.0,<7.0
