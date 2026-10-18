@@ -87,7 +87,7 @@ class InventoryRepository:
                 (Inventory.scope == "private") & (Inventory.created_by == username),
             ),
         )
-        return [row[0] for row in self.db.execute(stmt).all()]
+        return [path for (path,) in self.db.execute(stmt).all() if path is not None]
 
     def rename_group(self, old_path: str, new_path: str, username: str) -> int:
         stmt = select(Inventory).where(

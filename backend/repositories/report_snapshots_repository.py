@@ -47,7 +47,11 @@ class ReportSnapshotsRepository:
             .where(ReportSnapshot.definition_id.is_not(None))
             .group_by(ReportSnapshot.definition_id)
         )
-        return {row[0]: (row[1], row[2]) for row in self.db.execute(stmt)}
+        return {
+            definition_id: (count, last_generated_at)
+            for definition_id, count, last_generated_at in self.db.execute(stmt)
+            if definition_id is not None
+        }
 
     def detach_definition(self, definition_id: int) -> None:
         """Clear ``definition_id`` (portable ON DELETE SET NULL); the caller commits."""

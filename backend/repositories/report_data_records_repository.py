@@ -180,7 +180,7 @@ class ReportDataRecordRepository:
     @classmethod
     def latest_rows_select(
         cls, dataset: str, *, include_empty: bool = False
-    ) -> Select[tuple[ReportDataRecord]]:
+    ) -> Select[ReportDataRecord]:
         """Every row of each device's newest collection, as a composable select."""
         stmt = select(ReportDataRecord).where(
             ReportDataRecord.dataset == dataset,
