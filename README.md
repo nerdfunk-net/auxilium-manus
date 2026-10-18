@@ -4,6 +4,14 @@
 engineers. It lets you design, configure, and execute network automation workflows
 visually, without writing a script for every task.
 
+> **AI-native, with guardrails.** Auxilium Manus has two AI integrations built into the
+> product, not bolted on. An **in-app assistant** (your own provider and key) authors
+> workflows and templates, explains failed runs, and builds reports, and an **AI
+> collaborator** writes directly into an open workflow through the same code path the UI
+> uses. Both are validated before anything runs, and neither can execute a workflow, open
+> an SSH session, or touch credentials. Every change is yours to review and is audited.
+> See [AI in Auxilium Manus](#ai-in-auxilium-manus).
+
 ## What it does
 
 Network automation usually means one-off scripts: a Python file that logs into a device,
@@ -217,7 +225,36 @@ close that gap:
 
 See [doc/REPORTS.md](doc/REPORTS.md) for the data model and query spec.
 
-## In-app AI assistant
+## AI in Auxilium Manus
+
+Most automation tools either have no AI or give you a chatbot that suggests a snippet
+to copy by hand. Auxilium Manus treats AI as a first-class, safely constrained participant
+in the product:
+
+| | In-app assistant | AI collaboration |
+|---|---|---|
+| **Who** | Chat panel inside the app, acting as *you* | An external AI session acting as its own audited `ai-assistant` user |
+| **Writes** | Proposals only, accepted by you as a diff | Directly into the open workflow, within a time-boxed consent session |
+| **Can execute?** | No | No (no `workflows:execute`, no `credentials:reveal`) |
+| **Validated** | Before you ever see the proposal | Four validation tiers; the same validator blocks a run |
+
+What sets this apart:
+
+- **The AI works on the real thing.** It reads and writes the same workflows, templates,
+  runs, inventory, and reports your team uses, through the same services. There is no
+  separate "AI copy" to reconcile.
+- **Safe by construction, not by promise.** The guardrails are structural: missing
+  permissions and absent execution tools, not a prompt that asks the model to behave. A
+  prompt-injected model can at worst produce a bad proposal you see as a diff.
+- **Self-correcting.** Output is run through the schema, reference, capability-flow, and
+  attribute-path validators, and the model gets the findings back to fix its own draft.
+- **Auditable.** AI-made changes are attributed to the AI, kept apart from your edits in
+  the audit trail and the version-control mirror.
+- **Your choice of model and data.** Anthropic Claude, Google Gemini, or any
+  OpenAI-compatible endpoint including local models via Ollama. Operators decide which
+  providers and data types are allowed at all.
+
+### In-app AI assistant
 
 Separate from AI collaboration below (an *external* AI session writing into a workflow),
 the in-app assistant is a chat panel inside the product itself:
@@ -239,7 +276,7 @@ the in-app assistant is a chat panel inside the product itself:
 
 See [doc/ai_integration/AI_ASSISTANT.md](doc/ai_integration/AI_ASSISTANT.md).
 
-## AI collaboration
+### AI collaboration
 
 Most workflow builders stop at letting an AI assistant suggest a script in a chat
 window that you then copy in by hand. Beyond the in-app assistant above, Auxilium Manus
