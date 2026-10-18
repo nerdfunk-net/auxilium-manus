@@ -10,6 +10,12 @@ updates:
     groups:
       backend-minor-patch:
         update-types: [minor, patch]
+    ignore:
+      # Deliberate pins, see CONTRIBUTING.md "Dependencies": paramiko 5.x has breaking
+      # changes and netmiko stays at ==4.8.0. Raise them by hand, never via Dependabot.
+      - dependency-name: paramiko
+        update-types: ["version-update:semver-major"]
+      - dependency-name: netmiko
   - package-ecosystem: pip
     directory: /pyats-shim
     schedule:
