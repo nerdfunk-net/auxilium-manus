@@ -69,7 +69,7 @@ services:
     # No raw sockets: nothing here needs to craft packets.
     cap_drop:
       - NET_RAW
-    image: ghcr.io/hatchet-dev/hatchet/hatchet-migrate:v0.107.2
+    image: ghcr.io/hatchet-dev/hatchet/hatchet-migrate:v0.110.8
     command: /hatchet/hatchet-migrate
     depends_on:
       hatchet-postgres:
@@ -84,7 +84,7 @@ services:
     # No raw sockets: nothing here needs to craft packets.
     cap_drop:
       - NET_RAW
-    image: ghcr.io/hatchet-dev/hatchet/hatchet-admin:v0.107.2
+    image: ghcr.io/hatchet-dev/hatchet/hatchet-admin:v0.110.8
     command: /hatchet/hatchet-admin quickstart --skip certs --generated-config-dir /hatchet/config --overwrite=false
     depends_on:
       hatchet-migrate:
@@ -119,7 +119,7 @@ services:
     # No raw sockets: nothing here needs to craft packets.
     cap_drop:
       - NET_RAW
-    image: ghcr.io/hatchet-dev/hatchet/hatchet-engine:v0.107.2
+    image: ghcr.io/hatchet-dev/hatchet/hatchet-engine:v0.110.8
     command: /hatchet/hatchet-engine --config /hatchet/config
     restart: on-failure
     depends_on:
@@ -146,7 +146,7 @@ services:
     # No raw sockets: nothing here needs to craft packets.
     cap_drop:
       - NET_RAW
-    image: ghcr.io/hatchet-dev/hatchet/hatchet-dashboard:v0.107.2
+    image: ghcr.io/hatchet-dev/hatchet/hatchet-dashboard:v0.110.8
     command: sh ./entrypoint.sh --config /hatchet/config
     restart: on-failure
     depends_on:

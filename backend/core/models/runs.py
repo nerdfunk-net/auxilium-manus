@@ -66,6 +66,16 @@ class WorkflowRun(Base):
         nullable=True,
         index=True,
     )
+    # Set when a step of another run (start-workflow) started this run. Drives the recursion
+    # guard and cancelling children with their parent; SET NULL keeps a child when the
+    # parent run is purged.
+    parent_run_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("workflow_runs.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    # Workflow ids of every run above this one, root first, copied from the parent when the run
+    # is started. ``parent_run_id`` is cleared when a finished ancestor is deleted or purged, so
+    # the recursion guard (no workflow twice in a chain, limited depth) reads this list instead.
+    ancestor_workflow_ids: Mapped[list | None] = mapped_column(JSON, nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     # configuration | execution | internal — see step_runner.classify_step_exception
     error_category: Mapped[str | None] = mapped_column(String(20), nullable=True)

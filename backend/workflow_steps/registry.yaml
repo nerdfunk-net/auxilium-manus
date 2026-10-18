@@ -4334,6 +4334,101 @@ plugins:
           required: true
           example: "Device {device.name} processed from ISE"
 
+  - id: start-workflow
+    name: Run Workflow
+    overview: Start another workflow, hand it these devices, and optionally wait for it to finish.
+    description: >
+      Starts another workflow (for example a backup workflow) as a run of its own. The devices
+      reach it the way a schedule or a manual run supplies them: through a run input, the
+      device_param of its Get from User step, filled with one "name,ip" line per device. A
+      workflow without such an input is called without devices. One run can cover all devices,
+      or one run is started per device (at most max_runs). With "Wait for the runs" on, the step
+      waits up to the configured time (10 minutes at most) and a device continues through
+      success only when its run finished successfully; a failed, cancelled, partial or
+      still-running result sends it through failure (a run that is still going keeps going).
+      With waiting off the step only starts the runs.
+    artifact_type: control_flow
+    palette_category: routing
+    directory: start_workflow
+    enabled: true
+    requires: [identity]
+    produces: []
+    outcomes:
+      - name: success
+      - name: failure
+    metadata:
+      configuration_input:
+        - name: workflow_id
+          description: ID of the workflow to start, chosen in the workflow builder.
+          data_type: integer
+          required: true
+          example: 12
+        - name: workflow_name
+          description: Name of the selected workflow, shown in the builder only.
+          data_type: string
+          required: false
+        - name: devices_input
+          description: >
+            Name of the started workflow's text run input (the device_param of its Get from
+            User step) that receives this workflow's devices, one "name,ip" line per device.
+            Empty = call the workflow without devices. Chosen in the workflow builder.
+          data_type: string
+          required: false
+          example: target_devices
+        - name: run_mode
+          description: >
+            "all_devices" (default) starts one run for all devices and routes them together.
+            "per_device" starts one run per device and routes every device by its own run;
+            needs devices_input.
+          data_type: string
+          required: false
+          default: all_devices
+        - name: max_runs
+          description: >
+            Most runs this step may start (1 to 200, default 25). More devices than this in
+            per_device mode are refused before anything is started.
+          data_type: integer
+          required: false
+          default: 25
+        - name: run_inputs
+          description: >
+            Values for the started workflow's other declared run inputs, as an object of input
+            name to value. Required inputs without a default must be given. Secret inputs can
+            never be given here.
+          data_type: object
+          required: false
+        - name: wait
+          description: >
+            Wait for the started runs to finish. Off = only start them and continue at once.
+          data_type: boolean
+          required: false
+          default: true
+        - name: wait_seconds
+          description: >
+            How long to wait at most, 5 to 600 seconds. A run still going after that sends its
+            devices through failure and keeps going.
+          data_type: integer
+          required: false
+          default: 300
+        - name: poll_interval_seconds
+          description: Seconds between checks of the started runs (1 to 60).
+          data_type: integer
+          required: false
+          default: 5
+        - name: allow_partial
+          description: >
+            Treat a run in which a step succeeded for only some devices as success. A run
+            with a failed step is never accepted.
+          data_type: boolean
+          required: false
+          default: false
+        - name: bag_name
+          description: >
+            attribute_bags key each device's run id, status and waited seconds are written to.
+          data_type: string
+          required: false
+          default: child_run
+
   - id: stop-here
     name: Stop Here
     overview: End the run at this point so you can inspect values so far.

@@ -40,6 +40,8 @@ class RunRepository:
         trigger_type: str,
         device_ids: list[str],
         run_inputs: dict[str, Any] | None = None,
+        parent_run_id: int | None = None,
+        ancestor_workflow_ids: list[int] | None = None,
     ) -> WorkflowRun:
         run = WorkflowRun(
             uuid=str(uuid_mod.uuid4()),
@@ -49,11 +51,22 @@ class RunRepository:
             device_ids=device_ids,
             status="pending",
             run_inputs=run_inputs or {},
+            parent_run_id=parent_run_id,
+            ancestor_workflow_ids=ancestor_workflow_ids,
         )
         self.db.add(run)
         self.db.commit()
         self.db.refresh(run)
         return run
+
+    def get_run(self, run_id: int) -> WorkflowRun | None:
+        return self.db.get(WorkflowRun, run_id)
+
+    def list_children(self, parent_run_id: int) -> list[WorkflowRun]:
+        """Every run started by ``parent_run_id``, finished ones included: a finished child can
+        still have running children of its own."""
+        stmt = select(WorkflowRun).where(WorkflowRun.parent_run_id == parent_run_id)
+        return list(self.db.scalars(stmt))
 
     def get_run_by_id(self, run_id: int) -> tuple[WorkflowRun, str | None] | None:
         stmt = (

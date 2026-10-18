@@ -505,6 +505,50 @@ wraps the process directly and respawns it on any exit).
 
 ---
 
+## Child workflow runs: start, wait, cancel
+
+**Question:** Can a workflow start another workflow, hand it devices, wait a little to see that it
+succeeded, and what keeps that from running away?
+
+**Answer:** Yes, through the `start-workflow` step (see `doc/WORKFLOW-STEPS.md` -> "Starting
+another workflow"). The child is an ordinary `WorkflowRun` created by `RunService.start_child_run`
+and dispatched through the same `resolve_dispatch_workflow(...)` path as a manual trigger or a
+schedule, so it has its own run row, step results, logs and tier.
+
+- **Link.** `workflow_runs.parent_run_id` (self FK, `ON DELETE SET NULL`, added by
+  `AutoSchemaMigration`) points at the run whose step started it; `trigger_type` is `workflow`. The
+  run detail shows "started by run #N".
+- **Data in: only through declared run inputs.** Nothing is injected into a run from the side. The
+  caller fills the target's inputs exactly as a schedule or a manual run does. Devices travel as the
+  text input of a **Get from User** step (`device_param`, one `name,ip` line per device), so a
+  workflow that is called, scheduled or run by hand has one contract. The builder reads the target's
+  declared inputs (`static_attributes`) to generate the form, including the saved-inventory picker.
+- **One run or one per device.** One run for all devices, or one per device with `max_runs` as a
+  guard checked before anything starts; per-device runs let each device be routed by its own result.
+- **Waiting.** A step executor has no `DurableContext`, so the wait is a bounded poll (<= 600 s,
+  default 300) of the runs' status through short database sessions of its own, run in a thread
+  because the run's session is shared by concurrent branches. Durable waits across hours belong in
+  the change-request pattern (two runs joined by a row), not here. A finished run only counts if the
+  Get from User step that took the devices really ran.
+- **Authority.** A child runs as the parent's triggering user; a parent without one cannot start a
+  child. The user needs access to the workflow and `workflows:execute`.
+- **Secrets.** A step's `run_inputs` are stored in the canvas, so a `secret` input of the target
+  cannot be given there (rejected on save and at run time); a callable workflow brings its own
+  credentials.
+- **Loops.** A workflow may not appear twice in a chain and a chain is at most 3 deep. The guard
+  reads `ancestor_workflow_ids` (the ancestors' workflow ids, copied to each child), not
+  `parent_run_id`, which is cleared when a finished ancestor is deleted or purged. A run that is no
+  longer active cannot start children.
+- **Cancel.** `cancel_run` cancels the run, then (recursively) its active children with the same
+  database-first transition and best-effort Hatchet cancel (`_cancel_active_run`,
+  `cancel_child_runs`), walking through finished children to the running runs below them.
+  `RunLifecycleService.fail_interrupted` does the same for a parent lost to a worker crash, engine
+  cancel or the reaper; a parent that merely fails on a later step leaves its child to finish.
+  Because cancel marks the parent and then sweeps once, `start_child_run` re-checks the parent after
+  creating a child and cancels it if the parent ended in between.
+
+---
+
 ## Version-controlled workflows: Git is a mirror, not a source of truth
 
 **Question:** When a workflow has version control turned on, does its JSON

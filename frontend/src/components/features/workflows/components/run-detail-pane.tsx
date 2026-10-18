@@ -88,6 +88,7 @@ export function RunDetailPane({ runId, workflowId, onFocusCanvas }: RunDetailPan
           <p className="mt-1 text-xs text-muted-foreground">
             {data.triggered_by_username ?? "unknown"} · started {formatTime(data.created_at)}
             {data.finished_at ? ` · finished ${formatTime(data.finished_at)}` : ""}
+            {data.parent_run_id ? ` · started by run #${data.parent_run_id}` : ""}
           </p>
         </div>
         {canCancel ? (

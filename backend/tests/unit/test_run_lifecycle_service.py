@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import unittest
+import unittest.mock
 from datetime import timedelta
 
 from repositories.run_repository import RunRepository
@@ -33,6 +34,32 @@ class RunLifecycleTests(unittest.TestCase):
         self.assertEqual(run.error_message, "lost")
         self.assertTrue(run.error_id)
         self.assertEqual(step.status, "failed")
+
+    def test_fail_interrupted_cancels_the_active_child_runs(self) -> None:
+        parent = add_run(self.db, uuid="p")
+        active = add_run(self.db, uuid="c1")
+        active.parent_run_id = parent.id
+        done = add_run(self.db, status="success", uuid="c2")
+        done.parent_run_id = parent.id
+        self.db.commit()
+
+        self.assertTrue(self.service.fail_interrupted(parent.id, message="lost"))
+
+        for run in (parent, active, done):
+            self.db.refresh(run)
+        self.assertEqual(parent.status, "failed")
+        self.assertEqual(active.status, "cancelled")
+        self.assertEqual(done.status, "success")
+
+    def test_a_failing_child_cancel_never_blocks_finalising_the_parent(self) -> None:
+        parent = add_run(self.db, uuid="p")
+        with unittest.mock.patch(
+            "services.execution.run_service.RunService.cancel_child_runs",
+            side_effect=RuntimeError("engine down"),
+        ):
+            self.assertTrue(self.service.fail_interrupted(parent.id, message="lost"))
+        self.db.refresh(parent)
+        self.assertEqual(parent.status, "failed")
 
     def test_fail_interrupted_does_not_touch_cancelled_run(self) -> None:
         run = add_run(self.db, status="cancelled")

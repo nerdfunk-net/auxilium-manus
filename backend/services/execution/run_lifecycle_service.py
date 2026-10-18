@@ -47,10 +47,21 @@ class RunLifecycleService:
             return False
         self.repo.finalise_open_step_results(run_id, message=message)
         logger.error("Run interrupted run_id=%s error_id=%s", run_id, error_id)
+        self._cancel_child_runs(run_id)
         found = self.repo.get_run_by_id(run_id)
         if found is not None:
             maybe_reconcile_deploy_run(self.db, found[0])
         return True
+
+    def _cancel_child_runs(self, run_id: int) -> None:
+        """An interrupted parent leaves nobody to gate on, or judge, the runs it started."""
+        from services.execution.run_service import RunService
+
+        try:
+            RunService(self.db).cancel_child_runs(run_id)
+        except Exception:
+            # best effort: finalising the parent must never fail because of its children
+            logger.warning("Could not cancel the child runs of run_id=%s", run_id, exc_info=True)
 
     async def reap_stuck_runs(self, *, grace: timedelta, engine_status: EngineStatus) -> int:
         """Finalise active runs older than ``grace`` that the engine no longer runs.

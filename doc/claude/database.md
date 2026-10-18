@@ -12,6 +12,12 @@ events), `change_requests`, `workflow_schedules`, `workflow_background_tier`,
 
 **RBAC tables (5):** `roles`, `permissions`, `role_permissions`, `user_roles`, `user_permissions`
 
+**`workflow_runs.parent_run_id`** (nullable self FK, `ON DELETE SET NULL`, indexed) links a run to the
+run whose `start-workflow` step started it; `trigger_type` is then `workflow`.
+**`workflow_runs.ancestor_workflow_ids`** (nullable JSON list) holds the workflow ids of every run above
+it, root first. The recursion guard reads it because `parent_run_id` is cleared when an ancestor run is
+deleted or purged.
+
 ## Migration System
 
 Schema changes are applied by `AutoSchemaMigration` on start: `./doc/MIGRATION_SYSTEM.md`. There are no numbered migrations and no Alembic.

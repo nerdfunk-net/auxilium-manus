@@ -90,6 +90,12 @@ need `workflows:execute` to use a stored shared secret.
 
 ## Run control, change requests, schedules
 
+**Child runs.** A `start-workflow` step starts another workflow as the *triggering user of the
+calling run* (`RunService.require_child_target`: the workflow must be visible to them and they need
+`workflows:execute`; a run without a triggering user cannot start one). It cannot be used to run
+something the user could not run by hand. The child's owner is therefore the same user, so cancelling
+the calling run cancels the child (`parent_run_id`) under the same owner-only rule.
+
 Only the person who started a run (`triggered_by_id`, else the workflow's creator) may cancel it,
 approve its Wait & Run batches or delete it; an administrator may cancel or delete (never approve)
 as a logged exception. Approving a change request runs only the deploy workflow staged with it, as the

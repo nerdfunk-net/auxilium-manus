@@ -1013,7 +1013,9 @@ device), `ref_mismatch` (a change-request deploy found a different commit than t
   `update-nautobot-device`, `exists-in-nautobot`, `add-nautobot-metadata`,
   `update-config-context`, `start-nautobot-job`, `check-nautobot-job`) copy it to the device
   error; a Nautobot job that ended unsuccessfully or never finished is recorded as `task_failed` /
-  `task_timeout` (phase `task`) with the check count. Steps that let the client error propagate
+  `task_timeout` (phase `task`) with the check count; `start-workflow` records the same two kinds
+  for a started run that ended unsuccessfully or was still running when its wait ran out (elapsed
+  time only, never the run's own error text). Steps that let the client error propagate
   (`get-nautobot-devices`) get it on the step through the cause chain.
 - *Step level (all sources):* `WorkflowStepResult.failure` (JSON, nullable; added by the startup
   schema sync) holds the cause of a failure that is not tied to one device. A step either sets

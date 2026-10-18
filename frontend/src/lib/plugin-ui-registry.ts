@@ -78,6 +78,7 @@ const PLUGIN_UI_LOADERS: Record<string, PluginUILoader> = {
   "update-nautobot-device": () => import("@/components/features/workflow-steps/update-nautobot-device").then((m) => m.UpdateNautobotDevicePlugin),
   "start-nautobot-job": () => import("@/components/features/workflow-steps/start-nautobot-job").then((m) => m.StartNautobotJobPlugin),
   "check-nautobot-job": () => import("@/components/features/workflow-steps/check-nautobot-job").then((m) => m.CheckNautobotJobPlugin),
+  "start-workflow": () => import("@/components/features/workflow-steps/start-workflow").then((m) => m.StartWorkflowPlugin),
   "update-config-context": () => import("@/components/features/workflow-steps/update-config-context").then((m) => m.UpdateConfigContextPlugin),
   "update-attribute": () => import("@/components/features/workflow-steps/update-attribute").then((m) => m.UpdateAttributePlugin),
   "encrypt-attribute": () => import("@/components/features/workflow-steps/encrypt-attribute").then((m) => m.EncryptAttributePlugin),

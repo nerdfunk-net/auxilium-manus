@@ -1367,6 +1367,7 @@ A step is concurrency-safe when it:
 |-----------|---------------|-----|
 | `get-device-configs`, `run-command`, `run-catalyst-center-command`, `get-catalyst-center-configs`, `get-catalyst-center-details`, `get-catalyst-center-topology`, `get-catalyst-center-health`, `merge-config`, `get-nautobot-attributes`, `get-device-location`, `get-virtual-chassis`, `split-virtual-chassis`, `render-jinja-template`, `log-message`, `route-on-attribute`, `generate-password` | ✅ | Per-device compute, no shared mutable sink. |
 | `git-status` | ✅ | Read-only inspection (plus an optional `git fetch`) under the per-repository lock, so concurrent callers are serialised, not corrupted. Its result is per repository, not per device — inside a fan-out branch it re-checks the same repo once per child, so prefer a single check before the fan-out inventory step's children or after a Fan In. |
+| `start-workflow` | ⚠️ | Starts one run for all devices it receives, or one per device (`max_runs`), and optionally polls them for up to 600 s. Two concurrent callers start two sets of runs, so inside a fan-out child it starts runs per child, each waiting in its own worker slot: place it before the fan-out or after a **Fan In**. See "Starting another workflow: `start-workflow`" below. |
 | `send-mail` | ⚠️ | Sends one email per execution and holds no shared state, so concurrent callers never corrupt anything — but inside a fan-out child branch it sends **one mail per child**. Place it after a **Fan In** node (or at the end of a non-fanned workflow) for one mail per run. Mail is sent only through the SMTP server an administrator configured under Settings → Mail (server, port, security, login credential and sender address are not step settings; the admin's `allowed_recipient_domains` apply). The step config keeps `to`, `subject` and `body`. |
 | `add-nautobot-metadata` | ✅ | Writes shared Nautobot reference data (a Location / Device Type), but as get-or-create: an existing object is reused, a duplicate-key error from a concurrent creator is resolved by re-reading it, and devices resolving to the same object share one call within a step run. |
 | `store-for-report` | ✅ | Appends rows to the report tables keyed by (dataset, device name, collection), so fan-out children and sibling branches that handle disjoint devices never touch the same rows and no Fan In is needed. The same step writing a dataset for the same device again in a run (retry, loop) replaces its earlier rows; a **different** step writing the same dataset for the same device fails that device (`node_id` is recorded per row): put all fields of a dataset into one step, or use one dataset per step. A path that matches nothing stores `null` (right for an optional attribute, but also what a mistyped path does): when a field is empty for every stored device in `device` mode, the step stays `success` and its summary names the field (`field(s) 'ip' had no value for any of 2 device(s); check the attribute path`). Rows are never deleted by the step; see `doc/REPORTS.md`. |
@@ -1384,6 +1385,69 @@ corruption either way, but still produces N commits/change-requests if you don't
 > If you add a step that mutates a shared external resource, either require it to sit after
 > a join point / explicit dependency, document its concurrency behaviour in `registry.yaml`,
 > and/or prefer per-device-unique writes.
+
+### Starting another workflow: `start-workflow`
+
+`start-workflow` (display name "Run Workflow", `artifact_type: control_flow`, outcomes `success` /
+`failure`) starts another workflow as a **run of its own** and optionally waits for it. Motivating
+case: back up the running config before a change.
+
+- **Devices arrive like they do for a schedule or a manual run: as a declared run input.** A target
+  that wants devices has a **Get from User** step; its `device_param` is a text run input holding one
+  `name`, `ip` or `name,ip` line per device. `devices_input` names that input; the step fills it with
+  one `name,ip` line per device it received (`_device_line`: bare primary IP, a name containing a
+  comma or line break is replaced by the IP; a device with neither fails with `no_device_identity`).
+  With no `devices_input` the target is called without devices. No engine special case, nothing in
+  `WorkflowRun.device_ids`: the same workflow can be run by hand, scheduled, or called.
+- **The form is generated from the target's declared inputs** (the same fields the schedule editor
+  shows, `ScheduleParameterFields`): a saved-inventory reference gets the inventory picker, which is
+  how "back up this saved inventory" works, independent of the caller's devices. The panel
+  auto-selects the target's only device input and shows required-without-default inputs, inputs the
+  target no longer declares, and secret inputs.
+- **Run modes.** `run_mode: "all_devices"` (default) starts one run for all devices and routes them
+  together. `"per_device"` starts one run per device and routes **each device by its own run**.
+  `max_runs` (default 25, 1-200) caps the runs; more groups than that raise `ValueError` before
+  anything is started, and the builder warns (louder when the calling workflow fans out, where the
+  step would run in every child).
+- **Wait is bounded.** `wait` (default on), `wait_seconds` (default 300, 5-600),
+  `poll_interval_seconds` (default 5). One shared budget polls all started runs. It is a plain poll,
+  like `check-nautobot-job`: an executor has no Hatchet `DurableContext`, so the wait holds a worker
+  slot and is lost if the worker restarts (the runs are not). `wait: false` only dispatches and
+  reports `success`.
+- **What counts as success.** The run is `success`, the enabled Get from User step that reads
+  `devices_input` has a `success` step result (else `child_run_not_applied`: a disabled or skipped
+  step means nothing was done for the devices), and no step is `failed` or `skipped` or, unless
+  `allow_partial`, `partial`. A failed or cancelled run, a partial result, a timeout
+  (`task_timeout`, retryable; the run keeps going) or an unreachable engine route the device through
+  `failure`. Configuration refusals (no access, no `workflows:execute`, recursion, bad run inputs,
+  target without the input) `raise` `ValueError`.
+- **No secret inputs.** `run_inputs` lives in the saved canvas as plain JSON, while a `secret` run
+  input is only sealed when a run is created. A step may therefore not give a value for a secret
+  input of its target: `WorkflowService` rejects the save (HTTP 400, names only the input, never the
+  value; `services/workflow/child_run_inputs.py`) and the executor rejects workflows saved before
+  that rule. A workflow with a required secret input cannot be started by this step; it uses
+  credential references with a default.
+- **Authority and loops.** A run starts as the parent's triggering user (`require_child_target`:
+  workflow visibility and `workflows:execute`, the bar a manual trigger has). A workflow cannot start
+  itself or any ancestor, and a chain is at most `MAX_CHILD_RUN_DEPTH` (3) deep
+  (`RunService.start_child_run`). The guard reads `WorkflowRun.ancestor_workflow_ids`, the ancestors'
+  workflow ids copied onto every child, **not** the `parent_run_id` link: that is cleared
+  (`ON DELETE SET NULL`) when a finished ancestor is deleted or purged, which would otherwise let a
+  still-running descendant start its ancestors again without a depth cap. A run that is no longer
+  active (cancelled, failed, finished) cannot start children.
+- **Cancel.** Cancelling the parent (`RunService.cancel_run`) cancels its still-active child runs
+  (`RunService.cancel_child_runs`, at any depth and **through finished children**: a child started
+  without waiting, or one that hit its wait timeout, can be done while its own children still run),
+  and so does finalising an interrupted parent
+  (`RunLifecycleService.fail_interrupted`: worker crash, engine cancel, the reaper), because nobody
+  is left to gate on or judge them. `start_child_run` closes the race with a cancel in progress: it
+  refuses an inactive parent and, after creating the child, looks at the parent again and cancels
+  the child if the parent ended meanwhile (cancel marks the parent, then sweeps once). A parent that
+  simply fails on a later step does **not** cancel a
+  child it started: that run, a backup for instance, is allowed to finish. A waiting step stops
+  waiting when its own run is cancelled.
+- **Result.** Each device gets `attribute_bags[bag_name]` (default `child_run`) =
+  `{run_id, workflow_id, status, waited_seconds}`.
 
 ### Change requests (CI/CD pipeline)
 

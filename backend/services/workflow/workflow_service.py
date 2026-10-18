@@ -42,6 +42,7 @@ from services.execution.graph import (
 from services.execution.log_attribute_files import delete_run_dir
 from services.execution.schedule_service import ScheduleService
 from services.workflow.ai_write_gate import AiWriteGate
+from services.workflow.child_run_inputs import validate_start_workflow_secret_inputs
 from services.workflow.config_normalisation import normalise_canvas_nodes
 from services.workflow.workflow_change_service import WorkflowChangeService
 from services.workflow.workflow_git_service import WorkflowGitService, WorkflowGitSyncResult
@@ -253,6 +254,33 @@ class WorkflowService:
 
         return RBACService(self.db).has_role(user_id, "admin")
 
+    def _validate_child_run_secret_inputs(self, canvas_nodes: list[dict], user_id: int) -> None:
+        """A Run Workflow step must not hold a secret input value in the saved canvas.
+
+        Only workflows the saving user may see are looked at: for any other id the check is
+        skipped (the run refuses it later), so a save never confirms that someone else's private
+        workflow exists, nor reveals its name or input names.
+        """
+
+        def visible(workflow_id: int) -> Workflow | None:
+            found = self.repo.get_by_id(workflow_id)
+            if found is None:
+                return None
+            workflow = found[0]
+            if workflow.visibility == "private" and workflow.creator_id != user_id:
+                return None
+            return workflow
+
+        def lookup(workflow_id: int) -> list[dict] | None:
+            workflow = visible(workflow_id)
+            return None if workflow is None else list(workflow.static_attributes or [])
+
+        def name_of(workflow_id: int) -> str:
+            workflow = visible(workflow_id)
+            return workflow.name if workflow else str(workflow_id)
+
+        validate_start_workflow_secret_inputs(canvas_nodes, lookup, target_names=name_of)
+
     def get_workflow(self, workflow_id: int, user_id: int) -> WorkflowResponse:
         logger.debug("Getting workflow id=%s user_id=%s", workflow_id, user_id)
         result = self.repo.get_by_id(workflow_id)
@@ -271,6 +299,7 @@ class WorkflowService:
         _validate_no_cycle(canvas_nodes, data.canvas_edges)
         _validate_stop_here_not_in_fan_out(canvas_nodes, data.canvas_edges)
         _validate_fan_out_topology(canvas_nodes, data.canvas_edges)
+        self._validate_child_run_secret_inputs(canvas_nodes, user_id)
         _validate_static_attributes(data.static_attributes)
         repaired_groups = _repair_orphan_groups(canvas_nodes, data.canvas_groups)
         try:
@@ -409,6 +438,8 @@ class WorkflowService:
             _validate_no_cycle(new_nodes, new_edges)
             _validate_stop_here_not_in_fan_out(new_nodes, new_edges)
             _validate_fan_out_topology(new_nodes, new_edges)
+        if "canvas_nodes" in updated_fields:
+            self._validate_child_run_secret_inputs(updated_fields["canvas_nodes"], actor_id)
         if "static_attributes" in updated_fields:
             _validate_static_attributes(updated_fields["static_attributes"] or [])
         if "canvas_nodes" in updated_fields or "canvas_groups" in updated_fields:

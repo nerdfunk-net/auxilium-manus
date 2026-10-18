@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from http import HTTPStatus
 from typing import Any, cast
@@ -64,6 +65,29 @@ from services.workflow_context.secret_fields import redact_secrets_in_data
 
 logger = logging.getLogger(__name__)
 
+_ACTIVE_RUN_STATUSES = ("pending", "running", "paused")
+
+# A run started by a step of another run (start-workflow) may itself start runs, to this depth.
+MAX_CHILD_RUN_DEPTH = 3
+# Worst-first ranking of step statuses, for judging a finished child run.
+_STEP_STATUS_SEVERITY = {"failed": 4, "partial": 3, "skipped": 2, "success": 1}
+
+
+@dataclass(frozen=True)
+class ChildRunSnapshot:
+    """What a waiting parent step needs to know about a child run: no step output."""
+
+    run_id: int
+    status: str
+    error_message: str | None
+    worst_step_status: str | None
+    # node id -> step status, so the parent can tell that a particular step really ran
+    step_statuses: dict[str, str] = field(default_factory=dict)
+
+    @property
+    def is_terminal(self) -> bool:
+        return self.status in TERMINAL_RUN_STATUSES
+
 
 def _step_to_response(step: WorkflowStepResult) -> WorkflowStepResultResponse:
     return WorkflowStepResultResponse(
@@ -99,6 +123,7 @@ def _run_to_summary(run: WorkflowRun, username: str | None) -> WorkflowRunSummar
         approval_state=run.approval_state,
         device_ids=run.device_ids,
         run_inputs=redact_secrets_in_data(run.run_inputs),
+        parent_run_id=run.parent_run_id,
         started_at=run.started_at,
         finished_at=run.finished_at,
         created_at=run.created_at,
@@ -125,6 +150,7 @@ def _run_to_response(
         approval_state=run.approval_state,
         device_ids=run.device_ids,
         run_inputs=redact_secrets_in_data(run.run_inputs),
+        parent_run_id=run.parent_run_id,
         hatchet_run_id=run.hatchet_run_id,
         error_message=run.error_message,
         error_category=cast("ErrorCategory | None", run.error_category),
@@ -234,6 +260,8 @@ class RunService:
         device_ids: list[str],
         run_inputs: dict[str, Any],
         change_request_id: int | None = None,
+        parent_run_id: int | None = None,
+        ancestor_workflow_ids: list[int] | None = None,
     ) -> WorkflowRun:
         """Create a WorkflowRun and dispatch it into the Hatchet engine.
 
@@ -260,6 +288,8 @@ class RunService:
             trigger_type=trigger_type,
             device_ids=device_ids,
             run_inputs=run_inputs,
+            parent_run_id=parent_run_id,
+            ancestor_workflow_ids=ancestor_workflow_ids,
         )
         if change_request_id is not None:
             run.change_request_id = change_request_id
@@ -314,6 +344,111 @@ class RunService:
             )
 
         return run
+
+    def require_child_target(self, parent_run: WorkflowRun, workflow_id: int) -> Workflow:
+        """The workflow ``parent_run`` may start: its triggering user must see it and hold
+        ``workflows:execute``. Raises the domain error that says why not."""
+        user_id = parent_run.triggered_by_id
+        if user_id is None:
+            raise ValidationFailedError(
+                "A workflow can only be started from a run that has a triggering user"
+            )
+        workflow = self._assert_workflow_access(workflow_id, user_id)
+
+        from services.auth.rbac_service import RBACService
+
+        if not RBACService(self.db).has_permission(user_id, "workflows", "execute"):
+            raise AccessDeniedError("You are not allowed to run workflows")
+        return workflow
+
+    def start_child_run(
+        self,
+        parent_run: WorkflowRun,
+        workflow_id: int,
+        *,
+        run_inputs: dict[str, Any],
+    ) -> WorkflowRun:
+        """Start ``workflow_id`` as a run of its own on behalf of ``parent_run`` (start-workflow).
+
+        The child runs as the parent's triggering user, who needs access to the workflow and
+        ``workflows:execute`` -- the same bar a manual trigger or a schedule fire has. A workflow
+        can never (transitively) start itself and the chain is limited to MAX_CHILD_RUN_DEPTH.
+        Devices reach the child only as a declared run input (a Get from User ``device_param``),
+        like a schedule or a manual run supplies them; nothing else is handed over.
+        """
+        self._assert_parent_active(parent_run)
+        workflow = self.require_child_target(parent_run, workflow_id)
+        user_id = cast("int", parent_run.triggered_by_id)
+        ancestors = self._child_run_ancestors(parent_run, workflow.id)
+        try:
+            resolved_inputs = resolve_run_inputs(workflow.static_attributes, run_inputs)
+        except RunInputValidationError as exc:
+            raise ValidationFailedError(str(exc)) from exc
+
+        child = self._create_and_dispatch_run(
+            workflow,
+            triggered_by_id=user_id,
+            trigger_type="workflow",
+            device_ids=[],
+            run_inputs=resolved_inputs,
+            parent_run_id=parent_run.id,
+            ancestor_workflow_ids=ancestors,
+        )
+        # Cancelling the parent marks it and then sweeps its children once, so a child created
+        # after that sweep would be missed. Look again now that the child exists: either the sweep
+        # sees it, or this does.
+        if not self._parent_is_active(parent_run):
+            self._cancel_active_run(child)
+            raise ValidationFailedError(
+                f"The calling run ended ({parent_run.status}) while the workflow was being started"
+            )
+        return child
+
+    def _parent_is_active(self, parent_run: WorkflowRun) -> bool:
+        self.db.refresh(parent_run)
+        return parent_run.status in _ACTIVE_RUN_STATUSES
+
+    def _assert_parent_active(self, parent_run: WorkflowRun) -> None:
+        if not self._parent_is_active(parent_run):
+            raise ValidationFailedError(
+                f"The calling run is no longer active ({parent_run.status}); "
+                "it cannot start another workflow"
+            )
+
+    def _child_run_ancestors(self, parent_run: WorkflowRun, workflow_id: int) -> list[int]:
+        """Workflow ids above a new child, root first, after checking the chain is allowed.
+
+        Read from the list stored on the parent, not by walking ``parent_run_id``: that link is
+        cleared when a finished ancestor is deleted or purged, which would let a descendant that
+        is still running start its ancestors again with no depth limit.
+        """
+        chain = [*(parent_run.ancestor_workflow_ids or []), parent_run.workflow_id]
+        if workflow_id in chain:
+            raise ValidationFailedError(
+                "A workflow cannot start itself, directly or through the workflows that started it"
+            )
+        if len(chain) > MAX_CHILD_RUN_DEPTH:
+            raise ValidationFailedError(
+                f"Workflows can start other workflows at most {MAX_CHILD_RUN_DEPTH} levels deep"
+            )
+        return chain
+
+    def child_run_snapshot(self, run_id: int) -> ChildRunSnapshot:
+        """The state of a child run a waiting step polls; reads fresh data on every call."""
+        run = self.run_repo.get_run(run_id)
+        if run is None:
+            raise NotFoundError("Run not found")
+        self.db.refresh(run)
+        rows = self.run_repo.get_step_results_for_run(run_id)
+        statuses = [row.status for row in rows]
+        worst = max(statuses, key=lambda s: _STEP_STATUS_SEVERITY.get(s, 0), default=None)
+        return ChildRunSnapshot(
+            run_id=run.id,
+            status=run.status,
+            error_message=run.error_message,
+            worst_step_status=worst,
+            step_statuses={row.step_node_id: row.status for row in rows},
+        )
 
     def trigger_run(
         self,
@@ -530,17 +665,11 @@ class RunService:
             )
         return AttributePathResolveResponse(run_id=resolved_run_id, results=results)
 
-    def cancel_run(self, run_id: int, user_id: int) -> WorkflowRunResponse:
-        result = self.run_repo.get_run_by_id(run_id)
-        if result is None:
-            raise NotFoundError("Run not found")
-        run, username = result
-        self._assert_workflow_access(run.workflow_id, user_id)
-        self._assert_run_control(run, user_id, allow_admin=True)
+    def _cancel_active_run(self, run: WorkflowRun) -> bool:
+        """Cancel one active run in the database and, best effort, in the engine.
 
-        if run.status not in ("pending", "running", "paused"):
-            raise ValidationFailedError(f"Cannot cancel a run with status {run.status!r}")
-
+        False when the run had already finished (the caller decides if that is an error).
+        """
         # The database says "cancelled" first and is sticky; the engine cancel is best effort,
         # the walk stops at the next step boundary either way (C1-03).
         won = self.run_repo.transition_run(
@@ -548,7 +677,7 @@ class RunService:
         )
         self.db.refresh(run)
         if not won:
-            raise ConflictError(f"Run already finished with status {run.status!r}")
+            return False
         self.run_repo.finalise_open_step_results(run.id, message="Cancelled by the operator")
         if run.hatchet_run_id:
             try:
@@ -575,6 +704,39 @@ class RunService:
                     },
                 )
                 self.db.refresh(run)
+        return True
+
+    def cancel_child_runs(self, parent_run_id: int, _seen: set[int] | None = None) -> None:
+        """Cancel the still-active runs a run's start-workflow steps caused, at any depth.
+
+        Used when the parent is cancelled by an operator and when it is finalised as interrupted:
+        nobody is left to judge or gate on those runs. The walk goes through finished children
+        too, because a child started without waiting, or one that hit its wait timeout, can be
+        done while its own children still run.
+        """
+        seen = {parent_run_id} if _seen is None else _seen
+        for child in self.run_repo.list_children(parent_run_id):
+            if child.id in seen:
+                continue
+            seen.add(child.id)
+            if child.status in _ACTIVE_RUN_STATUSES and self._cancel_active_run(child):
+                logger.info("Cancelled child run_id=%s of ended run_id=%s", child.id, parent_run_id)
+            self.cancel_child_runs(child.id, seen)
+
+    def cancel_run(self, run_id: int, user_id: int) -> WorkflowRunResponse:
+        result = self.run_repo.get_run_by_id(run_id)
+        if result is None:
+            raise NotFoundError("Run not found")
+        run, username = result
+        self._assert_workflow_access(run.workflow_id, user_id)
+        self._assert_run_control(run, user_id, allow_admin=True)
+
+        if run.status not in ("pending", "running", "paused"):
+            raise ValidationFailedError(f"Cannot cancel a run with status {run.status!r}")
+
+        if not self._cancel_active_run(run):
+            raise ConflictError(f"Run already finished with status {run.status!r}")
+        self.cancel_child_runs(run.id)
         from services.change_requests.change_request_service import maybe_reconcile_deploy_run
 
         maybe_reconcile_deploy_run(self.db, run)

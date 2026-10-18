@@ -115,6 +115,7 @@ from workflow_steps.set_default_attributes.executor import execute as set_defaul
 from workflow_steps.show_summary.executor import execute as show_summary
 from workflow_steps.split_virtual_chassis.executor import execute as split_virtual_chassis
 from workflow_steps.start_nautobot_job.executor import execute as start_nautobot_job
+from workflow_steps.start_workflow.executor import execute as start_workflow
 from workflow_steps.stop_here.executor import execute as stop_here
 from workflow_steps.store_artifact.executor import execute as store_artifact
 from workflow_steps.store_for_report.executor import execute as store_for_report
@@ -206,6 +207,7 @@ STEP_REGISTRY: dict[str, StepExecutor] = {
     "update-ise-tacacs-key": update_ise_tacacs_key,
     "start-nautobot-job": start_nautobot_job,
     "check-nautobot-job": check_nautobot_job,
+    "start-workflow": start_workflow,
     "update-nautobot-device": update_nautobot_device,
     "update-config-context": update_config_context,
     "upload-config": upload_config,

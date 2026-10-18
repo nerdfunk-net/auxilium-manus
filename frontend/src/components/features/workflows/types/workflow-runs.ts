@@ -97,6 +97,8 @@ export interface WorkflowRunSummary {
   approval_state: ApprovalState | null;
   device_ids: string[] | null;
   run_inputs: Record<string, string | number | boolean> | null;
+  /** The run whose Run Workflow step started this one, if any. */
+  parent_run_id?: number | null;
   started_at: string | null;
   finished_at: string | null;
   created_at: string;
