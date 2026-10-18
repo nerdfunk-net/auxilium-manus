@@ -146,7 +146,8 @@ _STATUS_RANK = {"FAILED": 0, "CANCELLED": 1, "RUNNING": 2, "QUEUED": 3}
 
 def _child_sort_key(child: HatchetChildRun) -> tuple[int, int]:
     """Failed, cancelled, running, queued; then by group number (non-numeric last)."""
-    index = int(child.child_index) if (child.child_index or "").isdigit() else 10**9
+    child_index = child.child_index or ""
+    index = int(child_index) if child_index.isdigit() else 10**9
     return (_STATUS_RANK.get(child.status, len(_STATUS_RANK)), index)
 
 
@@ -267,7 +268,7 @@ class HatchetDiagnosticsService:
         """Exact group counts by status, summed over the spawning tasks; None if unknown."""
         if not spawning:
             return None
-        totals = dict.fromkeys(_COUNT_KEYS, 0)
+        totals: dict[str, int] = dict.fromkeys(_COUNT_KEYS, 0)
         try:
             for task in spawning:
                 metrics = await _bounded(
