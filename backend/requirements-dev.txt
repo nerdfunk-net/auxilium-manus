@@ -10,5 +10,5 @@ fakeredis==2.37.1
 # Python 3.14 and shares one suppression syntax (`# noqa`); a standalone bandit is
 # intentionally not pinned here.
 ruff==0.15.13
-pip-audit==2.9.0
+pip-audit==2.10.1
 pyright==1.1.406
