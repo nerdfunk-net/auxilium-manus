@@ -11,7 +11,81 @@ import {
   type HatchetStatusData,
   useHatchetSettingsMutations,
 } from "@/hooks/queries/use-hatchet-settings-mutations";
+import { useHatchetWorkersQuery } from "@/hooks/queries/use-hatchet-diagnostics-query";
 import { useHatchetSettingsQuery } from "@/hooks/queries/use-hatchet-settings-query";
+
+function WorkersCard() {
+  const { data, isLoading, isFetching, refetch } = useHatchetWorkersQuery();
+
+  return (
+    <Card>
+      <CardHeader className="flex-row items-center justify-between pb-3">
+        <CardTitle className="text-base">Workers</CardTitle>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          disabled={isFetching}
+          onClick={() => void refetch()}
+        >
+          <RefreshCw className={`mr-2 size-4 ${isFetching ? "animate-spin" : ""}`} />
+          Refresh
+        </Button>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {isLoading || !data ? (
+          <p className="text-sm text-muted-foreground">Loading…</p>
+        ) : !data.engine_reachable ? (
+          <p className="text-sm text-destructive">{data.message}</p>
+        ) : (
+          <>
+            {data.missing_workers.length > 0 && (
+              <p className="flex items-center gap-1.5 text-sm text-destructive" role="alert">
+                <AlertCircle className="size-4" />
+                No active worker: {data.missing_workers.join(", ")}. Runs for these will queue until
+                the process is started.
+              </p>
+            )}
+            <div className="divide-y">
+              {data.workers.length === 0 ? (
+                <p className="text-sm text-muted-foreground">The engine lists no workers.</p>
+              ) : (
+                data.workers.map((worker) => (
+                  <InfoRow
+                    key={worker.id}
+                    label={worker.name}
+                    value={
+                      <span className="flex items-center gap-2">
+                        <Badge variant={worker.status === "ACTIVE" ? "secondary" : "outline"}>
+                          {worker.status ?? "unknown"}
+                        </Badge>
+                        {worker.slots_total != null && (
+                          <span>
+                            {worker.slots_used ?? 0}/{worker.slots_total} slots
+                          </span>
+                        )}
+                        {worker.last_heartbeat_at && (
+                          <span className="text-muted-foreground">
+                            heartbeat {new Date(worker.last_heartbeat_at).toLocaleTimeString()}
+                          </span>
+                        )}
+                      </span>
+                    }
+                    hint={
+                      worker.registered_workflows.length > 0
+                        ? `Registered workflows: ${worker.registered_workflows.join(", ")}`
+                        : undefined
+                    }
+                  />
+                ))
+              )}
+            </div>
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
 
 function InfoRow({
   label,
@@ -185,6 +259,8 @@ export function HatchetSettingsCanvas() {
             )}
           </CardContent>
         </Card>
+
+        <WorkersCard />
 
         <Card>
           <CardHeader className="pb-3">

@@ -58,6 +58,9 @@ export const queryKeys = {
     all: ["hatchet"] as const,
     settings: () => [...queryKeys.hatchet.all, "settings"] as const,
     status: () => [...queryKeys.hatchet.all, "status"] as const,
+    workers: () => [...queryKeys.hatchet.all, "workers"] as const,
+    runDiagnostics: (runId: number) =>
+      [...queryKeys.hatchet.all, "run-diagnostics", runId] as const,
   },
   redis: {
     all: ["redis"] as const,

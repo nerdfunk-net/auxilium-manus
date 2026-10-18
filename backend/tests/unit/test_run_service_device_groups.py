@@ -48,6 +48,10 @@ class RunServiceDeviceGroupTests(unittest.TestCase):
         self.db.commit()
         self.run = run
         self.repo = RunRepository(self.db)
+        # This database has no RBAC tables; get_run asks whether the caller may see the engine link.
+        rbac = patch("services.auth.rbac_service.RBACService.has_permission", return_value=False)
+        rbac.start()
+        self.addCleanup(rbac.stop)
         self.service = RunService(self.db)
         hatchet_patch = patch("hatchet.client.hatchet", new=MagicMock())
         hatchet_patch.start()

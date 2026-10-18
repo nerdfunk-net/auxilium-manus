@@ -367,6 +367,43 @@ the worker process when triggered:
 
 ---
 
+## Hatchet run labelling and operator diagnostics
+
+**Labels.** Hatchet names a run `<workflow name>-<timestamp>` and the SDK has no per-run display name, so
+every run we trigger carries `additional_metadata` (`hatchet/workflows/run_metadata.py`, all values strings):
+`run_id`, `workflow_name`, `trigger_type`, and `parent_run_id` for a child started by a `start-workflow` step.
+Fan-out device groups (`DeviceGroupExecution`) carry `run_id` and `parent_run_id` (both the parent's), `child_index`
+and `trigger_type=fan_out`. The Hatchet dashboard filters on these keys.
+
+**Operator view** (permission `hatchet_settings:read`, rate limited, read-only, never returns task input/output):
+
+- `GET /hatchet/runs/{run_id}` - the engine's status, tasks, events and fan-out children for one of our runs
+  (`services/hatchet/hatchet_diagnostics_service.py`). The caller must also be allowed to see the run's workflow.
+  A mismatch between our run status and the engine's (for example run still `running` here, `FAILED` there) is
+  reported in `mismatch`. An unreachable engine returns `engine_reachable=false`, not a 5xx.
+- `GET /hatchet/workers` - workers the engine lists, their slots and heartbeat, and which configured worker
+  (live / background) has no active process.
+- `WorkflowRunResponse.hatchet_dashboard_url` - "Open in Hatchet" link
+  (`{HATCHET_DASHBOARD_URL or server_url}/tenants/{tenant_id}/runs/{hatchet_run_id}`), set only by
+  `GET /runs/{id}` and only for users with `hatchet_settings:read` (the dashboard shows task input and output).
+  `user:password@` in the base URL is stripped.
+
+**Large fan-outs.** The panel does not list every device group. Exact counts per status come from the engine's task
+metrics for the parent run's spawning task(s) (`hatchet.metrics.aio_get_task_metrics`, no row limit); only groups
+that need attention are listed, failed and cancelled first (at most 100), then running and queued (at most 50), found
+through the `parent_run_id` metadata. Completed groups are counted, not listed. `child_summary.truncated` is set when
+more groups need attention than are shown, and `exact=false` when the metrics call failed and the counts come from
+the listed rows only. The engine event list keeps the last 200 events (`events_truncated`). The window is the
+run's whole span (creation to finish, or now), at most 30 days (`truncated` beyond that); a span of 7 days or more is
+listed through the SDK's per-day pagination. Every engine call has a 10 s timeout, and the request's database session
+is released before the engine is asked.
+
+UI: "Engine details" on the run detail pane (`run-engine-panel.tsx`) and the Workers card in Settings -> Hatchet.
+Engine error text is length-capped and URL credentials are masked, but it is otherwise engine-supplied: that is why
+the panels sit behind `hatchet_settings:read` and not `workflow_runs:read`.
+
+---
+
 ## Background-tier workflows: per-workflow Hatchet identity
 
 **Question:** Every workflow dispatches through one shared Hatchet workflow,

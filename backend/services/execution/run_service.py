@@ -54,6 +54,7 @@ from services.execution.dispatch_breaker import (
 )
 from services.execution.log_attribute_files import delete_run_dir
 from services.execution.run_input_validation import RunInputValidationError, resolve_run_inputs
+from services.hatchet.hatchet_settings_service import dashboard_run_url
 from services.plugin_registry.plugin_registry_service import PluginRegistryService
 from services.workflow.workflow_validation_service import WorkflowValidationService
 from services.workflow_context.attribute_path import resolve_device_attribute_state
@@ -524,7 +525,15 @@ class RunService:
             raise NotFoundError("Run not found")
         run, username = result
         self._assert_workflow_access(run.workflow_id, user_id)
-        return self._response(run, username)
+        response = self._response(run, username)
+        # The dashboard shows task input and output, so only operators get the link.
+        from services.auth.rbac_service import RBACService
+
+        if RBACService(self.db).has_permission(user_id, "hatchet_settings", "read"):
+            return response.model_copy(
+                update={"hatchet_dashboard_url": dashboard_run_url(run.hatchet_run_id)}
+            )
+        return response
 
     def get_run_progress(self, run_id: int, user_id: int) -> RunProgress:
         """The light state of a run for polling: statuses and timestamps, never step output."""

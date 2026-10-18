@@ -119,6 +119,8 @@ class WorkflowRunSummary(BaseModel):
 
 class WorkflowRunResponse(WorkflowRunSummary):
     hatchet_run_id: str | None
+    # Browser link to this run in the Hatchet dashboard; None when it was never dispatched.
+    hatchet_dashboard_url: str | None = None
     error_message: str | None
     error_category: ErrorCategory | None = None
     error_id: str | None = None

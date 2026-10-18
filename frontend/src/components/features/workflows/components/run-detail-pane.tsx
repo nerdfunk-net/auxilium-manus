@@ -1,19 +1,21 @@
 "use client";
 
 import { useCallback, useMemo, useState } from "react";
-import { Ban, Loader2, Play } from "lucide-react";
+import { Ban, ChevronDown, ChevronRight, ExternalLink, Loader2, Play } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { useWorkflowRunEventsQuery } from "@/hooks/queries/use-workflow-run-events-query";
 import { useWorkflowRunQuery } from "@/hooks/queries/use-workflow-run-query";
 import { useCancelRunMutation } from "@/hooks/queries/use-workflow-run-mutations";
 import { useAuthStore } from "@/lib/auth-store";
+import { hasPermission } from "@/lib/permissions";
 import { RunStatusIcon, formatTime } from "./run-status-icon";
 import { ApprovalBanner, FanOutBanner } from "./run-banners";
 import { DeviceGroupsPanel } from "./device-groups-panel";
 import { StepErrorAlert } from "./step-error-alert";
 import { StepResultRow } from "./step-result-row";
 import { StepLogsModal } from "./step-logs-modal";
+import { RunEnginePanel } from "./run-engine-panel";
 import { eventsForStep, latestEventsByStep } from "../utils/run-events";
 import { detectRunFanOut } from "../utils/step-result-status";
 import type { WorkflowRunEvent, WorkflowStepResult } from "../types/workflow-runs";
@@ -30,6 +32,7 @@ interface RunDetailPaneProps {
 export function RunDetailPane({ runId, workflowId, onFocusCanvas }: RunDetailPaneProps) {
   const [logsStep, setLogsStep] = useState<WorkflowStepResult | null>(null);
   const [expandedStepId, setExpandedStepId] = useState<number | null>(null);
+  const [engineOpen, setEngineOpen] = useState(false);
 
   const { data, isLoading } = useWorkflowRunQuery(runId);
   const cancelRun = useCancelRunMutation(workflowId);
@@ -72,6 +75,7 @@ export function RunDetailPane({ runId, workflowId, onFocusCanvas }: RunDetailPan
   // The backend 403 is the real check; a run without a triggering user is left to it.
   const isRunOwner = data.triggered_by_id == null || data.triggered_by_id === user?.id;
   const isAdmin = user?.roles.includes("admin") ?? false;
+  const canViewEngine = hasPermission(user, "hatchet_settings", "read");
   const canCancel =
     (data.status === "pending" || data.status === "running" || data.status === "paused") &&
     (isRunOwner || isAdmin);
@@ -91,18 +95,28 @@ export function RunDetailPane({ runId, workflowId, onFocusCanvas }: RunDetailPan
             {data.parent_run_id ? ` · started by run #${data.parent_run_id}` : ""}
           </p>
         </div>
-        {canCancel ? (
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-7 shrink-0 gap-1 text-xs"
-            disabled={cancelRun.isPending}
-            onClick={() => cancelRun.mutate(data.id)}
-          >
-            <Ban className="size-3.5" />
-            Cancel
-          </Button>
-        ) : null}
+        <div className="flex shrink-0 items-center gap-2">
+          {data.hatchet_dashboard_url ? (
+            <Button variant="outline" size="sm" className="h-7 gap-1 text-xs" asChild>
+              <a href={data.hatchet_dashboard_url} target="_blank" rel="noopener noreferrer">
+                <ExternalLink className="size-3.5" />
+                Open in Hatchet
+              </a>
+            </Button>
+          ) : null}
+          {canCancel ? (
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-7 gap-1 text-xs"
+              disabled={cancelRun.isPending}
+              onClick={() => cancelRun.mutate(data.id)}
+            >
+              <Ban className="size-3.5" />
+              Cancel
+            </Button>
+          ) : null}
+        </div>
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto">
@@ -117,6 +131,24 @@ export function RunDetailPane({ runId, workflowId, onFocusCanvas }: RunDetailPan
         ) : null}
         {data.approval_state?.awaiting && isRunOwner ? (
           <ApprovalBanner approvalState={data.approval_state} runId={data.id} workflowId={workflowId} />
+        ) : null}
+        {canViewEngine ? (
+          <div className="border-b">
+            <button
+              type="button"
+              className="flex w-full items-center gap-1.5 px-6 py-2 text-left text-xs font-medium hover:bg-muted/50"
+              aria-expanded={engineOpen}
+              onClick={() => setEngineOpen((open) => !open)}
+            >
+              {engineOpen ? (
+                <ChevronDown className="size-3.5" />
+              ) : (
+                <ChevronRight className="size-3.5" />
+              )}
+              Engine details
+            </button>
+            {engineOpen ? <RunEnginePanel runId={data.id} /> : null}
+          </div>
         ) : null}
         {fanOutInfo ? <FanOutBanner info={fanOutInfo} /> : null}
         <DeviceGroupsPanel deviceGroups={data.device_groups} stepResults={data.step_results} />

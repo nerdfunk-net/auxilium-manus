@@ -5,6 +5,7 @@ import logging
 import os
 from datetime import UTC, datetime
 from importlib.metadata import version as package_version
+from urllib.parse import urlsplit, urlunsplit
 
 from hatchet.client import hatchet
 from hatchet.dynamic_worker_config import (
@@ -18,9 +19,28 @@ from models.hatchet import HatchetConfigResponse, HatchetStatusResponse
 logger = logging.getLogger(__name__)
 
 
+def _dashboard_base_url() -> str:
+    """Browser-reachable base URL, without any ``user:password@`` part (it reaches the browser)."""
+    raw = os.environ.get("HATCHET_DASHBOARD_URL") or hatchet.config.server_url
+    parts = urlsplit(raw)
+    if "@" not in parts.netloc:
+        return raw
+    return urlunsplit((parts.scheme, parts.netloc.rpartition("@")[2], parts.path, "", ""))
+
+
+def dashboard_run_url(hatchet_run_id: str | None) -> str | None:
+    """Browser link to one run in the Hatchet dashboard; None when the run was never dispatched."""
+    if not hatchet_run_id:
+        return None
+    tenant_id = hatchet.config.tenant_id
+    if not tenant_id:
+        return None
+    return f"{_dashboard_base_url().rstrip('/')}/tenants/{tenant_id}/runs/{hatchet_run_id}"
+
+
 def _build_config() -> HatchetConfigResponse:
     config = hatchet.config
-    dashboard_url = os.environ.get("HATCHET_DASHBOARD_URL") or config.server_url
+    dashboard_url = _dashboard_base_url()
     return HatchetConfigResponse(
         server_url=config.server_url,
         dashboard_url=dashboard_url,

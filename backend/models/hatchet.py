@@ -50,3 +50,93 @@ class HatchetStatusResponse(HatchetConfigResponse):
     reachable: bool
     message: str
     checked_at: datetime
+
+
+class HatchetTaskInfo(BaseModel):
+    """One engine-side task of a run. No input/output: those can hold device data."""
+
+    name: str
+    status: str
+    attempt: int | None = None
+    retry_count: int | None = None
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
+    duration_ms: int | None = None
+    error_message: str | None = None
+
+
+class HatchetTaskEventInfo(BaseModel):
+    task_name: str | None = None
+    event_type: str
+    timestamp: datetime
+    message: str
+    error_message: str | None = None
+    attempt: int | None = None
+
+
+class HatchetChildRun(BaseModel):
+    """A fan-out device-group run found through the ``parent_run_id`` metadata."""
+
+    hatchet_run_id: str
+    name: str
+    status: str
+    child_index: str | None = None
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
+    error_message: str | None = None
+
+
+class HatchetChildSummary(BaseModel):
+    """Counts of a run's fan-out groups by engine status.
+
+    ``exact`` is False when the engine's metrics call was unavailable and the counts come from
+    the listed rows only. ``truncated`` means some groups that need attention are not listed.
+    """
+
+    total: int
+    completed: int
+    failed: int
+    cancelled: int
+    running: int
+    queued: int
+    exact: bool
+    listed: int
+    truncated: bool
+
+
+class HatchetRunDiagnostics(BaseModel):
+    """What the Hatchet engine reports for one of our runs (operator view)."""
+
+    engine_reachable: bool
+    message: str
+    hatchet_run_id: str | None = None
+    engine_status: str | None = None
+    # Set when our run status and the engine status disagree (lost worker, dead engine).
+    mismatch: str | None = None
+    dashboard_url: str | None = None
+    tasks: list[HatchetTaskInfo] = []
+    events: list[HatchetTaskEventInfo] = []
+    # Failed/cancelled groups first, then running, then queued; completed groups are only counted.
+    child_runs: list[HatchetChildRun] = []
+    child_summary: HatchetChildSummary | None = None
+    events_truncated: bool = False
+
+
+class HatchetWorkerInfo(BaseModel):
+    # Engine id: several rows can share a name (a restarted worker leaves an inactive one behind).
+    id: str
+    name: str
+    status: str | None = None
+    type: str | None = None
+    last_heartbeat_at: datetime | None = None
+    slots_used: int | None = None
+    slots_total: int | None = None
+    registered_workflows: list[str] = []
+
+
+class HatchetWorkersResponse(BaseModel):
+    engine_reachable: bool
+    message: str
+    workers: list[HatchetWorkerInfo] = []
+    # Configured worker names (live + background) that the engine does not list as active.
+    missing_workers: list[str] = []

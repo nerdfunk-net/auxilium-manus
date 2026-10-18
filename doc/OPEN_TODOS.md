@@ -676,3 +676,56 @@ is covered by unit tests only. Open items:
   isolated runner; `/health/ready` for monitoring now that port 8000 is unpublished; `docker/infisical/`,
   `Dockerfile.basic`, `Dockerfile.worker` and the helper scripts are dead code candidates (the worker
   image lacks `git`).
+
+---
+
+## Mirror run events into the Hatchet task log (`ctx.log`)
+
+**Added:** 2026-10-18 · **Area:** `backend/services/execution/run_events_reporter.py`,
+`backend/services/execution/step_runner/runner.py`, `step_runner/subgraph.py`, `backend/hatchet/workflows/`
+
+### What we have
+
+Run events (connect retries, per-device failures) go only to our own `workflow_run_events` table via
+`emit_run_event()`, and the run page reads them from there. Nothing is written to the Hatchet task log, so
+the log tab of a task in the Hatchet dashboard is empty for our runs. The operator view (run metadata, the
+"Engine details" panel, the Workers card, "Open in Hatchet", see `doc/ARCHITECTURAL_OVERVIEW.md` → "Hatchet
+run labelling and operator diagnostics") shows engine status, tasks, errors and fan-out children, but no log
+lines.
+
+### End state
+
+Warning and error run events are also sent to the Hatchet task log with `ctx.log(...)`, so a person working in
+the Hatchet dashboard sees a run's problems next to its metadata. Behind a switch that defaults to off.
+
+### Why it is deferred
+
+Small, but with trade-offs that need a decision (read from the SDK source, not measured):
+
+- **Cost.** `ctx.log()` only queues the line (`queue.Queue(maxsize=log_queue_size)`, default 1000) and returns;
+  a background thread sends it. Executors and device sessions never wait on the network. But the sender makes
+  one gRPC `PutLog` call per line with retries and no batching, and a full queue drops the line (it logs a
+  warning, never blocks). A 500-device backup with about 5 events per device is roughly 2,500 calls; a burst
+  such as many devices failing to connect at once is when lines would be lost. `ctx.log` also writes each line
+  to the worker's Python log, so the worker log would see every event twice.
+- **Redaction.** The Hatchet log is a second store with a possibly wider audience. Messages must go through
+  the same redaction as run events before they are sent, and some event messages can carry device output or
+  exception text; check each kind.
+- **Fan-out.** Each device group is its own Hatchet task, so hundreds of groups give hundreds of small log
+  tabs. It helps only when you already know which group to open.
+- **Little extra value.** The run page already shows per-device events from our table, and the operator view
+  shows failed groups and error text.
+
+### When we revisit
+
+If operators ask for run problems in the Hatchet dashboard. Then:
+
+1. Add an optional `hatchet_log` callable to `RunEventContext` (`run_events_reporter.py`); `emit_run_event`
+   calls it after the database write inside its existing try/except, so it stays best-effort.
+2. Bind `ctx.log` where the context is bound: `step_runner/runner.py` (~line 495) and `step_runner/subgraph.py`
+   (~line 96). `StepRunner` does not see the Hatchet `Context` today, so thread it in from the task functions
+   (`execute_steps`, `execute_device_group`).
+3. Send only `warning` and `error` events (not connect and progress lines), redacted, one line each:
+   `[warning] r1.lab: connect retry 2/3`. Add an environment variable (default off) to enable it.
+4. Tests with a fake log callable: the happy path, and a failing or full `ctx.log` never breaking the run.
+   Check a fan-out run with many failing devices against a real engine for dropped lines.

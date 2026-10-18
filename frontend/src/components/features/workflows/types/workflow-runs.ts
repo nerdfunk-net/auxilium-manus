@@ -107,6 +107,8 @@ export interface WorkflowRunSummary {
 
 export interface WorkflowRunDetail extends WorkflowRunSummary {
   hatchet_run_id: string | null;
+  /** Link to this run in the Hatchet dashboard; null when it was never dispatched. */
+  hatchet_dashboard_url: string | null;
   error_message: string | null;
   error_category: ErrorCategory | null;
   error_id: string | null;
