@@ -917,9 +917,14 @@ value baked into the canvas at design time. This is **not** a canvas step:
     workflow's declared defaults by `scheduled_trigger.py::dispatch`. A required,
     default-less attribute the schedule doesn't cover still fails that run
     immediately (`status="failed"`, `error_category="configuration"`).
-  - Both paths validate/default-fill through the same pure helper —
+  - **Called by another workflow** (`trigger_type="workflow"`): the
+    `start-workflow` step fills the target's inputs from its own configuration
+    (`run_inputs`, plus the device list in the input a Get from User step reads) and starts it through
+    `RunService.start_child_run`. Secret inputs are never supplied this way. See
+    [Starting another workflow](#starting-another-workflow-start-workflow).
+  - All paths validate/default-fill through the same pure helper —
     `services/execution/run_input_validation.py::resolve_run_inputs` — so a
-    manual 400, a schedule-save 422, and a scheduled run failure never disagree
+    manual 400, a schedule-save 422, a scheduled run failure and a refused child run never disagree
     on what's valid.
 - **Storage**: resolved values are persisted on `WorkflowRun.run_inputs`.
 - **Making values usable by steps**: device-attribute resolution

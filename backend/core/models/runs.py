@@ -31,7 +31,7 @@ class WorkflowRun(Base):
     )
     # pending | running | paused | success | failed | cancelled
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending", index=True)
-    # manual | scheduled | webhook
+    # manual | scheduled | webhook | workflow (started by another run's start-workflow step)
     trigger_type: Mapped[str] = mapped_column(String(20), nullable=False, default="manual")
     # node_id awaiting approval while status == "paused" (Wait & Run)
     current_node_id: Mapped[str | None] = mapped_column(String(255), nullable=True)

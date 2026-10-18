@@ -307,13 +307,23 @@ class RunService:
             if dispatch_breaker.is_open():
                 raise EngineUnavailableError("a recent dispatch to Hatchet failed")
             from hatchet.workflows.dispatch import resolve_dispatch_workflow
+            from hatchet.workflows.run_metadata import run_trigger_options
             from hatchet.workflows.workflow_run import WorkflowRunInput
 
             dispatch_workflow = resolve_dispatch_workflow(workflow, self.db)
+            # Read before the commit below expires the instance.
+            trigger_options = run_trigger_options(
+                run_id=run_id,
+                workflow_name=workflow.name,
+                trigger_type=trigger_type,
+                parent_run_id=parent_run_id,
+            )
             # End the read transaction first: an open one keeps a pooled connection checked out for
             # the whole Hatchet call, which takes ~17 s to fail when the engine is down (O2-01).
             self.db.commit()
-            ref = dispatch_workflow.run_no_wait(WorkflowRunInput(run_id=run_id))
+            ref = dispatch_workflow.run_no_wait(
+                WorkflowRunInput(run_id=run_id), options=trigger_options
+            )
             dispatch_breaker.record_success()
             hatchet_run_id = str(ref.workflow_run_id or "")
             self.run_repo.update_run_status(run, status="pending", hatchet_run_id=hatchet_run_id)

@@ -18,6 +18,7 @@ from hatchet_sdk import Context
 from pydantic import BaseModel
 
 from hatchet.client import hatchet
+from hatchet.workflows.run_metadata import run_trigger_options
 
 logger = logging.getLogger(__name__)
 
@@ -182,7 +183,14 @@ async def dispatch(input: ScheduledTriggerInput, ctx: Context) -> dict:
             resolve_dispatch_workflow(wf_result[0], db) if wf_result else workflow_execution
         )
         try:
-            ref = dispatch_workflow.run_no_wait(WorkflowRunInput(run_id=run.id))
+            ref = dispatch_workflow.run_no_wait(
+                WorkflowRunInput(run_id=run.id),
+                options=run_trigger_options(
+                    run_id=run.id,
+                    workflow_name=wf_result[0].name if wf_result else None,
+                    trigger_type="scheduled",
+                ),
+            )
         except Exception:
             # A run that was never handed to the engine must not stay 'pending' (C1-04).
             error_id = str(uuid4())

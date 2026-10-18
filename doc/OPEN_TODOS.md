@@ -6,6 +6,21 @@ pick it up without re-deriving the context.
 
 ---
 
+## Run Workflow step (`start-workflow`) and child runs
+
+- **Live verification.** Built and covered by unit and render tests, not yet run end to end: a backup
+  workflow (Get from User -> Get Nautobot Attributes -> backup steps) called from a change workflow, in
+  both run modes, with a failing backup, a timeout, and cancelling the parent mid-wait. The two new
+  `workflow_runs` columns (`parent_run_id` self FK, `ancestor_workflow_ids` JSON) have only been checked as
+  generated SQL (`test_auto_schema_parent_run_fk.py`), not applied to a real PostgreSQL.
+- **Pre-run validation of the target.** That the target reads `devices_input` in an enabled Get from User
+  step, and that no required input is left empty, is only checked when the step runs. A Tier 1-3 finding in
+  `WorkflowValidationService` would show it before a run starts (the builder panel already warns).
+- **Waits are in-process.** The wait holds a worker slot and is lost on a worker restart; the started runs
+  are not. A durable wait belongs to the orchestration layer (see the Wait & Run gate), not to a step.
+- **AI assistant.** `propose_workflow` has no way to pick the target workflow of a Run Workflow step by name;
+  the step is in the registry, but a plan would need a real workflow id from a tool result.
+
 ## Follow-ups noted while fixing the correctness findings
 
 - **Batch event writer.** Live run events open one database session per event. A single writer task that

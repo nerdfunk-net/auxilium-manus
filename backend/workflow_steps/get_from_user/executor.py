@@ -1,9 +1,10 @@
 """Executor for the get-from-user step.
 
-Prompts the operator for target devices when the workflow run starts (via the
+Takes the target devices from a run input when the workflow run starts (via the
 workflow's ``static_attributes`` run-input mechanism — see doc/WORKFLOW-STEPS.md
-"Static attributes"), instead of a fixed canvas list (``get-from-list``) or a
-live Nautobot query (``get-nautobot-devices``).
+"Static attributes"): typed by the operator, set by a schedule, or filled by a calling
+workflow's ``start-workflow`` step. It replaces a fixed canvas list (``get-from-list``)
+or a live Nautobot query (``get-nautobot-devices``).
 
 This executor has zero Nautobot dependency: it only ever reads
 ``run.run_inputs[device_param]`` — a plain string produced by the Run Inputs

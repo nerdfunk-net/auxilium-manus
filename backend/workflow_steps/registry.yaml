@@ -1982,7 +1982,8 @@ plugins:
     overview: Ask the operator for devices when the run starts.
     description: >
       Prompt the operator to enter one or more target devices when starting
-      the workflow run.
+      the workflow run. A schedule, or another workflow's Run Workflow step, fills the
+      same input, so the workflow can also be started by a calling workflow.
     artifact_type: inventory_selector
     directory: get_from_user
     enabled: true
@@ -1995,7 +1996,8 @@ plugins:
         - name: device_param
           description: >
             Name of a workflow static_attribute (type "string") the operator
-            fills in when starting a run. One device per line; each line is a
+            fills in when starting a run (or a schedule, or a calling workflow's Run
+            Workflow step does). One device per line; each line is a
             hostname, an IP address, or "name,ip_address".
           data_type: string
           required: true

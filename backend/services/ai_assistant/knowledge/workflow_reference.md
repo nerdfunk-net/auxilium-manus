@@ -51,7 +51,10 @@ Declared per workflow as `{name, type, ref_kind?, default, required}` with `type
 `number`, `boolean`, `reference`. A `reference` needs `ref_kind` `inventory` (value = inventory id) or
 `credential` (value = credential name). Values are available to templates and steps as `run_input.<name>`
 and let one workflow serve many inventories or credentials (for example an inventory step with
-`inventory_source: "run_param"` and `inventory_param: "<name>"`).
+`inventory_source: "run_param"` and `inventory_param: "<name>"`). A workflow can also be started by
+another one with the `start-workflow` step ("Run Workflow"): it fills the target's declared inputs, and
+hands over its own devices through the text input a `get-from-user` step reads (`device_param`). It
+never passes `secret` inputs.
 
 ## References must be real
 Credentials, git repositories, sources and saved inventories are referenced by id or name in step

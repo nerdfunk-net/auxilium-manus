@@ -17,8 +17,10 @@ from dataclasses import dataclass
 from typing import Any
 
 from hatchet_sdk import DurableContext
+from hatchet_sdk.types.trigger import TriggerWorkflowOptions
 
 from hatchet.workflows.device_group_execution import DeviceGroupInput, child_workflow
+from hatchet.workflows.run_metadata import device_group_trigger_options
 from hatchet.workflows.workflow_run.aggregation import _aggregate_and_persist
 from hatchet.workflows.workflow_run.batch_approval import (
     _batch_needs_approval_gate,
@@ -134,15 +136,20 @@ async def _run_groups(
         index_offset=index_offset,
     )
 
+    def _options(inp: DeviceGroupInput) -> TriggerWorkflowOptions:
+        return device_group_trigger_options(
+            parent_run_id=inp.parent_run_id, child_index=inp.child_index
+        )
+
     if max_concurrency <= 0:
-        tasks = [child_workflow.aio_run(inp) for inp in child_inputs]
+        tasks = [child_workflow.aio_run(inp, options=_options(inp)) for inp in child_inputs]
         return list(await asyncio.gather(*tasks, return_exceptions=True))
 
     semaphore = asyncio.Semaphore(max_concurrency)
 
     async def _run_one(inp: DeviceGroupInput) -> dict[str, Any]:
         async with semaphore:
-            return await child_workflow.aio_run(inp)
+            return await child_workflow.aio_run(inp, options=_options(inp))
 
     tasks = [_run_one(inp) for inp in child_inputs]
     return list(await asyncio.gather(*tasks, return_exceptions=True))
