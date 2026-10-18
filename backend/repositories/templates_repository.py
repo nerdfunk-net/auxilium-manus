@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from sqlalchemy import distinct, func, select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from core.models.templates import Template
@@ -61,7 +61,8 @@ class TemplatesRepository:
 
     def list_categories(self) -> list[str]:
         stmt = (
-            select(distinct(Template.category))
+            select(Template.category)
+            .distinct()
             .where(Template.is_active.is_(True))
             .order_by(Template.category.asc())
         )

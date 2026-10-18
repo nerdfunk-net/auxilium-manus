@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import cast
 
-from sqlalchemy import CursorResult, delete, distinct, or_, select, update
+from sqlalchemy import CursorResult, delete, or_, select, update
 from sqlalchemy.orm import Session
 
 from core.models.inventories import Inventory
@@ -79,13 +79,17 @@ class InventoryRepository:
         return list(self.db.scalars(stmt.order_by(Inventory.updated_at.desc())).all())
 
     def get_distinct_group_paths(self, username: str) -> list[str]:
-        stmt = select(distinct(Inventory.group_path)).where(
-            Inventory.is_active.is_(True),
-            Inventory.group_path.isnot(None),
-            or_(
-                Inventory.scope == "global",
-                (Inventory.scope == "private") & (Inventory.created_by == username),
-            ),
+        stmt = (
+            select(Inventory.group_path)
+            .distinct()
+            .where(
+                Inventory.is_active.is_(True),
+                Inventory.group_path.isnot(None),
+                or_(
+                    Inventory.scope == "global",
+                    (Inventory.scope == "private") & (Inventory.created_by == username),
+                ),
+            )
         )
         return [path for (path,) in self.db.execute(stmt).all() if path is not None]
 
@@ -188,6 +192,6 @@ class InventoryRepository:
     def list_orphaned_private_creators(self, existing_usernames: set[str]) -> list[str]:
         """Distinct ``created_by`` values of private inventories whose owner no longer exists."""
         rows = self.db.scalars(
-            select(distinct(Inventory.created_by)).where(Inventory.scope == "private")
+            select(Inventory.created_by).distinct().where(Inventory.scope == "private")
         ).all()
         return sorted(name for name in rows if name not in existing_usernames)
