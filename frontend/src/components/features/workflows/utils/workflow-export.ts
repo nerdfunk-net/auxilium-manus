@@ -58,6 +58,17 @@ export function collectGitRepositoryIdsFromCanvas(
   return collectNumericFieldFromCanvas(canvasNodes, "git_repository_id");
 }
 
+/**
+ * Read a numeric id from a pluginConfig value: numbers and numeric strings
+ * only. Anything else (booleans, objects, ...) is NaN — `Number(true)` would
+ * otherwise read as id 1.
+ */
+export function toNumericId(raw: unknown): number {
+  if (typeof raw === "number") return raw;
+  if (typeof raw === "string") return Number(raw);
+  return Number.NaN;
+}
+
 function collectNumericFieldFromCanvas(
   canvasNodes: Record<string, unknown>[],
   configKey: string,
@@ -71,7 +82,7 @@ function collectNumericFieldFromCanvas(
     if (typeof pluginConfig !== "object" || pluginConfig === null) continue;
     const raw = (pluginConfig as Record<string, unknown>)[configKey];
     if (raw === null || raw === undefined || raw === "") continue;
-    const id = typeof raw === "number" ? raw : Number(raw);
+    const id = toNumericId(raw);
     if (Number.isInteger(id) && id > 0) ids.add(id);
   }
 

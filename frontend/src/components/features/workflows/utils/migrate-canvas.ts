@@ -168,7 +168,12 @@ export function migrateCanvasState(
           ? data.pluginConfig.device_param.trim()
           : "";
       if (!existingParam) {
-        const config = { ...DEFAULT_GET_FROM_USER_CONFIG, ...(data.pluginConfig ?? {}) };
+        // Spread order lets a saved blank value win, so set the default last.
+        const config = {
+          ...DEFAULT_GET_FROM_USER_CONFIG,
+          ...(data.pluginConfig ?? {}),
+          device_param: DEFAULT_GET_FROM_USER_CONFIG.device_param,
+        };
         nextNode = {
           ...nextNode,
           data: { ...nextNode.data, pluginConfig: config },

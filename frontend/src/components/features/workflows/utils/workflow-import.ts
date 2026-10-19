@@ -17,6 +17,7 @@ import {
   collectCredentialReferencesFromCanvas,
   collectGitRepositoryIdsFromCanvas,
   collectSourceIdsFromCanvas,
+  toNumericId,
 } from "./workflow-export";
 
 export class WorkflowImportParseError extends Error {}
@@ -189,6 +190,17 @@ export function parseWorkflowExportFile(raw: unknown): WorkflowExportFile {
     if (!Array.isArray(obj[field])) {
       throw new WorkflowImportParseError(
         `Import file is missing or has an invalid "${field}" array.`,
+      );
+    }
+    const entries = obj[field] as unknown[];
+    if (
+      entries.some(
+        (entry) =>
+          typeof entry !== "object" || entry === null || Array.isArray(entry),
+      )
+    ) {
+      throw new WorkflowImportParseError(
+        `Import file has an invalid entry in the "${field}" array.`,
       );
     }
   }
@@ -386,7 +398,7 @@ export function applyNumericFieldRemap(
     const config = pluginConfig as Record<string, unknown>;
     const raw = config[configKey];
     if (raw === null || raw === undefined || raw === "") return cloned;
-    const oldId = typeof raw === "number" ? raw : Number(raw);
+    const oldId = toNumericId(raw);
     if (!Number.isInteger(oldId) || !remap.has(oldId)) return cloned;
 
     config[configKey] = remap.get(oldId) ?? null;
