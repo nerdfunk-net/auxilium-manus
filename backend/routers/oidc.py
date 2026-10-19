@@ -16,7 +16,7 @@ from core.config import settings
 from core.database import get_db
 from core.dev_tools import dev_tools_enabled
 from core.oidc_redirect import assert_redirect_matches_state, validate_oidc_redirect_uri
-from core.safe_http_errors import raise_internal_server_error
+from core.safe_http_errors import client_error_message, raise_internal_server_error
 from dependencies import get_oidc_config_service, get_oidc_login_rate_limiter, get_oidc_service
 from models.auth import (
     ApprovalPendingResponse,
@@ -138,7 +138,9 @@ async def _build_login_response(
             environment=settings.environment,
         )
     except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=client_error_message(exc)
+        ) from exc
 
     try:
         state = oidc_service.generate_state()
@@ -208,7 +210,9 @@ async def handle_callback(
         try:
             assert_redirect_matches_state(stored_redirect_uri, supplied_redirect_uri)
         except ValueError as exc:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST, detail=client_error_message(exc)
+            ) from exc
     redirect_uri = stored_redirect_uri
 
     try:

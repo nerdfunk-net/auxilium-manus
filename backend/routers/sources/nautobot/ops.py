@@ -14,7 +14,7 @@ from core.database import get_db
 from core.domain_exceptions import AccessDeniedError, DomainError, NotFoundError
 from core.models.users import User
 from core.rate_limit import rate_limited
-from core.safe_http_errors import raise_internal_server_error
+from core.safe_http_errors import client_error_message, raise_internal_server_error
 from dependencies import (
     get_inventory_service,
     nautobot_credentials_from_source_id,
@@ -160,7 +160,9 @@ async def rename_group(
             new_path=result["new_path"],
         )
     except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=client_error_message(exc)
+        ) from exc
     except Exception as exc:
         raise_internal_server_error(logger, "Failed to rename group: ", exc)
 
@@ -275,7 +277,9 @@ async def get_device_attributes(
             request.device_id, request.list_of_attributes
         )
     except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=client_error_message(exc)
+        ) from exc
     except Exception as exc:
         raise_internal_server_error(logger, "Failed to fetch device attributes: ", exc)
 

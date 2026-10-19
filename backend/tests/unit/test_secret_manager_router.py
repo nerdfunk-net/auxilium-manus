@@ -10,12 +10,14 @@ import pytest
 from _auth_helpers import make_auth_db, token_payload
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from pydantic import ValidationError
 
 import service_factory
 from core.auth import get_current_user, verify_token
 from core.database import get_db
 from core.models.users import User
 from dependencies import get_secret_manager_connection_service
+from models.secret_manager import SecretManagerConnectionResponse
 from routers.secret_manager import router
 from services.auth.rbac_service import RBACService
 from services.secret_manager.exceptions import SecretManagerAuthError
@@ -87,6 +89,34 @@ def test_create_maps_value_error_to_400(app: FastAPI, connection_service: MagicM
         )
     assert response.status_code == 400
     assert "backend_config.addr" in response.json()["detail"]
+
+
+def test_create_400_does_not_echo_pydantic_internals(
+    app: FastAPI, connection_service: MagicMock
+) -> None:
+    # A stored row that no longer fits the response model raises pydantic's ValidationError (a
+    # ValueError); the client gets the field and the rule, not the library text or the values.
+    secret_value = "https://vault.internal:8200/secret-marker"
+    bad_row = {**_ROW, "is_active": secret_value}
+    with pytest.raises(ValidationError) as raw:
+        SecretManagerConnectionResponse(**bad_row)
+    assert secret_value in str(raw.value)  # the raw error would have leaked it
+    connection_service.create_connection.return_value = 1
+    connection_service.get_connection.return_value = bad_row
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/secret-manager/connections",
+            json={
+                "name": "net",
+                "backend": "openbao",
+                "backend_config": {"addr": "x", "mount": "m"},
+            },
+        )
+    assert response.status_code == 400
+    detail = response.json()["detail"]
+    assert "is_active" in detail
+    for leak in ("pydantic", "input_value", "validation error for", secret_value, "secret-marker"):
+        assert leak not in detail
 
 
 def test_name_too_long_is_422(app: FastAPI, connection_service: MagicMock) -> None:

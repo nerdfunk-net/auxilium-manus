@@ -9,7 +9,7 @@ from core.auth import get_current_user, require_permission
 from core.database import get_db
 from core.models.users import User
 from core.rate_limit import rate_limited
-from core.safe_http_errors import raise_internal_server_error
+from core.safe_http_errors import client_error_message, raise_internal_server_error
 from models.templates import (
     ParseStructuredRequest,
     ParseStructuredResponse,
@@ -122,7 +122,7 @@ def parse_structured(
         )
     except ValueError as exc:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=client_error_message(exc)
         ) from exc
 
 

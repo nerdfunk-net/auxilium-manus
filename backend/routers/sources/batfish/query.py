@@ -20,7 +20,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from core.auth import get_current_user, require_permission
 from core.models.users import User
 from core.rate_limit import rate_limited
-from core.safe_http_errors import raise_internal_server_error
+from core.safe_http_errors import client_error_message, raise_internal_server_error
 from dependencies import get_batfish_preview_service
 from models.batfish import (
     MAX_PREVIEW_ROWS,
@@ -80,7 +80,9 @@ async def query_batfish_routes(
     except BatfishSourceNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except (BatfishValidationError, ValueError) as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=client_error_message(exc)
+        ) from exc
     except BatfishAPIError as exc:
         raise_internal_server_error(
             logger,
@@ -110,7 +112,9 @@ async def query_batfish_reachability(
     except BatfishSourceNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except (BatfishValidationError, ValueError) as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=client_error_message(exc)
+        ) from exc
     except BatfishAPIError as exc:
         raise_internal_server_error(
             logger,
@@ -140,7 +144,9 @@ async def query_batfish_test_filters(
     except BatfishSourceNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except (BatfishValidationError, ValueError) as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=client_error_message(exc)
+        ) from exc
     except BatfishAPIError as exc:
         raise_internal_server_error(
             logger,
@@ -178,7 +184,9 @@ async def query_batfish_generic(
     except BatfishSourceNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except (BatfishValidationError, ValueError) as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=client_error_message(exc)
+        ) from exc
     except BatfishAPIError as exc:
         raise_internal_server_error(
             logger,
@@ -204,7 +212,9 @@ async def query_batfish_extract_facts(
     except BatfishSourceNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except (BatfishValidationError, ValueError) as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=client_error_message(exc)
+        ) from exc
     except BatfishAPIError as exc:
         raise_internal_server_error(
             logger,
@@ -230,7 +240,9 @@ async def query_batfish_ospf_facts(
     except BatfishSourceNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except (BatfishValidationError, ValueError) as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=client_error_message(exc)
+        ) from exc
     except BatfishAPIError as exc:
         raise_internal_server_error(
             logger,
@@ -256,7 +268,9 @@ async def query_batfish_bgp_facts(
     except BatfishSourceNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except (BatfishValidationError, ValueError) as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=client_error_message(exc)
+        ) from exc
     except BatfishAPIError as exc:
         raise_internal_server_error(
             logger,
@@ -282,7 +296,9 @@ async def query_batfish_node_properties(
     except BatfishSourceNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except (BatfishValidationError, ValueError) as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=client_error_message(exc)
+        ) from exc
     except BatfishAPIError as exc:
         raise_internal_server_error(
             logger,
@@ -308,7 +324,9 @@ async def query_batfish_interface_properties(
     except BatfishSourceNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except (BatfishValidationError, ValueError) as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=client_error_message(exc)
+        ) from exc
     except BatfishAPIError as exc:
         raise_internal_server_error(
             logger,

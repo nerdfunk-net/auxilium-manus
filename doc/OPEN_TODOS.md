@@ -830,18 +830,18 @@ Fixed in that pass: a read-only user saw New Template, Import, Edit and Delete o
 `/change-requests` showed "No schedules yet." / "No change requests yet." when the list request had failed with 403;
 `/inventory` said "No Nautobot source is configured" after a 403 (now "Could not load the Nautobot source: ..."); a
 schedule the engine SDK rejects showed raw pydantic text (now only the field and rule, detail logged);
+37 router sites put `str(exc)` of a built-in exception (pydantic `ValidationError`, OS errors with paths) into a 4xx
+`detail` (now `client_error_message`, enforced by `scripts/check_http_4xx_leaks.py` in CI);
 non-admins got the built-in 20-minute idle timeout (and `switch_to_runs_on_start` defaulted) because both were read
 from `general/settings`, which needs `general_settings:read` (decided: every signed-in user may read them, now served
 by `GET /general/client-settings`, no export directory in it).
 
 - **Desktop only (decided 2026-10-19).** The tool has no small-screen layout (at 390 px the sidebar leaves about
-  100 px for the page); `doc/claude/frontend.md` still says "mobile-first" and should say desktop-only.
-- **Other 4xx messages echo exception text.** About 120 router sites put `str(exc)` into a 4xx `detail`; most are
-  deliberate domain messages, but any that wrap a library error (as the schedule one did) leak internals. Audit
-  those that catch a library exception rather than a `DomainError`.
-- **Not exercised:** creating a schedule against a real engine, running a workflow, Reports with data, Inventory with a Nautobot source and
-  the settings forms (sources, users, git repositories) beyond loading them. The isolated stack has no working Hatchet
-  tenant (the fake token's tenant id fails validation) and no Nautobot source.
+  100 px for the page); `doc/claude/frontend.md` says so.
+- **Done (2026-10-19, by the product owner on the real stack):** running a workflow and creating a schedule against
+  the real engine both work.
+- **Not exercised in a browser:** Reports with data, Inventory with a Nautobot source and the settings forms (sources,
+  users, git repositories) beyond loading them. The isolated stack has no Nautobot source.
 
 ### Not yet covered
 

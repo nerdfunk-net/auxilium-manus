@@ -14,7 +14,7 @@ from core.auth import get_current_user, require_permission
 from core.database import get_db
 from core.domain_exceptions import DomainError
 from core.models.users import User
-from core.safe_http_errors import raise_internal_server_error
+from core.safe_http_errors import client_error_message, raise_internal_server_error
 from services.git.content_search_service import GitContentSearchService
 from services.git.device_service import GitDeviceService
 from services.git.paths import validate_relative_glob
@@ -144,7 +144,9 @@ async def preview_git_devices(
     except (HTTPException, DomainError):
         raise
     except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=client_error_message(exc)
+        ) from exc
     except Exception as exc:
         raise_internal_server_error(logger, "Failed to preview git devices: ", exc)
 
@@ -211,6 +213,8 @@ async def preview_git_content_search(
     except (HTTPException, DomainError):
         raise
     except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=client_error_message(exc)
+        ) from exc
     except Exception as exc:
         raise_internal_server_error(logger, "Failed to preview git content search: ", exc)

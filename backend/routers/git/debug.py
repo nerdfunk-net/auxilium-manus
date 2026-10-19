@@ -11,7 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from core.auth import get_current_user, require_permission
 from core.dev_tools import require_dev_tools
-from core.safe_http_errors import raise_internal_server_error
+from core.safe_http_errors import client_error_message, raise_internal_server_error
 from dependencies import get_git_auth_service, get_git_debug_service
 
 logger = logging.getLogger(__name__)
@@ -34,7 +34,7 @@ def debug_read_test(
     try:
         return debug_service.test_read(repo_id)
     except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e)) from e
+        raise HTTPException(status_code=404, detail=client_error_message(e)) from e
     except Exception as e:
         raise_internal_server_error(logger, f"Debug read test failed for repo {repo_id}", e)
 
@@ -55,7 +55,7 @@ def debug_write_test(
     try:
         return debug_service.test_write(repo_id)
     except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e)) from e
+        raise HTTPException(status_code=404, detail=client_error_message(e)) from e
     except Exception as e:
         raise_internal_server_error(logger, f"Debug write test failed for repo {repo_id}", e)
 
@@ -76,7 +76,7 @@ def debug_delete_test(
     try:
         return debug_service.test_delete(repo_id)
     except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e)) from e
+        raise HTTPException(status_code=404, detail=client_error_message(e)) from e
     except Exception as e:
         raise_internal_server_error(logger, f"Debug delete test failed for repo {repo_id}", e)
 
@@ -98,7 +98,7 @@ def debug_push_test(
     try:
         return debug_service.test_push(repo_id, git_auth_service)
     except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e)) from e
+        raise HTTPException(status_code=404, detail=client_error_message(e)) from e
     except Exception as e:
         raise_internal_server_error(logger, f"Debug push test failed for repo {repo_id}", e)
 
@@ -120,6 +120,6 @@ def debug_diagnostics(
     try:
         return debug_service.get_diagnostics(repo_id, git_auth_service)
     except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e)) from e
+        raise HTTPException(status_code=404, detail=client_error_message(e)) from e
     except Exception as e:
         raise_internal_server_error(logger, f"Debug diagnostics failed for repo {repo_id}", e)

@@ -9,7 +9,7 @@ from fastapi.responses import JSONResponse
 
 from core.auth import get_current_user, require_permission
 from core.models.users import User
-from core.safe_http_errors import raise_internal_server_error
+from core.safe_http_errors import client_error_message, raise_internal_server_error
 from dependencies import get_inventory_service
 from models.sources_nautobot import (
     CreateInventoryRequest,
@@ -68,7 +68,9 @@ def create_inventory(
             )
         return InventoryResponse(**inventory)
     except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=client_error_message(exc)
+        ) from exc
     except HTTPException:
         raise
     except Exception as exc:
@@ -130,7 +132,9 @@ def export_inventory(
             },
         )
     except PermissionError as exc:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail=client_error_message(exc)
+        ) from exc
     except HTTPException:
         raise
     except Exception as exc:
@@ -164,7 +168,9 @@ def import_inventory(
             )
         return InventoryResponse(**inventory)
     except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=client_error_message(exc)
+        ) from exc
     except HTTPException:
         raise
     except Exception as exc:
@@ -190,7 +196,9 @@ def get_inventory(
             )
         return InventoryResponse(**inventory)
     except PermissionError as exc:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail=client_error_message(exc)
+        ) from exc
     except HTTPException:
         raise
     except Exception as exc:
@@ -237,7 +245,9 @@ def update_inventory(
             )
         return InventoryResponse(**inventory)
     except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=client_error_message(exc)
+        ) from exc
     except HTTPException:
         raise
     except Exception as exc:
@@ -262,7 +272,9 @@ def delete_inventory(
             message=f"Inventory {'deleted' if hard_delete else 'deactivated'} successfully",
         )
     except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=client_error_message(exc)
+        ) from exc
     except HTTPException:
         raise
     except Exception as exc:

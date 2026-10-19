@@ -21,6 +21,7 @@ ruff check .
 pyright
 python scripts/check_asyncio_run.py
 python scripts/check_http_500_leaks.py
+python scripts/check_http_4xx_leaks.py
 python scripts/check_router_repositories.py
 python scripts/check_text_sql.py
 python scripts/check_flag_parsing.py

@@ -185,4 +185,5 @@ declare a subclass and one factory call — do not copy the CRUD ladder.
 - ❌ Mixing validation/transformation logic with API calls
 - ❌ Using f-strings in logging calls
 - ❌ Embedding raw exception text (`str(e)`, `{exc}`, etc.) in `HTTPException(detail=…)` for 5xx responses — use `core.safe_http_errors.raise_internal_server_error`
+- ❌ Putting `str(exc)` into a 4xx `HTTPException(detail=…)` when the handler catches a built-in exception (`ValueError`, `OSError`, …): pydantic's `ValidationError` is a `ValueError` and OS errors carry server paths. Use `core.safe_http_errors.client_error_message(exc)` (enforced by `scripts/check_http_4xx_leaks.py`); the project's own exception types may keep `str(exc)`
 - ❌ Creating a second git-configuration storage path (Settings KV, ad-hoc string ids) instead of a `GitRepository` row

@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from core.auth import get_current_user, require_permission
 from core.models.users import User
 from core.rate_limit import rate_limited
-from core.safe_http_errors import raise_internal_server_error
+from core.safe_http_errors import client_error_message, raise_internal_server_error
 from dependencies import get_git_connection_service, get_git_repository_service
 from models.git_repositories import (
     GitConnectionTestRequest,
@@ -109,7 +109,7 @@ def create_repository(
     except HTTPException:
         raise
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e)) from e
+        raise HTTPException(status_code=400, detail=client_error_message(e)) from e
     except Exception as e:
         raise_internal_server_error(logger, "Internal error", e)
 
@@ -157,7 +157,7 @@ def update_repository(
     except HTTPException:
         raise
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e)) from e
+        raise HTTPException(status_code=400, detail=client_error_message(e)) from e
     except Exception as e:
         raise_internal_server_error(logger, "Internal error", e)
 

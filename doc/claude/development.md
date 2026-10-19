@@ -101,6 +101,7 @@ python -m pytest tests/integration -m mutations --no-cov --run-mutations
 # Regression guards (run from backend/):
 python scripts/check_asyncio_run.py
 python scripts/check_http_500_leaks.py
+python scripts/check_http_4xx_leaks.py   # no 4xx detail=str(exc) for a built-in exception
 python scripts/check_router_repositories.py
 python scripts/check_text_sql.py
 python scripts/check_flag_parsing.py   # step flags only via workflow_steps/common/step_flags.py

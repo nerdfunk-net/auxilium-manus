@@ -10,7 +10,7 @@ from core.auth import get_current_user, require_permission
 from core.models.users import User
 from core.rate_limit import rate_limited
 from core.regex_isolated import run_regex
-from core.safe_http_errors import raise_internal_server_error
+from core.safe_http_errors import client_error_message, raise_internal_server_error
 from models.update_attribute import (
     UpdateAttributeProbeDeviceRequest,
     UpdateAttributeProbeRequest,
@@ -123,7 +123,9 @@ async def probe_regex_from_device(
     except HTTPException:
         raise
     except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=client_error_message(exc)
+        ) from exc
     except Exception as exc:
         raise_internal_server_error(
             logger,

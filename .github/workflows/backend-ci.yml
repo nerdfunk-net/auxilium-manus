@@ -80,6 +80,7 @@ jobs:
       - run: pip install -r requirements-dev.txt
       - run: python scripts/check_asyncio_run.py
       - run: python scripts/check_http_500_leaks.py
+      - run: python scripts/check_http_4xx_leaks.py
       - run: python scripts/check_router_repositories.py
       - run: python scripts/check_text_sql.py
       - run: python scripts/check_flag_parsing.py
