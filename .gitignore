@@ -254,3 +254,6 @@ doc/plans/
 # cache
 node_modules
 frontend/node_modules
+
+# code uses playwright
+.playwright-mcp/
