@@ -1,8 +1,8 @@
 {
   "export_format": "auxilium-workflow-v1",
   "exported_at": "2026-10-18T09:33:14.831Z",
-  "name": "Get Backups of single Device",
-  "description": "Get Backups",
+  "name": "Get Backup of single Device",
+  "description": "Get Backup of single Device",
   "folder": "Gallery",
   "visibility": "private",
   "notes": null,
