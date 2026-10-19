@@ -320,6 +320,52 @@ describe("cidr mode: range", () => {
   });
 });
 
+describe("empty input never reaches the backend", () => {
+  async function rejection(request: IsePreviewRequest) {
+    const { wrapper } = createQueryWrapper();
+    const { result } = renderHook(() => useGetIseDevicesPreviewMutation(), { wrapper });
+    let error: Error | undefined;
+    await act(async () => {
+      await result.current.mutateAsync(request).catch((e: Error) => {
+        error = e;
+      });
+    });
+    return error;
+  }
+
+  it.each(["", "   "])("a blank group name %j is refused without a request", async (groupName) => {
+    const error = await rejection({ source_id: "s1", query_mode: "group", group_name: groupName });
+    expect(error?.message).toBe("Enter a network device group name");
+    expect(apiCall).not.toHaveBeenCalled();
+  });
+
+  it("a missing group name is refused too", async () => {
+    const error = await rejection({ source_id: "s1", query_mode: "group" });
+    expect(error?.message).toBe("Enter a network device group name");
+    expect(apiCall).not.toHaveBeenCalled();
+  });
+
+  it.each(["", "  "])("a blank CIDR %j is refused without a request", async (cidr) => {
+    const error = await rejection({ source_id: "s1", query_mode: "cidr", cidr });
+    expect(error?.message).toBe("Enter an IP address or CIDR range");
+    expect(apiCall).not.toHaveBeenCalled();
+  });
+
+  it("a missing CIDR is refused too", async () => {
+    const error = await rejection({ source_id: "s1", query_mode: "cidr" });
+    expect(error?.message).toBe("Enter an IP address or CIDR range");
+    expect(apiCall).not.toHaveBeenCalled();
+  });
+
+  it("surrounding spaces in the group name are not sent", async () => {
+    route({ lists: () => ({ total: 0, resources: [], next_page: null }) });
+    await preview({ source_id: "s1", query_mode: "group", group_name: "  Location#All  " });
+    expect(apiCall.mock.calls[0][0]).toBe(
+      "sources/ise/s1/devices/ndg/Location%23All?page=1&size=25",
+    );
+  });
+});
+
 describe("useGetIseDevicesPreviewMutation stability", () => {
   it("keeps the same mutate function across renders", () => {
     const { wrapper } = createQueryWrapper();

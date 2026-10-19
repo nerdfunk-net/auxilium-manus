@@ -23,10 +23,10 @@ export default defineConfig({
       // trips them. Raise them whenever coverage has grown, never lower them to make a run pass.
       // Running a subset of tests? Use `npx vitest run <file>` (no coverage, no threshold check).
       thresholds: {
-        statements: 31,
+        statements: 32,
         branches: 24,
-        functions: 23,
-        lines: 30,
+        functions: 24,
+        lines: 31,
       },
     },
     // Hook/component tests that need a DOM (React Testing Library) opt in via

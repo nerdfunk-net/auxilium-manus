@@ -35,10 +35,12 @@ pick it up without re-deriving the context.
   a revoked session followed by another user's login, two tabs saving one workflow, a 300-device fan-out run,
   a paused Wait & Run batch.
   *Done 2026-10-19 (`doc/HOWTO_TEST_THE_FRONTEND.md`):* sign-in, forced password change, builder (add, connect,
-  auto layout, align, group), save / reopen / reload, export and import, the save-conflict dialog, and the import
-  dialog as a non-admin. *Still open:* the run, view, schedule and logout part, a revoked session, two real tabs,
-  a 300-device fan-out run and a paused Wait & Run batch (they need a worker; the isolated test stack has a dead
-  Hatchet endpoint), and the pages outside the builder. See "Frontend test and verification backlog" below.
+  auto layout, align, group), save / reopen / reload, export and import, the save-conflict dialog and the import
+  dialog as a non-admin; in a second pass two real tabs saving one workflow (409, Keep editing, Overwrite, Reload),
+  every page outside the builder loaded as admin and as a non-admin, and the schedule dialog; the product owner ran a
+  workflow and created a schedule against the real engine. *Still open:* a revoked session, a 300-device fan-out
+  run and a paused Wait & Run batch (they need a worker; the isolated test stack has a dead Hatchet endpoint), and
+  Reports with data. See "Frontend test and verification backlog" below.
 - **Retries for Nautobot, ISE and shim requests.** None of the clients retries an idempotent GET. A bounded retry
   with backoff belongs with the timeout review (O2).
 - **Workflow restore can change visibility silently.** Decide whether restoring a version should keep the
@@ -773,8 +775,11 @@ No defect follows from it today, and the fix touches eleven callbacks in a 300-l
    of the mutation object, and wrap the return value in `useMemo`.
 2. Add the "returns the same object when nothing changed" test to `use-sources-settings.test.tsx`; it was left
    out on purpose because it fails today.
-3. Search for other hooks with a mutation or query result object in a `useCallback`/`useMemo` dependency array
-   (`grep -n "\[.*Mutation\b" frontend/src/hooks frontend/src/components --include=use-*.ts`).
+3. ~~Search for other hooks with a mutation or query result object in a dependency array.~~ Done 2026-10-19: fixed in
+   `useDevicePreview`, `useTemplateEditorDevice`, `useWorkflowRunActions`, `useWorkflowValidation`,
+   `useTemplateRender`, `manage-inventory-modal`, `load-variables-dialog` and both `regex-probe-panel`s; the
+   remaining grep hits in `use-saved-inventories.ts` already use the stable destructured `mutateAsync`. Only
+   `use-sources-settings-save.ts` (step 1) is left.
 
 ---
 
@@ -782,8 +787,8 @@ No defect follows from it today, and the fix touches eleven callbacks in a 300-l
 
 **Added:** 2026-10-19 · **Area:** `frontend/`, `doc/HOWTO_TEST_THE_FRONTEND.md`
 
-Left over from the vitest coverage pass and the Playwright pass on the workflow builder (coverage 13.5 % → about
-29.6 % statements, about 14 bugs fixed; the ratchet in `frontend/vitest.config.ts` keeps the gain).
+Left over from the vitest coverage passes and the Playwright passes (coverage 13.5 % → about 32.5 % statements,
+about 30 bugs fixed; the ratchet in `frontend/vitest.config.ts` (32 / 24 / 24 / 31) keeps the gain).
 
 ### Decided: no import with references the user cannot list
 
@@ -797,22 +802,23 @@ add a "keep the references unverified" path without a new decision.
 
 ### Smaller findings, not fixed
 
-- **The builder page requests lists a workflow-only user may not read.** On every load `general/settings` and
-  `git-repositories?...category=workflows` return 403 for such a user (two console errors per load). The UI copes;
-  the requests could be gated on the permission (`hasPermission` in `lib/permissions.ts`).
+- **Pages request lists a workflow-only user may not read.** `/workflows` still requests
+  `git-repositories?...category=workflows` (403) on load; `/inventory`, `/schedules`, `/reports`,
+  `/change-requests` and the template editor each make one or two forbidden list requests too. The UI copes (and
+  now says why); the requests could be gated on the permission (`hasPermission` in `lib/permissions.ts`). The
+  `general/settings` 403 on every page is gone (see below).
 - **The Overview minimap covers node handles** at about 1200×700 (fit view ignores the panel), and **new steps are
   placed only 44 px apart**, so they overlap until Auto layout runs. Both made handle clicks fail in the browser pass.
 - **`/api/auth/me` is requested twice per page load.** Harmless, but one request would do.
 - **`useSourcesSettings` returns a new object on every render** (separate entry above).
 
-### Found in round 2 (hook tests), not fixed
+### Found in round 2 (hook tests)
 
-- **Mutation objects in dependency arrays.** `useMutation` returns a new object every render, so a callback that
-  lists it re-creates every render (harmless for a click handler, a loop risk in an effect or a memoized return).
-  Fixed in `useDevicePreview`, `useTemplateEditorDevice`, `useWorkflowRunActions`. Still listed in deps:
-  `use-workflow-validation.ts:54`, `regex-probe-panel.tsx` (update-attribute and update-content),
-  `use-template-render.ts:79`, `use-saved-inventories.ts` (delete/export/import), `manage-inventory-modal.tsx:184`,
-  `load-variables-dialog.tsx:182`. Depend on `mutate`/`mutateAsync` instead, with a "same object" test each.
+Fixed in that round: ISE preview CIDR matching of junk, name-mode crash and missing `truncated`; unstable returns
+in `useDevicePreview`, `useTemplateEditorDevice`, `useWorkflowRunActions`, `useCanvasNodeChanges`; Get Configs
+posting an empty host. The ISE preview hook also refuses a blank group name or CIDR without a request now (the panel
+already disabled its button). Still open:
+
 - **"Run saved version" derives run inputs from the unsaved canvas.** `handleRunSavedVersion` skips validation but
   `requestRun` still merges `get-from-user` attributes from the *current* (possibly dirty) nodes: it writes those
   `static_attributes` onto the saved workflow and opens the inputs dialog for them. The hook has no copy of the saved
@@ -821,35 +827,35 @@ add a "keep the references unverified" path without a new decision.
   Harmless; one `PUT` would do.
 - **`useDevicePreview` keeps stale selected ids after a new preview.** `selectedIds` is not reconciled with the new
   device list, so `onSelectionChange` can receive ids that have no matching device in the second argument.
-- **ISE preview with empty input still calls the backend** (empty group name → `ndg/?page=1`, empty CIDR →
-  `ipaddress.EQ.`). The panel should disable Preview until the field is filled.
 
-### Found in the second Playwright pass (2026-10-19, pages outside the builder), not fixed
+### Second Playwright pass (2026-10-19, pages outside the builder)
 
-Fixed in that pass: a read-only user saw New Template, Import, Edit and Delete on `/templates`; `/schedules` and
-`/change-requests` showed "No schedules yet." / "No change requests yet." when the list request had failed with 403;
-`/inventory` said "No Nautobot source is configured" after a 403 (now "Could not load the Nautobot source: ..."); a
-schedule the engine SDK rejects showed raw pydantic text (now only the field and rule, detail logged);
-37 router sites put `str(exc)` of a built-in exception (pydantic `ValidationError`, OS errors with paths) into a 4xx
-`detail` (now `client_error_message`, enforced by `scripts/check_http_4xx_leaks.py` in CI);
-non-admins got the built-in 20-minute idle timeout (and `switch_to_runs_on_start` defaulted) because both were read
-from `general/settings`, which needs `general_settings:read` (decided: every signed-in user may read them, now served
-by `GET /general/client-settings`, no export directory in it).
+Fixed in or after that pass:
+- a read-only user saw New Template, Import, Edit and Delete on `/templates`;
+- `/schedules` and `/change-requests` showed "No schedules yet." / "No change requests yet." after a 403;
+- `/inventory` said "No Nautobot source is configured" after a 403 (now "Could not load the Nautobot source: ...");
+- a schedule the engine SDK rejects showed raw pydantic text (now only the field and rule, detail logged);
+- 37 router sites put `str(exc)` of a built-in exception (pydantic `ValidationError`, OS errors with paths) into a 4xx
+  `detail` (now `client_error_message`, enforced by `scripts/check_http_4xx_leaks.py` in CI; the review of that
+  change is in `doc/analysis/REVIEW.md`);
+- non-admins got the built-in 20-minute idle timeout (and `switch_to_runs_on_start` defaulted) because both were read
+  from `general/settings`, which needs `general_settings:read` (decided: every signed-in user may read them, now
+  served by `GET /general/client-settings`, no export directory in it);
+- mutation objects in dependency arrays (see the `useSourcesSettings` entry, step 3).
 
-- **Desktop only (decided 2026-10-19).** The tool has no small-screen layout (at 390 px the sidebar leaves about
-  100 px for the page); `doc/claude/frontend.md` says so.
-- **Done (2026-10-19, by the product owner on the real stack):** running a workflow and creating a schedule against
-  the real engine both work.
-- **Not exercised in a browser:** Reports with data, Inventory with a Nautobot source and the settings forms (sources,
-  users, git repositories) beyond loading them. The isolated stack has no Nautobot source.
+Decided: **desktop only.** The tool has no small-screen layout (at 390 px the sidebar leaves about 100 px for the
+page); `doc/claude/frontend.md` says so.
+
+Not exercised in a browser: Reports with data, Inventory with a Nautobot source and the settings forms (sources,
+users, git repositories) beyond loading them. The isolated stack has no Nautobot source.
 
 ### Not yet covered
 
-- **Browser:** executing a workflow and watching the run, two real tabs saving one workflow (the conflict dialog was
-  triggered with a direct `PUT` instead), other viewport sizes, and every page outside the builder (templates,
-  inventory, reports, settings). Execution needs a worker; decide how to give the isolated stack one without
-  letting it reach the real Hatchet engine.
-- **Unit tests, largest gaps by uncovered statements** (after round 2, 2026-10-19; coverage 29.6 % → 31.75 %
+- **Browser:** a revoked session, a 300-device fan-out run, a paused Wait & Run batch, Reports with data, the
+  settings forms, and an inventory with a Nautobot source. Running a workflow and a schedule were checked by the
+  product owner on the real stack; the isolated stack still has no working worker (decide how to give it one without
+  letting it reach the real Hatchet engine).
+- **Unit tests, largest gaps by uncovered statements** (after round 3, 2026-10-19; coverage 29.6 % → 32.5 %
   statements): `query-keys.ts` (78, a data file), `use-saved-inventories` (62), `use-sources-settings-save` (60),
   `update-device-config` and `set-default-attributes-config` (58 each), `use-selected-inventory` (54),
   `use-workflow-save` (50), `use-device-selector-modals`, `use-device-filter` (48 each); then the `.tsx` components

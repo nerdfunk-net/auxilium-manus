@@ -159,11 +159,11 @@ export function ManageInventoryModal({
     [],
   );
 
-  const renameGroupMutation = useRenameInventoryGroupMutation();
+  const { mutateAsync: renameGroup } = useRenameInventoryGroupMutation();
 
   const handleRenameGroup = useCallback(
     async (oldPath: string, newName: string) => {
-      const result = await renameGroupMutation.mutateAsync({
+      const result = await renameGroup({
         old_path: oldPath,
         new_name: newName,
       });
@@ -181,7 +181,7 @@ export function ManageInventoryModal({
         }),
       );
     },
-    [renameGroupMutation, selectedGroup],
+    [renameGroup, selectedGroup],
   );
 
   const saveEdit = useCallback(

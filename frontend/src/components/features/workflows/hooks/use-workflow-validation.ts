@@ -31,6 +31,8 @@ export function useWorkflowValidation({
   const [validationState, setValidationState] = useState<ValidationState | null>(null);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const validateMutation = useWorkflowValidateMutation(workflowId);
+  // useMutation returns a new object every render; only `mutate` is stable.
+  const { mutate: validate, isPending: isValidating, error: validateError } = validateMutation;
 
   // A result recorded for a different (or no longer current) workflow says
   // nothing about the one now open — derived during render (not reset via an
@@ -39,7 +41,7 @@ export function useWorkflowValidation({
 
   const handleValidate = useCallback(() => {
     if (workflowId == null) return;
-    validateMutation.mutate(
+    validate(
       {
         canvasNodes: allNodes as unknown as Record<string, unknown>[],
         canvasEdges: allEdges as unknown as Record<string, unknown>[],
@@ -51,7 +53,7 @@ export function useWorkflowValidation({
         },
       },
     );
-  }, [workflowId, allNodes, allEdges, validateMutation]);
+  }, [workflowId, allNodes, allEdges, validate]);
 
   const validationByNodeId = useMemo(() => {
     const map: Record<string, NodeValidationSummary> = {};
@@ -69,13 +71,16 @@ export function useWorkflowValidation({
     return map;
   }, [result]);
 
-  return {
-    result,
-    validationByNodeId,
-    isValidating: validateMutation.isPending,
-    validateError: validateMutation.error,
-    isDialogOpen,
-    setIsDialogOpen,
-    handleValidate,
-  };
+  return useMemo(
+    () => ({
+      result,
+      validationByNodeId,
+      isValidating,
+      validateError,
+      isDialogOpen,
+      setIsDialogOpen,
+      handleValidate,
+    }),
+    [result, validationByNodeId, isValidating, validateError, isDialogOpen, handleValidate],
+  );
 }

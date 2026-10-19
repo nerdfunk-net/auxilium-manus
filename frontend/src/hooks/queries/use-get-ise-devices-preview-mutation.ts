@@ -182,7 +182,10 @@ export function useGetIseDevicesPreviewMutation() {
           }
         }
       } else if (queryMode === "group") {
-        const groupName = request.group_name ?? "";
+        const groupName = (request.group_name ?? "").trim();
+        if (!groupName) {
+          throw new Error("Enter a network device group name");
+        }
         const result = await apiCall<IseListResponse>(
           `sources/ise/${sourceId}/devices/ndg/${encodeURIComponent(groupName)}?page=1&size=${PREVIEW_LIMIT}`,
           { method: "GET" },
@@ -191,6 +194,9 @@ export function useGetIseDevicesPreviewMutation() {
         rawDevices = await fetchDetails(apiCall, sourceId, result.resources);
       } else if (queryMode === "cidr") {
         const cidr = (request.cidr ?? "").trim();
+        if (!cidr) {
+          throw new Error("Enter an IP address or CIDR range");
+        }
         const isHost = !cidr.includes("/") || cidr.endsWith("/32");
         const host = cidr.split("/")[0];
 

@@ -66,6 +66,8 @@ export function RegexProbePanel({
   const [result, setResult] = useState<UpdateContentProbeResult | null>(EMPTY_PROBE_RESULT);
 
   const probeMutation = useUpdateContentProbeMutation();
+  // useMutation returns a new object every render; only `mutateAsync` is stable.
+  const { mutateAsync: probe } = probeMutation;
 
   const probePayload = useMemo(
     () => ({
@@ -78,12 +80,12 @@ export function RegexProbePanel({
   );
 
   const handleProbe = useCallback(async () => {
-    const next = await probeMutation.mutateAsync({
+    const next = await probe({
       sample_text: sampleText,
       ...probePayload,
     });
     setResult(next);
-  }, [probeMutation, probePayload, sampleText]);
+  }, [probe, probePayload, sampleText]);
 
   return (
     <div className="space-y-4">

@@ -120,6 +120,9 @@ export function RegexProbePanel({
 
   const probeMutation = useUpdateAttributeProbeMutation();
   const deviceProbeMutation = useUpdateAttributeDeviceProbeMutation();
+  // useMutation returns a new object every render; only `mutateAsync` is stable.
+  const { mutateAsync: probe } = probeMutation;
+  const { mutateAsync: probeDevice } = deviceProbeMutation;
 
   const probePayload = useMemo(
     () => ({
@@ -131,18 +134,18 @@ export function RegexProbePanel({
   );
 
   const handleManualProbe = useCallback(async () => {
-    const result = await probeMutation.mutateAsync({
+    const result = await probe({
       sample_text: sampleText,
       ...probePayload,
     });
     setManualResult(result);
-  }, [probeMutation, probePayload, sampleText]);
+  }, [probe, probePayload, sampleText]);
 
   const handleDeviceProbe = useCallback(async () => {
     setDeviceError(null);
     try {
       const device = JSON.parse(deviceJson) as Record<string, unknown>;
-      const result = await deviceProbeMutation.mutateAsync({
+      const result = await probeDevice({
         device,
         source_path: sourcePath,
         ...probePayload,
@@ -152,7 +155,7 @@ export function RegexProbePanel({
       setDeviceResult(null);
       setDeviceError(error instanceof Error ? error.message : "Invalid device JSON");
     }
-  }, [deviceJson, deviceProbeMutation, probePayload, sourcePath]);
+  }, [deviceJson, probeDevice, probePayload, sourcePath]);
 
   return (
     <div className="space-y-4">

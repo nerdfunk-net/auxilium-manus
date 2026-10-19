@@ -90,6 +90,8 @@ export function LoadVariablesDialog({
   const [gitRequested, setGitRequested] = useState(false);
 
   const parseMutation = useParseStructuredMutation();
+  // useMutation returns a new object every render; only `mutateAsync` is stable.
+  const { mutateAsync: parseContent } = parseMutation;
   const gitQuery = useGitFileContentParsedQuery(
     gitRepositoryId,
     gitPath,
@@ -169,7 +171,7 @@ export function LoadVariablesDialog({
       setManualEntries(null);
       try {
         const text = await file.text();
-        const result = await parseMutation.mutateAsync({
+        const result = await parseContent({
           content: text,
           format: formatFromFilename(file.name),
         });
@@ -179,13 +181,13 @@ export function LoadVariablesDialog({
       }
     };
     input.click();
-  }, [parseMutation, applyManual]);
+  }, [parseContent, applyManual]);
 
   const handleParsePaste = useCallback(async () => {
     setManualError(null);
     setManualEntries(null);
     try {
-      const result = await parseMutation.mutateAsync({
+      const result = await parseContent({
         content: pasteText,
         format: pasteFormat,
       });
@@ -193,7 +195,7 @@ export function LoadVariablesDialog({
     } catch (err) {
       setManualError(getErrorMessage(err));
     }
-  }, [parseMutation, pasteText, pasteFormat, applyManual]);
+  }, [parseContent, pasteText, pasteFormat, applyManual]);
 
   const handleTabChange = useCallback((value: string) => {
     setTab(value as TabValue);

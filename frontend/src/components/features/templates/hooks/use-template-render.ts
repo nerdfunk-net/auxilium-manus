@@ -72,11 +72,13 @@ export function useTemplateRender() {
     },
   });
 
+  // useMutation returns a new object every render; only `mutate` is stable.
+  const { mutate: renderTemplate } = renderMutation;
   const render = useCallback(
     (content: string, variables: EditorVariable[]) => {
-      renderMutation.mutate({ content, variables });
+      renderTemplate({ content, variables });
     },
-    [renderMutation],
+    [renderTemplate],
   );
 
   return useMemo(
