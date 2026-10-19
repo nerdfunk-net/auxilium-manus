@@ -31,7 +31,7 @@ export function WorkflowConflictDialog({
 }: WorkflowConflictDialogProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>This workflow changed</DialogTitle>
           <DialogDescription>
@@ -40,11 +40,12 @@ export function WorkflowConflictDialog({
             overwrite the newer version with yours.
           </DialogDescription>
         </DialogHeader>
-        <DialogFooter className="gap-2 sm:justify-between">
+        {/* The actions wrap: a non-wrapping row is wider than the card and pushes buttons out of it. */}
+        <DialogFooter className="gap-2 sm:flex-wrap sm:justify-between">
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Keep editing
           </Button>
-          <div className="flex flex-col gap-2 sm:flex-row">
+          <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
             <Button variant="outline" onClick={onSaveAsNew}>
               Save as new workflow
             </Button>
