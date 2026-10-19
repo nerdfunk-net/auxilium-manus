@@ -124,9 +124,14 @@ export function useWorkflowPersistence({
     retry: false,
   });
 
+  // Apply each fetched result once. `plugins` is a dependency (the migration needs it), so without
+  // this a later change of the plugin list would re-apply the server version over unsaved edits.
+  const appliedRehydrateRef = useRef<WorkflowResponse | null>(null);
   useEffect(() => {
-    if (!rehydrateCanvasQuery.data) return;
-    const loaded = canvasFromWorkflowResponse(rehydrateCanvasQuery.data, plugins);
+    const data = rehydrateCanvasQuery.data;
+    if (!data || appliedRehydrateRef.current === data) return;
+    appliedRehydrateRef.current = data;
+    const loaded = canvasFromWorkflowResponse(data, plugins);
     applyLoadedCanvas(loaded);
     if (loaded.migrated) markDirty();
   }, [rehydrateCanvasQuery.data, plugins, applyLoadedCanvas, markDirty]);
