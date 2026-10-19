@@ -97,7 +97,7 @@ get() { grep -E "^$1=" "$ENVF" | head -1 | cut -d= -f2-; }
 q() { python3 -c 'import sys,urllib.parse;print(urllib.parse.quote_plus(sys.argv[1]))' "$1"; }
 
 export ENV=development MANUS_ENV_FILE=/dev/null          # do not read backend/.env
-export SECRET_KEY=pwtest-secret-key-0123456789abcdef0123456789abcdef
+export SECRET_KEY=$(openssl rand -hex 32)                # generated per run; never write a literal key into a file
 export DATABASE_HOST=localhost DATABASE_PORT=$(get DATABASE_PORT) DATABASE_NAME=manus_pwtest
 export DATABASE_USERNAME=$(get DATABASE_USERNAME) DATABASE_PASSWORD=$(get DATABASE_PASSWORD)
 RPW=$(get MANUS_REDIS_PASSWORD)

@@ -73,7 +73,7 @@ single-process — no `-n auto`: the suite shares one lab device and one
 | Marker / flag | Meaning |
 |---------------|---------|
 | `@pytest.mark.integration` | every test / module here |
-| `@pytest.mark.postgres` | needs only a PostgreSQL server (no lab); CI runs `-m postgres tests/integration`. Add it to a new module that fits |
+| `@pytest.mark.postgres` | needs only a PostgreSQL server (no lab); CI runs `-m postgres tests/integration`. Add it to a new module that fits. A test that uses a lab fixture (`nautobot_source`, `git_repository`, `ssh_credential`, anything calling `env_helpers.nautobot()` / `git_repo()` / `cisco()`) must not carry it: in a mixed module mark the Postgres-only tests one by one (see `test_seed_fixtures.py`), or CI errors on the missing lab values |
 | `@pytest.mark.mutations` | writes to the shared lab; skipped unless `--run-mutations` |
 | `--run-mutations` | enable Phase-2 mutation tests |
 | `--drop-test-db` / `MANUS_TEST_DB_DROP=1` | drop `manus_test` before the schema sync |
