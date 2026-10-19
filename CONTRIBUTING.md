@@ -36,6 +36,9 @@ npm run test:coverage      # whole suite; coverage may not fall below the thresh
 npm test                   # same tests without coverage (faster); `npx vitest run <file>` for one file
 ```
 
+How to write the tests and how to run a browser pass against an isolated stack:
+`doc/HOWTO_TEST_THE_FRONTEND.md`.
+
 If you changed `docker/`, run `docker/check-compose.sh` (and `docker/check-image.sh` for the
 Dockerfile). If you touched the PostgreSQL integration tests, see
 `backend/tests/integration/README.md`.

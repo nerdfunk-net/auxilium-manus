@@ -222,11 +222,12 @@ export function WorkflowImportDialog({
 
   const onSubmit = useCallback(
     async (values: ImportFormValues) => {
-      if (remap.hasAnyRequirements && !remap.allSelected) {
+      if (!remap.canProceed) {
         toast({
-          title: "References required",
-          description:
-            "Select a replacement for each referenced credential, git repository, or source before importing.",
+          title: remap.isCheckingReferences ? "Still checking references" : "References required",
+          description: remap.isCheckingReferences
+            ? "The referenced credentials, git repositories and sources are still being checked. Try again in a moment."
+            : "Select a replacement for each referenced credential, git repository, or source before importing.",
           variant: "destructive",
         });
         return;
@@ -259,7 +260,7 @@ export function WorkflowImportDialog({
       }
       await performSave(values);
     },
-    [checkName, performSave, remap.hasAnyRequirements, remap.allSelected, toast],
+    [checkName, performSave, remap.canProceed, remap.isCheckingReferences, toast],
   );
 
   const showTemplateSummary =
@@ -315,6 +316,7 @@ export function WorkflowImportDialog({
                 value={remap.credential.value}
                 onChange={remap.credential.onChange}
                 isLoading={remap.credential.isLoading}
+                loadFailed={remap.credential.loadFailed}
               />
             ) : null}
 
@@ -330,6 +332,7 @@ export function WorkflowImportDialog({
                 value={remap.gitRepository.value}
                 onChange={remap.gitRepository.onChange}
                 isLoading={remap.gitRepository.isLoading}
+                loadFailed={remap.gitRepository.loadFailed}
                 emptyMessage="No git repositories configured. Add one in Settings → Git Repositories first."
               />
             ) : null}
@@ -354,6 +357,7 @@ export function WorkflowImportDialog({
                       value={section.value}
                       onChange={section.onChange}
                       isLoading={section.isLoading}
+                      loadFailed={section.loadFailed}
                       emptyMessage={`No ${label} sources configured. Add one in Settings → Sources first.`}
                     />
                   );
@@ -368,7 +372,7 @@ export function WorkflowImportDialog({
               isSaving ||
               isChecking ||
               templatesLoading ||
-              (remap.hasAnyRequirements && !remap.allSelected)
+              !remap.canProceed
             }
             submitLabel={
               isChecking

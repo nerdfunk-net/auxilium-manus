@@ -21,6 +21,8 @@ interface WorkflowImportCredentialRemapProps {
   value: Record<string, string>;
   onChange: (oldName: string, newName: string) => void;
   isLoading?: boolean;
+  /** The credential list could not be fetched (for example a 403). */
+  loadFailed?: boolean;
 }
 
 /** Mirrors backend/workflow_steps/common/credential_resolver.py's acceptance
@@ -43,6 +45,7 @@ export function WorkflowImportCredentialRemap({
   value,
   onChange,
   isLoading = false,
+  loadFailed = false,
 }: WorkflowImportCredentialRemapProps) {
   return (
     <div className="grid gap-3 rounded-md border p-3">
@@ -88,8 +91,9 @@ export function WorkflowImportCredentialRemap({
               </div>
               {options.length === 0 ? (
                 <p className="text-xs text-warning-foreground">
-                  No {requirement.credentialType} credentials available. Add
-                  one in Settings → Credentials first.
+                  {loadFailed
+                    ? "The credential list could not be loaded, probably because you don't have permission to view credentials. Ask an administrator for access."
+                    : `No ${requirement.credentialType} credentials available. Add one in Settings → Credentials first.`}
                 </p>
               ) : (
                 <Select

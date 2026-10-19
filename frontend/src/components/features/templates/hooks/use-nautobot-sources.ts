@@ -15,7 +15,7 @@ const DEFAULT_OPTIONS: UseNautobotSourcesOptions = {};
 
 export function useNautobotSources(options: UseNautobotSourcesOptions = DEFAULT_OPTIONS) {
   const { enabled = true } = options;
-  const { data, isLoading } = useSettingsListQuery({
+  const { data, isLoading, isError } = useSettingsListQuery({
     keyPrefix: SOURCE_KEY_PREFIXES.nautobot,
     enabled,
   });
@@ -26,7 +26,7 @@ export function useNautobotSources(options: UseNautobotSourcesOptions = DEFAULT_
   }, [data?.settings]);
 
   return useMemo(
-    () => ({ sources, isLoading }),
-    [sources, isLoading],
+    () => ({ sources, isLoading, isError }),
+    [sources, isLoading, isError],
   );
 }

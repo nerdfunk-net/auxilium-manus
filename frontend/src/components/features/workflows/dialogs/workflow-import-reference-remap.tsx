@@ -28,6 +28,8 @@ interface WorkflowImportReferenceRemapProps {
   value: Record<string, string>;
   onChange: (oldKey: string, newValue: string) => void;
   isLoading?: boolean;
+  /** The list of available targets could not be fetched (for example a 403). */
+  loadFailed?: boolean;
   emptyMessage: string;
 }
 
@@ -44,6 +46,7 @@ export function WorkflowImportReferenceRemap({
   value,
   onChange,
   isLoading = false,
+  loadFailed = false,
   emptyMessage,
 }: WorkflowImportReferenceRemapProps) {
   return (
@@ -55,7 +58,9 @@ export function WorkflowImportReferenceRemap({
       {isLoading ? (
         <p className="text-xs text-muted-foreground">Loading…</p>
       ) : options.length === 0 ? (
-        <p className="text-xs text-warning-foreground">{emptyMessage}</p>
+        <p className="text-xs text-warning-foreground">
+          {loadFailed ? "The list could not be loaded, probably because you don't have permission to view it. Ask an administrator for access." : emptyMessage}
+        </p>
       ) : (
         requirements.map((requirement) => (
           <div key={requirement.key} className="grid gap-1.5">

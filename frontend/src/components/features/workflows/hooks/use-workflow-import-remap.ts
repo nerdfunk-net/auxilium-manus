@@ -13,6 +13,11 @@ import { useAuthStore } from "@/lib/auth-store";
 
 import type { WorkflowExportCredentialRef } from "../types/workflow-export";
 import {
+  collectCredentialReferencesFromCanvas,
+  collectGitRepositoryIdsFromCanvas,
+  collectSourceIdsFromCanvas,
+} from "../utils/workflow-export";
+import {
   buildCredentialRemapRequirements,
   buildGitRepositoryRemapRequirements,
   buildSourceRemapRequirements,
@@ -30,6 +35,8 @@ export interface SourceRemapSection {
   value: Record<string, string>;
   onChange: (oldSourceId: string, newSourceId: string) => void;
   isLoading: boolean;
+  /** The list of available sources could not be fetched (for example a 403). */
+  loadFailed: boolean;
 }
 
 interface UseWorkflowImportRemapArgs {
@@ -56,17 +63,36 @@ export function useWorkflowImportRemap({
 }: UseWorkflowImportRemapArgs) {
   const currentUsername = useAuthStore((state) => state.user?.username ?? "");
 
-  const { data: credentialsData, isLoading: credentialsLoading } =
-    useCredentialsQuery({ enabled });
-  const { data: gitReposData, isLoading: gitReposLoading } = useGitRepositoriesQuery({
-    activeOnly: true,
-    enabled,
-  });
-  const { sources: nautobotSources, isLoading: nautobotLoading } = useNautobotSources({ enabled });
-  const { data: mattermostData, isLoading: mattermostLoading } =
-    useMattermostSourcesQuery({ enabled });
-  const { data: batfishData, isLoading: batfishLoading } = useBatfishSourcesQuery({ enabled });
-  const { data: pyatsData, isLoading: pyatsLoading } = usePyATSSourcesQuery({ enabled });
+  const {
+    data: credentialsData,
+    isLoading: credentialsLoading,
+    isError: credentialsFailed,
+  } = useCredentialsQuery({ enabled });
+  const {
+    data: gitReposData,
+    isLoading: gitReposLoading,
+    isError: gitReposFailed,
+  } = useGitRepositoriesQuery({ activeOnly: true, enabled });
+  const {
+    sources: nautobotSources,
+    isLoading: nautobotLoading,
+    isError: nautobotFailed,
+  } = useNautobotSources({ enabled });
+  const {
+    data: mattermostData,
+    isLoading: mattermostLoading,
+    isError: mattermostFailed,
+  } = useMattermostSourcesQuery({ enabled });
+  const {
+    data: batfishData,
+    isLoading: batfishLoading,
+    isError: batfishFailed,
+  } = useBatfishSourcesQuery({ enabled });
+  const {
+    data: pyatsData,
+    isLoading: pyatsLoading,
+    isError: pyatsFailed,
+  } = usePyATSSourcesQuery({ enabled });
 
   const visibleCredentials = useMemo(
     () => credentialsData?.credentials ?? EMPTY_ARRAY,
@@ -175,6 +201,16 @@ export function useWorkflowImportRemap({
     [nautobotLoading, mattermostLoading, batfishLoading, pyatsLoading],
   );
 
+  const sourceFailed: Record<SourceRemapType, boolean> = useMemo(
+    () => ({
+      nautobot: nautobotFailed === true,
+      mattermost: mattermostFailed,
+      batfish: batfishFailed,
+      pyats: pyatsFailed,
+    }),
+    [nautobotFailed, mattermostFailed, batfishFailed, pyatsFailed],
+  );
+
   const sourceSections: Record<SourceRemapType, SourceRemapSection> = useMemo(() => {
     const build = (sourceType: SourceRemapType): SourceRemapSection => {
       const configKey = SOURCE_CONFIG_KEY_BY_TYPE[sourceType];
@@ -192,6 +228,7 @@ export function useWorkflowImportRemap({
         value: sourceRemapValues[sourceType],
         onChange: makeSourceRemapChangeHandler(sourceType),
         isLoading: sourceLoading[sourceType],
+        loadFailed: sourceFailed[sourceType],
       };
     };
     return {
@@ -203,6 +240,7 @@ export function useWorkflowImportRemap({
   }, [
     enabled,
     sourceLoading,
+    sourceFailed,
     combinedCanvasNodes,
     sourceAvailableIds,
     sourceRemapValues,
@@ -242,6 +280,28 @@ export function useWorkflowImportRemap({
     gitRepositoryRemap,
     sourceSections,
   ]);
+
+  // The requirements of a lookup are unknown until its list has loaded, and `hasAnyRequirements`
+  // stays false meanwhile. Import must wait for every lookup this workflow actually needs, or a
+  // click during loading would skip the mapping. Lookups for references the workflow does not
+  // contain are not waited for.
+  const isCheckingReferences = useMemo(() => {
+    if (!enabled) return false;
+    const referencesCredentials =
+      collectCredentialReferencesFromCanvas(combinedCanvasNodes).length > 0;
+    const referencesGit = collectGitRepositoryIdsFromCanvas(combinedCanvasNodes).length > 0;
+    const referencesSource = (type: SourceRemapType) =>
+      collectSourceIdsFromCanvas(combinedCanvasNodes, SOURCE_CONFIG_KEY_BY_TYPE[type]).length > 0;
+    return (
+      (referencesCredentials && credentialsLoading) ||
+      (referencesGit && gitReposLoading) ||
+      SOURCE_TYPES.some((type) => referencesSource(type) && sourceLoading[type])
+    );
+  }, [enabled, combinedCanvasNodes, credentialsLoading, gitReposLoading, sourceLoading]);
+
+  /** True when the import may go ahead: nothing is still being checked and every reference that
+   * needs a replacement has one. Use this, not `hasAnyRequirements`, to enable the Import button. */
+  const canProceed = !isCheckingReferences && (!hasAnyRequirements || allSelected);
 
   const buildRemapArgs = useCallback(() => {
     const credentialMap = new Map<string, string>();
@@ -283,6 +343,8 @@ export function useWorkflowImportRemap({
     isLoading,
     hasAnyRequirements,
     allSelected,
+    isCheckingReferences,
+    canProceed,
     resetRemapState,
     buildRemapArgs,
     credential: {
@@ -291,6 +353,7 @@ export function useWorkflowImportRemap({
       value: credentialRemap,
       onChange: onCredentialRemapChange,
       isLoading: credentialsLoading,
+      loadFailed: credentialsFailed,
     },
     gitRepository: {
       requirements: gitRepositoryRequirements,
@@ -298,6 +361,7 @@ export function useWorkflowImportRemap({
       value: gitRepositoryRemap,
       onChange: onGitRepositoryRemapChange,
       isLoading: gitReposLoading,
+      loadFailed: gitReposFailed,
     },
     sources: sourceSections,
   } as const;

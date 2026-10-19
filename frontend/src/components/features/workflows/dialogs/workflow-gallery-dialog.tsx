@@ -134,7 +134,7 @@ export function WorkflowGalleryDialog({ open, onClose }: WorkflowGalleryDialogPr
   }, [selectedIds, apiCall, toast]);
 
   const handleImport = useCallback(async () => {
-    if (!parsedFiles) return;
+    if (!parsedFiles || !remap.canProceed) return;
 
     setIsImporting(true);
     setProgress({ done: 0, total: parsedFiles.length });
@@ -286,6 +286,7 @@ export function WorkflowGalleryDialog({ open, onClose }: WorkflowGalleryDialogPr
                   value={remap.credential.value}
                   onChange={remap.credential.onChange}
                   isLoading={remap.credential.isLoading}
+                  loadFailed={remap.credential.loadFailed}
                 />
               ) : null}
 
@@ -301,6 +302,7 @@ export function WorkflowGalleryDialog({ open, onClose }: WorkflowGalleryDialogPr
                   value={remap.gitRepository.value}
                   onChange={remap.gitRepository.onChange}
                   isLoading={remap.gitRepository.isLoading}
+                  loadFailed={remap.gitRepository.loadFailed}
                   emptyMessage="No git repositories configured. Add one in Settings → Git Repositories first."
                 />
               ) : null}
@@ -322,6 +324,7 @@ export function WorkflowGalleryDialog({ open, onClose }: WorkflowGalleryDialogPr
                     value={section.value}
                     onChange={section.onChange}
                     isLoading={section.isLoading}
+                    loadFailed={section.loadFailed}
                     emptyMessage={`No ${label} sources configured. Add one in Settings → Sources first.`}
                   />
                 );
@@ -338,9 +341,7 @@ export function WorkflowGalleryDialog({ open, onClose }: WorkflowGalleryDialogPr
               </Button>
               <Button
                 type="button"
-                disabled={
-                  isImporting || (remap.hasAnyRequirements && !remap.allSelected)
-                }
+                disabled={isImporting || !remap.canProceed}
                 onClick={() => void handleImport()}
               >
                 {isImporting

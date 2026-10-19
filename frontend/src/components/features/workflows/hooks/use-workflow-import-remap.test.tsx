@@ -5,12 +5,12 @@ import { useAuthStore } from "@/lib/auth-store";
 
 import { useWorkflowImportRemap } from "./use-workflow-import-remap";
 
-type Loadable<T> = { data?: T; isLoading: boolean };
+type Loadable<T> = { data?: T; isLoading: boolean; isError?: boolean };
 
 const queries = vi.hoisted(() => ({
   credentials: { data: undefined, isLoading: false } as Loadable<unknown>,
   git: { data: undefined, isLoading: false } as Loadable<unknown>,
-  nautobot: { sources: [] as { sourceId: string }[], isLoading: false },
+  nautobot: { sources: [] as { sourceId: string }[], isLoading: false, isError: false },
   mattermost: { data: undefined, isLoading: false } as Loadable<unknown>,
   batfish: { data: undefined, isLoading: false } as Loadable<unknown>,
   pyats: { data: undefined, isLoading: false } as Loadable<unknown>,
@@ -48,13 +48,13 @@ vi.mock("@/hooks/queries/use-pyats-sources-query", () => ({
   usePyATSSourcesQuery: (options: unknown) => (calls.pyats(options), queries.pyats),
 }));
 
-const idle = { data: undefined, isLoading: false };
+const idle = { data: undefined, isLoading: false, isError: false };
 
 beforeEach(() => {
   Object.values(calls).forEach((spy) => spy.mockClear());
   queries.credentials = { ...idle };
   queries.git = { ...idle };
-  queries.nautobot = { sources: [], isLoading: false };
+  queries.nautobot = { sources: [], isLoading: false, isError: false };
   queries.mattermost = { ...idle };
   queries.batfish = { ...idle };
   queries.pyats = { ...idle };
@@ -187,7 +187,7 @@ describe("sources", () => {
   ];
 
   it("requires a remap per source type for ids missing in this environment", () => {
-    queries.nautobot = { sources: [{ sourceId: "nb-new" }], isLoading: false };
+    queries.nautobot = { sources: [{ sourceId: "nb-new" }], isLoading: false, isError: false };
     queries.mattermost = { data: { sources: [{ source_id: "mm-new" }] }, isLoading: false };
     const { result } = setup(nodes);
     const { sources } = result.current;
@@ -201,7 +201,7 @@ describe("sources", () => {
   });
 
   it("does not require a remap for an id that exists", () => {
-    queries.nautobot = { sources: [{ sourceId: "nb-old" }], isLoading: false };
+    queries.nautobot = { sources: [{ sourceId: "nb-old" }], isLoading: false, isError: false };
     expect(setup(nodes).result.current.sources.nautobot.requirements).toEqual([]);
   });
 
@@ -295,5 +295,91 @@ describe("resetRemapState", () => {
     expect(result.current.gitRepository.value).toEqual({});
     expect(result.current.sources.nautobot.value).toEqual({});
     expect(result.current.allSelected).toBe(false);
+  });
+});
+
+describe("canProceed", () => {
+  const credentialNodes = [[node("run-command", { credential_reference: "lab" })]];
+
+  it("is true when nothing needs a replacement", () => {
+    const { result } = setup([[node("run-command", {})]]);
+    expect(result.current.canProceed).toBe(true);
+    expect(result.current.isCheckingReferences).toBe(false);
+  });
+
+  // `hasAnyRequirements` stays false while a list loads; Import must not be allowed meanwhile.
+  it("is false while a list the workflow depends on is still loading", () => {
+    queries.credentials = { data: undefined, isLoading: true };
+    const { result } = setup(credentialNodes);
+    expect(result.current.hasAnyRequirements).toBe(false);
+    expect(result.current.isCheckingReferences).toBe(true);
+    expect(result.current.canProceed).toBe(false);
+  });
+
+  it("does not wait for lists the workflow has no references to", () => {
+    queries.credentials = { data: undefined, isLoading: true };
+    queries.pyats = { data: undefined, isLoading: true };
+    const { result } = setup([[node("a", { git_repository_id: 7 })]]);
+    queries.git = { data: { repositories: [{ id: 7, name: "x", category: "c" }] }, isLoading: false };
+    expect(result.current.isCheckingReferences).toBe(false);
+  });
+
+  it.each([
+    ["git", { git_repository_id: 7 }, "git"],
+    ["nautobot", { nautobot_source_id: "nb" }, "nautobot"],
+    ["mattermost", { mattermost_source_id: "mm" }, "mattermost"],
+    ["batfish", { batfish_source_id: "bf" }, "batfish"],
+    ["pyats", { pyats_source_id: "py" }, "pyats"],
+  ] as const)("waits for the %s list when the workflow references it", (_name, config, query) => {
+    if (query === "nautobot") {
+      queries.nautobot = { sources: [], isLoading: true, isError: false };
+    } else {
+      queries[query] = { data: undefined, isLoading: true };
+    }
+    const { result } = setup([[node("a", config)]]);
+    expect(result.current.canProceed).toBe(false);
+  });
+
+  it("becomes true once the lists settled and every requirement has a replacement", () => {
+    const { result } = setup(credentialNodes);
+    expect(result.current.canProceed).toBe(false);
+    act(() => result.current.credential.onChange("lab", "other"));
+    expect(result.current.canProceed).toBe(true);
+  });
+
+  it("is true while the dialog is closed", () => {
+    queries.credentials = { data: undefined, isLoading: true };
+    const { result } = setup(credentialNodes, { enabled: false });
+    expect(result.current.canProceed).toBe(true);
+  });
+});
+
+describe("loadFailed", () => {
+  it("is false when the lists loaded", () => {
+    const { result } = setup([[node("a", { credential_reference: "lab", git_repository_id: 7 })]]);
+    expect(result.current.credential.loadFailed).toBe(false);
+    expect(result.current.gitRepository.loadFailed).toBe(false);
+    expect(result.current.sources.nautobot.loadFailed).toBe(false);
+  });
+
+  it("reports which list could not be fetched", () => {
+    queries.credentials = { data: undefined, isLoading: false, isError: true };
+    queries.git = { data: undefined, isLoading: false, isError: true };
+    queries.nautobot = { sources: [], isLoading: false, isError: true };
+    queries.batfish = { data: undefined, isLoading: false, isError: true };
+    const { result } = setup([[node("a", { credential_reference: "lab" })]]);
+    expect(result.current.credential.loadFailed).toBe(true);
+    expect(result.current.gitRepository.loadFailed).toBe(true);
+    expect(result.current.sources.nautobot.loadFailed).toBe(true);
+    expect(result.current.sources.batfish.loadFailed).toBe(true);
+    expect(result.current.sources.mattermost.loadFailed).toBe(false);
+    expect(result.current.sources.pyats.loadFailed).toBe(false);
+  });
+
+  it("still requires a replacement when the credential list could not be loaded", () => {
+    queries.credentials = { data: undefined, isLoading: false, isError: true };
+    const { result } = setup([[node("a", { credential_reference: "lab" })]]);
+    expect(result.current.credential.requirements).toHaveLength(1);
+    expect(result.current.canProceed).toBe(false);
   });
 });
