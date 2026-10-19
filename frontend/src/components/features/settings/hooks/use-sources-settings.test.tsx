@@ -306,3 +306,14 @@ describe("isDeletePending", () => {
     expect(result.current.isDeletePending).toBe(false);
   });
 });
+
+describe("useSourcesSettings stability", () => {
+  // The save hook is mocked here with a constant value; its own stability is
+  // covered in use-sources-settings-save.test.tsx.
+  it("returns the same object when nothing changed", () => {
+    const { result, rerender } = renderHook(() => useSourcesSettings());
+    const first = result.current;
+    rerender();
+    expect(result.current).toBe(first);
+  });
+});

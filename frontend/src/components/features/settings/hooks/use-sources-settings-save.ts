@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback } from "react";
+import { useCallback, useMemo } from "react";
 
 import { useBatfishSourcesMutations } from "@/hooks/queries/use-batfish-sources-mutations";
 import { useCatalystCenterSourcesMutations } from "@/hooks/queries/use-catalyst-center-sources-mutations";
@@ -54,36 +54,41 @@ export function useSourcesSettingsSave({
   setDialog,
   nautobotById,
 }: UseSourcesSettingsSaveOptions) {
-  const { upsertSetting, deleteSetting } = useSettingsMutations();
+  // useMutation returns a new result object on every render; only `mutateAsync`
+  // is stable, so the callbacks and the returned object depend on those.
+  const {
+    upsertSetting: { mutateAsync: upsertSettingAsync, isPending: upsertSettingIsPending },
+    deleteSetting: { mutateAsync: deleteSettingAsync, isPending: deleteSettingIsPending },
+  } = useSettingsMutations();
 
   const {
-    createSource: createIseSource,
-    updateSource: updateIseSource,
-    deleteSource: deleteIseSource,
+    createSource: { mutateAsync: createIseSourceAsync, isPending: createIseSourceIsPending },
+    updateSource: { mutateAsync: updateIseSourceAsync, isPending: updateIseSourceIsPending },
+    deleteSource: { mutateAsync: deleteIseSourceAsync, isPending: deleteIseSourceIsPending },
   } = useISESourcesMutations();
 
   const {
-    createSource: createCatalystCenterSource,
-    updateSource: updateCatalystCenterSource,
-    deleteSource: deleteCatalystCenterSource,
+    createSource: { mutateAsync: createCatalystCenterSourceAsync, isPending: createCatalystCenterSourceIsPending },
+    updateSource: { mutateAsync: updateCatalystCenterSourceAsync, isPending: updateCatalystCenterSourceIsPending },
+    deleteSource: { mutateAsync: deleteCatalystCenterSourceAsync, isPending: deleteCatalystCenterSourceIsPending },
   } = useCatalystCenterSourcesMutations();
 
   const {
-    createSource: createPyatsSource,
-    updateSource: updatePyatsSource,
-    deleteSource: deletePyatsSource,
+    createSource: { mutateAsync: createPyatsSourceAsync, isPending: createPyatsSourceIsPending },
+    updateSource: { mutateAsync: updatePyatsSourceAsync, isPending: updatePyatsSourceIsPending },
+    deleteSource: { mutateAsync: deletePyatsSourceAsync, isPending: deletePyatsSourceIsPending },
   } = usePyATSSourcesMutations();
 
   const {
-    createSource: createMattermostSource,
-    updateSource: updateMattermostSource,
-    deleteSource: deleteMattermostSource,
+    createSource: { mutateAsync: createMattermostSourceAsync, isPending: createMattermostSourceIsPending },
+    updateSource: { mutateAsync: updateMattermostSourceAsync, isPending: updateMattermostSourceIsPending },
+    deleteSource: { mutateAsync: deleteMattermostSourceAsync, isPending: deleteMattermostSourceIsPending },
   } = useMattermostSourcesMutations();
 
   const {
-    createSource: createBatfishSource,
-    updateSource: updateBatfishSource,
-    deleteSource: deleteBatfishSource,
+    createSource: { mutateAsync: createBatfishSourceAsync, isPending: createBatfishSourceIsPending },
+    updateSource: { mutateAsync: updateBatfishSourceAsync, isPending: updateBatfishSourceIsPending },
+    deleteSource: { mutateAsync: deleteBatfishSourceAsync, isPending: deleteBatfishSourceIsPending },
   } = useBatfishSourcesMutations();
 
   const saveNautobot = useCallback(
@@ -96,7 +101,7 @@ export function useSourcesSettingsSave({
       if (values.credentialId != null) {
         value.credential_id = values.credentialId;
       }
-      await upsertSetting.mutateAsync({
+      await upsertSettingAsync({
         key: settingKey,
         value,
         description: `Nautobot source ${values.sourceId}`,
@@ -104,87 +109,87 @@ export function useSourcesSettingsSave({
       });
       setDialog({ type: "closed" });
     },
-    [nautobotById, upsertSetting, setDialog],
+    [nautobotById, upsertSettingAsync, setDialog],
   );
 
   const saveIse = useCallback(
     async (values: ISESourceCreatePayload) => {
-      await createIseSource.mutateAsync(values);
+      await createIseSourceAsync(values);
       setDialog({ type: "closed" });
     },
-    [createIseSource, setDialog],
+    [createIseSourceAsync, setDialog],
   );
 
   const updateIse = useCallback(
     async (sourceId: string, values: ISESourceUpdatePayload) => {
-      await updateIseSource.mutateAsync({ sourceId, data: values });
+      await updateIseSourceAsync({ sourceId, data: values });
       setDialog({ type: "closed" });
     },
-    [updateIseSource, setDialog],
+    [updateIseSourceAsync, setDialog],
   );
 
   const saveCatalystCenter = useCallback(
     async (values: CatalystCenterSourceCreatePayload) => {
-      await createCatalystCenterSource.mutateAsync(values);
+      await createCatalystCenterSourceAsync(values);
       setDialog({ type: "closed" });
     },
-    [createCatalystCenterSource, setDialog],
+    [createCatalystCenterSourceAsync, setDialog],
   );
 
   const updateCatalystCenter = useCallback(
     async (sourceId: string, values: CatalystCenterSourceUpdatePayload) => {
-      await updateCatalystCenterSource.mutateAsync({ sourceId, data: values });
+      await updateCatalystCenterSourceAsync({ sourceId, data: values });
       setDialog({ type: "closed" });
     },
-    [updateCatalystCenterSource, setDialog],
+    [updateCatalystCenterSourceAsync, setDialog],
   );
 
   const savePyats = useCallback(
     async (values: PyATSSourceCreatePayload) => {
-      await createPyatsSource.mutateAsync(values);
+      await createPyatsSourceAsync(values);
       setDialog({ type: "closed" });
     },
-    [createPyatsSource, setDialog],
+    [createPyatsSourceAsync, setDialog],
   );
 
   const updatePyats = useCallback(
     async (sourceId: string, values: PyATSSourceUpdatePayload) => {
-      await updatePyatsSource.mutateAsync({ sourceId, data: values });
+      await updatePyatsSourceAsync({ sourceId, data: values });
       setDialog({ type: "closed" });
     },
-    [updatePyatsSource, setDialog],
+    [updatePyatsSourceAsync, setDialog],
   );
 
   const saveMattermost = useCallback(
     async (values: MattermostSourceCreatePayload) => {
-      await createMattermostSource.mutateAsync(values);
+      await createMattermostSourceAsync(values);
       setDialog({ type: "closed" });
     },
-    [createMattermostSource, setDialog],
+    [createMattermostSourceAsync, setDialog],
   );
 
   const updateMattermost = useCallback(
     async (sourceId: string, values: MattermostSourceUpdatePayload) => {
-      await updateMattermostSource.mutateAsync({ sourceId, data: values });
+      await updateMattermostSourceAsync({ sourceId, data: values });
       setDialog({ type: "closed" });
     },
-    [updateMattermostSource, setDialog],
+    [updateMattermostSourceAsync, setDialog],
   );
 
   const saveBatfish = useCallback(
     async (values: BatfishSourceCreatePayload) => {
-      await createBatfishSource.mutateAsync(values);
+      await createBatfishSourceAsync(values);
       setDialog({ type: "closed" });
     },
-    [createBatfishSource, setDialog],
+    [createBatfishSourceAsync, setDialog],
   );
 
   const updateBatfish = useCallback(
     async (sourceId: string, values: BatfishSourceUpdatePayload) => {
-      await updateBatfishSource.mutateAsync({ sourceId, data: values });
+      await updateBatfishSourceAsync({ sourceId, data: values });
       setDialog({ type: "closed" });
     },
-    [updateBatfishSource, setDialog],
+    [updateBatfishSourceAsync, setDialog],
   );
 
   const confirmDelete = useCallback(async () => {
@@ -192,59 +197,92 @@ export function useSourcesSettingsSave({
       return;
     }
     if (dialog.sourceType === "ise") {
-      await deleteIseSource.mutateAsync(dialog.sourceId);
+      await deleteIseSourceAsync(dialog.sourceId);
     } else if (dialog.sourceType === "catalyst_center") {
-      await deleteCatalystCenterSource.mutateAsync(dialog.sourceId);
+      await deleteCatalystCenterSourceAsync(dialog.sourceId);
     } else if (dialog.sourceType === "pyats") {
-      await deletePyatsSource.mutateAsync(dialog.sourceId);
+      await deletePyatsSourceAsync(dialog.sourceId);
     } else if (dialog.sourceType === "mattermost") {
-      await deleteMattermostSource.mutateAsync(dialog.sourceId);
+      await deleteMattermostSourceAsync(dialog.sourceId);
     } else if (dialog.sourceType === "batfish") {
-      await deleteBatfishSource.mutateAsync(dialog.sourceId);
+      await deleteBatfishSourceAsync(dialog.sourceId);
     } else {
-      await deleteSetting.mutateAsync(dialog.key);
+      await deleteSettingAsync(dialog.key);
     }
     setDialog({ type: "closed" });
   }, [
     dialog,
-    deleteSetting,
-    deleteIseSource,
-    deleteCatalystCenterSource,
-    deletePyatsSource,
-    deleteMattermostSource,
-    deleteBatfishSource,
+    deleteSettingAsync,
+    deleteIseSourceAsync,
+    deleteCatalystCenterSourceAsync,
+    deletePyatsSourceAsync,
+    deleteMattermostSourceAsync,
+    deleteBatfishSourceAsync,
     setDialog,
   ]);
 
-  return {
-    saveNautobot,
-    saveIse,
-    updateIse,
-    saveCatalystCenter,
-    updateCatalystCenter,
-    savePyats,
-    updatePyats,
-    saveMattermost,
-    updateMattermost,
-    saveBatfish,
-    updateBatfish,
-    confirmDelete,
-    upsertSettingIsPending: upsertSetting.isPending,
-    createIseSourceIsPending: createIseSource.isPending,
-    updateIseSourceIsPending: updateIseSource.isPending,
-    createCatalystCenterSourceIsPending: createCatalystCenterSource.isPending,
-    updateCatalystCenterSourceIsPending: updateCatalystCenterSource.isPending,
-    createPyatsSourceIsPending: createPyatsSource.isPending,
-    updatePyatsSourceIsPending: updatePyatsSource.isPending,
-    createMattermostSourceIsPending: createMattermostSource.isPending,
-    updateMattermostSourceIsPending: updateMattermostSource.isPending,
-    createBatfishSourceIsPending: createBatfishSource.isPending,
-    updateBatfishSourceIsPending: updateBatfishSource.isPending,
-    deleteIseSourceIsPending: deleteIseSource.isPending,
-    deleteCatalystCenterSourceIsPending: deleteCatalystCenterSource.isPending,
-    deletePyatsSourceIsPending: deletePyatsSource.isPending,
-    deleteMattermostSourceIsPending: deleteMattermostSource.isPending,
-    deleteBatfishSourceIsPending: deleteBatfishSource.isPending,
-    deleteSettingIsPending: deleteSetting.isPending,
-  };
+  return useMemo(
+    () => ({
+      saveNautobot,
+      saveIse,
+      updateIse,
+      saveCatalystCenter,
+      updateCatalystCenter,
+      savePyats,
+      updatePyats,
+      saveMattermost,
+      updateMattermost,
+      saveBatfish,
+      updateBatfish,
+      confirmDelete,
+      upsertSettingIsPending,
+      createIseSourceIsPending,
+      updateIseSourceIsPending,
+      createCatalystCenterSourceIsPending,
+      updateCatalystCenterSourceIsPending,
+      createPyatsSourceIsPending,
+      updatePyatsSourceIsPending,
+      createMattermostSourceIsPending,
+      updateMattermostSourceIsPending,
+      createBatfishSourceIsPending,
+      updateBatfishSourceIsPending,
+      deleteIseSourceIsPending,
+      deleteCatalystCenterSourceIsPending,
+      deletePyatsSourceIsPending,
+      deleteMattermostSourceIsPending,
+      deleteBatfishSourceIsPending,
+      deleteSettingIsPending,
+    }),
+    [
+      saveNautobot,
+      saveIse,
+      updateIse,
+      saveCatalystCenter,
+      updateCatalystCenter,
+      savePyats,
+      updatePyats,
+      saveMattermost,
+      updateMattermost,
+      saveBatfish,
+      updateBatfish,
+      confirmDelete,
+      upsertSettingIsPending,
+      createIseSourceIsPending,
+      updateIseSourceIsPending,
+      createCatalystCenterSourceIsPending,
+      updateCatalystCenterSourceIsPending,
+      createPyatsSourceIsPending,
+      updatePyatsSourceIsPending,
+      createMattermostSourceIsPending,
+      updateMattermostSourceIsPending,
+      createBatfishSourceIsPending,
+      updateBatfishSourceIsPending,
+      deleteIseSourceIsPending,
+      deleteCatalystCenterSourceIsPending,
+      deletePyatsSourceIsPending,
+      deleteMattermostSourceIsPending,
+      deleteBatfishSourceIsPending,
+      deleteSettingIsPending,
+    ],
+  );
 }

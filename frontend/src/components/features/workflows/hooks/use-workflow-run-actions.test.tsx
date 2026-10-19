@@ -1,6 +1,8 @@
 import { act, renderHook } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { queryKeys } from "@/lib/query-keys";
+
 import { useWorkflowBuilderStore } from "./use-workflow-builder-store";
 import { useWorkflowRunActions } from "./use-workflow-run-actions";
 import type { UseWorkflowRunActionsOptions } from "./use-workflow-run-actions";
@@ -11,7 +13,16 @@ const h = vi.hoisted(() => ({
   settings: { data: undefined as { switch_to_runs_on_start?: boolean } | undefined },
   mutateAsync: vi.fn(),
   isPending: false,
+  fetchQuery: vi.fn(),
+  apiCall: vi.fn(),
 }));
+
+// The real useQueryClient returns one stable client; the mock must too.
+const stableQueryClient = {
+  fetchQuery: (opts: { queryFn: () => unknown }) => h.fetchQuery(opts),
+};
+vi.mock("@tanstack/react-query", () => ({ useQueryClient: () => stableQueryClient }));
+vi.mock("@/hooks/use-api", () => ({ useApi: () => ({ apiCall: h.apiCall }) }));
 
 vi.mock("next/navigation", () => ({ useRouter: () => h.router }));
 vi.mock("@/hooks/queries/use-client-settings-query", () => ({
@@ -75,6 +86,8 @@ beforeEach(() => {
   h.mutateAsync.mockReset().mockResolvedValue({ id: 55 });
   h.settings.data = undefined;
   h.isPending = false;
+  h.apiCall.mockReset();
+  h.fetchQuery.mockReset().mockImplementation(async (opts: { queryFn: () => unknown }) => opts.queryFn());
   useWorkflowBuilderStore.setState({
     isDirty: false,
     workflowStatus: "Draft",
@@ -380,14 +393,21 @@ describe("useWorkflowRunActions.handleSaveAndRun", () => {
 });
 
 describe("useWorkflowRunActions.handleRunSavedVersion", () => {
+  const saved = (over: Record<string, unknown> = {}) => ({
+    canvas_nodes: [executableNode],
+    static_attributes: [],
+    ...over,
+  });
+
   it("closes the confirm dialog and runs the saved version without validating the canvas", async () => {
+    h.apiCall.mockResolvedValue(saved());
     const { options } = harness({ allNodes: [] });
     const { result } = renderHook(() => useWorkflowRunActions(options));
     act(() => result.current.setIsRunConfirmOpen(true));
     await act(async () => result.current.handleRunSavedVersion());
     expect(result.current.isRunConfirmOpen).toBe(false);
     expect(h.mutateAsync).toHaveBeenCalledWith(
-      expect.objectContaining({ workflowId: 7 }),
+      expect.objectContaining({ workflowId: 7, run_inputs: {} }),
     );
   });
 
@@ -396,6 +416,82 @@ describe("useWorkflowRunActions.handleRunSavedVersion", () => {
     const { result } = renderHook(() => useWorkflowRunActions(options));
     await act(async () => result.current.handleRunSavedVersion());
     expect(status().lastAction).toBe("Save the workflow before running");
+    expect(h.apiCall).not.toHaveBeenCalled();
+  });
+
+  it("ignores a get-from-user step that is only on the dirty canvas", async () => {
+    h.apiCall.mockResolvedValue(saved());
+    const { options, updateMutateAsync } = harness({ allNodes: [executableNode, getFromUser("region")] });
+    const { result } = renderHook(() => useWorkflowRunActions(options));
+    await act(async () => result.current.handleRunSavedVersion());
+    expect(h.apiCall).toHaveBeenCalledWith("workflows/7");
+    // Always the stored version, never a cached copy.
+    expect(h.fetchQuery).toHaveBeenCalledWith(
+      expect.objectContaining({ queryKey: queryKeys.workflows.detail(7), staleTime: 0 }),
+    );
+    expect(result.current.isRunInputsDialogOpen).toBe(false);
+    expect(h.mutateAsync).toHaveBeenCalledWith(expect.objectContaining({ run_inputs: {} }));
+    expect(updateMutateAsync).not.toHaveBeenCalled();
+  });
+
+  it("asks for the saved inputs even when the canvas removed that step, and never writes the workflow", async () => {
+    h.apiCall.mockResolvedValue(saved({ canvas_nodes: [executableNode, getFromUser("region")] }));
+    const { options, updateMutateAsync, handleStaticAttributesChange } = harness({
+      allNodes: [executableNode],
+    });
+    const { result } = renderHook(() => useWorkflowRunActions(options));
+    await act(async () => result.current.handleRunSavedVersion());
+    expect(result.current.isRunInputsDialogOpen).toBe(true);
+    expect(result.current.pendingRunTargetId).toBe(7);
+    expect(result.current.runInputAttributes.map((a) => a.name)).toEqual(["region"]);
+    expect(updateMutateAsync).not.toHaveBeenCalled();
+    expect(handleStaticAttributesChange).not.toHaveBeenCalled();
+    expect(h.mutateAsync).not.toHaveBeenCalled();
+
+    await act(async () => result.current.handleRunInputsSubmit({ region: "eu" }));
+    expect(h.mutateAsync).toHaveBeenCalledWith(
+      expect.objectContaining({ workflowId: 7, run_inputs: { region: "eu" } }),
+    );
+  });
+
+  it("uses the saved static attributes, not the canvas ones", async () => {
+    h.apiCall.mockResolvedValue(
+      saved({ static_attributes: [{ name: "site", type: "string", required: false }] }),
+    );
+    const { options } = harness({
+      staticAttributes: [{ name: "other", type: "string", required: true }],
+    });
+    const { result } = renderHook(() => useWorkflowRunActions(options));
+    await act(async () => result.current.handleRunSavedVersion());
+    expect(result.current.runInputAttributes.map((a) => a.name)).toEqual(["site"]);
+  });
+
+  it("goes back to the canvas attributes after the dialog closes", async () => {
+    h.apiCall.mockResolvedValue(saved({ canvas_nodes: [getFromUser("region")] }));
+    const { options } = harness({ allNodes: [executableNode] });
+    const { result } = renderHook(() => useWorkflowRunActions(options));
+    await act(async () => result.current.handleRunSavedVersion());
+    act(() => result.current.setIsRunInputsDialogOpen(false));
+    expect(result.current.runInputAttributes).toEqual([]);
+    expect(result.current.pendingRunTargetId).toBeNull();
+  });
+
+  it("shows an error and does not run when the saved workflow cannot be loaded", async () => {
+    h.apiCall.mockRejectedValue(new Error("gone"));
+    const { options } = harness();
+    const { result } = renderHook(() => useWorkflowRunActions(options));
+    await act(async () => result.current.handleRunSavedVersion());
+    expect(status().workflowStatus).toBe("Error");
+    expect(status().lastAction).toBe("gone");
+    expect(h.mutateAsync).not.toHaveBeenCalled();
+  });
+
+  it("treats a saved workflow without nodes or attributes as having no inputs", async () => {
+    h.apiCall.mockResolvedValue({ canvas_nodes: null, static_attributes: null });
+    const { options } = harness();
+    const { result } = renderHook(() => useWorkflowRunActions(options));
+    await act(async () => result.current.handleRunSavedVersion());
+    expect(h.mutateAsync).toHaveBeenCalledWith(expect.objectContaining({ run_inputs: {} }));
   });
 });
 

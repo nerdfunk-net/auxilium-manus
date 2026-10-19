@@ -323,6 +323,59 @@ describe("selection", () => {
   });
 });
 
+describe("selection after a new preview", () => {
+  it("drops selected ids that are not in the new device list and reports the rest", async () => {
+    respond([raw("a"), raw("b"), raw("c")]);
+    const onSelectionChange = vi.fn();
+    const { result } = setup(TREE, OPTIONS, NO_DEVICES, undefined, undefined, onSelectionChange);
+    await load(result);
+    act(() => result.current.handleSelectAll(true));
+    onSelectionChange.mockClear();
+
+    respond([raw("b"), raw("d")]);
+    await load(result);
+
+    expect(Array.from(result.current.selectedIds)).toEqual(["b"]);
+    expect(onSelectionChange).toHaveBeenCalledTimes(1);
+    expect(onSelectionChange.mock.lastCall?.[0]).toEqual(["b"]);
+    expect(onSelectionChange.mock.lastCall?.[1].map((d: DeviceInfo) => d.id)).toEqual(["b"]);
+  });
+
+  it("selects nothing when no selected device is in the new list", async () => {
+    respond([raw("a")]);
+    const onSelectionChange = vi.fn();
+    const { result } = setup(TREE, OPTIONS, NO_DEVICES, ["a"], undefined, onSelectionChange);
+    await load(result);
+    onSelectionChange.mockClear();
+
+    respond([raw("x")]);
+    await load(result);
+
+    expect(result.current.selectedIds.size).toBe(0);
+    expect(onSelectionChange).toHaveBeenCalledWith([], []);
+  });
+
+  it("does not report a selection that did not change", async () => {
+    respond([raw("a"), raw("b")]);
+    const onSelectionChange = vi.fn();
+    const { result } = setup(TREE, OPTIONS, NO_DEVICES, ["a"], undefined, onSelectionChange);
+    await load(result);
+
+    respond([raw("a"), raw("c")]);
+    await load(result);
+
+    expect(Array.from(result.current.selectedIds)).toEqual(["a"]);
+    expect(onSelectionChange).not.toHaveBeenCalled();
+  });
+
+  it("works without an onSelectionChange callback", async () => {
+    respond([raw("a")]);
+    const { result } = setup(TREE, OPTIONS, NO_DEVICES, ["z"]);
+    await load(result);
+    expect(result.current.selectedIds.size).toBe(0);
+  });
+});
+
 describe("paging", () => {
   const many = Array.from({ length: 45 }, (_, i) => raw(`d${i}`));
 

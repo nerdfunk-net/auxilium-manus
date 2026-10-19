@@ -742,53 +742,12 @@ If operators ask for run problems in the Hatchet dashboard. Then:
 
 ---
 
-## `useSourcesSettings` returns a new object on every render
-
-**Added:** 2026-10-19 · **Area:** `frontend/src/components/features/settings/hooks/use-sources-settings.ts`,
-`use-sources-settings-save.ts`
-
-### What we have
-
-`useSourcesSettings` wraps its return value in `useMemo`, but one of the dependencies, `saveHandlers`, is the
-plain object `useSourcesSettingsSave` returns. Its eleven callbacks (`saveNautobot`, `saveIse`, `updateIse`, ...)
-list whole `useMutation` results in their dependency arrays, and TanStack Query creates a new result object on
-every render. So the callbacks change on every render, then `saveHandlers`, then the memoized return value, and
-the `useMemo` in `useSourcesSettings` never holds.
-
-Found while writing the unit tests (2026-10-19). No misbehaviour has been seen, and the consumers were not
-audited for effects or memoized children that take the result or its callbacks. It breaks the "memoize hook
-returns" rule in `doc/claude/frontend.md`, and it becomes an infinite-loop risk the first time a consumer puts
-the result into an effect dependency. The same pattern was fixed in `useTemplateEditorBatfish`
-(`handleRunQuery` depended on the mutation object; it now depends on `mutate`).
-
-### End state
-
-`useSourcesSettings` returns the same object while nothing it exposes has changed.
-
-### Why it is deferred
-
-No defect follows from it today, and the fix touches eleven callbacks in a 300-line hook.
-
-### When we revisit
-
-1. In `use-sources-settings-save.ts`, depend on the stable `mutateAsync` of each mutation (destructure it) instead
-   of the mutation object, and wrap the return value in `useMemo`.
-2. Add the "returns the same object when nothing changed" test to `use-sources-settings.test.tsx`; it was left
-   out on purpose because it fails today.
-3. ~~Search for other hooks with a mutation or query result object in a dependency array.~~ Done 2026-10-19: fixed in
-   `useDevicePreview`, `useTemplateEditorDevice`, `useWorkflowRunActions`, `useWorkflowValidation`,
-   `useTemplateRender`, `manage-inventory-modal`, `load-variables-dialog` and both `regex-probe-panel`s; the
-   remaining grep hits in `use-saved-inventories.ts` already use the stable destructured `mutateAsync`. Only
-   `use-sources-settings-save.ts` (step 1) is left.
-
----
-
 ## Frontend test and verification backlog
 
 **Added:** 2026-10-19 · **Area:** `frontend/`, `doc/HOWTO_TEST_THE_FRONTEND.md`
 
-Left over from the vitest coverage passes and the Playwright passes (coverage 13.5 % → about 32.5 % statements,
-about 30 bugs fixed; the ratchet in `frontend/vitest.config.ts` (32 / 24 / 24 / 31) keeps the gain).
+Left over from the vitest coverage passes and the Playwright passes (coverage 13.5 % → about 33 % statements,
+about 30 bugs fixed; the ratchet in `frontend/vitest.config.ts` (33 / 25 / 24 / 32) keeps the gain).
 
 ### Decided: no import with references the user cannot list
 
@@ -802,15 +761,15 @@ add a "keep the references unverified" path without a new decision.
 
 ### Smaller findings, not fixed
 
-- **Pages request lists a workflow-only user may not read.** `/workflows` still requests
-  `git-repositories?...category=workflows` (403) on load; `/inventory`, `/schedules`, `/reports`,
-  `/change-requests` and the template editor each make one or two forbidden list requests too. The UI copes (and
-  now says why); the requests could be gated on the permission (`hasPermission` in `lib/permissions.ts`). The
-  `general/settings` 403 on every page is gone (see below).
+- **Pages request lists a workflow-only user may not read.** `/workflows` no longer requests
+  `git-repositories?...category=workflows` without `git.repositories:read` (`useWorkflowGitRepositories`, used by the
+  manage and save-as dialogs; the dialogs themselves have no component test). Still open: `/inventory`, `/schedules`,
+  `/reports`, `/change-requests` and the template editor each make one or two forbidden list requests; gate them the
+  same way with `hasPermission` (`lib/permissions.ts`). `use-workflow-import-remap` must not be gated that way: it
+  treats a list that could not be loaded as a reason to refuse the import.
 - **The Overview minimap covers node handles** at about 1200×700 (fit view ignores the panel), and **new steps are
   placed only 44 px apart**, so they overlap until Auto layout runs. Both made handle clicks fail in the browser pass.
 - **`/api/auth/me` is requested twice per page load.** Harmless, but one request would do.
-- **`useSourcesSettings` returns a new object on every render** (separate entry above).
 
 ### Found in round 2 (hook tests)
 
@@ -819,14 +778,8 @@ in `useDevicePreview`, `useTemplateEditorDevice`, `useWorkflowRunActions`, `useC
 posting an empty host. The ISE preview hook also refuses a blank group name or CIDR without a request now (the panel
 already disabled its button). Still open:
 
-- **"Run saved version" derives run inputs from the unsaved canvas.** `handleRunSavedVersion` skips validation but
-  `requestRun` still merges `get-from-user` attributes from the *current* (possibly dirty) nodes: it writes those
-  `static_attributes` onto the saved workflow and opens the inputs dialog for them. The hook has no copy of the saved
-  nodes, so the fix needs the saved definition passed in (or fetched). Product behaviour to confirm first.
 - **`handleSaveAndRun` writes the schema twice** (the save, then `ensureRunInputSchemaPersisted` inside `requestRun`).
   Harmless; one `PUT` would do.
-- **`useDevicePreview` keeps stale selected ids after a new preview.** `selectedIds` is not reconciled with the new
-  device list, so `onSelectionChange` can receive ids that have no matching device in the second argument.
 
 ### Second Playwright pass (2026-10-19, pages outside the builder)
 
@@ -841,7 +794,7 @@ Fixed in or after that pass:
 - non-admins got the built-in 20-minute idle timeout (and `switch_to_runs_on_start` defaulted) because both were read
   from `general/settings`, which needs `general_settings:read` (decided: every signed-in user may read them, now
   served by `GET /general/client-settings`, no export directory in it);
-- mutation objects in dependency arrays (see the `useSourcesSettings` entry, step 3).
+- mutation objects in dependency arrays (every hit is fixed; the last was `use-sources-settings-save.ts`, 2026-10-19).
 
 Decided: **desktop only.** The tool has no small-screen layout (at 390 px the sidebar leaves about 100 px for the
 page); `doc/claude/frontend.md` says so.
@@ -856,8 +809,7 @@ users, git repositories) beyond loading them. The isolated stack has no Nautobot
   product owner on the real stack; the isolated stack still has no working worker (decide how to give it one without
   letting it reach the real Hatchet engine).
 - **Unit tests, largest gaps by uncovered statements** (after round 3, 2026-10-19; coverage 29.6 % → 32.5 %
-  statements): `query-keys.ts` (78, a data file), `use-saved-inventories` (62), `use-sources-settings-save` (60),
-  `update-device-config` and `set-default-attributes-config` (58 each), `use-selected-inventory` (54),
+  statements): `query-keys.ts` (78, a data file), `use-saved-inventories` (62),   `update-device-config` and `set-default-attributes-config` (58 each), `use-selected-inventory` (54),
   `use-workflow-save` (50), `use-device-selector-modals`, `use-device-filter` (48 each); then the `.tsx` components
   (coverage there is close to zero; test behaviour, check layout in the browser).
 - **Raise the ratchet** (`coverage.thresholds`) after each round; never lower it.

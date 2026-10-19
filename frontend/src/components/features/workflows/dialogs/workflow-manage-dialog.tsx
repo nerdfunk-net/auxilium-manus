@@ -25,12 +25,12 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import { useGitRepositoriesQuery } from "@/hooks/queries/use-git-repositories-query";
 import { useWorkflowExportMutation } from "@/hooks/queries/use-workflow-export-mutation";
 import { useWorkflowMutations } from "@/hooks/queries/use-workflow-mutations";
 import { useWorkflowsQuery } from "@/hooks/queries/use-workflows-query";
 import { queryKeys } from "@/lib/query-keys";
 
+import { useWorkflowGitRepositories } from "../hooks/use-workflow-git-repositories";
 import { WorkflowFolderSidebar } from "../components/workflow-folder-sidebar";
 import type {
   WorkflowListResponse,
@@ -70,11 +70,7 @@ export function WorkflowManageDialog({
   const { updateWorkflow, deleteWorkflow } = useWorkflowMutations();
   const exportWorkflow = useWorkflowExportMutation();
   const queryClient = useQueryClient();
-  const { data: gitRepoData } = useGitRepositoriesQuery({
-    activeOnly: true,
-    category: "workflows",
-  });
-  const hasConfiguredGitRepository = (gitRepoData?.repositories.length ?? 0) > 0;
+  const { hasConfiguredGitRepository } = useWorkflowGitRepositories();
 
   const workflows = useMemo(() => data?.workflows ?? [], [data]);
 

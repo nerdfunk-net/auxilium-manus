@@ -89,10 +89,12 @@ export function useDevicePreview(
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
 
+  const selectedIdsRef = useRef(selectedIds);
   const onDevicesSelectedRef = useRef(onDevicesSelected);
   const onSelectionChangeRef = useRef(onSelectionChange);
 
   useEffect(() => {
+    selectedIdsRef.current = selectedIds;
     onDevicesSelectedRef.current = onDevicesSelected;
     onSelectionChangeRef.current = onSelectionChange;
   });
@@ -160,6 +162,16 @@ export function useDevicePreview(
           setPreviewHidden(false);
           setCurrentPage(1);
           const devices = mapPreviewDevices(data.devices);
+          // A new device list invalidates ids that are no longer in it.
+          const previousIds = selectedIdsRef.current;
+          const keptDevices = devices.filter((d) => previousIds.has(d.id));
+          if (keptDevices.length !== previousIds.size) {
+            setSelectedIds(new Set(keptDevices.map((d) => d.id)));
+            onSelectionChangeRef.current?.(
+              keptDevices.map((d) => d.id),
+              keptDevices,
+            );
+          }
           onDevicesSelectedRef.current?.(
             devices,
             treeToFlatConditions(conditionTree),

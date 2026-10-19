@@ -25,9 +25,9 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 
-import { useGitRepositoriesQuery } from "@/hooks/queries/use-git-repositories-query";
 import { useWorkflowCheckNameMutation } from "@/hooks/queries/use-workflow-check-name";
 
+import { useWorkflowGitRepositories } from "../hooks/use-workflow-git-repositories";
 import type { WorkflowVisibility } from "../types/workflow-persistence";
 
 const saveAsSchema = z.object({
@@ -74,11 +74,7 @@ export function WorkflowSaveAsDialog({
   onClose,
 }: WorkflowSaveAsDialogProps) {
   const checkName = useWorkflowCheckNameMutation();
-  const { data: gitRepoData } = useGitRepositoriesQuery({
-    activeOnly: true,
-    category: "workflows",
-  });
-  const hasConfiguredGitRepository = (gitRepoData?.repositories.length ?? 0) > 0;
+  const { hasConfiguredGitRepository } = useWorkflowGitRepositories();
   const [pendingOverwrite, setPendingOverwrite] = useState<{
     message: string;
     existingId: number;

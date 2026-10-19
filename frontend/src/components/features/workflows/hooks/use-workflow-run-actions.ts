@@ -3,9 +3,15 @@
 import { useRouter } from "next/navigation";
 import { useCallback, useMemo, useState } from "react";
 
+import { useQueryClient } from "@tanstack/react-query";
+
 import { useClientSettingsQuery } from "@/hooks/queries/use-client-settings-query";
 import { useTriggerRunMutation } from "@/hooks/queries/use-workflow-run-mutations";
+import { useApi } from "@/hooks/use-api";
+import { queryKeys } from "@/lib/query-keys";
 
+import type { StaticAttributeDef, WorkflowResponse } from "../types/workflow-persistence";
+import type { CanvasNodeLike } from "../utils/device-param-hints";
 import {
   mergeRunInputAttributes,
   staticAttributesEqual,
@@ -39,6 +45,8 @@ export function useWorkflowRunActions({
     persistence;
 
   const router = useRouter();
+  const queryClient = useQueryClient();
+  const { apiCall } = useApi();
   const { data: generalSettings } = useClientSettingsQuery();
   const isDirty = useWorkflowBuilderStore((state) => state.isDirty);
   const markSaved = useWorkflowBuilderStore((state) => state.markSaved);
@@ -49,15 +57,21 @@ export function useWorkflowRunActions({
   const [isRunConfirmOpen, setIsRunConfirmOpen] = useState(false);
   const [isRunInputsDialogOpen, setIsRunInputsDialogOpen] = useState(false);
   const [pendingRunTargetId, setPendingRunTargetId] = useState<number | null>(null);
+  // Set only by "Run saved version": the inputs dialog then asks for the saved
+  // workflow's parameters, not the ones derived from the (dirty) canvas.
+  const [savedRunAttributes, setSavedRunAttributes] = useState<StaticAttributeDef[] | null>(
+    null,
+  );
 
   // useMutation returns a new object every render; only `mutateAsync` is stable.
   const { mutateAsync: triggerRunAsync, isPending: isTriggeringRun } =
     useTriggerRunMutation(workflowId);
 
-  const runInputAttributes = useMemo(
+  const canvasRunInputAttributes = useMemo(
     () => mergeRunInputAttributes(allNodes, staticAttributes),
     [allNodes, staticAttributes],
   );
+  const runInputAttributes = savedRunAttributes ?? canvasRunInputAttributes;
 
   // Dispatches the run once a target workflow id and (if declared) the
   // static-attribute values are known. Split out of the old executeRun so a
@@ -157,6 +171,7 @@ export function useWorkflowRunActions({
     setIsRunInputsDialogOpen(open);
     if (!open) {
       setPendingRunTargetId(null);
+      setSavedRunAttributes(null);
     }
   }, []);
 
@@ -166,6 +181,7 @@ export function useWorkflowRunActions({
       setIsRunInputsDialogOpen(false);
       await dispatchRun(pendingRunTargetId, values);
       setPendingRunTargetId(null);
+      setSavedRunAttributes(null);
     },
     [pendingRunTargetId, dispatchRun],
   );
@@ -221,10 +237,38 @@ export function useWorkflowRunActions({
     beginSaveAsThenRun,
   ]);
 
-  const handleRunSavedVersion = useCallback(() => {
+  // Runs what is stored, ignoring unsaved canvas edits: the run inputs come from
+  // the saved nodes and static attributes, fetched fresh, and nothing is written
+  // back to the workflow.
+  const handleRunSavedVersion = useCallback(async () => {
     setIsRunConfirmOpen(false);
-    void requestRun(workflowId ?? undefined, { skipValidation: true });
-  }, [requestRun, workflowId]);
+    if (!workflowId) {
+      markError("Save the workflow before running");
+      return;
+    }
+    let saved: WorkflowResponse;
+    try {
+      saved = await queryClient.fetchQuery({
+        queryKey: queryKeys.workflows.detail(workflowId),
+        queryFn: () => apiCall<WorkflowResponse>(`workflows/${workflowId}`),
+        staleTime: 0,
+      });
+    } catch (error) {
+      markError(runActionErrorMessage(error, "Failed to load the saved workflow"));
+      return;
+    }
+    const attributes = mergeRunInputAttributes(
+      (saved.canvas_nodes ?? []) as unknown as CanvasNodeLike[],
+      saved.static_attributes ?? [],
+    );
+    if (attributes.length === 0) {
+      await dispatchRun(workflowId, {});
+      return;
+    }
+    setSavedRunAttributes(attributes);
+    setPendingRunTargetId(workflowId);
+    setIsRunInputsDialogOpen(true);
+  }, [workflowId, queryClient, apiCall, markError, dispatchRun]);
 
   return useMemo(
     () => ({
