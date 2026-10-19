@@ -48,6 +48,25 @@ class GetFromListExecutorTests(unittest.IsolatedAsyncioTestCase):
             ["router1", "switch2"],
         )
 
+    async def test_execute_sets_the_row_driver_and_defaults_to_cisco_ios(self) -> None:
+        run = MagicMock()
+        run.id = "run-1"
+        outcomes = await execute(
+            config={
+                "devices": [
+                    {"name": "r1", "ip_address": "10.0.0.1", "network_driver": "junos"},
+                    {"name": "r2", "ip_address": "10.0.0.2"},
+                ]
+            },
+            context=WorkflowContext(run_id="run-1", workflow_id="wf-1"),
+            run=run,
+            artifact_service=MagicMock(),
+            node_id="get-from-list-1",
+            device_sessions=MagicMock(),
+        )
+        drivers = {d.name: d.network_driver for d in outcomes[0].context.devices.values()}
+        self.assertEqual(drivers, {"r1": "juniper_junos", "r2": "cisco_ios"})
+
     async def test_execute_requires_at_least_one_device(self) -> None:
         context = WorkflowContext(run_id="run-1", workflow_id="wf-1")
         run = MagicMock()

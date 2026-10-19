@@ -24,8 +24,8 @@ export function GetFromUserHelpPanel() {
           a hand-picked set of devices, a few at a time.
         </p>
         <p>
-          Devices are added to the workflow context with identity only (name
-          and/or IP address) — no Nautobot attributes or credentials until a
+          Devices are added to the workflow context with a name and/or IP address
+          and a network driver — no Nautobot attributes or credentials until a
           later step enriches the context. This step has no runtime
           dependency on Nautobot: even with{" "}
           <span className="font-medium text-foreground">Nautobot search</span>{" "}
@@ -54,7 +54,11 @@ export function GetFromUserHelpPanel() {
         <p>
           The value is one device per line. Each line is either a bare
           hostname, a bare IP address (auto-detected), or{" "}
-          <HelpCode>name,ip_address</HelpCode> to set both explicitly. Names
+          <HelpCode>name,ip_address,network_driver</HelpCode> to set everything explicitly.
+          The Run Inputs dialog shows one row per device with these three fields. A line
+          without a driver gets <HelpCode>default_network_driver</HelpCode> (
+          <HelpCode>cisco_ios</HelpCode> unless you change it on this step); an unknown
+          driver fails the step. Names
           are never checked for existence — there is no inventory to check
           against. An IP-looking token must be a valid IPv4/IPv6 address (with
           or without a CIDR suffix); anything else is treated as a name.
@@ -65,6 +69,8 @@ export function GetFromUserHelpPanel() {
           10.0.0.5
           <br />
           switch2.example.com,10.0.0.6
+          <br />
+          edge1.example.com,10.0.0.7,juniper_junos
         </HelpExample>
         <HelpWarning title="At least one device required">
           <p>
@@ -87,7 +93,7 @@ export function GetFromUserHelpPanel() {
           — the dialog additionally suggests devices as the operator types (3
           or more characters triggers a debounced &quot;name contains&quot;
           lookup against the configured Nautobot source). Clicking a
-          suggestion adds it with its resolved IP address already filled in.
+          suggestion adds it with its IP address and its Nautobot network driver already filled in (the step&apos;s default driver is used when the device has none).
           The operator can still type a raw entry manually — Nautobot search is
           a convenience, never a requirement, and this step&apos;s executor
           never calls Nautobot itself.

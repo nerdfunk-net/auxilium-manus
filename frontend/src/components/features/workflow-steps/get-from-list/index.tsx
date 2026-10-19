@@ -16,6 +16,10 @@ import {
   fanOutFromConfig,
   type FanOutConfig,
 } from "../shared/fan-out-config";
+import {
+  DEFAULT_NETWORK_DRIVER,
+  NETWORK_DRIVER_SUGGESTIONS,
+} from "@/components/features/workflows/utils/device-list-text";
 import { GetFromListHelpPanel } from "./help-panel";
 
 const DEVICES_KEY = "devices";
@@ -23,9 +27,12 @@ const DEVICES_KEY = "devices";
 interface DeviceEntry {
   name: string;
   ip_address: string;
+  network_driver: string;
 }
 
-const DEFAULT_DEVICES: DeviceEntry[] = [{ name: "", ip_address: "" }];
+const DRIVER_LIST_ID = "get-from-list-network-drivers";
+const EMPTY_DEVICE: DeviceEntry = { name: "", ip_address: "", network_driver: DEFAULT_NETWORK_DRIVER };
+const DEFAULT_DEVICES: DeviceEntry[] = [EMPTY_DEVICE];
 
 function parseDeviceEntries(config: Record<string, unknown>): DeviceEntry[] {
   const raw = config[DEVICES_KEY];
@@ -34,16 +41,20 @@ function parseDeviceEntries(config: Record<string, unknown>): DeviceEntry[] {
   }
   return raw.map((item) => {
     if (typeof item === "string") {
-      return { name: item, ip_address: "" };
+      return { ...EMPTY_DEVICE, name: item };
     }
     if (item && typeof item === "object") {
       const record = item as Record<string, unknown>;
       return {
         name: typeof record.name === "string" ? record.name : "",
         ip_address: typeof record.ip_address === "string" ? record.ip_address : "",
+        network_driver:
+          typeof record.network_driver === "string" && record.network_driver.trim()
+            ? record.network_driver
+            : DEFAULT_NETWORK_DRIVER,
       };
     }
-    return { name: "", ip_address: "" };
+    return { ...EMPTY_DEVICE };
   });
 }
 
@@ -90,7 +101,7 @@ function GetFromListConfigPanel({ config, onChange, nodeId }: PluginConfigPanelP
   );
 
   const handleAddDevice = useCallback(() => {
-    onChange(buildConfig(config, { devices: [...devices, { name: "", ip_address: "" }] }));
+    onChange(buildConfig(config, { devices: [...devices, { ...EMPTY_DEVICE }] }));
   }, [config, devices, onChange]);
 
   const handleRemoveDevice = useCallback(
@@ -143,7 +154,7 @@ function GetFromListConfigPanel({ config, onChange, nodeId }: PluginConfigPanelP
 
         <div className="space-y-2">
           {devices.map((device, index) => (
-            <div key={`device-${index}`} className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] items-center gap-2">
+            <div key={`device-${index}`} className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_auto] items-center gap-2">
               <Input
                 value={device.name}
                 onChange={(event) => handleDeviceChange(index, "name", event.target.value)}
@@ -154,6 +165,13 @@ function GetFromListConfigPanel({ config, onChange, nodeId }: PluginConfigPanelP
                 value={device.ip_address}
                 onChange={(event) => handleDeviceChange(index, "ip_address", event.target.value)}
                 placeholder="10.0.0.5"
+                className="h-8 min-w-0 font-mono text-xs"
+              />
+              <Input
+                value={device.network_driver}
+                onChange={(event) => handleDeviceChange(index, "network_driver", event.target.value)}
+                list={DRIVER_LIST_ID}
+                placeholder={DEFAULT_NETWORK_DRIVER}
                 className="h-8 min-w-0 font-mono text-xs"
               />
               <Button
@@ -170,11 +188,17 @@ function GetFromListConfigPanel({ config, onChange, nodeId }: PluginConfigPanelP
             </div>
           ))}
         </div>
+        <datalist id={DRIVER_LIST_ID}>
+          {NETWORK_DRIVER_SUGGESTIONS.map((driver) => (
+            <option key={driver} value={driver} />
+          ))}
+        </datalist>
 
         <p className="text-[11px] text-muted-foreground">
           Static devices passed to downstream steps as workflow targets. When an
           IP address is set it is used to connect; otherwise the name is used
-          as the hostname.
+          as the hostname. Columns: name, IP address, network driver (Netmiko
+          driver such as cisco_ios, cisco_nxos or juniper_junos).
         </p>
       </div>
 

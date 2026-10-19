@@ -25,8 +25,8 @@ export function GetFromListHelpPanel() {
           Nautobot).
         </p>
         <p>
-          Each row becomes a workflow device with identity only — no
-          platform or credentials until a later step enriches the context.
+          Each row becomes a workflow device with a name and/or IP address and a
+          network driver — no credentials until a later step enriches the context.
         </p>
       </HelpSection>
 
@@ -34,7 +34,10 @@ export function GetFromListHelpPanel() {
         <p>
           <HelpCode>devices</HelpCode> is a list of rows, each with a{" "}
           <HelpCode>name</HelpCode> field and an <HelpCode>ip_address</HelpCode>{" "}
-          field. At least one of the two must be filled in per row — you can
+          field, plus a <HelpCode>network_driver</HelpCode> (default{" "}
+          <HelpCode>cisco_ios</HelpCode>; any Netmiko driver such as{" "}
+          <HelpCode>cisco_nxos</HelpCode> or <HelpCode>juniper_junos</HelpCode>). At least
+          one of name and IP address must be filled in per row — you can
           set just a name, just an IP address, or both. Click the plus button
           to add rows; use the minus button to remove a row (at least one row
           always remains).
@@ -56,6 +59,8 @@ export function GetFromListHelpPanel() {
           <br />
           {"    "}ip_address: 10.0.0.6
           <br />
+          {"    "}network_driver: juniper_junos
+          <br />
           {"  "}- ip_address: 10.0.0.5
         </HelpExample>
         <HelpWarning title="At least one field required per row">
@@ -64,7 +69,9 @@ export function GetFromListHelpPanel() {
             time, but you must configure at least one non-empty row. The
             Configuration panel shows &quot;Enter a name and/or IP address for
             at least one device&quot; until you do. An invalid IP address
-            format fails the step with a clear error naming the row.
+            format or an unknown network driver fails the step with a clear error naming the row.
+            Steps that connect over SSH use the driver unless they override it themselves
+            (Run Command&apos;s <HelpCode>network_driver_override</HelpCode>).
           </p>
         </HelpWarning>
       </HelpSection>

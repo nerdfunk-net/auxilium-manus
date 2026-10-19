@@ -26,10 +26,16 @@ import {
   DEFAULT_GET_FROM_USER_CONFIG,
   DEFAULT_GET_FROM_USER_DEVICE_PARAM,
 } from "./config";
+import {
+  DEFAULT_NETWORK_DRIVER,
+  NETWORK_DRIVER_SUGGESTIONS,
+} from "@/components/features/workflows/utils/device-list-text";
 import { GetFromUserHelpPanel } from "./help-panel";
 
 const DEVICE_PARAM_KEY = "device_param";
 const LOOKUP_MODE_KEY = "lookup_mode";
+const DEFAULT_DRIVER_KEY = "default_network_driver";
+const DRIVER_LIST_ID = "get-from-user-network-drivers";
 
 const CONFIG_INPUT_CLASS = "h-8 font-mono text-xs focus-visible:ring-step/40";
 
@@ -41,6 +47,11 @@ function deviceParamFromConfig(config: Record<string, unknown>): string {
     return raw.trim();
   }
   return DEFAULT_GET_FROM_USER_DEVICE_PARAM;
+}
+
+function defaultDriverFromConfig(config: Record<string, unknown>): string {
+  const raw = config[DEFAULT_DRIVER_KEY];
+  return typeof raw === "string" ? raw : DEFAULT_NETWORK_DRIVER;
 }
 
 function lookupModeFromConfig(config: Record<string, unknown>): LookupMode {
@@ -78,6 +89,7 @@ function GetFromUserConfigPanel({ nodeId, config, onChange }: PluginConfigPanelP
 
   const deviceParam = useMemo(() => deviceParamFromConfig(config), [config]);
   const lookupMode = useMemo(() => lookupModeFromConfig(config), [config]);
+  const defaultDriver = useMemo(() => defaultDriverFromConfig(config), [config]);
   const sourceId = useMemo(() => nautobotSourceIdFromConfig(config), [config]);
   const fanOut = useMemo(() => fanOutFromConfig(config), [config]);
   const isSourceConfigured = isNautobotSourceConfigured(config);
@@ -86,6 +98,11 @@ function GetFromUserConfigPanel({ nodeId, config, onChange }: PluginConfigPanelP
 
   const handleDeviceParamChange = useCallback(
     (name: string) => onChange(buildConfig(config, { [DEVICE_PARAM_KEY]: name })),
+    [config, onChange],
+  );
+
+  const handleDefaultDriverChange = useCallback(
+    (driver: string) => onChange(buildConfig(config, { [DEFAULT_DRIVER_KEY]: driver })),
     [config, onChange],
   );
 
@@ -126,6 +143,31 @@ function GetFromUserConfigPanel({ nodeId, config, onChange }: PluginConfigPanelP
           Run parameter prompted when the workflow starts. Defaults to{" "}
           <span className="font-mono">{DEFAULT_GET_FROM_USER_DEVICE_PARAM}</span> and is
           synced automatically — change it only if you need a different name.
+        </p>
+      </div>
+
+      <div className="space-y-1.5">
+        <div className="flex items-center gap-1.5">
+          <span className="font-mono text-xs font-medium">{DEFAULT_DRIVER_KEY}</span>
+          <Badge className="h-4 rounded px-1 text-[10px]" variant="secondary">
+            string
+          </Badge>
+        </div>
+        <Input
+          className={CONFIG_INPUT_CLASS}
+          list={DRIVER_LIST_ID}
+          placeholder={DEFAULT_NETWORK_DRIVER}
+          value={defaultDriver}
+          onChange={(e) => handleDefaultDriverChange(e.target.value)}
+        />
+        <datalist id={DRIVER_LIST_ID}>
+          {NETWORK_DRIVER_SUGGESTIONS.map((driver) => (
+            <option key={driver} value={driver} />
+          ))}
+        </datalist>
+        <p className="text-[11px] text-muted-foreground">
+          Network driver the Run Inputs prompt pre-fills for every device. The operator can
+          change it per device.
         </p>
       </div>
 
@@ -183,7 +225,7 @@ function GetFromUserConfigPanel({ nodeId, config, onChange }: PluginConfigPanelP
           </div>
         ) : (
           <div className="rounded-lg bg-step-surface px-3 py-2 text-xs text-step-surface-foreground">
-            The operator types devices directly — one name or IP address per line, no
+            The operator enters name, IP address and network driver per device, no
             Nautobot lookup involved.
           </div>
         )}

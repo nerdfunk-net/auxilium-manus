@@ -557,7 +557,7 @@ schedule, so it has its own run row, step results, logs and tier.
   run detail shows "started by run #N".
 - **Data in: only through declared run inputs.** Nothing is injected into a run from the side. The
   caller fills the target's inputs exactly as a schedule or a manual run does. Devices travel as the
-  text input of a **Get from User** step (`device_param`, one `name,ip` line per device), so a
+  text input of a **Get from User** step (`device_param`, one `name,ip[,network_driver]` line per device), so a
   workflow that is called, scheduled or run by hand has one contract. The builder reads the target's
   declared inputs (`static_attributes`) to generate the form, including the saved-inventory picker.
 - **One run or one per device.** One run for all devices, or one per device with `max_runs` as a

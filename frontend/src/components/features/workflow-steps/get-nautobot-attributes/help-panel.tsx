@@ -65,6 +65,13 @@ export function GetNautobotAttributesHelpPanel() {
           <HelpCode>list_of_attributes</HelpCode> empty is a completely valid
           configuration if that&apos;s all you need.
         </p>
+        <p>
+          The device&apos;s <HelpCode>platform</HelpCode> and{" "}
+          <HelpCode>network_driver</HelpCode> are also taken from Nautobot,
+          replacing any driver set by an earlier Get from List or Get from User
+          step. If the Nautobot platform has no network driver, the existing
+          one is kept.
+        </p>
       </HelpSection>
 
       <HelpSection title="Optional attribute groups">

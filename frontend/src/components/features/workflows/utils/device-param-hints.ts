@@ -1,3 +1,5 @@
+import { DEFAULT_NETWORK_DRIVER } from "./device-list-text";
+
 const GET_FROM_USER_KIND = "get-from-user";
 
 export type DeviceParamLookupMode = "manual" | "nautobot_search";
@@ -7,6 +9,8 @@ export interface DeviceParamConfig {
   /** Set when ``lookupMode`` is ``nautobot_search`` and the step has a
    * configured Nautobot source; empty otherwise. */
   sourceId: string;
+  /** Network driver a device line gets when it names none (``default_network_driver``). */
+  defaultNetworkDriver: string;
 }
 
 /** Nodes loaded from the canvas or from a persisted workflow's
@@ -53,7 +57,13 @@ export function computeDeviceParamConfigs(
         ? config.nautobot_source_id.trim()
         : "";
 
+    const defaultNetworkDriver =
+      typeof config.default_network_driver === "string" && config.default_network_driver.trim()
+        ? config.default_network_driver.trim()
+        : DEFAULT_NETWORK_DRIVER;
+
     configs[deviceParam] = {
+      defaultNetworkDriver,
       lookupMode,
       sourceId: lookupMode === "nautobot_search" ? sourceId : "",
     };

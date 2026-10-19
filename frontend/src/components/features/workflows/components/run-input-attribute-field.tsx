@@ -2,16 +2,14 @@
 
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
-import { Textarea } from "@/components/ui/textarea";
 
 import { RunInputDeviceListField } from "../dialogs/run-input-device-list-field";
+import { RunInputDeviceTableField } from "./run-input-device-table-field";
 import { RunInputReferenceField } from "./run-input-reference-field";
 import type { StaticAttributeDef } from "../types/workflow-persistence";
 import type { DeviceParamConfig } from "../utils/device-param-hints";
 
 const RUN_INPUT_CLASS = "h-9 text-xs focus-visible:ring-step/40";
-const RUN_INPUT_DEVICE_TEXTAREA_CLASS =
-  "min-h-[72px] font-mono text-xs focus-visible:ring-step/40";
 
 interface RunInputAttributeFieldProps {
   id: string;
@@ -91,6 +89,7 @@ export function RunInputAttributeField({
       <RunInputDeviceListField
         value={text}
         sourceId={deviceConfig.sourceId}
+        defaultNetworkDriver={deviceConfig.defaultNetworkDriver}
         onChange={(next) => onChange(next)}
       />
     );
@@ -98,13 +97,10 @@ export function RunInputAttributeField({
 
   if (deviceConfig) {
     return (
-      <Textarea
-        id={id}
-        rows={3}
-        className={RUN_INPUT_DEVICE_TEXTAREA_CLASS}
+      <RunInputDeviceTableField
         value={text}
-        placeholder="One device per line — hostname, IP, or name,ip_address"
-        onChange={(event) => onChange(event.target.value)}
+        defaultNetworkDriver={deviceConfig.defaultNetworkDriver}
+        onChange={(next) => onChange(next)}
       />
     );
   }

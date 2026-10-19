@@ -23,7 +23,12 @@ from typing import TYPE_CHECKING, Any
 from core.models.runs import WorkflowRun
 from models.workflow_context import StepOutcome, WorkflowContext
 from services.artifacts import ArtifactService
-from workflow_steps.common.device_list import device_context_from_entry, parse_device_list_text
+from workflow_steps.common.device_list import (
+    DEFAULT_NETWORK_DRIVER,
+    device_context_from_entry,
+    parse_device_list_text,
+    validated_driver,
+)
 from workflow_steps.common.fan_out import build_fan_out_metadata
 
 if TYPE_CHECKING:
@@ -55,7 +60,15 @@ async def execute(
             f"get-from-user: run parameter {param_name!r} is not present in this run's inputs"
         )
 
-    device_entries = parse_device_list_text(run_inputs[param_name])
+    default_driver = (
+        validated_driver(
+            config.get("default_network_driver"),
+            where="default_network_driver",
+            step="get-from-user",
+        )
+        or DEFAULT_NETWORK_DRIVER
+    )
+    device_entries = parse_device_list_text(run_inputs[param_name], default_driver=default_driver)
     if not device_entries:
         raise ValueError("get-from-user: no devices were entered for this run")
 
@@ -69,6 +82,7 @@ async def execute(
                 node_id=node_id,
                 source="run_input",
                 attribute_bag_name="get_from_user",
+                default_driver=default_driver,
             )
         ]
     }

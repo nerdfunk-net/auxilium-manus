@@ -166,6 +166,40 @@ class DeviceLineTests(unittest.TestCase):
             mod._device_line(_device("x", name="sw1", ip="10.0.0.1/24")), "sw1,10.0.0.1"
         )
 
+    def test_driver_is_appended_when_the_device_has_one(self) -> None:
+        device = _device("x", name="sw1", ip="10.0.0.1").model_copy(
+            update={"network_driver": "junos"}
+        )
+        self.assertEqual(mod._device_line(device), "sw1,10.0.0.1,juniper_junos")
+        no_ip = _device("x", name="sw1", ip=None).model_copy(update={"network_driver": "junos"})
+        self.assertEqual(mod._device_line(no_ip), "sw1,,juniper_junos")
+
+    def test_a_platform_without_a_driver_is_resolved_for_the_child(self) -> None:
+        device = _device("x", name="sw1", ip="10.0.0.1").model_copy(
+            update={"platform": "Juniper Junos", "network_driver": None}
+        )
+        self.assertEqual(mod._device_line(device), "sw1,10.0.0.1,juniper_junos")
+
+    def test_an_alias_is_forwarded_as_the_canonical_type(self) -> None:
+        device = _device("x", name="sw1", ip="10.0.0.1").model_copy(
+            update={"network_driver": "ios_xe"}
+        )
+        self.assertEqual(mod._device_line(device), "sw1,10.0.0.1,cisco_xe")
+
+    def test_a_driver_netmiko_rejects_is_not_forwarded(self) -> None:
+        for driver in ("panos", "cisco_ios_telnet", "custom thing"):
+            with self.subTest(driver=driver):
+                device = _device("x", name="sw1", ip="10.0.0.1").model_copy(
+                    update={"network_driver": driver}
+                )
+                self.assertEqual(mod._device_line(device), "sw1,10.0.0.1")
+
+    def test_an_unsafe_driver_is_left_out(self) -> None:
+        device = _device("x", name="sw1", ip="10.0.0.1").model_copy(
+            update={"network_driver": "a,b"}
+        )
+        self.assertEqual(mod._device_line(device), "sw1,10.0.0.1")
+
     def test_name_only_when_there_is_no_usable_ip(self) -> None:
         self.assertEqual(mod._device_line(_device("x", name="sw1", ip=None)), "sw1")
         self.assertEqual(mod._device_line(_device("x", name="sw1", ip="not-an-ip")), "sw1")

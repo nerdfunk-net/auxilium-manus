@@ -1958,12 +1958,16 @@ plugins:
             address, or both — at least one is required per row. When an IP
             address is set it becomes the device's primary_ip4 and is used by
             downstream steps (Reachable, Get Device Configs, ...) to connect;
-            otherwise the name is used as the hostname.
+            otherwise the name is used as the hostname. Each row also has a
+            network_driver (Netmiko driver, default cisco_ios) that SSH steps
+            use to connect; an unknown driver fails the step.
           data_type: object_list
           required: true
           example:
             - name: router1.example.com
+              network_driver: cisco_ios
             - ip_address: 10.0.0.5
+              network_driver: juniper_junos
         - name: fan_out
           description: >
             Fan-out configuration. When enabled, each device (or chunk) is processed
@@ -1998,10 +2002,19 @@ plugins:
             Name of a workflow static_attribute (type "string") the operator
             fills in when starting a run (or a schedule, or a calling workflow's Run
             Workflow step does). One device per line; each line is a
-            hostname, an IP address, or "name,ip_address".
+            hostname, an IP address, or "name,ip_address,network_driver".
+            A line without a driver gets default_network_driver.
           data_type: string
           required: true
           example: target_devices
+        - name: default_network_driver
+          description: >
+            Netmiko network driver for every device line that does not name
+            its own. The Run Inputs dialog pre-fills it per device.
+          data_type: string
+          required: false
+          default: cisco_ios
+          example: cisco_nxos
         - name: lookup_mode
           description: >
             UI hint only, never read by the executor. "manual" (default) shows

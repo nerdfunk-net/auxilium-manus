@@ -337,6 +337,9 @@ become `<key>#2`), `config-to-attributes` (devices without parsed data fail), `g
   that matters.
 - **`get-nautobot-attributes` replaces the whole `nautobot` bag** of a device with what it fetched; a step that
   wrote `nautobot.*` keys earlier must run after it, not before.
+- **`get-nautobot-attributes` sets `device.platform` and `device.network_driver` from Nautobot** when the
+  device's platform has them, replacing values set earlier (for example by Get from List / Get from User);
+  a missing Nautobot value keeps the existing one.
 - **Running a workflow persists its run-input schema** (`static_attributes`) as a side effect, because the run
   dialog needs a stored schema.
 
@@ -1399,11 +1402,21 @@ case: back up the running config before a change.
 
 - **Devices arrive like they do for a schedule or a manual run: as a declared run input.** A target
   that wants devices has a **Get from User** step; its `device_param` is a text run input holding one
-  `name`, `ip` or `name,ip` line per device. `devices_input` names that input; the step fills it with
-  one `name,ip` line per device it received (`_device_line`: bare primary IP, a name containing a
-  comma or line break is replaced by the IP; a device with neither fails with `no_device_identity`).
+  `name`, `ip`, `name,ip` or `name,ip,network_driver` line per device. `devices_input` names that
+  input; the step fills it with one `name,ip[,network_driver]` line per device it received
+  (`_device_line`: bare primary IP, a name containing a comma or line break is replaced by the IP; the
+  device's Netmiko driver rides along (resolved from `network_driver` and `platform` with
+  `resolve_netmiko_device_type`; a value Netmiko rejects is left out so it cannot fail the whole child
+  list, and the child's default applies); a device with neither name
+  nor IP fails with `no_device_identity`).
   With no `devices_input` the target is called without devices. No engine special case, nothing in
   `WorkflowRun.device_ids`: the same workflow can be run by hand, scheduled, or called.
+- **Network driver without Nautobot.** Get from List (per row `network_driver`) and Get from User
+  (`name,ip,network_driver` per line, step-level `default_network_driver`) set
+  `DeviceContext.network_driver`, default `cisco_ios` (`workflow_steps/common/device_list.py`,
+  validated with `resolve_netmiko_device_type`, stored as the canonical type (`ios` -> `cisco_ios`) and
+  defaulted before duplicates are removed; unknown drivers fail the step naming the row/line).
+  A step-level override such as Run Command's `network_driver_override` still wins.
 - **The form is generated from the target's declared inputs** (the same fields the schedule editor
   shows, `ScheduleParameterFields`): a saved-inventory reference gets the inventory picker, which is
   how "back up this saved inventory" works, independent of the caller's devices. The panel

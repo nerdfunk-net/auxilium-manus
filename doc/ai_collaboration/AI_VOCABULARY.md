@@ -264,7 +264,7 @@ step after it.
 
 This step has no Nautobot dependency at all: it reads a plain delimited-text
 run input the operator fills in via the Run Inputs dialog when starting the
-run (one device per line — hostname, IP address, or `name,ip_address`; see
+run (one device per line — hostname, IP address, or `name,ip_address[,network_driver]` (driver defaults to `cisco_ios`); see
 `workflow_steps/get_from_user/executor.py`), not a live or saved inventory.
 
 1. `device_param` (**required**) — name a run-parameter (the step's own

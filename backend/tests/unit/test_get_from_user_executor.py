@@ -10,6 +10,35 @@ from workflow_steps.get_from_user.executor import execute
 
 
 class GetFromUserExecutorTests(unittest.IsolatedAsyncioTestCase):
+    async def _drivers(self, text: str, **config: object) -> dict[str, str | None]:
+        run = MagicMock()
+        run.id = "run-1"
+        run.run_inputs = {"target_devices": text}
+        outcomes = await execute(
+            config={"device_param": "target_devices", **config},
+            context=WorkflowContext(run_id="run-1", workflow_id="wf-1"),
+            run=run,
+            artifact_service=MagicMock(),
+            node_id="get-from-user-1",
+            device_sessions=MagicMock(),
+        )
+        return {d.name: d.network_driver for d in outcomes[0].context.devices.values()}
+
+    async def test_driver_comes_from_the_line_else_the_step_default_else_cisco_ios(self) -> None:
+        text = "r1,10.0.0.1,junos\nr2,10.0.0.2\nr3"
+        self.assertEqual(
+            await self._drivers(text),
+            {"r1": "juniper_junos", "r2": "cisco_ios", "r3": "cisco_ios"},
+        )
+        self.assertEqual(
+            await self._drivers(text, default_network_driver="cisco_nxos"),
+            {"r1": "juniper_junos", "r2": "cisco_nxos", "r3": "cisco_nxos"},
+        )
+
+    async def test_unknown_default_driver_is_rejected(self) -> None:
+        with self.assertRaisesRegex(ValueError, "unknown network driver 'nope'"):
+            await self._drivers("r1", default_network_driver="nope")
+
     async def test_execute_builds_devices_from_run_input_text(self) -> None:
         context = WorkflowContext(run_id="run-1", workflow_id="wf-1")
         run = MagicMock()

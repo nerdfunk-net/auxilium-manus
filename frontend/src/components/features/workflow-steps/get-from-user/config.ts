@@ -1,3 +1,5 @@
+import { DEFAULT_NETWORK_DRIVER } from "@/components/features/workflows/utils/device-list-text";
+
 /** Default run-parameter name — keep in sync with
  * backend/workflow_steps/get_from_user/config.py. */
 export const DEFAULT_GET_FROM_USER_DEVICE_PARAM = "target_devices";
@@ -6,6 +8,7 @@ export const DEFAULT_GET_FROM_USER_DEVICE_PARAM = "target_devices";
  * backend/workflow_steps/get_from_user/config.py. */
 export const DEFAULT_GET_FROM_USER_CONFIG = {
   device_param: DEFAULT_GET_FROM_USER_DEVICE_PARAM,
+  default_network_driver: DEFAULT_NETWORK_DRIVER,
   lookup_mode: "manual",
   nautobot_source_id: "",
   fan_out: {

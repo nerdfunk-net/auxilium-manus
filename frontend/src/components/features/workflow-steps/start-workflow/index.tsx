@@ -213,7 +213,7 @@ function StartWorkflowConfigPanel({
             </p>
           ) : (
             <p className="text-[11px] text-muted-foreground">
-              One line per device (<span className="font-mono">name,ip</span>),
+              One line per device (<span className="font-mono">name,ip,driver</span>),
               the way a schedule or a manual run fills a Get from User input.
             </p>
           )}

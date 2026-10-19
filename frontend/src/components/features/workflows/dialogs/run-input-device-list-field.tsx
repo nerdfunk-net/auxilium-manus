@@ -8,6 +8,13 @@ import { Input } from "@/components/ui/input";
 import { useNetmikoDeviceSearchQuery } from "@/hooks/queries/use-netmiko-device-search-query";
 import type { DeviceSummary } from "@/components/features/templates/types";
 
+import {
+  driverForSuggestion,
+  parseDeviceLine,
+  parseDeviceListText,
+  serializeDeviceRows,
+} from "../utils/device-list-text";
+
 const EMPTY_DEVICES: DeviceSummary[] = [];
 
 const SEARCH_INPUT_CLASS = "h-9 pr-8 font-mono text-xs focus-visible:ring-step/40";
@@ -16,55 +23,33 @@ interface DeviceChip {
   key: string;
   name: string | null;
   ip: string | null;
+  driver: string;
 }
 
-// Lightweight client-side heuristic only, used to decide whether a manually
-// typed token should be added as a name or an IP chip. The backend's
-// workflow_steps.common.device_list.parse_device_list_text is the
-// authoritative validator — this never blocks adding an entry.
-const IPV4_REGEX = /^(\d{1,3}\.){3}\d{1,3}(\/\d{1,2})?$/;
-const IPV6_REGEX = /^[0-9a-fA-F:]+(\/\d{1,3})?$/;
-
-function looksLikeIp(token: string): boolean {
-  return IPV4_REGEX.test(token) || (token.includes(":") && IPV6_REGEX.test(token));
-}
-
-function textToChips(text: string): DeviceChip[] {
-  return text
-    .split("\n")
-    .map((line) => line.trim())
-    .filter((line) => line.length > 0)
-    .map((line, index) => {
-      if (line.includes(",")) {
-        const [namePart, ipPart] = line.split(",", 2).map((part) => part.trim());
-        return { key: `${index}-${line}`, name: namePart || null, ip: ipPart || null };
-      }
-      if (looksLikeIp(line)) {
-        return { key: `${index}-${line}`, name: null, ip: line };
-      }
-      return { key: `${index}-${line}`, name: line, ip: null };
-    });
-}
-
-function chipToLine(chip: DeviceChip): string {
-  if (chip.name && chip.ip) {
-    return `${chip.name},${chip.ip}`;
-  }
-  return chip.name ?? chip.ip ?? "";
+function textToChips(text: string, defaultDriver: string): DeviceChip[] {
+  return parseDeviceListText(text, defaultDriver).map((row, index) => ({
+    key: `${index}-${row.name}-${row.ip}`,
+    name: row.name || null,
+    ip: row.ip || null,
+    driver: row.driver,
+  }));
 }
 
 function chipsToText(chips: DeviceChip[]): string {
-  return chips.map(chipToLine).filter((line) => line.length > 0).join("\n");
+  return serializeDeviceRows(
+    chips.map((chip) => ({ name: chip.name ?? "", ip: chip.ip ?? "", driver: chip.driver })),
+  );
 }
 
 function chipDedupeKey(chip: DeviceChip): string {
-  return `${(chip.name ?? "").toLowerCase()}|${chip.ip ?? ""}`;
+  return `${(chip.name ?? "").toLowerCase()}|${chip.ip ?? ""}|${chip.driver.toLowerCase()}`;
 }
 
 interface RunInputDeviceListFieldProps {
   value: string;
   onChange: (text: string) => void;
   sourceId: string;
+  defaultNetworkDriver: string;
 }
 
 /**
@@ -75,14 +60,22 @@ interface RunInputDeviceListFieldProps {
  * endpoint the Templates feature already uses).
  *
  * The committed value stays a plain newline-delimited string (`name` /
- * `ip_address` / `name,ip_address` per line) — the exact same shape the
+ * `ip_address` / `name,ip_address[,network_driver]` per line) — the exact same shape the
  * plain manual Textarea produces — so `get-from-user`'s executor never knows
  * or cares which widget built it. Clicking a suggestion adds a chip with its
  * resolved IP already filled in; typing a raw entry and pressing Enter adds
  * it as a manual chip even when Nautobot search is otherwise available.
  */
-export function RunInputDeviceListField({ value, onChange, sourceId }: RunInputDeviceListFieldProps) {
-  const chips = useMemo(() => textToChips(value), [value]);
+export function RunInputDeviceListField({
+  value,
+  onChange,
+  sourceId,
+  defaultNetworkDriver,
+}: RunInputDeviceListFieldProps) {
+  const chips = useMemo(
+    () => textToChips(value, defaultNetworkDriver),
+    [value, defaultNetworkDriver],
+  );
   const [searchTerm, setSearchTerm] = useState("");
   // Dismissed by the user (outside click or adding a chip); reopened as soon
   // as they type again or refocus with existing results — mirrors
@@ -130,7 +123,12 @@ export function RunInputDeviceListField({ value, onChange, sourceId }: RunInputD
   };
 
   const handleSelectSuggestion = (device: DeviceSummary) => {
-    addChip({ key: device.id, name: device.name ?? device.id, ip: device.primary_ip4 ?? null });
+    addChip({
+      key: device.id,
+      name: device.name ?? device.id,
+      ip: device.primary_ip4 ?? null,
+      driver: driverForSuggestion(device, defaultNetworkDriver),
+    });
   };
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
@@ -142,13 +140,10 @@ export function RunInputDeviceListField({ value, onChange, sourceId }: RunInputD
     if (!raw) {
       return;
     }
-    if (raw.includes(",")) {
-      const [namePart, ipPart] = raw.split(",", 2).map((part) => part.trim());
-      addChip({ key: raw, name: namePart || null, ip: ipPart || null });
-    } else if (looksLikeIp(raw)) {
-      addChip({ key: raw, name: null, ip: raw });
-    } else {
-      addChip({ key: raw, name: raw, ip: null });
+    // null: more than name,ip,driver — nothing the backend would accept, so add nothing.
+    const row = parseDeviceLine(raw, defaultNetworkDriver);
+    if (row) {
+      addChip({ key: raw, name: row.name || null, ip: row.ip || null, driver: row.driver });
     }
   };
 
@@ -215,6 +210,7 @@ export function RunInputDeviceListField({ value, onChange, sourceId }: RunInputD
               {chip.name && chip.ip ? (
                 <span className="text-step-muted-foreground">({chip.ip})</span>
               ) : null}
+              <span className="text-step-muted-foreground">· {chip.driver}</span>
               <Button
                 type="button"
                 variant="ghost"

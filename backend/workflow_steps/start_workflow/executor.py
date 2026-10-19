@@ -5,8 +5,9 @@ Starts another workflow as a run of its own and optionally waits (bounded, at mo
 change".
 
 Devices reach the started workflow the way a schedule or a manual run supplies them: through a
-declared run input, the ``device_param`` of its Get from User step, filled with one ``name,ip``
-line per device. A workflow without such an input is simply called without devices.
+declared run input, the ``device_param`` of its Get from User step, filled with one
+``name,ip[,network_driver]`` line per device. A workflow without such an input is simply called
+without devices.
 
 * ``run_mode: "all_devices"`` starts one run for all devices, so the step routes them together.
 * ``run_mode: "per_device"`` starts one run per device (at most ``max_runs``, checked before
@@ -42,6 +43,7 @@ from models.workflow_context import (
 )
 from services.artifacts import ArtifactService
 from services.nautobot.common.validators import validate_ip_address
+from services.network.netmiko.platform import UnsupportedPlatformError, resolve_netmiko_device_type
 from services.workflow.child_run_inputs import secret_input_message, secret_inputs_given
 from workflow_steps.common.partial_outcomes import mark_device_failed
 from workflow_steps.common.step_flags import parse_bool_flag, parse_int_flag
@@ -147,11 +149,28 @@ def _parse_config(config: dict[str, Any]) -> _ParsedConfig:
 # ── what the started workflow is told about the devices ───────────────────────────────────────
 
 
+def _forwardable_driver(device: DeviceContext) -> str:
+    """The canonical Netmiko type the parent's SSH steps would use, or "" when it has none.
+
+    Resolved from ``network_driver`` and ``platform`` the way the parent connects, so a Nautobot
+    device with only a platform name keeps its driver. A value Netmiko rejects is not forwarded:
+    it would make Get from User refuse every device of the started run.
+    """
+    try:
+        return resolve_netmiko_device_type(
+            network_driver=(device.network_driver or "").strip() or None,
+            platform=(device.platform or "").strip() or None,
+        )
+    except UnsupportedPlatformError:
+        return ""
+
+
 def _device_line(device: DeviceContext) -> str | None:
-    """One ``name,ip`` line for Get from User, or None when the device has no usable identity.
+    """One ``name,ip[,driver]`` line for Get from User, or None without a usable identity.
 
     A name that would break the line format (a comma or a line break) is left out; the bare
-    primary IP stands in for it.
+    primary IP stands in for it. The device's Netmiko driver rides along so the started workflow
+    connects the same way; without a resolvable one the child's default applies.
     """
     name = (device.name or "").strip()
     if not name or "," in name or len(name.splitlines()) != 1:
@@ -159,9 +178,14 @@ def _device_line(device: DeviceContext) -> str | None:
     ip = bare_hostname(device.primary_ip4, "").strip()
     if ip and not validate_ip_address(ip):
         ip = ""
+    if not name and not ip:
+        return None
+    driver = _forwardable_driver(device)
+    if driver:
+        return f"{name},{ip},{driver}"
     if name and ip:
         return f"{name},{ip}"
-    return name or ip or None
+    return name or ip
 
 
 # ── the started workflow, inspected ─────────────────────────────────────────────────────────────

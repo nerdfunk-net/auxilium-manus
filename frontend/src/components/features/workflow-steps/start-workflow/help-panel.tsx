@@ -19,7 +19,7 @@ export function StartWorkflowHelpPanel() {
           Devices reach the started workflow the way a schedule or a manual run supplies them: as
           the text run input of a{" "}
           <span className="font-medium text-foreground">Get from User</span> step (its{" "}
-          <HelpCode>device_param</HelpCode>), one <HelpCode>name,ip</HelpCode> line per device.
+          <HelpCode>device_param</HelpCode>), one <HelpCode>name,ip,network_driver</HelpCode> line per device (the driver the calling workflow knows for the device rides along).
           Choose that input under <span className="font-medium text-foreground">Devices of this
           workflow go into</span>. A workflow without such an input is started without devices.
         </p>
