@@ -7,9 +7,17 @@ import { groupSourceSettings } from "@/components/features/settings/utils/parse-
 import { useSettingsListQuery } from "@/hooks/queries/use-settings-query";
 
 /** List the configured Nautobot sources (used to populate the source selector). */
-export function useNautobotSources() {
+interface UseNautobotSourcesOptions {
+  enabled?: boolean;
+}
+
+const DEFAULT_OPTIONS: UseNautobotSourcesOptions = {};
+
+export function useNautobotSources(options: UseNautobotSourcesOptions = DEFAULT_OPTIONS) {
+  const { enabled = true } = options;
   const { data, isLoading } = useSettingsListQuery({
     keyPrefix: SOURCE_KEY_PREFIXES.nautobot,
+    enabled,
   });
 
   const sources = useMemo(() => {

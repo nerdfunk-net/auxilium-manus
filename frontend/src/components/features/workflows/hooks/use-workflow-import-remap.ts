@@ -62,11 +62,11 @@ export function useWorkflowImportRemap({
     activeOnly: true,
     enabled,
   });
-  const { sources: nautobotSources, isLoading: nautobotLoading } = useNautobotSources();
+  const { sources: nautobotSources, isLoading: nautobotLoading } = useNautobotSources({ enabled });
   const { data: mattermostData, isLoading: mattermostLoading } =
-    useMattermostSourcesQuery();
-  const { data: batfishData, isLoading: batfishLoading } = useBatfishSourcesQuery();
-  const { data: pyatsData, isLoading: pyatsLoading } = usePyATSSourcesQuery();
+    useMattermostSourcesQuery({ enabled });
+  const { data: batfishData, isLoading: batfishLoading } = useBatfishSourcesQuery({ enabled });
+  const { data: pyatsData, isLoading: pyatsLoading } = usePyATSSourcesQuery({ enabled });
 
   const visibleCredentials = useMemo(
     () => credentialsData?.credentials ?? EMPTY_ARRAY,

@@ -14,6 +14,7 @@ export default defineConfig({
       exclude: [
         "src/**/*.test.{ts,tsx}",
         "src/**/*.d.ts",
+        "src/test/**",
         "src/components/ui/**",
         "src/app/**",
       ],

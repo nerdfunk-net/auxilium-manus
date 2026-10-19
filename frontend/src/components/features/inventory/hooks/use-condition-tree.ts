@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 
 import type {
   ConditionGroup,
@@ -169,6 +169,12 @@ export function useConditionTree() {
         items: removeFromItems(prevTree.items),
       };
     });
+    // Deleting the group new items are added to (or one of its ancestors) would leave a
+    // path that matches nothing, and additions would be silently dropped.
+    setCurrentGroupPath((prevPath) => {
+      const index = prevPath.indexOf(itemId);
+      return index === -1 ? prevPath : prevPath.slice(0, index);
+    });
   }, []);
 
   const updateGroupLogic = useCallback((groupId: string, newLogic: "AND" | "OR") => {
@@ -224,16 +230,28 @@ export function useConditionTree() {
     [conditionTree],
   );
 
-  return {
-    conditionTree,
-    setConditionTree,
-    currentGroupPath,
-    setCurrentGroupPath,
-    addConditionToTree,
-    addGroup,
-    removeItemFromTree,
-    updateGroupLogic,
-    findGroupPath,
-    flatConditionsToTree,
-  };
+  return useMemo(
+    () => ({
+      conditionTree,
+      setConditionTree,
+      currentGroupPath,
+      setCurrentGroupPath,
+      addConditionToTree,
+      addGroup,
+      removeItemFromTree,
+      updateGroupLogic,
+      findGroupPath,
+      flatConditionsToTree,
+    }),
+    [
+      conditionTree,
+      currentGroupPath,
+      addConditionToTree,
+      addGroup,
+      removeItemFromTree,
+      updateGroupLogic,
+      findGroupPath,
+      flatConditionsToTree,
+    ],
+  );
 }
