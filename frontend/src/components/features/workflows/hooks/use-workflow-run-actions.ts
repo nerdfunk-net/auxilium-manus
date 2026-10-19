@@ -126,7 +126,7 @@ export function useWorkflowRunActions({
   const requestRun = useCallback(
     async (
       overrideWorkflowId?: number,
-      options?: { skipValidation?: boolean },
+      options?: { skipValidation?: boolean; schemaPersisted?: boolean },
     ) => {
       const targetId = overrideWorkflowId ?? workflowId;
       if (!targetId) {
@@ -147,9 +147,12 @@ export function useWorkflowRunActions({
         return;
       }
 
-      const synced = await ensureRunInputSchemaPersisted(targetId, effectiveAttrs);
-      if (!synced) {
-        return;
+      // Save & Run has just written this schema together with the canvas.
+      if (!options?.schemaPersisted) {
+        const synced = await ensureRunInputSchemaPersisted(targetId, effectiveAttrs);
+        if (!synced) {
+          return;
+        }
       }
 
       setPendingRunTargetId(targetId);
@@ -218,7 +221,7 @@ export function useWorkflowRunActions({
       });
       handleStaticAttributesChange(effectiveAttrs);
       markSaved(`Saved "${workflowName}"`);
-      await requestRun();
+      await requestRun(undefined, { schemaPersisted: true });
     } catch (error) {
       markError(runActionErrorMessage(error, "Failed to save workflow"));
     }

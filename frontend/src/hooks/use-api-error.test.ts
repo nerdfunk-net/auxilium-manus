@@ -111,3 +111,59 @@ describe("validation errors (422 with a list of issues)", () => {
     expect(message).toBe("API request failed with status 422");
   });
 });
+
+describe("buildApiErrorMessage for a 429", () => {
+  const tooMany = (retryAfter?: string, body: unknown = { detail: "Too many requests; slow down and retry shortly" }) =>
+    new Response(JSON.stringify(body), {
+      status: 429,
+      headers: retryAfter === undefined ? {} : { "Retry-After": retryAfter },
+    });
+
+  it("tells the user how many seconds to wait", async () => {
+    expect(await buildApiErrorMessage(tooMany("30"), vi.fn())).toBe(
+      "Too many requests. Please wait 30 seconds and try again.",
+    );
+  });
+
+  it("uses the singular for one second", async () => {
+    expect(await buildApiErrorMessage(tooMany("1"), vi.fn())).toBe(
+      "Too many requests. Please wait 1 second and try again.",
+    );
+  });
+
+  it("switches to minutes, rounded up, from two minutes on", async () => {
+    expect(await buildApiErrorMessage(tooMany("119"), vi.fn())).toBe(
+      "Too many requests. Please wait 119 seconds and try again.",
+    );
+    expect(await buildApiErrorMessage(tooMany("120"), vi.fn())).toBe(
+      "Too many requests. Please wait 2 minutes and try again.",
+    );
+    expect(await buildApiErrorMessage(tooMany("901"), vi.fn())).toBe(
+      "Too many requests. Please wait 16 minutes and try again.",
+    );
+  });
+
+  it.each([undefined, "", "abc", "0", "-5", "1.5", "Wed, 21 Oct 2026 07:28:00 GMT"])(
+    "falls back to a generic message for Retry-After %j",
+    async (value) => {
+      expect(await buildApiErrorMessage(tooMany(value), vi.fn())).toBe(
+        "Too many requests. Please wait a moment and try again.",
+      );
+    },
+  );
+
+  it("does not depend on the body", async () => {
+    const response = new Response("not json", { status: 429, headers: { "Retry-After": "10" } });
+    expect(await buildApiErrorMessage(response, vi.fn())).toBe(
+      "Too many requests. Please wait 10 seconds and try again.",
+    );
+  });
+
+  it("leaves other statuses alone", async () => {
+    const response = new Response(JSON.stringify({ detail: "Conflict" }), {
+      status: 409,
+      headers: { "Retry-After": "10" },
+    });
+    expect(await buildApiErrorMessage(response, vi.fn())).toBe("Conflict");
+  });
+});

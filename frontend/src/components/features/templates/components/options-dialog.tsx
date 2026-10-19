@@ -19,8 +19,7 @@ import {
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useNetmikoDeviceSearchQuery } from "@/hooks/queries/use-netmiko-device-search-query";
-import { useAuthStore } from "@/lib/auth-store";
-import { hasPermission } from "@/lib/permissions";
+import { useHasPermission } from "@/hooks/use-has-permission";
 
 import { BatfishOptionsTab } from "./batfish-options-tab";
 import type { BatfishEditorQuestion, BatfishQueryResult, DeviceSummary } from "../types";
@@ -98,7 +97,10 @@ export function OptionsDialog({
   canRunBatfishQuery,
   batfishResult,
 }: OptionsDialogProps) {
-  const { data: credentialsData } = useCredentialsQuery();
+  // The credential list needs credentials:read; without it only the manual
+  // SSH credential fields are unavailable, so skip the request.
+  const canReadCredentials = useHasPermission("credentials", "read");
+  const { data: credentialsData } = useCredentialsQuery({ enabled: canReadCredentials });
   const sshCredentials = (credentialsData?.credentials ?? []).filter(
     (credential) => credential.type === "ssh",
   );
@@ -106,8 +108,7 @@ export function OptionsDialog({
   // The ad-hoc query endpoints need sources.batfish:query (not :read) -- see
   // doc/BATFISH_INTEGRATION.md "Template Editor integration". Hide the tab
   // rather than showing a form whose every "Run Query" returns 403.
-  const user = useAuthStore((state) => state.user);
-  const canQueryBatfish = hasPermission(user, "sources.batfish", "query");
+  const canQueryBatfish = useHasPermission("sources.batfish", "query");
 
   const [searchTerm, setSearchTerm] = useState("");
   // Dismissed by the user (via outside click or picking a device); reopened

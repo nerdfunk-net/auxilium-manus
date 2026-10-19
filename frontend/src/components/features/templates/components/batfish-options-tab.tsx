@@ -19,6 +19,7 @@ import { stringField } from "@/components/features/workflow-steps/shared/config-
 import { useBatfishNetworksQuery } from "@/hooks/queries/use-batfish-networks-query";
 import { useBatfishSnapshotsQuery } from "@/hooks/queries/use-batfish-snapshots-query";
 import { useBatfishSourcesQuery } from "@/hooks/queries/use-batfish-sources-query";
+import { useHasPermission } from "@/hooks/use-has-permission";
 
 import { DEFAULT_OUTPUT_KEY, isFactsQuestion } from "../hooks/use-template-editor-batfish";
 import type { BatfishEditorQuestion, BatfishQueryResult } from "../types";
@@ -102,7 +103,8 @@ export function BatfishOptionsTab({
   canRunQuery,
   result,
 }: BatfishOptionsTabProps) {
-  const { data: sourcesData } = useBatfishSourcesQuery();
+  const canReadBatfishSources = useHasPermission("sources.batfish", "read");
+  const { data: sourcesData } = useBatfishSourcesQuery({ enabled: canReadBatfishSources });
   const sources = sourcesData?.sources ?? [];
 
   const sourceId =

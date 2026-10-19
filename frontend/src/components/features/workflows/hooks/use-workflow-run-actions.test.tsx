@@ -362,6 +362,25 @@ describe("useWorkflowRunActions.handleSaveAndRun", () => {
     expect(status().lastAction).toBe("Run queued");
   });
 
+  it("writes the run-input schema once: the save carries it, the run does not repeat it", async () => {
+    const { options, updateMutateAsync } = harness({ allNodes: [executableNode, getFromUser("region")] });
+    const rendered = renderHook(() => useWorkflowRunActions(options));
+    await confirmOpen(rendered);
+    await act(() => rendered.result.current.handleSaveAndRun());
+    expect(updateMutateAsync).toHaveBeenCalledTimes(1);
+    expect(updateMutateAsync).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          static_attributes: [{ name: "region", type: "string", required: true }],
+        }),
+      }),
+    );
+    // The inputs dialog still opens for the declared parameter.
+    expect(rendered.result.current.isRunInputsDialogOpen).toBe(true);
+    expect(rendered.result.current.pendingRunTargetId).toBe(7);
+    expect(h.mutateAsync).not.toHaveBeenCalled();
+  });
+
   it("does not save or run when the canvas is invalid", async () => {
     const { options, updateMutateAsync } = harness({ allNodes: [] });
     const rendered = renderHook(() => useWorkflowRunActions(options));

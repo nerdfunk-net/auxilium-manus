@@ -91,8 +91,30 @@ export async function describeApiFailure(
   onPasswordChangeRequired: () => void,
 ): Promise<{ message: string; detail: ErrorDetail | null }> {
   const detail = await readErrorDetail(response);
-  const message = messageFromDetail(response.status, detail, onPasswordChangeRequired);
+  const message =
+    response.status === 429
+      ? rateLimitMessage(response.headers.get("Retry-After"))
+      : messageFromDetail(response.status, detail, onPasswordChangeRequired);
   return { message, detail: detail !== null && typeof detail === "object" ? detail : null };
+}
+
+/** Two minutes and up are shown in minutes (rounded up), shorter waits in seconds. */
+const SECONDS_SHOWN_BELOW = 120;
+
+/**
+ * The per-user rate limits (backend/core/rate_limit.py) answer 429 with a
+ * `Retry-After` in whole seconds. Anything else (the HTTP-date form, junk,
+ * a missing header) gets the generic wording rather than a made-up time.
+ */
+function rateLimitMessage(retryAfter: string | null): string {
+  const seconds = retryAfter !== null && /^\d+$/.test(retryAfter) ? Number(retryAfter) : 0;
+  if (seconds < 1) {
+    return "Too many requests. Please wait a moment and try again.";
+  }
+  if (seconds < SECONDS_SHOWN_BELOW) {
+    return `Too many requests. Please wait ${seconds} ${seconds === 1 ? "second" : "seconds"} and try again.`;
+  }
+  return `Too many requests. Please wait ${Math.ceil(seconds / 60)} minutes and try again.`;
 }
 
 function messageFromDetail(

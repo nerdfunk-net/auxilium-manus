@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/select";
 import { useCredentialsQuery } from "@/components/features/settings/credentials/hooks/use-credentials-query";
 import { useSavedInventoriesQuery } from "@/hooks/queries/use-saved-inventories-query";
+import { useHasPermission } from "@/hooks/use-has-permission";
 import type { StaticAttributeDef } from "@/components/features/workflows/types/workflow-persistence";
 
 import { RunInputAttributeField } from "@/components/features/workflows/components/run-input-attribute-field";
@@ -42,7 +43,10 @@ export function ScheduleParameterFields({
   );
 
   const inventoriesQuery = useSavedInventoriesQuery({ enabled: needsInventory });
-  const credentialsQuery = useCredentialsQuery({ enabled: needsCredential });
+  const canReadCredentials = useHasPermission("credentials", "read");
+  const credentialsQuery = useCredentialsQuery({
+    enabled: needsCredential && canReadCredentials,
+  });
 
   const sshCredentials = useMemo(
     () => (credentialsQuery.data?.credentials ?? []).filter((c) => c.type === "ssh"),

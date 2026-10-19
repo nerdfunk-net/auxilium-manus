@@ -50,7 +50,8 @@ pick it up without re-deriving the context.
 - **Webhook-driven approvals have no actor.** The run header could show "webhook" as the trigger source.
 - **Agent-loop limits are not tied to the provider's real limits** (`MAX_OUTPUT_TOKENS`, stream options).
 - **Running a workflow rewrites its definition** (`static_attributes` are persisted so the run dialog has a
-  schema). Kept on purpose; it benefits from `expected_updated_at` only if the call sends it.
+  schema). Kept on purpose; it benefits from `expected_updated_at` only if the call sends it. "Run saved version"
+  (unsaved canvas) does not: it reads the stored workflow and writes nothing (2026-10-19).
 - **No undo/redo in the builder.** A product decision, not a defect.
 
 ## Retire the three credential-resolver shim layers
@@ -537,8 +538,8 @@ pass-throughs, `InterfaceManagerService`, `DeviceUpdateService.update_device`, `
   an opt-in setting that makes vault readiness blocking.
 - **A private inventory created between a rename/delete and the user change can still be orphaned**
   (`created_by` is not an FK). Closed by the "Inventory ownership by user id" entry above.
-- **No 429-specific message in the frontend.** Per-user rate limits (Phase 6) return 429 with
-  `Retry-After`; `useApi` shows its generic error text. Add a friendly "slow down, retry in N s" toast.
+- ~~**No 429-specific message in the frontend.**~~ Done 2026-10-19: `useApi` builds "Please wait N seconds" from
+  `Retry-After`. Not covered: the login route (`app/api/auth/login`) has its own error path and was not checked.
 - **Per-process fallback for the rate limiters** when Redis is down is per-API-worker, so the effective
   budget multiplies by the worker count during an outage (accepted in the plan).
 - **`nautobot/ops.py` error ladders** were left alone in Q2; if they are identical to the ISE ones, add a
@@ -761,25 +762,34 @@ add a "keep the references unverified" path without a new decision.
 
 ### Smaller findings, not fixed
 
-- **Pages request lists a workflow-only user may not read.** `/workflows` no longer requests
-  `git-repositories?...category=workflows` without `git.repositories:read` (`useWorkflowGitRepositories`, used by the
-  manage and save-as dialogs; the dialogs themselves have no component test). Still open: `/inventory`, `/schedules`,
-  `/reports`, `/change-requests` and the template editor each make one or two forbidden list requests; gate them the
-  same way with `hasPermission` (`lib/permissions.ts`). `use-workflow-import-remap` must not be gated that way: it
-  treats a list that could not be loaded as a reason to refuse the import.
+- **Pages request lists a workflow-only user may not read** (round 5, 2026-10-19: done except as noted). The
+  requests that were pure noise are gated with `useHasPermission` (`hooks/use-has-permission.ts`): the `/workflows`
+  git list (`useWorkflowGitRepositories`, `git.repositories:read`), the credential list in the template editor's options
+  dialog and in the schedule parameter fields (`credentials:read`) and the Batfish source list (`sources.batfish:read`).
+  The gated components (`workflow-manage-dialog`, `workflow-save-as-dialog`, `options-dialog`,
+  `schedule-parameter-fields`, `batfish-options-tab`) have no component test; only the hooks are tested.
+  `/reports` and `/change-requests` were checked and need nothing (router-level `reports:read` /
+  `change_requests:read`, which the viewer role has). **Not gateable from the frontend:** the Nautobot source lookup
+  on `/inventory` and in the template editor reads `settings` (`settings:read`), so a user without it gets a 403 and
+  cannot use the Nautobot-backed features at all; a fix needs a backend endpoint that serves the source's URL and
+  readiness without `settings:read`. `use-workflow-import-remap` must not be gated that way: it treats a list that
+  could not be loaded as a reason to refuse the import.
 - **The Overview minimap covers node handles** at about 1200×700 (fit view ignores the panel), and **new steps are
   placed only 44 px apart**, so they overlap until Auto layout runs. Both made handle clicks fail in the browser pass.
 - **`/api/auth/me` is requested twice per page load.** Harmless, but one request would do.
 
 ### Found in round 2 (hook tests)
 
-Fixed in that round: ISE preview CIDR matching of junk, name-mode crash and missing `truncated`; unstable returns
+Round 5 (2026-10-19): Save & Run writes the run-input schema once (the save carries it; `requestRun` takes
+`schemaPersisted`), and a 429 now says how long to wait (`Retry-After`, `use-api.ts`) instead of the backend's generic
+text. Round 4 fixed "Run saved version" using the unsaved canvas (it now reads the stored workflow and writes
+nothing), `useDevicePreview` keeping stale selected ids after a new preview, and the `/workflows` 403 on the git list.
+
+Fixed in round 2: ISE preview CIDR matching of junk, name-mode crash and missing `truncated`; unstable returns
 in `useDevicePreview`, `useTemplateEditorDevice`, `useWorkflowRunActions`, `useCanvasNodeChanges`; Get Configs
 posting an empty host. The ISE preview hook also refuses a blank group name or CIDR without a request now (the panel
 already disabled its button). Still open:
 
-- **`handleSaveAndRun` writes the schema twice** (the save, then `ensureRunInputSchemaPersisted` inside `requestRun`).
-  Harmless; one `PUT` would do.
 
 ### Second Playwright pass (2026-10-19, pages outside the builder)
 
@@ -808,10 +818,14 @@ users, git repositories) beyond loading them. The isolated stack has no Nautobot
   settings forms, and an inventory with a Nautobot source. Running a workflow and a schedule were checked by the
   product owner on the real stack; the isolated stack still has no working worker (decide how to give it one without
   letting it reach the real Hatchet engine).
-- **Unit tests, largest gaps by uncovered statements** (after round 3, 2026-10-19; coverage 29.6 % → 32.5 %
-  statements): `query-keys.ts` (78, a data file), `use-saved-inventories` (62),   `update-device-config` and `set-default-attributes-config` (58 each), `use-selected-inventory` (54),
-  `use-workflow-save` (50), `use-device-selector-modals`, `use-device-filter` (48 each); then the `.tsx` components
-  (coverage there is close to zero; test behaviour, check layout in the browser).
-- **Raise the ratchet** (`coverage.thresholds`) after each round; never lower it.
+- **Unit tests, largest gaps by uncovered statements** (after round 4, 2026-10-19; coverage 32.5 % → 33.0 %
+  statements): `query-keys.ts` (78, a data file), `use-saved-inventories` (62), `update-device-config` and
+  `set-default-attributes-config` (58 each), `use-selected-inventory` (54), `use-workflow-save` (50),
+  `use-device-selector-modals`, `use-device-filter` (48 each); then the `.tsx` components (coverage there is close
+  to zero; test behaviour, check layout in the browser). Not rechecked after round 4: the order of this list.
+  Components without any test that this round changed: `workflow-manage-dialog`, `workflow-save-as-dialog` (now call
+  `useWorkflowGitRepositories`) and the "Run saved version" button in `workflow-builder-page.tsx`.
+- **Raise the ratchet** (`coverage.thresholds`) after each round; never lower it. Now 33 / 25 / 24 / 32 against
+  measured 33.0 / 25.2 / 24.6 / 32.7.
 - **Pages that fetch more than they need** — the import dialogs were the case found; a quick check of the other
   always-mounted dialogs for queries that ignore `enabled` is cheap (`grep -rn "use.*Query()" frontend/src`).
