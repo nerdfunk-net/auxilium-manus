@@ -250,3 +250,6 @@ temp
 # our analysis and our plans
 doc/analysis/
 doc/plans/
+
+# cache
+frontend/node_modules
