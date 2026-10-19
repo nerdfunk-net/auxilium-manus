@@ -28,6 +28,20 @@ import { groupIdFromNodeId, removeRealNodes, ungroupNode } from "../utils/canvas
 import type { UseWorkflowCanvasCoreResult } from "./use-workflow-canvas-core";
 import type { UseCanvasGroupsResult } from "./use-canvas-groups";
 
+/**
+ * Id for a new node of `kind`: `kind-<count + 1>`, advanced past any id already on the canvas.
+ * The count alone is not unique once nodes were deleted (delete `a-1` from `a-1`, `b-2` and the
+ * next `b` would be `b-2` again), and two nodes with one id corrupt edges and selection.
+ */
+export function nextNodeId(kind: string, existing: PersistedCanvasNode[]): string {
+  const taken = new Set(existing.map((node) => node.id));
+  let index = existing.length + 1;
+  while (taken.has(`${kind}-${index}`)) {
+    index += 1;
+  }
+  return `${kind}-${index}`;
+}
+
 /** Step-node construction, add/delete/duplicate, node config edits, and
  * workflow-level static attributes — everything that changes which nodes
  * exist or how a single node's own config/content is set. */
@@ -167,7 +181,7 @@ export function useCanvasSteps(
         handleAddContainerGroup({ x: 160 + nextIndex * 44, y: 460 });
         return;
       }
-      const id = `${step.kind}-${nextIndex}`;
+      const id = nextNodeId(step.kind, allNodes);
       const node = buildStepNode(step, id, { x: 160 + nextIndex * 44, y: 460 });
       setAllNodes((currentNodes) => [...currentNodes, node]);
       if (step.kind === "get-from-user") {
@@ -177,7 +191,7 @@ export function useCanvasSteps(
       selectNode(id);
       markDirty();
     },
-    [allNodes.length, buildStepNode, setAllNodes, setStaticAttributes, appendToActiveGroup, handleAddContainerGroup, selectNode, markDirty],
+    [allNodes, buildStepNode, setAllNodes, setStaticAttributes, appendToActiveGroup, handleAddContainerGroup, selectNode, markDirty],
   );
 
   const handleAddStepAtPosition = useCallback(
@@ -186,8 +200,7 @@ export function useCanvasSteps(
         handleAddContainerGroup(position);
         return;
       }
-      const nextIndex = allNodes.length + 1;
-      const id = `${step.kind}-${nextIndex}`;
+      const id = nextNodeId(step.kind, allNodes);
       const node = buildStepNode(step, id, position);
       setAllNodes((currentNodes) => [...currentNodes, node]);
       if (step.kind === "get-from-user") {
@@ -197,7 +210,7 @@ export function useCanvasSteps(
       selectNode(id);
       markDirty();
     },
-    [allNodes.length, buildStepNode, setAllNodes, setStaticAttributes, appendToActiveGroup, handleAddContainerGroup, selectNode, markDirty],
+    [allNodes, buildStepNode, setAllNodes, setStaticAttributes, appendToActiveGroup, handleAddContainerGroup, selectNode, markDirty],
   );
 
   const handleDeleteNodes = useCallback(
@@ -245,7 +258,7 @@ export function useCanvasSteps(
     (nodeId: string) => {
       const source = allNodes.find((n) => n.id === nodeId);
       if (!source) return;
-      const newId = `${source.data.kind}-${allNodes.length + 1}`;
+      const newId = nextNodeId(source.data.kind, allNodes);
       setAllNodes((current) => [
         ...current.map((n) => (n.id === nodeId ? { ...n, selected: false } : n)),
         {
