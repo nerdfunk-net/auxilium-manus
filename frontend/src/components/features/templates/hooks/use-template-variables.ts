@@ -35,6 +35,16 @@ export interface RunInputSource {
   attributes: StaticAttributeDef[];
 }
 
+/** Every auto-variable name, including the optional ones that are switched off right now. A
+ * custom variable with one of these names would collide as soon as its toggle is switched on. */
+const RESERVED_VARIABLE_NAMES: ReadonlySet<string> = new Set([
+  ...NETMIKO_AUTO_VARIABLES.map((variable) => variable.name),
+  ...COMMAND_VARIABLES.map((variable) => variable.name),
+  PARSED_CONFIG_VARIABLE.name,
+  BATFISH_VARIABLE.name,
+  "run_input",
+]);
+
 function createAutoVariables(): EditorVariable[] {
   return NETMIKO_AUTO_VARIABLES.map((variable) => ({
     id: `auto:${variable.name}`,
@@ -286,9 +296,10 @@ export function useTemplateVariables() {
   const mergeCustomVariables = useCallback(
     (entries: ParsedVariableEntry[], mode: MergeVariablesMode) => {
       setVariables((current) => {
-        const autoNames = new Set(
-          current.filter((variable) => variable.isAutoFilled).map((variable) => variable.name),
-        );
+        const autoNames = new Set([
+          ...RESERVED_VARIABLE_NAMES,
+          ...current.filter((variable) => variable.isAutoFilled).map((variable) => variable.name),
+        ]);
         const byName = new Map(current.map((variable) => [variable.name, variable] as const));
         let next = current;
 

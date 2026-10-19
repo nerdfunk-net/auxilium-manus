@@ -24,8 +24,9 @@ export function useTemplateEditor() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  const idParam = searchParams.get("id");
-  const templateId = idParam ? Number(idParam) : null;
+  // Only a positive integer is a template id; `?id=abc` would otherwise request template "NaN".
+  const idParam = Number(searchParams.get("id"));
+  const templateId = Number.isInteger(idParam) && idParam > 0 ? idParam : null;
   const isEditMode = templateId !== null;
 
   const [name, setName] = useState("");

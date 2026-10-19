@@ -300,20 +300,24 @@ export function useTemplateEditorBatfish({
     },
   });
 
-  // If the tab is disabled, or switched away from a facts question, without
-  // re-running the query, clear whatever `parsed.<output_key>` entry it last
-  // wrote instead of leaving it stale.
+  // The `parsed.<output_key>` entry belongs to the question and key that wrote it. When the tab
+  // is disabled, switched to another question, or its output key is edited, clear the entry
+  // instead of leaving it stale until the next "Run Query".
+  const currentParsedKey =
+    enabled && isFactsQuestion(question) ? outputKeyFor(question, params) : null;
   useEffect(() => {
-    if (enabled && isFactsQuestion(question)) return;
-    if (lastWrittenParsedKeyRef.current) {
-      clearParsedNamespaceEntry(lastWrittenParsedKeyRef.current);
+    const written = lastWrittenParsedKeyRef.current;
+    if (written && written !== currentParsedKey) {
+      clearParsedNamespaceEntry(written);
       lastWrittenParsedKeyRef.current = null;
     }
-  }, [enabled, question, clearParsedNamespaceEntry]);
+  }, [currentParsedKey, clearParsedNamespaceEntry]);
 
+  // `useMutation` returns a new object on every render; only `mutate` is stable.
+  const { mutate: runQuery, isPending: isRunningQuery } = runQueryMutation;
   const handleRunQuery = useCallback(() => {
-    runQueryMutation.mutate();
-  }, [runQueryMutation]);
+    runQuery();
+  }, [runQuery]);
 
   const canRunQuery =
     Boolean(sourceId) &&
@@ -368,7 +372,7 @@ export function useTemplateEditorBatfish({
       params,
       setParams,
       result,
-      isRunningQuery: runQueryMutation.isPending,
+      isRunningQuery,
       canRunQuery,
       handleRunQuery,
       loadFromConfig,
@@ -381,7 +385,7 @@ export function useTemplateEditorBatfish({
       genericQuestionName,
       params,
       result,
-      runQueryMutation.isPending,
+      isRunningQuery,
       canRunQuery,
       handleRunQuery,
       loadFromConfig,

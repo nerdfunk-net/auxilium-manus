@@ -191,6 +191,14 @@ export function useCanvasLayout(core: UseWorkflowCanvasCoreResult) {
   const handleAlignNodes = useCallback(
     (nodeIds: string[], alignment: NodeAlignment) => {
       const aligned = alignCanvasNodes(projected.nodes, nodeIds, alignment);
+      // A selection of fewer than two (or already aligned nodes) moves nothing: don't flag
+      // the workflow as having unsaved changes.
+      const anyMoved = aligned.some(
+        (n, index) =>
+          n.position.x !== projected.nodes[index].position.x ||
+          n.position.y !== projected.nodes[index].position.y,
+      );
+      if (!anyMoved) return;
       const positionById = new Map(aligned.map((n) => [n.id, n.position]));
 
       setAllNodes((current) =>
