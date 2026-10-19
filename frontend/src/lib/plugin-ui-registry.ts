@@ -109,7 +109,8 @@ const loaded = new Map<string, PluginUIComponent>();
 const inflight = new Map<string, Promise<PluginUIComponent | undefined>>();
 
 export function hasPluginUI(pluginId: string): boolean {
-  return pluginId in PLUGIN_UI_LOADERS;
+  // Own keys only: `in` would also accept inherited ones such as "constructor".
+  return Object.hasOwn(PLUGIN_UI_LOADERS, pluginId);
 }
 
 /** The panel set if it has been loaded already, else undefined (never triggers a load). */
@@ -120,8 +121,8 @@ export function getLoadedPluginUI(pluginId: string): PluginUIComponent | undefin
 export function loadPluginUI(pluginId: string): Promise<PluginUIComponent | undefined> {
   const ready = loaded.get(pluginId);
   if (ready) return Promise.resolve(ready);
+  if (!hasPluginUI(pluginId)) return Promise.resolve(undefined);
   const loader = PLUGIN_UI_LOADERS[pluginId];
-  if (!loader) return Promise.resolve(undefined);
   let pending = inflight.get(pluginId);
   if (!pending) {
     pending = loader()
