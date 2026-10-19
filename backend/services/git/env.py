@@ -29,6 +29,7 @@ _GIT_ENV_KEYS = (
     "GIT_SSL_CERT",
     "GIT_SSH_COMMAND",
     "GIT_CONFIG_COUNT",
+    "GIT_TERMINAL_PROMPT",
 )
 
 
@@ -60,7 +61,9 @@ def build_git_env_overrides(
     ``ssl_cert`` keys on the repository dict. When ``ssh_key_path`` is given, a
     per-call ``GIT_SSH_COMMAND`` is included. Does not touch ``os.environ``.
     """
-    overrides: dict[str, str] = {}
+    # Credentials only ever come from the repository row; a rejected token must fail with an
+    # error instead of git prompting for a username on a controlling terminal.
+    overrides: dict[str, str] = {"GIT_TERMINAL_PROMPT": "0"}
 
     if not repository.get("verify_ssl", True):
         host = "unknown"

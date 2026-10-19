@@ -289,10 +289,8 @@ def test_revoked_token_triggers_relogin(
             "/v1/auth/token/revoke", json={"token": old_token}
         ).raise_for_status()
 
-        # First call: the revoked token is rejected (invalidated internally).
-        with pytest.raises(VaultError):
-            runtime_vault.read_kv(path)
-        # Second call: transparent re-login with a fresh token.
+        # The revoked token is rejected, invalidated and the call retried once after a
+        # re-login, so the caller never sees the expiry (doc/VAULT_INTEGRATION.md).
         assert runtime_vault.read_kv(path) == {"token": "after-relogin"}
         assert runtime_vault._tokens.current() != old_token
     finally:

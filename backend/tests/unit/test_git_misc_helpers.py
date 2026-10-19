@@ -80,6 +80,12 @@ class BuildGitEnvOverridesTests(unittest.TestCase):
         overrides = build_git_env_overrides({"verify_ssl": True, "url": "https://h/r.git"})
         self.assertNotIn("GIT_SSH_COMMAND", overrides)
 
+    def test_terminal_prompt_disabled(self) -> None:
+        # A rejected token must fail fast, not make git ask for a username on a tty.
+        overrides = build_git_env_overrides({"verify_ssl": True, "url": "https://h/r.git"})
+        self.assertEqual(overrides["GIT_TERMINAL_PROMPT"], "0")
+        self.assertNotIn("GIT_TERMINAL_PROMPT", os.environ)
+
 
 class MergeGitEnvironTests(unittest.TestCase):
     def setUp(self) -> None:

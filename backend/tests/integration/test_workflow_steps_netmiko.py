@@ -16,6 +16,7 @@ import core.database as db_mod
 from models.workflow_context import DeviceContext, DeviceStatus, WorkflowContext
 from services.artifacts import FilesystemArtifactService
 from services.network.netmiko.session_pool import DeviceSessionPool
+from services.workflow_context.node_result import get_node_result
 from tests.integration.helpers import env as env_helpers
 from tests.integration.helpers.aio import run as arun
 from tests.integration.helpers.workflows import build_linear_workflow, make_run, node
@@ -90,7 +91,7 @@ def test_reachable_success_and_failure(run, cisco_device, tmp_path) -> None:
             )
             success = next(o for o in ok if o.name == "success")
             dev = success.context.devices["d1"]
-            assert dev.parsed["n1.reachability"]["reachable"] is True
+            assert get_node_result(dev.parsed, "n1", "reachability")["reachable"] is True
             assert dev.status == DeviceStatus.OK
 
             unreachable = cisco_device.model_copy(

@@ -82,8 +82,6 @@ def test_get_git_devices(run, git_repository) -> None:
         },
     )
     ctx = next(o for o in outcomes if o.name == "success").context
-    if ctx.metadata["n1.files_read"] == 0:
-        pytest.xfail("lab repo has no devices/*.yaml — add one per plan §5.8")
     assert ctx.metadata["n1.files_read"] >= 1
     assert len(ctx.devices) >= 1
 

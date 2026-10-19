@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import os
 import socket
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -82,6 +84,7 @@ def pytest_addoption(parser: pytest.Parser) -> None:
 
 
 def pytest_configure(config: pytest.Config) -> None:
+    _disabled_areas()  # fail on a typo in MANUS_ITEST_SKIP before any test runs
     config.addinivalue_line(
         "markers", "mutations: writes to the shared lab (opt-in, needs --run-mutations)"
     )
@@ -109,6 +112,26 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
 # --------------------------------------------------------------------------- #
 # Service reachability
 # --------------------------------------------------------------------------- #
+# Lab areas ``MANUS_ITEST_SKIP`` may switch off, e.g. ``MANUS_ITEST_SKIP=vault,cisco``.
+_LAB_AREAS = frozenset({"nautobot", "git", "cisco", "vault"})
+
+
+def _disabled_areas() -> frozenset[str]:
+    names = {n.strip().lower() for n in os.environ.get("MANUS_ITEST_SKIP", "").split(",")}
+    names.discard("")
+    unknown = names - _LAB_AREAS
+    if unknown:
+        raise pytest.UsageError(
+            f"MANUS_ITEST_SKIP: unknown area(s) {sorted(unknown)}; valid: {sorted(_LAB_AREAS)}"
+        )
+    return frozenset(names)
+
+
+def _skip_if_disabled(area: str) -> None:
+    if area in _disabled_areas():
+        pytest.skip(f"{area} disabled via MANUS_ITEST_SKIP")
+
+
 def _tcp_open(host: str, port: int, timeout: float = 3.0) -> bool:
     try:
         with socket.create_connection((host, port), timeout=timeout):
@@ -145,6 +168,7 @@ def require_postgres() -> None:
 
 @pytest.fixture(scope="session")
 def require_nautobot() -> None:
+    _skip_if_disabled("nautobot")
     url = env_helpers.nautobot().url
     if not _http_alive(f"{url.rstrip('/')}/api/"):
         pytest.skip(f"Nautobot unreachable at {url}")
@@ -152,6 +176,7 @@ def require_nautobot() -> None:
 
 @pytest.fixture(scope="session")
 def require_gitea() -> None:
+    _skip_if_disabled("git")
     url = env_helpers.git_repo().url
     parsed = urlparse(url)
     host = parsed.hostname or "127.0.0.1"
@@ -162,6 +187,7 @@ def require_gitea() -> None:
 
 @pytest.fixture(scope="session")
 def require_cisco_device() -> None:
+    _skip_if_disabled("cisco")
     cisco = env_helpers.cisco()
     if not _tcp_open(cisco.host, 22):
         pytest.skip(f"Cisco device unreachable at {cisco.host}:22")
@@ -169,6 +195,7 @@ def require_cisco_device() -> None:
 
 @pytest.fixture(scope="session")
 def require_openbao() -> None:
+    _skip_if_disabled("vault")
     if not env_helpers.openbao_configured():
         pytest.skip("VAULT_ADDR / VAULT_TOKEN not set in backend/.env.test")
     addr = env_helpers.openbao().addr.rstrip("/")
@@ -260,6 +287,20 @@ def clean_tables(_bootstrap_db: None):
 # --------------------------------------------------------------------------- #
 # Seed fixtures (session-scoped: created once against the real test DB)
 # --------------------------------------------------------------------------- #
+@contextmanager
+def _seed_transaction(session: Session) -> Iterator[Session]:
+    """Always end the seed session's transaction, even when seeding raises.
+
+    ``_seed_session`` lives for the whole run. A transaction left open on it (a failed seed,
+    or a read after the last commit) keeps its table locks, and the next ``clean_tables``
+    ``TRUNCATE`` then waits on it forever.
+    """
+    try:
+        yield session
+    finally:
+        session.rollback()
+
+
 @pytest.fixture(scope="session")
 def _seed_session(_bootstrap_db: None) -> Session:
     session = _db.SessionLocal()
@@ -273,46 +314,52 @@ def _seed_session(_bootstrap_db: None) -> Session:
 def admin_user(_seed_session: Session):
     from repositories.user_repository import UserRepository
 
-    user = UserRepository(_seed_session).get_by_username(SETTINGS.initial_username)
-    assert user is not None, "initial admin was not seeded"
+    with _seed_transaction(_seed_session):
+        user = UserRepository(_seed_session).get_by_username(SETTINGS.initial_username)
+        assert user is not None, "initial admin was not seeded"
+        # Detached, so reading ``user.id`` later cannot start a new transaction.
+        _seed_session.expunge(user)
     return user
 
 
 @pytest.fixture(scope="session")
 def nautobot_source(_seed_session: Session, require_nautobot: None) -> str:
     cfg = env_helpers.nautobot()
-    return seed_nautobot_source(
-        _seed_session,
-        source_id="itest",
-        url=cfg.url,
-        token=cfg.token,
-        verify_ssl=cfg.verify_ssl,
-    )
+    with _seed_transaction(_seed_session):
+        return seed_nautobot_source(
+            _seed_session,
+            source_id="itest",
+            url=cfg.url,
+            token=cfg.token,
+            verify_ssl=cfg.verify_ssl,
+        )
 
 
 @pytest.fixture(scope="session")
 def git_repository(_seed_session: Session, require_gitea: None) -> dict:
     cfg = env_helpers.git_repo()
-    return seed_git_repository(
-        _seed_session,
-        name="itest",
-        url=cfg.url,
-        branch=cfg.branch,
-        token=cfg.token,
-        credential_name="itest-git",
-        verify_ssl=cfg.verify_ssl,
-    )
+    with _seed_transaction(_seed_session):
+        return seed_git_repository(
+            _seed_session,
+            name="itest",
+            url=cfg.url,
+            branch=cfg.branch,
+            token=cfg.token,
+            credential_name="itest-git",
+            verify_ssl=cfg.verify_ssl,
+        )
 
 
 @pytest.fixture(scope="session")
-def ssh_credential(_seed_session: Session) -> str:
+def ssh_credential(_seed_session: Session, require_cisco_device: None) -> str:
     cisco = env_helpers.cisco()
-    return seed_ssh_credential(
-        _seed_session,
-        name="itest-ssh",
-        username=cisco.username,
-        password=cisco.password,
-    )
+    with _seed_transaction(_seed_session):
+        return seed_ssh_credential(
+            _seed_session,
+            name="itest-ssh",
+            username=cisco.username,
+            password=cisco.password,
+        )
 
 
 @pytest.fixture(scope="session")

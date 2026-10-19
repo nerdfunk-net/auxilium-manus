@@ -97,8 +97,7 @@ def test_commits(git_repository, repo_dict) -> None:
 
 def test_device_discovery(repo_dict) -> None:
     devices, files_read = GitDeviceService().fetch_devices(repo_dict, "*.yaml", "devices")
-    if files_read == 0:
-        pytest.xfail("lab repo has no devices/*.yaml — add one per plan §5.8")
+    assert files_read >= 1, "the lab repo needs devices/*.yaml"
     assert devices
     first = devices[0]
     assert "name" in first

@@ -37,6 +37,15 @@ def seed_nautobot_source(
     ``get_source_config`` / ``resolve_global_secret`` read back. Returns the
     source id.
     """
+    key = f"sources.nautobot.{source_id}"
+    service = SettingsService(db)
+    # The source goes first: the credential-in-use guard refuses to delete a credential that a
+    # source setting still references.
+    try:
+        service.delete_setting(key)
+    except NotFoundError:
+        pass
+
     _delete_credential_by_name(db, credential_name)
     credentials = CredentialsService(db)
     try:
@@ -51,13 +60,6 @@ def seed_nautobot_source(
         credential_id = int(created["id"])
     except CredentialNameConflictError:
         credential_id = _credential_id_by_name(db, credential_name)
-
-    key = f"sources.nautobot.{source_id}"
-    service = SettingsService(db)
-    try:
-        service.delete_setting(key)
-    except NotFoundError:
-        pass
 
     try:
         service.create_setting(
@@ -138,6 +140,16 @@ def seed_git_repository(
 
     Returns ``{"id": int, "repository": <_to_dict()>, "credential_name": str}``.
     """
+    service = GitRepositoryService(db)
+    existing = next(
+        (r for r in service.get_repositories(active_only=False) if r["name"] == name),
+        None,
+    )
+    # The repository goes first: the credential-in-use guard refuses to delete a credential
+    # that a repository row still references.
+    if existing is not None:
+        service.delete_repository(int(existing["id"]), hard_delete=True)
+
     _delete_credential_by_name(db, credential_name)
     try:
         CredentialsService(db).create_credential(
@@ -150,14 +162,6 @@ def seed_git_repository(
         )
     except CredentialNameConflictError:
         pass
-
-    service = GitRepositoryService(db)
-    existing = next(
-        (r for r in service.get_repositories(active_only=False) if r["name"] == name),
-        None,
-    )
-    if existing is not None:
-        service.delete_repository(int(existing["id"]), hard_delete=True)
 
     repo_id = service.create_repository(
         {

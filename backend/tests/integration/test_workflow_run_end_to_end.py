@@ -61,6 +61,24 @@ def _list_node(host: str):
     return node("list", "get-from-list", {"devices": [{"name": "lab-cisco", "ip_address": host}]})
 
 
+def _driver_node():
+    # A get-from-list device carries no platform and the SSH steps refuse to guess a driver
+    # (C2-03), so name it the way a real workflow would.
+    return node(
+        "driver",
+        "update-attribute",
+        {
+            "attributes": [
+                {
+                    "mode": "fixed",
+                    "destination_path": "device.network_driver",
+                    "fixed_value": "cisco_ios",
+                }
+            ]
+        },
+    )
+
+
 def _cmd_node(ref: str):
     # parser: textfsm so the step actually produces PARSED (StepRunner's
     # post-step guard enforces the registry's declared `produces`).
@@ -123,7 +141,12 @@ def test_static_device_then_netmiko_chain(session, admin_user, ssh_credential) -
     wf = build_linear_workflow(
         session,
         creator_id=admin_user.id,
-        nodes=[_list_node(host), _cmd_node(ssh_credential), _cfg_node(ssh_credential)],
+        nodes=[
+                _list_node(host),
+                _driver_node(),
+                _cmd_node(ssh_credential),
+                _cfg_node(ssh_credential),
+            ],
     )
     run = make_run(session, workflow=wf, triggered_by_id=admin_user.id, device_ids=["lab-cisco"])
 
@@ -180,8 +203,7 @@ def test_git_devices_then_reachable(session, admin_user, git_repository) -> None
         result = _run_workflow(session, wf, run)
         assert isinstance(result, bool)
         statuses = _step_statuses(session, run.id)
-        if statuses["git"] != "success":
-            pytest.xfail("lab repo has no devices/*.yaml — add one per plan §5.8")
+        assert statuses["git"] == "success", "the lab repo needs devices/*.yaml"
         assert "pending" not in statuses.values()
     finally:
         git_paths._GIT_DATA_ROOT = original
