@@ -195,21 +195,32 @@ def test_get_credential_password_returns_404_for_other_users_private_credential(
 
 
 def test_short_secrets_are_rejected() -> None:
-    """S3-15: 7-character passwords and 1-character shared secrets are refused."""
+    """S3-15: tokens and shared secrets keep a length floor.
+
+    SSH logins and Basic Auth secrets do not. The remote system owns that policy;
+    a partial update that omits ``type`` still uses the common floor.
+    """
     from pydantic import ValidationError
 
     from models.credentials import CredentialCreate, CredentialUpdate
 
+    CredentialCreate(name="n", username="u", type="generic", password="1234567")
+    CredentialCreate(name="n", username="u", type="ssh", password="abc")
+    CredentialUpdate(type="ssh", password="abc")
+    CredentialUpdate(type="generic", password="x")
     with pytest.raises(ValidationError):
-        CredentialCreate(name="n", username="u", type="generic", password="1234567")
+        CredentialCreate(name="n", username="u", type="token", password="1234567")
+    with pytest.raises(ValidationError):
+        CredentialCreate(name="n", username="u", type="tacacs", password="1234567")
+    CredentialCreate(name="n", username="u", type="tacacs", password="12345678")
     with pytest.raises(ValidationError):
         CredentialCreate(name="n", username="u", type="shared_secret", password="x")
     with pytest.raises(ValidationError):
         CredentialCreate(name="n", username="u", type="shared_secret", password="x" * 11)
-    CredentialCreate(name="n", username="u", type="generic", password="12345678")
+    CredentialCreate(name="n", username="u", type="token", password="12345678")
     CredentialCreate(name="n", username="u", type="shared_secret", password="x" * 12)
     with pytest.raises(ValidationError):
-        CredentialUpdate(password="short")
+        CredentialUpdate(password="1234567")
 
 
 def test_delete_credential_in_use_returns_409_with_dependants(app: FastAPI) -> None:

@@ -39,6 +39,7 @@ import { useAuthStore } from "@/lib/auth-store";
 import { hasRole } from "@/lib/permissions";
 import { PROVIDER_LABELS } from "@/components/features/ai-assistant/constants/providers";
 import { useAiSettingsMutations } from "@/hooks/queries/use-ai-settings-mutations";
+import { useAiStatusQuery } from "@/hooks/queries/use-ai-status-query";
 import { useAiSettingsQuery } from "@/hooks/queries/use-ai-settings-query";
 
 /** Inventory data categories that are more likely to hold sensitive values; each has its own opt-in. */
@@ -75,6 +76,15 @@ const DATA_TOKEN = {
   share_config_context: "config_context",
 } as const;
 
+function BlockedByOperatorHint({ blocked }: { blocked: boolean }) {
+  if (!blocked) return null;
+  return (
+    <span className="mt-1 block text-amber-600 dark:text-amber-500">
+      Not permitted by your administrator (<code>AI_ALLOWED_DATA</code>).
+    </span>
+  );
+}
+
 const formSchema = z
   .object({
     enabled: z.boolean(),
@@ -100,9 +110,31 @@ type FormValues = z.infer<typeof formSchema>;
 const EMPTY_MODEL_OPTIONS: AiModelOption[] = [];
 
 export function AiAssistantSettingsCanvas() {
-  const { data: settings, isLoading } = useAiSettingsQuery();
+  // The settings route does not exist (404) while the operator switch is off, so ask the
+  // status route first; it stays up and says why the assistant is unavailable.
+  const { data: status, isLoading: statusLoading } = useAiStatusQuery();
+  const operatorDisabled = status?.reason === "operator_disabled";
+  const { data: settings, isLoading } = useAiSettingsQuery(
+    status !== undefined && !operatorDisabled,
+  );
 
-  if (isLoading || !settings) {
+  if (operatorDisabled) {
+    return (
+      <div className="p-6">
+        <Alert variant="destructive">
+          <AlertTitle>The AI assistant is turned off on this server</AlertTitle>
+          <AlertDescription>
+            An administrator has to set <code>AI_ASSISTANT_ENABLED=true</code>{" "}
+            in the backend <code>.env</code> file (and list the permitted
+            providers in <code>AI_ALLOWED_PROVIDERS</code>), then restart the
+            backend.
+          </AlertDescription>
+        </Alert>
+      </div>
+    );
+  }
+
+  if (statusLoading || isLoading || !settings) {
     return (
       <div className="flex h-full items-center justify-center bg-muted">
         <Loader2 className="size-5 animate-spin text-muted-foreground" />
@@ -427,6 +459,9 @@ function AiAssistantSettingsForm({ settings }: { settings: AiSettings }) {
                         <FormDescription>
                           Device names, role, platform, location, status and
                           tags. The categories below need this switch too.
+                          <BlockedByOperatorHint
+                            blocked={dataBlocked("inventory")}
+                          />
                         </FormDescription>
                       </div>
                       <FormControl>
@@ -452,6 +487,9 @@ function AiAssistantSettingsForm({ settings }: { settings: AiSettings }) {
                           <FormLabel>{category.label}</FormLabel>
                           <FormDescription>
                             {category.description}
+                            <BlockedByOperatorHint
+                              blocked={dataBlocked(DATA_TOKEN[category.name])}
+                            />
                           </FormDescription>
                         </div>
                         <FormControl>
@@ -480,6 +518,9 @@ function AiAssistantSettingsForm({ settings }: { settings: AiSettings }) {
                         <FormDescription>
                           Config backups, command output, run logs and step
                           error text.
+                          <BlockedByOperatorHint
+                            blocked={dataBlocked("content")}
+                          />
                         </FormDescription>
                       </div>
                       <FormControl>
@@ -503,8 +544,11 @@ function AiAssistantSettingsForm({ settings }: { settings: AiSettings }) {
                         <FormLabel>Report data</FormLabel>
                         <FormDescription>
                           Values collected by Store for Report steps: query
-                          results and stored report snapshots. Dataset and
-                          field names are always visible to the assistant.
+                          results and stored report snapshots. Dataset and field
+                          names are always visible to the assistant.
+                          <BlockedByOperatorHint
+                            blocked={dataBlocked("report")}
+                          />
                         </FormDescription>
                       </div>
                       <FormControl>

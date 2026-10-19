@@ -1,10 +1,12 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useEffect } from "react";
+import { AlertTriangle } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import { Controller, useForm, useWatch } from "react-hook-form";
 import { z } from "zod";
 
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -42,8 +44,9 @@ import type { Credential, CredentialType } from "../types";
 import {
   SELECTABLE_CREDENTIAL_TYPES,
   credentialTypeLabel,
+  toDateInputValue,
 } from "../utils/credential-utils";
-import { toDateInputValue } from "../utils/credential-utils";
+import { insecurePasswordReason, isRemoteLoginSecret } from "../utils/insecure-password";
 
 const EDITABLE_TYPES = [
   "ssh",
@@ -128,6 +131,28 @@ export function CredentialFormDialog({
   });
 
   const type = useWatch({ control: form.control, name: "type" });
+  const passwordValue = useWatch({ control: form.control, name: "password" }) ?? "";
+  const usernameValue = useWatch({ control: form.control, name: "username" }) ?? "";
+  // The exact secret the operator already chose to keep. A later edit re-warns.
+  const [acceptedPassword, setAcceptedPassword] = useState<string | null>(null);
+  // The secret from the last blocked Save/Create. The warning follows this value,
+  // so it appears after an attempt to save and disappears when the password changes.
+  const [reviewedPassword, setReviewedPassword] = useState<string | null>(null);
+  const useAnywayRef = useRef<HTMLButtonElement>(null);
+  const credentialId = credential?.id ?? null;
+  const [session, setSession] = useState({ open, credentialId });
+  if (open !== session.open || credentialId !== session.credentialId) {
+    setSession({ open, credentialId });
+    if (open) {
+      setAcceptedPassword(null);
+      setReviewedPassword(null);
+    }
+  }
+
+  const passwordWarning =
+    isRemoteLoginSecret(type) ? insecurePasswordReason(passwordValue, usernameValue) : null;
+  const showPasswordWarning =
+    reviewedPassword !== null && reviewedPassword === passwordValue && passwordWarning !== null;
 
   useEffect(() => {
     if (!open) {
@@ -156,7 +181,7 @@ export function CredentialFormDialog({
     form.reset(EMPTY_DEFAULTS);
   }, [credential, form, mode, open]);
 
-  const handleSubmit = (values: FormValues) => {
+  const submitValues = (values: FormValues, acceptInsecure: boolean) => {
     if (
       mode === "create" &&
       values.type !== "ssh_key" &&
@@ -167,6 +192,16 @@ export function CredentialFormDialog({
       });
       return;
     }
+    const secret = values.password ?? "";
+    if (
+      !acceptInsecure &&
+      isRemoteLoginSecret(values.type) &&
+      insecurePasswordReason(secret, values.username) &&
+      secret !== acceptedPassword
+    ) {
+      setReviewedPassword(secret);
+      return;
+    }
     // A shared secret has no login user — mirror the name so the backend's
     // non-null username column is satisfied without asking for a second field.
     const normalized =
@@ -174,6 +209,18 @@ export function CredentialFormDialog({
         ? { ...values, username: values.name.trim() }
         : values;
     onSubmit(normalized);
+  };
+
+  useEffect(() => {
+    if (showPasswordWarning) {
+      useAnywayRef.current?.focus();
+    }
+  }, [showPasswordWarning]);
+
+  const handleUseAnyway = () => {
+    const secret = form.getValues("password") ?? "";
+    setAcceptedPassword(secret);
+    void form.handleSubmit((values) => submitValues(values, true))();
   };
 
   const isEdit = mode === "edit";
@@ -195,7 +242,7 @@ export function CredentialFormDialog({
         <Form {...form}>
           <form
             className="flex min-h-0 flex-1 flex-col"
-            onSubmit={form.handleSubmit(handleSubmit)}
+            onSubmit={form.handleSubmit((values) => submitValues(values, false))}
           >
             <div className="flex-1 space-y-4 overflow-y-auto px-1 py-1">
               <FormField
@@ -372,10 +419,34 @@ export function CredentialFormDialog({
                         />
                       </FormControl>
                       <FormMessage />
+                      {showPasswordWarning ? (
+                        <Alert variant="warning">
+                          <AlertTriangle />
+                          <AlertTitle>This password is insecure</AlertTitle>
+                          <AlertDescription>
+                            <p>
+                              {passwordWarning} SSH logins and Basic Auth secrets are
+                              checked by the system you sign in to (for example ISE).
+                              You can keep this password.
+                            </p>
+                            <Button
+                              ref={useAnywayRef}
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              className="mt-3"
+                              disabled={isSaving}
+                              onClick={handleUseAnyway}
+                            >
+                              Use it anyway
+                            </Button>
+                          </AlertDescription>
+                        </Alert>
+                      ) : null}
                     </FormItem>
-                  )}
-                />
-              )}
+                    )}
+                  />
+                )}
 
               {isSharedSecret ? (
                 <FormItem>

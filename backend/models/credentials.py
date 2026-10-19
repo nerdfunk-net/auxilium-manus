@@ -20,9 +20,19 @@ ALLOWED_CREDENTIAL_TYPES = frozenset(
 )
 
 
+# SSH logins and Basic Auth secrets authenticate to another system (a device, ISE, ...).
+# That system owns the password policy. The credential form warns; it does not refuse the value.
+REMOTE_LOGIN_TYPES = frozenset({"ssh", "generic"})
+
+
 def _check_secret_length(cred_type: str | None, password: str | None) -> None:
-    """Refuse trivially short secrets (S3-15). Existing short values keep working until edited."""
-    if not password:
+    """Refuse trivially short secrets (S3-15). Existing short values keep working until edited.
+
+    ``ssh`` and ``generic`` are exempt: a short device or Basic Auth password is still stored.
+    When ``cred_type`` is omitted (a partial update) the stored type is unknown, so the common
+    floor still applies — callers saving a short SSH or Basic Auth password must send ``type``.
+    """
+    if not password or cred_type in REMOTE_LOGIN_TYPES:
         return
     minimum = MIN_SHARED_SECRET_LENGTH if cred_type == "shared_secret" else MIN_PASSWORD_LENGTH
     if len(password) < minimum:

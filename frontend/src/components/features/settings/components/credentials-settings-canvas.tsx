@@ -92,6 +92,9 @@ export function CredentialsSettingsCanvas() {
       const payload: {
         name: string;
         username: string;
+        // The stored type lets a short SSH or Basic Auth password skip the length floor.
+        // The form cannot change type, so this is the existing value, not the form's.
+        type: CredentialType;
         password?: string;
         ssh_private_key?: string;
         ssh_passphrase?: string;
@@ -101,6 +104,7 @@ export function CredentialsSettingsCanvas() {
       } = {
         name: values.name.trim(),
         username: values.username.trim(),
+        type: credential.type,
         valid_until: values.valid_until || undefined,
         visibility: values.visibility,
       };
