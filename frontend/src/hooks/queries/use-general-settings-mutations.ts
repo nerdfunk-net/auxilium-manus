@@ -25,7 +25,8 @@ export function useGeneralSettingsMutations() {
         body: JSON.stringify(data),
       }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.general.settings() });
+      // Prefix: the admin form and the client-settings every session reads (idle timeout).
+      queryClient.invalidateQueries({ queryKey: queryKeys.general.all });
       toast({ title: "Saved", description: "General settings updated." });
     },
     onError: (error: Error) => {

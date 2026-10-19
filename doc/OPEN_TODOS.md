@@ -34,6 +34,11 @@ pick it up without re-deriving the context.
   pass (Q4) and by Playwright flows: login → forced password change → build → run → view → schedule → logout,
   a revoked session followed by another user's login, two tabs saving one workflow, a 300-device fan-out run,
   a paused Wait & Run batch.
+  *Done 2026-10-19 (`doc/HOWTO_TEST_THE_FRONTEND.md`):* sign-in, forced password change, builder (add, connect,
+  auto layout, align, group), save / reopen / reload, export and import, the save-conflict dialog, and the import
+  dialog as a non-admin. *Still open:* the run, view, schedule and logout part, a revoked session, two real tabs,
+  a 300-device fan-out run and a paused Wait & Run batch (they need a worker; the isolated test stack has a dead
+  Hatchet endpoint), and the pages outside the builder. See "Frontend test and verification backlog" below.
 - **Retries for Nautobot, ISE and shim requests.** None of the clients retries an idempotent GET. A bounded retry
   with backoff belongs with the timeout review (O2).
 - **Workflow restore can change visibility silently.** Decide whether restoring a version should keep the
@@ -503,13 +508,16 @@ pass-throughs, `InterfaceManagerService`, `DeviceUpdateService.update_device`, `
 
 **Added:** 2026-10-09 · **Area:** repo root, `SECURITY.md`, `backend/routers/git/debug.py`
 
-- Run `gitleaks detect --no-git` and `gitleaks detect` (history) — the tool is not installed on the
-  dev machine, so it was not run. (`git log --all -- '*.env' '*oidc_providers.yaml'` is already empty.)
+- Run `gitleaks detect` over the history. `gitleaks` is installed on the dev machine
+  (`/opt/homebrew/bin/gitleaks`), and the `secret-scan` workflow already runs `gitleaks detect --no-git` on
+  every push (green on `main` since 2026-10-19). Run any local scan on a **clean clone**: in the working tree it
+  also reads gitignored files such as `backend/.env`. (`git log --all -- '*.env' '*oidc_providers.yaml'` is
+  already empty.)
 - Add a real security contact to `SECURITY.md` if an e-mail address should be offered besides GitHub
   private vulnerability reporting (enable that feature in the repository settings).
 - Decide whether `routers/git/debug.py` stays (dev-tools gated, 404 in production; keeping it is fine).
-- Confirm the restored `.github/workflows/backend-ci.yml` actually runs green on GitHub (it has not been
-  executed since it was restored).
+- ~~Confirm the restored `.github/workflows/backend-ci.yml` actually runs green on GitHub.~~ Done: green on
+  `main` on 2026-10-19 (commit 8505143), after the `integration-postgres` marker fix.
 
 ---
 
@@ -767,3 +775,85 @@ No defect follows from it today, and the fix touches eleven callbacks in a 300-l
    out on purpose because it fails today.
 3. Search for other hooks with a mutation or query result object in a `useCallback`/`useMemo` dependency array
    (`grep -n "\[.*Mutation\b" frontend/src/hooks frontend/src/components --include=use-*.ts`).
+
+---
+
+## Frontend test and verification backlog
+
+**Added:** 2026-10-19 · **Area:** `frontend/`, `doc/HOWTO_TEST_THE_FRONTEND.md`
+
+Left over from the vitest coverage pass and the Playwright pass on the workflow builder (coverage 13.5 % → about
+29.6 % statements, about 14 bugs fixed; the ratchet in `frontend/vitest.config.ts` keeps the gain).
+
+### Decided: no import with references the user cannot list
+
+A user without `credentials:read`, `git.repositories:read` or `sources.*:read` may **not** import a workflow that
+references a credential, git repository or source: the import dialog needs a visible replacement for every
+reference, and a user who cannot list them cannot choose one (decided by the product owner, 2026-10-19). Such a
+user can still import a workflow that references none of them. The dialog says why ("the list could not be loaded,
+probably because you don't have permission ... ask an administrator") and keeps Import disabled; the remap hook
+test "still requires a replacement when the credential list could not be loaded" pins the behaviour. Do not
+add a "keep the references unverified" path without a new decision.
+
+### Smaller findings, not fixed
+
+- **The builder page requests lists a workflow-only user may not read.** On every load `general/settings` and
+  `git-repositories?...category=workflows` return 403 for such a user (two console errors per load). The UI copes;
+  the requests could be gated on the permission (`hasPermission` in `lib/permissions.ts`).
+- **The Overview minimap covers node handles** at about 1200×700 (fit view ignores the panel), and **new steps are
+  placed only 44 px apart**, so they overlap until Auto layout runs. Both made handle clicks fail in the browser pass.
+- **`/api/auth/me` is requested twice per page load.** Harmless, but one request would do.
+- **`useSourcesSettings` returns a new object on every render** (separate entry above).
+
+### Found in round 2 (hook tests), not fixed
+
+- **Mutation objects in dependency arrays.** `useMutation` returns a new object every render, so a callback that
+  lists it re-creates every render (harmless for a click handler, a loop risk in an effect or a memoized return).
+  Fixed in `useDevicePreview`, `useTemplateEditorDevice`, `useWorkflowRunActions`. Still listed in deps:
+  `use-workflow-validation.ts:54`, `regex-probe-panel.tsx` (update-attribute and update-content),
+  `use-template-render.ts:79`, `use-saved-inventories.ts` (delete/export/import), `manage-inventory-modal.tsx:184`,
+  `load-variables-dialog.tsx:182`. Depend on `mutate`/`mutateAsync` instead, with a "same object" test each.
+- **"Run saved version" derives run inputs from the unsaved canvas.** `handleRunSavedVersion` skips validation but
+  `requestRun` still merges `get-from-user` attributes from the *current* (possibly dirty) nodes: it writes those
+  `static_attributes` onto the saved workflow and opens the inputs dialog for them. The hook has no copy of the saved
+  nodes, so the fix needs the saved definition passed in (or fetched). Product behaviour to confirm first.
+- **`handleSaveAndRun` writes the schema twice** (the save, then `ensureRunInputSchemaPersisted` inside `requestRun`).
+  Harmless; one `PUT` would do.
+- **`useDevicePreview` keeps stale selected ids after a new preview.** `selectedIds` is not reconciled with the new
+  device list, so `onSelectionChange` can receive ids that have no matching device in the second argument.
+- **ISE preview with empty input still calls the backend** (empty group name → `ndg/?page=1`, empty CIDR →
+  `ipaddress.EQ.`). The panel should disable Preview until the field is filled.
+
+### Found in the second Playwright pass (2026-10-19, pages outside the builder), not fixed
+
+Fixed in that pass: a read-only user saw New Template, Import, Edit and Delete on `/templates`; `/schedules` and
+`/change-requests` showed "No schedules yet." / "No change requests yet." when the list request had failed with 403;
+`/inventory` said "No Nautobot source is configured" after a 403 (now "Could not load the Nautobot source: ..."); a
+schedule the engine SDK rejects showed raw pydantic text (now only the field and rule, detail logged);
+non-admins got the built-in 20-minute idle timeout (and `switch_to_runs_on_start` defaulted) because both were read
+from `general/settings`, which needs `general_settings:read` (decided: every signed-in user may read them, now served
+by `GET /general/client-settings`, no export directory in it).
+
+- **Desktop only (decided 2026-10-19).** The tool has no small-screen layout (at 390 px the sidebar leaves about
+  100 px for the page); `doc/claude/frontend.md` still says "mobile-first" and should say desktop-only.
+- **Other 4xx messages echo exception text.** About 120 router sites put `str(exc)` into a 4xx `detail`; most are
+  deliberate domain messages, but any that wrap a library error (as the schedule one did) leak internals. Audit
+  those that catch a library exception rather than a `DomainError`.
+- **Not exercised:** creating a schedule against a real engine, running a workflow, Reports with data, Inventory with a Nautobot source and
+  the settings forms (sources, users, git repositories) beyond loading them. The isolated stack has no working Hatchet
+  tenant (the fake token's tenant id fails validation) and no Nautobot source.
+
+### Not yet covered
+
+- **Browser:** executing a workflow and watching the run, two real tabs saving one workflow (the conflict dialog was
+  triggered with a direct `PUT` instead), other viewport sizes, and every page outside the builder (templates,
+  inventory, reports, settings). Execution needs a worker; decide how to give the isolated stack one without
+  letting it reach the real Hatchet engine.
+- **Unit tests, largest gaps by uncovered statements** (after round 2, 2026-10-19; coverage 29.6 % → 31.75 %
+  statements): `query-keys.ts` (78, a data file), `use-saved-inventories` (62), `use-sources-settings-save` (60),
+  `update-device-config` and `set-default-attributes-config` (58 each), `use-selected-inventory` (54),
+  `use-workflow-save` (50), `use-device-selector-modals`, `use-device-filter` (48 each); then the `.tsx` components
+  (coverage there is close to zero; test behaviour, check layout in the browser).
+- **Raise the ratchet** (`coverage.thresholds`) after each round; never lower it.
+- **Pages that fetch more than they need** — the import dialogs were the case found; a quick check of the other
+  always-mounted dialogs for queries that ignore `enabled` is cheap (`grep -rn "use.*Query()" frontend/src`).

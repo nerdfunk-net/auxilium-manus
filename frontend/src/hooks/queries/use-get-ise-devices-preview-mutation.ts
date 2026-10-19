@@ -73,22 +73,29 @@ function toPreview(device: IseNetworkDevice): IseDevicePreview | null {
   };
 }
 
-/** Returns true when `ip` (IPv4 dotted-quad) falls inside `cidr`. */
+/** Parses a dotted-quad IPv4 address into an unsigned 32-bit integer, or null if it is not one. */
+function parseIpv4(addr: string): number | null {
+  const octets = addr.split(".");
+  if (octets.length !== 4) return null;
+  let value = 0;
+  for (const octet of octets) {
+    if (!/^\d{1,3}$/.test(octet) || Number(octet) > 255) return null;
+    value = value * 256 + Number(octet);
+  }
+  return value;
+}
+
+/** Returns true when `ip` (IPv4 dotted-quad) falls inside `cidr`.
+ * Anything that is not a valid IPv4 address or a prefix of 0-32 matches nothing. */
 function ipv4InCidr(ip: string, cidr: string): boolean {
   const [network, prefixRaw] = cidr.split("/");
   const prefix = prefixRaw ? Number(prefixRaw) : 32;
-  const toInt = (addr: string) =>
-    addr
-      .split(".")
-      .map(Number)
-      .reduce((acc, octet) => (acc << 8) + (octet & 255), 0) >>> 0;
-  if (!network || Number.isNaN(prefix)) return false;
+  if (!Number.isInteger(prefix) || prefix < 0 || prefix > 32) return false;
+  const ipValue = parseIpv4(ip);
+  const networkValue = parseIpv4(network ?? "");
+  if (ipValue === null || networkValue === null) return false;
   const mask = prefix === 0 ? 0 : (0xffffffff << (32 - prefix)) >>> 0;
-  try {
-    return (toInt(ip) & mask) === (toInt(network) & mask);
-  } catch {
-    return false;
-  }
+  return ((ipValue & mask) >>> 0) === ((networkValue & mask) >>> 0);
 }
 
 async function fetchDetail(
@@ -160,14 +167,16 @@ export function useGetIseDevicesPreviewMutation() {
       let truncated = false;
 
       if (queryMode === "name") {
-        const names = (request.device_names ?? []).slice(0, PREVIEW_LIMIT);
+        const requested = request.device_names ?? [];
+        const names = requested.slice(0, PREVIEW_LIMIT);
+        truncated = requested.length > names.length;
         for (const name of names) {
           try {
             const result = await apiCall<{ NetworkDevice: IseNetworkDevice }>(
               `sources/ise/${sourceId}/devices/name/${encodeURIComponent(name)}`,
               { method: "GET" },
             );
-            rawDevices.push(result.NetworkDevice);
+            if (result?.NetworkDevice) rawDevices.push(result.NetworkDevice);
           } catch {
             // device not found in ISE — skip, matches executor behavior
           }

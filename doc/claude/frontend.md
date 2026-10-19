@@ -13,7 +13,7 @@ npx shadcn@latest add {component}  # button, dialog, table, form, etc.
 - ✅ Use Lucide React icons (`import { Check, X } from "lucide-react"`)
 - ✅ Forms with react-hook-form + zod validation
 - ✅ Toast notifications (`useToast()` hook)
-- ✅ Mobile-first responsive design
+- ✅ Desktop only (decided 2026-10-19): no small-screen layout is required
 - ✅ Proper ARIA labels and accessibility
 
 **DON'T:**

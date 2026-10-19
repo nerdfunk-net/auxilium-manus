@@ -554,7 +554,7 @@ export function WorkflowBuilderPage() {
         open={run.isRunInputsDialogOpen}
         staticAttributes={run.runInputAttributes}
         deviceParamConfigs={deviceParamConfigs}
-        isSubmitting={run.triggerRun.isPending}
+        isSubmitting={run.isTriggeringRun}
         onOpenChange={run.setIsRunInputsDialogOpen}
         onSubmit={run.handleRunInputsSubmit}
       />

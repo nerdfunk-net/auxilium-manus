@@ -10,6 +10,8 @@ interface NautobotSourceBannerProps {
   hasSources: boolean;
   isReady: boolean;
   sourceId?: string;
+  /** Why the source list could not be read (for example a missing permission). */
+  error?: string | null;
 }
 
 export function NautobotSourceBanner({
@@ -17,12 +19,22 @@ export function NautobotSourceBanner({
   hasSources,
   isReady,
   sourceId,
+  error,
 }: NautobotSourceBannerProps) {
   if (isLoading) {
     return (
       <div className="flex items-center gap-2 rounded-lg border border-border bg-muted/40 px-4 py-3 text-sm text-muted-foreground">
         <Loader2 className="h-4 w-4 animate-spin" />
         Resolving Nautobot source...
+      </div>
+    );
+  }
+
+  if (error && !hasSources) {
+    return (
+      <div className="flex items-center gap-2 rounded-lg border border-warning-border bg-warning px-4 py-3 text-sm text-warning-foreground">
+        <AlertCircle className="h-4 w-4 shrink-0" />
+        <span>Could not load the Nautobot source: {error}</span>
       </div>
     );
   }

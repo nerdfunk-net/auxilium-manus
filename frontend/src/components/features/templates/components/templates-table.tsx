@@ -14,6 +14,10 @@ interface TemplatesTableProps {
   onExport: (template: TemplateListItem) => void;
   onDelete: (template: TemplateListItem) => void;
   exportingId?: number | null;
+  /** `templates:write`; without it Edit is not offered. */
+  canEdit?: boolean;
+  /** `templates:delete`; without it Delete is not offered. */
+  canDelete?: boolean;
 }
 
 function formatDate(value: string | null): string {
@@ -34,11 +38,13 @@ export function TemplatesTable({
   onExport,
   onDelete,
   exportingId = null,
+  canEdit = true,
+  canDelete = true,
 }: TemplatesTableProps) {
   if (templates.length === 0) {
     return (
       <p className="rounded-lg border border-dashed px-4 py-10 text-center text-sm text-muted-foreground">
-        No templates yet. Create your first template to get started.
+        No templates yet.{canEdit ? " Create your first template to get started." : ""}
       </p>
     );
   }
@@ -81,15 +87,17 @@ export function TemplatesTable({
                   >
                     <Eye className="size-4" />
                   </Button>
-                  <Button
-                    aria-label={`Edit ${template.name}`}
-                    size="icon"
-                    type="button"
-                    variant="ghost"
-                    onClick={() => onEdit(template)}
-                  >
-                    <Pencil className="size-4" />
-                  </Button>
+                  {canEdit ? (
+                    <Button
+                      aria-label={`Edit ${template.name}`}
+                      size="icon"
+                      type="button"
+                      variant="ghost"
+                      onClick={() => onEdit(template)}
+                    >
+                      <Pencil className="size-4" />
+                    </Button>
+                  ) : null}
                   <Button
                     aria-label={`Export ${template.name}`}
                     disabled={exportingId === template.id}
@@ -100,15 +108,17 @@ export function TemplatesTable({
                   >
                     <Download className="size-4" />
                   </Button>
-                  <Button
-                    aria-label={`Delete ${template.name}`}
-                    size="icon"
-                    type="button"
-                    variant="ghost"
-                    onClick={() => onDelete(template)}
-                  >
-                    <Trash2 className="size-4 text-destructive" />
-                  </Button>
+                  {canDelete ? (
+                    <Button
+                      aria-label={`Delete ${template.name}`}
+                      size="icon"
+                      type="button"
+                      variant="ghost"
+                      onClick={() => onDelete(template)}
+                    >
+                      <Trash2 className="size-4 text-destructive" />
+                    </Button>
+                  ) : null}
                 </div>
               </td>
             </tr>

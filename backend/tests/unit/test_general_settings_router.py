@@ -71,10 +71,48 @@ def test_get_settings_allowed_with_permission(
     assert response.json()["session_timeout_minutes"] == 20
 
 
+def test_client_settings_readable_without_general_settings_permission(
+    app: FastAPI, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The idle-logout timeout applies to every signed-in user, so reading it must not
+    # need general_settings:read (which would leave non-admins on the built-in default).
+    monkeypatch.setattr(RBACService, "has_permission", lambda self, *_a, **_k: False)
+
+    with TestClient(app) as client:
+        response = client.get("/api/general/client-settings")
+
+    assert response.status_code == 200
+    assert response.json() == {"session_timeout_minutes": 20, "switch_to_runs_on_start": True}
+
+
+def test_client_settings_does_not_expose_the_export_directory(app: FastAPI) -> None:
+    with TestClient(app) as client:
+        body = client.get("/api/general/client-settings").json()
+
+    assert "default_export_directory" not in body
+    assert "resolved_export_directory" not in body
+
+
+def test_client_settings_requires_authentication() -> None:
+    app = FastAPI()
+    app.include_router(general_settings_router, prefix="/api")
+    app.dependency_overrides[get_db] = _override_db
+
+    with TestClient(app) as client:
+        response = client.get("/api/general/client-settings")
+
+    assert response.status_code in (401, 403)
+
+
 def test_handlers_run_in_threadpool_not_on_the_event_loop() -> None:
     # FABLE_BACKEND_20260902.md §4.2: sync-only handlers must be plain `def` so
     # FastAPI offloads their blocking SQLAlchemy work to the threadpool.
-    from routers.general_settings import get_general_settings, update_general_settings
+    from routers.general_settings import (
+        get_client_settings,
+        get_general_settings,
+        update_general_settings,
+    )
 
+    assert not inspect.iscoroutinefunction(get_client_settings)
     assert not inspect.iscoroutinefunction(get_general_settings)
     assert not inspect.iscoroutinefunction(update_general_settings)

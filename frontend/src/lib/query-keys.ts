@@ -99,6 +99,7 @@ export const queryKeys = {
   general: {
     all: ["general"] as const,
     settings: () => [...queryKeys.general.all, "settings"] as const,
+    clientSettings: () => [...queryKeys.general.all, "client-settings"] as const,
   },
   changeRequests: {
     all: ["change-requests"] as const,

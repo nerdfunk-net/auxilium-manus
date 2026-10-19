@@ -265,7 +265,18 @@ class ScheduleService:
                     schedule, hatchet_scheduled_id=str(result.metadata.id)
                 )
         except ValidationError as exc:
-            raise ValidationFailedError(f"Invalid schedule configuration: {exc}") from exc
+            # The engine SDK validated the request; its raw text names library classes and echoes
+            # input values, so only the field and the rule reach the user. The rest is logged.
+            logger.warning(
+                "Hatchet SDK rejected the schedule for workflow_id=%s: %s",
+                schedule.workflow_id,
+                exc,
+            )
+            problems = "; ".join(
+                f"{'.'.join(str(part) for part in error['loc'])}: {error['msg']}"
+                for error in exc.errors(include_input=False, include_url=False)
+            )
+            raise ValidationFailedError(f"Invalid schedule configuration ({problems})") from exc
         except DomainError:
             raise
         except (RestTransportError, ServiceException) as exc:

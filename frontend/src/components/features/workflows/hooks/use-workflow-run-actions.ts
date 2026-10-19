@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useCallback, useMemo, useState } from "react";
 
-import { useGeneralSettingsQuery } from "@/hooks/queries/use-general-settings-query";
+import { useClientSettingsQuery } from "@/hooks/queries/use-client-settings-query";
 import { useTriggerRunMutation } from "@/hooks/queries/use-workflow-run-mutations";
 
 import {
@@ -39,7 +39,7 @@ export function useWorkflowRunActions({
     persistence;
 
   const router = useRouter();
-  const { data: generalSettings } = useGeneralSettingsQuery();
+  const { data: generalSettings } = useClientSettingsQuery();
   const isDirty = useWorkflowBuilderStore((state) => state.isDirty);
   const markSaved = useWorkflowBuilderStore((state) => state.markSaved);
   const markRunning = useWorkflowBuilderStore((state) => state.markRunning);
@@ -50,7 +50,9 @@ export function useWorkflowRunActions({
   const [isRunInputsDialogOpen, setIsRunInputsDialogOpen] = useState(false);
   const [pendingRunTargetId, setPendingRunTargetId] = useState<number | null>(null);
 
-  const triggerRun = useTriggerRunMutation(workflowId);
+  // useMutation returns a new object every render; only `mutateAsync` is stable.
+  const { mutateAsync: triggerRunAsync, isPending: isTriggeringRun } =
+    useTriggerRunMutation(workflowId);
 
   const runInputAttributes = useMemo(
     () => mergeRunInputAttributes(allNodes, staticAttributes),
@@ -65,7 +67,7 @@ export function useWorkflowRunActions({
   const dispatchRun = useCallback(
     async (targetId: number, runInputs: Record<string, string | number | boolean>) => {
       try {
-        const run = await triggerRun.mutateAsync({
+        const run = await triggerRunAsync({
           device_ids: [],
           trigger_type: "manual",
           workflowId: targetId,
@@ -80,7 +82,7 @@ export function useWorkflowRunActions({
         markError(runActionErrorMessage(error, "Failed to trigger run"));
       }
     },
-    [triggerRun, setActiveRunId, markRunning, markError, router, generalSettings],
+    [triggerRunAsync, setActiveRunId, markRunning, markError, router, generalSettings],
   );
 
   const ensureRunInputSchemaPersisted = useCallback(
@@ -238,7 +240,7 @@ export function useWorkflowRunActions({
       handleRunInputsSubmit,
       requestRun,
       dispatchRun,
-      triggerRun,
+      isTriggeringRun,
     }),
     [
       isRunConfirmOpen,
@@ -252,7 +254,7 @@ export function useWorkflowRunActions({
       handleRunInputsSubmit,
       requestRun,
       dispatchRun,
-      triggerRun,
+      isTriggeringRun,
     ],
   );
 }

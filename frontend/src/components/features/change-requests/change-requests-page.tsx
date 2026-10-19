@@ -29,7 +29,7 @@ function relativeAge(iso: string): string {
 }
 
 export function ChangeRequestsPage() {
-  const { data, isLoading } = useChangeRequestsQuery();
+  const { data, isLoading, error } = useChangeRequestsQuery();
   const items = useMemo(() => data?.items ?? [], [data]);
   const [selectedId, setSelectedId] = useState<number | null>(null);
 
@@ -60,6 +60,8 @@ export function ChangeRequestsPage() {
             <div className="flex items-center justify-center py-16 text-muted-foreground">
               <Loader2 className="size-5 animate-spin" aria-hidden />
             </div>
+          ) : error && !data ? (
+            <p className="px-4 py-16 text-center text-sm text-destructive">{error.message}</p>
           ) : items.length === 0 ? (
             <div className="flex flex-col items-center gap-3 px-4 py-16 text-center text-muted-foreground">
               <GitPullRequestArrow className="size-10 opacity-30" aria-hidden />

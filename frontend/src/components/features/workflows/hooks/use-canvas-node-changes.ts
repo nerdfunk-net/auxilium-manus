@@ -2,7 +2,7 @@
 
 import { applyNodeChanges } from "@xyflow/react";
 import type { NodeChange, NodePositionChange } from "@xyflow/react";
-import { useCallback, type Dispatch, type SetStateAction } from "react";
+import { useCallback, useMemo, type Dispatch, type SetStateAction } from "react";
 
 import {
   BACKGROUND_Z_INDEX,
@@ -208,5 +208,5 @@ export function useCanvasNodeChanges({
     ],
   );
 
-  return { handleNodesChange };
+  return useMemo(() => ({ handleNodesChange }), [handleNodesChange]);
 }

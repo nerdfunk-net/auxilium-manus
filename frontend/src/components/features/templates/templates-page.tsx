@@ -17,6 +17,8 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { useAuthStore } from "@/lib/auth-store";
+import { hasPermission } from "@/lib/permissions";
 
 import { DeleteTemplateDialog } from "./components/delete-template-dialog";
 import { JinjaHelpDialog } from "./components/jinja-help-dialog";
@@ -37,6 +39,9 @@ const CATEGORY_FILTERS = [
 
 export function TemplatesPage() {
   const router = useRouter();
+  const user = useAuthStore((state) => state.user);
+  const canWrite = hasPermission(user, "templates", "write");
+  const canDelete = hasPermission(user, "templates", "delete");
   const [search, setSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
   const { data, isLoading, error } = useTemplatesQuery({ search });
@@ -112,33 +117,37 @@ export function TemplatesPage() {
               </TooltipTrigger>
               <TooltipContent>How to write a Jinja2 template</TooltipContent>
             </Tooltip>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => setImportOpen(true)}
-            >
-              <Upload className="size-4" />
-              Import
-            </Button>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button type="button">
-                  <Plus className="size-4" />
-                  New Template
-                  <ChevronDown className="size-4" />
+            {canWrite ? (
+              <>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setImportOpen(true)}
+                >
+                  <Upload className="size-4" />
+                  Import
                 </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem onSelect={handleCreate}>
-                  <FileCode className="size-4" />
-                  New Netmiko Template
-                </DropdownMenuItem>
-                <DropdownMenuItem onSelect={handleCreateReport}>
-                  <FileText className="size-4" />
-                  New Report Template
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button type="button">
+                      <Plus className="size-4" />
+                      New Template
+                      <ChevronDown className="size-4" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuItem onSelect={handleCreate}>
+                      <FileCode className="size-4" />
+                      New Netmiko Template
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onSelect={handleCreateReport}>
+                      <FileText className="size-4" />
+                      New Report Template
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </>
+            ) : null}
           </div>
         </div>
 
@@ -183,6 +192,8 @@ export function TemplatesPage() {
             onEdit={handleEdit}
             onExport={(template) => exportTemplate.mutate(template.id)}
             onDelete={setDeleteTarget}
+            canEdit={canWrite}
+            canDelete={canDelete}
           />
         )}
       </div>

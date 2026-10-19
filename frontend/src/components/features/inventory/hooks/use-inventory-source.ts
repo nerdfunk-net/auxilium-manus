@@ -8,7 +8,7 @@ import { useNautobotSourceCredentials } from "@/hooks/queries/use-nautobot-sourc
 import { useSettingsListQuery } from "@/hooks/queries/use-settings-query";
 
 export function useInventorySource() {
-  const { data, isLoading: isLoadingSettings } = useSettingsListQuery({
+  const { data, isLoading: isLoadingSettings, error: settingsError } = useSettingsListQuery({
     keyPrefix: SOURCE_KEY_PREFIXES.nautobot,
   });
 
@@ -29,6 +29,7 @@ export function useInventorySource() {
       isLoading: isLoadingSettings || credentials.isLoading,
       isReady: Boolean(firstSourceId) && credentials.isReady,
       hasSources: Boolean(firstSourceId),
+      error: settingsError?.message ?? null,
     }),
     [
       firstSourceId,
@@ -36,6 +37,7 @@ export function useInventorySource() {
       credentials.isLoading,
       credentials.isReady,
       isLoadingSettings,
+      settingsError,
     ],
   );
 }

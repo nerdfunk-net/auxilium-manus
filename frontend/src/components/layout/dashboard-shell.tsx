@@ -4,7 +4,7 @@ import { useEffect, type ReactNode } from "react";
 
 import dynamic from "next/dynamic";
 import { useWorkflowBuilderStore } from "@/components/features/workflows/hooks/use-workflow-builder-store";
-import { useGeneralSettingsQuery } from "@/hooks/queries/use-general-settings-query";
+import { useClientSettingsQuery } from "@/hooks/queries/use-client-settings-query";
 import { useSessionManager } from "@/hooks/use-session-manager";
 import { useAuthStore } from "@/lib/auth-store";
 
@@ -24,7 +24,7 @@ interface DashboardShellProps {
 const DEFAULT_SESSION_TIMEOUT_MINUTES = 20;
 
 export function DashboardShell({ children }: DashboardShellProps) {
-  const { data: generalSettings } = useGeneralSettingsQuery();
+  const { data: generalSettings } = useClientSettingsQuery();
   const mustChangePassword = useAuthStore((state) => state.user?.must_change_password === true);
   const userId = useAuthStore((state) => state.user?.id ?? null);
   const reconcileDraftOwner = useWorkflowBuilderStore((state) => state.reconcileDraftOwner);

@@ -116,6 +116,10 @@ connections, templates, sources, the mail settings, workflow canvases; finder in
 dialog offers that after showing the list. **Refresh tokens are not single-use** (a deliberate trade-off): a stolen token can be
 refreshed in parallel with its owner until logout or the session cap; refresh is rate limited.
 
+**Settings every session needs.** The idle-logout timeout and `switch_to_runs_on_start` are read from
+`GET /general/client-settings`, which any signed-in user may call (no `general_settings:read`); it never includes the
+export directory. The admin form keeps using `GET/PUT /general/settings`.
+
 ## Permission Pattern
 Format: `{resource}:{action}` (e.g., `users:read`, `settings:write`, `credentials:delete`)
 

@@ -59,7 +59,7 @@ interface PendingWorkflowNav {
 
 export function SchedulesPage() {
   const router = useRouter();
-  const { data: schedules, isLoading } = useSchedulesQuery();
+  const { data: schedules, isLoading, error } = useSchedulesQuery();
   const { updateSchedule, deleteSchedule } = useScheduleMutations();
 
   const builderWorkflowId = useWorkflowBuilderStore((state) => state.workflowId);
@@ -149,6 +149,8 @@ export function SchedulesPage() {
           <div className="flex items-center justify-center py-16 text-muted-foreground">
             <Loader2 className="size-5 animate-spin" aria-hidden />
           </div>
+        ) : error && !schedules ? (
+          <p className="text-sm text-destructive">{error.message}</p>
         ) : rows.length === 0 ? (
           <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed py-16 text-center text-muted-foreground">
             <CalendarClock className="size-10 opacity-30" aria-hidden />

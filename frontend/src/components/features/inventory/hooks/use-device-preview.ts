@@ -60,6 +60,8 @@ export function useDevicePreview(
 ) {
   const { sourceId, sourceReady } = options;
   const previewMutation = useGetNautobotDevicesPreviewMutation();
+  // useMutation returns a new object every render; only `mutate` is stable.
+  const { mutate: requestPreview } = previewMutation;
   const { toast } = useToast();
 
   const previewDevices = useMemo(() => {
@@ -151,7 +153,7 @@ export function useDevicePreview(
     }
 
     const operations = buildOperationsFromTree(conditionTree);
-    previewMutation.mutate(
+    requestPreview(
       { source_id: sourceId, operations },
       {
         onSuccess: (data) => {
@@ -168,7 +170,7 @@ export function useDevicePreview(
   }, [
     sourceReady,
     conditionTree,
-    previewMutation,
+    requestPreview,
     sourceId,
     toast,
     treeToFlatConditions,
@@ -208,7 +210,10 @@ export function useDevicePreview(
 
   const totalPages = Math.ceil(previewDevices.length / pageSize);
   const startIndex = (currentPage - 1) * pageSize;
-  const currentPageDevices = previewDevices.slice(startIndex, startIndex + pageSize);
+  const currentPageDevices = useMemo(
+    () => previewDevices.slice(startIndex, startIndex + pageSize),
+    [previewDevices, startIndex, pageSize],
+  );
 
   const handlePageChange = useCallback((page: number) => {
     setCurrentPage(page);

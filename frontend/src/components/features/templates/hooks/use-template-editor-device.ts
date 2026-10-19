@@ -1,7 +1,7 @@
 "use client";
 
 import { useMutation } from "@tanstack/react-query";
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 
 import { useApi } from "@/hooks/use-api";
 import { useToast } from "@/hooks/use-toast";
@@ -39,6 +39,9 @@ export function useTemplateEditorDevice({
         throw new Error("Select a device and credential first");
       }
       const host = bareIp(selectedDevice.primary_ip4) ?? selectedDevice.name ?? "";
+      if (!host) {
+        throw new Error("The selected device has no primary IP or name");
+      }
       return apiCall<GetConfigsResponse>("netmiko/get-configs", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -72,9 +75,11 @@ export function useTemplateEditorDevice({
     },
   });
 
+  // useMutation returns a new object every render; only `mutate` is stable.
+  const { mutate: fetchConfigs, isPending: isFetchingConfigs } = fetchDeviceConfigsMutation;
   const handleFetchConfigs = useCallback(() => {
-    fetchDeviceConfigsMutation.mutate();
-  }, [fetchDeviceConfigsMutation]);
+    fetchConfigs();
+  }, [fetchConfigs]);
 
   const canExecuteCommands = Boolean(
     selectedDevice && credentialId !== "none" && cleanedCommands.length > 0,
@@ -152,13 +157,26 @@ export function useTemplateEditorDevice({
     setCommandResults,
   ]);
 
-  return {
-    isFetchingConfigs: fetchDeviceConfigsMutation.isPending,
-    canFetchConfigs: Boolean(selectedDevice) && credentialId !== "none",
-    handleFetchConfigs,
-    canExecuteCommands,
-    isExecutingCommands,
-    executeHint,
-    handleExecuteCommands,
-  };
+  const canFetchConfigs = Boolean(selectedDevice) && credentialId !== "none";
+
+  return useMemo(
+    () => ({
+      isFetchingConfigs,
+      canFetchConfigs,
+      handleFetchConfigs,
+      canExecuteCommands,
+      isExecutingCommands,
+      executeHint,
+      handleExecuteCommands,
+    }),
+    [
+      isFetchingConfigs,
+      canFetchConfigs,
+      handleFetchConfigs,
+      canExecuteCommands,
+      isExecutingCommands,
+      executeHint,
+      handleExecuteCommands,
+    ],
+  );
 }

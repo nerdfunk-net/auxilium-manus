@@ -384,6 +384,26 @@ class ScheduleServiceUpdateTests(unittest.TestCase):
             self._create(svc)
         self.assertEqual(caught.exception.status_code, 500)
 
+    def test_create_with_sdk_validation_error_hides_library_internals(self) -> None:
+        from pydantic import BaseModel, Field, ValidationError
+
+        class _Probe(BaseModel):
+            tenant: str = Field(min_length=36)
+
+        try:
+            _Probe(tenant="pwtest")
+        except ValidationError as exc:
+            self.hatchet.cron.create.side_effect = exc
+        svc = _service()
+        svc.repo.create.return_value = _schedule_row()
+        with self.assertRaises(ValidationFailedError) as caught:
+            self._create(svc)
+        message = str(caught.exception)
+        self.assertIn("Invalid schedule configuration", message)
+        for leak in ("pydantic", "input_value", "errors.pydantic.dev", "string_too_short"):
+            self.assertNotIn(leak, message)
+        svc.repo.delete.assert_called_once()  # still all-or-nothing
+
     def test_update_with_engine_unreachable_answers_503(self) -> None:
         self.hatchet.cron.create.side_effect = RestTimeoutError("timed out")
         svc = _service()

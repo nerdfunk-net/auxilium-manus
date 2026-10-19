@@ -376,6 +376,8 @@ describe("loadFailed", () => {
     expect(result.current.sources.pyats.loadFailed).toBe(false);
   });
 
+  // Policy (decided 2026-10-19, doc/OPEN_TODOS.md): a user who cannot list credentials, repositories or
+  // sources may not import a workflow that references them. Do not relax this without a new decision.
   it("still requires a replacement when the credential list could not be loaded", () => {
     queries.credentials = { data: undefined, isLoading: false, isError: true };
     const { result } = setup([[node("a", { credential_reference: "lab" })]]);

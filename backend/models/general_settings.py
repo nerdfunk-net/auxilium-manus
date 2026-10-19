@@ -18,3 +18,14 @@ class GeneralSettings(BaseModel):
 
 class GeneralSettingsResponse(GeneralSettings):
     resolved_export_directory: str
+
+
+class ClientSettingsResponse(BaseModel):
+    """The few general settings every signed-in browser session needs.
+
+    Deliberately excludes the export directory: that is operator configuration and stays
+    behind ``general_settings:read``.
+    """
+
+    session_timeout_minutes: int
+    switch_to_runs_on_start: bool

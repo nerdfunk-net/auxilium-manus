@@ -72,6 +72,7 @@ export function InventoryPage() {
             isLoading={source.isLoading}
             isReady={source.isReady}
             sourceId={source.sourceId}
+            error={source.error}
           />
 
           <DeviceSelector
