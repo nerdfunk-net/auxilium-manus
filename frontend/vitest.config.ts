@@ -5,8 +5,8 @@ const alias = { "@": path.resolve(__dirname, "./src") };
 
 export default defineConfig({
   test: {
-    // Report only, no thresholds yet. `all: true` (the default for `include`)
-    // lists untested files too, so the gaps show up as 0 % rows.
+    // Coverage is measured by `npm run test:coverage` (the CI step). `include` lists untested
+    // files too, so the gaps show up as 0 % rows.
     coverage: {
       provider: "v8",
       reporter: ["text-summary", "json-summary", "html"],
@@ -18,6 +18,16 @@ export default defineConfig({
         "src/components/ui/**",
         "src/app/**",
       ],
+      // Ratchet: the run fails when coverage drops below these numbers. They sit just under the
+      // measured values (29.39 / 22.34 / 22.40 / 28.96 on 2026-10-19), so only a real regression
+      // trips them. Raise them whenever coverage has grown, never lower them to make a run pass.
+      // Running a subset of tests? Use `npx vitest run <file>` (no coverage, no threshold check).
+      thresholds: {
+        statements: 29,
+        branches: 22,
+        functions: 22,
+        lines: 28,
+      },
     },
     // Hook/component tests that need a DOM (React Testing Library) opt in via
     // a `.test.tsx` extension; plain logic tests stay on the faster "node"

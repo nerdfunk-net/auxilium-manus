@@ -38,8 +38,9 @@ jobs:
         run: npm run lint
       - name: tsc
         run: npx tsc --noEmit
-      - name: vitest
-        run: npm test
+      # Runs the whole suite and fails if coverage falls below the thresholds in vitest.config.ts.
+      - name: vitest + coverage ratchet
+        run: npm run test:coverage
       - name: next build
         run: npm run build
       - name: print first-load JS per route

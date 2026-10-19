@@ -32,7 +32,8 @@ Frontend, from `frontend/`:
 ```bash
 npm run lint
 npx tsc --noEmit
-npm test
+npm run test:coverage      # whole suite; coverage may not fall below the thresholds in vitest.config.ts
+npm test                   # same tests without coverage (faster); `npx vitest run <file>` for one file
 ```
 
 If you changed `docker/`, run `docker/check-compose.sh` (and `docker/check-image.sh` for the
