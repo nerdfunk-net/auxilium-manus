@@ -91,15 +91,27 @@ export interface StepOutcomeEnvelope {
   outcomes: Record<string, WorkflowContext>;
 }
 
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/**
+ * True for `{ outcomes: { <name>: { devices, metadata, ... } } }`. Every
+ * outcome must carry `devices` and `metadata` objects: consumers read both
+ * unguarded, so a truncated stored result is treated as "not an envelope"
+ * instead of throwing while the run list renders.
+ */
 export function isStepOutcomeEnvelope(
   output: unknown,
 ): output is StepOutcomeEnvelope & Record<string, unknown> {
-  return (
-    typeof output === "object" &&
-    output !== null &&
-    "outcomes" in output &&
-    typeof (output as StepOutcomeEnvelope).outcomes === "object" &&
-    (output as StepOutcomeEnvelope).outcomes !== null
+  if (!isPlainObject(output) || !isPlainObject(output.outcomes)) {
+    return false;
+  }
+  return Object.values(output.outcomes).every(
+    (outcome) =>
+      isPlainObject(outcome) &&
+      isPlainObject(outcome.devices) &&
+      isPlainObject(outcome.metadata),
   );
 }
 

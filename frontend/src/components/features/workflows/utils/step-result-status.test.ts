@@ -345,20 +345,27 @@ describe("summarizeCompareData", () => {
 });
 
 describe("malformed envelopes", () => {
-  // `isStepOutcomeEnvelope` only checks that `outcomes` is an object, so a
-  // corrupted or truncated stored result reaches these helpers. The run list
-  // should degrade, not crash the page.
-  // KNOWN BUG: both throw a TypeError today. Remove `.fails` once fixed.
-  it.fails("deriveStepDisplayStatus tolerates an outcome without devices", () => {
-    expect(() =>
-      deriveStepDisplayStatus("success", { outcomes: { success: { metadata: {} } } }),
-    ).not.toThrow();
+  // A corrupted or truncated stored result must degrade to "no summary"
+  // instead of crashing the run list.
+  const noDevices = { outcomes: { success: { metadata: {} } } };
+  const noMetadata = { outcomes: { success: { devices: {} } } };
+
+  it("deriveStepDisplayStatus falls back to the engine status", () => {
+    expect(deriveStepDisplayStatus("success", noDevices)).toBe("success");
+    expect(deriveStepDisplayStatus("success", noMetadata)).toBe("success");
   });
 
-  it.fails("summarizers tolerate an outcome without metadata", () => {
-    const out = { outcomes: { success: { devices: {} } } };
-    expect(() => summarizeRouteCounts(out)).not.toThrow();
-    expect(() => summarizeFanOutInventory(out)).not.toThrow();
-    expect(() => summarizeFanIn(out)).not.toThrow();
+  it("countOutcomeDevices returns zeros", () => {
+    const zero = { success: 0, failure: 0, totalOutcomes: 0 };
+    expect(countOutcomeDevices(noDevices)).toEqual(zero);
+    expect(countOutcomeDevices(noMetadata)).toEqual(zero);
+  });
+
+  it("summarizers return null", () => {
+    for (const out of [noDevices, noMetadata]) {
+      expect(summarizeRouteCounts(out)).toBeNull();
+      expect(summarizeFanOutInventory(out)).toBeNull();
+      expect(summarizeFanIn(out)).toBeNull();
+    }
   });
 });
