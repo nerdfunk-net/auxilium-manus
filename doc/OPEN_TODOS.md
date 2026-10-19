@@ -729,3 +729,41 @@ If operators ask for run problems in the Hatchet dashboard. Then:
    `[warning] r1.lab: connect retry 2/3`. Add an environment variable (default off) to enable it.
 4. Tests with a fake log callable: the happy path, and a failing or full `ctx.log` never breaking the run.
    Check a fan-out run with many failing devices against a real engine for dropped lines.
+
+---
+
+## `useSourcesSettings` returns a new object on every render
+
+**Added:** 2026-10-19 · **Area:** `frontend/src/components/features/settings/hooks/use-sources-settings.ts`,
+`use-sources-settings-save.ts`
+
+### What we have
+
+`useSourcesSettings` wraps its return value in `useMemo`, but one of the dependencies, `saveHandlers`, is the
+plain object `useSourcesSettingsSave` returns. Its eleven callbacks (`saveNautobot`, `saveIse`, `updateIse`, ...)
+list whole `useMutation` results in their dependency arrays, and TanStack Query creates a new result object on
+every render. So the callbacks change on every render, then `saveHandlers`, then the memoized return value, and
+the `useMemo` in `useSourcesSettings` never holds.
+
+Found while writing the unit tests (2026-10-19). No misbehaviour has been seen, and the consumers were not
+audited for effects or memoized children that take the result or its callbacks. It breaks the "memoize hook
+returns" rule in `doc/claude/frontend.md`, and it becomes an infinite-loop risk the first time a consumer puts
+the result into an effect dependency. The same pattern was fixed in `useTemplateEditorBatfish`
+(`handleRunQuery` depended on the mutation object; it now depends on `mutate`).
+
+### End state
+
+`useSourcesSettings` returns the same object while nothing it exposes has changed.
+
+### Why it is deferred
+
+No defect follows from it today, and the fix touches eleven callbacks in a 300-line hook.
+
+### When we revisit
+
+1. In `use-sources-settings-save.ts`, depend on the stable `mutateAsync` of each mutation (destructure it) instead
+   of the mutation object, and wrap the return value in `useMemo`.
+2. Add the "returns the same object when nothing changed" test to `use-sources-settings.test.tsx`; it was left
+   out on purpose because it fails today.
+3. Search for other hooks with a mutation or query result object in a `useCallback`/`useMemo` dependency array
+   (`grep -n "\[.*Mutation\b" frontend/src/hooks frontend/src/components --include=use-*.ts`).
