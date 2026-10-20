@@ -79,6 +79,7 @@ from workflow_steps.get_ise_devices.executor import execute as get_ise_devices
 from workflow_steps.get_ise_tacacs_key.executor import execute as get_ise_tacacs_key
 from workflow_steps.get_nautobot_attributes.executor import execute as get_nautobot_attributes
 from workflow_steps.get_nautobot_devices.executor import execute as get_nautobot_devices
+from workflow_steps.get_next_free_ip.executor import execute as get_next_free_ip
 from workflow_steps.get_pyats_running_config.executor import execute as get_pyats_running_config
 from workflow_steps.get_pyats_snapshot.executor import execute as get_pyats_snapshot
 from workflow_steps.get_virtual_chassis.executor import execute as get_virtual_chassis
@@ -149,6 +150,7 @@ STEP_REGISTRY: dict[str, StepExecutor] = {
     "add-to-nautobot": add_to_nautobot,
     "add-nautobot-metadata": add_nautobot_metadata,
     "get-nautobot-attributes": get_nautobot_attributes,
+    "get-next-free-ip": get_next_free_ip,
     "get-device-location": get_device_location,
     "get-virtual-chassis": get_virtual_chassis,
     "split-virtual-chassis": split_virtual_chassis,

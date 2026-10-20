@@ -2228,6 +2228,69 @@ plugins:
             - interfaces
             - custom_fields
 
+  - id: get-next-free-ip
+    name: Get Next Free IP
+    overview: Find the next free IP addresses of a Nautobot prefix and store them in an attribute.
+    description: >
+      Look up a prefix in a Nautobot namespace, read its free addresses and write the next
+      ones to an attribute you choose (a single address, or a list when more than one is
+      needed). Each device gets its own addresses. The step only reads: it does not reserve
+      anything in Nautobot, so parallel fan-out children or runs can receive the same address.
+    artifact_type: inventory_selector
+    palette_category: nautobot
+    directory: get_next_free_ip
+    enabled: true
+    requires: [identity]
+    produces: [attributes]
+    outcomes:
+      - name: success
+      - name: failure
+    metadata:
+      configuration_input:
+        - name: nautobot_source_id
+          description: ID of a Nautobot source configured under Settings → Sources.
+          data_type: string
+          required: true
+          example: prod-lab
+        - name: prefix
+          description: >
+            Prefix in CIDR form to take addresses from. Fixed value or a {path} expression
+            resolved per device. An address with a length (192.168.178.240/24) is turned
+            into its network. An address without a length (such as {device.primary_ip4})
+            is looked up in Nautobot: the most specific prefix of the namespace that
+            contains it is used.
+          data_type: string
+          required: true
+          example: 192.168.178.0/24
+        - name: namespace
+          description: >
+            Name (or UUID) of the Nautobot namespace the prefix lives in. The same prefix can
+            exist in several namespaces. Fixed value or a {path} expression.
+          data_type: string
+          required: true
+          default: Global
+        - name: count
+          description: Number of free addresses each device needs (1-100).
+          data_type: integer
+          required: false
+          default: 1
+        - name: start_offset
+          description: >
+            Where the search starts, counted from the prefix's network address.
+            192.168.178.0/24 with 10 starts at 192.168.178.10.
+          data_type: integer
+          required: false
+          default: 1
+          example: 10
+        - name: attribute_path
+          description: >
+            Attribute that receives the result, for example custom.new_ip. A string for
+            count 1, a list of strings for a higher count. Reserved bags (parsed, run_input)
+            and read-only device fields are rejected.
+          data_type: string
+          required: true
+          example: custom.new_ip
+
   - id: get-device-location
     name: Get Location of Device
     overview: Write the device's location of a chosen location type (e.g. City) to an attribute.

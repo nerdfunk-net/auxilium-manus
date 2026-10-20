@@ -210,9 +210,7 @@ async def dispatch(input: ScheduledTriggerInput, ctx: Context) -> dict:
                 finished_at=datetime.now(UTC),
             )
             return {"run_id": run.id, "status": "failed"}
-        run_repo.update_run_status(
-            run, status="pending", hatchet_run_id=str(ref.workflow_run_id or "")
-        )
+        run_repo.record_hatchet_run_id(run, str(ref.workflow_run_id or ""))
 
         logger.info(
             "Scheduled trigger dispatched run_id=%s workflow_id=%s schedule_id=%s",

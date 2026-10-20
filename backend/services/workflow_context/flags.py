@@ -47,6 +47,8 @@ def parse_int_flag(
         return default
     if isinstance(value, bool):
         raise ValueError(f"{key} must be a whole number, got {value!r}")
+    if isinstance(value, float) and not value.is_integer():
+        raise ValueError(f"{key} must be a whole number, got {value!r}")
     try:
         number = int(value)
     except (TypeError, ValueError) as exc:

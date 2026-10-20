@@ -53,6 +53,21 @@ class RunTransitionTests(unittest.TestCase):
         self.assertEqual(result.status, "cancelled")
         self.assertIsNone(result.finished_at)
 
+    def test_recording_hatchet_id_never_reverts_a_claimed_run(self) -> None:
+        # The worker's prepare task can claim the run before the API stores the Hatchet id.
+        run = add_run(self.db, status="pending")
+        self.assertTrue(
+            self.repo.transition_run(run.id, to_status="running", from_statuses=("pending",))
+        )
+        result = self.repo.record_hatchet_run_id(run, "h-1")
+        self.assertEqual(result.status, "running")
+        self.assertEqual(result.hatchet_run_id, "h-1")
+
+    def test_recording_hatchet_id_on_a_pending_run_keeps_it_pending(self) -> None:
+        run = add_run(self.db, status="pending")
+        result = self.repo.record_hatchet_run_id(run, "h-2")
+        self.assertEqual((result.status, result.hatchet_run_id), ("pending", "h-2"))
+
     def test_claim_only_from_pending(self) -> None:
         run = add_run(self.db, status="running")
         self.assertFalse(

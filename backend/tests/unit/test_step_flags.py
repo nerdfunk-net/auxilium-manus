@@ -99,3 +99,12 @@ def test_int_flag_bounds_and_errors() -> None:
         parse_int_flag({"chunk_size": "abc"}, "chunk_size", default=1)
     with pytest.raises(ValueError, match="whole number"):
         parse_int_flag({"n": True}, "n", default=1)
+
+
+def test_parse_int_flag_refuses_a_fractional_float() -> None:
+    with pytest.raises(ValueError):
+        parse_int_flag({"n": 1.9}, "n", default=1)
+
+
+def test_parse_int_flag_accepts_an_integral_float() -> None:
+    assert parse_int_flag({"n": 2.0}, "n", default=1) == 2

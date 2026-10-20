@@ -327,7 +327,7 @@ class RunService:
             )
             dispatch_breaker.record_success()
             hatchet_run_id = str(ref.workflow_run_id or "")
-            self.run_repo.update_run_status(run, status="pending", hatchet_run_id=hatchet_run_id)
+            self.run_repo.record_hatchet_run_id(run, hatchet_run_id)
             logger.info("Dispatched run_id=%s hatchet_run_id=%s", run_id, hatchet_run_id)
         except Exception as exc:
             if not isinstance(exc, EngineUnavailableError):

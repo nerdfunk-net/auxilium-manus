@@ -806,6 +806,14 @@ Open:
 - **A credential reference field shows an empty select, not a hint,** when the user lacks `credentials:read`
   (`schedule-parameter-fields.tsx`).
 
+Not yet verified or decided (2026-10-20):
+- **Browser pass on the isolated stack** for round 6 and the review fixes: viewer on `/inventory` and the template editor
+  against `configured-sources`, Manage / Save As dialogs (cleared folder, server error text, delete failure), the
+  Batfish tab for a `:query`-only user and after a source change, and the conflict message of a rename or folder move
+  onto an existing name (`update_workflow` now refuses it; check how both dialogs show it).
+- **Legacy folder rows:** rows stored with `""` or `NULL` as the folder are read as `/` but not migrated. Decide on a
+  one-time cleanup (and what to do with twins it would create).
+
 ### Found in round 2 (hook tests)
 
 Round 5 (2026-10-19): Save & Run writes the run-input schema once (the save carries it; `requestRun` takes

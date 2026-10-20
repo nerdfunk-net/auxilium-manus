@@ -186,6 +186,22 @@ class RunRepository:
         self.db.commit()
         return result.rowcount == 1
 
+    def record_hatchet_run_id(self, run: WorkflowRun, hatchet_run_id: str) -> WorkflowRun:
+        """Store the engine's run id without touching ``status``.
+
+        The worker can claim the run (``pending`` -> ``running``) before the dispatching process
+        gets here, so a status write at this point would put a started run back to ``pending``.
+        """
+        self.db.execute(
+            update(WorkflowRun)
+            .where(WorkflowRun.id == run.id)
+            .values(hatchet_run_id=hatchet_run_id)
+            .execution_options(synchronize_session=False)
+        )
+        self.db.commit()
+        self.db.refresh(run)
+        return run
+
     def update_run_status(
         self,
         run: WorkflowRun,
