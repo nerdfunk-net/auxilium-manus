@@ -22,6 +22,7 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable
 
 from models.workflow_context import StepOutcome
+from workflow_steps.add_ip_to_nautobot.executor import execute as add_ip_to_nautobot
 from workflow_steps.add_nautobot_metadata.executor import execute as add_nautobot_metadata
 from workflow_steps.add_pyats_testbed.executor import execute as add_pyats_testbed
 from workflow_steps.add_to_ise.executor import execute as add_to_ise
@@ -151,6 +152,7 @@ STEP_REGISTRY: dict[str, StepExecutor] = {
     "add-nautobot-metadata": add_nautobot_metadata,
     "get-nautobot-attributes": get_nautobot_attributes,
     "get-next-free-ip": get_next_free_ip,
+    "add-ip-to-nautobot": add_ip_to_nautobot,
     "get-device-location": get_device_location,
     "get-virtual-chassis": get_virtual_chassis,
     "split-virtual-chassis": split_virtual_chassis,

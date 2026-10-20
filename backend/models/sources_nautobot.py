@@ -237,6 +237,15 @@ class NautobotLocationTypeListResponse(BaseModel):
     location_types: list[NautobotLocationTypeSummary]
 
 
+class NautobotStatusSummary(BaseModel):
+    id: str
+    name: str
+
+
+class NautobotStatusListResponse(BaseModel):
+    statuses: list[NautobotStatusSummary]
+
+
 class NautobotJobVariable(BaseModel):
     """Mirrors Nautobot's ``JobVariableSerializer`` (GET .../jobs/{id}/variables/)."""
 

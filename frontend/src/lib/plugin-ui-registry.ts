@@ -55,6 +55,7 @@ const PLUGIN_UI_LOADERS: Record<string, PluginUILoader> = {
   "list-contains": () => import("@/components/features/workflow-steps/list-contains").then((m) => m.ListContainsPlugin),
   "exists-in-nautobot": () => import("@/components/features/workflow-steps/exists-in-nautobot").then((m) => m.ExistsInNautobotPlugin),
   "get-next-free-ip": () => import("@/components/features/workflow-steps/get-next-free-ip").then((m) => m.GetNextFreeIpPlugin),
+  "add-ip-to-nautobot": () => import("@/components/features/workflow-steps/add-ip-to-nautobot").then((m) => m.AddIpToNautobotPlugin),
   reachable: () => import("@/components/features/workflow-steps/reachable").then((m) => m.ReachablePlugin),
   "login-successful": () => import("@/components/features/workflow-steps/login-successful").then((m) => m.LoginSuccessfulPlugin),
   "fan-in": () => import("@/components/features/workflow-steps/fan-in").then((m) => m.FanInPlugin),

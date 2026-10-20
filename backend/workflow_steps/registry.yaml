@@ -2291,6 +2291,97 @@ plugins:
           required: true
           example: custom.new_ip
 
+  - id: add-ip-to-nautobot
+    name: Add IP to Nautobot
+    overview: Create an IP address in Nautobot (and its prefix if it is missing).
+    description: >
+      Create an IP address in a Nautobot namespace with the status you choose. The address
+      is a fixed value or an attribute, for example the one found by Get Next Free IP. An
+      address without a prefix length takes the length of the most specific prefix that
+      contains it. An address that already exists is reused. Optionally creates the missing
+      parent prefix, stores the Nautobot ID of the address in an attribute and assigns it to
+      a device interface (as primary IPv4).
+    artifact_type: inventory_selector
+    palette_category: nautobot
+    directory: add_ip_to_nautobot
+    enabled: true
+    requires: [identity]
+    produces: [attributes]
+    outcomes:
+      - name: success
+      - name: failure
+    metadata:
+      configuration_input:
+        - name: nautobot_source_id
+          description: ID of a Nautobot source configured under Settings → Sources.
+          data_type: string
+          required: true
+          example: prod-lab
+        - name: ip_address
+          description: >
+            IP address to create. Fixed value or a {path} expression resolved per device.
+            With a prefix length (192.168.178.10/24) it is used as it is; without one the
+            length of the most specific prefix containing it in the namespace is used.
+          data_type: string
+          required: true
+          example: "{custom.new_ip}"
+        - name: namespace
+          description: >
+            Name (or UUID) of the Nautobot namespace. Fixed value or a {path} expression.
+          data_type: string
+          required: true
+          default: Global
+        - name: status
+          description: >
+            Status of the new IP address: a name valid for IP addresses in Nautobot (for
+            example Active, Deprecated, Reserved), its UUID, or a {path} expression.
+          data_type: string
+          required: true
+          default: Active
+        - name: create_prefix
+          description: >
+            Create the parent prefix (status Active) when no prefix contains the address.
+            Not needed after Get Next Free IP.
+          data_type: boolean
+          required: false
+          default: false
+        - name: default_mask_length
+          description: >
+            Prefix length used for an address without one when no prefix contains it and
+            create_prefix is on. Empty uses 24 (IPv4) or 64 (IPv6).
+          data_type: integer
+          required: false
+          example: 24
+        - name: description
+          description: Description of the IP address. Fixed value or a {path} expression.
+          data_type: string
+          required: false
+        - name: dns_name
+          description: DNS name of the IP address. Fixed value or a {path} expression.
+          data_type: string
+          required: false
+        - name: result_attribute
+          description: >
+            Attribute that receives the Nautobot UUID of the created or existing IP
+            address, for example custom.ip_id. Reserved bags (parsed, run_input) and
+            read-only device fields are rejected.
+          data_type: string
+          required: false
+          example: custom.ip_id
+        - name: interface_name
+          description: >
+            Name of the device interface to assign the address to. The device must exist in
+            Nautobot. Fixed value or a {path} expression.
+          data_type: string
+          required: false
+          example: Vlan1
+        - name: set_primary
+          description: >
+            Also set the address as the device's primary IPv4. Needs interface_name.
+          data_type: boolean
+          required: false
+          default: false
+
   - id: get-device-location
     name: Get Location of Device
     overview: Write the device's location of a chosen location type (e.g. City) to an attribute.

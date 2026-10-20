@@ -38,6 +38,8 @@ from models.sources_nautobot import (
     NautobotLocationTypeSummary,
     NautobotObjectResolveRequest,
     NautobotObjectResolveResponse,
+    NautobotStatusListResponse,
+    NautobotStatusSummary,
     NautobotTestConnectionRequest,
     NautobotTestConnectionResponse,
     RenameGroupRequest,
@@ -53,6 +55,7 @@ from services.nautobot.devices.common import DeviceCommonService
 from services.nautobot.devices.uuid_resolver import resolve_nautobot_uuid
 from services.nautobot.jobs import NautobotJobsService
 from services.nautobot.location_types import NautobotLocationTypesService
+from services.nautobot.statuses import NautobotStatusesService, StatusContentType
 from services.settings.settings_service import SettingsService
 from services.sources.nautobot.connection import test_nautobot_connection
 from services.sources.nautobot.persistence_service import InventoryService
@@ -88,6 +91,11 @@ def _build_location_types_service(
 ) -> NautobotLocationTypesService:
     client = CredentialsBoundNautobotClient(service_factory.get_nautobot_app_service(), credentials)
     return NautobotLocationTypesService(client)
+
+
+def _build_statuses_service(credentials: NautobotCredentials) -> NautobotStatusesService:
+    client = CredentialsBoundNautobotClient(service_factory.get_nautobot_app_service(), credentials)
+    return NautobotStatusesService(client)
 
 
 def _build_device_common_service(credentials: NautobotCredentials) -> DeviceCommonService:
@@ -418,6 +426,29 @@ async def list_location_types(
         return NautobotLocationTypeListResponse(location_types=items)
     except Exception as exc:
         raise_internal_server_error(logger, "Failed to list Nautobot location types: ", exc)
+
+
+@router.get(
+    "/statuses",
+    response_model=NautobotStatusListResponse,
+    dependencies=[Depends(rate_limited("nautobot-statuses", attempts=30, window_seconds=60))],
+)
+async def list_statuses(
+    content_type: StatusContentType = "ipam.ipaddress",
+    credentials: NautobotCredentials = Depends(nautobot_credentials_from_source_id),
+    _: User = Depends(get_current_user),
+) -> NautobotStatusListResponse:
+    try:
+        raw = await _build_statuses_service(credentials).list_statuses(content_type)
+        return NautobotStatusListResponse(
+            statuses=[
+                NautobotStatusSummary(id=str(entry["id"]), name=str(entry["name"]))
+                for entry in raw
+                if entry.get("id") and entry.get("name")
+            ]
+        )
+    except Exception as exc:
+        raise_internal_server_error(logger, "Failed to list Nautobot statuses: ", exc)
 
 
 @router.get("/jobs/{job_id}/variables", response_model=NautobotJobVariablesResponse)

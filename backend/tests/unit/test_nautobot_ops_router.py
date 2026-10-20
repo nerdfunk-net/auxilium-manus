@@ -133,3 +133,59 @@ def test_location_types_listing_failure_is_sanitised(ctx, monkeypatch):
 
     assert response.status_code == 500
     assert "secret-token" not in response.text
+
+
+def test_statuses_listing_maps_rest_payload(ctx, monkeypatch):
+    client, _service = ctx
+    from dependencies import nautobot_credentials_from_source_id
+
+    client.app.dependency_overrides[nautobot_credentials_from_source_id] = lambda: MagicMock()
+    statuses_service = MagicMock()
+    statuses_service.list_statuses = AsyncMock(
+        return_value=[
+            {"id": "1", "name": "Active"},
+            {"id": "2", "name": "Reserved"},
+            {"id": "3", "name": ""},
+            {"name": "NoId"},
+        ]
+    )
+    monkeypatch.setattr(ops, "_build_statuses_service", lambda *_a, **_k: statuses_service)
+
+    response = client.get("/api/sources/nautobot/statuses?source_id=s")
+
+    assert response.status_code == 200
+    assert response.json()["statuses"] == [
+        {"id": "1", "name": "Active"},
+        {"id": "2", "name": "Reserved"},
+    ]
+    statuses_service.list_statuses.assert_awaited_once_with("ipam.ipaddress")
+
+
+def test_statuses_listing_rejects_an_unknown_content_type(ctx, monkeypatch):
+    client, _service = ctx
+    from dependencies import nautobot_credentials_from_source_id
+
+    client.app.dependency_overrides[nautobot_credentials_from_source_id] = lambda: MagicMock()
+    statuses_service = MagicMock()
+    statuses_service.list_statuses = AsyncMock(return_value=[])
+    monkeypatch.setattr(ops, "_build_statuses_service", lambda *_a, **_k: statuses_service)
+
+    response = client.get("/api/sources/nautobot/statuses?source_id=s&content_type=../x")
+
+    assert response.status_code == 422
+    statuses_service.list_statuses.assert_not_called()
+
+
+def test_statuses_listing_failure_is_sanitised(ctx, monkeypatch):
+    client, _service = ctx
+    from dependencies import nautobot_credentials_from_source_id
+
+    client.app.dependency_overrides[nautobot_credentials_from_source_id] = lambda: MagicMock()
+    statuses_service = MagicMock()
+    statuses_service.list_statuses = AsyncMock(side_effect=RuntimeError("secret-token"))
+    monkeypatch.setattr(ops, "_build_statuses_service", lambda *_a, **_k: statuses_service)
+
+    response = client.get("/api/sources/nautobot/statuses?source_id=s")
+
+    assert response.status_code == 500
+    assert "secret-token" not in response.text

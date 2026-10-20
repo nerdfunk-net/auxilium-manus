@@ -30,6 +30,10 @@ interface SelectOrExpressionFieldProps {
   sourceId: string;
   /** Field name for GET sources/nautobot/field-values/{field}; omit for a free-text field. */
   optionsField?: string;
+  /** Options the caller already loaded (e.g. statuses); used instead of `optionsField`. */
+  options?: { value: string; label: string }[];
+  /** Whether `options` are still loading. */
+  optionsLoading?: boolean;
   required?: boolean;
   hint?: string;
   nodeId: string;
@@ -50,6 +54,8 @@ export function SelectOrExpressionField({
   onValueChange,
   sourceId,
   optionsField,
+  options: providedOptions,
+  optionsLoading = false,
   required = false,
   hint,
   nodeId,
@@ -57,13 +63,18 @@ export function SelectOrExpressionField({
   workflowEdges,
 }: SelectOrExpressionFieldProps) {
   const [pickerOpen, setPickerOpen] = useState(false);
-  const options = useGetNautobotDevicesFieldValuesQuery({
+  const fieldOptions = useGetNautobotDevicesFieldValuesQuery({
     sourceId,
     field: optionsField ?? "",
-    enabled: Boolean(optionsField),
+    enabled: Boolean(optionsField) && !providedOptions,
   });
+  const hasList = Boolean(optionsField) || providedOptions !== undefined;
+  const isLoading = providedOptions ? optionsLoading : fieldOptions.isLoading;
 
-  const optionValues = useMemo(() => options.data?.values ?? [], [options.data]);
+  const optionValues = useMemo(
+    () => providedOptions ?? fieldOptions.data?.values ?? [],
+    [providedOptions, fieldOptions.data],
+  );
   const selected = optionValues.some((option) => option.value === value) ? value : "";
   const isEmpty = !value.trim();
 
@@ -82,7 +93,7 @@ export function SelectOrExpressionField({
 
   const listPlaceholder = !sourceId
     ? "Select a source first"
-    : options.isLoading
+    : isLoading
       ? "Loading…"
       : optionValues.length === 0
         ? "No options"
@@ -105,7 +116,7 @@ export function SelectOrExpressionField({
           onChange={handleInputChange}
           aria-label={label}
         />
-        {optionsField ? (
+        {hasList ? (
           <Select
             value={selected}
             onValueChange={onValueChange}

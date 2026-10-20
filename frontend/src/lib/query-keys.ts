@@ -148,6 +148,8 @@ export const queryKeys = {
       [...queryKeys.sourcesNautobot.all, "jobs", sourceId, enabledOnly] as const,
     locationTypes: (sourceId: string) =>
       [...queryKeys.sourcesNautobot.all, "location-types", sourceId] as const,
+    statuses: (sourceId: string, contentType: string) =>
+      [...queryKeys.sourcesNautobot.all, "statuses", sourceId, contentType] as const,
     jobVariables: (sourceId: string, jobId: string) =>
       [...queryKeys.sourcesNautobot.all, "job-variables", sourceId, jobId] as const,
   },
