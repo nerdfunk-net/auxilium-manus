@@ -3,6 +3,7 @@
 import { useMemo } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 
+import { SOURCE_KEY_PREFIXES } from "@/components/features/settings/constants/setting-keys";
 import type {
   SettingCreatePayload,
   SettingRecord,
@@ -23,6 +24,12 @@ export function useSettingsMutations() {
       queryClient.invalidateQueries({
         queryKey: queryKeys.settings.detail(key),
       });
+      // Pages without settings:read read the Nautobot sources from their own endpoint.
+      if (key.startsWith(SOURCE_KEY_PREFIXES.nautobot)) {
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.sourcesNautobot.configuredSources(),
+        });
+      }
     }
   };
 

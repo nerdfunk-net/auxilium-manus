@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from datetime import UTC, datetime
+from typing import Any
 
 from sqlalchemy.orm import Session
 
@@ -424,6 +425,10 @@ class WorkflowService:
     ) -> WorkflowResponse:
         updated_fields = data.model_dump(exclude_unset=True)
         expected = updated_fields.pop("expected_updated_at", None)
+        if "folder" in updated_fields:
+            # Same rule as create and the name check: no folder means the root.
+            updated_fields["folder"] = updated_fields["folder"] or "/"
+        self._assert_identity_free(workflow, updated_fields)
         if expected is not None and _as_utc(workflow.updated_at) != _as_utc(expected):
             raise ConflictError(
                 "The workflow was changed by someone else (or by an AI session) after you opened it"
@@ -554,6 +559,32 @@ class WorkflowService:
         if workflow.visibility == "private" and workflow.creator_id != user_id:
             raise AccessDeniedError("Access denied")
         return workflow
+
+    def _assert_identity_free(self, workflow: Workflow, fields: dict[str, Any]) -> None:
+        """Refuse an update that moves the workflow onto another one's name, folder and visibility.
+
+        Only a change is checked: a row that already shares its identity with another (a legacy
+        ``""`` folder read as ``/``) can still be edited without touching the identity.
+        """
+        if not {"name", "folder", "visibility"} & fields.keys():
+            return
+        current = (workflow.name, workflow.folder or "/", workflow.visibility)
+        target = (
+            fields.get("name", workflow.name),
+            fields.get("folder", workflow.folder) or "/",
+            fields.get("visibility", workflow.visibility),
+        )
+        if target == current:
+            return
+        name, folder, visibility = target
+        if self.repo.name_exists(
+            name=name,
+            folder=folder,
+            visibility=visibility,
+            creator_id=workflow.creator_id,
+            exclude_id=workflow.id,
+        ):
+            raise ConflictError(f'A workflow named "{name}" already exists in folder "{folder}".')
 
     def check_name_available(
         self,

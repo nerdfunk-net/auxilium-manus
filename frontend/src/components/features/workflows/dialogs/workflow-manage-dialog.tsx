@@ -28,6 +28,7 @@ import { Switch } from "@/components/ui/switch";
 import { useWorkflowExportMutation } from "@/hooks/queries/use-workflow-export-mutation";
 import { useWorkflowMutations } from "@/hooks/queries/use-workflow-mutations";
 import { useWorkflowsQuery } from "@/hooks/queries/use-workflows-query";
+import { useToast } from "@/hooks/use-toast";
 import { queryKeys } from "@/lib/query-keys";
 
 import { useWorkflowGitRepositories } from "../hooks/use-workflow-git-repositories";
@@ -68,6 +69,10 @@ export function WorkflowManageDialog({
 }: WorkflowManageDialogProps) {
   const { data, isLoading, error } = useWorkflowsQuery();
   const { updateWorkflow, deleteWorkflow } = useWorkflowMutations();
+  // `useMutation` returns a new object on every state change; its `mutate` is stable.
+  const { mutate: updateWorkflowMutate } = updateWorkflow;
+  const { mutate: deleteWorkflowMutate } = deleteWorkflow;
+  const { toast } = useToast();
   const exportWorkflow = useWorkflowExportMutation();
   const queryClient = useQueryClient();
   const { hasConfiguredGitRepository } = useWorkflowGitRepositories();
@@ -140,8 +145,9 @@ export function WorkflowManageDialog({
       if (!editingWorkflow) return;
       setSaveError(null);
       setSaveSuccess(null);
-      updateWorkflow.mutate(
-        { id: editingWorkflow.id, data: { ...values } },
+      updateWorkflowMutate(
+        // An empty folder means the root; the server stores what it is sent.
+        { id: editingWorkflow.id, data: { ...values, folder: values.folder || "/" } },
         {
           onSuccess: (updated) => {
             // Patch the cached list immediately so the folder tree re-derives
@@ -171,16 +177,17 @@ export function WorkflowManageDialog({
             setSaveSuccess(`"${updated.name}" saved.`);
             setEditingWorkflow(null);
           },
-          onError: () => setSaveError("Failed to update workflow."),
+          onError: (error) =>
+            setSaveError(error.message || "Failed to update workflow."),
         },
       );
     },
-    [editingWorkflow, updateWorkflow, queryClient],
+    [editingWorkflow, updateWorkflowMutate, queryClient],
   );
 
   const handleDeleteConfirm = useCallback(() => {
     if (deletingWorkflowId === null) return;
-    deleteWorkflow.mutate(deletingWorkflowId, {
+    deleteWorkflowMutate(deletingWorkflowId, {
       onSuccess: () => {
         if (editingWorkflow?.id === deletingWorkflowId) {
           setEditingWorkflow(null);
@@ -188,11 +195,18 @@ export function WorkflowManageDialog({
         }
         setDeletingWorkflowId(null);
       },
-      onError: () => {
+      onError: (error) => {
         setDeletingWorkflowId(null);
+        // For example "The workflow has runs in progress": without this the dialog just
+        // closes the confirmation and the workflow stays, with no word why.
+        toast({
+          title: "Delete failed",
+          description: error.message || "The workflow could not be deleted.",
+          variant: "destructive",
+        });
       },
     });
-  }, [deletingWorkflowId, deleteWorkflow, editingWorkflow, reset]);
+  }, [deletingWorkflowId, deleteWorkflowMutate, editingWorkflow, reset, toast]);
 
   const handleDeleteRequest = useCallback(
     (wf: WorkflowSummary) => {

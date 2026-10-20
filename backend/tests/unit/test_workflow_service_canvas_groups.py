@@ -69,6 +69,7 @@ def _service_with_mocked_repo(workflow: Workflow) -> WorkflowService:
     service.repo.get_by_id.return_value = (workflow, "creator")
     service.repo.create.return_value = workflow
     service.repo.update.side_effect = _apply_update
+    service.repo.name_exists.return_value = False
     service.git = MagicMock()
     service.git.sync_workflow_to_git.return_value = WorkflowGitSyncResult(status="ok")
     service.changes = MagicMock()
@@ -238,3 +239,107 @@ class TestWorkflowServiceRepairsOnCreate:
         )
 
         assert service.repo.create.call_args.kwargs["canvas_groups"] == []
+
+
+class TestWorkflowServiceFolderNormalisation:
+    """``create`` stores an empty folder as the root; an update must not store it as ``""``.
+
+    ``check_name_available`` and ``find_id_by_name`` compare against ``folder or "/"``, so a
+    workflow saved with ``""`` would never be found again and could be duplicated.
+    """
+
+    @pytest.mark.parametrize("sent", ["", None])
+    def test_update_stores_an_empty_folder_as_the_root(self, sent: str | None) -> None:
+        workflow = _persisted_workflow(folder="/net")
+        service = _service_with_mocked_repo(workflow)
+
+        service.update_workflow(1, WorkflowUpdate(folder=sent), user_id=1)
+
+        assert service.repo.update.call_args.args[1]["folder"] == "/"
+
+    def test_update_keeps_a_real_folder(self) -> None:
+        workflow = _persisted_workflow()
+        service = _service_with_mocked_repo(workflow)
+
+        service.update_workflow(1, WorkflowUpdate(folder="/net"), user_id=1)
+
+        assert service.repo.update.call_args.args[1]["folder"] == "/net"
+
+    def test_update_that_does_not_mention_the_folder_leaves_it_alone(self) -> None:
+        workflow = _persisted_workflow(folder="/net")
+        service = _service_with_mocked_repo(workflow)
+
+        service.update_workflow(1, WorkflowUpdate(name="Renamed"), user_id=1)
+
+        assert "folder" not in service.repo.update.call_args.args[1]
+
+
+class TestWorkflowServiceNameCollisionOnUpdate:
+    """An update that changes name, folder or visibility must not land on another workflow.
+
+    ``name_exists`` is the same rule the Save As name check uses (public: unique by name and
+    folder, private: per creator). Without it, moving a legacy ``""`` folder to ``/`` (or a
+    rename) can create a twin that ``find_id_by_name`` can no longer tell apart.
+    """
+
+    def test_rename_onto_an_existing_name_is_a_conflict(self) -> None:
+        workflow = _persisted_workflow()
+        service = _service_with_mocked_repo(workflow)
+        service.repo.name_exists.return_value = True
+
+        with pytest.raises(ConflictError):
+            service.update_workflow(1, WorkflowUpdate(name="Taken"), user_id=1)
+
+        service.repo.update.assert_not_called()
+        service.repo.name_exists.assert_called_once_with(
+            name="Taken", folder="/", visibility="private", creator_id=1, exclude_id=1
+        )
+
+    @pytest.mark.parametrize("legacy", ["", None])
+    def test_moving_a_legacy_folder_onto_a_twin_in_the_root_is_a_conflict(
+        self, legacy: str | None
+    ) -> None:
+        workflow = _persisted_workflow(folder="/net")
+        service = _service_with_mocked_repo(workflow)
+        service.repo.name_exists.return_value = True
+
+        with pytest.raises(ConflictError):
+            service.update_workflow(1, WorkflowUpdate(folder=legacy), user_id=1)
+
+        service.repo.update.assert_not_called()
+
+    def test_an_update_that_keeps_name_folder_and_visibility_is_not_checked(self) -> None:
+        workflow = _persisted_workflow(folder="")  # legacy row, already read as "/"
+        service = _service_with_mocked_repo(workflow)
+        service.repo.name_exists.return_value = True  # would block if it were asked
+
+        service.update_workflow(
+            1,
+            WorkflowUpdate(name=workflow.name, folder="/", description="new text"),
+            user_id=1,
+        )
+
+        service.repo.name_exists.assert_not_called()
+        service.repo.update.assert_called_once()
+
+    def test_a_rename_on_a_legacy_folder_is_checked_against_the_root(self) -> None:
+        service = _service_with_mocked_repo(_persisted_workflow(folder=""))
+        service.update_workflow(1, WorkflowUpdate(name="Fresh"), user_id=1)
+        service.repo.name_exists.assert_called_once_with(
+            name="Fresh", folder="/", visibility="private", creator_id=1, exclude_id=1
+        )
+
+    def test_a_canvas_only_update_is_not_checked(self) -> None:
+        service = _service_with_mocked_repo(_persisted_workflow())
+        service.update_workflow(1, WorkflowUpdate(canvas_edges=[]), user_id=1)
+        service.repo.name_exists.assert_not_called()
+
+    def test_a_free_new_identity_is_saved(self) -> None:
+        service = _service_with_mocked_repo(_persisted_workflow())
+        response = service.update_workflow(
+            1, WorkflowUpdate(name="Fresh", folder="/net", visibility="public"), user_id=1
+        )
+        assert response.name == "Fresh"
+        service.repo.name_exists.assert_called_once_with(
+            name="Fresh", folder="/net", visibility="public", creator_id=1, exclude_id=1
+        )

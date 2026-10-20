@@ -102,14 +102,16 @@ export function WorkflowSaveAsDialog({
   const visibility = useWatch({ control, name: "visibility" });
 
   const onSubmit = useCallback(
-    async (values: SaveAsFormValues) => {
+    async (formValues: SaveAsFormValues) => {
       setPendingOverwrite(null);
       setIsChecking(true);
+      // The name check treats an empty folder as "/", but an overwrite stores whatever it
+      // is sent; sending the same normalised value keeps both on one folder.
+      const values = { ...formValues, folder: formValues.folder || "/" };
       try {
-        const folder = values.folder || "/";
         const check = await checkName.mutateAsync({
           name: values.name,
-          folder,
+          folder: values.folder,
           visibility: values.visibility,
         });
         if (!check.available) {

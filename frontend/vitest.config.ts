@@ -19,14 +19,14 @@ export default defineConfig({
         "src/app/**",
       ],
       // Ratchet: the run fails when coverage drops below these numbers. They sit just under the
-      // measured values (29.39 / 22.34 / 22.40 / 28.96 on 2026-10-19), so only a real regression
+      // measured values (36.68 / 28.35 / 27.79 / 36.40 on 2026-10-20), so only a real regression
       // trips them. Raise them whenever coverage has grown, never lower them to make a run pass.
       // Running a subset of tests? Use `npx vitest run <file>` (no coverage, no threshold check).
       thresholds: {
-        statements: 33,
-        branches: 25,
-        functions: 24,
-        lines: 32,
+        statements: 36,
+        branches: 28,
+        functions: 27,
+        lines: 36,
       },
     },
     // Hook/component tests that need a DOM (React Testing Library) opt in via

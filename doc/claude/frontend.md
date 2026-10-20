@@ -44,7 +44,8 @@ toast({ title: "Success", description: "Done!" })
 ## Nautobot / Source Data Fetching
 
 Nautobot and other source data is fetched through backend REST endpoints under
-`/api/proxy/sources/nautobot/*` — there is no client-side GraphQL client, and none
+`/api/proxy/sources/nautobot/*` (the source itself, with URL and readiness, from `sources/nautobot/configured-sources`
+through `useNautobotConfiguredSourcesQuery`, not from `/settings`, which needs `settings:read`) — there is no client-side GraphQL client, and none
 should be added (see API proxy pattern in main CLAUDE.md). Add new source data needs
 as backend endpoints, then call them from a TanStack Query hook under
 `/frontend/src/hooks/queries/`.

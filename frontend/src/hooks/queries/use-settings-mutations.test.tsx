@@ -151,4 +151,43 @@ describe("useSettingsMutations", () => {
       variant: "destructive",
     });
   });
+
+  describe("Nautobot source rows", () => {
+    it("refresh the configured-sources list that pages without settings:read use", async () => {
+      apiCall.mockResolvedValue({ key: "sources.nautobot.lab" });
+      const { result, invalidate } = setup();
+      await act(async () => {
+        await result.current.upsertSetting.mutateAsync({
+          key: "sources.nautobot.lab",
+          value: { url: "https://nb.example" },
+          exists: false,
+        });
+      });
+      expect(invalidatedKeys(invalidate)).toContainEqual(
+        queryKeys.sourcesNautobot.configuredSources(),
+      );
+    });
+
+    it("also refresh it after a delete", async () => {
+      apiCall.mockResolvedValue(undefined);
+      const { result, invalidate } = setup();
+      await act(async () => {
+        await result.current.deleteSetting.mutateAsync("sources.nautobot.lab");
+      });
+      expect(invalidatedKeys(invalidate)).toContainEqual(
+        queryKeys.sourcesNautobot.configuredSources(),
+      );
+    });
+
+    it("leave it alone for any other setting", async () => {
+      apiCall.mockResolvedValue({ key: "mail" });
+      const { result, invalidate } = setup();
+      await act(async () => {
+        await result.current.createSetting.mutateAsync({ key: "mail", value: {} });
+      });
+      expect(invalidatedKeys(invalidate)).not.toContainEqual(
+        queryKeys.sourcesNautobot.configuredSources(),
+      );
+    });
+  });
 });

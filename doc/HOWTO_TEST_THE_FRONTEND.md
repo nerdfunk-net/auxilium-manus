@@ -56,6 +56,15 @@ uncovered statements (logic files first: hooks and utils).
   fresh object or `vi.fn()` per render make it fail for the wrong reason: hoist stable mocks with
   `vi.hoisted`. `useMutation` returns a new object every render, so depend on `mutate` /
   `mutateAsync`, never on the mutation object.
+- **Components:** render the real component, mock its hooks and heavy children, and assert behaviour
+  (`getByRole`, `getByLabelText`), not markup. Radix `Select` needs pointer APIs jsdom lacks: use
+  `vi.mock("@/components/ui/select", () => import("@/test/native-select-mock"))` (a native `<select>` that keeps the
+  trigger's `id` and the placeholder). `ResizeObserver` is stubbed in `src/test/setup-dom.ts`. Stub factories inside
+  `vi.mock` must come from `await vi.hoisted(...)`, not from a top-level `const`. A page that wires dozens of hooks
+  (`workflow-builder-page.tsx`) is tested by stubbing every child and checking only the dialogs the page itself renders.
+- **Mutation checks in bulk:** a small script that replaces one pattern, asserts the pattern was found, runs the file's
+  tests and restores the source (in a `finally`) is faster and safer than editing by hand. Name equivalent mutants
+  (a guard the UI cannot reach, a class name) instead of chasing them.
 - **Pure utils:** table-driven edge cases (empty, duplicate, wrong type, `true` where a number is
   expected, a `null` entry), an idempotence/round-trip test, and "does not mutate its input".
 - **Layout cannot be tested in jsdom.** Write a behaviour test, and check the layout in layer 3.

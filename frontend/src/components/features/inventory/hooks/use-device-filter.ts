@@ -63,13 +63,25 @@ export function useDeviceFilter({
     [operatorOptionsOverride, fieldOptionsData?.operators],
   );
 
-  const updateOperatorOptions = useCallback((fieldName: string) => {
-    const { options, forcedOperator } = operatorRuleForField(fieldName);
-    setOperatorOptionsOverride(options);
-    if (forcedOperator) {
-      setCurrentOperator(forcedOperator);
-    }
-  }, []);
+  const serverOperators = fieldOptionsData?.operators;
+
+  // The operator list changes with the field; an operator the new list lacks (for
+  // example "within_include" after switching to the name field) would be submitted as
+  // a condition the field cannot evaluate, so fall back to "equals".
+  const updateOperatorOptions = useCallback(
+    (fieldName: string) => {
+      const { options, forcedOperator } = operatorRuleForField(fieldName);
+      setOperatorOptionsOverride(options);
+      setCurrentOperator((previous) => {
+        if (forcedOperator) return forcedOperator;
+        const offered = options ?? serverOperators;
+        // Server list not loaded yet: only "equals" is safe for a field without its own rule.
+        if (!offered || offered.length === 0) return "equals";
+        return offered.some((option) => option.value === previous) ? previous : "equals";
+      });
+    },
+    [serverOperators],
+  );
 
   const handleFieldChange = useCallback(
     (fieldName: string) => {
@@ -77,12 +89,14 @@ export function useDeviceFilter({
       setCurrentValue("");
       setSelectedCustomField("");
 
+      updateOperatorOptions(fieldName);
+
       if (fieldName === "custom_fields") {
+        // No value list until a custom field is chosen; the previous field's values must go.
+        setFieldNameToLoad(null);
         setLoadCustomFields(true);
         return;
       }
-
-      updateOperatorOptions(fieldName);
 
       if (
         fieldName &&
@@ -106,9 +120,7 @@ export function useDeviceFilter({
       setCurrentField(customFieldName);
       setCurrentValue("");
       updateOperatorOptions(customFieldName);
-      if (customFieldName) {
-        setFieldNameToLoad(customFieldName);
-      }
+      setFieldNameToLoad(customFieldName || null);
     },
     [updateOperatorOptions],
   );

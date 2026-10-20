@@ -184,9 +184,10 @@ def require_any_permission(checks: list[tuple[str, str]]):
         user_id = _require_active_user_id(token_payload, db)
 
         if not RBACService(db).check_any_permission(user_id, checks):
+            wanted = ", ".join(f"{resource}:{action}" for resource, action in checks)
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="Permission denied: none of the required permissions are granted",
+                detail=f"Permission denied: one of {wanted} required",
             )
 
         return token_payload

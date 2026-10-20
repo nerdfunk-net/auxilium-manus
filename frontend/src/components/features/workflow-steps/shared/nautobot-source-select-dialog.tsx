@@ -21,8 +21,12 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { SOURCE_KEY_PREFIXES } from "@/components/features/settings/constants/setting-keys";
-import { useSettingsListQuery } from "@/hooks/queries/use-settings-query";
-import { groupSourceSettings } from "@/components/features/settings/utils/parse-source-settings";
+import {
+  useNautobotConfiguredSourcesQuery,
+  type NautobotConfiguredSource,
+} from "@/hooks/queries/use-nautobot-configured-sources-query";
+
+const EMPTY_SOURCES: NautobotConfiguredSource[] = [];
 
 interface NautobotSourceSelectDialogProps {
   open: boolean;
@@ -40,12 +44,9 @@ export function NautobotSourceSelectDialog({
   const router = useRouter();
   const [sourceId, setSourceId] = useState(selectedSourceId);
   const [prevOpen, setPrevOpen] = useState(open);
-  const { data, isLoading } = useSettingsListQuery({
-    keyPrefix: SOURCE_KEY_PREFIXES.nautobot,
+  const { data: sources = EMPTY_SOURCES, isLoading } = useNautobotConfiguredSourcesQuery({
     enabled: open,
   });
-
-  const { nautobot: sources } = groupSourceSettings(data?.settings ?? []);
 
   if (open !== prevOpen) {
     setPrevOpen(open);
@@ -103,8 +104,8 @@ export function NautobotSourceSelectDialog({
                 </SelectTrigger>
                 <SelectContent>
                   {sources.map((source) => (
-                    <SelectItem key={source.sourceId} value={source.sourceId}>
-                      <span className="font-mono">{source.sourceId}</span>
+                    <SelectItem key={source.source_id} value={source.source_id}>
+                      <span className="font-mono">{source.source_id}</span>
                       <span className="ml-2 text-muted-foreground">
                         — {source.url}
                       </span>

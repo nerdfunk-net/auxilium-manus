@@ -53,6 +53,7 @@ def _service(workflow: Workflow) -> WorkflowService:
     service.repo = MagicMock()
     service.repo.get_by_id.return_value = (workflow, "creator")
     service.repo.update.side_effect = _apply_update
+    service.repo.name_exists.return_value = False
     service.git = MagicMock()
     service.git.sync_workflow_to_git.return_value = WorkflowGitSyncResult(
         status="skipped", message="not version controlled"

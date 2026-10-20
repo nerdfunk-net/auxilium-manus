@@ -96,6 +96,7 @@ class WorkflowServiceSaveTests(unittest.TestCase):
             id=3, creator_id=1, visibility="private", canvas_nodes=[], canvas_edges=[]
         )
         service.repo = MagicMock()
+        service.repo.name_exists.return_value = False
         service.repo.get_by_id.side_effect = lambda wid: (
             (target, "u") if wid == 7 else (existing, "u")
         )

@@ -2,8 +2,7 @@
 
 import { useMemo } from "react";
 
-import { buildSourceSettingKey } from "@/components/features/settings/constants/setting-keys";
-import { useSettingQuery } from "@/hooks/queries/use-settings-query";
+import { useNautobotConfiguredSourcesQuery } from "@/hooks/queries/use-nautobot-configured-sources-query";
 
 interface UseNautobotSourceCredentialsOptions {
   sourceId: string | undefined;
@@ -15,25 +14,18 @@ export function useNautobotSourceCredentials({
   enabled = true,
 }: UseNautobotSourceCredentialsOptions) {
   const normalizedId = sourceId?.trim().toLowerCase() ?? "";
-  const settingKey = normalizedId
-    ? buildSourceSettingKey("nautobot", normalizedId)
-    : "";
 
-  const query = useSettingQuery({
-    key: settingKey,
+  const query = useNautobotConfiguredSourcesQuery({
     enabled: enabled && Boolean(normalizedId),
   });
 
   const parsed = useMemo(() => {
-    const value = query.data?.value;
-    if (!value || typeof value !== "object") {
-      return { url: "", tokenConfigured: false };
-    }
+    const source = query.data?.find((candidate) => candidate.source_id === normalizedId);
     return {
-      url: typeof value.url === "string" ? value.url : "",
-      tokenConfigured: Boolean(value.token_configured),
+      url: source?.url ?? "",
+      tokenConfigured: Boolean(source?.token_configured),
     };
-  }, [query.data?.value]);
+  }, [query.data, normalizedId]);
 
   const isReady = Boolean(normalizedId && parsed.url && parsed.tokenConfigured);
 

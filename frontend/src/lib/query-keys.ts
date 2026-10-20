@@ -134,6 +134,8 @@ export const queryKeys = {
       [...queryKeys.sourcesNautobot.all, "field-values", sourceId, field] as const,
     preview: (sourceId: string, operationsKey: string) =>
       [...queryKeys.sourcesNautobot.all, "preview", sourceId, operationsKey] as const,
+    configuredSources: () =>
+      [...queryKeys.sourcesNautobot.all, "configured-sources"] as const,
     inventories: () => [...queryKeys.sourcesNautobot.all, "inventories"] as const,
     groups: () => [...queryKeys.sourcesNautobot.all, "groups"] as const,
     inventoryDetail: (id: number) =>

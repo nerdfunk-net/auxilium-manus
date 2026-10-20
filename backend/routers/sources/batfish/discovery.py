@@ -28,7 +28,7 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException, status
 
 import service_factory
-from core.auth import get_current_user, require_permission
+from core.auth import get_current_user, require_any_permission
 from core.models.users import User
 from core.safe_http_errors import raise_internal_server_error
 from dependencies import get_batfish_source_config_service
@@ -44,7 +44,10 @@ logger = logging.getLogger(__name__)
 router = APIRouter(
     prefix="/sources/batfish",
     tags=["sources-batfish"],
-    dependencies=[Depends(require_permission("sources.batfish", "read"))],
+    # The query form lists networks and snapshots, so :query is enough as well as :read.
+    dependencies=[
+        Depends(require_any_permission([("sources.batfish", "read"), ("sources.batfish", "query")]))
+    ],
 )
 
 

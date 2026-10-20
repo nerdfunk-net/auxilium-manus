@@ -13,6 +13,7 @@ from core.source_keys import (
     build_source_key,
     ensure_value_source_id,
     parse_source_key,
+    source_key_prefix,
 )
 from models.settings import (
     SettingCreate,
@@ -20,6 +21,7 @@ from models.settings import (
     SettingResponse,
     SettingUpdate,
 )
+from models.sources_nautobot import NautobotConfiguredSource, NautobotConfiguredSourcesResponse
 from repositories.settings_repository import SettingsRepository
 from services.credentials.credentials_service import CredentialsService
 from services.credentials.source_credentials import SourceCredentialError, assert_global_credential
@@ -88,6 +90,32 @@ class SettingsService:
         if setting is None:
             raise NotFoundError(f"Setting '{key}' not found")
         return self._to_response(setting)
+
+    def list_nautobot_source_summaries(self) -> NautobotConfiguredSourcesResponse:
+        """Id, URL and readiness of every Nautobot source, for users without ``settings:read``.
+
+        Only what a page needs to find its source and say whether it is usable; the token,
+        the credential reference and the connection options stay in the settings view.
+        """
+        summaries: list[NautobotConfiguredSource] = []
+        for row in self.repo.list_all(key_prefix=source_key_prefix("nautobot")):
+            parsed = parse_source_key(row.key)
+            if parsed is None:
+                continue
+            value = row.value if isinstance(row.value, dict) else {}
+            url = value.get("url")
+            if not isinstance(url, str) or not url:
+                # A page binds to the first source; a row it cannot reach must not shadow a
+                # usable one (the settings form requires a URL, older rows may lack it).
+                continue
+            summaries.append(
+                NautobotConfiguredSource(
+                    source_id=parsed[1],
+                    url=url,
+                    token_configured=value.get("credential_id") is not None,
+                )
+            )
+        return NautobotConfiguredSourcesResponse(sources=summaries)
 
     def get_source_config(self, source_type: SourceType, source_id: str) -> dict[str, Any]:
         """Load a typed source setting and return its value with ``source_id`` set.

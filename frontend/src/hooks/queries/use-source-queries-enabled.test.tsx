@@ -13,7 +13,7 @@ vi.mock("@/hooks/use-api", () => ({ useApi: () => ({ apiCall }) }));
 
 beforeEach(() => {
   apiCall.mockReset();
-  apiCall.mockResolvedValue({ sources: [], settings: [] });
+  apiCall.mockResolvedValue({ sources: [] });
 });
 
 // The import dialogs are always mounted on the workflow builder page and pass
@@ -22,7 +22,7 @@ describe.each([
   ["useMattermostSourcesQuery", useMattermostSourcesQuery, "sources/mattermost"],
   ["useBatfishSourcesQuery", useBatfishSourcesQuery, "sources/batfish"],
   ["usePyATSSourcesQuery", usePyATSSourcesQuery, "sources/pyats"],
-  ["useNautobotSources", useNautobotSources, "settings?key_prefix="],
+  ["useNautobotSources", useNautobotSources, "sources/nautobot/configured-sources"],
 ])("%s", (_name, useHook, endpointPrefix) => {
   it("fetches by default", async () => {
     const { wrapper } = createQueryWrapper();

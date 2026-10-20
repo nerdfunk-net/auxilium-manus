@@ -88,6 +88,12 @@ set at every start, so operators who need more create a custom role. Role-level 
 thing: a role grants only; allow and deny overrides exist per user. The encrypt/decrypt test routes
 need `workflows:execute` to use a stored shared secret.
 
+A page that uses a Nautobot source reads its id, URL and readiness from
+`GET /sources/nautobot/configured-sources` (`sources.nautobot:read`, so viewers can use the inventory page and the
+template editor), never from `GET /settings` (`settings:read`). The response has `source_id`, `url` and
+`token_configured` only (a row without a URL is left out, as the settings parser always did); the settings form still edits the `sources.nautobot.*` rows, and a write there refreshes the
+page-side query (`use-settings-mutations.ts`).
+
 ## Run control, change requests, schedules
 
 **Child runs.** A `start-workflow` step starts another workflow as the *triggering user of the

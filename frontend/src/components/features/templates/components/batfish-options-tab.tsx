@@ -103,8 +103,13 @@ export function BatfishOptionsTab({
   canRunQuery,
   result,
 }: BatfishOptionsTabProps) {
+  // Running a query implies listing the sources it can run against (backend: :query also
+  // allows the list, networks and snapshots).
   const canReadBatfishSources = useHasPermission("sources.batfish", "read");
-  const { data: sourcesData } = useBatfishSourcesQuery({ enabled: canReadBatfishSources });
+  const canQueryBatfish = useHasPermission("sources.batfish", "query");
+  const { data: sourcesData } = useBatfishSourcesQuery({
+    enabled: canReadBatfishSources || canQueryBatfish,
+  });
   const sources = sourcesData?.sources ?? [];
 
   const sourceId =
@@ -124,8 +129,19 @@ export function BatfishOptionsTab({
   const showNetworkPicker = networkPickerAvailable && !networkManual;
   const showSnapshotPicker = snapshotPickerAvailable && !snapshotManual;
 
+  // A network and snapshot belong to one source: a name that exists on the old one must not be
+  // sent to the new one.
   const handleSourceChange = useCallback(
-    (value: string) => onTargetConfigChange({ ...targetConfig, batfish_source_id: value }),
+    (value: string) => {
+      setNetworkManual(false);
+      setSnapshotManual(false);
+      onTargetConfigChange({
+        ...targetConfig,
+        batfish_source_id: value,
+        network: "",
+        snapshot: "",
+      });
+    },
     [targetConfig, onTargetConfigChange],
   );
 

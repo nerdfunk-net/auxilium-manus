@@ -145,6 +145,15 @@ export function OptionsDialog({
     onSelectDevice(device);
   };
 
+  // A test device belongs to one Nautobot source; keeping it after a switch would render
+  // the template against an id the new source does not know.
+  const handleSourceSelect = (value: string) => {
+    setSearchTerm("");
+    setDismissed(false);
+    onSelectDevice(null);
+    onSourceChange(value === NO_SOURCE ? "" : value);
+  };
+
   const handleSearchChange = (value: string) => {
     setSearchTerm(value);
     setDismissed(false);
@@ -175,9 +184,7 @@ export function OptionsDialog({
                 <Label>Nautobot Source</Label>
                 <Select
                   value={sourceId || NO_SOURCE}
-                  onValueChange={(value) =>
-                    onSourceChange(value === NO_SOURCE ? "" : value)
-                  }
+                  onValueChange={handleSourceSelect}
                 >
                   <SelectTrigger>
                     <SelectValue placeholder="Select source…" />

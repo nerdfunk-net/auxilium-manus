@@ -83,6 +83,18 @@ class ListInventoriesResponse(BaseModel):
     total: int
 
 
+class NautobotConfiguredSource(BaseModel):
+    """What a page needs to use a Nautobot source; never the token or its credential."""
+
+    source_id: str
+    url: str
+    token_configured: bool
+
+
+class NautobotConfiguredSourcesResponse(BaseModel):
+    sources: list[NautobotConfiguredSource]
+
+
 class GroupsResponse(BaseModel):
     groups: list[str]
 

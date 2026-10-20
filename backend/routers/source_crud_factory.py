@@ -16,7 +16,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 
-from core.auth import get_current_user, require_permission
+from core.auth import get_current_user, require_any_permission, require_permission
 from core.models.users import User
 from core.safe_http_errors import raise_internal_server_error
 
@@ -39,11 +39,19 @@ def build_source_crud_router(
     validation_errors: tuple[type[Exception], ...],
     create_kwargs: Callable[[Any], dict[str, Any]],
     update_kwargs: Callable[[Any], dict[str, Any]],
+    also_reads: tuple[str, ...] = (),
 ) -> APIRouter:
+    """``also_reads`` names further actions on ``permission_resource`` that also allow the
+    read-only routes (list, get), e.g. Batfish ``query``. Write and delete stay separate."""
+    read_gate = (
+        require_any_permission([(permission_resource, action) for action in ("read", *also_reads)])
+        if also_reads
+        else require_permission(permission_resource, "read")
+    )
     router = APIRouter(
         prefix=f"/sources/{source_type}",
         tags=[tag],
-        dependencies=[Depends(require_permission(permission_resource, "read"))],
+        dependencies=[Depends(read_gate)],
     )
     bad_request: tuple[type[Exception], ...] = (*validation_errors, ValueError)
     write = Depends(require_permission(permission_resource, "write"))

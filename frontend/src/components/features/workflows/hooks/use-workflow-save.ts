@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback } from "react";
+import { useCallback, useMemo } from "react";
 import type { MutableRefObject } from "react";
 
 import { useWorkflowMutations } from "@/hooks/queries/use-workflow-mutations";
@@ -71,6 +71,10 @@ export function useWorkflowSave({
 }: UseWorkflowSaveOptions) {
   const { allNodes, allEdges, groups, staticAttributes } = canvas;
   const { createWorkflow, updateWorkflow } = useWorkflowMutations();
+  // The mutation objects change with every state change; their functions do not, so the
+  // callbacks below depend on those and keep their identity while a save is pending.
+  const { mutateAsync: createWorkflowAsync } = createWorkflow;
+  const { mutate: updateWorkflowMutate, mutateAsync: updateWorkflowAsync } = updateWorkflow;
   const { toast } = useToast();
 
   const warnIfGitSyncFailed = useCallback(
@@ -101,7 +105,7 @@ export function useWorkflowSave({
         return;
       }
       try {
-        const saved = await createWorkflow.mutateAsync({
+        const saved = await createWorkflowAsync({
           name: values.name,
           description: values.description,
           folder: values.folder,
@@ -140,7 +144,7 @@ export function useWorkflowSave({
       groups,
       staticAttributes,
       canvasPayload,
-      createWorkflow,
+      createWorkflowAsync,
       loadWorkflow,
       markSaved,
       markError,
@@ -174,7 +178,7 @@ export function useWorkflowSave({
         return;
       }
       try {
-        const saved = await updateWorkflow.mutateAsync({
+        const saved = await updateWorkflowAsync({
           id: existingId,
           data: {
             name: values.name,
@@ -208,7 +212,7 @@ export function useWorkflowSave({
       groups,
       staticAttributes,
       canvasPayload,
-      updateWorkflow,
+      updateWorkflowAsync,
       loadWorkflow,
       markSaved,
       markError,
@@ -231,7 +235,7 @@ export function useWorkflowSave({
         return;
       }
       const expected = options.overwrite ? undefined : (baselineUpdatedAtRef.current ?? undefined);
-      updateWorkflow.mutate(
+      updateWorkflowMutate(
         {
           id: workflowId,
           data: { ...canvasPayload, expected_updated_at: expected },
@@ -257,7 +261,7 @@ export function useWorkflowSave({
       groups,
       staticAttributes,
       canvasPayload,
-      updateWorkflow,
+      updateWorkflowMutate,
       markSaved,
       markError,
       workflowName,
@@ -280,7 +284,7 @@ export function useWorkflowSave({
       return;
     }
     try {
-      const saved = await updateWorkflow.mutateAsync({
+      const saved = await updateWorkflowAsync({
         id: workflowId,
         data: {
           ...canvasPayload,
@@ -306,7 +310,7 @@ export function useWorkflowSave({
     groups,
     staticAttributes,
     canvasPayload,
-    updateWorkflow,
+    updateWorkflowAsync,
     markSaved,
     markError,
     workflowName,
@@ -316,12 +320,22 @@ export function useWorkflowSave({
     warnIfGitSyncFailed,
   ]);
 
-  return {
-    handleSave,
-    handleSaveAs,
-    handleOverwrite,
-    handleSaveAndOpen,
-    createWorkflow,
-    updateWorkflow,
-  };
+  return useMemo(
+    () => ({
+      handleSave,
+      handleSaveAs,
+      handleOverwrite,
+      handleSaveAndOpen,
+      createWorkflow,
+      updateWorkflow,
+    }),
+    [
+      handleSave,
+      handleSaveAs,
+      handleOverwrite,
+      handleSaveAndOpen,
+      createWorkflow,
+      updateWorkflow,
+    ],
+  );
 }

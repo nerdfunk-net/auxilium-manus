@@ -748,7 +748,7 @@ If operators ask for run problems in the Hatchet dashboard. Then:
 **Added:** 2026-10-19 · **Area:** `frontend/`, `doc/HOWTO_TEST_THE_FRONTEND.md`
 
 Left over from the vitest coverage passes and the Playwright passes (coverage 13.5 % → about 33 % statements,
-about 30 bugs fixed; the ratchet in `frontend/vitest.config.ts` (33 / 25 / 24 / 32) keeps the gain).
+about 40 bugs fixed; the ratchet in `frontend/vitest.config.ts` (36 / 28 / 27 / 36) keeps the gain).
 
 ### Decided: no import with references the user cannot list
 
@@ -767,16 +767,44 @@ add a "keep the references unverified" path without a new decision.
   git list (`useWorkflowGitRepositories`, `git.repositories:read`), the credential list in the template editor's options
   dialog and in the schedule parameter fields (`credentials:read`) and the Batfish source list (`sources.batfish:read`).
   The gated components (`workflow-manage-dialog`, `workflow-save-as-dialog`, `options-dialog`,
-  `schedule-parameter-fields`, `batfish-options-tab`) have no component test; only the hooks are tested.
+  `schedule-parameter-fields`, `batfish-options-tab`) have component tests since round 6 (2026-10-20).
   `/reports` and `/change-requests` were checked and need nothing (router-level `reports:read` /
-  `change_requests:read`, which the viewer role has). **Not gateable from the frontend:** the Nautobot source lookup
-  on `/inventory` and in the template editor reads `settings` (`settings:read`), so a user without it gets a 403 and
-  cannot use the Nautobot-backed features at all; a fix needs a backend endpoint that serves the source's URL and
-  readiness without `settings:read`. `use-workflow-import-remap` must not be gated that way: it treats a list that
-  could not be loaded as a reason to refuse the import.
+  `change_requests:read`, which the viewer role has). **Fixed in round 6 (2026-10-20, decided by the product owner):**
+  the Nautobot source lookup on `/inventory`, in the template editor, in the Nautobot step panels, in the step's
+  source dialog and in the import remap no longer reads `settings`. They use
+  `GET /sources/nautobot/configured-sources` (`sources.nautobot:read`, which the viewer role holds), which returns
+  only `source_id`, `url` and `token_configured`. The settings form still reads and writes the rows, and a settings
+  write refreshes the new query. `use-workflow-import-remap` is still not gated: a list that could not be loaded
+  stays a reason to refuse the import.
 - **The Overview minimap covers node handles** at about 1200×700 (fit view ignores the panel), and **new steps are
   placed only 44 px apart**, so they overlap until Auto layout runs. Both made handle clicks fail in the browser pass.
 - **`/api/auth/me` is requested twice per page load.** Harmless, but one request would do.
+
+### Found in round 6 (hook and component tests, 2026-10-20)
+
+Fixed: `useDeviceFilter` kept an operator the next field does not offer (`within_include` on the name field) and the
+previous field's values when "custom fields" or an emptied custom field was picked; `useSavedInventories` created a
+duplicate when "update" came without an id and ignored a filter inventory with no conditions (the loader did nothing
+and said nothing); `useWorkflowSave` depended on mutation objects and returned a new object every render; the Save As
+dialog and the Manage dialog stored a cleared folder as `""` (an overwrite and an edit both wrote it; the workflow
+service now stores the root for an update too, as `create` does); the Manage dialog hid the server's reason for a
+failed edit and said nothing when a delete failed (for example a workflow with runs in progress); the options dialog
+kept the test device of the previous Nautobot source.
+
+Also fixed after a decision (2026-10-20): changing the Batfish source in the template editor now clears the network and
+snapshot, and `sources.batfish:query` implies listing (the source list, networks and snapshots accept `:read` or
+`:query`; create, update and delete still need `:write` / `:delete`; `build_source_crud_router(also_reads=...)`,
+`require_any_permission` now names the accepted permissions in its 403).
+
+Open:
+- **Two toasts per failed inventory mutation.** `use-saved-inventory-mutations` / export / import toast in `onError`,
+  and `device-selector.tsx` (`handleSaveInventory`, `handleSaveDeviceList`, `handleDirectSave`,
+  `handleExportInventory`, `handleImportInventory`) toasts the same failure again in its `catch`. Remove the catch
+  toasts (keep the `return false`); needs a `device-selector` component test first (no test exists).
+- **Save As: "name unavailable" without `existing_id`** returns silently (`workflow-save-as-dialog.tsx`). The backend
+  always sends the id, so this is unreachable today; show the message if the contract ever changes.
+- **A credential reference field shows an empty select, not a hint,** when the user lacks `credentials:read`
+  (`schedule-parameter-fields.tsx`).
 
 ### Found in round 2 (hook tests)
 
@@ -818,14 +846,13 @@ users, git repositories) beyond loading them. The isolated stack has no Nautobot
   settings forms, and an inventory with a Nautobot source. Running a workflow and a schedule were checked by the
   product owner on the real stack; the isolated stack still has no working worker (decide how to give it one without
   letting it reach the real Hatchet engine).
-- **Unit tests, largest gaps by uncovered statements** (after round 4, 2026-10-19; coverage 32.5 % → 33.0 %
-  statements): `query-keys.ts` (78, a data file), `use-saved-inventories` (62), `update-device-config` and
-  `set-default-attributes-config` (58 each), `use-selected-inventory` (54), `use-workflow-save` (50),
-  `use-device-selector-modals`, `use-device-filter` (48 each); then the `.tsx` components (coverage there is close
-  to zero; test behaviour, check layout in the browser). Not rechecked after round 4: the order of this list.
-  Components without any test that this round changed: `workflow-manage-dialog`, `workflow-save-as-dialog` (now call
-  `useWorkflowGitRepositories`) and the "Run saved version" button in `workflow-builder-page.tsx`.
-- **Raise the ratchet** (`coverage.thresholds`) after each round; never lower it. Now 33 / 25 / 24 / 32 against
-  measured 33.0 / 25.2 / 24.6 / 32.7.
+- **Unit tests, largest gaps by uncovered statements** (after round 6, 2026-10-20; coverage 33.0 % → 36.7 %
+  statements): `query-keys.ts` (a data file), `update-device-config` and `set-default-attributes-config` (58 each),
+  then the remaining `.tsx` components (behaviour tests with the shared helpers in `src/test/`; layout is checked in
+  the browser). Rank the list again with `coverage/coverage-summary.json`: it changed in round 6.
+  Round 6 added the first component tests for the dialogs rounds 4 and 5 changed, and for the confirmation dialogs
+  of `workflow-builder-page.tsx` (the rest of the page is stubbed, so the page's wiring beyond those is untested).
+- **Raise the ratchet** (`coverage.thresholds`) after each round; never lower it. Now 36 / 28 / 27 / 36 against
+  measured 36.7 / 28.4 / 27.8 / 36.4.
 - **Pages that fetch more than they need** — the import dialogs were the case found; a quick check of the other
   always-mounted dialogs for queries that ignore `enabled` is cheap (`grep -rn "use.*Query()" frontend/src`).

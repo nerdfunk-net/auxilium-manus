@@ -35,4 +35,6 @@ router = build_source_crud_router(
     validation_errors=(BatfishValidationError,),
     create_kwargs=lambda r: {"source_id": r.source_id, "host": r.host, "port": r.port},
     update_kwargs=lambda r: {"host": r.host, "port": r.port},
+    # The query form must list the sources it can query.
+    also_reads=("query",),
 )

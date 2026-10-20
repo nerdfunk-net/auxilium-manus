@@ -29,6 +29,7 @@ from models.sources_nautobot import (
     GroupsResponse,
     InventoryPreviewRequest,
     InventoryPreviewResponse,
+    NautobotConfiguredSourcesResponse,
     NautobotJobListResponse,
     NautobotJobSummary,
     NautobotJobVariable,
@@ -52,6 +53,7 @@ from services.nautobot.devices.common import DeviceCommonService
 from services.nautobot.devices.uuid_resolver import resolve_nautobot_uuid
 from services.nautobot.jobs import NautobotJobsService
 from services.nautobot.location_types import NautobotLocationTypesService
+from services.settings.settings_service import SettingsService
 from services.sources.nautobot.connection import test_nautobot_connection
 from services.sources.nautobot.persistence_service import InventoryService
 from services.sources.nautobot.source_service import NautobotSourceService
@@ -125,6 +127,18 @@ async def test_connection(
         raise
     except Exception as exc:
         raise_internal_server_error(logger, "Nautobot test connection failed: ", exc)
+
+
+@router.get("/configured-sources", response_model=NautobotConfiguredSourcesResponse)
+def list_configured_sources(
+    db: Session = Depends(get_db),
+) -> NautobotConfiguredSourcesResponse:
+    """The configured Nautobot sources with URL and readiness.
+
+    ``sources.nautobot:read`` (the router's gate) is enough: a page that uses a source must
+    be able to find it without ``settings:read``, which the ``viewer`` role does not hold.
+    """
+    return SettingsService(db).list_nautobot_source_summaries()
 
 
 @router.get("/get-all-groups", response_model=GroupsResponse)

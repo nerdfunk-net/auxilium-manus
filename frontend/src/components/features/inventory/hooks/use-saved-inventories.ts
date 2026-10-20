@@ -29,6 +29,16 @@ export interface LoadedInventoryData {
   group_path?: string | null;
 }
 
+const UPDATE_ID_MESSAGE = "An update needs the id of the inventory to update.";
+
+// A save that says "update" without an id would fall through to create and leave a duplicate.
+function requireUpdateId(isUpdate: boolean, existingId: number | undefined): void {
+  // The same truthiness the save branches use: 0 and null would otherwise fall through to create.
+  if (isUpdate && !existingId) {
+    throw new Error(UPDATE_ID_MESSAGE);
+  }
+}
+
 // Module-level and pure, so it never needs to be a hook dependency.
 function flatConditionsToTree(flatConditions: LogicalCondition[]): ConditionTree {
   const tree: ConditionTree = {
@@ -85,6 +95,7 @@ export function useSavedInventories() {
       existingId?: number,
       group_path?: string | null,
     ) => {
+      requireUpdateId(isUpdate, existingId);
       setIsSavingInventory(true);
       try {
         const conditions = conditionTreeToSavedConditions(conditionTree);
@@ -126,6 +137,7 @@ export function useSavedInventories() {
       existingId?: number,
       group_path?: string | null,
     ) => {
+      requireUpdateId(isUpdate, existingId);
       setIsSavingInventory(true);
       try {
         if (isUpdate && existingId) {
@@ -185,7 +197,9 @@ export function useSavedInventories() {
         };
       }
 
-      let tree: ConditionTree | null = null;
+      // A filter inventory saved without conditions (an import can produce one) loads as an
+      // empty tree rather than as "nothing", which the caller would ignore without a word.
+      let tree: ConditionTree | null = flatConditionsToTree([]);
       if (response.conditions && response.conditions.length > 0) {
         const firstItem = response.conditions[0];
 
