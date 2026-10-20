@@ -280,6 +280,18 @@ class MetadataResolverTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(await MetadataResolver(svc).resolve_status_id("active"), _UUID)
 
+    async def test_resolve_status_id_follows_next_page(self) -> None:
+        first = {
+            "count": 2,
+            "next": "http://nb/api/extras/statuses/?limit=1&offset=1",
+            "results": [{"name": "Planned", "id": "p"}],
+        }
+        second = {"count": 2, "next": None, "results": [{"name": "Reserved", "id": _UUID}]}
+        svc = _service()
+        svc.rest_request = AsyncMock(side_effect=[first, second])
+        self.assertEqual(await MetadataResolver(svc).resolve_status_id("Reserved"), _UUID)
+        self.assertEqual(svc.rest_request.await_count, 2)
+
     async def test_resolve_status_id_raises_when_not_found(self) -> None:
         svc = _service(rest={"count": 1, "results": [{"name": "Planned", "id": "p"}]})
         with self.assertRaises(ValueError):

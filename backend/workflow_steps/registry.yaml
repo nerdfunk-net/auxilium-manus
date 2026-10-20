@@ -2348,7 +2348,7 @@ plugins:
         - name: default_mask_length
           description: >
             Prefix length used for an address without one when no prefix contains it and
-            create_prefix is on. Empty uses 24 (IPv4) or 64 (IPv6).
+            create_prefix is on (only read then). Empty uses 24 (IPv4) or 64 (IPv6).
           data_type: integer
           required: false
           example: 24
@@ -2363,8 +2363,9 @@ plugins:
         - name: result_attribute
           description: >
             Attribute that receives the Nautobot UUID of the created or existing IP
-            address, for example custom.ip_id. Reserved bags (parsed, run_input) and
-            read-only device fields are rejected.
+            address, for example custom.ip_id. It must be a bag path: reserved bags
+            (parsed, run_input) and device fields (device.*) are rejected. Written only
+            when the device succeeds.
           data_type: string
           required: false
           example: custom.ip_id

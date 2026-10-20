@@ -25,12 +25,18 @@ from models.workflow_context import (
 )
 from services.artifacts import ArtifactService
 from services.nautobot.client import NautobotService
+from services.nautobot.common.rest import rest_query
 from services.nautobot.credentials import NautobotCredentials
 from services.nautobot.credentials_bound_client import CredentialsBoundNautobotClient
 from services.nautobot.devices.common import DeviceCommonService
+from services.workflow_context.secret_fields import REDACTED_PLACEHOLDER
 from workflow_steps.add_ip_to_nautobot.config import get_config
 from workflow_steps.common.attribute_write import set_device_attribute
-from workflow_steps.common.nautobot_prefix_lookup import LookupFailure, find_containing_prefix
+from workflow_steps.common.nautobot_prefix_lookup import (
+    LookupFailure,
+    find_containing_prefix,
+    list_results,
+)
 from workflow_steps.common.nautobot_resolve import resolve_nautobot_device_id
 from workflow_steps.common.nautobot_source import resolve_nautobot_credentials
 from workflow_steps.common.partial_outcomes import (
@@ -50,6 +56,8 @@ _OUTCOME_NAMES = ("success", "failure")
 _IP_CONTENT_TYPE = "ipam.ipaddress"
 _CONCURRENCY = 5
 _DEFAULT_MASK = {4: 24, 6: 64}
+_MAX_MASK = {4: 32, 6: 128}
+_UNRESOLVED_CODES = {"ip_address": "ip_unresolved", "interface_name": "interface_unresolved"}
 
 
 @dataclass(frozen=True)
@@ -90,6 +98,11 @@ def _parse_config(config: dict[str, Any]) -> _ParsedConfig:
 
     result_attribute = _text(config, "result_attribute")
     if result_attribute:
+        if "." not in result_attribute or result_attribute.startswith("device."):
+            raise ValueError(
+                f"{_STEP_ID}: result_attribute must be a bag path such as custom.ip_id, "
+                "not a device field"
+            )
         probe = DeviceContext(id="probe", name="probe", hostname="probe")
         try:
             set_device_attribute(probe, result_attribute, "")
@@ -101,14 +114,19 @@ def _parse_config(config: dict[str, Any]) -> _ParsedConfig:
     if set_primary and not interface_expression:
         raise ValueError(f"{_STEP_ID}: set_primary needs interface_name")
 
-    mask = parse_int_flag(config, "default_mask_length", default=0, minimum=0, maximum=128)
+    create_prefix = parse_bool_flag(config, "create_prefix", default=False)
+    # Only read when it is used: a value left behind with create_prefix off must not fail the step.
+    mask = None
+    raw_mask = config.get("default_mask_length")
+    if create_prefix and raw_mask is not None and str(raw_mask).strip():
+        mask = parse_int_flag(config, "default_mask_length", default=24, minimum=1, maximum=128)
     return _ParsedConfig(
         source_id=source_id,
         ip_expression=ip_expression,
         namespace_expression=_text(config, "namespace") or defaults["namespace"],
         status_expression=_text(config, "status") or defaults["status"],
-        create_prefix=parse_bool_flag(config, "create_prefix", default=False),
-        default_mask_length=mask or None,
+        create_prefix=create_prefix,
+        default_mask_length=mask,
         description_expression=_text(config, "description"),
         dns_name_expression=_text(config, "dns_name"),
         result_attribute=result_attribute,
@@ -164,45 +182,48 @@ def _plan_device(
     """A ``_Plan``, or ``(code, message)`` when an expression resolves to nothing."""
 
     def resolve(field: str, raw: str) -> str | None:
+        # reveal_secrets=False: the values are copied into a Nautobot request and error text.
         return resolve_update_field_expression(
-            device=device, field_key=field, raw_value=raw, run_id=run_id
+            device=device, field_key=field, raw_value=raw, run_id=run_id, reveal_secrets=False
         )
 
-    required = (
-        ("ip_address", parsed.ip_expression, "ip_unresolved"),
-        ("namespace", parsed.namespace_expression, "namespace_unresolved"),
-        ("status", parsed.status_expression, "status_unresolved"),
+    fields = (
+        ("ip_address", parsed.ip_expression, True),
+        ("namespace", parsed.namespace_expression, True),
+        ("status", parsed.status_expression, True),
+        ("description", parsed.description_expression, False),
+        ("dns_name", parsed.dns_name_expression, False),
+        ("interface_name", parsed.interface_expression, False),
     )
     values: dict[str, str] = {}
-    for field, raw, code in required:
+    for field, raw, required in fields:
+        if not raw:
+            values[field] = ""
+            continue
         value = resolve(field, raw)
-        if not value:
+        if value == REDACTED_PLACEHOLDER:
+            return (
+                f"{field}_is_secret",
+                f"{field} expression {raw!r} points to a secret, which this step does not copy",
+            )
+        if value is None or (required and not value):
+            code = _UNRESOLVED_CODES.get(field, f"{field}_unresolved")
             return code, f"{field} expression {raw!r} resolved to nothing"
         values[field] = value
-    optional = {
-        "description": resolve("description", parsed.description_expression)
-        if parsed.description_expression
-        else "",
-        "dns_name": resolve("dns_name", parsed.dns_name_expression)
-        if parsed.dns_name_expression
-        else "",
-        "interface": resolve("interface_name", parsed.interface_expression)
-        if parsed.interface_expression
-        else "",
-    }
-    if parsed.interface_expression and not optional["interface"]:
-        return (
-            "interface_unresolved",
-            f"interface_name expression {parsed.interface_expression!r} resolved to nothing",
-        )
     return _Plan(
         device=device,
         ip_text=values["ip_address"],
         namespace=values["namespace"],
         status=values["status"],
-        description=optional["description"] or "",
-        dns_name=optional["dns_name"] or "",
-        interface=optional["interface"] or "",
+        description=values["description"],
+        dns_name=values["dns_name"],
+        interface=values["interface_name"],
+    )
+
+
+def _bad_request(code: str, message: str) -> LookupFailure:
+    return LookupFailure(
+        code, message, FailureInfo(phase="config", kind="bad_request", hint="check_request")
     )
 
 
@@ -211,23 +232,17 @@ async def _full_address(
 ) -> str:
     """``address/mask``: the value's own mask, the containing prefix's, or the default."""
     text = plan.ip_text.strip()
+    # The value is not echoed: it can come from an attribute and ends up in the stored error.
+    invalid = _bad_request("ip_invalid", f"ip_address {parsed.ip_expression!r} is not a valid IP")
     if "/" in text:
         try:
             return str(ipaddress.ip_interface(text))
         except ValueError as exc:
-            raise LookupFailure(
-                "ip_invalid",
-                f"{text!r} is not a valid IP address",
-                FailureInfo(phase="config", kind="bad_request", hint="check_request"),
-            ) from exc
+            raise invalid from exc
     try:
         host = ipaddress.ip_address(text)
     except ValueError as exc:
-        raise LookupFailure(
-            "ip_invalid",
-            f"{text!r} is not a valid IP address",
-            FailureInfo(phase="config", kind="bad_request", hint="check_request"),
-        ) from exc
+        raise invalid from exc
 
     async def rest_get(endpoint: str) -> Any:
         return await bound.client.rest_request(endpoint=endpoint, method="GET")
@@ -241,17 +256,27 @@ async def _full_address(
         if exc.code != "prefix_not_found" or not parsed.create_prefix:
             raise
     mask = parsed.default_mask_length or _DEFAULT_MASK[host.version]
+    if mask > _MAX_MASK[host.version]:
+        raise _bad_request(
+            "mask_invalid",
+            f"default_mask_length {mask} is too long for an IPv{host.version} address",
+        )
     return f"{host}/{mask}"
 
 
 def _is_missing_prefix(exc: Exception) -> bool:
-    return "No suitable parent prefix" in str(exc)
+    return "no suitable parent prefix" in str(exc).lower()
 
 
-async def _attach(
-    parsed: _ParsedConfig, bound: _Bound, plan: _Plan, ip_id: str
-) -> tuple[str, str] | None:
-    """Assign the IP to the interface (and as primary); ``(code, message)`` on a problem."""
+@dataclass(frozen=True)
+class _Target:
+    """Device and interface ids, resolved before anything is written."""
+
+    device_id: str
+    interface_id: str
+
+
+async def _resolve_target(bound: _Bound, plan: _Plan) -> _Target | tuple[str, str]:
     device_id = await resolve_nautobot_device_id(
         nautobot_service=bound.service, credentials=bound.credentials, device=plan.device
     )
@@ -260,8 +285,36 @@ async def _attach(
     interface_id = await bound.common.resolve_interface_by_name(device_id, plan.interface)
     if interface_id is None:
         return "interface_not_found", f"Interface {plan.interface!r} not found on the device"
-    await bound.common.assign_ip_to_interface(ip_id, interface_id, False)
-    if parsed.set_primary and not await bound.common.assign_primary_ip_to_device(device_id, ip_id):
+    return _Target(device_id, interface_id)
+
+
+async def _assigned_elsewhere(bound: _Bound, ip_id: str, interface_id: str) -> bool:
+    """True when the address is already assigned to a different interface."""
+    query = rest_query(ip_address=ip_id, format="json")
+    body = await bound.client.rest_request(
+        endpoint=f"ipam/ip-address-to-interface/?{query}", method="GET"
+    )
+    for item in list_results(body):
+        interface = item.get("interface")
+        assigned = interface.get("id") if isinstance(interface, dict) else interface
+        if str(assigned or "") != interface_id:
+            return True
+    return False
+
+
+async def _attach(
+    parsed: _ParsedConfig, bound: _Bound, ip_id: str, target: _Target
+) -> tuple[str, str] | None:
+    """Assign the IP to the interface (and as primary); ``(code, message)`` on a problem."""
+    if await _assigned_elsewhere(bound, ip_id, target.interface_id):
+        return (
+            "ip_assigned_elsewhere",
+            "The IP address is already assigned to another interface; it was left unchanged",
+        )
+    await bound.common.assign_ip_to_interface(ip_id, target.interface_id, False)
+    if parsed.set_primary and not await bound.common.assign_primary_ip_to_device(
+        target.device_id, ip_id
+    ):
         return "primary_ip_failed", "Nautobot did not accept the primary IPv4 assignment"
     return None
 
@@ -277,7 +330,23 @@ async def _process(
 ) -> tuple[str, DeviceContext]:
     device = plan.device
     try:
+        # Everything that can be checked without writing comes first.
         address = await _full_address(parsed, bound, plan, namespace_id)
+        if parsed.set_primary and ipaddress.ip_interface(address).version != 4:
+            raise _bad_request("primary_ipv6_unsupported", "set_primary supports IPv4 only")
+        target: _Target | None = None
+        if plan.interface:
+            resolved = await _resolve_target(bound, plan)
+            if isinstance(resolved, tuple):
+                code, message = resolved
+                return "failure", _failed(
+                    device,
+                    node_id=node_id,
+                    code=code,
+                    message=message,
+                    failure=_not_found_failure(),
+                )
+            target = resolved
         extras = {
             key: value
             for key, value in (("description", plan.description), ("dns_name", plan.dns_name))
@@ -307,12 +376,9 @@ async def _process(
         error = device_error_from_exception(exc, node_id=node_id, step_id=_STEP_ID)
         return "failure", fail_device_with_error(device, error)
 
-    if parsed.result_attribute:
-        device = set_device_attribute(device, parsed.result_attribute, ip_id)
-
-    if plan.interface:
+    if target is not None:
         try:
-            problem = await _attach(parsed, bound, plan, ip_id)
+            problem = await _attach(parsed, bound, ip_id, target)
         except Exception as exc:
             error = device_error_from_exception(exc, node_id=node_id, step_id=_STEP_ID)
             return "failure", fail_device_with_error(device, error)
@@ -322,9 +388,12 @@ async def _process(
                 device,
                 node_id=node_id,
                 code=code,
-                message=f"{message} (the IP address {ip_id} was created)",
+                message=f"{message} (IP address {ip_id})",
                 failure=_not_found_failure(),
             )
+
+    if parsed.result_attribute:
+        device = set_device_attribute(device, parsed.result_attribute, ip_id)
     return "success", device
 
 

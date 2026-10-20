@@ -22,7 +22,7 @@ export function withNumberText(
   text: string,
 ): Record<string, unknown> {
   const trimmed = text.trim();
-  return { ...config, [key]: /^-?\d+$/.test(trimmed) ? Number(trimmed) : text };
+  return { ...config, [key]: /^\d+$/.test(trimmed) ? Number(trimmed) : text };
 }
 
 /** True for an empty box (use the default) or a whole number within 1-128. */

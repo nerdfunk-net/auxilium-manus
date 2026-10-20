@@ -134,8 +134,9 @@ def _resolve_attribute_path(
     path: str,
     *,
     run_id: str | None = None,
+    reveal_secrets: bool = True,
 ) -> str | None:
-    resolved = resolve_device_attribute(device, path)
+    resolved = resolve_device_attribute(device, path, reveal_secrets=reveal_secrets)
     if resolved is not None:
         return resolved
     return _stringify_resolved(resolve_device_value(device, path, run_id=run_id))
@@ -148,8 +149,13 @@ def resolve_update_field_expression(
     raw_value: str,
     run_id: str | None = None,
     custom_field_name: str | None = None,
+    reveal_secrets: bool = True,
 ) -> str | None:
-    """Resolve a field value expression for one device."""
+    """Resolve a field value expression for one device.
+
+    ``reveal_secrets=False`` makes a sealed secret resolve to ``REDACTED_PLACEHOLDER`` instead of
+    its cleartext; a step that copies the value elsewhere must pass it and refuse the placeholder.
+    """
     expression = raw_value.strip()
     if not expression:
         return None
@@ -168,7 +174,9 @@ def resolve_update_field_expression(
             custom_field_name=custom_field_name,
         )
     else:
-        resolved = _resolve_attribute_path(device, path, run_id=run_id)
+        resolved = _resolve_attribute_path(
+            device, path, run_id=run_id, reveal_secrets=reveal_secrets
+        )
 
     if resolved is not None:
         return resolved

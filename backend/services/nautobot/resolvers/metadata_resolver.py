@@ -5,6 +5,7 @@ Metadata resolver for Status, Role, Platform, Location resolution.
 import logging
 from urllib.parse import urlencode
 
+from ..common.rest import rest_paginate, rest_query
 from ..common.validators import is_valid_uuid
 from .base_resolver import BaseResolver
 
@@ -38,15 +39,14 @@ class MetadataResolver(BaseResolver):
 
         logger.info("Resolving status '%s' for content type '%s'", status_name, content_type)
 
-        # Query for statuses filtered by content type
-        endpoint = f"extras/statuses/?content_types={content_type}&format=json"
-        result = await self.nautobot.rest_request(endpoint=endpoint, method="GET")
-
-        if result and result.get("count", 0) > 0:
-            for status in result.get("results", []):
-                if status.get("name", "").lower() == status_name.lower():
-                    logger.info("Resolved status '%s' to UUID %s", status_name, status["id"])
-                    return status["id"]
+        # Query for statuses filtered by content type; follow ``next`` so a paged list is complete.
+        endpoint = (
+            f"extras/statuses/?{rest_query(content_types=content_type, limit=1000, format='json')}"
+        )
+        for status in await rest_paginate(self.nautobot, endpoint):
+            if str(status.get("name", "")).lower() == status_name.lower():
+                logger.info("Resolved status '%s' to UUID %s", status_name, status["id"])
+                return status["id"]
 
         raise ValueError(f"Status '{status_name}' not found for content type '{content_type}'")
 

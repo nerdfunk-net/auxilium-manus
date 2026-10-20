@@ -52,6 +52,8 @@ def _config(**overrides) -> dict:
 
 def _containing(*prefixes: tuple[str, str]):
     async def rest_request(*, endpoint: str, method: str = "GET", data=None):
+        if "ip-address-to-interface" in endpoint:
+            return {"results": []}
         assert "contains=" in endpoint, endpoint
         return {"results": [{"id": pid, "prefix": text} for pid, text in prefixes]}
 
@@ -107,9 +109,20 @@ class ParseConfigTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             _parse_config(_config(set_primary=True))
 
-    def test_bad_mask_length(self) -> None:
-        with self.assertRaises(ValueError):
-            _parse_config(_config(default_mask_length=200))
+    def test_bad_mask_length_is_refused_when_it_is_used(self) -> None:
+        for bad in (0, 129, "x", "-5"):
+            with self.assertRaises(ValueError):
+                _parse_config(_config(create_prefix=True, default_mask_length=bad))
+
+    def test_unused_mask_length_never_fails_the_step(self) -> None:
+        parsed = _parse_config(_config(create_prefix=False, default_mask_length=200))
+        self.assertIsNone(parsed.default_mask_length)
+
+    def test_result_attribute_must_be_a_bag_path(self) -> None:
+        for bad in ("hostname", "device.name", "name"):
+            with self.assertRaises(ValueError):
+                _parse_config(_config(result_attribute=bad))
+        _parse_config(_config(result_attribute="custom.ip_id"))
 
     def test_defaults(self) -> None:
         parsed = _parse_config(_config(namespace="", status=""))
@@ -240,19 +253,97 @@ class ExecuteTests(unittest.IsolatedAsyncioTestCase):
         _, common = await _run(_config(interface_name="Vlan1"), _context(_device("a")))
         common.assign_primary_ip_to_device.assert_not_called()
 
-    async def test_interface_not_found_keeps_the_created_ip(self) -> None:
+    async def test_missing_interface_fails_before_anything_is_written(self) -> None:
         common = MagicMock()
         common.resolve_interface_by_name = AsyncMock(return_value=None)
         out, common = await _run(
-            _config(interface_name="Vlan9", result_attribute="custom.ip_id"),
+            _config(interface_name="Vlan9", result_attribute="custom.ip_id", create_prefix=True),
             _context(_device("a")),
             common=common,
         )
         device = out["failure"].devices["a"]
         self.assertEqual(device.errors[0].code, "interface_not_found")
-        self.assertIn(_IP_ID, device.errors[0].message)
-        self.assertEqual(device.attribute_bags["custom"]["ip_id"], _IP_ID)
+        self.assertNotIn("custom", device.attribute_bags)
+        common.ensure_ip_address_exists.assert_not_called()
+
+    async def test_address_already_on_another_interface_is_not_attached(self) -> None:
+        other = {"results": [{"interface": {"id": "99999999-9999-9999-9999-999999999999"}}]}
+
+        async def rest(*, endpoint: str, method: str = "GET", data=None):
+            return other if "ip-address-to-interface" in endpoint else {"results": []}
+
+        out, common = await _run(
+            _config(interface_name="Vlan1", set_primary=True),
+            _context(_device("a")),
+            rest=rest,
+        )
+        error = out["failure"].devices["a"].errors[0]
+        self.assertEqual(error.code, "ip_assigned_elsewhere")
+        self.assertIn(_IP_ID, error.message)
+        self.assertNotIn("was created", error.message)
         common.assign_ip_to_interface.assert_not_called()
+        common.assign_primary_ip_to_device.assert_not_called()
+
+    async def test_failed_attach_does_not_write_the_result_attribute(self) -> None:
+        common = MagicMock()
+        common.assign_primary_ip_to_device = AsyncMock(return_value=False)
+        out, _ = await _run(
+            _config(interface_name="Vlan1", set_primary=True, result_attribute="custom.ip_id"),
+            _context(_device("a")),
+            common=common,
+        )
+        device = out["failure"].devices["a"]
+        self.assertEqual(device.errors[0].code, "primary_ip_failed")
+        self.assertNotIn("custom", device.attribute_bags)
+
+    async def test_set_primary_refuses_ipv6_before_writing(self) -> None:
+        out, common = await _run(
+            _config(ip_address="2001:db8::5/64", interface_name="Vlan1", set_primary=True),
+            _context(_device("a")),
+        )
+        self.assertEqual(out["failure"].devices["a"].errors[0].code, "primary_ipv6_unsupported")
+        common.ensure_ip_address_exists.assert_not_called()
+
+    async def test_default_mask_longer_than_the_family_allows_is_refused(self) -> None:
+        out, common = await _run(
+            _config(ip_address="192.168.178.10", create_prefix=True, default_mask_length=64),
+            _context(_device("a")),
+            rest=_containing(),
+        )
+        self.assertEqual(out["failure"].devices["a"].errors[0].code, "mask_invalid")
+        common.ensure_ip_address_exists.assert_not_called()
+
+    async def test_unresolved_description_or_dns_name_fails_the_device(self) -> None:
+        for key in ("description", "dns_name"):
+            out, common = await _run(_config(**{key: "{custom.missing}"}), _context(_device("a")))
+            self.assertEqual(out["failure"].devices["a"].errors[0].code, f"{key}_unresolved")
+            common.ensure_ip_address_exists.assert_not_called()
+
+    async def test_secret_attribute_is_never_copied(self) -> None:
+        from services.workflow_context.secret_fields import seal_secret
+
+        dev = _device("a", attribute_bags={"custom": {"token": seal_secret("hunter2-secret")}})
+        for key in ("description", "dns_name", "ip_address"):
+            out, common = await _run(_config(**{key: "{custom.token}"}), _context(dev))
+            error = out["failure"].devices["a"].errors[0]
+            self.assertEqual(error.code, f"{key}_is_secret")
+            self.assertNotIn("hunter2", error.message)
+            common.ensure_ip_address_exists.assert_not_called()
+
+    async def test_invalid_address_error_does_not_echo_the_value(self) -> None:
+        dev = _device("a", attribute_bags={"custom": {"ip": "top-secret-text"}})
+        out, _ = await _run(_config(ip_address="{custom.ip}"), _context(dev))
+        error = out["failure"].devices["a"].errors[0]
+        self.assertEqual(error.code, "ip_invalid")
+        self.assertNotIn("top-secret-text", error.message)
+
+    async def test_raw_nautobot_missing_prefix_message_is_recognised(self) -> None:
+        common = MagicMock()
+        common.ensure_ip_address_exists = AsyncMock(
+            side_effect=NautobotAPIError("No suitable parent Prefix for IP")
+        )
+        out, _ = await _run(_config(), _context(_device("a")), common=common)
+        self.assertEqual(out["failure"].devices["a"].errors[0].code, "prefix_not_found")
 
     async def test_device_not_in_nautobot(self) -> None:
         out, _ = await _run(_config(interface_name="Vlan1"), _context(_device("a")), device_id=None)

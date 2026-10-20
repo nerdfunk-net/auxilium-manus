@@ -11,6 +11,9 @@ describe("add-ip-to-nautobot config helpers", () => {
     expect(withNumberText({}, "default_mask_length", "2x")).toEqual({
       default_mask_length: "2x",
     });
+    expect(withNumberText({}, "default_mask_length", "-5")).toEqual({
+      default_mask_length: "-5",
+    });
   });
 
   it("does not mutate the previous config", () => {

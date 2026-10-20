@@ -16,7 +16,12 @@ export function AddIpToNautobotHelpPanel() {
         </p>
         <p>
           Running the step again is safe: an address that already exists is reused, not
-          created twice.
+          created twice. A reused address is left as it is: its status, description and DNS
+          name are not changed, and its prefix length is not corrected.
+        </p>
+        <p>
+          Checks that do not write (address, namespace, status, device and interface) run
+          before anything is created in Nautobot.
         </p>
       </HelpSection>
 
@@ -65,31 +70,37 @@ export function AddIpToNautobotHelpPanel() {
         </p>
         <p>
           <HelpCode>default_mask_length</HelpCode> gives the length for an address without one
-          when no prefix contains it. Empty uses 24 for IPv4 and 64 for IPv6.
+          when no prefix contains it (1–32 for IPv4, 1–128 for IPv6). Empty uses 24 for IPv4
+          and 64 for IPv6. It is only read when <HelpCode>create_prefix</HelpCode> is on.
         </p>
       </HelpSection>
 
       <HelpSection title="description and dns_name">
         <p>
           Optional text for the address, fixed or a <HelpCode>{"{path}"}</HelpCode>{" "}
-          expression.
+          expression. An expression that resolves to nothing fails the device. A value taken
+          from a secret is refused.
         </p>
       </HelpSection>
 
       <HelpSection title="result_attribute">
         <p>
           Optional attribute that receives the Nautobot ID (UUID) of the address, for example{" "}
-          <HelpCode>custom.ip_id</HelpCode>. The reserved bags <HelpCode>parsed</HelpCode> and{" "}
-          <HelpCode>run_input</HelpCode> cannot be used.
+          <HelpCode>custom.ip_id</HelpCode>. It must be a bag path: the reserved bags{" "}
+          <HelpCode>parsed</HelpCode> and <HelpCode>run_input</HelpCode> and device fields such
+          as <HelpCode>device.hostname</HelpCode> cannot be used. It is written only when the
+          device succeeds.
         </p>
       </HelpSection>
 
       <HelpSection title="interface_name and set_primary">
         <p>
           Optional. Assigns the address to this interface of the device, which must exist in
-          Nautobot together with the interface. <HelpCode>set_primary</HelpCode> also makes it
-          the device&apos;s primary IPv4 and needs an interface name. If the interface is not
-          found, the device fails but the address stays created; the error names its ID.
+          Nautobot together with the interface; a missing device or interface fails the device
+          before the address is created. An address that is already assigned to another
+          interface is not attached (<HelpCode>ip_assigned_elsewhere</HelpCode>).{" "}
+          <HelpCode>set_primary</HelpCode> also makes it the device&apos;s primary IPv4, needs
+          an interface name and is refused for an IPv6 address.
         </p>
       </HelpSection>
 
