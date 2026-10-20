@@ -454,6 +454,43 @@ GraphQL `errors` body raises `NautobotAPIError(code="graphql_error")` and severa
 `update-config-context` re-reads and retries (at most 3 attempts) when the context changed between its
 read and its write. REST path builders quote every interpolated value (`services/nautobot/common/rest.py`
 `rest_query`), and list reads follow `next` through `rest_paginate` (bounded at 50 pages).
+Status names are resolved by `MetadataResolver.resolve_status_id` for one content type
+(`extras/statuses/?content_types=…`) and follow `next` too; a UUID is returned as it is, without checking
+that it belongs to that content type. `GET /sources/nautobot/statuses` (allow-list `ipam.ipaddress`,
+`ipam.prefix`) feeds the status pickers.
+
+### IP address steps: `get-next-free-ip` and `add-ip-to-nautobot`
+
+Both are in the `nautobot` palette category and share `workflow_steps/common/nautobot_prefix_lookup.py`
+(`find_containing_prefix`, `LookupFailure`).
+
+- **Prefix and namespace.** `get-next-free-ip` finds the prefix by namespace (name, UUID or `{path}`,
+  default `Global`) and CIDR, then reads `/ipam/prefixes/{id}/available-ips/`. A value with a length
+  (`192.168.178.240/24`) is reduced to its network (`192.168.178.0/24`). A bare address
+  (`{device.primary_ip4}`) has no length: the step asks Nautobot for the most specific prefix of the
+  namespace that contains it (`contains=`). Several spellings of one prefix (`Global` and its UUID, an
+  upper- and a lower-case IPv6 address) share one free list, so one execution never hands an address out twice.
+  `start_offset` is counted from the network address; at most 1000 free addresses are read per request, and a
+  shortage after that is reported as `free_ip_window_exceeded`, not as an exhausted prefix.
+- **Nothing is reserved.** `get-next-free-ip` only reads. Parallel runs and fan-out children can receive the
+  same address until it exists in Nautobot (see the concurrency table).
+- **`add-ip-to-nautobot` writes through the shared facade** (`DeviceCommonService` → `IPManager`,
+  `PrefixManager`): no step-specific REST code creates IPs or prefixes. An address without a length takes the
+  length of its containing prefix; if none exists, `create_prefix` creates the parent prefix (status Active)
+  with `default_mask_length` (empty: 24 / 64). That value is only read when `create_prefix` is on and must fit
+  the address family.
+- **An existing address is reused, not changed.** Its status, description, DNS name and prefix length are left
+  alone (`use_assigned_ip_if_exists`). With `interface_name` the address is attached only if it is not
+  assigned to another interface (`ip_assigned_elsewhere`); `set_primary` is IPv4 only.
+- **Order of work.** Everything that can be checked without writing (address, namespace, status, device,
+  interface) runs before the address is created; `result_attribute` (a bag path, never `device.*`) is
+  written only when the device succeeds. A failure after the write names the IP address ID in the message.
+- **`add-ip-to-nautobot` never copies secrets.** It resolves `{path}` values with
+  `reveal_secrets=False` (`resolve_update_field_expression(..., reveal_secrets=False)`) because they are written
+  to Nautobot or into an error; a sealed secret fails the device (`<field>_is_secret`). A `description` or
+  `dns_name` expression that resolves to nothing fails the device, and its error messages do not repeat the
+  resolved address. `get-next-free-ip` only reads Nautobot with its prefix and namespace values and still
+  resolves them with the default (revealing) setting.
 
 ### Structured failure on `DeviceError`
 
@@ -1078,7 +1115,7 @@ decides whether a sealed leaf gets decrypted for the caller:
   default `reveal_secrets=True` — they need the cleartext to do their job
   (build a TACACS+ config line, send an ISE API payload).
 - **Generic / bulk steps** that write a *resolved* value into a *new* bag
-  location — `update-attribute`, `log-message` — must pass
+  location — `update-attribute`, `log-message`, `add-ip-to-nautobot` — must pass
   `reveal_secrets=False`. A `False` call returns `REDACTED_PLACEHOLDER`
   instead of cleartext; `update-attribute` treats that as a hard `ValueError`
   (it must not create a second, unsealed copy of a secret at an arbitrary
@@ -1374,7 +1411,7 @@ A step is concurrency-safe when it:
 | Step kind | Concurrency safe? | Why |
 |-----------|---------------|-----|
 | `get-device-configs`, `run-command`, `run-catalyst-center-command`, `get-catalyst-center-configs`, `get-catalyst-center-details`, `get-catalyst-center-topology`, `get-catalyst-center-health`, `merge-config`, `get-nautobot-attributes`, `get-device-location`, `get-virtual-chassis`, `split-virtual-chassis`, `render-jinja-template`, `log-message`, `route-on-attribute`, `generate-password` | ✅ | Per-device compute, no shared mutable sink. |
-| `get-next-free-ip` | ⚠️ | Read-only (`/ipam/prefixes/{id}/available-ips/`), nothing is reserved in Nautobot. Devices of one execution get distinct addresses because they are served in order from one list, but fan-out children and parallel runs each read the same free list and can receive the same address. Place it before the fan-out step's children or after a **Fan In**, and create the address (Add to Nautobot) before another run reads the prefix. |
+| `get-next-free-ip` | ⚠️ | Read-only (`/ipam/prefixes/{id}/available-ips/`), nothing is reserved in Nautobot. Devices of one execution get distinct addresses because they are served in order from one list, but fan-out children and parallel runs each read the same free list and can receive the same address. Place it before the fan-out step's children or after a **Fan In**, and create the address (**Add IP to Nautobot**) before another run reads the prefix. |
 | `add-ip-to-nautobot` | ✅ | Get-or-create through the shared `IPManager`: an address that exists is reused, and a concurrent creator of the same address or parent prefix is resolved by re-reading it, so fan-out children and sibling branches converge on one object. The addresses themselves still have to be distinct: take them from **Get Next Free IP** (which does not reserve them) and see its row. |
 | `git-status` | ✅ | Read-only inspection (plus an optional `git fetch`) under the per-repository lock, so concurrent callers are serialised, not corrupted. Its result is per repository, not per device — inside a fan-out branch it re-checks the same repo once per child, so prefer a single check before the fan-out inventory step's children or after a Fan In. |
 | `start-workflow` | ⚠️ | Starts one run for all devices it receives, or one per device (`max_runs`), and optionally polls them for up to 600 s. Two concurrent callers start two sets of runs, so inside a fan-out child it starts runs per child, each waiting in its own worker slot: place it before the fan-out or after a **Fan In**. See "Starting another workflow: `start-workflow`" below. |
