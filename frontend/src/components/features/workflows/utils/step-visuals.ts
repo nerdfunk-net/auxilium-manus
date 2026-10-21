@@ -111,6 +111,26 @@ export interface CategorySubgroup {
 // the Steps library. Steps of the category that no sub-group lists end up in a
 // trailing "Other" section, so a new step is safe by default.
 export const CATEGORY_SUBGROUPS: Record<string, CategorySubgroup[]> = {
+  nautobot: [
+    {
+      label: "DCIM",
+      kinds: [
+        "get-nautobot-devices",
+        "get-nautobot-attributes",
+        "get-device-location",
+        "get-virtual-chassis",
+        "split-virtual-chassis",
+        "set-default-attributes",
+        "config-to-attributes",
+        "add-to-nautobot",
+        "add-nautobot-metadata",
+        "update-nautobot-device",
+        "update-config-context",
+      ],
+    },
+    { label: "IPAM", kinds: ["get-next-free-ip", "add-ip-to-nautobot"] },
+    { label: "JOBS", kinds: ["start-nautobot-job", "check-nautobot-job"] },
+  ],
   cisco: [
     {
       label: "ISE",
