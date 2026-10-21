@@ -51,3 +51,11 @@ class WorkflowScheduleResponse(BaseModel):
     updated_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class ScheduleRunNowResponse(BaseModel):
+    run_id: int
+    # "failed" when the run could not start (validation, inputs, engine down); the run row
+    # exists either way and shows up in the run history.
+    status: str
+    error_message: str | None = None

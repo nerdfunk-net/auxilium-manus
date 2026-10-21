@@ -37,3 +37,9 @@ export interface WorkflowScheduleUpdate {
   run_inputs?: Record<string, unknown>;
   concurrency_limit?: number | null;
 }
+
+export interface ScheduleRunNowResult {
+  run_id: number;
+  status: string;
+  error_message: string | null;
+}

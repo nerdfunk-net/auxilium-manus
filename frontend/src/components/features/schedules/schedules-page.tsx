@@ -2,7 +2,7 @@
 
 import { useCallback, useState } from "react";
 import { useRouter } from "next/navigation";
-import { CalendarClock, FolderOpen, Loader2, Pencil, PlayCircle, Plus, Trash2 } from "lucide-react";
+import { CalendarClock, FolderOpen, Loader2, Pencil, Play, PlayCircle, Plus, Trash2 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -60,7 +60,7 @@ interface PendingWorkflowNav {
 export function SchedulesPage() {
   const router = useRouter();
   const { data: schedules, isLoading, error } = useSchedulesQuery();
-  const { updateSchedule, deleteSchedule } = useScheduleMutations();
+  const { updateSchedule, deleteSchedule, runNow } = useScheduleMutations();
 
   const builderWorkflowId = useWorkflowBuilderStore((state) => state.workflowId);
   const builderIsDirty = useWorkflowBuilderStore((state) => state.isDirty);
@@ -69,6 +69,7 @@ export function SchedulesPage() {
   const [editorOpen, setEditorOpen] = useState(false);
   const [editing, setEditing] = useState<WorkflowSchedule | null>(null);
   const [pendingDelete, setPendingDelete] = useState<WorkflowSchedule | null>(null);
+  const [pendingRun, setPendingRun] = useState<WorkflowSchedule | null>(null);
   const [pendingNav, setPendingNav] = useState<PendingWorkflowNav | null>(null);
 
   const goToBuilder = useCallback(
@@ -167,7 +168,7 @@ export function SchedulesPage() {
                   <TableHead>Parameters</TableHead>
                   <TableHead>Last run</TableHead>
                   <TableHead className="text-right">Enabled</TableHead>
-                  <TableHead className="w-24" />
+                  <TableHead className="w-32" />
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -220,6 +221,17 @@ export function SchedulesPage() {
                           onClick={() => loadWorkflow(schedule, true)}
                         >
                           <PlayCircle className="size-4" />
+                        </Button>
+                        <Button
+                          aria-label="Run now"
+                          title="Run now"
+                          size="icon"
+                          type="button"
+                          variant="ghost"
+                          disabled={runNow.isPending}
+                          onClick={() => setPendingRun(schedule)}
+                        >
+                          <Play className="size-4" />
                         </Button>
                         <Button
                           aria-label="Edit schedule"
@@ -286,6 +298,49 @@ export function SchedulesPage() {
               }}
             >
               {deleteSchedule.isPending ? "Deleting…" : "Delete"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={pendingRun != null}
+        // Once confirmed the request is in flight and cannot be recalled, so the dialog stays
+        // until it settles instead of offering a Cancel that does not cancel.
+        onOpenChange={(next) => !next && !runNow.isPending && setPendingRun(null)}
+      >
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Run now?</DialogTitle>
+            <DialogDescription>
+              This starts{" "}
+              <span className="font-medium">{pendingRun?.workflow_name ?? "the workflow"}</span>{" "}
+              immediately with the inputs of{" "}
+              <span className="font-mono">{pendingRun?.name || "this schedule"}</span>. The
+              schedule itself is not changed.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={runNow.isPending}
+              onClick={() => setPendingRun(null)}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              disabled={runNow.isPending}
+              onClick={() => {
+                if (!pendingRun) return;
+                runNow.mutate(
+                  { id: pendingRun.id, workflowId: pendingRun.workflow_id },
+                  { onSettled: () => setPendingRun(null) },
+                );
+              }}
+            >
+              {runNow.isPending ? "Starting…" : "Run now"}
             </Button>
           </DialogFooter>
         </DialogContent>

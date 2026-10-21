@@ -456,3 +456,82 @@ class ScheduleServiceUpdateTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ScheduleRunNowTests(unittest.TestCase):
+    def _svc(self, schedule=None):
+        svc = _service()
+        svc.repo.get_by_id.return_value = schedule if schedule is not None else _schedule_row()
+        return svc
+
+    def _run(self, status="pending", **over):
+        run = MagicMock()
+        run.id = over.get("id", 99)
+        run.status = status
+        run.error_message = over.get("error_message")
+        return run
+
+    def test_starts_run_as_clicking_user_without_marking_fired(self) -> None:
+        svc = self._svc(_schedule_row(created_by_id=7, enabled=False))
+        registry = MagicMock()
+        with patch(
+            "services.execution.schedule_service.start_scheduled_run", return_value=self._run()
+        ) as start:
+            result = svc.run_now(schedule_id=3, user_id=7, plugin_registry_service=registry)
+
+        assert result.run_id == 99
+        assert result.status == "pending"
+        _, kwargs = start.call_args
+        assert kwargs["acting_user_id"] == 7
+        # The interactive path goes through the dispatch breaker; the cron worker does not.
+        assert kwargs["use_dispatch_breaker"] is True
+        assert kwargs["plugin_registry_service"] is registry
+        # A manual start is not a fire: the schedule row is never touched.
+        svc.repo.mark_triggered.assert_not_called()
+        svc.repo.update.assert_not_called()
+
+    def test_failed_run_reports_status_and_message(self) -> None:
+        svc = self._svc()
+        failed = self._run(status="failed", error_message="Workflow execution engine unavailable")
+        with patch("services.execution.schedule_service.start_scheduled_run", return_value=failed):
+            result = svc.run_now(schedule_id=3, user_id=7, plugin_registry_service=MagicMock())
+        assert result.status == "failed"
+        assert result.error_message == "Workflow execution engine unavailable"
+
+    def test_unknown_schedule_is_404(self) -> None:
+        svc = _service()
+        svc.repo.get_by_id.return_value = None
+        with self.assertRaises(NotFoundError):
+            svc.run_now(schedule_id=3, user_id=7, plugin_registry_service=MagicMock())
+
+    def test_private_workflow_of_someone_else_is_denied(self) -> None:
+        svc = self._svc()
+        svc.wf_repo.get_by_id.return_value = (_workflow(visibility="private", creator_id=1), None)
+        with patch("services.execution.schedule_service.start_scheduled_run") as start:
+            with self.assertRaises(AccessDeniedError):
+                svc.run_now(schedule_id=3, user_id=42, plugin_registry_service=MagicMock())
+        start.assert_not_called()
+
+    def test_other_users_schedule_is_denied(self) -> None:
+        # The stored run inputs include the creator's sealed secrets: only the creator (or an
+        # administrator) may replay them.
+        svc = self._svc(_schedule_row(created_by_id=7))
+        with (
+            patch("services.auth.rbac_service.RBACService.has_role", return_value=False),
+            patch("services.execution.schedule_service.start_scheduled_run") as start,
+        ):
+            with self.assertRaises(AccessDeniedError):
+                svc.run_now(schedule_id=3, user_id=42, plugin_registry_service=MagicMock())
+        start.assert_not_called()
+
+    def test_administrator_may_run_another_users_schedule(self) -> None:
+        svc = self._svc(_schedule_row(created_by_id=7))
+        with (
+            patch("services.auth.rbac_service.RBACService.has_role", return_value=True),
+            patch(
+                "services.execution.schedule_service.start_scheduled_run",
+                return_value=self._run(),
+            ) as start,
+        ):
+            svc.run_now(schedule_id=3, user_id=42, plugin_registry_service=MagicMock())
+        assert start.call_args.kwargs["acting_user_id"] == 42

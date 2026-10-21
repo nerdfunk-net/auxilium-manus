@@ -129,3 +129,64 @@ def test_dispatch_failure_marks_run_failed(db_factory, monkeypatch) -> None:
         assert run.status == "failed"
         assert run.error_id
         assert "hunter2" not in (run.error_message or "")
+
+
+def _start(factory, sid: int, wid: int, uid: int, **kwargs):
+    from services.execution.schedule_fire import start_scheduled_run
+
+    with factory() as db:
+        schedule = db.get(WorkflowSchedule, sid)
+        workflow = db.get(Workflow, wid)
+        run = start_scheduled_run(
+            db,
+            schedule,
+            workflow,
+            acting_user_id=uid,
+            plugin_registry_service=MagicMock(),
+            **kwargs,
+        )
+        return run.id, run.status, run.error_message
+
+
+def test_open_breaker_fails_run_now_fast_without_calling_hatchet(db_factory) -> None:
+    from services.execution.dispatch_breaker import dispatch_breaker
+
+    sid, wid, uid = _seed(db_factory)
+    engine = MagicMock()
+    dispatch_breaker.record_failure()
+    try:
+        with (
+            patch("hatchet.workflows.dispatch.resolve_dispatch_workflow", return_value=engine),
+            patch(
+                "services.execution.schedule_fire.WorkflowValidationService"
+            ) as validation,
+        ):
+            validation.return_value.validate.return_value.has_errors = False
+            _, status, message = _start(db_factory, sid, wid, uid, use_dispatch_breaker=True)
+    finally:
+        dispatch_breaker.reset()
+    assert status == "failed"
+    assert message == "Workflow execution engine unavailable"
+    engine.run_no_wait.assert_not_called()
+
+
+def test_worker_path_ignores_the_breaker(db_factory) -> None:
+    from services.execution.dispatch_breaker import dispatch_breaker
+
+    sid, wid, uid = _seed(db_factory)
+    engine = MagicMock()
+    engine.run_no_wait.return_value.workflow_run_id = "hr-1"
+    dispatch_breaker.record_failure()
+    try:
+        with (
+            patch("hatchet.workflows.dispatch.resolve_dispatch_workflow", return_value=engine),
+            patch(
+                "services.execution.schedule_fire.WorkflowValidationService"
+            ) as validation,
+        ):
+            validation.return_value.validate.return_value.has_errors = False
+            _, status, _ = _start(db_factory, sid, wid, uid)
+    finally:
+        dispatch_breaker.reset()
+    assert status != "failed"
+    engine.run_no_wait.assert_called_once()

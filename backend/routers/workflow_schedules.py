@@ -6,12 +6,16 @@ from sqlalchemy.orm import Session
 from core.auth import get_current_user, require_permission
 from core.database import get_db
 from core.models.users import User
+from core.rate_limit import rate_limited
 from models.schedules import (
+    ScheduleRunNowResponse,
     WorkflowScheduleCreate,
     WorkflowScheduleResponse,
     WorkflowScheduleUpdate,
 )
+from routers.workflow_steps import get_plugin_service
 from services.execution.schedule_service import ScheduleService
+from services.plugin_registry.plugin_registry_service import PluginRegistryService
 
 router = APIRouter(
     tags=["workflow-schedules"],
@@ -94,3 +98,26 @@ def delete_schedule(
     service: ScheduleService = Depends(_service),
 ) -> None:
     service.delete_schedule(schedule_id=schedule_id, user_id=current_user.id)
+
+
+@router.post(
+    "/schedules/{schedule_id}/run",
+    response_model=ScheduleRunNowResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    dependencies=[
+        Depends(require_permission("workflows", "execute")),
+        # Starts a real run (device fan-out), so it gets its own per-user budget.
+        Depends(rate_limited("schedule-run-now", attempts=10, window_seconds=60)),
+    ],
+)
+def run_schedule_now(
+    schedule_id: int,
+    current_user: User = Depends(get_current_user),
+    service: ScheduleService = Depends(_service),
+    plugin_service: PluginRegistryService = Depends(get_plugin_service),
+) -> ScheduleRunNowResponse:
+    return service.run_now(
+        schedule_id=schedule_id,
+        user_id=current_user.id,
+        plugin_registry_service=plugin_service,
+    )

@@ -8,6 +8,7 @@ import { useToast } from "@/hooks/use-toast";
 import { queryKeys } from "@/lib/query-keys";
 
 import type {
+  ScheduleRunNowResult,
   WorkflowSchedule,
   WorkflowScheduleCreate,
   WorkflowScheduleUpdate,
@@ -68,8 +69,35 @@ export function useScheduleMutations() {
       toast({ description: getErrorMessage(error), variant: "destructive" }),
   });
 
+  // Starts one run now with the schedule's stored inputs; the schedule itself is untouched.
+  const runNow = useMutation({
+    mutationFn: ({ id }: { id: number; workflowId: number }) =>
+      apiCall<ScheduleRunNowResult>(`schedules/${id}/run`, { method: "POST" }),
+    onSuccess: (result, { workflowId }) => {
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.workflowRuns.listPrefix(workflowId),
+      });
+      if (result.status === "failed") {
+        // The run exists (and is listed as failed) but never started.
+        toast({
+          title: "Run could not start",
+          description: result.error_message ?? "The run failed before it started.",
+          variant: "destructive",
+        });
+        return;
+      }
+      toast({ title: "Run queued", description: `Run #${result.run_id} started.` });
+    },
+    onError: (error: unknown) =>
+      toast({
+        title: "Failed to start run",
+        description: getErrorMessage(error),
+        variant: "destructive",
+      }),
+  });
+
   return useMemo(
-    () => ({ createSchedule, updateSchedule, deleteSchedule }),
-    [createSchedule, updateSchedule, deleteSchedule],
+    () => ({ createSchedule, updateSchedule, deleteSchedule, runNow }),
+    [createSchedule, updateSchedule, deleteSchedule, runNow],
   );
 }

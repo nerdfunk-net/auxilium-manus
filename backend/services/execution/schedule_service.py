@@ -25,6 +25,7 @@ from core.safe_http_errors import raise_internal_server_error
 from hatchet.client import hatchet
 from models.background_tier import BackgroundTierUpsert
 from models.schedules import (
+    ScheduleRunNowResponse,
     ScheduleType,
     WorkflowScheduleCreate,
     WorkflowScheduleResponse,
@@ -43,6 +44,8 @@ from services.execution.run_input_validation import (
     RunInputValidationError,
     resolve_run_inputs,
 )
+from services.execution.schedule_fire import start_scheduled_run
+from services.plugin_registry.plugin_registry_service import PluginRegistryService
 from services.workflow_context.secret_fields import REDACTED_PLACEHOLDER, redact_secrets_in_data
 
 logger = logging.getLogger(__name__)
@@ -61,9 +64,14 @@ class ScheduleService:
     # helpers
     # ------------------------------------------------------------------
 
-    def _assert_schedule_owner(self, schedule: WorkflowSchedule, user_id: int) -> None:
-        """Only the creator edits or deletes a schedule (S2-05); an administrator may as an
-        audited exception."""
+    def _assert_schedule_owner(
+        self,
+        schedule: WorkflowSchedule,
+        user_id: int,
+        denied: str = "Only the creator of a schedule can change or delete it",
+    ) -> None:
+        """Only the creator edits, deletes or runs a schedule (S2-05); an administrator may as
+        an audited exception."""
         if schedule.created_by_id == user_id:
             return
         from services.auth.rbac_service import RBACService
@@ -73,7 +81,7 @@ class ScheduleService:
                 "schedule_admin_override user_id=%s schedule_id=%s", user_id, schedule.id
             )
             return
-        raise AccessDeniedError("Only the creator of a schedule can change or delete it")
+        raise AccessDeniedError(denied)
 
     def disable_for_user(self, user_id: int) -> int:
         """A deactivated user's schedules stop firing (S2-04). Reactivation does not re-enable."""
@@ -382,6 +390,42 @@ class ScheduleService:
             raise NotFoundError("Schedule not found")
         self._load_workflow(schedule.workflow_id, user_id)
         return self._to_response(schedule)
+
+    def run_now(
+        self,
+        schedule_id: int,
+        user_id: int,
+        plugin_registry_service: PluginRegistryService,
+    ) -> ScheduleRunNowResponse:
+        """Start the schedule's workflow once, now, with the schedule's stored inputs.
+
+        Only the schedule's creator (or an administrator, logged) may do this. Unlike a fire,
+        the run belongs to the user who asked, and the schedule itself is left
+        alone: no `last_triggered_at`, and a one-time schedule stays pending. A disabled
+        schedule can still be run by hand.
+        """
+        schedule = self.repo.get_by_id(schedule_id)
+        if schedule is None:
+            raise NotFoundError("Schedule not found")
+        workflow = self._load_workflow(schedule.workflow_id, user_id)
+        # The stored run inputs carry the creator's sealed secrets, which the run replays
+        # without re-checking who may use them: same owner rule as edit and delete.
+        self._assert_schedule_owner(
+            schedule, user_id, denied="Only the creator of a schedule can run it"
+        )
+        run = start_scheduled_run(
+            self.db,
+            schedule,
+            workflow,
+            acting_user_id=user_id,
+            plugin_registry_service=plugin_registry_service,
+            use_dispatch_breaker=True,
+        )
+        return ScheduleRunNowResponse(
+            run_id=run.id,
+            status=run.status,
+            error_message=run.error_message if run.status == "failed" else None,
+        )
 
     def create_schedule(
         self, data: WorkflowScheduleCreate, user_id: int

@@ -40,9 +40,19 @@ this doc doesn't repeat.
 | GET | `/api/schedules?workflow_id=` | `workflows:execute` | all schedules on workflows the user can see |
 | POST | `/api/schedules` | `workflows:execute` **+ `workflows:publish`** | also publishes the workflow to the background tier |
 | GET/PUT/DELETE | `/api/schedules/{id}` | `workflows:execute` | |
+| POST | `/api/schedules/{id}/run` | `workflows:execute` (rate limited, 10/min per user) | "Run now": see below |
+
+**Run now.** `ScheduleService.run_now` (through the dispatch breaker, so an engine outage fails fast) starts the schedule's workflow once through the same
+`services/execution/schedule_fire.py::start_scheduled_run` the Hatchet trigger uses (pre-run
+validation, the schedule's stored `run_inputs`, `trigger_type="scheduled"`). Differences from a
+fire: only the schedule's **creator (or an administrator, logged)** may click it, because the stored
+inputs carry the creator's sealed secrets; the run belongs to the user who clicked (references
+resolve for them), the schedule is left untouched (`last_triggered_at` stays, a
+one-time schedule is not consumed) and a disabled schedule can still be run. A run that cannot start
+is stored as `failed` and the response says so (`status`, `error_message`).
 
 Ownership: a schedule fires as its creator and only the creator (or an administrator, logged)
-edits, disables or deletes it. At every fire `hatchet/workflows/scheduled_trigger.py` re-validates
+edits, disables, deletes or runs it. At every fire `hatchet/workflows/scheduled_trigger.py` re-validates
 that the creator is active, still holds `workflows:execute` and can still see the workflow; otherwise
 the schedule is disabled instead of run. Deactivating a user disables, and deleting a user deletes,
 their schedules.
@@ -98,7 +108,7 @@ workflow builder's Properties panel.
 
 - Route stub: `frontend/src/app/(dashboard)/schedules/page.tsx`.
 - Feature: `frontend/src/components/features/schedules/` —
-  `schedules-page.tsx` (list + enable toggle + delete), `dialogs/schedule-editor-dialog.tsx`
+  `schedules-page.tsx` (list + enable toggle + run now + delete), `dialogs/schedule-editor-dialog.tsx`
   (workflow picker → `ScheduleParameterFields` → `ScheduleTimingFields` +
   concurrency limit), hooks `use-schedules-query.ts` / `use-schedule-mutations.ts`.
 - Reuses `useSavedInventoriesQuery`, `useCredentialsQuery` (filtered to
