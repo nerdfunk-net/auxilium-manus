@@ -43,6 +43,23 @@ class InventoryRepository:
             stmt = stmt.where(Inventory.is_active.is_(True))
         return self.db.scalar(stmt)
 
+    def name_taken(self, name: str, username: str, exclude_id: int) -> bool:
+        """True when another active inventory visible to *username* already uses *name*."""
+        stmt = (
+            select(Inventory.id)
+            .where(
+                Inventory.name == name,
+                Inventory.id != exclude_id,
+                Inventory.is_active.is_(True),
+                or_(
+                    Inventory.scope == "global",
+                    (Inventory.scope == "private") & (Inventory.created_by == username),
+                ),
+            )
+            .limit(1)
+        )
+        return self.db.scalar(stmt) is not None
+
     def list_inventories(
         self,
         username: str,

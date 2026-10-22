@@ -53,6 +53,11 @@ export function isConflictError(error: unknown): boolean {
   return error instanceof ApiError && error.status === 409;
 }
 
+/** The target of the request does not exist (any more). */
+export function isNotFoundError(error: unknown): boolean {
+  return error instanceof ApiError && error.status === 404;
+}
+
 /** The server understood the request and refused it: the user lacks a permission. */
 export function isForbiddenError(error: unknown): boolean {
   return error instanceof ApiError && error.status === 403;

@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import JSONResponse
 
 from core.auth import get_current_user, require_permission
+from core.domain_exceptions import DomainError
 from core.models.users import User
 from core.safe_http_errors import client_error_message, raise_internal_server_error
 from dependencies import get_inventory_service
@@ -248,7 +249,7 @@ def update_inventory(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail=client_error_message(exc)
         ) from exc
-    except HTTPException:
+    except HTTPException, DomainError:
         raise
     except Exception as exc:
         raise_internal_server_error(logger, "Failed to update inventory: ", exc)

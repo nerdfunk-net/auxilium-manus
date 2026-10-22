@@ -7,10 +7,12 @@ from unittest.mock import MagicMock
 import pytest
 from _auth_helpers import make_auth_db, token_payload
 from fastapi import FastAPI
+from fastapi.responses import JSONResponse
 from fastapi.testclient import TestClient
 
 from core.auth import get_current_user, verify_token
 from core.database import get_db
+from core.domain_exceptions import ConflictError, DomainError
 from core.models.users import User
 from dependencies import get_inventory_service
 from routers.sources.nautobot.crud import router as crud_router
@@ -39,6 +41,11 @@ def ctx(monkeypatch):
     monkeypatch.setattr(RBACService, "has_permission", lambda self, *_a, **_k: True)
     app = FastAPI()
     app.include_router(crud_router, prefix="/api")
+
+    @app.exception_handler(DomainError)
+    async def _domain_error(_request, exc: DomainError) -> JSONResponse:  # mirrors main.py
+        return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
+
     user = User(username="t", password_hash="h", is_active=True)
     user.id = 1
     app.dependency_overrides[verify_token] = lambda: token_payload()
@@ -92,6 +99,7 @@ class TestListAndSearch:
         svc.list_inventories.side_effect = RuntimeError("boom")
         assert client.get("/api/sources/nautobot").status_code == 500
 
+
 class TestGet:
     def test_get_by_id_ok(self, ctx):
         client, svc = ctx
@@ -127,6 +135,13 @@ class TestUpdateAndDelete:
         client, svc = ctx
         svc.update_inventory.side_effect = ValueError("permission")
         assert client.put("/api/sources/nautobot/1", json={"name": "x"}).status_code == 400
+
+    def test_update_name_conflict_reaches_the_client_as_409(self, ctx):
+        client, svc = ctx
+        svc.update_inventory.side_effect = ConflictError("Inventory with name 'x' already exists")
+        r = client.put("/api/sources/nautobot/1", json={"name": "x"})
+        assert r.status_code == 409
+        assert "already exists" in r.json()["detail"]
 
     def test_delete_hard_ok(self, ctx):
         client, svc = ctx

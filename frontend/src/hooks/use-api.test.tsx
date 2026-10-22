@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { useAuthStore } from "@/lib/auth-store";
 
-import { ApiError, isConflictError, isForbiddenError, useApi } from "./use-api";
+import { ApiError, isConflictError, isForbiddenError, isNotFoundError, useApi } from "./use-api";
 
 const routerMock = { replace: vi.fn(), refresh: vi.fn() };
 vi.mock("next/navigation", () => ({ useRouter: () => routerMock }));
@@ -65,6 +65,14 @@ describe("useApi", () => {
     expect(isForbiddenError(new ApiError("changed", 409))).toBe(false);
     expect(isForbiddenError(new Error("403"))).toBe(false);
     expect(isForbiddenError(null)).toBe(false);
+  });
+
+  it("isNotFoundError is true only for a 404 ApiError", () => {
+    expect(isNotFoundError(new ApiError("gone", 404))).toBe(true);
+    expect(isNotFoundError(new ApiError("no", 403))).toBe(false);
+    expect(isNotFoundError(new ApiError("changed", 409))).toBe(false);
+    expect(isNotFoundError(new Error("404"))).toBe(false);
+    expect(isNotFoundError(undefined)).toBe(false);
   });
 
   it("keeps an object detail on the error so callers can read structured data", async () => {

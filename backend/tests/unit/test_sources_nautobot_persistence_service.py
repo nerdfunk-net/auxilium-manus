@@ -11,6 +11,7 @@ import unittest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
+from core.domain_exceptions import ConflictError
 from core.models.inventories import Inventory
 from repositories.inventory_repository import InventoryRepository
 from services.sources.nautobot.persistence_service import InventoryService
@@ -136,6 +137,57 @@ class InventoryServiceTests(unittest.TestCase):
         stored = self.service.get_inventory(inv_id)
         self.assertEqual(stored["name"], "renamed")
         self.assertEqual(stored["conditions"], [{"version": 2, "tree": {"x": 1}}])
+
+    def test_update_inventory_rename_onto_existing_name_conflicts(self) -> None:
+        self._create(name="taken")
+        inv_id = self._create(name="other")
+        with self.assertRaises(ConflictError) as ctx:
+            self.service.update_inventory(inv_id, {"name": "taken"}, _USER)
+        self.assertIn("taken", str(ctx.exception))
+        self.assertEqual(self.service.get_inventory(inv_id)["name"], "other")
+
+    def test_update_inventory_keeping_its_own_name_is_not_a_conflict(self) -> None:
+        inv_id = self._create(name="same")
+        self.assertTrue(
+            self.service.update_inventory(inv_id, {"name": "same", "description": "d"}, _USER)
+        )
+
+    def test_update_inventory_without_rename_ignores_an_existing_twin(self) -> None:
+        first = self._create(name="twin")
+        # Twins made before the check existed must stay editable.
+        self.db.add(
+            Inventory(
+                name="twin",
+                conditions="[]",
+                scope="global",
+                created_by=_USER,
+                is_active=True,
+            )
+        )
+        self.db.commit()
+        self.assertTrue(self.service.update_inventory(first, {"description": "d"}, _USER))
+
+    def test_update_inventory_ignores_another_users_private_name(self) -> None:
+        self._create(name="bobs", scope="private", created_by="bob")
+        inv_id = self._create(name="mine")
+        self.assertTrue(self.service.update_inventory(inv_id, {"name": "bobs"}, _USER))
+
+    def test_update_inventory_scope_change_onto_a_visible_name_conflicts(self) -> None:
+        inv_id = self._create(name="shared", scope="private")
+        self._create(name="shared", scope="global", created_by="bob")
+        with self.assertRaises(ConflictError):
+            self.service.update_inventory(inv_id, {"scope": "global"}, _USER)
+
+    def test_update_inventory_scope_change_without_a_twin_succeeds(self) -> None:
+        inv_id = self._create(name="solo", scope="private")
+        self.assertTrue(self.service.update_inventory(inv_id, {"scope": "global"}, _USER))
+
+    def test_update_inventory_checks_names_as_seen_by_the_owner(self) -> None:
+        self._create(name="alices-private", scope="private")
+        inv_id = self._create(name="alices-global", scope="global")
+        # Bob may edit a global inventory; the name rule is the owner's, not the editor's.
+        with self.assertRaises(ConflictError):
+            self.service.update_inventory(inv_id, {"name": "alices-private"}, "bob")
 
     def test_update_inventory_missing_raises(self) -> None:
         with self.assertRaises(ValueError):

@@ -15,6 +15,7 @@ import json
 import logging
 from typing import Any
 
+from core.domain_exceptions import ConflictError
 from core.models.inventories import Inventory
 from repositories.inventory_repository import InventoryRepository
 
@@ -246,6 +247,17 @@ class InventoryService:
                 raise ValueError("You don't have permission to update this inventory")
 
             current = self._model_to_dict(current_obj)
+
+            new_name = inventory_data.get("name", current["name"])
+            new_scope = inventory_data.get("scope", current["scope"])
+            # Same rule as create (a name is unique among what its owner can see). Only a rename
+            # or a scope change is checked, so a twin made before this check stays editable.
+            if (new_name != current["name"] or new_scope != current["scope"]) and (
+                self.repository.name_taken(new_name, current_obj.created_by, inventory_id)
+            ):
+                raise ConflictError(
+                    f"Inventory with name '{new_name}' already exists for this user"
+                )
 
             conditions_json = (
                 json.dumps(inventory_data["conditions"])

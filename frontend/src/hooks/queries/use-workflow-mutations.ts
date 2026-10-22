@@ -3,7 +3,7 @@
 import { useMemo } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 
-import { useApi } from "@/hooks/use-api";
+import { isNotFoundError, useApi } from "@/hooks/use-api";
 import { queryKeys } from "@/lib/query-keys";
 import type {
   WorkflowCreate,
@@ -47,6 +47,12 @@ export function useWorkflowMutations() {
       apiCall<void>(`workflows/${id}`, { method: "DELETE" }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.workflows.list() });
+    },
+    onError: (error) => {
+      // Already deleted elsewhere: the list the caller shows is stale, so refetch it.
+      if (isNotFoundError(error)) {
+        queryClient.invalidateQueries({ queryKey: queryKeys.workflows.list() });
+      }
     },
   });
 

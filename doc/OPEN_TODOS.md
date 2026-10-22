@@ -849,14 +849,14 @@ overwrite offer with the server message). Not run: the schedule credential hint 
 `existing_id`" message in a browser (unreachable there), a Nautobot source that answers (the source was a dead address),
 a Batfish source that answers, runs.
 
-Found in that pass, not fixed:
-- **Inventory rename onto an existing name succeeds.** `InventoryService.update_inventory` has no name check (create
-  has one per creator), so Manage → Edit can produce two inventories with one name; the Save dialog's overwrite-by-name
-  then picks one of them. Workflows got the 409 in round 6; inventories did not.
-- **Manage Workflows keeps a deleted row after a failed delete** ("Workflow not found" toast, list unchanged, counts
-  stale). A 404 on delete should refetch the list.
-- **Legacy folder rows:** rows stored with `""` or `NULL` as the folder are read as `/` but not migrated. Decide on a
-  one-time cleanup (and what to do with twins it would create). Asked, not acted on.
+Found in that pass and fixed the same day: renaming an inventory onto an existing name (now `409`, same rule as create:
+a name is unique among what its owner can see; checked on rename or scope change only, so older twins stay editable), and
+the Manage Workflows list keeping a row after a delete answered `404` (the hook refetches the list on a 404). Both were
+checked in the browser. `useWorkflowMutations` still returns a new object every render (callers read `isPending`);
+not changed.
+
+- **Legacy folder rows:** rows stored with `""` or `NULL` as the folder are read as `/` but not migrated. Decided
+  2026-10-22: no cleanup (development system, no data worth migrating).
 
 ### Found in round 2 (hook tests)
 
