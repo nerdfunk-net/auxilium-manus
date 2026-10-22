@@ -778,7 +778,7 @@ If operators ask for run problems in the Hatchet dashboard. Then:
 **Added:** 2026-10-19 · **Area:** `frontend/`, `doc/HOWTO_TEST_THE_FRONTEND.md`
 
 Left over from the vitest coverage passes and the Playwright passes (coverage 13.5 % → about 33 % statements,
-about 40 bugs fixed; the ratchet in `frontend/vitest.config.ts` (36 / 28 / 27 / 36) keeps the gain).
+about 40 bugs fixed; the ratchet in `frontend/vitest.config.ts` (38 / 29 / 28 / 37) keeps the gain).
 
 ### Decided: no import with references the user cannot list
 
@@ -826,16 +826,6 @@ snapshot, and `sources.batfish:query` implies listing (the source list, networks
 `:query`; create, update and delete still need `:write` / `:delete`; `build_source_crud_router(also_reads=...)`,
 `require_any_permission` now names the accepted permissions in its 403).
 
-Open:
-- **Two toasts per failed inventory mutation.** `use-saved-inventory-mutations` / export / import toast in `onError`,
-  and `device-selector.tsx` (`handleSaveInventory`, `handleSaveDeviceList`, `handleDirectSave`,
-  `handleExportInventory`, `handleImportInventory`) toasts the same failure again in its `catch`. Remove the catch
-  toasts (keep the `return false`); needs a `device-selector` component test first (no test exists).
-- **Save As: "name unavailable" without `existing_id`** returns silently (`workflow-save-as-dialog.tsx`). The backend
-  always sends the id, so this is unreachable today; show the message if the contract ever changes.
-- **A credential reference field shows an empty select, not a hint,** when the user lacks `credentials:read`
-  (`schedule-parameter-fields.tsx`).
-
 Round 7 (2026-10-22): `device-selector` has a component test and no longer toasts twice (the mutation hooks toast in
 `onError`; `useSavedInventories` now toasts the one failure no mutation covers, an update without an id).
 `schedule-parameter-fields` shows a hint instead of an empty select without `credentials:read`; the Save As dialog
@@ -857,6 +847,14 @@ not changed.
 
 - **Legacy folder rows:** rows stored with `""` or `NULL` as the folder are read as `/` but not migrated. Decided
   2026-10-22: no cleanup (development system, no data worth migrating).
+- **Inventory names are not unique at the database level (open, 2026-10-22).** The name rule is check-then-write in
+  `InventoryPersistenceService` (`create_inventory`, `update_inventory`): `InventoryRepository.name_taken` runs in one
+  statement and the write commits in another, and `inventories.name` has no unique index. Two overlapping creates or
+  renames to the same free name both pass. A fix needs partial unique indexes (or a lock) that also cover the
+  global/private overlap, plus a pre-check for existing duplicates so `AutoSchemaMigration` does not fail on them.
+  Fixed from the same review (`doc/analysis/REVIEW.md`): the conflict check runs as the editor, not the owner (no
+  private-name oracle); only the owner may make an inventory private; `scope` is `global` | `private` only; the Save As
+  and Import dialogs treat `existing_id: null` as "no workflow to overwrite".
 
 ### Found in round 2 (hook tests)
 
@@ -904,7 +902,7 @@ users, git repositories) beyond loading them. The isolated stack has no Nautobot
   the browser). Rank the list again with `coverage/coverage-summary.json`: it changed in round 6.
   Round 6 added the first component tests for the dialogs rounds 4 and 5 changed, and for the confirmation dialogs
   of `workflow-builder-page.tsx` (the rest of the page is stubbed, so the page's wiring beyond those is untested).
-- **Raise the ratchet** (`coverage.thresholds`) after each round; never lower it. Now 36 / 28 / 27 / 36 against
-  measured 36.7 / 28.4 / 27.8 / 36.4.
+- **Raise the ratchet** (`coverage.thresholds`) after each round; never lower it. Now 38 / 29 / 28 / 37 against
+  measured 38.2 / 29.7 / 29.1 / 37.9 (2026-10-22).
 - **Pages that fetch more than they need** — the import dialogs were the case found; a quick check of the other
   always-mounted dialogs for queries that ignore `enabled` is cheap (`grep -rn "use.*Query()" frontend/src`).

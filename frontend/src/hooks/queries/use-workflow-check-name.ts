@@ -14,7 +14,7 @@ export interface WorkflowNameCheckInput {
 export interface WorkflowNameCheckResponse {
   available: boolean;
   message?: string;
-  existing_id?: number;
+  existing_id?: number | null;
 }
 
 export function useWorkflowCheckNameMutation() {

@@ -243,7 +243,7 @@ export function WorkflowImportDialog({
           visibility: values.visibility,
         });
         if (!check.available) {
-          if (check.existing_id !== undefined) {
+          if (check.existing_id != null) {
             setPendingOverwrite({
               message:
                 check.message ?? "A workflow with this name already exists.",

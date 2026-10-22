@@ -182,12 +182,21 @@ class InventoryServiceTests(unittest.TestCase):
         inv_id = self._create(name="solo", scope="private")
         self.assertTrue(self.service.update_inventory(inv_id, {"scope": "global"}, _USER))
 
-    def test_update_inventory_checks_names_as_seen_by_the_owner(self) -> None:
+    def test_update_inventory_conflict_check_does_not_reveal_owners_private_names(self) -> None:
         self._create(name="alices-private", scope="private")
         inv_id = self._create(name="alices-global", scope="global")
-        # Bob may edit a global inventory; the name rule is the owner's, not the editor's.
-        with self.assertRaises(ConflictError):
-            self.service.update_inventory(inv_id, {"name": "alices-private"}, "bob")
+        # Bob may edit a global inventory; the name rule is checked as Bob, so no oracle.
+        self.assertTrue(self.service.update_inventory(inv_id, {"name": "alices-private"}, "bob"))
+
+    def test_update_inventory_non_owner_cannot_make_it_private(self) -> None:
+        inv_id = self._create(name="g", scope="global")
+        with self.assertRaises(ValueError):
+            self.service.update_inventory(inv_id, {"scope": "private"}, "bob")
+
+    def test_update_inventory_rejects_unknown_scope(self) -> None:
+        inv_id = self._create(name="g", scope="global")
+        with self.assertRaises(ValueError):
+            self.service.update_inventory(inv_id, {"scope": "shared"}, _USER)
 
     def test_update_inventory_missing_raises(self) -> None:
         with self.assertRaises(ValueError):

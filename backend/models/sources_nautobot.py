@@ -45,7 +45,7 @@ class CreateInventoryRequest(BaseModel):
     device_ids: list[str] | None = None
     template_category: str | None = None
     template_name: str | None = None
-    scope: str = "global"
+    scope: Literal["global", "private"] = "global"
     group_path: str | None = None
 
 
@@ -57,7 +57,7 @@ class UpdateInventoryRequest(BaseModel):
     device_ids: list[str] | None = None
     template_category: str | None = None
     template_name: str | None = None
-    scope: str | None = None
+    scope: Literal["global", "private"] | None = None
     group_path: str | None = None
 
 

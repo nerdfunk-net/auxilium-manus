@@ -250,10 +250,15 @@ class InventoryService:
 
             new_name = inventory_data.get("name", current["name"])
             new_scope = inventory_data.get("scope", current["scope"])
-            # Same rule as create (a name is unique among what its owner can see). Only a rename
-            # or a scope change is checked, so a twin made before this check stays editable.
+            if new_scope not in ("global", "private"):
+                raise ValueError("Scope must be 'global' or 'private'")
+            if new_scope == "private" and current_obj.created_by != username:
+                raise ValueError("Only the owner can make an inventory private")
+            # Same rule as create (a name is unique among what the editor can see). It is checked
+            # as the editor, not the owner, so a 409 never reveals the owner's private names.
+            # Only a rename or a scope change is checked, so an older twin stays editable.
             if (new_name != current["name"] or new_scope != current["scope"]) and (
-                self.repository.name_taken(new_name, current_obj.created_by, inventory_id)
+                self.repository.name_taken(new_name, username, inventory_id)
             ):
                 raise ConflictError(
                     f"Inventory with name '{new_name}' already exists for this user"
