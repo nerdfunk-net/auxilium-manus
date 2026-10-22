@@ -100,6 +100,18 @@ export function ScheduleParameterFields({
           );
         }
 
+        if (attr.type === "reference" && attr.ref_kind === "credential" && !canReadCredentials) {
+          // The list request is skipped without the permission; an empty select would look like "no credentials exist".
+          return (
+            <div key={attr.name} className="grid gap-1">
+              {label}
+              <p className="text-[12px] text-muted-foreground">
+                You need the credentials:read permission to choose a credential here.
+              </p>
+            </div>
+          );
+        }
+
         if (attr.type === "reference" && attr.ref_kind === "credential") {
           return (
             <div key={attr.name} className="grid gap-1">

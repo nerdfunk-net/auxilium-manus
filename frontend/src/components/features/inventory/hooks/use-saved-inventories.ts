@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useState } from "react";
 
 import { useApi } from "@/hooks/use-api";
+import { useToast } from "@/hooks/use-toast";
 import {
   useCreateInventoryMutation,
   useUpdateInventoryMutation,
@@ -32,9 +33,15 @@ export interface LoadedInventoryData {
 const UPDATE_ID_MESSAGE = "An update needs the id of the inventory to update.";
 
 // A save that says "update" without an id would fall through to create and leave a duplicate.
-function requireUpdateId(isUpdate: boolean, existingId: number | undefined): void {
+// It throws before any mutation runs, so no mutation hook toasts: the guard reports it itself.
+function requireUpdateId(
+  isUpdate: boolean,
+  existingId: number | undefined,
+  toast: ReturnType<typeof useToast>["toast"],
+): void {
   // The same truthiness the save branches use: 0 and null would otherwise fall through to create.
   if (isUpdate && !existingId) {
+    toast({ title: "Save failed", description: UPDATE_ID_MESSAGE, variant: "destructive" });
     throw new Error(UPDATE_ID_MESSAGE);
   }
 }
@@ -62,6 +69,7 @@ function flatConditionsToTree(flatConditions: LogicalCondition[]): ConditionTree
 export function useSavedInventories() {
   const [isSavingInventory, setIsSavingInventory] = useState(false);
   const { apiCall } = useApi();
+  const { toast } = useToast();
 
   const {
     data: savedInventories = [],
@@ -95,7 +103,7 @@ export function useSavedInventories() {
       existingId?: number,
       group_path?: string | null,
     ) => {
-      requireUpdateId(isUpdate, existingId);
+      requireUpdateId(isUpdate, existingId, toast);
       setIsSavingInventory(true);
       try {
         const conditions = conditionTreeToSavedConditions(conditionTree);
@@ -124,7 +132,7 @@ export function useSavedInventories() {
         setIsSavingInventory(false);
       }
     },
-    [createInventory, updateInventory],
+    [createInventory, updateInventory, toast],
   );
 
   const saveDeviceList = useCallback(
@@ -137,7 +145,7 @@ export function useSavedInventories() {
       existingId?: number,
       group_path?: string | null,
     ) => {
-      requireUpdateId(isUpdate, existingId);
+      requireUpdateId(isUpdate, existingId, toast);
       setIsSavingInventory(true);
       try {
         if (isUpdate && existingId) {
@@ -165,7 +173,7 @@ export function useSavedInventories() {
         setIsSavingInventory(false);
       }
     },
-    [createInventory, updateInventory],
+    [createInventory, updateInventory, toast],
   );
 
   const loadInventory = useCallback(

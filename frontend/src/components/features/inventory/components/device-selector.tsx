@@ -123,16 +123,12 @@ export function DeviceSelector({
           existingId,
           group_path,
         );
-      } catch (error) {
-        toast({
-          title: "Save failed",
-          description: (error as Error).message,
-          variant: "destructive",
-        });
+      } catch {
+        // The mutation hook already toasted; false keeps the dialog open.
         return false;
       }
     },
-    [saved, conditionTree, toast],
+    [saved, conditionTree],
   );
 
   const handleLoadInventory = useCallback(
@@ -204,16 +200,12 @@ export function DeviceSelector({
           existingId,
           group_path,
         );
-      } catch (error) {
-        toast({
-          title: "Save failed",
-          description: (error as Error).message,
-          variant: "destructive",
-        });
+      } catch {
+        // The mutation hook already toasted; false keeps the dialog open.
         return false;
       }
     },
-    [saved, selection.selectedDevices, toast],
+    [saved, selection.selectedDevices],
   );
 
   const handleAddToSelection = useCallback(() => {
@@ -236,43 +228,31 @@ export function DeviceSelector({
         loadedInventory.id,
         loadedInventory.group_path,
       );
-    } catch (error) {
-      toast({
-        title: "Save failed",
-        description: (error as Error).message,
-        variant: "destructive",
-      });
+    } catch {
+      // The mutation hook already toasted.
     }
-  }, [loadedInventory, conditionTree, saved, toast]);
+  }, [loadedInventory, conditionTree, saved]);
 
   const handleExportInventory = useCallback(
     async (id: number) => {
       try {
         await saved.exportInventory(id);
-      } catch (error) {
-        toast({
-          title: "Export failed",
-          description: (error as Error).message,
-          variant: "destructive",
-        });
+      } catch {
+        // The mutation hook already toasted.
       }
     },
-    [saved, toast],
+    [saved],
   );
 
   const handleImportInventory = useCallback(
     async (file: File) => {
       try {
         await saved.importInventory(file);
-      } catch (error) {
-        toast({
-          title: "Import failed",
-          description: (error as Error).message,
-          variant: "destructive",
-        });
+      } catch {
+        // The mutation hook already toasted.
       }
     },
-    [saved, toast],
+    [saved],
   );
 
   return (

@@ -133,6 +133,10 @@ describe("useSavedInventories", () => {
       expect(callsTo("POST")).toHaveLength(0);
       expect(callsTo("PUT")).toHaveLength(0);
       expect(result.current.isSavingInventory).toBe(false);
+      // No mutation ran, so no mutation toasted: the guard has to say it itself.
+      expect(h.toast).toHaveBeenCalledWith(
+        expect.objectContaining({ title: "Save failed", variant: "destructive" }),
+      );
     });
 
     it.each([0, null])("refuses an update with the falsy id %s", async (id) => {

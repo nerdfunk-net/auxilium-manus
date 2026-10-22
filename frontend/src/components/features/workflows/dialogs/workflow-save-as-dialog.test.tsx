@@ -135,14 +135,30 @@ describe("WorkflowSaveAsDialog", () => {
     await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
   });
 
-  it("does nothing when the name is taken but the server named no workflow", async () => {
-    h.checkName.mockResolvedValue({ available: false });
+  it("says why when the name is taken but the server named no workflow", async () => {
+    h.checkName.mockResolvedValue({ available: false, message: "Name reserved by the system" });
     const { onSave, onOverwrite } = setup();
     submit();
-    await waitFor(() => expect(h.checkName).toHaveBeenCalled());
+    expect(await screen.findByText("Name reserved by the system")).toBeTruthy();
     expect(onSave).not.toHaveBeenCalled();
     expect(onOverwrite).not.toHaveBeenCalled();
     expect(screen.queryByRole("button", { name: "Overwrite" })).toBeNull();
+  });
+
+  it("falls back to a generic message when an unavailable name comes without one", async () => {
+    h.checkName.mockResolvedValue({ available: false });
+    setup();
+    submit();
+    expect(await screen.findByText("This name is not available.")).toBeTruthy();
+  });
+
+  it("hides the unavailable-name message once the name changes", async () => {
+    h.checkName.mockResolvedValue({ available: false, message: "Name reserved by the system" });
+    setup();
+    submit();
+    await screen.findByText("Name reserved by the system");
+    typeInto("Name", "Other");
+    expect(screen.queryByText("Name reserved by the system")).toBeNull();
   });
 
   it("shows the saving state and disables the button", () => {

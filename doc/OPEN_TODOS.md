@@ -836,13 +836,27 @@ Open:
 - **A credential reference field shows an empty select, not a hint,** when the user lacks `credentials:read`
   (`schedule-parameter-fields.tsx`).
 
-Not yet verified or decided (2026-10-20):
-- **Browser pass on the isolated stack** for round 6 and the review fixes: viewer on `/inventory` and the template editor
-  against `configured-sources`, Manage / Save As dialogs (cleared folder, server error text, delete failure), the
-  Batfish tab for a `:query`-only user and after a source change, and the conflict message of a rename or folder move
-  onto an existing name (`update_workflow` now refuses it; check how both dialogs show it).
+Round 7 (2026-10-22): `device-selector` has a component test and no longer toasts twice (the mutation hooks toast in
+`onError`; `useSavedInventories` now toasts the one failure no mutation covers, an update without an id).
+`schedule-parameter-fields` shows a hint instead of an empty select without `credentials:read`; the Save As dialog
+shows "name unavailable" without an `existing_id`. Thresholds 38/29/28/37.
+
+Browser pass (isolated stack, 2026-10-22), what ran: viewer on `/inventory` (no 403, source `pw1` bound, no
+`/settings` call); `:query`-only user in the template editor (`GET /sources/batfish` 200, both sources listed, a source
+change cleared the network); workflow Manage dialog (rename and folder move onto an existing name: 409 shown inline;
+cleared folder stored as `/`; failed delete toasts "Workflow not found"); workflow Save As (cleared folder normalised,
+overwrite offer with the server message). Not run: the schedule credential hint and the Save As "unavailable without
+`existing_id`" message in a browser (unreachable there), a Nautobot source that answers (the source was a dead address),
+a Batfish source that answers, runs.
+
+Found in that pass, not fixed:
+- **Inventory rename onto an existing name succeeds.** `InventoryService.update_inventory` has no name check (create
+  has one per creator), so Manage → Edit can produce two inventories with one name; the Save dialog's overwrite-by-name
+  then picks one of them. Workflows got the 409 in round 6; inventories did not.
+- **Manage Workflows keeps a deleted row after a failed delete** ("Workflow not found" toast, list unchanged, counts
+  stale). A 404 on delete should refetch the list.
 - **Legacy folder rows:** rows stored with `""` or `NULL` as the folder are read as `/` but not migrated. Decide on a
-  one-time cleanup (and what to do with twins it would create).
+  one-time cleanup (and what to do with twins it would create). Asked, not acted on.
 
 ### Found in round 2 (hook tests)
 

@@ -80,7 +80,14 @@ export function WorkflowSaveAsDialog({
     existingId: number;
     values: SaveAsFormValues;
   } | null>(null);
+  // The name is taken but the server named no workflow to overwrite: say why, offer nothing.
+  const [unavailableMessage, setUnavailableMessage] = useState<string | null>(null);
   const [isChecking, setIsChecking] = useState(false);
+
+  const clearNameConflict = useCallback(() => {
+    setPendingOverwrite(null);
+    setUnavailableMessage(null);
+  }, []);
 
   const {
     register,
@@ -103,7 +110,7 @@ export function WorkflowSaveAsDialog({
 
   const onSubmit = useCallback(
     async (formValues: SaveAsFormValues) => {
-      setPendingOverwrite(null);
+      clearNameConflict();
       setIsChecking(true);
       // The name check treats an empty folder as "/", but an overwrite stores whatever it
       // is sent; sending the same normalised value keeps both on one folder.
@@ -121,6 +128,8 @@ export function WorkflowSaveAsDialog({
               existingId: check.existing_id,
               values,
             });
+          } else {
+            setUnavailableMessage(check.message ?? "This name is not available.");
           }
           return;
         }
@@ -131,7 +140,7 @@ export function WorkflowSaveAsDialog({
       }
       onSave(values);
     },
-    [checkName, onSave],
+    [checkName, onSave, clearNameConflict],
   );
 
   return (
@@ -149,11 +158,14 @@ export function WorkflowSaveAsDialog({
               id="wf-name"
               placeholder="My workflow"
               {...register("name", {
-                onChange: () => setPendingOverwrite(null),
+                onChange: () => clearNameConflict(),
               })}
             />
             {errors.name ? (
               <p className="text-xs text-destructive">{errors.name.message}</p>
+            ) : null}
+            {unavailableMessage ? (
+              <p className="text-xs text-destructive">{unavailableMessage}</p>
             ) : null}
             {pendingOverwrite ? (
               <div className="rounded-md border border-destructive/50 bg-destructive/10 p-3 text-xs">
@@ -171,7 +183,7 @@ export function WorkflowSaveAsDialog({
                     type="button"
                     size="sm"
                     variant="outline"
-                    onClick={() => setPendingOverwrite(null)}
+                    onClick={() => clearNameConflict()}
                   >
                     Choose different name
                   </Button>
@@ -195,7 +207,7 @@ export function WorkflowSaveAsDialog({
               id="wf-folder"
               placeholder="/"
               {...register("folder", {
-                onChange: () => setPendingOverwrite(null),
+                onChange: () => clearNameConflict(),
               })}
             />
           </div>
@@ -206,7 +218,7 @@ export function WorkflowSaveAsDialog({
               value={visibility}
               onValueChange={(v) => {
                 setValue("visibility", v as WorkflowVisibility);
-                setPendingOverwrite(null);
+                clearNameConflict();
               }}
             >
               <SelectTrigger id="wf-visibility">

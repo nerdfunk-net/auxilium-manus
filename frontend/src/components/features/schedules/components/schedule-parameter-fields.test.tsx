@@ -163,5 +163,19 @@ describe("ScheduleParameterFields", () => {
       setup([CREDENTIAL_ATTR]);
       expect(h.credentials).toHaveBeenLastCalledWith({ enabled: false });
     });
+
+    it("shows a hint instead of an empty select when the user may not read credentials", () => {
+      h.canReadCredentials.value = false;
+      setup([CREDENTIAL_ATTR]);
+      expect(screen.getByText(/credentials:read/)).toBeTruthy();
+      expect(screen.queryByLabelText("login")).toBeNull();
+      expect(screen.queryByRole("combobox")).toBeNull();
+    });
+
+    it("keeps the select for a user who may read credentials", () => {
+      setup([CREDENTIAL_ATTR]);
+      expect(screen.queryByText(/credentials:read/)).toBeNull();
+      expect(screen.getByRole("combobox")).toBeTruthy();
+    });
   });
 });
