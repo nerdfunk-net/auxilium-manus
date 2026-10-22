@@ -129,6 +129,7 @@ from workflow_steps.update_config_context.executor import execute as update_conf
 from workflow_steps.update_content.executor import execute as update_content
 from workflow_steps.update_ise_tacacs_key.executor import execute as update_ise_tacacs_key
 from workflow_steps.update_nautobot_device.executor import execute as update_nautobot_device
+from workflow_steps.update_nautobot_ip.executor import execute as update_nautobot_ip
 from workflow_steps.upload_config.executor import execute as upload_config
 
 StepExecutor = Callable[..., Awaitable[list[StepOutcome]]]
@@ -215,6 +216,7 @@ STEP_REGISTRY: dict[str, StepExecutor] = {
     "check-nautobot-job": check_nautobot_job,
     "start-workflow": start_workflow,
     "update-nautobot-device": update_nautobot_device,
+    "update-nautobot-ip": update_nautobot_ip,
     "update-config-context": update_config_context,
     "upload-config": upload_config,
     "log-message": log_message,

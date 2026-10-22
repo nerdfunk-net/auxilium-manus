@@ -6,9 +6,11 @@ from __future__ import annotations
 
 import ipaddress
 import logging
+from collections.abc import Awaitable, Callable, Mapping
 from typing import TYPE_CHECKING
 
 from services.nautobot.common.rest import rest_query
+from services.nautobot.common.validators import is_valid_uuid
 
 from ..common.exceptions import NautobotAPIError
 
@@ -27,6 +29,19 @@ def _is_duplicate_host_error(error_message: str) -> bool:
 
 def _is_missing_prefix_error(error_message: str) -> bool:
     return "No suitable parent Prefix" in error_message
+
+
+def _reference_id(value: object) -> object:
+    """A related object arrives as a UUID or as a nested object; compare by its id."""
+    return value.get("id") if isinstance(value, dict) else value
+
+
+def _same_value(key: str, current: Mapping[str, object], value: str) -> bool:
+    """Nautobot stores a DNS name in lower case, so its case never counts as a change."""
+    stored = _reference_id(current.get(key))
+    if key == "dns_name" and isinstance(stored, str):
+        return stored.lower() == value.lower()
+    return stored == value
 
 
 class IPManager:
@@ -254,6 +269,53 @@ class IPManager:
                 add_prefixes_automatically=add_prefixes_automatically,
                 use_assigned_ip_if_exists=use_assigned_ip_if_exists,
             )
+
+    async def update_ip_address(
+        self,
+        ip_id: str,
+        fields: Mapping[str, str],
+        *,
+        find_parent: Callable[[str], Awaitable[str]] | None = None,
+    ) -> bool:
+        """
+        Update an existing IP address; only the values that differ are sent.
+
+        Nautobot ignores ``namespace`` on an existing address (it answers 200 and keeps the
+        parent), so a namespace move is a change of ``parent``: ``find_parent`` receives the
+        host address and returns the id of the prefix in the target namespace to move to.
+
+        Args:
+            ip_id: IP address UUID
+            fields: Nautobot REST fields to set (``status`` and ``role`` as ids, ``type``,
+                ``dns_name`` and ``description`` as text)
+            find_parent: Optional lookup of the target parent prefix id for a namespace move
+
+        Returns:
+            True when a PATCH was sent, False when the address already had every value.
+
+        Raises:
+            ValueError: If ``ip_id`` is not a UUID.
+            NautobotNotFoundError: If the address does not exist.
+            NautobotAPIError: If Nautobot refuses the change.
+        """
+        if not is_valid_uuid(ip_id.lower()):
+            raise ValueError("ip_id is not a Nautobot UUID")
+        endpoint = f"ipam/ip-addresses/{ip_id}/?format=json"
+        current = await self.nautobot.rest_request(endpoint=endpoint, method="GET")
+        changes = {
+            key: value for key, value in fields.items() if not _same_value(key, current, value)
+        }
+        if find_parent is not None:
+            parent_id = await find_parent(str(current.get("host") or ""))
+            if _reference_id(current.get("parent")) != parent_id:
+                changes["parent"] = parent_id
+        if not changes:
+            logger.info("IP address %s already has the requested values", ip_id)
+            return False
+
+        logger.info("Updating IP address %s fields=%s", ip_id, sorted(changes))
+        await self.nautobot.rest_request(endpoint=endpoint, method="PATCH", data=changes)
+        return True
 
     async def assign_ip_to_interface(
         self, ip_id: str, interface_id: str, is_primary: bool = False

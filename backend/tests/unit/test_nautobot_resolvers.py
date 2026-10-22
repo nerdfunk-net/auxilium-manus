@@ -326,6 +326,26 @@ class MetadataResolverTests(unittest.IsolatedAsyncioTestCase):
             _UUID,
         )
 
+    async def test_resolve_role_id_for_content_type_follows_next_page(self) -> None:
+        svc = MagicMock()
+        svc.rest_request = AsyncMock(
+            side_effect=[
+                {
+                    "count": 2,
+                    "next": "http://nb/api/extras/roles/?content_types=ipam.ipaddress&offset=1",
+                    "results": [{"name": "Loopback", "id": "p"}],
+                },
+                {"count": 2, "next": None, "results": [{"name": "Secondary", "id": _UUID}]},
+            ]
+        )
+        self.assertEqual(
+            await MetadataResolver(svc).resolve_role_id_for_content_type(
+                "secondary", "ipam.ipaddress"
+            ),
+            _UUID,
+        )
+        self.assertEqual(svc.rest_request.await_count, 2)
+
     async def test_resolve_role_id_for_content_type_returns_none_when_not_found(self) -> None:
         svc = _service(rest={"count": 1, "results": [{"name": "Loopback", "id": "p"}]})
         self.assertIsNone(

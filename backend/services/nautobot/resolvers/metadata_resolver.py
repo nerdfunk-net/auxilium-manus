@@ -77,14 +77,14 @@ class MetadataResolver(BaseResolver):
 
         logger.info("Resolving role '%s' for content type '%s'", role_name, content_type)
 
-        endpoint = f"extras/roles/?content_types={content_type}&format=json"
-        result = await self.nautobot.rest_request(endpoint=endpoint, method="GET")
-
-        if result and result.get("count", 0) > 0:
-            for role in result.get("results", []):
-                if role.get("name", "").lower() == role_name.lower():
-                    logger.info("Resolved role '%s' to UUID %s", role_name, role["id"])
-                    return role["id"]
+        # Follow ``next`` so a role beyond the first page (default page size 50) is found.
+        endpoint = (
+            f"extras/roles/?{rest_query(content_types=content_type, limit=1000, format='json')}"
+        )
+        for role in await rest_paginate(self.nautobot, endpoint):
+            if str(role.get("name", "")).lower() == role_name.lower():
+                logger.info("Resolved role '%s' to UUID %s", role_name, role["id"])
+                return role["id"]
 
         logger.warning("Role '%s' not found for content type '%s'", role_name, content_type)
         return None

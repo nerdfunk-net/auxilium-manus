@@ -459,10 +459,10 @@ Status names are resolved by `MetadataResolver.resolve_status_id` for one conten
 that it belongs to that content type. `GET /sources/nautobot/statuses` (allow-list `ipam.ipaddress`,
 `ipam.prefix`) feeds the status pickers.
 
-### IP address steps: `get-next-free-ip` and `add-ip-to-nautobot`
+### IP address steps: `get-next-free-ip`, `add-ip-to-nautobot` and `update-nautobot-ip`
 
-Both are in the `nautobot` palette category and share `workflow_steps/common/nautobot_prefix_lookup.py`
-(`find_containing_prefix`, `LookupFailure`).
+All are in the `nautobot` palette category; the first two share
+`workflow_steps/common/nautobot_prefix_lookup.py` (`find_containing_prefix`, `LookupFailure`).
 
 - **Prefix and namespace.** `get-next-free-ip` finds the prefix by namespace (name, UUID or `{path}`,
   default `Global`) and CIDR, then reads `/ipam/prefixes/{id}/available-ips/`. A value with a length
@@ -491,6 +491,31 @@ Both are in the `nautobot` palette category and share `workflow_steps/common/nau
   `dns_name` expression that resolves to nothing fails the device, and its error messages do not repeat the
   resolved address. `get-next-free-ip` only reads Nautobot with its prefix and namespace values and still
   resolves them with the default (revealing) setting.
+
+- **`update-nautobot-ip` ("Update IP") changes an existing address.** It is identified by its Nautobot
+  UUID (`ip_id`, a fixed value or a `{path}`, typically the `result_attribute` of Add IP to Nautobot); an
+  address or any other non-UUID text fails the device with `ip_id_invalid`. It can set `namespace`, `type`
+  (`host` / `dhcp` / `slaac`, else `type_invalid`), `role` (name or UUID of a role for IP addresses, else
+  `role_not_found`), `status`, `dns_name` and `description`. **Only filled-in fields are sent; an empty field
+  is left alone and a value cannot be cleared** (a step with no field at all is a configuration `ValueError`;
+  every field resolving to empty text fails the device with `nothing_to_update`). The write goes through the
+  shared facade (`DeviceCommonService.update_ip_address` → `IPManager.update_ip_address`): it reads the
+  address, and sends a PATCH with only the values that differ. An address that already has every value is a
+  `success` and counted as `unchanged` in `metadata["<node>.update_ip_counts"]`; a missing address fails the
+  device with `ip_not_found`. Namespace, status and role names are looked up once per distinct value.
+  Like Add IP, it resolves `{path}` values with `reveal_secrets=False` (`<field>_is_secret`) and never repeats
+  a resolved value in an error, so a failed namespace, role or status lookup reports a fixed sentence, not the
+  name. It produces no attributes (`produces: []`).
+  **Namespace is a move of the parent prefix.** Nautobot answers 200 and changes nothing when `namespace` is
+  PATCHed on an existing address, so the step never sends it: it finds the most specific prefix of the target
+  namespace that contains the host address (`find_containing_prefix`) and PATCHes `parent`. A namespace with no
+  such prefix fails the device with `prefix_not_found` and writes nothing; an address already under that prefix
+  is `unchanged`. Verified on Nautobot 3.2.7 (live: moved, repeat no-op, empty namespace refused); a version that
+  makes `parent` read-only fails the device with Nautobot's error. A DNS name is compared case-insensitively
+  because Nautobot stores it in lower case, and the manager rejects an `ip_id` that is not a UUID.
+  *Concurrency:* each device PATCHes the address it names, so fan-out children and sibling branches are safe
+  as long as they name different addresses; two devices resolving to one `ip_id` with different values make
+  the last write win.
 
 ### Calling an agent: `route-to-agent`
 
@@ -1441,6 +1466,7 @@ A step is concurrency-safe when it:
 | `get-device-configs`, `run-command`, `run-catalyst-center-command`, `get-catalyst-center-configs`, `get-catalyst-center-details`, `get-catalyst-center-topology`, `get-catalyst-center-health`, `merge-config`, `get-nautobot-attributes`, `get-device-location`, `get-virtual-chassis`, `split-virtual-chassis`, `render-jinja-template`, `log-message`, `route-on-attribute`, `generate-password` | ✅ | Per-device compute, no shared mutable sink. |
 | `get-next-free-ip` | ⚠️ | Read-only (`/ipam/prefixes/{id}/available-ips/`), nothing is reserved in Nautobot. Devices of one execution get distinct addresses because they are served in order from one list, but fan-out children and parallel runs each read the same free list and can receive the same address. Place it before the fan-out step's children or after a **Fan In**, and create the address (**Add IP to Nautobot**) before another run reads the prefix. |
 | `add-ip-to-nautobot` | ✅ | Get-or-create through the shared `IPManager`: an address that exists is reused, and a concurrent creator of the same address or parent prefix is resolved by re-reading it, so fan-out children and sibling branches converge on one object. The addresses themselves still have to be distinct: take them from **Get Next Free IP** (which does not reserve them) and see its row. |
+| `update-nautobot-ip` | ✅ | Idempotent PATCH of the address each device names (`ip_id`), sent only when a value differs. Safe in fan-out children and sibling branches while the devices name different addresses; two devices naming the same address with different values race (last write wins). |
 | `git-status` | ✅ | Read-only inspection (plus an optional `git fetch`) under the per-repository lock, so concurrent callers are serialised, not corrupted. Its result is per repository, not per device — inside a fan-out branch it re-checks the same repo once per child, so prefer a single check before the fan-out inventory step's children or after a Fan In. |
 | `start-workflow` | ⚠️ | Starts one run for all devices it receives, or one per device (`max_runs`), and optionally polls them for up to 600 s. Two concurrent callers start two sets of runs, so inside a fan-out child it starts runs per child, each waiting in its own worker slot: place it before the fan-out or after a **Fan In**. See "Starting another workflow: `start-workflow`" below. |
 | `send-mail` | ⚠️ | Sends one email per execution and holds no shared state, so concurrent callers never corrupt anything — but inside a fan-out child branch it sends **one mail per child**. Place it after a **Fan In** node (or at the end of a non-fanned workflow) for one mail per run. Mail is sent only through the SMTP server an administrator configured under Settings → Mail (server, port, security, login credential and sender address are not step settings; the admin's `allowed_recipient_domains` apply). The step config keeps `to`, `subject` and `body`. |

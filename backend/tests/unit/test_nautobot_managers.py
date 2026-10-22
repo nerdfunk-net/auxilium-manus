@@ -93,9 +93,7 @@ class IPManagerTests(unittest.IsolatedAsyncioTestCase):
             NautobotAPIError("No suitable parent Prefix exists"),  # first create
             {"id": "retried-ip"},  # create after prefix
         ]
-        with patch(
-            "services.nautobot.managers.prefix_manager.PrefixManager"
-        ) as prefix_cls:
+        with patch("services.nautobot.managers.prefix_manager.PrefixManager") as prefix_cls:
             prefix_cls.return_value.ensure_prefix_exists = AsyncMock(return_value="px")
             result = await self._manager(nautobot).ensure_ip_address_exists(
                 "10.0.0.1/24", "ns", add_prefixes_automatically=True
@@ -113,6 +111,113 @@ class IPManagerTests(unittest.IsolatedAsyncioTestCase):
             await self._manager(nautobot).ensure_ip_address_exists(
                 "10.0.0.1/24", "ns", use_assigned_ip_if_exists=True
             )
+
+    async def test_update_ip_address_patches_only_changed_fields(self) -> None:
+        nautobot = _nautobot()
+        nautobot.rest_request.side_effect = [
+            {
+                "status": {"id": "status-uuid", "object_type": "extras.status"},
+                "role": None,
+                "type": "host",
+                "dns_name": "old.example.org",
+            },
+            {"id": _UUID},
+        ]
+        changed = await self._manager(nautobot).update_ip_address(
+            _UUID,
+            {
+                "status": "status-uuid",
+                "role": "role-uuid",
+                "type": "host",
+                "dns_name": "new.example.org",
+            },
+        )
+        self.assertTrue(changed)
+        get_call, patch_call = nautobot.rest_request.await_args_list
+        self.assertEqual(get_call.kwargs["method"], "GET")
+        self.assertIn(f"ipam/ip-addresses/{_UUID}/", get_call.kwargs["endpoint"])
+        self.assertEqual(patch_call.kwargs["method"], "PATCH")
+        self.assertEqual(
+            patch_call.kwargs["data"], {"role": "role-uuid", "dns_name": "new.example.org"}
+        )
+
+    async def test_update_ip_address_without_difference_sends_no_patch(self) -> None:
+        nautobot = _nautobot()
+        nautobot.rest_request.return_value = {"status": "status-uuid", "description": "x"}
+        changed = await self._manager(nautobot).update_ip_address(
+            _UUID, {"status": "status-uuid", "description": "x"}
+        )
+        self.assertFalse(changed)
+        self.assertEqual(nautobot.rest_request.await_count, 1)
+
+    async def test_update_ip_address_dns_name_compares_case_insensitively(self) -> None:
+        # Nautobot stores the DNS name in lower case, so a mixed-case request is no change.
+        nautobot = _nautobot()
+        nautobot.rest_request.return_value = {"dns_name": "host.example.org"}
+        changed = await self._manager(nautobot).update_ip_address(
+            _UUID, {"dns_name": "Host.Example.ORG"}
+        )
+        self.assertFalse(changed)
+        self.assertEqual(nautobot.rest_request.await_count, 1)
+
+    async def test_update_ip_address_moves_namespace_by_patching_parent(self) -> None:
+        nautobot = _nautobot()
+        nautobot.rest_request.side_effect = [
+            {"host": "203.0.113.5", "parent": {"id": "old-prefix"}},
+            {"id": _UUID},
+        ]
+        find_parent = AsyncMock(return_value="new-prefix")
+        changed = await self._manager(nautobot).update_ip_address(
+            _UUID, {}, find_parent=find_parent
+        )
+        self.assertTrue(changed)
+        find_parent.assert_awaited_once_with("203.0.113.5")
+        patch_call = nautobot.rest_request.await_args_list[1]
+        self.assertEqual(patch_call.kwargs["data"], {"parent": "new-prefix"})
+
+    async def test_update_ip_address_in_target_namespace_sends_no_patch(self) -> None:
+        nautobot = _nautobot()
+        nautobot.rest_request.return_value = {"host": "203.0.113.5", "parent": {"id": "same"}}
+        changed = await self._manager(nautobot).update_ip_address(
+            _UUID, {}, find_parent=AsyncMock(return_value="same")
+        )
+        self.assertFalse(changed)
+        self.assertEqual(nautobot.rest_request.await_count, 1)
+
+    async def test_update_ip_address_never_sends_namespace_field(self) -> None:
+        nautobot = _nautobot()
+        nautobot.rest_request.side_effect = [
+            {"host": "h", "parent": {"id": "a"}, "status": "s"},
+            {"id": _UUID},
+        ]
+        await self._manager(nautobot).update_ip_address(
+            _UUID, {"status": "t"}, find_parent=AsyncMock(return_value="b")
+        )
+        sent = nautobot.rest_request.await_args_list[1].kwargs["data"]
+        self.assertEqual(sent, {"status": "t", "parent": "b"})
+
+    async def test_update_ip_address_lookup_failure_writes_nothing(self) -> None:
+        nautobot = _nautobot()
+        nautobot.rest_request.return_value = {"host": "h", "parent": {"id": "a"}}
+        with self.assertRaises(RuntimeError):
+            await self._manager(nautobot).update_ip_address(
+                _UUID, {"status": "t"}, find_parent=AsyncMock(side_effect=RuntimeError("x"))
+            )
+        self.assertEqual(nautobot.rest_request.await_count, 1)
+
+    async def test_update_ip_address_rejects_a_non_uuid_id_before_any_request(self) -> None:
+        nautobot = _nautobot()
+        with self.assertRaises(ValueError):
+            await self._manager(nautobot).update_ip_address("../x", {"status": "t"})
+        nautobot.rest_request.assert_not_awaited()
+
+    async def test_update_ip_address_propagates_nautobot_errors(self) -> None:
+        nautobot = _nautobot()
+        refusal = NautobotAPIError("refused", http_status=400)
+        nautobot.rest_request.side_effect = [{"status": "s"}, refusal]
+        with self.assertRaises(NautobotAPIError) as ctx:
+            await self._manager(nautobot).update_ip_address(_UUID, {"status": "other"})
+        self.assertIs(ctx.exception, refusal)
 
     async def test_assign_ip_to_interface_returns_existing_association(self) -> None:
         nautobot = _nautobot()
@@ -180,9 +285,7 @@ class InterfaceManagerTests(unittest.IsolatedAsyncioTestCase):
         ip_manager.ensure_ip_address_exists = AsyncMock(return_value="ip-updated")
         ip_manager.assign_ip_to_interface = AsyncMock(return_value={})
         mgr = self._manager(nautobot, ip_manager)
-        with patch(
-            "services.nautobot.resolvers.device_resolver.DeviceResolver"
-        ) as resolver_cls:
+        with patch("services.nautobot.resolvers.device_resolver.DeviceResolver") as resolver_cls:
             resolver_cls.return_value.find_interface_with_ip = AsyncMock(
                 return_value=("if1", "Gi0/0")
             )
@@ -260,9 +363,7 @@ class PrefixManagerTests(unittest.IsolatedAsyncioTestCase):
     async def test_creates_prefix_with_resolved_location(self) -> None:
         nautobot = _nautobot()
         nautobot.rest_request.side_effect = [{"count": 0}, {"id": "px-new"}]
-        result = await self._manager(nautobot).ensure_prefix_exists(
-            "10.0.0.0/24", location="dc1"
-        )
+        result = await self._manager(nautobot).ensure_prefix_exists("10.0.0.0/24", location="dc1")
         self.assertEqual(result, "px-new")
         post_call = nautobot.rest_request.await_args_list[1]
         self.assertEqual(post_call.kwargs["data"]["location"], "loc-uuid")
@@ -289,9 +390,7 @@ class DeviceManagerTests(unittest.IsolatedAsyncioTestCase):
         nautobot = _nautobot()
         nautobot.rest_request.return_value = {"name": "r1"}
         await self._manager(nautobot).get_device_details("dev")
-        self.assertEqual(
-            nautobot.rest_request.await_args.kwargs["endpoint"], "dcim/devices/dev/"
-        )
+        self.assertEqual(nautobot.rest_request.await_args.kwargs["endpoint"], "dcim/devices/dev/")
 
     async def test_get_device_details_with_depth(self) -> None:
         nautobot = _nautobot()
@@ -313,17 +412,13 @@ class DeviceManagerTests(unittest.IsolatedAsyncioTestCase):
     async def test_extract_primary_ip_uuid_form_fetches_details(self) -> None:
         nautobot = _nautobot()
         nautobot.rest_request.return_value = {"address": "10.0.0.9/24"}
-        result = await self._manager(nautobot).extract_primary_ip_address(
-            {"primary_ip4": _UUID}
-        )
+        result = await self._manager(nautobot).extract_primary_ip_address({"primary_ip4": _UUID})
         self.assertEqual(result, "10.0.0.9/24")
 
     async def test_extract_primary_ip_uuid_form_handles_api_error(self) -> None:
         nautobot = _nautobot()
         nautobot.rest_request.side_effect = NautobotAPIError("boom")
-        result = await self._manager(nautobot).extract_primary_ip_address(
-            {"primary_ip4": _UUID}
-        )
+        result = await self._manager(nautobot).extract_primary_ip_address({"primary_ip4": _UUID})
         self.assertIsNone(result)
 
     async def test_extract_primary_ip_unexpected_type(self) -> None:
@@ -335,16 +430,12 @@ class DeviceManagerTests(unittest.IsolatedAsyncioTestCase):
     async def test_assign_primary_ip_success(self) -> None:
         nautobot = _nautobot()
         nautobot.rest_request.return_value = {}
-        self.assertTrue(
-            await self._manager(nautobot).assign_primary_ip_to_device("dev", "ip")
-        )
+        self.assertTrue(await self._manager(nautobot).assign_primary_ip_to_device("dev", "ip"))
 
     async def test_assign_primary_ip_failure(self) -> None:
         nautobot = _nautobot()
         nautobot.rest_request.side_effect = NautobotAPIError("boom")
-        self.assertFalse(
-            await self._manager(nautobot).assign_primary_ip_to_device("dev", "ip")
-        )
+        self.assertFalse(await self._manager(nautobot).assign_primary_ip_to_device("dev", "ip"))
 
     async def test_verify_device_updates_all_match(self) -> None:
         ok, mismatches = await self._manager(_nautobot()).verify_device_updates(

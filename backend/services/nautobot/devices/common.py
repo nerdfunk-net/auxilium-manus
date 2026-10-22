@@ -15,6 +15,7 @@ fine-grained control, you can import resolvers/managers directly.
 """
 
 import logging
+from collections.abc import Awaitable, Callable, Mapping
 from typing import Any
 
 from services.nautobot.api_protocol import NautobotApi
@@ -341,6 +342,16 @@ class DeviceCommonService:
             use_assigned_ip_if_exists,
             **kwargs,
         )
+
+    async def update_ip_address(
+        self,
+        ip_id: str,
+        fields: Mapping[str, str],
+        *,
+        find_parent: Callable[[str], Awaitable[str]] | None = None,
+    ) -> bool:
+        """Delegate to IPManager."""
+        return await self.ip_manager.update_ip_address(ip_id, fields, find_parent=find_parent)
 
     async def assign_ip_to_interface(
         self, ip_id: str, interface_id: str, is_primary: bool = False
