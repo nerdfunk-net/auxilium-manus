@@ -10,5 +10,8 @@ from __future__ import annotations
 MIN_PASSWORD_LENGTH = 8
 # The passphrase of a ``shared_secret`` credential (the key of the AM2 encrypt/decrypt steps).
 MIN_SHARED_SECRET_LENGTH = 12
+# The shared secret of an agent source. It keys HKDF directly (no password stretching), so it must
+# be generated with high entropy (for example ``openssl rand -base64 32``), not typed.
+MIN_AGENT_SECRET_LENGTH = 32
 # What ``secret-generate`` may produce.
 MIN_GENERATED_SECRET_LENGTH = 12

@@ -173,6 +173,12 @@ export const queryKeys = {
     all: ["sources-mattermost"] as const,
     list: () => [...queryKeys.sourcesMattermost.all, "list"] as const,
   },
+  sourcesAgent: {
+    all: ["sources-agent"] as const,
+    list: () => [...queryKeys.sourcesAgent.all, "list"] as const,
+    status: (sourceId: string) =>
+      [...queryKeys.sourcesAgent.all, "status", sourceId] as const,
+  },
   sourcesBatfish: {
     all: ["sources-batfish"] as const,
     list: () => [...queryKeys.sourcesBatfish.all, "list"] as const,

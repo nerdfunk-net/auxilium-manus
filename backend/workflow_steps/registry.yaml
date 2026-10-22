@@ -3946,6 +3946,104 @@ plugins:
           required: false
           default: false
 
+  - id: route-to-agent
+    name: Route to Agent
+    overview: Enrich devices with the answer of an external agent.
+    description: >
+      Send selected attributes and device content to an agent (a Python service
+      configured under Settings -> Sources -> Agents) and write the declared keys
+      of its JSON answer to an attribute bag. The agent runs one named handler
+      per device; messages are encrypted and authenticated with a secret shared
+      between the app and that agent (HTTP or Redis transport). It only enriches:
+      it cannot change device fields or choose an outcome.
+    artifact_type: control_flow
+    palette_category: routing
+    directory: route_to_agent
+    enabled: true
+    requires: [identity]
+    produces: [attributes]
+    outcomes:
+      - name: success
+      - name: failure
+    metadata:
+      configuration_input:
+        - name: agent_source_id
+          description: ID of an agent source configured under Settings -> Sources -> Agents.
+          data_type: string
+          required: true
+          example: geo
+        - name: handler
+          description: >
+            Name of the handler the agent runs (letters, digits, "_", ".", "-").
+            The app sends data, never code.
+          data_type: string
+          required: true
+          example: resolve_location
+        - name: params
+          description: >
+            Static JSON object handed to the handler next to the per-device
+            inputs (at most 16 KiB). Not templated, and not a place for secrets.
+          data_type: object
+          required: false
+          default: {}
+          example: {"strict": true}
+        - name: input_paths
+          description: >
+            Attribute paths whose values are sent (bags such as
+            nautobot.location.name, parsed.* and device.* fields). Structured
+            values keep their shape; paths that do not resolve on a device are
+            left out. Secrets are never sent: a path that is, contains or lies
+            within a known secret (tacacs.shared_secret, nautobot.config_context,
+            ...) - which includes a parent such as the bag root nautobot - or
+            has a secret-looking segment (password, *_token, ...) fails the step
+            at start. A sealed secret, or a value under a secret-looking key
+            such as password, inside a selected value fails that device (codes
+            source_sealed / source_secret).
+          data_type: string_list
+          required: false
+          example: [nautobot.location.name]
+        - name: content_inputs
+          description: >
+            Device content sent as text: running_config, startup_config,
+            latest_command_output, or command_output:<node_id> (a list of
+            {command, output} entries of that run-command step, in execution
+            order; a command that ran twice appears twice). At least one of
+            input_paths and content_inputs is required.
+          data_type: string_list
+          required: false
+          example: [running_config]
+        - name: destination_path
+          description: >
+            Where the agent's answer is written, in bag.field form, for example
+            agent.geo so that agent.geo.location resolves later. device.*,
+            device fields, parsed.*, run_input.* and error.* are rejected.
+          data_type: string
+          required: true
+          example: agent.geo
+        - name: output_keys
+          description: >
+            The keys the agent may return (plain names, no dots). Any other key
+            fails the device (code output_rejected), as does a missing one unless
+            allow_missing_outputs is set. Each value must be JSON, at most
+            STEP_OUTPUT_VALUE_MAX_BYTES and nested at most 8 levels.
+          data_type: string_list
+          required: true
+          example: [location]
+        - name: allow_missing_outputs
+          description: Accept an answer that omits some of the declared output_keys.
+          data_type: boolean
+          required: false
+          default: false
+          example: false
+        - name: timeout_seconds
+          description: >
+            How long to wait for the agent per device (1-600). A value above
+            the agent source's maximum fails the step before anything is sent.
+          data_type: integer
+          required: false
+          default: 30
+          example: 30
+
   - id: route-on-content
     name: Route on Content
     overview: Branch workflow paths by searching content for text or a pattern.

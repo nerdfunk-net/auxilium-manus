@@ -49,6 +49,9 @@ DEFAULT_PERMISSIONS: list[tuple[str, str, str]] = [
     # including networks built by workflows the caller cannot see (B2).
     # Deliberately not a "read" action, so the seeded viewer role never gets it.
     ("sources.batfish", "query", "Run ad-hoc Batfish questions from the template editor"),
+    ("sources.agent", "read", "View agent sources (transport and identity; never the secret)"),
+    ("sources.agent", "write", "Create or update agent sources"),
+    ("sources.agent", "delete", "Delete agent sources"),
     ("sources.mattermost", "read", "View Mattermost sources"),
     ("sources.mattermost", "write", "Create or update Mattermost sources"),
     ("sources.mattermost", "delete", "Delete Mattermost sources"),

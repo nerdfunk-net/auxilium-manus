@@ -94,6 +94,11 @@ template editor), never from `GET /settings` (`settings:read`). The response has
 `token_configured` only (a row without a URL is left out, as the settings parser always did); the settings form still edits the `sources.nautobot.*` rows, and a write there refreshes the
 page-side query (`use-settings-mutations.ts`).
 
+**Agent sources.** `sources.agent` (`read` / `write` / `delete`) follows the same rules: writes are admin-only
+(P3), the seeded `viewer` role has no `read`, and `POST /sources/agent/test-connection` needs `write` and is
+rate limited. The shared secret is a global `shared_secret` credential referenced by id; no response or query
+carries it (`doc/AGENT_INTEGRATION.md`).
+
 ## Run control, change requests, schedules
 
 **Child runs.** A `start-workflow` step starts another workflow as the *triggering user of the

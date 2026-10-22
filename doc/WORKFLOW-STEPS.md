@@ -492,6 +492,34 @@ Both are in the `nautobot` palette category and share `workflow_steps/common/nau
   resolved address. `get-next-free-ip` only reads Nautobot with its prefix and namespace values and still
   resolves them with the default (revealing) setting.
 
+### Calling an agent: `route-to-agent`
+
+`route-to-agent` (palette category *Routing*) sends selected attributes and content, per device, to a handler
+on an external agent and writes the declared keys of the JSON answer under `destination_path` (for example
+`agent.geo.location`). Full design, security model, protocol and operations: `doc/AGENT_INTEGRATION.md`. The
+rules a step author must keep:
+
+- **Enrichment only.** `requires: [identity]`, `produces: [attributes]`, outcomes `success` / `failure`. The
+  agent never chooses an outcome. The step always emits `success` (possibly empty) and `failure` when a
+  device failed.
+- **Secrets never leave.** `input_paths` are checked when the step starts (`secret_path_problem` in
+  `route_to_agent/request.py`): known secret paths, the config-context subtrees, any **parent** that would
+  carry them along (the bag root `nautobot`) and any path segment that names a secret are a `ValueError`.
+  Values are checked per device: a sealed secret fails the device with `source_sealed`, a non-empty value under
+  a secret-looking key with `source_secret`. A step that sends device data to an external process must apply
+  the same rules (`SECRET_BAG_PATHS`, `SECRET_BAG_SUBTREES`, `is_secret_key_name`).
+- **The destination is a bag, never the device.** `destination_path` may not start with `device`, a device
+  field name, `parsed`, `run_input` or `error`; it is probe-written through `set_device_attribute` at parse
+  time and written as real nested dicts (never a flat dotted key).
+- **Output is an allow-list.** Only `output_keys` are accepted; each value must be JSON within
+  `STEP_OUTPUT_VALUE_MAX_BYTES`, nested at most 8 levels (measured iteratively, so absurd nesting cannot
+  exhaust the recursion limit). A violation is `output_rejected` and never echoes the values.
+- **One call per device, bounded.** Calls run concurrently up to the agent source's `max_concurrency`. A step
+  `timeout_seconds` above the source's maximum is a configuration error, not silently capped.
+- **Systemic failures stop early.** `AgentOfflineError` / `AgentAuthError` fail the devices not yet sent with
+  the same cause. A late (expired) answer is only a timeout for its device: it says nothing about the secret.
+- Failure codes and kinds: `doc/AGENT_INTEGRATION.md` "Failures and what they mean".
+
 ### Structured failure on `DeviceError`
 
 When a step fails a device, pass a `FailureInfo` (`models/failure.py`) as
@@ -502,7 +530,7 @@ assistant shows it without the user's content opt-in while the `message` stays c
 `NetmikoConnectionError.failure`, `CommandResult.failure`, `ConfigResult.failure` and
 `DeployResult.failure` (`services/network/netmiko/failure.py`); copy them with
 `failure_from_exception(exc)` or `result.failure`. Never add a free-text field to `FailureInfo`.
-Done for `run-command`, `get-device-configs` and `store-for-report` (unusable values and duplicate device names are `config` / `bad_request`; database and unexpected errors are `internal` / `internal_error` with only the exception class, and their run message is a fixed sentence); other steps and sources still record only text.
+Done for `run-command`, `get-device-configs` and `store-for-report` (unusable values and duplicate device names are `config` / `bad_request`; database and unexpected errors are `internal` / `internal_error` with only the exception class, and their run message is a fixed sentence); `route-to-agent` records every failure in phase `agent` (kinds `agent_offline`, `agent_handler_error`, `payload_too_large`, `output_rejected` plus `timeout`, `auth_failed`, `invalid_response`, `bad_request`, `internal_error`); other steps and sources still record only text.
 
 ### Logging — start and finish log lines are required
 

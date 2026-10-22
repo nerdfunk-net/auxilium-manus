@@ -257,3 +257,8 @@ frontend/node_modules
 
 # code uses playwright
 .playwright-mcp/
+
+# Redis users of Route to Agent agents (docker/redis/agents.acl.example): password hashes stay local
+docker/redis/agents.acl
+# editor backup of an agent's real env file (.env itself is ignored above)
+agent/.env~

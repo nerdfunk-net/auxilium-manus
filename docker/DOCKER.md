@@ -70,6 +70,20 @@ requires non-default secrets, checked at startup in
 -e MANUS_REDIS_PASSWORD=<non-empty>
 ```
 
+### Redis: agent users, and why the ACL file is generated
+
+`manus-redis` starts through `redis/start.sh`, which writes `/data/users.acl` on every start: the `default`
+user with the password from `MANUS_REDIS_PASSWORD` (stored as a SHA-256 hash), then the `user` lines of
+`redis/agents.acl` if you created it from `redis/agents.acl.example` (Route to Agent agents on the Redis
+transport, `../doc/AGENT_INTEGRATION.md`). Restart `manus-redis` after editing `agents.acl`.
+
+It is generated rather than a plain `--aclfile` because loading an ACL file replaces the `default` user, and a
+file without a `default` line leaves it **without a password**: the compose file's `--requirepass` would be
+silently dropped. A `user default` line in `agents.acl` is ignored on purpose, and an invalid line makes Redis
+refuse to start and name the line in `docker compose logs manus-redis`. The notice "Unknown file './users.acl'
+found in data dir" in that log is harmless. Check the result without exposing the password:
+`docker exec -e REDISCLI_AUTH="$MANUS_REDIS_PASSWORD" manus-redis redis-cli ACL LIST`.
+
 ### Database connection refused
 
 Verify PostgreSQL is reachable from the container and `DATABASE_HOST` points to the correct host (not `localhost` when Postgres runs in another container).

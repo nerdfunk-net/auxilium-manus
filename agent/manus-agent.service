@@ -1,0 +1,21 @@
+[Unit]
+Description=Auxilium Manus agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=manus-agent
+WorkingDirectory=/opt/manus-agent
+EnvironmentFile=/etc/manus-agent/agent.env
+ExecStart=/opt/manus-agent/venv/bin/python -m manus_agent
+Restart=on-failure
+RestartSec=5
+
+# The agent only needs to read its own directory and talk to the network.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target

@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  Bot,
   FlaskConical,
   MessageSquare,
   Network,
@@ -20,6 +21,7 @@ import {
 } from "@/components/ui/dialog";
 
 import { buildSourceSettingKey } from "../constants/setting-keys";
+import { AgentSourceDialog } from "../dialogs/agent-source-dialog";
 import { BatfishSourceDialog } from "../dialogs/batfish-source-dialog";
 import { CatalystCenterSourceDialog } from "../dialogs/catalyst-center-source-dialog";
 import { ISESourceDialog } from "../dialogs/ise-source-dialog";
@@ -43,8 +45,8 @@ export function SourcesSettingsCanvas() {
             <div>
               <p className="text-sm font-semibold">Sources</p>
               <p className="mt-1 text-sm text-muted-foreground">
-                Add multiple Nautobot, Cisco ISE, Cisco Catalyst Center, and pyATS
-                connections. Each
+                Add multiple Nautobot, Cisco ISE, Cisco Catalyst Center, pyATS, and
+                agent connections. Each
                 instance needs a unique source ID for workflow step references
                 (e.g.{" "}
                 <code className="rounded bg-muted px-1 text-xs">prod-lab</code>
@@ -231,6 +233,34 @@ export function SourcesSettingsCanvas() {
                 })
               }
             />
+
+            <SourceListSection
+              title="Agents"
+              description="Python agents that run custom handlers for the Route to Agent step"
+              icon={Bot}
+              isLoading={sources.isAgentLoading}
+              emptyLabel="No agents yet."
+              addLabel="Add agent"
+              items={sources.agent.map((item) => ({
+                sourceId: item.source_id,
+                summary:
+                  item.transport === "http"
+                    ? (item.url ?? "HTTP")
+                    : `Redis — agent ${item.agent_id}`,
+              }))}
+              onAdd={() => sources.setDialog({ type: "agent", mode: "create" })}
+              onEdit={(sourceId) =>
+                sources.setDialog({ type: "agent", mode: "edit", sourceId })
+              }
+              onDelete={(sourceId) =>
+                sources.setDialog({
+                  type: "delete",
+                  sourceType: "agent",
+                  sourceId,
+                  key: "",
+                })
+              }
+            />
           </div>
         </div>
       </div>
@@ -303,6 +333,17 @@ export function SourcesSettingsCanvas() {
         onClose={() => sources.setDialog({ type: "closed" })}
         onCreate={sources.saveBatfish}
         onUpdate={sources.updateBatfish}
+      />
+
+      <AgentSourceDialog
+        open={sources.agentDialogOpen !== null}
+        mode={sources.agentDialogOpen?.mode ?? "create"}
+        initialValue={sources.editingAgentValue}
+        existingSourceIds={sources.existingAgentIds}
+        isSaving={sources.createAgentSourceIsPending || sources.updateAgentSourceIsPending}
+        onClose={() => sources.setDialog({ type: "closed" })}
+        onCreate={sources.saveAgent}
+        onUpdate={sources.updateAgent}
       />
 
       <Dialog

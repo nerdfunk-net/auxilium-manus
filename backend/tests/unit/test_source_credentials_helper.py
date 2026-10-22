@@ -103,5 +103,8 @@ class SourceCredentialTypeTests(unittest.TestCase):
     def test_every_source_type_has_a_credential_type_rule(self) -> None:
         self.assertEqual(
             set(SOURCE_CREDENTIAL_TYPES),
-            {"nautobot", "mattermost", "pyats", "ise", "catalyst_center"},
+            {"nautobot", "mattermost", "pyats", "ise", "catalyst_center", "agent"},
         )
+
+    def test_agent_source_accepts_only_a_shared_secret(self) -> None:
+        self.assertEqual(SOURCE_CREDENTIAL_TYPES["agent"], frozenset({"shared_secret"}))

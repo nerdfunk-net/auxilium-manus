@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 import service_factory
 from core.database import get_db
 from models.sources_nautobot import NautobotSourceRef
+from services.agents.source_config_service import AgentSourceConfigService
 from services.auth.login_rate_limiter import LoginRateLimiter
 from services.batfish.preview_service import BatfishPreviewService
 from services.batfish.source_config_service import BatfishSourceConfigService
@@ -42,6 +43,12 @@ def get_pyats_source_config_service(
     db: Session = Depends(get_db),
 ) -> PyATSSourceConfigService:
     return service_factory.build_pyats_source_config_service(db)
+
+
+def get_agent_source_config_service(
+    db: Session = Depends(get_db),
+) -> AgentSourceConfigService:
+    return service_factory.build_agent_source_config_service(db)
 
 
 def get_batfish_source_config_service(

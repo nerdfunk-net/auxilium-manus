@@ -11,12 +11,16 @@ when they differ or when this file has no entry for the current version.
 
 First public version: a visual NetDevOps workflow builder (React Flow canvas, Hatchet execution,
 Netmiko, Nautobot, Cisco Catalyst Center, ISE, Batfish and pyATS integrations, reports, schedules,
-change requests, optional AI assistant). See `README.md` for the feature overview.
+change requests, optional AI assistant, Route to Agent). See `README.md` for the feature overview.
 
 ### Upgrade notes
 
 Notes for databases and setups created before this version. A fresh installation needs none of them.
 
+- **Redis ACL file.** `docker/docker-compose.yml` starts `manus-redis` through `docker/redis/start.sh`, which
+  writes an ACL file at every start (the `default` user with `MANUS_REDIS_PASSWORD`, plus users from the
+  optional, git-ignored `docker/redis/agents.acl`). It replaces `--requirepass`; behaviour for the application
+  is unchanged. `docker/redis/agents.acl.example` and `doc/AGENT_INTEGRATION.md` describe the agent users.
 - **`workflow_runs.run_mode` column.** Databases created before the debug-mode removal still have
   this column as `NOT NULL` without a default, so every workflow trigger fails with a
   not-null violation. The automatic schema sync never drops columns. Once, after a `pg_dump`:

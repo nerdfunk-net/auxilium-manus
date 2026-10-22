@@ -52,6 +52,7 @@ const PLUGIN_UI_LOADERS: Record<string, PluginUILoader> = {
   "deploy-rendered-template": () => import("@/components/features/workflow-steps/deploy-rendered-template").then((m) => m.DeployRenderedTemplatePlugin),
   "route-on-attribute": () => import("@/components/features/workflow-steps/route-on-attribute").then((m) => m.RouteOnAttributePlugin),
   "route-on-content": () => import("@/components/features/workflow-steps/route-on-content").then((m) => m.RouteOnContentPlugin),
+  "route-to-agent": () => import("@/components/features/workflow-steps/route-to-agent").then((m) => m.RouteToAgentPlugin),
   "list-contains": () => import("@/components/features/workflow-steps/list-contains").then((m) => m.ListContainsPlugin),
   "exists-in-nautobot": () => import("@/components/features/workflow-steps/exists-in-nautobot").then((m) => m.ExistsInNautobotPlugin),
   "get-next-free-ip": () => import("@/components/features/workflow-steps/get-next-free-ip").then((m) => m.GetNextFreeIpPlugin),

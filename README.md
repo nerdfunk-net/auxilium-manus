@@ -100,6 +100,9 @@ trigger specific workflows and settings.
 - Deeper Nautobot steps: start and check Nautobot jobs, update devices, interfaces and
   config contexts, add metadata (locations, device types), and read or split virtual
   chassis (switch stacks)
+- Route to Agent: send selected attributes and content to your own Python **agent** (HTTP, or Redis for
+  agents on other hosts), encrypted and authenticated end to end, and use its JSON answer in the workflow
+  (see [doc/AGENT_INTEGRATION.md](doc/AGENT_INTEGRATION.md); the reference agent is in [agent/](agent/))
 - Workflow-calls-workflow: the **Run Workflow** step starts another workflow with the
   current devices, per run or per device, optionally waits for it, and branches on its
   result

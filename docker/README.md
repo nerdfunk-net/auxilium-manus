@@ -30,6 +30,9 @@ docker network create --internal hatchet 2>/dev/null || true
 | `ingress` | App compose: `manus-web` only. Your reverse proxy joins it, or uses the published `127.0.0.1:3000`. |
 | `egress` | App compose: the two workers (outbound to devices, Nautobot, git remotes). |
 
+An optional Route to Agent agent (`docker-compose.agent.example.yml`) joins `data`, so the app reaches it at
+`http://manus-agent:8080` and it reaches `manus-redis` without publishing a port.
+
 ### 2. Start Hatchet
 
 ```bash
@@ -202,6 +205,9 @@ See [README-ALL-IN-ONE.md](./README-ALL-IN-ONE.md) for the full air-gap guide. I
 | `Dockerfile.basic` | Faster online development build |
 | `Dockerfile.worker` | Standalone Hatchet worker (optional) |
 | `docker-compose.yml` | App stack: postgres, redis, web, live worker, background worker (`data`, `hatchet`, `ingress`, `egress` networks) |
+| `docker-compose.agent.example.yml` | Example overlay: a Route to Agent agent on the `data` network (copy to `docker-compose.agent.yml`; see `../doc/AGENT_INTEGRATION.md`) |
+| `redis/start.sh` | Entrypoint of `manus-redis`: writes the Redis ACL file at every start (`default` user with `MANUS_REDIS_PASSWORD` plus the agent users of `redis/agents.acl`) |
+| `redis/agents.acl.example` | Template for `redis/agents.acl` (git-ignored): one Redis user per remote agent |
 | `docker-compose.dev.yml` | Development override (`ENV=development`, `DOCS_ENABLED=true`) — use with `-f docker-compose.yml -f docker-compose.dev.yml` |
 | `.env.example` | Required secrets template — copy to `.env` before `docker compose up` |
 | `hatchet/docker-compose.yml` | Hatchet stack (engine, dashboard, dependencies) |

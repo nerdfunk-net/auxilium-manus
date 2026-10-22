@@ -16,6 +16,7 @@ const m = vi.hoisted(() => {
     pyats: source(),
     mattermost: source(),
     batfish: source(),
+    agent: source(),
   };
 });
 
@@ -38,6 +39,9 @@ vi.mock("@/hooks/queries/use-pyats-sources-mutations", () => ({
 vi.mock("@/hooks/queries/use-mattermost-sources-mutations", () => ({
   useMattermostSourcesMutations: () => fresh(m.mattermost),
 }));
+vi.mock("@/hooks/queries/use-agent-sources-mutations", () => ({
+  useAgentSourcesMutations: () => fresh(m.agent),
+}));
 vi.mock("@/hooks/queries/use-batfish-sources-mutations", () => ({
   useBatfishSourcesMutations: () => fresh(m.batfish),
 }));
@@ -52,7 +56,7 @@ function setup(dialog: SourcesDialogState = CLOSED, nautobotById = NAUTOBOT_BY_I
 
 beforeEach(() => {
   setDialog.mockReset();
-  const groups = [m.settings, m.ise, m.catalyst, m.pyats, m.mattermost, m.batfish];
+  const groups = [m.settings, m.ise, m.catalyst, m.pyats, m.mattermost, m.batfish, m.agent];
   for (const group of groups) {
     for (const mutation of Object.values(group)) {
       mutation.mutateAsync = fn();
@@ -110,6 +114,7 @@ describe.each([
   ["Pyats", "pyats", "savePyats", "updatePyats"],
   ["Mattermost", "mattermost", "saveMattermost", "updateMattermost"],
   ["Batfish", "batfish", "saveBatfish", "updateBatfish"],
+  ["Agent", "agent", "saveAgent", "updateAgent"],
 ] as const)("%s source", (_label, group, saveName, updateName) => {
   it("creates the source, then closes the dialog", async () => {
     const { result } = setup();
@@ -145,6 +150,7 @@ describe("confirmDelete", () => {
     ["pyats", "pyats"],
     ["mattermost", "mattermost"],
     ["batfish", "batfish"],
+    ["agent", "agent"],
   ] as const)("deletes a %s source by id and closes", async (sourceType, group) => {
     const { result } = setup({ type: "delete", sourceType, sourceId: "a", key: "k" });
     await act(() => result.current.confirmDelete());
@@ -183,8 +189,8 @@ describe("useSourcesSettingsSave stability", () => {
   const FLAGS = [
     ["settings", "upsertSetting", "upsertSettingIsPending"],
     ["settings", "deleteSetting", "deleteSettingIsPending"],
-    ...(["ise", "catalyst", "pyats", "mattermost", "batfish"] as const).flatMap((group) => {
-      const type = { ise: "Ise", catalyst: "CatalystCenter", pyats: "Pyats", mattermost: "Mattermost", batfish: "Batfish" }[group];
+    ...(["ise", "catalyst", "pyats", "mattermost", "batfish", "agent"] as const).flatMap((group) => {
+      const type = { ise: "Ise", catalyst: "CatalystCenter", pyats: "Pyats", mattermost: "Mattermost", batfish: "Batfish", agent: "Agent" }[group];
       return (["create", "update", "delete"] as const).map(
         (verb) => [group, `${verb}Source`, `${verb}${type}SourceIsPending`] as const,
       );

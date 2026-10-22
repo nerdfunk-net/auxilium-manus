@@ -143,6 +143,10 @@ CRUD routers come from `routers/source_crud_factory.py::build_source_crud_router
 `crud.py` keeps only its factory call plus its own `test-connection` route. To add a source,
 declare a subclass and one factory call — do not copy the CRUD ladder.
 
+Agent sources (`services/agents/source_config_service.py`, router `routers/sources/agent/`) also use
+`SourceConfigStore` and the same CRUD factory, but have no URL-and-credential pair of their own: a transport,
+an `agent_id` and a global `shared_secret` credential (`doc/AGENT_INTEGRATION.md`).
+
 ---
 
 ## Cross-cutting backend patterns
@@ -161,6 +165,10 @@ declare a subclass and one factory call — do not copy the CRUD ladder.
   `services/git/scrub.py::scrub_url_credentials`.
 - **Swallowed exceptions:** `except …: pass` is a lint error (S110/S112); log at debug or add a
   `# noqa` with the reason.
+- **Sending data to an external process** (the `route-to-agent` step): never send secrets. Apply the
+  `SECRET_BAG_PATHS` / `SECRET_BAG_SUBTREES` / `is_secret_key_name` rules to paths and values, refuse a parent
+  that would carry a secret along, and keep the destination out of the device. `doc/WORKFLOW-STEPS.md`
+  "Calling an agent".
 - **Failure records:** a step that fails a device or the whole step records *why* as a
   `models.failure.FailureInfo` (closed vocabulary, no free text) next to the readable message **where a failure code applies** (a pure config error has none; `test_device_error_failure_ratchet.py` pins the sites that do not record one yet, so a new `DeviceError` without `failure=` fails the test):
   `DeviceError(failure=...)`, `StepOutcome(failure=...)`, or raise with the client error in the cause

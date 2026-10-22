@@ -213,9 +213,15 @@ services:
     image: redis:8-alpine
     container_name: manus-redis
     hostname: manus-redis
-    command: redis-server --appendonly yes --requirepass ${MANUS_REDIS_PASSWORD:?MANUS_REDIS_PASSWORD is required}
+    # redis/start.sh writes /data/users.acl on every start: the `default` user with
+    # MANUS_REDIS_PASSWORD (an ACL file would otherwise reset it to nopass) plus the Route to Agent
+    # users from redis/agents.acl. Replaces `--requirepass`; see doc/AGENT_INTEGRATION.md.
+    entrypoint: ["sh", "/etc/manus-redis/start.sh"]
+    environment:
+      MANUS_REDIS_PASSWORD: "${MANUS_REDIS_PASSWORD:?MANUS_REDIS_PASSWORD is required}"
     volumes:
       - redis_data:/data
+      - ./redis:/etc/manus-redis:ro
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "redis-cli", "-a", "${MANUS_REDIS_PASSWORD:?MANUS_REDIS_PASSWORD is required}", "ping"]

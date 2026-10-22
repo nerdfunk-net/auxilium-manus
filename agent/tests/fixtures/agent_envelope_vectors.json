@@ -1,0 +1,48 @@
+{
+  "secret": "vector-secret-0123456789abcdefghij!",
+  "http_token_agent_id": "agent-1",
+  "http_token": "xYFpxt0w_WQWKKxs4mbv3DOQxEM1GGPvsGUs9VPzDlA",
+  "vectors": [
+    {
+      "name": "request_basic",
+      "now": 1700000000,
+      "payload": {
+        "handler": "echo",
+        "params": {},
+        "inputs": {
+          "nautobot.location.name": "Berlin"
+        }
+      },
+      "envelope": {
+        "v": 1,
+        "agent_id": "agent-1",
+        "command_id": "cmd-1",
+        "direction": "request",
+        "iat": 1700000000,
+        "exp": 1700000030,
+        "nonce": "AAECAwQFBgcICQoL",
+        "ct": "pvgmkokA-zUPa_cvY5sEfgV1ZgRbuTE8hdraL8XooudX-YyTng0PogHLxkd6uWb_dcK8rw_fazYGaKDzH_aQ6zOwVz4uP4X_nmot7KnxI8JoN3q4uVqWyR5Mhw"
+      }
+    },
+    {
+      "name": "response_unicode",
+      "now": 1700000000,
+      "payload": {
+        "status": "success",
+        "output": {
+          "location": "Zürich ✓"
+        }
+      },
+      "envelope": {
+        "v": 1,
+        "agent_id": "agent-1",
+        "command_id": "cmd-1",
+        "direction": "response",
+        "iat": 1700000000,
+        "exp": 1700000030,
+        "nonce": "DA0ODxAREhMUFRYX",
+        "ct": "siMopfEW1rsBIqlDF3rg7TPs-E6LZVlR11dA9LvLTqvK0_8Jt9LSwtmgGHhHIULCTrk-SmEuw9-8pipdH5H3vJ9s1gAJmumHQdax2bK9aw"
+      }
+    }
+  ]
+}

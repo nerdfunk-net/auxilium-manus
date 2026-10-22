@@ -44,6 +44,7 @@ from routers.report_definitions import router as report_definitions_router
 from routers.reports import router as reports_router
 from routers.secret_manager import router as secret_manager_router
 from routers.settings import router as settings_router
+from routers.sources.agent import agent_source_crud_router, agent_source_ops_router
 from routers.sources.batfish import (
     batfish_source_crud_router,
     batfish_source_discovery_router,
@@ -203,6 +204,8 @@ app.include_router(catalyst_center_source_crud_router, prefix=settings.api_prefi
 app.include_router(catalyst_center_source_ops_router, prefix=settings.api_prefix)
 app.include_router(pyats_source_crud_router, prefix=settings.api_prefix)
 app.include_router(pyats_source_ops_router, prefix=settings.api_prefix)
+app.include_router(agent_source_crud_router, prefix=settings.api_prefix)
+app.include_router(agent_source_ops_router, prefix=settings.api_prefix)
 app.include_router(batfish_source_crud_router, prefix=settings.api_prefix)
 app.include_router(batfish_source_ops_router, prefix=settings.api_prefix)
 app.include_router(batfish_source_query_router, prefix=settings.api_prefix)

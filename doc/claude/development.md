@@ -98,6 +98,11 @@ python -m pytest tests/integration -m mutations --no-cov --run-mutations
 # after a change under docker/), audit.yml (weekly pip-audit and npm audit), secret-scan.yml
 # (gitleaks with .gitleaks.toml: gitleaks detect --source . --no-git --redact -v).
 
+# Agent (agent/ is standalone, Python 3.12 deps; its own ruff.toml and CI: .github/workflows/agent-ci.yml)
+cd agent && pip install -r requirements-dev.txt && ruff check . && python -m pytest
+# agent/manus_agent/envelope.py is a generated copy of backend/services/agents/envelope.py:
+# change the backend file, regenerate the copy, never run ruff --fix on it (test_agent_envelope_sync.py)
+
 # Regression guards (run from backend/):
 python scripts/check_asyncio_run.py
 python scripts/check_http_500_leaks.py
@@ -136,6 +141,10 @@ Dashboard routes share `DashboardShell` with `AppSidebar`. Settings sections use
 `/settings/[section]`. Workflow runs live at `/workflows/runs`. Timed runs live at
 `/schedules` (see `doc/SCHEDULES.md`). Staged changes live at `/change-requests`
 (see `doc/CICD_PIPELINE.md`).
+
+Agents (Route to Agent step, `sources.agent.*` sources, `/agent`, Redis ACL users): read
+`doc/AGENT_INTEGRATION.md` first. `docker/redis/start.sh` generates the Redis ACL file at every start; loading
+an ACL file resets the `default` user to `nopass`, so never replace it with a bare `--aclfile`.
 
 AI collaboration: a seeded `ai-assistant` RBAC principal plus a per-workflow
 `WorkflowAiSession` consent flag gate `backend/scripts/ai_workflow_apply.py`.

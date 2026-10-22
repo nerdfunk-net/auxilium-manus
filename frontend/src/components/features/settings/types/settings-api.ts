@@ -238,3 +238,64 @@ export interface BatfishSnapshotInfo {
 export interface BatfishSnapshotsResponse {
   snapshots: BatfishSnapshotInfo[];
 }
+
+export type AgentTransport = "http" | "redis";
+
+export interface AgentSourceResponse {
+  source_id: string;
+  transport: AgentTransport;
+  agent_id: string;
+  url: string | null;
+  credential_id: number | null;
+  credential_name: string | null;
+  max_concurrency: number;
+  max_request_bytes: number;
+  max_timeout_seconds: number;
+}
+
+export interface AgentSourceListResponse {
+  sources: AgentSourceResponse[];
+  total: number;
+}
+
+export interface AgentSourceCreatePayload {
+  source_id: string;
+  transport: AgentTransport;
+  agent_id: string;
+  url?: string | null;
+  credential_id: number;
+  max_concurrency: number;
+  max_request_bytes: number;
+  max_timeout_seconds: number;
+}
+
+export interface AgentSourceUpdatePayload {
+  transport?: AgentTransport;
+  agent_id?: string;
+  url?: string | null;
+  credential_id?: number;
+  max_concurrency?: number;
+  max_request_bytes?: number;
+  max_timeout_seconds?: number;
+}
+
+/** Tests a saved source: the encrypted echo needs the stored secret, never form values. */
+export interface AgentTestConnectionPayload {
+  source_id: string;
+}
+
+export interface AgentTestConnectionResponse {
+  success: boolean;
+  message: string;
+  latency_ms: number | null;
+}
+
+export interface AgentStatusResponse {
+  transport: AgentTransport;
+  /** null = unknown (HTTP agents have no heartbeat, or Redis could not be read). */
+  online: boolean | null;
+  version: string | null;
+  handlers: string[];
+  last_heartbeat: number | null;
+  message: string;
+}

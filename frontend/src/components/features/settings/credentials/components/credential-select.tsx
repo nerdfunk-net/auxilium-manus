@@ -27,6 +27,7 @@ const TYPE_LABEL: Partial<Record<CredentialType, string>> = {
   ssh: "SSH login",
   ssh_key: "SSH key",
   generic: "basic auth",
+  shared_secret: "shared-secret",
 };
 
 /**

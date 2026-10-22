@@ -202,6 +202,28 @@ tracked. The operator can switch the assistant off or limit providers and data c
 (`AI_ASSISTANT_ENABLED`, `AI_ALLOWED_PROVIDERS`, `AI_ALLOWED_DATA`); a user's own switches can only
 narrow those limits.
 
+## Route to Agent: what an agent sees, and the limits of its protocol
+
+The step sends the attributes and content an author selects to an external agent. Messages are one
+AES-256-GCM envelope keyed (HKDF, per direction) by a per-agent secret of at least 32 characters, so they are
+confidential, authenticated and bound to the agent, command and direction. The step refuses secrets
+(`SECRET_BAG_PATHS`, the config-context subtrees, parents that carry them, secret-looking path segments and
+keys). **Accepted as-is**, all documented in `doc/AGENT_INTEGRATION.md`:
+
+- The agent host and its handlers are trusted: they hold the secret and see everything that is sent. Handler
+  exception messages (200 characters) are stored on the device and shown in the run view.
+- Replay protection is in the agent's memory; a restart inside a request's validity window forgets it, so
+  handlers must be idempotent. A persistent store was rejected because it would drop legitimately queued
+  requests.
+- Plain `http://` to an agent is allowed (the payload is encrypted); metadata such as agent id, sizes and timing
+  is visible. Terminate TLS in front of an agent that is reachable from outside the Docker network.
+- The agent URL is validated without DNS on the worker (like every source), see the next entry.
+- A remote agent needs the app's Redis over a private network or VPN with TLS. The per-agent ACL user limits
+  what a stolen agent host can touch (`manus-agent:<id>:*`, six commands); it is no substitute for network
+  controls. `docker/redis/start.sh` writes the ACL file at every start because loading one resets the
+  `default` user to `nopass`: a bare `--aclfile` would drop the password of the app's Redis.
+- No secret rotation overlap yet: change the credential and the agent's `MANUS_AGENT_SECRET` together.
+
 ## DNS rebinding between the URL policy and the client
 
 The URL policy resolves a host name and the client resolves it again; a name that answers differently

@@ -33,6 +33,7 @@ DATABASE_PASSWORD=ci-database-password-1
 POSTGRES_PASSWORD=ci-postgres-password-1
 MANUS_REDIS_PASSWORD=ci-redis-password-1
 HATCHET_CLIENT_TOKEN=a.b.c
+MANUS_AGENT_SECRET=ci-agent-secret-0000000000000000000
 EOF
 cat >"${work}/hatchet.env" <<'EOF'
 HATCHET_DB_PASSWORD=ci-hatchet-db
@@ -66,6 +67,7 @@ check() { # check <env-file> <directory> <compose file>...
 
 check "${work}/app.env" . docker-compose.yml
 check "${work}/app.env" . docker-compose.yml docker-compose.dev.yml
+check "${work}/app.env" . docker-compose.yml docker-compose.agent.example.yml
 check "${work}/hatchet.env" hatchet docker-compose.yml
 check "${work}/hatchet.env" hatchet docker-compose.yml docker-compose.dev.yml
 check "${work}/hatchet.env" hatchet docker-compose.yml docker-compose.prod.yml

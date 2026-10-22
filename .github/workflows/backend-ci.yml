@@ -12,6 +12,8 @@ on:
       - ".dockerignore"
       - "frontend/package.json"
       - "CHANGELOG.md"
+      # test_agent_envelope_sync.py and test_agent_interop.py read and run the reference agent.
+      - "agent/**"
       - ".github/workflows/backend-ci.yml"
   pull_request:
     paths:
@@ -23,6 +25,8 @@ on:
       - ".dockerignore"
       - "frontend/package.json"
       - "CHANGELOG.md"
+      # test_agent_envelope_sync.py and test_agent_interop.py read and run the reference agent.
+      - "agent/**"
       - ".github/workflows/backend-ci.yml"
 
 defaults:

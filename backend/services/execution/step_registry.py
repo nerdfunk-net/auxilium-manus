@@ -105,6 +105,7 @@ from workflow_steps.read_from_file.executor import execute as read_from_file
 from workflow_steps.render_jinja_template.executor import execute as render_jinja_template
 from workflow_steps.route_on_attribute.executor import execute as route_on_attribute
 from workflow_steps.route_on_content.executor import execute as route_on_content
+from workflow_steps.route_to_agent.executor import execute as route_to_agent
 from workflow_steps.run_catalyst_center_command.executor import (
     execute as run_catalyst_center_command,
 )
@@ -182,6 +183,7 @@ STEP_REGISTRY: dict[str, StepExecutor] = {
     "deploy-rendered-template": deploy_rendered_template,
     "route-on-attribute": route_on_attribute,
     "route-on-content": route_on_content,
+    "route-to-agent": route_to_agent,
     "list-contains": list_contains,
     "exists-in-nautobot": exists_in_nautobot,
     "reachable": reachable,

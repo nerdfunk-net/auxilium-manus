@@ -1,0 +1,47 @@
+# Run a Route to Agent agent (agent/, doc/AGENT_INTEGRATION.md) next to the application.
+#
+# Copy this file, put your handlers in ./agent-handlers (see agent/handlers/examples.py), set the
+# variables below in docker/.env, and start both files:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.agent.yml up -d --build
+#
+# The agent joins the internal "data" network, so the app reaches it at http://manus-agent:8080
+# (HTTP transport) and it reaches Redis at manus-redis (Redis transport) without publishing a port.
+# In Settings -> Sources -> Agents use the same Agent ID and a shared-secret credential holding
+# MANUS_AGENT_SECRET.
+#
+# An agent on ANOTHER host cannot use this file: it needs the app's Redis reachable over a private
+# network or VPN (and TLS), which is a decision for your environment; see "Agents on another host"
+# in doc/AGENT_INTEGRATION.md. Do not publish Redis to the internet.
+
+services:
+  manus-agent:
+    build:
+      context: ../agent
+    container_name: manus-agent
+    restart: unless-stopped
+    environment:
+      MANUS_AGENT_ID: "${MANUS_AGENT_ID:-geo-agent}"
+      # At least 32 characters: openssl rand -base64 32
+      MANUS_AGENT_SECRET: "${MANUS_AGENT_SECRET:?MANUS_AGENT_SECRET is required (openssl rand -base64 32)}"
+      MANUS_AGENT_HTTP_PORT: "8080"
+      # Redis transport instead of (or besides) HTTP: add the agent's user to redis/agents.acl, then
+      #MANUS_AGENT_REDIS_URL: "redis://agent-${MANUS_AGENT_ID:-geo-agent}:${MANUS_AGENT_REDIS_PASSWORD}@manus-redis:6379/0"
+    volumes:
+      - ./agent-handlers:/app/handlers:ro
+    read_only: true
+    # The agent needs no capability: drop them all (NET_RAW named because the compose tests look for it).
+    cap_drop:
+      - ALL
+      - NET_RAW
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - data
+      # Handlers that call devices or APIs need a route out; uncomment and keep the rest as is.
+      #- egress
+
+networks:
+  data:
+    internal: true
+  egress: {}

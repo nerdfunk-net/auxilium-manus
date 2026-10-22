@@ -974,7 +974,9 @@ in the step output with the rest of the device.
 driver for the device's platform), `ambiguous_match` (more than one device, path or file for one
 device), `ref_mismatch` (a change-request deploy found a different commit than the reviewed one) and
 `stale_source` (a read step could not refresh its git tree); hints `check_platform` and
-`re_run_stage`. A stream cut off before its terminal marker is not a failure record but a
+`re_run_stage`. Phase `agent` with kinds `agent_offline`, `agent_handler_error`, `payload_too_large` and
+`output_rejected` (and the hint `check_agent`) describe a failed `route-to-agent` call; timeouts and
+authentication failures reuse `timeout` and `auth_failed`. A stream cut off before its terminal marker is not a failure record but a
 `provider_unavailable` error ("The answer was cut off before it was complete", §10).
 
 **Where it is produced.**

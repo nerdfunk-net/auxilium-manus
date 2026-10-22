@@ -1,0 +1,14 @@
+# Redis users for remote Route to Agent agents (doc/AGENT_INTEGRATION.md).
+#
+# Copy to agents.acl (git-ignored) and restart manus-redis. One `user` line per agent. Each user can
+# only touch its own keys, under manus-agent:<agent_id>:, and only the commands the agent needs.
+# `reset` makes the line replace anything the user had before.
+#
+# Use a SHA-256 hash instead of the clear-text password:
+#     printf %s '<redis-password-for-this-agent>' | sha256sum | cut -d' ' -f1
+# and put it after the # sign. The agent connects with the clear-text password:
+#     MANUS_AGENT_REDIS_URL=redis://agent-<agent_id>:<redis-password-for-this-agent>@<host>:6379/0
+#
+# user agent-geo-agent reset on #<sha256-of-the-password> ~manus-agent:geo-agent:* +blpop +rpush +hset +expire +del +ping
+#
+# A line for the user `default` is ignored on purpose (it could remove the app's password).

@@ -1,0 +1,48 @@
+name: agent-ci
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "agent/**"
+      # The envelope is copied from here and the sync/interop tests live in the backend suite.
+      - "backend/services/agents/**"
+      - ".github/workflows/agent-ci.yml"
+  pull_request:
+    paths:
+      - "agent/**"
+      - "backend/services/agents/**"
+      - ".github/workflows/agent-ci.yml"
+
+defaults:
+  run:
+    working-directory: agent
+
+concurrency:
+  group: agent-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12" # the version of agent/Dockerfile
+      - run: pip install -r requirements-dev.txt
+      - name: ruff
+        run: ruff check .
+      - name: pytest
+        run: python -m pytest -q
+
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - run: pip install pip-audit==2.10.1
+      - name: pip-audit
+        run: pip-audit -r requirements.txt

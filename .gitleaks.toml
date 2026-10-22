@@ -20,6 +20,9 @@ paths = [
   '''^backend/tests/unit/test_production_startup_matrix\.py$''',
   '''^backend/tests/unit/test_secret_run_inputs\.py$''',
   '''^backend/tests/unit/test_workflow_crypto_attribute_router\.py$''',
+  # Fixed, public test secret shared by the backend and agent envelope tests (test vectors).
+  '''^backend/tests/unit/fixtures/agent_envelope_vectors\.json$''',
+  '''^agent/tests/fixtures/agent_envelope_vectors\.json$''',
 ]
 
 [[allowlists]]

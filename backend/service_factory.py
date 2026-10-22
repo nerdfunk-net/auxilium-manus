@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
+import redis.asyncio as aioredis
 from sqlalchemy.orm import Session
 
 if TYPE_CHECKING:
@@ -13,6 +14,11 @@ if TYPE_CHECKING:
 
 from core.config import settings
 from repositories.inventory_repository import InventoryRepository
+from services.agents.client import AgentClient
+from services.agents.client import build_agent_client as build_agent_client_for
+from services.agents.source_config_service import AgentConnection, AgentSourceConfigService
+from services.agents.status import AgentStatus
+from services.agents.status import read_status as read_agent_status_for
 from services.auth.login_rate_limiter import (
     LOGIN_IP_RATE_LIMIT_ATTEMPTS,
     LOGIN_IP_RATE_LIMIT_WINDOW_SECONDS,
@@ -173,6 +179,26 @@ def get_batfish_app_service() -> BatfishService:
 def set_batfish_app_service(service: BatfishService) -> None:
     global _batfish_service
     _batfish_service = service
+
+
+def build_agent_source_config_service(db: Session) -> AgentSourceConfigService:
+    return AgentSourceConfigService(db)
+
+
+def build_agent_client(connection: AgentConnection) -> AgentClient:
+    """A client for one agent; the caller closes it (a Redis transport holds a connection)."""
+    return build_agent_client_for(connection, redis_url=settings.redis_url)
+
+
+async def read_agent_status(connection: AgentConnection) -> AgentStatus:
+    """Heartbeat view of one agent; opens (and closes) its own Redis connection."""
+    if connection.transport != "redis":
+        return await read_agent_status_for(connection, redis=None)
+    redis_client = aioredis.from_url(settings.redis_url, decode_responses=True)
+    try:
+        return await read_agent_status_for(connection, redis=redis_client)
+    finally:
+        await redis_client.aclose()
 
 
 def build_batfish_source_config_service(db: Session) -> BatfishSourceConfigService:

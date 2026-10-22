@@ -53,6 +53,11 @@ export function isConflictError(error: unknown): boolean {
   return error instanceof ApiError && error.status === 409;
 }
 
+/** The server understood the request and refused it: the user lacks a permission. */
+export function isForbiddenError(error: unknown): boolean {
+  return error instanceof ApiError && error.status === 403;
+}
+
 /** Reads the response body once, tolerating a non-JSON body. */
 async function readErrorDetail(response: Response): Promise<ErrorDetail | string | null> {
   try {

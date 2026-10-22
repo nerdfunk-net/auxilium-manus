@@ -19,7 +19,9 @@ Tailwind CSS 4, Shadcn UI, TanStack Query v5, Zustand, React Hook Form, Zod, Luc
 Netmiko, GitPython
 
 **Integrations:** Nautobot API, Cisco Catalyst Center (REST Intent API) — read
-`doc/CISCO_CATALYST_INTEGRATION.md` before changing it or adding Catalyst Center features/steps
+`doc/CISCO_CATALYST_INTEGRATION.md` before changing it or adding Catalyst Center features/steps;
+external **agents** (Route to Agent step, `/agent` reference agent) — read `doc/AGENT_INTEGRATION.md`
+before changing `backend/services/agents/`, `route_to_agent`, `agent/` or `docker/redis/`
 
 ## Architecture
 
@@ -135,6 +137,7 @@ export default function MyFeatureRoute() {
 - `/backend/core/rate_limit.py` — `rate_limited(...)` per-user dependency
 - `/backend/core/vault.py`, `/backend/services/vault/` — OpenBao client; `/backend/services/secret_manager/` — Secret Manager connections
 - `/backend/core/dev_tools.py` — `ENABLE_DEV_TOOLS` gate
+- `/backend/services/agents/` — app ↔ agent envelope, transports, client; `/agent/` — standalone reference agent
 
 **Frontend Core:**
 - `/frontend/src/lib/auth-store.ts` — Zustand auth state

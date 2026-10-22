@@ -12,6 +12,7 @@ const queries = vi.hoisted(() => ({
   pyats: { data: undefined, isLoading: false } as Loadable,
   mattermost: { data: undefined, isLoading: false } as Loadable,
   batfish: { data: undefined, isLoading: false } as Loadable,
+  agent: { data: undefined, isLoading: false } as Loadable,
   settingsArgs: vi.fn(),
 }));
 
@@ -28,6 +29,8 @@ const saveHandlers = vi.hoisted(() => ({
     updateMattermost: vi.fn(),
     saveBatfish: vi.fn(),
     updateBatfish: vi.fn(),
+    saveAgent: vi.fn(),
+    updateAgent: vi.fn(),
     confirmDelete: vi.fn(),
     upsertSettingIsPending: false,
     createIseSourceIsPending: false,
@@ -40,11 +43,14 @@ const saveHandlers = vi.hoisted(() => ({
     updateMattermostSourceIsPending: false,
     createBatfishSourceIsPending: false,
     updateBatfishSourceIsPending: false,
+    createAgentSourceIsPending: false,
+    updateAgentSourceIsPending: false,
     deleteIseSourceIsPending: false,
     deleteCatalystCenterSourceIsPending: false,
     deletePyatsSourceIsPending: false,
     deleteMattermostSourceIsPending: false,
     deleteBatfishSourceIsPending: false,
+    deleteAgentSourceIsPending: false,
     deleteSettingIsPending: false,
   },
   args: vi.fn(),
@@ -64,6 +70,9 @@ vi.mock("@/hooks/queries/use-mattermost-sources-query", () => ({
 vi.mock("@/hooks/queries/use-batfish-sources-query", () => ({
   useBatfishSourcesQuery: () => queries.batfish,
 }));
+vi.mock("@/hooks/queries/use-agent-sources-query", () => ({
+  useAgentSourcesQuery: () => queries.agent,
+}));
 vi.mock("./use-sources-settings-save", () => ({
   useSourcesSettingsSave: (args: unknown) => (saveHandlers.args(args), saveHandlers.value),
 }));
@@ -77,6 +86,7 @@ beforeEach(() => {
   queries.pyats = { ...idle };
   queries.mattermost = { ...idle };
   queries.batfish = { ...idle };
+  queries.agent = { ...idle };
   queries.settingsArgs.mockClear();
   saveHandlers.args.mockClear();
   for (const key of Object.keys(saveHandlers.value) as (keyof typeof saveHandlers.value)[]) {
@@ -89,6 +99,18 @@ const nautobotSetting = (id: string, value: Record<string, unknown> = { url: `ht
   value,
   description: null,
   updated_at: "2026-01-01",
+});
+
+const agentSource = (id: string) => ({
+  source_id: id,
+  transport: "redis" as const,
+  agent_id: `${id}-agent`,
+  url: null,
+  credential_id: 9,
+  credential_name: "agent-key",
+  max_concurrency: 4,
+  max_request_bytes: 1048576,
+  max_timeout_seconds: 60,
 });
 
 const httpSource = (id: string) => ({
@@ -109,12 +131,14 @@ describe("source lists", () => {
       pyats: [],
       mattermost: [],
       batfish: [],
+      agent: [],
       existingNautobotIds: [],
       existingIseIds: [],
       existingCatalystCenterIds: [],
       existingPyatsIds: [],
       existingMattermostIds: [],
       existingBatfishIds: [],
+      existingAgentIds: [],
     });
   });
 
@@ -129,8 +153,10 @@ describe("source lists", () => {
     queries.pyats = { data: { sources: [httpSource("py-a")] }, isLoading: false };
     queries.mattermost = { data: { sources: [httpSource("mm-a")] }, isLoading: false };
     queries.batfish = { data: { sources: [{ source_id: "bf-a", host: "h", port: 9996 }] }, isLoading: false };
+    queries.agent = { data: { sources: [agentSource("geo")] }, isLoading: false };
     const { result } = renderHook(() => useSourcesSettings());
 
+    expect(result.current.existingAgentIds).toEqual(["geo"]);
     expect(result.current.existingIseIds).toEqual(["ise-a"]);
     expect(result.current.existingCatalystCenterIds).toEqual(["cc-a", "cc-b"]);
     expect(result.current.existingPyatsIds).toEqual(["py-a"]);
@@ -162,9 +188,11 @@ describe("source lists", () => {
     queries.settings = { data: undefined, isLoading: true };
     queries.ise = { data: undefined, isLoading: true };
     queries.batfish = { data: undefined, isLoading: true };
+    queries.agent = { data: undefined, isLoading: true };
     const { result } = renderHook(() => useSourcesSettings());
     expect(result.current).toMatchObject({
       isLoading: true,
+      isAgentLoading: true,
       isIseLoading: true,
       isBatfishLoading: true,
       isCatalystCenterLoading: false,
@@ -189,6 +217,7 @@ describe("dialog state", () => {
     ["pyats", "pyatsDialogOpen"],
     ["mattermost", "mattermostDialogOpen"],
     ["batfish", "batfishDialogOpen"],
+    ["agent", "agentDialogOpen"],
   ] as const)("opening the %s dialog exposes only %s", (type, field) => {
     const { result } = renderHook(() => useSourcesSettings());
     act(() => result.current.setDialog({ type, mode: "create" }));
@@ -201,6 +230,7 @@ describe("dialog state", () => {
       "pyatsDialogOpen",
       "mattermostDialogOpen",
       "batfishDialogOpen",
+      "agentDialogOpen",
       "deleteDialogOpen",
     ] as const;
     for (const other of open.filter((name) => name !== field)) {
@@ -260,6 +290,22 @@ describe("the source being edited", () => {
     expect(result.current.editingBatfishValue).toEqual({ sourceId: "bf", host: "h", port: 9996 });
   });
 
+  it("is the mapped agent source (transport, identity, limits) in edit mode", () => {
+    queries.agent = { data: { sources: [agentSource("geo")] }, isLoading: false };
+    const { result } = renderHook(() => useSourcesSettings());
+    act(() => result.current.setDialog({ type: "agent", mode: "edit", sourceId: "geo" }));
+    expect(result.current.editingAgentValue).toEqual({
+      sourceId: "geo",
+      transport: "redis",
+      agentId: "geo-agent",
+      url: null,
+      credentialId: 9,
+      maxConcurrency: 4,
+      maxRequestBytes: 1048576,
+      maxTimeoutSeconds: 60,
+    });
+  });
+
   it("is null in create mode, without an id, for an unknown id, or for another dialog", () => {
     queries.ise = { data: { sources: [httpSource("one")] }, isLoading: false };
     queries.batfish = { data: { sources: [{ source_id: "bf", host: "h", port: 1 }] }, isLoading: false };
@@ -281,7 +327,9 @@ describe("the source being edited", () => {
 });
 
 describe("isDeletePending", () => {
-  const del = (sourceType: "nautobot" | "ise" | "catalyst_center" | "pyats" | "mattermost" | "batfish") =>
+  const del = (
+    sourceType: "nautobot" | "ise" | "catalyst_center" | "pyats" | "mattermost" | "batfish" | "agent",
+  ) =>
     ({ type: "delete", sourceType, sourceId: "x", key: "sources.nautobot.x" }) as const;
 
   it.each([
@@ -290,6 +338,7 @@ describe("isDeletePending", () => {
     ["pyats", "deletePyatsSourceIsPending"],
     ["mattermost", "deleteMattermostSourceIsPending"],
     ["batfish", "deleteBatfishSourceIsPending"],
+    ["agent", "deleteAgentSourceIsPending"],
     ["nautobot", "deleteSettingIsPending"],
   ] as const)("follows the delete mutation of a %s source", (sourceType, flag) => {
     (saveHandlers.value[flag] as boolean) = true;

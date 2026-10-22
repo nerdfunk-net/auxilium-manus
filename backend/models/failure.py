@@ -24,6 +24,7 @@ FailurePhase = Literal[
     "internal",  # a bug in our own code
     "render",  # rendering a Jinja template
     "git",  # a git operation (clone, pull, push, commit, fetch)
+    "agent",  # a call to an external agent (route-to-agent)
 ]
 
 FailureKind = Literal[
@@ -59,6 +60,10 @@ FailureKind = Literal[
     "ambiguous_match",  # more than one device / path / file target for one device
     "ref_mismatch",  # change-request deploy found a different commit than the reviewed one
     "stale_source",  # a read step could not refresh its git tree
+    "agent_offline",  # the agent is not reachable (no heartbeat / connection refused)
+    "agent_handler_error",  # the agent ran the handler and it reported an error
+    "payload_too_large",  # the request is above the agent's size limit
+    "output_rejected",  # the agent's answer broke the step's output contract
     "unknown",
 ]
 
@@ -82,6 +87,7 @@ FailureHint = Literal[
     "wait_for_other_run",
     "check_platform",
     "re_run_stage",
+    "check_agent",
 ]
 
 

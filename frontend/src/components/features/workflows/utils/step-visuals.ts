@@ -1,5 +1,6 @@
 import {
   Bell,
+  Bot,
   BellRing,
   Camera,
   CheckCircle2,
@@ -180,6 +181,7 @@ export function formatArtifactType(artifactType: string): string {
 const nodeIconsByKind: Record<string, LucideIcon> = {
   "compare-data": Scale,
   "route-on-content": SearchCode,
+  "route-to-agent": Bot,
   "fan-in": GitMerge,
   "filter-output": Filter,
   "merge-content": Combine,

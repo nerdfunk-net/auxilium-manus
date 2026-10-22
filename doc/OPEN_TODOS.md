@@ -54,6 +54,36 @@ pick it up without re-deriving the context.
   (unsaved canvas) does not: it reads the stored workflow and writes nothing (2026-10-19).
 - **No undo/redo in the builder.** A product decision, not a defect.
 
+## Route to Agent (`route-to-agent`, `/agent`)
+
+Built 2026-10-22 (`doc/AGENT_INTEGRATION.md`); all of it is uncommitted work until merged.
+
+- **Live verification.** Covered by unit suites, backend↔agent interop tests (real HTTP socket, Redis through
+  `fakeredis`) and a built agent image answering the backend client; the HTTP transport was confirmed end to end by the
+  product owner (2026-10-22). Not yet done: the Redis transport live, and a browser pass over
+  Settings → Sources → Agents and the step panel, and a run against the real `manus-redis` with an
+  `agents.acl` user (the generated ACL file in `docker/redis/start.sh` was tested in throwaway containers only,
+  not by recreating the stack's `manus-redis`). Needs the isolated stack (`doc/HOWTO_TEST_THE_FRONTEND.md`).
+- **Secret rotation without a gap.** Accept two secrets (current and previous) on both sides for a window;
+  today the credential and `MANUS_AGENT_SECRET` must change together.
+- **Pull transport.** The agent polls the app over HTTPS, so a remote agent needs no access to Redis. Needs a
+  machine-facing API (token auth, queue state) on the backend; `AgentTransport` already leaves the room.
+- **Redis over TLS for remote agents.** The repository does not configure it (no certificates to ship);
+  today it is the operator's decision (VPN, `rediss://`, TLS proxy).
+- **Persistent replay protection** on the agent, for example a small file or Redis `SET NX` for the Redis
+  transport; rejected for now because "refuse anything older than the process" drops queued requests.
+- **Batching** several devices per call, for fan-outs of hundreds of devices; templating inside `params`
+  (deliberately not: another evaluation path).
+- **Picking an agent needs `sources.agent:read`.** The step editor uses `GET /sources/agent`, so workflow
+  editors without that permission get a 403. The editor now says so ("You don't have permission to list agents",
+  naming `sources.agent:read`) instead of "No agents configured yet", and keeps the saved agent visible. This matches the other source types (a step editor needs that source
+  type's read permission; `GET /sources/nautobot/configured-sources` is gated by `sources.nautobot:read` too,
+  it only avoids `settings:read`). Optional: a minimal listing (id, transport) gated by `workflows:write` would
+  also keep agent URLs and credential names from workflow editors.
+- **Editor mirror of the secret-path rules.** `route-to-agent/config.ts` mirrors the destination, handler and
+  output-key rules but not `secret_path_problem`; a secret path fails the step at start instead of in the editor.
+- **DNS re-check on the call path** is deliberately skipped like for every source (`doc/SECURITY-NOTES.md`).
+
 ## Retire the three credential-resolver shim layers
 
 **Added:** 2026-09-10 · **Area:** `backend/services/credentials`, `backend/workflow_steps`

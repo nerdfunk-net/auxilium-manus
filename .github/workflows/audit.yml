@@ -23,6 +23,19 @@ jobs:
         # Keep the ignore list identical to the audit job in backend-ci.yml.
         run: pip-audit -r requirements.txt -r requirements-dev.txt --ignore-vuln PYSEC-2026-2858
 
+  agent-pip-audit:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: agent
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - run: pip install pip-audit==2.10.1
+      - run: pip-audit -r requirements.txt
+
   # pyats-shim is not audited here on purpose: pyats[full] pins transitive packages with known
   # advisories (python-socketio, python-engineio, setuptools), so the job would be red from the
   # first run. Dependabot still watches it (.github/dependabot.yml).

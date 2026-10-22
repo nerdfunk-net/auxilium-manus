@@ -4,6 +4,8 @@
 pytest==9.1.1
 pytest-cov==7.1.0
 fakeredis==2.40.0
+# test_agent_interop.py runs the reference agent's aiohttp server (also a hatchet-sdk dependency).
+aiohttp==3.14.5
 
 # Static analysis / security — also run in .github/workflows/backend-ci.yml.
 # Bandit's checks are covered by ruff's `S` (flake8-bandit) ruleset, which runs on
