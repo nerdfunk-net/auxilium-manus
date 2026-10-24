@@ -124,6 +124,22 @@ docker run --rm --env-file .env -p 8080:8080 -v "$PWD/handlers:/app/handlers:ro"
 
 On the app's Docker network use `http://<container-name>:8080` as the agent URL.
 
+### Company root certificates (TLS-inspecting proxy / private PKI)
+
+If your network re-signs TLS traffic with a company CA, `pip install` fails during the build with
+certificate errors. Put the root (and any intermediate) certificates into `certs/` **before** building:
+
+- PEM text files named `*.crt` or `*.pem` (convert DER/`.cer` files with
+  `openssl x509 -inform der -in x.cer -out x.crt`). Several files are fine.
+- At build time they are added to the system trust store and `pip` is pointed at the resulting bundle
+  (`/etc/pip.conf`).
+- At run time `entrypoint.sh` exports `REQUESTS_CA_BUNDLE` and `SSL_CERT_FILE` for the same bundle, so
+  Python HTTP clients trust the company CA too.
+- With no certificates in `certs/` (only `.gitkeep`), none of this is applied and the image is unchanged.
+
+The certificates end up in the image; do not push an image built with them to a public registry.
+Changing `certs/` invalidates the build cache from that point on, so a rebuild is needed.
+
 ## systemd
 
 See `manus-agent.service` (user `manus-agent`, code in `/opt/manus-agent`, variables in
