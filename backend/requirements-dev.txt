@@ -11,6 +11,6 @@ aiohttp==3.14.5
 # Bandit's checks are covered by ruff's `S` (flake8-bandit) ruleset, which runs on
 # Python 3.14 and shares one suppression syntax (`# noqa`); a standalone bandit is
 # intentionally not pinned here.
-ruff==0.17.0
+ruff==0.17.1
 pip-audit==2.10.1
 pyright==1.1.414
