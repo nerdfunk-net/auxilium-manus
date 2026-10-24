@@ -2102,9 +2102,12 @@ plugins:
             nautobot attribute bag; name, primary_ip4.address, platform.name and
             platform.network_driver also set the core device fields. Empty = default
             (name, primary_ip4, network_driver). A "name" target is required. Targets also
-            include interfaces.* (interface name, IP, ...) and custom_fields.<name>; keys
-            or columns named cf_<name> map to custom_fields.<name> automatically. The
-            target _ignore skips a key/column.
+            include interfaces.* (interface name, IP, ...), the IP namespaces
+            primary_ip4.parent.namespace.name and interfaces.ip_addresses.parent.namespace.name
+            (needs an interfaces.ip_addresses.address column), custom_fields.<name>
+            (keys or columns named cf_<name> map to it automatically) and custom.<name>, a
+            value that is not Nautobot data (stored in the "custom" attribute bag, read as
+            {custom.<name>}). The target _ignore skips a key/column.
           data_type: array
           required: false
           example:

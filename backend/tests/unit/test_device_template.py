@@ -50,6 +50,39 @@ class DeviceTemplateTests(unittest.TestCase):
         )
         self.assertEqual(rendered, "lab_inventory/lab.yaml.cfg")
 
+    def test_render_custom_namespace(self) -> None:
+        device = DeviceContext(
+            id="device-1",
+            name="r1",
+            hostname="r1",
+            attribute_bags={"custom": {"namespace": "black"}},
+        )
+        rendered = render_device_template(
+            "configs/{custom.namespace}/{device.name}.cfg",
+            device,
+            options=TemplateRenderOptions(strict=True),
+        )
+        self.assertEqual(rendered, "configs/black/r1.cfg")
+
+    def test_strict_fails_when_custom_value_missing(self) -> None:
+        device = DeviceContext(id="device-1", name="r1", hostname="r1")
+        with self.assertRaises(TemplateResolutionError) as ctx:
+            render_device_template(
+                "configs/{custom.namespace}/{device.name}.cfg",
+                device,
+                options=TemplateRenderOptions(strict=True),
+            )
+        self.assertIn("custom", str(ctx.exception))
+
+    def test_non_strict_custom_value_missing_resolves_empty(self) -> None:
+        device = DeviceContext(id="device-1", name="r1", hostname="r1")
+        rendered = render_device_template(
+            "{device.name}_{custom.namespace}.cfg",
+            device,
+            options=TemplateRenderOptions(strict=False),
+        )
+        self.assertEqual(rendered, "r1_.cfg")
+
     def test_legacy_flat_placeholders_resolve_empty(self) -> None:
         device = DeviceContext(
             id="device-1",

@@ -35,6 +35,7 @@ NAUTOBOT_TARGETS: tuple[str, ...] = (
     "primary_ip4.description",
     "primary_ip4.dns_name",
     "primary_ip4.status.name",
+    "primary_ip4.parent.namespace.name",
     "role.name",
     "device_type.model",
     "device_type.manufacturer.name",
@@ -51,18 +52,27 @@ NAUTOBOT_TARGETS: tuple[str, ...] = (
     "interfaces.mtu",
     "interfaces.status.name",
     "interfaces.ip_addresses.address",
+    "interfaces.ip_addresses.parent.namespace.name",
 )
 
 # Interface targets build one ``interfaces`` entry per file line (``apply_interface_mapping``).
 INTERFACE_PREFIX = "interfaces."
 INTERFACE_NAME_TARGET = "interfaces.name"
 _INTERFACE_IP_TARGET = "interfaces.ip_addresses.address"
+_INTERFACE_IP_NAMESPACE_TARGET = "interfaces.ip_addresses.parent.namespace.name"
+_PRIMARY_IP_TARGET = "primary_ip4.address"
+_PRIMARY_IP_NAMESPACE_TARGET = "primary_ip4.parent.namespace.name"
 
 # Custom fields are open-ended: ``custom_fields.<name>`` for any simple name.
 CUSTOM_FIELD_PREFIX = "custom_fields."
 CUSTOM_FIELD_NAME = re.compile(r"[A-Za-z0-9_]+")
 # A file key ``cf_<name>`` maps to ``custom_fields.<name>`` automatically.
 CUSTOM_FIELD_KEY_PREFIX = "cf_"
+
+# Custom values are not Nautobot data: ``custom.<name>`` for any simple name. They end up in the
+# ``custom`` attribute bag of the device (see ``device_context_from_git_detail``).
+CUSTOM_PREFIX = "custom."
+CUSTOM_KEY = "custom"
 
 # Targets that also populate real ``DeviceContext`` fields.
 CORE_TARGETS: tuple[str, ...] = (
@@ -91,6 +101,12 @@ def is_custom_field_target(target: str) -> bool:
     )
 
 
+def is_custom_target(target: str) -> bool:
+    return target.startswith(CUSTOM_PREFIX) and bool(
+        CUSTOM_FIELD_NAME.fullmatch(target[len(CUSTOM_PREFIX) :])
+    )
+
+
 def validate_device_mapping(raw: Any) -> list[MappingRule]:
     """Validate a configured mapping; an empty/unset mapping yields the default one."""
     if not raw:
@@ -110,7 +126,11 @@ def validate_device_mapping(raw: Any) -> list[MappingRule]:
         if target == IGNORE_TARGET:
             rules.append(MappingRule(source, target))
             continue
-        if target not in NAUTOBOT_TARGETS and not is_custom_field_target(target):
+        if (
+            target not in NAUTOBOT_TARGETS
+            and not is_custom_field_target(target)
+            and not is_custom_target(target)
+        ):
             raise ValueError(f"device_mapping row {index}: unknown target '{target}'")
         if target in seen_targets:
             raise ValueError(f"device_mapping row {index}: duplicate target '{target}'")
@@ -127,6 +147,17 @@ def validate_device_mapping(raw: Any) -> list[MappingRule]:
         raise ValueError(
             "device_mapping maps interface attributes but no source key "
             f"to '{INTERFACE_NAME_TARGET}'"
+        )
+    if _PRIMARY_IP_NAMESPACE_TARGET in seen_targets and _PRIMARY_IP_TARGET not in seen_targets:
+        raise ValueError(
+            "device_mapping maps a primary IPv4 namespace but no source key "
+            f"to '{_PRIMARY_IP_TARGET}'"
+        )
+    if _INTERFACE_IP_NAMESPACE_TARGET in seen_targets and _INTERFACE_IP_TARGET not in seen_targets:
+        # A namespace belongs to an address; alone it would be dropped silently.
+        raise ValueError(
+            "device_mapping maps an interface IP namespace but no source key "
+            f"to '{_INTERFACE_IP_TARGET}'"
         )
     return rules
 
@@ -182,6 +213,10 @@ def apply_device_mapping(entry: Any, rules: Iterable[MappingRule]) -> dict[str, 
             result = _with_path(result, rule.target.split("."), value)
     if not result.get(NAME_TARGET):
         return None
+    primary_ip = result.get("primary_ip4")
+    if isinstance(primary_ip, dict) and not primary_ip.get("address"):
+        # A namespace belongs to an address; without one it would leave an address-less object.
+        return {k: v for k, v in result.items() if k != "primary_ip4"}
     return result
 
 
@@ -195,6 +230,7 @@ def apply_interface_mapping(entry: Any, rules: Iterable[MappingRule]) -> dict[st
         return None
     result: dict[str, Any] = {}
     ip_address: str | None = None
+    ip_namespace: str | None = None
     for rule in rules:
         if not rule.target.startswith(INTERFACE_PREFIX):
             continue
@@ -203,12 +239,17 @@ def apply_interface_mapping(entry: Any, rules: Iterable[MappingRule]) -> dict[st
             continue
         if rule.target == _INTERFACE_IP_TARGET:
             ip_address = value
+        elif rule.target == _INTERFACE_IP_NAMESPACE_TARGET:
+            ip_namespace = value
         else:
             result = _with_path(result, rule.target[len(INTERFACE_PREFIX) :].split("."), value)
     if not result.get("name"):
         return None
     if ip_address is not None:
-        result = {**result, "ip_addresses": [{"address": ip_address}]}
+        ip_entry: dict[str, Any] = {"address": ip_address}
+        if ip_namespace is not None:
+            ip_entry = {**ip_entry, "parent": {"namespace": {"name": ip_namespace}}}
+        result = {**result, "ip_addresses": [ip_entry]}
     return result
 
 

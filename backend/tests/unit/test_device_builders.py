@@ -198,6 +198,22 @@ class DeviceContextFromGitDetailTests(unittest.TestCase):
         self.assertEqual(context.attribute_bags["nautobot"], detail)
         self.assertEqual(context.attribute_bags["git"], raw)
 
+    def test_custom_values_get_their_own_bag(self) -> None:
+        from workflow_steps.common.device_builders import device_context_from_git_detail
+
+        detail = {"name": "r1", "custom": {"namespace": "black"}}
+        context = device_context_from_git_detail(detail, source_id="3", index=0, raw={"a": "b"})
+
+        self.assertEqual(context.attribute_bags["custom"], {"namespace": "black"})
+        self.assertNotIn("custom", context.attribute_bags["nautobot"])
+        self.assertEqual(detail, {"name": "r1", "custom": {"namespace": "black"}})
+
+    def test_no_custom_bag_without_custom_values(self) -> None:
+        from workflow_steps.common.device_builders import device_context_from_git_detail
+
+        context = device_context_from_git_detail({"name": "r1"}, source_id="3", index=0)
+        self.assertNotIn("custom", context.attribute_bags)
+
     def test_nautobot_bag_is_a_copy(self) -> None:
         from workflow_steps.common.device_builders import device_context_from_git_detail
 

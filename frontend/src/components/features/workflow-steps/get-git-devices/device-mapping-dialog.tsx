@@ -26,9 +26,13 @@ import {
 import {
   CUSTOM_FIELD_OPTION,
   CUSTOM_FIELD_PREFIX,
+  CUSTOM_OPTION,
+  CUSTOM_PREFIX,
   customFieldName,
+  customName,
   IGNORE_TARGET,
   isCustomFieldTarget,
+  isCustomTarget,
   NAUTOBOT_TARGETS,
   targetLabel,
   type NautobotTarget,
@@ -44,6 +48,17 @@ import {
 } from "./utils/device-mapping";
 
 const EMPTY_KEYS: readonly string[] = [];
+
+/** Target for a picked select option; "Custom …" options start an empty name to be typed. */
+function pickedTarget(option: string, current: string): string {
+  if (option === CUSTOM_FIELD_OPTION && !isCustomFieldTarget(current)) {
+    return CUSTOM_FIELD_PREFIX;
+  }
+  if (option === CUSTOM_OPTION && !isCustomTarget(current)) {
+    return CUSTOM_PREFIX;
+  }
+  return option;
+}
 
 /** Attribute groups in catalog order (Device, Network, Role, ...). */
 const TARGET_GROUPS: { group: string; targets: NautobotTarget[] }[] = NAUTOBOT_TARGETS.reduce<
@@ -173,15 +188,15 @@ function DeviceMappingEditor({
                 <div className="flex flex-col gap-1">
                   <Select
                     value={
-                      (isCustomFieldTarget(row.target) ? CUSTOM_FIELD_OPTION : row.target) ||
-                      undefined
+                      (isCustomFieldTarget(row.target)
+                        ? CUSTOM_FIELD_OPTION
+                        : isCustomTarget(row.target)
+                          ? CUSTOM_OPTION
+                          : row.target) || undefined
                     }
                     onValueChange={(target) =>
                       updateRow(index, {
-                        target:
-                          target === CUSTOM_FIELD_OPTION && !isCustomFieldTarget(row.target)
-                            ? CUSTOM_FIELD_PREFIX
-                            : target,
+                        target: pickedTarget(target, row.target),
                       })
                     }
                   >
@@ -212,9 +227,21 @@ function DeviceMappingEditor({
                       <SelectGroup>
                         <SelectLabel>Custom</SelectLabel>
                         <SelectItem value={CUSTOM_FIELD_OPTION}>Custom field…</SelectItem>
+                        <SelectItem value={CUSTOM_OPTION}>Custom value…</SelectItem>
                       </SelectGroup>
                     </SelectContent>
                   </Select>
+                  {isCustomTarget(row.target) && (
+                    <Input
+                      aria-label={`Custom value name ${index + 1}`}
+                      className="h-8 font-mono text-xs"
+                      placeholder="namespace"
+                      value={customName(row.target)}
+                      onChange={(e) =>
+                        updateRow(index, { target: `${CUSTOM_PREFIX}${e.target.value.trim()}` })
+                      }
+                    />
+                  )}
                   {isCustomFieldTarget(row.target) && (
                     <Input
                       aria-label={`Custom field name ${index + 1}`}

@@ -28,6 +28,12 @@ export const NAUTOBOT_TARGETS: readonly NautobotTarget[] = [
   { value: "primary_ip4.description", label: "Primary IPv4 description", group: "Network", core: false },
   { value: "primary_ip4.dns_name", label: "Primary IPv4 DNS name", group: "Network", core: false },
   { value: "primary_ip4.status.name", label: "Primary IPv4 status", group: "Network", core: false },
+  {
+    value: "primary_ip4.parent.namespace.name",
+    label: "Primary IPv4 namespace",
+    group: "Network",
+    core: false,
+  },
   { value: "role.name", label: "Role", group: "Role", core: false },
   { value: "device_type.model", label: "Device type model", group: "Device type", core: false },
   { value: "device_type.manufacturer.name", label: "Manufacturer", group: "Device type", core: false },
@@ -49,10 +55,40 @@ export const NAUTOBOT_TARGETS: readonly NautobotTarget[] = [
     group: "Interface",
     core: false,
   },
+  {
+    value: "interfaces.ip_addresses.parent.namespace.name",
+    label: "Interface IP namespace",
+    group: "Interface",
+    core: false,
+  },
 ] as const;
 
 export const INTERFACE_PREFIX = "interfaces.";
 export const INTERFACE_NAME_TARGET = "interfaces.name";
+export const PRIMARY_IP_TARGET = "primary_ip4.address";
+export const PRIMARY_IP_NAMESPACE_TARGET = "primary_ip4.parent.namespace.name";
+export const INTERFACE_IP_TARGET = "interfaces.ip_addresses.address";
+export const INTERFACE_IP_NAMESPACE_TARGET = "interfaces.ip_addresses.parent.namespace.name";
+
+/**
+ * Custom values are not Nautobot data: `custom.<name>` for any simple name. They end up in the
+ * `custom` attribute bag of the device. Mirrors `CUSTOM_PREFIX` in the backend.
+ */
+export const CUSTOM_PREFIX = "custom.";
+/** Combobox option value that stands for "a custom value of your choice". */
+export const CUSTOM_OPTION = CUSTOM_PREFIX;
+
+export function isCustomTarget(value: string): boolean {
+  return value.startsWith(CUSTOM_PREFIX);
+}
+
+export function customName(value: string): string {
+  return isCustomTarget(value) ? value.slice(CUSTOM_PREFIX.length) : "";
+}
+
+export function isValidCustomTarget(value: string): boolean {
+  return isCustomTarget(value) && CUSTOM_FIELD_NAME.test(customName(value));
+}
 
 /** Custom fields are open-ended: `custom_fields.<name>` for any simple name. */
 export const CUSTOM_FIELD_PREFIX = "custom_fields.";
@@ -80,6 +116,9 @@ export function targetLabel(value: string): string {
   if (value === IGNORE_TARGET) {
     return "Ignore this column";
   }
+  if (isCustomTarget(value)) {
+    return `Custom value · ${customName(value) || "…"}`;
+  }
   if (isCustomFieldTarget(value)) {
     return `Custom field · ${customFieldName(value) || "…"}`;
   }
@@ -88,5 +127,10 @@ export function targetLabel(value: string): string {
 }
 
 export function isKnownTarget(value: string): boolean {
-  return value === IGNORE_TARGET || TARGETS_BY_VALUE.has(value) || isValidCustomFieldTarget(value);
+  return (
+    value === IGNORE_TARGET ||
+    TARGETS_BY_VALUE.has(value) ||
+    isValidCustomFieldTarget(value) ||
+    isValidCustomTarget(value)
+  );
 }

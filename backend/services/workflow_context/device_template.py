@@ -12,8 +12,8 @@ from services.workflow_context.device_scalars import device_scalar
 
 _PLACEHOLDER_RE = re.compile(r"\{([a-zA-Z0-9_.]+)\}")
 _INVALID_SEGMENT_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1f]+')
-_STRICT_PREFIXES = ("nautobot.", "git.", "command.")
-_KNOWN_NAMESPACES = ("device", "nautobot", "git", "run", "command", "parsed")
+_STRICT_PREFIXES = ("nautobot.", "git.", "custom.", "command.")
+_KNOWN_NAMESPACES = ("device", "nautobot", "git", "custom", "run", "command", "parsed")
 
 
 class TemplateResolutionError(ValueError):
@@ -89,6 +89,7 @@ def build_template_context(
         },
         "nautobot": dict(device.attribute_bags.get("nautobot", {})),
         "git": dict(device.attribute_bags.get("git", {})),
+        "custom": dict(device.attribute_bags.get("custom", {})),
         "run": {
             "id": run_id or "",
             "timestamp": timestamp,
@@ -128,6 +129,11 @@ def _validate_strict_resolution(
         raise TemplateResolutionError(
             f"Template placeholder {{{key}}} requires git attributes, but none "
             "are present on this device. Add get-git-devices upstream."
+        )
+    if namespace == "custom":
+        raise TemplateResolutionError(
+            f"Template placeholder {{{key}}} resolved empty. Map a column to that custom "
+            "value in get-git-devices (target custom.<name>) and make sure it is filled."
         )
     if namespace == "command":
         raise TemplateResolutionError(

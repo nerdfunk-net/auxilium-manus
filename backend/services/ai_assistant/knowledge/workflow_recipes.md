@@ -29,6 +29,22 @@ chose (display name and registry id) in your answer so the user can correct you.
 
 ## Phrase -> steps
 
+### "get devices from git" / "get the devices from the git repository" / "read the devices from the CSV (or YAML) file"
+One `get-git-devices` ("Get from Git") step, not `get-nautobot-devices`. The words git, repository, CSV or
+YAML file separate it from the saved-inventory phrase above; a bare "get devices from NAME" stays
+`get-nautobot-devices`. It reads device entries from files in a Git repository and needs no Nautobot source.
+- `git_repository_id` (required): find the repository with `list_references`, never invent an id; ask when
+  several match. `filename_pattern` (required, e.g. `*.csv`) and `directory` come from the request; ask
+  when they are missing.
+- `file_format` is `yaml` (default) or `csv`; for CSV also `csv_delimiter` (default `;`) and
+  `csv_multiline` (only when one device spans several lines).
+- `device_mapping` is `[{source, target}]`, one row per column or key; a `name` target is required. Check the
+  target list with `get_step_schema`. Map an IP "namespace" column to `primary_ip4.parent.namespace.name`
+  (or `interfaces.ip_addresses.parent.namespace.name` for an interface address), and a value that is not
+  Nautobot data to `custom.<name>`.
+- It needs no upstream step and produces `identity`. `get-nautobot-attributes` after it only works for
+  devices that already exist in Nautobot.
+
 ### "get the devicelist NAME" / "get devices from NAME" / "select NAME inventory"
 One `get-nautobot-devices` ("Get from Nautobot") step.
 - NAME is a **saved inventory**. Find it with `list_references(kind="inventories")`; never invent an id.

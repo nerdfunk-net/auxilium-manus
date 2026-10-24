@@ -1258,6 +1258,16 @@ Extra mapping targets (all formats):
 - `custom_fields.<name>` (letters, digits, `_`) — stored at `nautobot.custom_fields.<name>`. A key or column named
   `cf_<name>` is mapped to it **automatically** unless that key or target is mapped explicitly; empty values are ignored.
 
+- `primary_ip4.parent.namespace.name` — namespace of the primary IPv4 address, stored at
+  `nautobot.primary_ip4.parent.namespace.name`.
+- `interfaces.ip_addresses.parent.namespace.name` — namespace of the interface IP; emitted as
+  `ip_addresses: [{"address": ..., "parent": {"namespace": {"name": ...}}}]`. Needs a column mapped to
+  `interfaces.ip_addresses.address` (rejected otherwise). Namespaces are data for later steps (IP/prefix
+  changes), not looked up while reading the file.
+- `custom.<name>` (letters, digits, `_`) — a value that is **not** Nautobot data, stored in
+  `attribute_bags["custom"]` (Jinja: `{{ custom.<name> }}`), never in the `nautobot` bag. Device level only; in the
+  multi-line layout a later non-empty value overwrites an earlier one.
+
 - `_ignore` — skips that key/column; usable for any number of columns. An ignored `cf_<name>` column is not
   mapped to a custom field. In the UI, "Load keys from repository" adds one row per column found, pre-filled
   from a table of common names and set to ignore otherwise.

@@ -9,6 +9,7 @@ from typing import Any
 from models.catalyst_center import CatalystCenterDevice
 from models.sources_nautobot import DeviceInfo
 from models.workflow_context import Capability, DeviceContext, DeviceStatus, bare_hostname
+from services.git.device_mapping import CUSTOM_KEY
 from services.workflow_context.secret_fields import seal_secret
 
 
@@ -85,8 +86,10 @@ def device_context_from_git_detail(
     """Build a DeviceContext from a Nautobot-shaped, mapped git device entry.
 
     ``detail`` is the output of ``services.git.device_mapping.apply_device_mapping``; it is
-    stored (copied) in ``attribute_bags["nautobot"]``. ``raw`` is the unmapped file entry,
-    kept in ``attribute_bags["git"]`` (defaults to ``detail``).
+    stored (copied) in ``attribute_bags["nautobot"]``, except its ``custom`` values (targets
+    ``custom.<name>``), which are not Nautobot data and go to ``attribute_bags["custom"]``.
+    ``raw`` is the unmapped file entry, kept in ``attribute_bags["git"]`` (defaults to
+    ``detail``).
     """
     name = str(detail.get("name") or detail.get("hostname") or f"git-device-{index}")
     primary_ip4 = detail.get("primary_ip4")
@@ -109,6 +112,15 @@ def device_context_from_git_detail(
         digest = hashlib.sha256(f"{source_id}:{name}:{index}".encode()).hexdigest()[:32]
         device_id = f"git-{digest}"
 
+    custom = detail.get(CUSTOM_KEY)
+    nautobot_detail = {k: v for k, v in detail.items() if k != CUSTOM_KEY}
+    attribute_bags: dict[str, dict[str, Any]] = {
+        "git": dict(detail if raw is None else raw),
+        "nautobot": copy.deepcopy(nautobot_detail),
+    }
+    if isinstance(custom, dict) and custom:
+        attribute_bags["custom"] = dict(custom)
+
     return DeviceContext(
         id=device_id,
         name=name,
@@ -118,10 +130,7 @@ def device_context_from_git_detail(
         primary_ip4=primary_ip4,
         source="git",
         source_id=source_id,
-        attribute_bags={
-            "git": dict(detail if raw is None else raw),
-            "nautobot": copy.deepcopy(detail),
-        },
+        attribute_bags=attribute_bags,
         capabilities={Capability.IDENTITY},
         status=DeviceStatus.OK,
     )

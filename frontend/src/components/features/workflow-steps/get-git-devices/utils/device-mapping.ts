@@ -2,10 +2,16 @@ import { z } from "zod";
 
 import {
   CUSTOM_FIELD_PREFIX,
+  CUSTOM_PREFIX,
   IGNORE_TARGET,
+  INTERFACE_IP_NAMESPACE_TARGET,
+  INTERFACE_IP_TARGET,
   INTERFACE_NAME_TARGET,
   INTERFACE_PREFIX,
+  PRIMARY_IP_NAMESPACE_TARGET,
+  PRIMARY_IP_TARGET,
   isCustomFieldTarget,
+  isCustomTarget,
   isKnownTarget,
   NAME_TARGET,
 } from "../constants/nautobot-targets";
@@ -33,9 +39,14 @@ const ruleSchema = z.object({
       (value) => value !== CUSTOM_FIELD_PREFIX,
       "Enter a custom field name",
     )
+    .refine((value) => value !== CUSTOM_PREFIX, "Enter a custom value name")
     .refine(
       (value) => !isCustomFieldTarget(value) || isKnownTarget(value),
       "Custom field names may only contain letters, digits and underscores",
+    )
+    .refine(
+      (value) => !isCustomTarget(value) || isKnownTarget(value),
+      "Custom value names may only contain letters, digits and underscores",
     )
     .refine(isKnownTarget, "Select a Nautobot attribute"),
 });
@@ -75,6 +86,18 @@ export function validateMapping(rules: readonly DeviceMappingRule[]): MappingErr
   const usesInterface = rules.some((rule) => rule.target.startsWith(INTERFACE_PREFIX));
   if (usesInterface && !rules.some((rule) => rule.target === INTERFACE_NAME_TARGET)) {
     errors.form ??= "Interface attributes need a column mapped to “Interface name”.";
+  }
+  if (
+    rules.some((rule) => rule.target === PRIMARY_IP_NAMESPACE_TARGET) &&
+    !rules.some((rule) => rule.target === PRIMARY_IP_TARGET)
+  ) {
+    errors.form ??= "A primary IPv4 namespace needs a column mapped to “Primary IPv4 address”.";
+  }
+  if (
+    rules.some((rule) => rule.target === INTERFACE_IP_NAMESPACE_TARGET) &&
+    !rules.some((rule) => rule.target === INTERFACE_IP_TARGET)
+  ) {
+    errors.form ??= "An interface IP namespace needs a column mapped to “Interface IP address”.";
   }
   return errors;
 }

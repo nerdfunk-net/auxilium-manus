@@ -79,7 +79,7 @@ speculatively. One step can have more than one alias; add a row per alias.
 
 | Alias | Registry `id` | Display name |
 |---|---|---|
-| *(none recorded yet)* | | |
+| Get devices from git / Get from GIT | `get-git-devices` | Get from Git |
 
 ---
 
@@ -165,6 +165,26 @@ parsed output; an `update-attribute` then picks the member's values with
 `parsed.<key>.show version.parsed[0].serial[{virtual_chassis.stack_index}]`. Do not use
 `split_members: true` for this: every member shares the master's IP, so the command would run once
 per member.
+
+### "get devices from git" / "get the devices from the git repository" / "read the devices from the CSV (or YAML) file"
+
+→ One `get-git-devices` node ("Get from Git"), **not** `get-nautobot-devices`. The words "git",
+"repository", "CSV" or "YAML file" are what separate this from the saved-inventory phrase above; a bare
+"get devices from `<NAME>`" with no such word stays `get-nautobot-devices`. The step reads device entries
+from files in a Git repository and needs no Nautobot source.
+
+1. `git_repository_id` (**required**) — a `GitRepository` row from Settings → Git Repositories, resolved
+   by a live lookup (name or category from the request), never guessed; ask when several match.
+2. `filename_pattern` (**required**, e.g. `*.csv`) and `directory` — from the request; ask if unnamed.
+3. `file_format` `yaml` (default) or `csv`; for CSV also `csv_delimiter` (default `;`) and
+   `csv_multiline` (only when one device spans several lines).
+4. `device_mapping` — `[{source, target}]`, one row per column/key; a `name` target is required. Use
+   `get_step_schema` for the target list (it includes the IP namespace targets and `custom.<name>`).
+   Map an IP "namespace" column to `primary_ip4.parent.namespace.name`, or `interfaces.ip_addresses.parent.namespace.name`
+   for an interface address; use `custom.<name>` for a value that is not Nautobot data.
+5. It `produces: [identity]` and `requires: []`, so it can start a branch and the chain convention above applies.
+   It does not fill Nautobot attributes: `get-nautobot-attributes` after it only works for devices that
+   already exist in Nautobot (with Nautobot ids).
 
 ### "get the devicelist `<NAME>`" / "get devices from `<NAME>`" / "select `<NAME>` inventory"
 

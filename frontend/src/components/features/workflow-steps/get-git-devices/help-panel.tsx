@@ -163,6 +163,16 @@ export function GetGitDevicesHelpPanel() {
           <HelpCode>{"{nautobot.custom_fields.snmp_credentials}"}</HelpCode>).
           Lines with the wrong number of fields are reported in the preview.
         </p>
+        <p>
+          A column can also hold the <span className="font-medium text-foreground">namespace</span>{" "}
+          of an IP address: map it to <HelpCode>Primary IPv4 namespace</HelpCode>{" "}
+          (<HelpCode>{"{nautobot.primary_ip4.parent.namespace.name}"}</HelpCode>) or to{" "}
+          <HelpCode>Interface IP namespace</HelpCode> (needs a column mapped to{" "}
+          <HelpCode>Interface IP address</HelpCode>). Choose <HelpCode>Custom value…</HelpCode>{" "}
+          to keep a value that is not Nautobot data, for example{" "}
+          <HelpCode>custom.namespace</HelpCode> →{" "}
+          <HelpCode>{"{custom.namespace}"}</HelpCode>.
+        </p>
       </HelpSection>
 
       <HelpSection title="Show Preview">

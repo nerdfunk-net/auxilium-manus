@@ -4,7 +4,7 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { NAUTOBOT_TARGETS } from "../constants/nautobot-targets";
-import { IGNORE_TARGET } from "../constants/nautobot-targets";
+import { IGNORE_TARGET, isKnownTarget } from "../constants/nautobot-targets";
 import {
   DEFAULT_MAPPING,
   hasMappingErrors,
@@ -169,5 +169,52 @@ describe("mappingFromKeys", () => {
       "loc",
       "name",
     ]);
+  });
+});
+
+describe("namespace and custom value targets", () => {
+  const name = { source: "name", target: "name" };
+
+  it("accepts namespace targets and custom values", () => {
+    const errors = validateMapping([
+      name,
+      { source: "primary_ip4", target: "primary_ip4.address" },
+      { source: "ns", target: "primary_ip4.parent.namespace.name" },
+      { source: "ns2", target: "custom.namespace" },
+    ]);
+    expect(hasMappingErrors(errors)).toBe(false);
+  });
+
+  it("asks for a name when the custom value name is empty", () => {
+    const errors = validateMapping([name, { source: "x", target: "custom." }]);
+    expect(errors.rows[1]).toBe("Enter a custom value name");
+  });
+
+  it("rejects invalid custom value names", () => {
+    const errors = validateMapping([name, { source: "x", target: "custom.a b" }]);
+    expect(errors.rows[1]).toBe("Custom value names may only contain letters, digits and underscores");
+  });
+
+  it("requires an interface IP address for an interface IP namespace", () => {
+    const errors = validateMapping([
+      name,
+      { source: "interface", target: "interfaces.name" },
+      { source: "ns", target: "interfaces.ip_addresses.parent.namespace.name" },
+    ]);
+    expect(errors.form).toContain("Interface IP address");
+  });
+
+  it("requires a primary IPv4 address for a primary IPv4 namespace", () => {
+    const errors = validateMapping([
+      name,
+      { source: "ns", target: "primary_ip4.parent.namespace.name" },
+    ]);
+    expect(errors.form).toContain("Primary IPv4 address");
+  });
+
+  it("does not confuse custom values with custom fields", () => {
+    expect(isKnownTarget("custom.ns")).toBe(true);
+    expect(isKnownTarget("custom_fields.ns")).toBe(true);
+    expect(isKnownTarget("customs.ns")).toBe(false);
   });
 });

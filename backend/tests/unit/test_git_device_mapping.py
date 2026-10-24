@@ -312,6 +312,131 @@ class CollectAvailableKeysTests(unittest.TestCase):
         self.assertEqual(collect_available_keys([]), [])
 
 
+class NamespaceAndCustomTargetTests(unittest.TestCase):
+    NAME = {"source": "name", "target": "name"}
+    IFACE = {"source": "interface", "target": "interfaces.name"}
+    IFACE_IP = {"source": "primary_ip4", "target": "interfaces.ip_addresses.address"}
+    IFACE_NS = {"source": "namespace", "target": "interfaces.ip_addresses.parent.namespace.name"}
+
+    def test_namespace_targets_in_catalog(self) -> None:
+        self.assertIn("primary_ip4.parent.namespace.name", NAUTOBOT_TARGETS)
+        self.assertIn("interfaces.ip_addresses.parent.namespace.name", NAUTOBOT_TARGETS)
+
+    def test_custom_target_accepted(self) -> None:
+        rules = validate_device_mapping(
+            [self.NAME, {"source": "namespace", "target": "custom.namespace"}]
+        )
+        self.assertEqual(rules[1], MappingRule("namespace", "custom.namespace"))
+
+    def test_custom_target_invalid_names_rejected(self) -> None:
+        for target in ("custom.", "custom.a b", "custom.a.b"):
+            with self.subTest(target=target), self.assertRaisesRegex(ValueError, "unknown target"):
+                validate_device_mapping([self.NAME, {"source": "x", "target": target}])
+
+    def test_duplicate_custom_target_rejected(self) -> None:
+        with self.assertRaisesRegex(ValueError, "duplicate"):
+            validate_device_mapping(
+                [
+                    self.NAME,
+                    {"source": "a", "target": "custom.ns"},
+                    {"source": "b", "target": "custom.ns"},
+                ]
+            )
+
+    def test_interface_namespace_requires_interface_ip(self) -> None:
+        with self.assertRaisesRegex(ValueError, "interfaces.ip_addresses.address"):
+            validate_device_mapping([self.NAME, self.IFACE, self.IFACE_NS])
+
+    def test_interface_namespace_with_ip_accepted(self) -> None:
+        rules = validate_device_mapping([self.NAME, self.IFACE, self.IFACE_IP, self.IFACE_NS])
+        self.assertEqual(len(rules), 4)
+
+    def test_primary_ip_namespace_nests_beside_address(self) -> None:
+        rules = [
+            MappingRule("name", "name"),
+            MappingRule("primary_ip4", "primary_ip4.address"),
+            MappingRule("namespace", "primary_ip4.parent.namespace.name"),
+        ]
+        mapped = apply_device_mapping(
+            {"name": "d1", "primary_ip4": "10.0.0.1/24", "namespace": "black"}, rules
+        )
+        self.assertEqual(
+            mapped,
+            {
+                "name": "d1",
+                "primary_ip4": {
+                    "address": "10.0.0.1/24",
+                    "parent": {"namespace": {"name": "black"}},
+                },
+            },
+        )
+
+    def test_custom_value_nests_under_custom(self) -> None:
+        rules = [MappingRule("name", "name"), MappingRule("namespace", "custom.namespace")]
+        mapped = apply_device_mapping({"name": "d1", "namespace": "black"}, rules)
+        self.assertEqual(mapped, {"name": "d1", "custom": {"namespace": "black"}})
+
+    def test_primary_ip_namespace_requires_primary_ip_address(self) -> None:
+        with self.assertRaisesRegex(ValueError, "primary_ip4.address"):
+            validate_device_mapping(
+                [self.NAME, {"source": "ns", "target": "primary_ip4.parent.namespace.name"}]
+            )
+
+    def test_primary_ip_namespace_with_address_accepted(self) -> None:
+        rules = validate_device_mapping(
+            [
+                self.NAME,
+                {"source": "ip", "target": "primary_ip4.address"},
+                {"source": "ns", "target": "primary_ip4.parent.namespace.name"},
+            ]
+        )
+        self.assertEqual(len(rules), 3)
+
+    def test_primary_ip_namespace_without_address_value_is_dropped(self) -> None:
+        rules = [
+            MappingRule("name", "name"),
+            MappingRule("ip", "primary_ip4.address"),
+            MappingRule("ns", "primary_ip4.parent.namespace.name"),
+        ]
+        mapped = apply_device_mapping(
+            {"name": "d1", "ip": "", "namespace": "x", "ns": "black"}, rules
+        )
+        self.assertEqual(mapped, {"name": "d1"})
+
+    def test_interface_ip_carries_namespace(self) -> None:
+        rules = [
+            MappingRule("interface", "interfaces.name"),
+            MappingRule("primary_ip4", "interfaces.ip_addresses.address"),
+            MappingRule("namespace", "interfaces.ip_addresses.parent.namespace.name"),
+        ]
+        iface = apply_interface_mapping(
+            {"interface": "eth0", "primary_ip4": "10.0.0.1/24", "namespace": "black"}, rules
+        )
+        self.assertEqual(
+            iface,
+            {
+                "name": "eth0",
+                "ip_addresses": [
+                    {
+                        "address": "10.0.0.1/24",
+                        "parent": {"namespace": {"name": "black"}},
+                    }
+                ],
+            },
+        )
+
+    def test_interface_namespace_without_address_value_is_dropped(self) -> None:
+        rules = [
+            MappingRule("interface", "interfaces.name"),
+            MappingRule("primary_ip4", "interfaces.ip_addresses.address"),
+            MappingRule("namespace", "interfaces.ip_addresses.parent.namespace.name"),
+        ]
+        iface = apply_interface_mapping(
+            {"interface": "eth0", "primary_ip4": "", "namespace": "black"}, rules
+        )
+        self.assertEqual(iface, {"name": "eth0"})
+
+
 class CatalogTests(unittest.TestCase):
     def test_core_targets_subset_of_catalog(self) -> None:
         self.assertLessEqual(set(CORE_TARGETS), set(NAUTOBOT_TARGETS))
