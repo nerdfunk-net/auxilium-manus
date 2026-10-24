@@ -1,2 +1,3 @@
-# Place custom CA certificates here (*.crt) for git/HTTPS access during builds.
-# Used by Dockerfile.basic when building with private certificate authorities.
+# Place company root CA certificates here (PEM text, *.crt or *.pem) when a TLS-inspecting proxy or
+# private PKI breaks HTTPS during the image build. Used by Dockerfile.all-in-one and Dockerfile.basic.
+# Works together with, or without, the HTTP_PROXY/HTTPS_PROXY build args.

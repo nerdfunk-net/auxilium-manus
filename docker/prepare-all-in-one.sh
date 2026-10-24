@@ -42,6 +42,16 @@ if [ -n "${PROXY_ARGS}" ]; then
 else
     echo "   🌍 No proxy configuration detected - building with direct internet access"
 fi
+
+# Company root CAs (TLS-inspecting proxy / private PKI). Independent of the proxy settings above:
+# either, both or neither may be used. Dockerfile.all-in-one copies docker/certs/ itself, so this
+# is only a report of what the build will pick up.
+CERT_COUNT=$(find docker/certs -maxdepth 1 -type f \( -name '*.crt' -o -name '*.pem' \) 2>/dev/null | wc -l | tr -d ' ')
+if [ "${CERT_COUNT}" -gt 0 ]; then
+    echo "   🔐 ${CERT_COUNT} company CA certificate(s) found in docker/certs - they will be trusted during the build"
+else
+    echo "   🔓 No certificates in docker/certs - using the default CA bundle"
+fi
 echo ""
 
 # Build the all-in-one image with conditional proxy arguments

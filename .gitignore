@@ -262,3 +262,6 @@ frontend/node_modules
 docker/redis/agents.acl
 # editor backup of an agent's real env file (.env itself is ignored above)
 agent/.env~
+
+# ignore certs in the docker directory
+docker/certs/

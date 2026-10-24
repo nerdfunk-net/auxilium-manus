@@ -24,9 +24,24 @@ Or use the helper:
 For the `docker compose` / all-in-one stack, drop `.crt` files in repo-root
 `config/certs/` and set `INSTALL_CERTIFICATE_FILES=true` in `docker/.env` — that
 directory is bind-mounted into every service (`../config:/app/config`) and
-installed at container startup, no rebuild needed. `docker/certs/` is only for
-a build-time `Dockerfile.basic` image (baked into the image at `docker build`
-time, not bind-mounted); it does nothing for `Dockerfile.all-in-one`.
+installed at container startup, no rebuild needed.
+
+If the **build** fails (pip, npm, git behind a TLS-inspecting proxy), put the company root
+certificates in `docker/certs/` (PEM text, `*.crt` or `*.pem`, any number) and rebuild. They are
+used at `docker build` time by `Dockerfile.all-in-one` and `Dockerfile.basic`: trusted for `apt`,
+`pip` and the frontend build (`NODE_EXTRA_CA_CERTS`, added to Node's built-in roots). With no
+certificates nothing changes.
+This combines freely with `HTTP_PROXY` / `HTTPS_PROXY` / `NO_PROXY` (`prepare-all-in-one.sh`
+and `build-with-proxy.sh` forward them as build args), e.g.:
+
+```bash
+HTTPS_PROXY=http://proxy.corp:3128 ./docker/prepare-all-in-one.sh   # certs in docker/certs are used too
+```
+
+`Dockerfile.all-in-one` leaves no company certificate in the final image (the certs are mounted, not
+copied, and the build stages that trust them are discarded), so it contains no trace of them and still
+trusts only the default CAs at runtime. `Dockerfile.basic` still bakes them into the image. The
+all-in-one build needs BuildKit (the default in current Docker).
 
 `docker/start.sh` installs the certs as root before dropping to the
 unprivileged `manus` user; the app then logs "N certificate(s) already

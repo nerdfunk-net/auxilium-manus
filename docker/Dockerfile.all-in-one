@@ -11,11 +11,24 @@ ARG HTTP_PROXY
 ARG HTTPS_PROXY
 ARG NO_PROXY
 
-RUN if [ -n "$HTTP_PROXY" ] || [ -n "$HTTPS_PROXY" ]; then \
+# Optional company root CAs (TLS-inspecting proxy / private PKI): PEM files named *.crt or *.pem in
+# docker/certs/, independent of the proxy build args above. This stage becomes the runtime image, so
+# the certificates are only *mounted* (never COPYed into a layer), trusted for the apt step and removed
+# again in the same RUN. The final image therefore contains no company certificates.
+RUN --mount=type=bind,source=docker/certs,target=/tmp/certs \
+    set -e; \
+    added=""; \
+    for f in /tmp/certs/*.crt /tmp/certs/*.pem; do \
+      [ -f "$f" ] || continue; \
+      dest="/usr/local/share/ca-certificates/$(basename "${f%.*}").crt"; \
+      cp "$f" "$dest"; added="$added $dest"; \
+    done; \
+    if [ -n "$added" ]; then update-ca-certificates; fi; \
+    if [ -n "$HTTP_PROXY" ] || [ -n "$HTTPS_PROXY" ]; then \
       echo "Acquire::http::Proxy \"${HTTP_PROXY}\";" > /etc/apt/apt.conf.d/01proxy || true; \
       echo "Acquire::https::Proxy \"${HTTPS_PROXY}\";" >> /etc/apt/apt.conf.d/01proxy || true; \
-    fi \
-    && apt-get update && apt-get install -y \
+    fi; \
+    apt-get update && apt-get install -y \
        git \
        curl \
        wget \
@@ -24,10 +37,11 @@ RUN if [ -n "$HTTP_PROXY" ] || [ -n "$HTTPS_PROXY" ]; then \
        python3-dev \
        libffi-dev \
        libssl-dev \
-       ca-certificates \
-    && rm -rf /var/lib/apt/lists/* \
-    && apt-get clean \
-    && rm -f /etc/apt/apt.conf.d/01proxy || true
+       ca-certificates; \
+    rm -rf /var/lib/apt/lists/*; \
+    apt-get clean; \
+    rm -f /etc/apt/apt.conf.d/01proxy || true; \
+    if [ -n "$added" ]; then rm -f $added && update-ca-certificates --fresh; fi
 
 FROM node:26-slim AS frontend-builder
 
@@ -37,10 +51,22 @@ ARG NO_PROXY
 
 WORKDIR /app/frontend
 
+# Optional company root CAs (see the base stage; this stage is discarded, only build output is copied out). node:slim has no ca-certificates package, so the
+# certificates are concatenated into one bundle and handed to Node via NODE_EXTRA_CA_CERTS, which
+# *adds* to Node's built-in roots. It is exported inside each RUN, only when the bundle is not empty.
+COPY docker/certs/ /tmp/certs/
+RUN mkdir -p /opt/custom-ca && : > /opt/custom-ca/bundle.crt \
+ && for f in /tmp/certs/*.crt /tmp/certs/*.pem; do \
+      [ -f "$f" ] || continue; \
+      cat "$f" >> /opt/custom-ca/bundle.crt; echo >> /opt/custom-ca/bundle.crt; \
+    done; \
+    rm -rf /tmp/certs
+
 RUN if [ -n "${HTTP_PROXY}" ]; then npm config set proxy "${HTTP_PROXY}" && npm config set https-proxy "${HTTPS_PROXY}" || true; fi
 
 COPY frontend/package*.json ./
-RUN npm ci --ignore-scripts
+RUN if [ -s /opt/custom-ca/bundle.crt ]; then export NODE_EXTRA_CA_CERTS=/opt/custom-ca/bundle.crt; fi; \
+    npm ci --ignore-scripts
 
 COPY frontend/ ./
 
@@ -53,9 +79,11 @@ ENV DOCKER_BUILD=true
 # template editor never needs to reach the jsdelivr CDN at runtime — required
 # for air-gapped deployments. Must run after `COPY frontend/ ./` since the
 # script itself only exists once the full source is present.
-RUN node scripts/copy-monaco-editor.mjs
+RUN if [ -s /opt/custom-ca/bundle.crt ]; then export NODE_EXTRA_CA_CERTS=/opt/custom-ca/bundle.crt; fi; \
+    node scripts/copy-monaco-editor.mjs
 
-RUN npm run build
+RUN if [ -s /opt/custom-ca/bundle.crt ]; then export NODE_EXTRA_CA_CERTS=/opt/custom-ca/bundle.crt; fi; \
+    npm run build
 
 FROM base AS python-builder
 
@@ -64,7 +92,17 @@ ARG HTTPS_PROXY
 ARG NO_PROXY
 
 COPY backend/requirements.txt /tmp/
-RUN pip install --upgrade pip wheel \
+# Throwaway stage (only /tmp/wheelhouse is copied out): company CAs, if any, are trusted for pip here.
+RUN --mount=type=bind,source=docker/certs,target=/tmp/certs \
+    set -e; \
+    found=0; \
+    for f in /tmp/certs/*.crt /tmp/certs/*.pem; do \
+      [ -f "$f" ] || continue; \
+      cp "$f" "/usr/local/share/ca-certificates/$(basename "${f%.*}").crt"; \
+      found=1; \
+    done; \
+    if [ "$found" = 1 ]; then update-ca-certificates; export PIP_CERT=/etc/ssl/certs/ca-certificates.crt; fi; \
+    pip install --upgrade pip wheel \
  && pip wheel -r /tmp/requirements.txt -w /tmp/wheelhouse \
  && pip wheel supervisor -w /tmp/wheelhouse
 
