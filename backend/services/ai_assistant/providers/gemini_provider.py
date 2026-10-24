@@ -32,6 +32,7 @@ from services.ai_assistant.providers.http_common import (
     sse_data,
     unavailable,
 )
+from services.ai_assistant.providers.proxy import ProxyConfig
 
 logger = logging.getLogger(__name__)
 
@@ -110,10 +111,16 @@ def _to_tools(tools: Sequence[ToolSpec]) -> list[dict[str, Any]]:
 
 
 class GeminiProvider:
-    def __init__(self, api_key: str, *, http_client: httpx.AsyncClient | None = None) -> None:
+    def __init__(
+        self,
+        api_key: str,
+        *,
+        http_client: httpx.AsyncClient | None = None,
+        proxy: ProxyConfig | None = None,
+    ) -> None:
         self._api_key = api_key
         self._owns_client = http_client is None
-        self._client = http_client or new_client()
+        self._client = http_client or new_client(proxy, API_BASE)
 
     async def aclose(self) -> None:
         # An injected client belongs to the caller.

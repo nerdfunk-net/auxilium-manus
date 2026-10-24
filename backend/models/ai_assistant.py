@@ -185,3 +185,47 @@ class ChatRequest(BaseModel):
 
     messages: list[ChatMessageIn] = Field(min_length=1, max_length=50)
     context: AssistantContext | None = None
+
+
+class AiProxySettingsUpdate(BaseModel):
+    """Full replacement of the global AI proxy settings (admin only)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool
+    url: str = Field(default="", max_length=512)
+    # A global "Basic Auth" (generic) credential; omitted for a proxy without authentication.
+    credential_id: int | None = Field(default=None, ge=1)
+    # Hosts that skip the proxy: a name, a domain suffix (corp.example) or a CIDR (10.0.0.0/8).
+    bypass_hosts: list[Annotated[str, Field(min_length=1, max_length=255)]] = Field(
+        default_factory=list, max_length=50
+    )
+
+    @field_validator("url")
+    @classmethod
+    def _strip_url(cls, value: str) -> str:
+        return value.strip()
+
+    @field_validator("bypass_hosts")
+    @classmethod
+    def _clean_hosts(cls, values: list[str]) -> list[str]:
+        cleaned: list[str] = []
+        for raw in values:
+            entry = raw.strip().lower()
+            if not entry or not all(ch.isalnum() or ch in "-._*:/" for ch in entry):
+                raise ValueError("bypass_hosts entries may contain only letters, digits and -._*:/")
+            if entry not in cleaned:
+                cleaned.append(entry)
+        return cleaned
+
+
+class AiProxySettingsResponse(BaseModel):
+    """The proxy password never leaves the credential store; only the credential reference does."""
+
+    enabled: bool
+    url: str
+    credential_id: int | None
+    credential_name: str | None
+    bypass_hosts: list[str]
+    # Ready to use: enabled with a URL.
+    configured: bool

@@ -17,6 +17,7 @@ from typing import Any, Protocol
 
 from core.models.credentials import Credential
 from core.source_keys import parse_source_key
+from services.ai_assistant.proxy_key import AI_PROXY_SETTINGS_KEY
 from services.mail.mail_settings_service import SETTINGS_KEY as MAIL_SETTINGS_KEY
 
 
@@ -70,6 +71,14 @@ def _settings_dependants(
             and source_id == credential.id
         ):
             found.append(CredentialDependant("source", row_id, key))
+        elif (
+            key == AI_PROXY_SETTINGS_KEY
+            and not is_private
+            and isinstance(source_id, int)
+            and not isinstance(source_id, bool)
+            and source_id == credential.id
+        ):
+            found.append(CredentialDependant("ai_proxy", row_id, key))
         elif (
             key == MAIL_SETTINGS_KEY
             and not is_private

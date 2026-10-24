@@ -122,7 +122,7 @@ A template edit changes what other users' workflows deploy; `credentials:write` 
 a global credential's secret or make it private, which breaks every workflow, source and repository
 that uses it. **Deleting a credential that something still uses is refused** with `409` and
 `{code: "credential_in_use", dependants: [{kind, id, name}]}` (git repositories, secret-manager
-connections, templates, sources, the mail settings, workflow canvases; finder in
+connections, templates, sources, the mail settings, the AI assistant proxy, workflow canvases; finder in
 `services/credentials/usage.py`). `DELETE /credentials/{id}?force=true` deletes anyway; the delete
 dialog offers that after showing the list. **Refresh tokens are not single-use** (a deliberate trade-off): a stolen token can be
 refreshed in parallel with its owner until logout or the session cap; refresh is rate limited.

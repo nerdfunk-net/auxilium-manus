@@ -18,12 +18,14 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
-from core.auth import get_current_user, require_permission
+from core.auth import get_current_user, require_permission, require_role
 from core.config import settings
 from core.database import get_db
 from core.models.users import User
 from core.rate_limit import rate_limited
 from models.ai_assistant import (
+    AiProxySettingsResponse,
+    AiProxySettingsUpdate,
     AiStatusResponse,
     ChatRequest,
     InventoryContext,
@@ -46,6 +48,7 @@ from services.ai_assistant.inventory_reader import DbInventoryReader
 from services.ai_assistant.known_secrets import load_visible_secret_values
 from services.ai_assistant.prompts import BASE_SYSTEM_PROMPT
 from services.ai_assistant.providers.base import ChatMessage
+from services.ai_assistant.proxy_settings_service import AiProxySettingsService
 from services.ai_assistant.redaction import RedactionBudgetExceeded
 from services.ai_assistant.report_reader import DbReportReader
 from services.ai_assistant.run_reader import DbRunReader
@@ -209,6 +212,32 @@ def update_settings(
         )
     try:
         return service.update(current_user.id, body)
+    except AiAssistantError as exc:
+        _raise_http(exc)
+
+
+# The proxy decides where every user's prompts and API keys travel, so it is admin-only (auth.md P3)
+# and global. It is exercised by ``POST /ai/settings/test``, which now goes through it.
+_ADMIN = Depends(require_role("admin"))
+
+
+@router.get("/proxy", response_model=AiProxySettingsResponse, dependencies=[_OPERATOR, _ADMIN])
+def get_proxy_settings(db: Session = Depends(get_db)) -> AiProxySettingsResponse:
+    return AiProxySettingsService(db).get()
+
+
+@router.put(
+    "/proxy",
+    response_model=AiProxySettingsResponse,
+    dependencies=[_OPERATOR, _ADMIN, Depends(_SETTINGS_BUDGET)],
+)
+def update_proxy_settings(
+    body: AiProxySettingsUpdate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> AiProxySettingsResponse:
+    try:
+        return AiProxySettingsService(db).update(body, actor_user_id=current_user.id)
     except AiAssistantError as exc:
         _raise_http(exc)
 

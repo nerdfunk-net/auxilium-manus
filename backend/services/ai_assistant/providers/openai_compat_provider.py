@@ -33,6 +33,7 @@ from services.ai_assistant.providers.http_common import (
     sse_data,
     unavailable,
 )
+from services.ai_assistant.providers.proxy import ProxyConfig
 
 logger = logging.getLogger(__name__)
 
@@ -90,12 +91,17 @@ def _parse_arguments(raw: str) -> dict[str, Any]:
 
 class OpenAiCompatProvider:
     def __init__(
-        self, base_url: str, api_key: str = "", *, http_client: httpx.AsyncClient | None = None
+        self,
+        base_url: str,
+        api_key: str = "",
+        *,
+        http_client: httpx.AsyncClient | None = None,
+        proxy: ProxyConfig | None = None,
     ) -> None:
         self._base_url = base_url.rstrip("/")
         self._api_key = api_key
         self._owns_client = http_client is None
-        self._client = http_client or new_client()
+        self._client = http_client or new_client(proxy, self._base_url)
 
     async def aclose(self) -> None:
         # An injected client belongs to the caller.

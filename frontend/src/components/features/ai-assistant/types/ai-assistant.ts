@@ -315,3 +315,20 @@ export interface SavedConversationSummary {
 export interface SavedConversation extends SavedConversationSummary {
   messages: SavedMessage[];
 }
+
+/** Global proxy for all AI provider traffic (administrator only). No password ever appears here. */
+export interface AiProxySettings {
+  enabled: boolean;
+  url: string;
+  credential_id: number | null;
+  credential_name: string | null;
+  bypass_hosts: string[];
+  configured: boolean;
+}
+
+export interface AiProxySettingsUpdate {
+  enabled: boolean;
+  url: string;
+  credential_id: number | null;
+  bypass_hosts: string[];
+}

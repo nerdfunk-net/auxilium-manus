@@ -19,6 +19,7 @@ from services.ai_assistant.providers.base import (
     ProviderRequestError,
     ProviderUnavailableError,
 )
+from services.ai_assistant.providers.proxy import ProxyConfig, httpx_client_options
 
 logger = logging.getLogger(__name__)
 
@@ -32,10 +33,14 @@ RETRYABLE_STATUSES = frozenset({500, 502, 503, 504})
 RETRY_DELAYS_SECONDS: tuple[float, ...] = (1.0, 2.0)
 
 
-def new_client() -> httpx.AsyncClient:
+def new_client(proxy: ProxyConfig | None = None, target_url: str = "") -> httpx.AsyncClient:
     # Redirects are never followed: a user-configured endpoint must not be able to bounce the
     # request (and its API key) to an address the URL policy never checked.
-    return httpx.AsyncClient(timeout=DEFAULT_TIMEOUT, follow_redirects=False)
+    return httpx.AsyncClient(
+        timeout=DEFAULT_TIMEOUT,
+        follow_redirects=False,
+        **httpx_client_options(proxy, target_url),
+    )
 
 
 # A machine-readable error category such as RESOURCE_EXHAUSTED or invalid_request_error: short,
@@ -67,6 +72,10 @@ def error_for_status(status: int, body: str = "") -> ProviderError:
     """
     category = _error_category(body)
     detail = f" (HTTP {status}{f' {category}' if category else ''})"
+    if status == 407:
+        return ProviderUnavailableError(
+            f"The proxy rejected its credentials; check the AI proxy settings{detail}"
+        )
     if status in (401, 403):
         return ProviderAuthError(f"The provider rejected the API key or its permissions{detail}")
     if status == 400 and ("API_KEY_INVALID" in body or "API key not valid" in body):

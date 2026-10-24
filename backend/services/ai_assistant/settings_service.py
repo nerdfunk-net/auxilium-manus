@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
@@ -31,6 +32,8 @@ from services.ai_assistant.exceptions import (
     AiSettingsValidationError,
 )
 from services.ai_assistant.policy import DATA_TOKEN_FOR_FLAG, effective_share, provider_allowed
+from services.ai_assistant.providers.proxy import ProxyConfig
+from services.ai_assistant.proxy_settings_service import AiProxySettingsService
 
 # Providers with a working adapter.
 ENABLED_PROVIDERS: tuple[AiProvider, ...] = ("anthropic", "gemini", "openai_compat")
@@ -174,6 +177,8 @@ class AiRuntimeConfig:
     share_custom_fields: bool = False
     share_config_context: bool = False
     share_report_data: bool = False
+    # The administrator's global proxy, already resolved (password included); ``None`` = direct.
+    proxy: ProxyConfig | None = field(default=None, repr=False)
 
     @property
     def sharing(self) -> SharingPolicy:
@@ -189,15 +194,19 @@ class AiRuntimeConfig:
 
 class AiSettingsService:
     def __init__(
-        self, repo: _SettingsRepository, encryption: EncryptionService | None = None
+        self,
+        repo: _SettingsRepository,
+        encryption: EncryptionService | None = None,
+        proxy_resolver: Callable[[], ProxyConfig | None] | None = None,
     ) -> None:
         self._repo = repo
         self._encryption = encryption
+        self._proxy_resolver = proxy_resolver
 
     @classmethod
     def from_session(cls, db: Session) -> AiSettingsService:
         """Production constructor: routers hold a session, never a repository."""
-        return cls(UserAiSettingsRepository(db))
+        return cls(UserAiSettingsRepository(db), proxy_resolver=AiProxySettingsService(db).resolve)
 
     # -- reads ---------------------------------------------------------------
 
@@ -305,6 +314,7 @@ class AiSettingsService:
             share_config_context=shares["share_config_context"],
             share_content_data=shares["share_content_data"],
             share_report_data=shares["share_report_data"],
+            proxy=self._proxy_resolver() if self._proxy_resolver is not None else None,
         )
 
     # -- writes --------------------------------------------------------------

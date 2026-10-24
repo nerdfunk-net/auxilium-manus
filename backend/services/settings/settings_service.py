@@ -23,11 +23,21 @@ from models.settings import (
 )
 from models.sources_nautobot import NautobotConfiguredSource, NautobotConfiguredSourcesResponse
 from repositories.settings_repository import SettingsRepository
+from services.ai_assistant.proxy_key import AI_PROXY_SETTINGS_KEY
 from services.credentials.credentials_service import CredentialsService
 from services.credentials.source_credentials import SourceCredentialError, assert_global_credential
 from services.settings.exceptions import SourceConfigError
 
 logger = logging.getLogger(__name__)
+
+
+# Rows with a dedicated, stricter API: the generic settings endpoints must not touch them.
+_DEDICATED_KEYS = frozenset({AI_PROXY_SETTINGS_KEY})
+
+
+def _reject_dedicated_key(key: str) -> None:
+    if key in _DEDICATED_KEYS:
+        raise ValidationFailedError(f"Setting '{key}' is managed through its own endpoint")
 
 
 # Source types whose ``settings`` value carries a ``credential_id`` reference to
@@ -82,11 +92,12 @@ class SettingsService:
 
     def list_settings(self, *, key_prefix: str | None = None) -> SettingListResponse:
         rows = self.repo.list_all(key_prefix=key_prefix)
-        settings = [self._to_response(row) for row in rows]
+        # The dedicated rows (proxy URL, bypass list) have an admin-only endpoint of their own.
+        settings = [self._to_response(row) for row in rows if row.key not in _DEDICATED_KEYS]
         return SettingListResponse(settings=settings, total=len(settings))
 
     def get_setting(self, key: str) -> SettingResponse:
-        setting = self.repo.get_by_key(key)
+        setting = self.repo.get_by_key(key) if key not in _DEDICATED_KEYS else None
         if setting is None:
             raise NotFoundError(f"Setting '{key}' not found")
         return self._to_response(setting)
@@ -164,6 +175,7 @@ class SettingsService:
             raise ValidationFailedError(str(exc)) from exc
 
     def create_setting(self, data: SettingCreate) -> SettingResponse:
+        _reject_dedicated_key(data.key)
         if self.repo.get_by_key(data.key) is not None:
             raise ConflictError(f"Setting '{data.key}' already exists")
 
@@ -184,6 +196,7 @@ class SettingsService:
         return self._to_response(setting)
 
     def update_setting(self, key: str, data: SettingUpdate) -> SettingResponse:
+        _reject_dedicated_key(key)
         setting = self.repo.get_by_key(key)
         if setting is None:
             raise NotFoundError(f"Setting '{key}' not found")
@@ -213,6 +226,7 @@ class SettingsService:
         return self._to_response(updated)
 
     def delete_setting(self, key: str) -> None:
+        _reject_dedicated_key(key)
         setting = self.repo.get_by_key(key)
         if setting is None:
             raise NotFoundError(f"Setting '{key}' not found")

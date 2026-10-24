@@ -1123,3 +1123,46 @@ only unless both the inventory and the content switch are on. A workflow proposa
 run input with its old and new definition (a secret-named default shows only a length). The workflow
 surface requires `workflows:read`; `propose_workflow` is offered only with `workflows:write`. The seeded
 `ai-assistant` account's role grants are inert on the script path.
+
+## 22. Proxy
+
+Companies that control outbound traffic with an HTTP/HTTPS proxy can route every provider call
+(Anthropic, Gemini, OpenAI-compatible) through one.
+
+- **Global and admin-only.** One `settings` row `ai_assistant.proxy` (`{enabled, url, credential_id,
+  bypass_hosts}`), edited on the AI assistant settings page ("Proxy" card, administrators only) through
+  `GET/PUT /ai/proxy` (`require_role("admin")`, rate limited, unknown fields rejected). It decides where every
+  user's prompts and API keys travel, so it follows auth.md P3. The generic `/settings` endpoints refuse
+  this key (`SettingsService._DEDICATED_KEYS`): create, update and delete are rejected, and list/get hide it, since the
+  URL and bypass list describe internal topology and `settings:read` is not admin-only.
+- **Login.** `credential_id` points at a **global Basic Auth (`generic`) credential**
+  (`CredentialManager.source_credential` / `source_secret`). No password is stored in the row or returned by any
+  endpoint; it is decrypted per call in `AiProxySettingsService.resolve` and passed to httpx as
+  `httpx.Proxy(url, auth=...)`, never inside the URL, so it cannot reach a log or an exception text. A deleted,
+  private or wrong-type credential makes the assistant answer `ai_assistant_not_configured`; it never falls back
+  to a direct connection. Deleting the credential is refused (`credential_in_use`, kind `ai_proxy`).
+- **URL policy.** `base_url_policy.validate_proxy_url`: same rules as the server URL (http/https, no embedded
+  credentials, no link-local/metadata target, no query), checked on save and again before every call
+  (`chat_service._check_proxy_url`). Plain `http://` is allowed because corporate proxies usually listen on http
+  and tunnel TLS with CONNECT; the UI warns that the proxy login then travels unencrypted to the proxy.
+- **Application.** `providers/proxy.py::httpx_client_options` builds the client options for all three adapters
+  (Anthropic gets a `DefaultAsyncHttpxClient` carrying the proxy). A configured proxy ignores
+  `HTTPS_PROXY`/`NO_PROXY` (`trust_env=False`); with none configured nothing changes, so the environment
+  variables keep working as before. `bypass_hosts` connect directly, for example an internal Ollama. Entries are classified and
+  validated on save (`providers/proxy.py::parse_bypass_entry`): an IP network with a prefix length above 0 (matches
+  only its own family), a single IP, a domain of at least two labels (`corp.example`, `*.corp.example`: the domain and
+  its subdomains, never an IP literal) or one exact single-label name. `com`-style suffixes, `0.0.0.0/0` and numeric
+  fragments (`1`, `2.3`) are refused, so no entry can take a public provider off the proxy by accident. Host names
+  are compared case-insensitively without a trailing dot; an unparsable stored entry never matches. Redirects stay off.
+- **Errors.** A proxy that answers 407 maps to "The proxy rejected its credentials" (`provider_unavailable`);
+  other proxy failures are "Could not reach the provider". Neither the URL nor the response body is echoed.
+- **Test.** `POST /ai/settings/test` ("Test connection") goes through the saved proxy.
+- **Private CA.** All three adapters verify TLS against `core.ssl_config.create_verified_ssl_context()` (the OS
+  trust store plus certifi), the same context the Nautobot, Mattermost, ISE and Catalyst Center clients use. A company
+  CA installed with `INSTALL_CERTIFICATE_FILES` (`config/certs/*.crt`, `update-ca-certificates` at container start) is
+  therefore trusted by an https OpenAI-compatible server, by an https proxy (`httpx.Proxy(ssl_context=...)`) and by a
+  TLS-inspecting proxy that re-signs the provider's certificate. Before this the adapters used httpx's and the SDK's
+  default, which is certifi only, so a private CA was rejected. There is deliberately no `verify_ssl=false` option for
+  the assistant: it carries prompts and API keys, so the answer to a certificate error is installing the CA.
+- **Not supported.** SOCKS, NTLM/Kerberos proxy auth, PAC files, per-user proxies, a CA bundle per provider.
+- **Audit.** `ai_proxy_changed actor_user_id=… enabled=… credential_set=… bypass_count=…`; the URL is not logged.

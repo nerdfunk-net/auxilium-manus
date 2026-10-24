@@ -10,6 +10,7 @@ const KIND_LABELS: Record<string, string> = {
   template: "Template",
   source: "Source",
   mail_settings: "Mail settings",
+  ai_proxy: "AI assistant proxy",
   workflow: "Workflow",
 };
 

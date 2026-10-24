@@ -64,3 +64,27 @@ async def validate_llm_base_url_async(url: str, *, has_api_key: bool) -> str:
         raise BaseUrlPolicyError(str(exc)) from exc
     _check_transport(safe, has_api_key=has_api_key)
     return safe
+
+
+def validate_proxy_url(url: str) -> str:
+    """Normalised proxy URL or ``BaseUrlPolicyError``. Resolves DNS (blocking).
+
+    Same rules as the server URL (http/https, no embedded credentials, no link-local targets).
+    Plain http is allowed: corporate proxies usually listen on http and tunnel TLS with CONNECT.
+    """
+    if len(url) > MAX_BASE_URL_CHARS:
+        raise BaseUrlPolicyError("The proxy URL is too long")
+    _check_shape(url)
+    try:
+        return validate_outbound_http_url(url)
+    except UnsafeURLError as exc:
+        raise BaseUrlPolicyError(str(exc)) from exc
+
+
+async def validate_proxy_url_async(url: str) -> str:
+    """Same check off the event loop; used right before each provider call."""
+    _check_shape(url)
+    try:
+        return await validate_outbound_http_url_async(url)
+    except UnsafeURLError as exc:
+        raise BaseUrlPolicyError(str(exc)) from exc

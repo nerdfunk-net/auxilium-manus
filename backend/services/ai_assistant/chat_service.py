@@ -14,10 +14,16 @@ from typing import Any
 
 from services.ai_assistant.agent_loop import run_agent
 from services.ai_assistant.audit import AuditContext, TurnAudit
+from services.ai_assistant.base_url_policy import BaseUrlPolicyError, validate_proxy_url_async
 from services.ai_assistant.events import ChatEvent
 from services.ai_assistant.exceptions import AiAssistantError
 from services.ai_assistant.prompts import BASE_SYSTEM_PROMPT, CONNECTION_TEST_PROMPT
-from services.ai_assistant.providers.base import ChatMessage, LlmProvider, ProviderError
+from services.ai_assistant.providers.base import (
+    ChatMessage,
+    LlmProvider,
+    ProviderError,
+    ProviderRequestError,
+)
 from services.ai_assistant.providers.registry import build_provider
 from services.ai_assistant.settings_service import AiRuntimeConfig
 from services.ai_assistant.tools.base import Toolbox
@@ -69,9 +75,8 @@ async def _stream(
 ) -> AsyncIterator[ChatEvent]:
     provider: LlmProvider | None = None
     try:
-        provider = provider_factory(
-            config.provider, api_key=config.api_key, base_url=config.base_url
-        )
+        await _check_proxy_url(config)
+        provider = provider_factory(**_provider_kwargs(config))
         async for event in run_agent(
             provider=provider,
             model=config.model,
@@ -96,6 +101,28 @@ async def _stream(
     yield ChatEvent("done", {})
 
 
+def _provider_kwargs(config: AiRuntimeConfig) -> dict[str, Any]:
+    kwargs: dict[str, Any] = {
+        "provider": config.provider,
+        "api_key": config.api_key,
+        "base_url": config.base_url,
+    }
+    # Only passed when set, so a custom provider factory without a ``proxy`` parameter still works.
+    if config.proxy is not None:
+        kwargs["proxy"] = config.proxy
+    return kwargs
+
+
+async def _check_proxy_url(config: AiRuntimeConfig) -> None:
+    """The saved proxy URL is re-checked before every call, like the server URL."""
+    if config.proxy is None:
+        return
+    try:
+        await validate_proxy_url_async(config.proxy.url)
+    except BaseUrlPolicyError as exc:
+        raise ProviderRequestError("The configured proxy URL is not allowed") from exc
+
+
 async def _close(provider: LlmProvider | None) -> None:
     """Release the provider's connection pool; a failure here must not mask the turn's outcome."""
     close = getattr(provider, "aclose", None)
@@ -113,9 +140,8 @@ async def check_connection(
     """Cheap request proving the key + model work. Returns ``{ok, code?, message?}``."""
     provider: LlmProvider | None = None
     try:
-        provider = provider_factory(
-            config.provider, api_key=config.api_key, base_url=config.base_url
-        )
+        await _check_proxy_url(config)
+        provider = provider_factory(**_provider_kwargs(config))
         async for _ in provider.stream(
             model=config.model,
             system=BASE_SYSTEM_PROMPT,

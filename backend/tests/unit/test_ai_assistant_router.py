@@ -530,3 +530,59 @@ def test_ai_surface_is_404_when_disabled(
     status_response = client.get("/api/ai/status")
     assert status_response.status_code == 200
     assert status_response.json()["reason"] == "operator_disabled"
+
+
+class _FakeProxyService:
+    saved: dict[str, object] | None = None
+
+    def __init__(self, _db: object) -> None:
+        pass
+
+    def get(self) -> object:
+        from models.ai_assistant import AiProxySettingsResponse
+
+        return AiProxySettingsResponse(
+            enabled=True,
+            url="http://10.1.1.1:3128",
+            credential_id=3,
+            credential_name="corp-proxy",
+            bypass_hosts=[],
+            configured=True,
+        )
+
+    def update(self, data: object, *, actor_user_id: int | None = None) -> object:
+        _FakeProxyService.saved = {**data.model_dump(), "actor": actor_user_id}  # type: ignore[attr-defined]
+        return self.get()
+
+
+def test_proxy_endpoints_require_admin(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(ai_router_module, "AiProxySettingsService", _FakeProxyService)
+    monkeypatch.setattr(RBACService, "has_role", lambda self, *_a, **_k: False)
+
+    assert client.get("/api/ai/proxy").status_code == 403
+    assert client.put("/api/ai/proxy", json={"enabled": False}).status_code == 403
+    assert _FakeProxyService.saved is None
+
+
+def test_proxy_admin_roundtrip_returns_no_secret(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(ai_router_module, "AiProxySettingsService", _FakeProxyService)
+    monkeypatch.setattr(RBACService, "has_role", lambda self, *_a, **_k: True)
+
+    saved = client.put(
+        "/api/ai/proxy",
+        json={"enabled": True, "url": "http://10.1.1.1:3128", "credential_id": 3},
+    )
+
+    assert saved.status_code == 200
+    assert _FakeProxyService.saved is not None and _FakeProxyService.saved["actor"] == 1
+    assert saved.json()["credential_name"] == "corp-proxy"
+    assert "password" not in saved.text
+    assert client.get("/api/ai/proxy").status_code == 200
+
+
+def test_proxy_rejects_unknown_fields(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(RBACService, "has_role", lambda self, *_a, **_k: True)
+    response = client.put("/api/ai/proxy", json={"enabled": True, "password": "x"})
+    assert response.status_code == 422

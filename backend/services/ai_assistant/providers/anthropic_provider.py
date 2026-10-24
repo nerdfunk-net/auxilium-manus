@@ -20,10 +20,12 @@ from services.ai_assistant.providers.base import (
     ToolCall,
     ToolSpec,
 )
+from services.ai_assistant.providers.proxy import ProxyConfig, httpx_client_options
 
 logger = logging.getLogger(__name__)
 
 REQUEST_TIMEOUT_SECONDS = 120.0
+API_URL = "https://api.anthropic.com"
 
 
 def map_anthropic_error(exc: Exception) -> ProviderError:
@@ -37,6 +39,10 @@ def map_anthropic_error(exc: Exception) -> ProviderError:
     if isinstance(exc, anthropic.APITimeoutError | anthropic.APIConnectionError):
         return ProviderUnavailableError("Could not reach the provider")
     if isinstance(exc, anthropic.APIStatusError):
+        if exc.status_code == 407:
+            return ProviderUnavailableError(
+                "The proxy rejected its credentials; check the AI proxy settings"
+            )
         if exc.status_code >= 500 or exc.status_code == 529:
             return ProviderUnavailableError("The provider is temporarily unavailable")
         return ProviderRequestError("The provider rejected the request")
@@ -72,9 +78,16 @@ def _to_api_tool(tool: ToolSpec) -> dict[str, Any]:
 
 
 class AnthropicProvider:
-    def __init__(self, api_key: str) -> None:
+    def __init__(self, api_key: str, *, proxy: ProxyConfig | None = None) -> None:
         # max_retries: the SDK retries 429/5xx with backoff; keep its default.
-        self._client = anthropic.AsyncAnthropic(api_key=api_key, timeout=REQUEST_TIMEOUT_SECONDS)
+        # The SDK's own client would trust certifi only; ours also trusts the OS store (company CA)
+        # and carries the proxy when one is configured. ``close()`` closes it too.
+        http_client = anthropic.DefaultAsyncHttpxClient(
+            timeout=REQUEST_TIMEOUT_SECONDS, **httpx_client_options(proxy, API_URL)
+        )
+        self._client = anthropic.AsyncAnthropic(
+            api_key=api_key, timeout=REQUEST_TIMEOUT_SECONDS, http_client=http_client
+        )
 
     async def aclose(self) -> None:
         await self._client.close()
