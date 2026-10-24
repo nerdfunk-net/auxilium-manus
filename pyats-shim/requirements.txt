@@ -3,6 +3,6 @@
 # parse against. Verify this range still resolves before bumping the major
 # (year) component -- CalVer means a new year can be a breaking jump.
 pyats[full]>=26.9,<27.0
-fastapi>=0.143.1,<1.0
+fastapi>=0.156.4,<1.0
 uvicorn[standard]>=0.54.0,<1.0
 pyyaml>=6.0,<7.0
