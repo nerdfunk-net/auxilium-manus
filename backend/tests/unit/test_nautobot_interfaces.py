@@ -58,6 +58,78 @@ class InferInterfaceTypeFromNameTests(unittest.TestCase):
 
 
 class InterfacesFromNautobotBagTests(unittest.TestCase):
+    def test_ip_namespace_from_parent_namespace_name(self) -> None:
+        interfaces = interfaces_from_nautobot_bag(
+            {
+                "interfaces": [
+                    {
+                        "name": "eth0",
+                        "ip_addresses": [
+                            {
+                                "address": "10.0.0.1/24",
+                                "parent": {"namespace": {"name": "black"}},
+                            }
+                        ],
+                    }
+                ]
+            },
+            default_prefix_length="/24",
+        )
+        self.assertEqual(interfaces[0]["ip_addresses"][0]["namespace"], "black")
+
+    def test_ip_namespace_object_on_the_ip_is_read(self) -> None:
+        interfaces = interfaces_from_nautobot_bag(
+            {
+                "interfaces": [
+                    {
+                        "name": "eth0",
+                        "ip_addresses": [
+                            {"address": "10.0.0.1/24", "namespace": {"name": "black"}}
+                        ],
+                    }
+                ]
+            },
+            default_prefix_length="/24",
+        )
+        self.assertEqual(interfaces[0]["ip_addresses"][0]["namespace"], "black")
+
+    def test_ip_namespace_plain_string_is_read(self) -> None:
+        interfaces = interfaces_from_nautobot_bag(
+            {
+                "interfaces": [
+                    {
+                        "name": "eth0",
+                        "ip_addresses": [{"address": "10.0.0.1/24", "namespace": "red"}],
+                    }
+                ]
+            },
+            default_prefix_length="/24",
+        )
+        self.assertEqual(interfaces[0]["ip_addresses"][0]["namespace"], "red")
+
+    def test_ip_namespace_defaults_to_global(self) -> None:
+        interfaces = interfaces_from_nautobot_bag(
+            {"interfaces": [{"name": "eth0", "ip_addresses": [{"address": "10.0.0.1/24"}]}]},
+            default_prefix_length="/24",
+        )
+        self.assertEqual(interfaces[0]["ip_addresses"][0]["namespace"], "Global")
+
+    def test_ip_namespace_blank_parent_falls_back_to_global(self) -> None:
+        interfaces = interfaces_from_nautobot_bag(
+            {
+                "interfaces": [
+                    {
+                        "name": "eth0",
+                        "ip_addresses": [
+                            {"address": "10.0.0.1/24", "parent": {"namespace": {"name": " "}}}
+                        ],
+                    }
+                ]
+            },
+            default_prefix_length="/24",
+        )
+        self.assertEqual(interfaces[0]["ip_addresses"][0]["namespace"], "Global")
+
     def test_enabled_true_passes_through(self) -> None:
         interfaces = interfaces_from_nautobot_bag(
             {"interfaces": [{"name": "Ethernet0/0", "enabled": True}]},

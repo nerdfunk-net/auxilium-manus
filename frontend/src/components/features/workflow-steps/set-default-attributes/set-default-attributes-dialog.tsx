@@ -249,6 +249,13 @@ function SetDefaultAttributesDialogForm({
             (see Help), but they still seed the bag for inspection and future use.
           </p>
 
+          <NautobotOptionalFieldRow
+            label="Type for interfaces without one"
+            placeholder="1000base-t"
+            spec={draft.interface_type}
+            onChange={(patch) => patchScalar("interface_type", patch)}
+          />
+
           {draft.interfaces.length === 0 ? (
             <p className="text-[11px] text-muted-foreground">No interfaces configured.</p>
           ) : (

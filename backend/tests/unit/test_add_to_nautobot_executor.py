@@ -622,6 +622,123 @@ class AddToNautobotExecutorTests(unittest.IsolatedAsyncioTestCase):
         failed = failure_outcome.context.devices["dev-1"]
         self.assertEqual(failed.errors[-1].code, "device_already_exists")
 
+    async def _failed_error_for_rest_400(self, body: dict):
+        """Run the step with a real client turning a Nautobot 400 ``body`` into the error."""
+        from services.nautobot.client import NautobotService
+        from services.nautobot.credentials import NautobotCredentials
+
+        response = MagicMock()
+        response.status_code = 400
+        response.json.return_value = body
+        response.text = "ignored"
+        client = MagicMock()
+        client.request = AsyncMock(return_value=response)
+        service = NautobotService()
+        service._client_verify = client
+        service._client_no_verify = client
+        credentials = NautobotCredentials(url="http://nautobot.test", token="tok", timeout=5.0)
+
+        async def create_device(_request: object) -> dict:
+            return await service.rest_request("dcim/devices/", credentials, method="POST", data={})
+
+        p1, p2, p3, p4, p5 = _patches(
+            setting=_setting(),
+            creation_service_instance=_creation_service(AsyncMock(side_effect=create_device)),
+        )
+        with (
+            p1,
+            p2,
+            p3,
+            p4,
+            p5,
+            patch(
+                "services.nautobot.client.validate_source_transport_async",
+                AsyncMock(return_value="http://nautobot.test"),
+            ),
+        ):
+            outcomes = await execute(
+                config=_BASE_CONFIG,
+                context=_context({"dev-1": _device("dev-1", name="device-1")}),
+                run=_run(),
+                artifact_service=MagicMock(),
+                node_id="node-1",
+                device_sessions=MagicMock(),
+            )
+        failed = next(o for o in outcomes if o.name == "failure").context.devices["dev-1"]
+        return failed.errors[-1]
+
+    async def test_duplicate_error_from_the_client_keeps_nautobots_reason(self) -> None:
+        """The client puts Nautobot's validation text in the message: it must reach the
+        device error and still select the stable ``device_already_exists`` code."""
+        reason = (
+            "A device named 'device-1' with no tenant already exists in this location: City A. "
+            "Device names must be unique when tenant is None."
+        )
+        error = await self._failed_error_for_rest_400({"__all__": [reason]})
+        self.assertEqual(error.code, "device_already_exists")
+        self.assertIn(reason, error.message)
+        self.assertIsNotNone(error.failure)
+        self.assertEqual(error.failure.kind, "already_exists")
+
+    async def test_global_name_uniqueness_error_is_a_duplicate_name(self) -> None:
+        error = await self._failed_error_for_rest_400(
+            {"name": ["device with this name already exists."]}
+        )
+        self.assertEqual(error.code, "device_already_exists")
+
+    async def test_duplicate_asset_tag_is_not_a_duplicate_name(self) -> None:
+        """Routing ``device_already_exists`` to an update looks the device up by name; an
+        asset-tag collision means no device with this name was involved."""
+        error = await self._failed_error_for_rest_400(
+            {"asset_tag": ["device with this asset tag already exists."]}
+        )
+        self.assertNotEqual(error.code, "device_already_exists")
+        self.assertIn("asset tag already exists", error.message)
+        self.assertIsNotNone(error.failure)
+        self.assertNotEqual(error.failure.kind, "already_exists")
+
+    async def test_duplicate_name_together_with_another_field_error_is_not_routed(self) -> None:
+        error = await self._failed_error_for_rest_400(
+            {
+                "name": ["device with this name already exists."],
+                "asset_tag": ["device with this asset tag already exists."],
+            }
+        )
+        self.assertNotEqual(error.code, "device_already_exists")
+
+    async def test_preflight_failure_reports_the_problems_and_changes_nothing(self) -> None:
+        create_device = AsyncMock(
+            return_value={
+                "success": False,
+                "dry_run": False,
+                "device_id": None,
+                "errors": ["Interface eth0: type is required", "Namespace 'black' not found"],
+                "warnings": [],
+            }
+        )
+        p1, p2, p3, p4, p5 = _patches(
+            setting=_setting(),
+            creation_service_instance=_creation_service(create_device),
+        )
+        with p1, p2, p3, p4, p5:
+            outcomes = await execute(
+                config=_BASE_CONFIG,
+                context=_context({"dev-1": _device("dev-1", name="LAB")}),
+                run=_run(),
+                artifact_service=MagicMock(),
+                node_id="node-1",
+                device_sessions=MagicMock(),
+            )
+
+        failed = next(o for o in outcomes if o.name == "failure").context.devices["dev-1"]
+        error = failed.errors[-1]
+        self.assertEqual(error.code, "preflight_failed")
+        self.assertIn("Interface eth0: type is required", error.message)
+        self.assertIn("Namespace 'black' not found", error.message)
+        self.assertEqual(failed.id, "dev-1")
+        self.assertEqual(failed.source, "list")
+        self.assertIs(failed.status, DeviceStatus.FAILED)
+
     async def test_refresh_attributes_merges_bag_and_keeps_upstream_interfaces(self) -> None:
         """Regression test: creating a device must not wipe out `interfaces` (or any
         other key) an upstream step like config-to-attributes already wrote into the

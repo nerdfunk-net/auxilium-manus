@@ -9,6 +9,7 @@ from services.nautobot.common.rest import rest_paginate, rest_query
 from services.nautobot.devices.interface_workflow.base import InterfaceOpsBase
 from services.nautobot.devices.interface_workflow.payload import (
     ip_map_key,
+    ip_namespace,
     normalize_interface_ip_list,
 )
 from services.nautobot.devices.interface_workflow.state import InterfaceUpdateState
@@ -119,7 +120,7 @@ class InterfaceIpOps(InterfaceOpsBase):
             logger.warning("  IP data missing 'address' field, skipping")
             return None
 
-        namespace = ip_data.get("namespace") or interface.get("namespace", "Global")
+        namespace = ip_namespace(interface, ip_data)
         status = interface.get("status", "active")
         ip_role = ip_data.get("ip_role")
 
@@ -130,13 +131,6 @@ class InterfaceIpOps(InterfaceOpsBase):
             status,
             ip_role,
         )
-
-        if not namespace:
-            warnings.append(
-                f"Interface {interface['name']}: namespace required for IP "
-                f"{ip_address}, skipping IP creation"
-            )
-            return None
 
         try:
             namespace_id = await self.common.resolve_namespace_id(namespace)

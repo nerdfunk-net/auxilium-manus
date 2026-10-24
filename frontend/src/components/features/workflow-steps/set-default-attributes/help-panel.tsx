@@ -124,6 +124,16 @@ export function SetDefaultAttributesHelpPanel() {
           <span className="font-medium text-foreground">IP addresses</span> per
           interface (a real device interface can have more than one).
         </p>
+        <p>
+          <span className="font-medium text-foreground">Type for interfaces without one</span>{" "}
+          (<HelpCode>interface_type</HelpCode>, a Nautobot type such as{" "}
+          <HelpCode>1000base-t</HelpCode>, <HelpCode>virtual</HelpCode> or{" "}
+          <HelpCode>other</HelpCode>) sets the type of every interface already in the
+          bag that has none — for example interfaces read from a CSV file — and changes
+          nothing else on them. It creates no interfaces. With Overwrite on it also
+          replaces an existing type. In a Git YAML file use the key{" "}
+          <HelpCode>interface_type</HelpCode> under <HelpCode>devices</HelpCode>.
+        </p>
       </HelpSection>
 
       <HelpWarning title="Interfaces aren't picked up by Add to Nautobot yet">

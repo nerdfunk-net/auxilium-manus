@@ -103,6 +103,7 @@ export function parseAttributesConfig(config: Record<string, unknown>): Attribut
     rack: parseFieldSpec(record.rack),
     face: parseFieldSpec(record.face),
     position: parseFieldSpec(record.position),
+    interface_type: parseFieldSpec(record.interface_type),
     custom_fields: parseCustomFields(record.custom_fields),
     interfaces: parseInterfaces(record.interfaces),
   };
@@ -136,6 +137,7 @@ const SCALAR_KEYS: Array<keyof AttributesConfig> = [
   "rack",
   "face",
   "position",
+  "interface_type",
 ];
 
 export function countConfiguredFields(attributes: AttributesConfig): number {

@@ -43,6 +43,9 @@ logger = logging.getLogger(__name__)
 _STEP_ID = "add-to-nautobot"
 _REQUIRED_FIELDS = ("name", "role", "status", "location", "device_type")
 _SOURCE_MODES = frozenset({"manual", "nautobot_origin"})
+# Fields of a REST 400 that a device-name uniqueness error is reported under: the whole object
+# (name + location + tenant) or ``name`` alone, depending on DEVICE_UNIQUENESS.
+_NAME_UNIQUENESS_FIELDS = frozenset({"__all__", "non_field_errors", "name"})
 
 
 @dataclass(frozen=True)
@@ -177,7 +180,11 @@ def _is_already_exists(exc: Exception) -> bool:
     every rejection the same way. Reuses the shared classifier already used
     by ``services.nautobot.devices.common`` for the same distinction.
     """
-    return isinstance(exc, NautobotAPIError) and is_duplicate_error(exc)
+    if not (isinstance(exc, NautobotAPIError) and is_duplicate_error(exc)):
+        return False
+    # "already exists" is also said for other unique fields (asset tag): only a name clash may be
+    # routed to an update by name, so a 400 that names any other field does not count.
+    return exc.fields is None or set(exc.fields) <= _NAME_UNIQUENESS_FIELDS
 
 
 def _create_failure(exc: Exception) -> FailureInfo | None:
@@ -268,6 +275,18 @@ async def _create_one_device(
                 }
             )
             return device_key, enriched, True
+
+        if not result.get("success"):
+            # Pre-flight checks failed: nothing was created in Nautobot.
+            return _fail_device(
+                device=device,
+                device_key=device_key,
+                node_id=node_id,
+                code="preflight_failed",
+                message="; ".join(str(e) for e in result.get("errors") or [])
+                or "pre-flight checks failed",
+                failure=FailureInfo(phase="api", kind="bad_request"),
+            )
 
         problems: list[str] = []
         if int(result.get("interfaces_failed") or 0) > 0:

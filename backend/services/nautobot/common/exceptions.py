@@ -13,15 +13,25 @@ class NautobotError(Exception):
     """Base exception for Nautobot operations.
 
     ``http_status`` and ``code`` (``timeout`` or ``transport``) are the structured facts behind
-    the message and feed :attr:`failure`; never text taken from a response.
+    the message and feed :attr:`failure`; never text taken from a response. The one exception is
+    a REST 400 with structured validation JSON, whose cleaned, capped text is appended to the
+    message (``response_detail.validation_detail``); ``failure`` never copies message text.
     """
 
     def __init__(
-        self, message: str = "", *, http_status: int | None = None, code: str | None = None
+        self,
+        message: str = "",
+        *,
+        http_status: int | None = None,
+        code: str | None = None,
+        fields: tuple[str, ...] | None = None,
     ) -> None:
         super().__init__(message)
         self.http_status = http_status
         self.code = code
+        # Top-level field names of a structured REST 400 validation body (``__all__`` = the whole
+        # object), or None when the error carried none.
+        self.fields = fields
 
     @property
     def failure(self) -> FailureInfo:

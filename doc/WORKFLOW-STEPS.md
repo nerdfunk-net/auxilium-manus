@@ -318,7 +318,7 @@ deduplicated for a few seconds and a failed pull raises (`allow_stale_repository
 stale copy). Never keep the path after the `with` block.
 
 Where the table is applied (CF-07): `upload-config`, `add-to-nautobot` (interface/IP/prefix/virtual
-chassis problems fail the device and keep the created id), `batfish-init-snapshot` (a snapshot from
+chassis problems fail the device and keep the created id; a failed pre-flight check creates nothing), `batfish-init-snapshot` (a snapshot from
 fewer devices than selected fails unless `allow_partial_snapshot`; skipped devices leave through the
 new `failure` handle), `batfish-validate-facts` (empty expected facts fail the device),
 `open-change-request` (identical configs leave through the new `unchanged` handle, no change request),
@@ -516,6 +516,40 @@ All are in the `nautobot` palette category; the first two share
   *Concurrency:* each device PATCHes the address it names, so fan-out children and sibling branches are safe
   as long as they name different addresses; two devices resolving to one `ip_id` with different values make
   the last write win.
+
+### Creating devices from a file: `get-git-devices` → `set-default-attributes` → `add-to-nautobot`
+
+- **Mapping targets** (`get-git-devices`): besides the Nautobot attributes, a column can feed the IP
+  namespaces `primary_ip4.parent.namespace.name` and `interfaces.ip_addresses.parent.namespace.name`
+  (each needs its address column mapped, or validation fails) and `custom.<name>`, a value that is not
+  Nautobot data. Custom values live in `attribute_bags["custom"]`, never in the `nautobot` bag; they resolve
+  as `{custom.<name>}` in file-path templates (strict mode fails on an empty one, like `nautobot.` and
+  `git.`) and as `{{ custom.<name> }}` in Jinja. The full list is in `doc/MANUS_BASIS_DATATYPE.md`.
+- **Default interface type** (`set-default-attributes`, `interface_type`): sets `type` on every interface of the
+  `nautobot` bag that has none and changes nothing else on it (with `overwrite` it also replaces an existing
+  type). It creates no interfaces and is not stored in the bag (`common/attribute_defaults.py`).
+- **IP namespace** (`add-to-nautobot`, interfaces from the Nautobot attributes): the namespace of an interface IP
+  is its `parent.namespace.name`, else a `namespace` (name or `{name}` object), else `Global`; a blank value
+  counts as unset (`interface_workflow/payload.py::ip_namespace`).
+- **Pre-flight checks** (`services/nautobot/devices/creation_preflight.py`): before the device is POSTed, the step
+  checks read-only that every named interface has a `type`, every IP parses, every namespace exists and,
+  with `add_prefix` off, every new IP has a parent prefix (queried by the *host* address with
+  `ipam/prefixes/?contains=`: Nautobot picks the parent by containment of the host, the mask plays no part,
+  verified on Nautobot 3.2.7). With `add_prefix` on, prefixes are created when the IP is added. A failed
+  check creates nothing and fails the device with `preflight_failed`; `dry_run` reports the same problems.
+  A lookup that itself fails is logged and skipped. Whether the name is taken is deliberately not checked
+  beforehand, so the POST's own 400 keeps selecting `device_already_exists`.
+- **Error codes** (`add-to-nautobot`, route on `error.code`): `device_already_exists` (the 400 is about the
+  device name: field `__all__`, `non_field_errors` or `name`; a duplicate `asset_tag` or any other field is a
+  plain failure), `preflight_failed` (nothing created), `device_created_incomplete` (device created, some
+  interfaces or IPs failed; the Nautobot id stays on the failed device so a repair or removal step can find
+  it; this includes a missing parent prefix with `add_prefix` off).
+- **Nautobot's reason in the message.** Response text stays out of exception messages (they are saved on the
+  device and in run results) with one exception: a REST **400** whose body is structured validation JSON gets
+  its cleaned text appended (`services/nautobot/common/response_detail.py`: markup and control characters
+  removed, at most 5 entries, 300 characters). The failing top-level fields are kept as
+  `NautobotError.fields`. 5xx, HTML, non-JSON and GraphQL errors keep the payload-free message, and
+  `FailureInfo` never copies message text.
 
 ### Calling an agent: `route-to-agent`
 

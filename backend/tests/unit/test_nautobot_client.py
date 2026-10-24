@@ -17,6 +17,7 @@ from services.nautobot.common.exceptions import (
     NautobotAPIError,
     NautobotNotFoundError,
     NautobotValidationError,
+    is_duplicate_error,
 )
 from services.nautobot.credentials import NautobotCredentials
 
@@ -83,6 +84,49 @@ class GraphqlQueryTests(_PatchValidator):
         # the default (non-strict) behaviour still returns the payload
         payload = await svc.graphql_query("q", None, _CREDS)
         self.assertIn("errors", payload)
+
+    async def test_rest_400_message_carries_nautobot_validation_detail(self) -> None:
+        body = {"__all__": ["A device named 'd1' already exists in this location: City A."]}
+        svc = _service_with_mock_client(_response(400, body, text=str(body)))
+        with self.assertRaises(NautobotAPIError) as ctx:
+            await svc.rest_request("dcim/devices/", _CREDS, method="POST", data={})
+        self.assertIn("already exists in this location", str(ctx.exception))
+        self.assertTrue(str(ctx.exception).startswith("REST request failed with status 400: "))
+        self.assertEqual(ctx.exception.http_status, 400)
+        self.assertTrue(is_duplicate_error(ctx.exception))
+
+    async def test_rest_400_exposes_the_failing_fields(self) -> None:
+        body = {"asset_tag": ["device with this asset tag already exists."]}
+        svc = _service_with_mock_client(_response(400, body))
+        with self.assertRaises(NautobotAPIError) as ctx:
+            await svc.rest_request("dcim/devices/", _CREDS, method="POST", data={})
+        self.assertEqual(ctx.exception.fields, ("asset_tag",))
+
+    async def test_rest_error_without_validation_body_has_no_fields(self) -> None:
+        for resp in (_response(500, {"detail": "x"}), _response(400, text="<html></html>")):
+            with self.subTest(status=resp.status_code):
+                if resp.status_code == 400:
+                    resp.json.side_effect = ValueError("not json")
+                svc = _service_with_mock_client(resp)
+                with self.assertRaises(NautobotAPIError) as ctx:
+                    await svc.rest_request("x/", _CREDS, method="POST", data={})
+                self.assertIsNone(ctx.exception.fields)
+
+    async def test_rest_400_without_json_body_stays_generic(self) -> None:
+        resp = _response(400, text="<html>token=abc123 leaked</html>")
+        resp.json.side_effect = ValueError("not json")
+        svc = _service_with_mock_client(resp)
+        with self.assertRaises(NautobotAPIError) as ctx:
+            await svc.rest_request("x/", _CREDS, method="POST", data={})
+        self.assertEqual(str(ctx.exception), "REST request failed with status 400")
+
+    async def test_rest_500_never_carries_the_body(self) -> None:
+        svc = _service_with_mock_client(
+            _response(500, {"detail": "token=abc123 leaked"}, text="token=abc123 leaked")
+        )
+        with self.assertRaises(NautobotAPIError) as ctx:
+            await svc.rest_request("x/", _CREDS)
+        self.assertEqual(str(ctx.exception), "REST request failed with status 500")
 
     async def test_error_message_has_no_response_body(self) -> None:
         svc = _service_with_mock_client(_response(500, text="<html>token=abc123 leaked</html>"))

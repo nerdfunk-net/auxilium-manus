@@ -19,6 +19,7 @@ from services.nautobot.common.exceptions import NautobotAPIError
 from services.nautobot.common.rest import rest_paginate, rest_query
 from services.nautobot.common.validators import is_valid_uuid
 from services.nautobot.devices.common import DeviceCommonService
+from services.nautobot.devices.creation_preflight import preflight_errors
 from services.nautobot.devices.interface_workflow import InterfaceManagerService
 from services.nautobot.devices.types import AddDeviceRequest
 
@@ -48,6 +49,23 @@ class DeviceCreationService:
         if request.dry_run:
             return await self._validate_dry_run(request)
 
+        # Nothing is created when a check fails: the device would exist without its IPs and
+        # interfaces. (Whether the device name is taken is not checked here: the POST's own
+        # 400 is what workflows route on as ``device_already_exists``.)
+        problems = await self._preflight_checks(request)
+        if problems:
+            return {
+                "success": False,
+                "dry_run": False,
+                "device_id": None,
+                "device_name": request.name,
+                "device": None,
+                "interfaces_created": 0,
+                "interfaces_failed": 0,
+                "warnings": [],
+                "errors": problems,
+            }
+
         device_id, device_response = await self._create_device(request)
 
         warnings: list[str] = []
@@ -64,14 +82,22 @@ class DeviceCreationService:
         interfaces_created = 0
         interfaces_failed = 0
         if request.interfaces:
-            result = await self.interface_manager.update_device_interfaces(
-                device_id=device_id,
-                interfaces=request.interfaces,
-                add_prefixes_automatically=request.add_prefix,
-            )
-            interfaces_created = result.interfaces_created + result.interfaces_updated
-            interfaces_failed = result.interfaces_failed
-            warnings.extend(result.warnings)
+            try:
+                result = await self.interface_manager.update_device_interfaces(
+                    device_id=device_id,
+                    interfaces=request.interfaces,
+                    add_prefixes_automatically=request.add_prefix,
+                )
+            except NautobotAPIError as exc:
+                # The device exists now: report an incomplete device (id kept, so a repair or
+                # removal step can find it) instead of losing it behind an exception.
+                logger.error("Interfaces of device %s could not be created: %s", device_id, exc)
+                warnings.append(f"Interfaces could not be created: {exc}")
+                interfaces_failed = len(request.interfaces)
+            else:
+                interfaces_created = result.interfaces_created + result.interfaces_updated
+                interfaces_failed = result.interfaces_failed
+                warnings.extend(result.warnings)
 
         return {
             "success": True,
@@ -139,6 +165,15 @@ class DeviceCreationService:
             return request.model_copy(update=updates)
         return request
 
+    async def _preflight_checks(self, request: AddDeviceRequest) -> list[str]:
+        """Problems that would leave a device without its IPs/interfaces (empty = go ahead)."""
+        return await preflight_errors(
+            nautobot=self.nautobot,
+            common=self.common,
+            interfaces=request.interfaces,
+            add_prefix=request.add_prefix,
+        )
+
     async def _validate_dry_run(self, request: AddDeviceRequest) -> dict[str, Any]:
         """Validate a request against Nautobot without creating anything."""
         errors: list[str] = []
@@ -191,6 +226,8 @@ class DeviceCreationService:
                     )
             except Exception as exc:
                 logger.warning("Dry run: could not validate secrets group: %s", exc)
+
+        errors.extend(await self._preflight_checks(request))
 
         success = len(errors) == 0
         return {

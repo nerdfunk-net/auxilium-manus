@@ -2681,8 +2681,12 @@ plugins:
           description: >
             Manual-mode default values — role, status, location, platform,
             secrets_group (by name), software_version, serial, asset_tag, tags, device_type (model +
-            manufacturer), rack/face/position, custom_fields, and interfaces. Used
-            only when mode is "manual".
+            manufacturer), rack/face/position, custom_fields, and interfaces. Also
+            interface_type ({enabled, value}, a Nautobot type slug such as 1000base-t,
+            virtual or other): it fills "type" on every interface in the bag that has
+            none and touches no other interface field (with overwrite it replaces an
+            existing type too); it creates no interfaces. In git mode use the key
+            interface_type in the "devices" mapping. Used only when mode is "manual".
           data_type: object
           required: false
           example:
@@ -2836,7 +2840,15 @@ plugins:
     overview: Create a new device in Nautobot.
     description: >
       Create each device in Nautobot with its required attributes, plus optional
-      interfaces, rack placement, and virtual chassis membership.
+      interfaces, rack placement, and virtual chassis membership. Before anything
+      is created, read-only checks look for problems that would leave the device
+      without its IPs and interfaces: an interface without a type, an IP address
+      that does not parse, an unknown IP namespace (blank = Global), and, with
+      add_prefix off, an IP without a parent prefix. A device failing them is not
+      created and gets error.code preflight_failed (a dry run reports the same
+      problems). Other failure codes: device_already_exists (name taken),
+      device_created_incomplete (device created, some interfaces/IPs failed; its id
+      is kept).
     artifact_type: command_execution
     palette_category: nautobot
     directory: add_to_nautobot

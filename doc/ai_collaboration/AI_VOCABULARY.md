@@ -338,6 +338,13 @@ Nautobot Device).
 4. This `error.code` classification currently exists only on
    `add-to-nautobot` — don't assume another create-oriented step has the same
    `device_already_exists` code without checking its executor first.
+5. `add-to-nautobot` has two more stable codes that must **not** be routed to an
+   update. `preflight_failed`: checks made before anything is created failed
+   (an interface without `type`, an unknown IP namespace, or — with `add_prefix`
+   off — no parent prefix for an IP), so nothing exists in Nautobot. `device_created_incomplete`:
+   the device exists but some interfaces/IPs failed; the device id is kept for a repair or
+   removal step. A blank IP namespace is read as `Global`. Leave both on the unwired
+   `default_outcome` unless the user asks for a repair or removal path.
 
 ### "get the attributes (from nautobot)" / "get nautobot attributes"
 

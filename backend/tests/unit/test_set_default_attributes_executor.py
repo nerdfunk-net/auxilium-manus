@@ -160,6 +160,104 @@ class SetDefaultAttributesManualModeTests(unittest.IsolatedAsyncioTestCase):
         device = outcomes[0].context.devices["dev-1"]
         self.assertEqual(device.attribute_bags["nautobot"]["role"], {"name": "Network"})
 
+    async def _run_interface_type(
+        self,
+        bag: dict | None,
+        *,
+        interface_type: str = "1000base-t",
+        overwrite: bool = False,
+        interfaces: list | None = None,
+    ) -> dict:
+        base = get_config()["attributes"]
+        config = {
+            **get_config(),
+            "overwrite": overwrite,
+            "attributes": {
+                **base,
+                "interface_type": {"enabled": True, "value": interface_type},
+                "interfaces": interfaces or [],
+            },
+        }
+        outcomes = await execute(
+            config=config,
+            context=_context({"dev-1": _device("dev-1", nautobot_bag=bag)}),
+            run=_run(),
+            artifact_service=MagicMock(),
+            node_id="node-1",
+            device_sessions=MagicMock(),
+        )
+        return outcomes[0].context.devices["dev-1"].attribute_bags["nautobot"]
+
+    async def test_interface_type_fills_missing_type_and_keeps_other_fields(self) -> None:
+        iface = {
+            "name": "eth0",
+            "description": "uplink",
+            "ip_addresses": [
+                {"address": "10.0.0.1/24", "parent": {"namespace": {"name": "black"}}}
+            ],
+        }
+        bag = await self._run_interface_type({"name": "d1", "interfaces": [iface]})
+        self.assertEqual(bag["interfaces"], [{**iface, "type": "1000base-t"}])
+        self.assertNotIn("interface_type", bag)
+
+    async def test_interface_type_keeps_existing_type(self) -> None:
+        bag = await self._run_interface_type(
+            {"interfaces": [{"name": "lo0", "type": "virtual"}, {"name": "eth0"}]}
+        )
+        self.assertEqual(
+            bag["interfaces"],
+            [{"name": "lo0", "type": "virtual"}, {"name": "eth0", "type": "1000base-t"}],
+        )
+
+    async def test_interface_type_blank_existing_type_is_filled(self) -> None:
+        bag = await self._run_interface_type({"interfaces": [{"name": "eth0", "type": "  "}]})
+        self.assertEqual(bag["interfaces"][0]["type"], "1000base-t")
+
+    async def test_interface_type_overwrite_replaces_only_the_type(self) -> None:
+        bag = await self._run_interface_type(
+            {"interfaces": [{"name": "lo0", "type": "virtual", "description": "x"}]},
+            overwrite=True,
+        )
+        self.assertEqual(
+            bag["interfaces"], [{"name": "lo0", "type": "1000base-t", "description": "x"}]
+        )
+
+    async def test_interface_type_without_interfaces_is_noop(self) -> None:
+        bag = await self._run_interface_type({"name": "d1"})
+        self.assertEqual(bag, {"name": "d1"})
+
+    async def test_interface_type_covers_interfaces_added_by_defaults(self) -> None:
+        bag = await self._run_interface_type(
+            {"interfaces": [{"name": "eth0"}]},
+            interfaces=[{"name": "Loopback0"}, {"name": "mgmt0", "type": "other"}],
+        )
+        types = {i["name"]: i["type"] for i in bag["interfaces"]}
+        self.assertEqual(types, {"eth0": "1000base-t", "Loopback0": "1000base-t", "mgmt0": "other"})
+
+    async def test_interface_type_does_not_mutate_input_bag(self) -> None:
+        original = {"interfaces": [{"name": "eth0"}]}
+        await self._run_interface_type(original)
+        self.assertEqual(original, {"interfaces": [{"name": "eth0"}]})
+
+    async def test_interface_type_disabled_does_nothing(self) -> None:
+        base = get_config()["attributes"]
+        config = {
+            **get_config(),
+            "attributes": {**base, "interface_type": {"enabled": False, "value": "virtual"}},
+        }
+        outcomes = await execute(
+            config=config,
+            context=_context(
+                {"dev-1": _device("dev-1", nautobot_bag={"interfaces": [{"name": "eth0"}]})}
+            ),
+            run=_run(),
+            artifact_service=MagicMock(),
+            node_id="node-1",
+            device_sessions=MagicMock(),
+        )
+        bag = outcomes[0].context.devices["dev-1"].attribute_bags["nautobot"]
+        self.assertEqual(bag["interfaces"], [{"name": "eth0"}])
+
     async def test_device_type_and_custom_fields_and_interfaces(self) -> None:
         config = {
             **get_config(),

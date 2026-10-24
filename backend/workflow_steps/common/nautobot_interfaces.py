@@ -6,6 +6,8 @@ import ipaddress
 import re
 from typing import Any
 
+from services.nautobot.devices.interface_workflow.payload import namespace_name
+
 
 def _strip_empty(value: Any) -> Any:
     if isinstance(value, str):
@@ -148,6 +150,17 @@ def normalize_interfaces(
     return normalized
 
 
+def _ip_namespace_name(ip_item: dict[str, Any]) -> str | None:
+    """Namespace of a bag IP: ``parent.namespace.name`` (Nautobot shape), else ``namespace``."""
+    parent = ip_item.get("parent")
+    namespace = parent.get("namespace") if isinstance(parent, dict) else None
+    if isinstance(namespace, dict):
+        name = _strip_empty(namespace.get("name"))
+        if isinstance(name, str):
+            return name
+    return namespace_name(ip_item.get("namespace"))
+
+
 def interfaces_from_nautobot_bag(
     bag: dict[str, Any] | None, *, default_prefix_length: str
 ) -> list[dict[str, Any]]:
@@ -241,7 +254,8 @@ def interfaces_from_nautobot_bag(
                     continue
                 if "/" not in address:
                     address = f"{address}{suffix}"
-                entry: dict[str, Any] = {"address": address, "namespace": "Global"}
+                namespace = (_ip_namespace_name(ip_item) if is_dict else None) or "Global"
+                entry: dict[str, Any] = {"address": address, "namespace": namespace}
                 if is_dict:
                     ip_role = _strip_empty(ip_item.get("ip_role"))
                     if ip_role and ip_role != "none":

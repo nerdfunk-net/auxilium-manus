@@ -47,6 +47,23 @@ class PureHelperTests(unittest.TestCase):
     def test_normalize_interface_ip_list_empty(self) -> None:
         self.assertEqual(_normalize_interface_ip_list({"name": "x"}), [])
 
+    def test_ip_namespace_helper(self) -> None:
+        from services.nautobot.devices.interface_workflow.payload import ip_namespace
+
+        cases = [
+            ({}, {}, "Global"),
+            ({}, {"namespace": " black "}, "black"),
+            ({"namespace": "red"}, {"namespace": ""}, "red"),
+            ({"namespace": "red"}, {"namespace": "black"}, "black"),
+            ({}, {"namespace": {"name": "black"}}, "black"),
+            ({"namespace": {"name": "red"}}, {}, "red"),
+            ({}, {"namespace": {"name": " "}}, "Global"),
+            ({}, {"namespace": {}}, "Global"),
+        ]
+        for interface, ip_data, expected in cases:
+            with self.subTest(interface=interface, ip=ip_data):
+                self.assertEqual(ip_namespace(interface, ip_data), expected)
+
     def test_ip_map_key(self) -> None:
         self.assertEqual(_ip_map_key("Gi0/0", "10.0.0.1/24"), "Gi0/0:10.0.0.1/24")
 
@@ -286,6 +303,21 @@ class EnsureOneInterfaceIpTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("Bogus", warnings[0])
         _args, kwargs = svc.common.ensure_ip_address_exists.call_args
         self.assertNotIn("role", kwargs)
+
+    async def test_blank_namespace_falls_back_to_global(self) -> None:
+        for ip_namespace, interface_namespace in (("", ""), (None, None), ("  ", "  ")):
+            with self.subTest(ip=ip_namespace, interface=interface_namespace):
+                svc = _make_service()
+                warnings: list[str] = []
+                entry = await svc._ensure_one_interface_ip(
+                    interface={"name": "Gi0/0", "namespace": interface_namespace},
+                    ip_data={"address": "10.0.0.1/24", "namespace": ip_namespace},
+                    warnings=warnings,
+                    add_prefixes_automatically=False,
+                )
+                self.assertEqual(entry, ("Gi0/0:10.0.0.1/24", "ip-uuid"))
+                self.assertEqual(warnings, [])
+                svc.common.resolve_namespace_id.assert_awaited_once_with("Global")
 
     async def test_missing_address_returns_none(self) -> None:
         svc = _make_service()

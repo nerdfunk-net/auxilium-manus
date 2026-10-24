@@ -39,6 +39,7 @@ def _service(rest_dispatch=None) -> DeviceCreationService:
     common.resolve_platform_id = AsyncMock(return_value="plat-uuid")
     common.resolve_secrets_group_id = AsyncMock(return_value="sg-uuid")
     common.resolve_rack_id = AsyncMock(return_value="rack-uuid")
+    common.resolve_namespace_id = AsyncMock(return_value="ns-uuid")
     svc.common = common
     svc.interface_manager = MagicMock()
     svc.interface_manager.update_device_interfaces = AsyncMock(
@@ -163,6 +164,181 @@ class ValidateDryRunTests(unittest.IsolatedAsyncioTestCase):
         result = await svc._validate_dry_run(req)
         self.assertFalse(result["success"])
         self.assertTrue(any("Secrets group" in e for e in result["errors"]))
+
+
+def _iface(name: str = "eth0", *, type_: str | None = "1000base-t", ips=("10.0.0.1/24",), **extra):
+    iface: dict = {"name": name, **extra}
+    if type_ is not None:
+        iface["type"] = type_
+    if ips:
+        iface["ip_addresses"] = [{"address": ip} for ip in ips]
+    return iface
+
+
+def _preflight_dispatch(*, prefix_count: int = 1, ip_count: int = 0):
+    async def dispatch(endpoint, *a, **k):
+        if endpoint.startswith("ipam/ip-addresses/?"):
+            return {"count": ip_count}
+        if endpoint.startswith("ipam/prefixes/?"):
+            return {"count": prefix_count}
+        return {"id": "dev-1", "count": 0}
+
+    return dispatch
+
+
+class PreflightTests(unittest.IsolatedAsyncioTestCase):
+    async def test_valid_interfaces_give_no_errors(self) -> None:
+        svc = _service(_preflight_dispatch())
+        errors = await svc._preflight_checks(_request(interfaces=[_iface()], add_prefix=False))
+        self.assertEqual(errors, [])
+
+    async def test_interface_without_type_is_reported(self) -> None:
+        svc = _service(_preflight_dispatch())
+        errors = await svc._preflight_checks(_request(interfaces=[_iface(type_=None)]))
+        self.assertEqual(len(errors), 1)
+        self.assertIn("eth0", errors[0])
+        self.assertIn("type is required", errors[0])
+
+    async def test_blank_interface_type_is_reported(self) -> None:
+        svc = _service(_preflight_dispatch())
+        errors = await svc._preflight_checks(_request(interfaces=[_iface(type_="  ")]))
+        self.assertTrue(any("type is required" in e for e in errors))
+
+    async def test_unknown_namespace_is_reported(self) -> None:
+        svc = _service(_preflight_dispatch())
+        svc.common.resolve_namespace_id = AsyncMock(side_effect=ValueError("Namespace not found"))
+        iface = _iface()
+        iface["ip_addresses"] = [{"address": "10.0.0.1/24", "namespace": "black"}]
+        errors = await svc._preflight_checks(_request(interfaces=[iface]))
+        self.assertEqual(len(errors), 1)
+        self.assertIn("Namespace 'black' not found", errors[0])
+
+    async def test_blank_namespace_means_global(self) -> None:
+        svc = _service(_preflight_dispatch())
+        iface = _iface()
+        iface["ip_addresses"] = [{"address": "10.0.0.1/24", "namespace": "  "}]
+        errors = await svc._preflight_checks(_request(interfaces=[iface]))
+        self.assertEqual(errors, [])
+        svc.common.resolve_namespace_id.assert_awaited_once_with("Global")
+
+    async def test_interface_level_namespace_is_used_for_single_ip_field(self) -> None:
+        svc = _service(_preflight_dispatch())
+        iface = {"name": "eth0", "type": "other", "ip_address": "10.0.0.1/24", "namespace": "black"}
+        await svc._preflight_checks(_request(interfaces=[iface]))
+        svc.common.resolve_namespace_id.assert_awaited_once_with("black")
+
+    async def test_each_namespace_is_resolved_once(self) -> None:
+        svc = _service(_preflight_dispatch())
+        await svc._preflight_checks(
+            _request(interfaces=[_iface("eth0", ips=("10.0.0.1/24", "10.0.1.1/24"))])
+        )
+        svc.common.resolve_namespace_id.assert_awaited_once_with("Global")
+
+    async def test_invalid_ip_address_is_reported(self) -> None:
+        svc = _service(_preflight_dispatch())
+        errors = await svc._preflight_checks(_request(interfaces=[_iface(ips=("not-an-ip",))]))
+        self.assertTrue(any("not-an-ip" in e for e in errors))
+
+    async def test_missing_parent_prefix_is_reported_when_add_prefix_is_off(self) -> None:
+        svc = _service(_preflight_dispatch(prefix_count=0))
+        errors = await svc._preflight_checks(_request(interfaces=[_iface()], add_prefix=False))
+        self.assertEqual(len(errors), 1)
+        self.assertIn("No parent prefix", errors[0])
+        self.assertIn("10.0.0.1/24", errors[0])
+
+    async def test_prefix_lookup_uses_the_host_address_like_nautobot(self) -> None:
+        """Nautobot picks an IP's parent by containment of its host address (the mask plays no
+        part), so any prefix containing the host is a valid parent: query the host, not the
+        network."""
+        svc = _service(_preflight_dispatch(prefix_count=1))
+        await svc._preflight_checks(
+            _request(interfaces=[_iface(ips=("10.0.0.5/24",))], add_prefix=False)
+        )
+        endpoints = [c.args[0] for c in svc.nautobot.rest_request.await_args_list]
+        prefix_lookup = next(e for e in endpoints if e.startswith("ipam/prefixes/?"))
+        self.assertIn("contains=10.0.0.5&", prefix_lookup)
+
+    async def test_namespace_object_on_the_ip_is_used(self) -> None:
+        svc = _service(_preflight_dispatch())
+        iface = _iface()
+        iface["ip_addresses"] = [{"address": "10.0.0.1/24", "namespace": {"name": "black"}}]
+        await svc._preflight_checks(_request(interfaces=[iface]))
+        svc.common.resolve_namespace_id.assert_awaited_once_with("black")
+
+    async def test_parent_prefix_present_is_ok(self) -> None:
+        svc = _service(_preflight_dispatch(prefix_count=1))
+        errors = await svc._preflight_checks(_request(interfaces=[_iface()], add_prefix=False))
+        self.assertEqual(errors, [])
+
+    async def test_existing_ip_needs_no_prefix_lookup(self) -> None:
+        svc = _service(_preflight_dispatch(prefix_count=0, ip_count=1))
+        errors = await svc._preflight_checks(_request(interfaces=[_iface()], add_prefix=False))
+        self.assertEqual(errors, [])
+
+    async def test_add_prefix_on_skips_prefix_and_ip_lookups(self) -> None:
+        svc = _service(_preflight_dispatch(prefix_count=0))
+        errors = await svc._preflight_checks(_request(interfaces=[_iface()], add_prefix=True))
+        self.assertEqual(errors, [])
+        svc.nautobot.rest_request.assert_not_awaited()
+
+    async def test_failing_lookup_is_skipped_not_reported(self) -> None:
+        async def dispatch(endpoint, *a, **k):
+            raise NautobotAPIError("Nautobot is down")
+
+        svc = _service(dispatch)
+        errors = await svc._preflight_checks(_request(interfaces=[_iface()], add_prefix=False))
+        self.assertEqual(errors, [])
+
+    async def test_no_interfaces_means_no_checks(self) -> None:
+        svc = _service(_preflight_dispatch())
+        self.assertEqual(await svc._preflight_checks(_request()), [])
+        svc.common.resolve_namespace_id.assert_not_awaited()
+
+    async def test_dry_run_reports_the_same_problems(self) -> None:
+        svc = _service(_preflight_dispatch())
+        req = _request(
+            role=_UUID,
+            status=_UUID,
+            location=_UUID,
+            device_type=_UUID,
+            interfaces=[_iface(type_=None)],
+            dry_run=True,
+        )
+        result = await svc.create_device(req)
+        self.assertFalse(result["success"])
+        self.assertTrue(any("type is required" in e for e in result["errors"]))
+
+    async def test_real_run_with_errors_creates_nothing(self) -> None:
+        svc = _service(_preflight_dispatch())
+        result = await svc.create_device(_request(interfaces=[_iface(type_=None)]))
+        self.assertFalse(result["success"])
+        self.assertFalse(result["dry_run"])
+        self.assertIsNone(result["device_id"])
+        self.assertTrue(any("type is required" in e for e in result["errors"]))
+        posts = [
+            c for c in svc.nautobot.rest_request.await_args_list if c.kwargs.get("method") == "POST"
+        ]
+        self.assertEqual(posts, [])
+        svc.interface_manager.update_device_interfaces.assert_not_awaited()
+
+    async def test_real_run_without_errors_still_creates_the_device(self) -> None:
+        svc = _service(_preflight_dispatch())
+        result = await svc.create_device(_request(interfaces=[_iface()]))
+        self.assertTrue(result["success"])
+        self.assertEqual(result["device_id"], "dev-1")
+
+
+class InterfaceStageFailureTests(unittest.IsolatedAsyncioTestCase):
+    async def test_api_error_after_creation_keeps_the_device_id(self) -> None:
+        svc = _service(_preflight_dispatch())
+        svc.interface_manager.update_device_interfaces = AsyncMock(
+            side_effect=NautobotAPIError("Cannot create IP 10.0.0.1/24: No suitable parent prefix")
+        )
+        result = await svc.create_device(_request(interfaces=[_iface(), _iface("eth1", ips=())]))
+        self.assertTrue(result["success"])
+        self.assertEqual(result["device_id"], "dev-1")
+        self.assertEqual(result["interfaces_failed"], 2)
+        self.assertTrue(any("No suitable parent prefix" in w for w in result["warnings"]))
 
 
 class CreateDeviceLowLevelTests(unittest.IsolatedAsyncioTestCase):

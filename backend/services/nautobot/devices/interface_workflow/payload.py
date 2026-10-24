@@ -25,6 +25,30 @@ def normalize_interface_ip_list(interface: dict[str, Any]) -> list[dict[str, Any
     return ip_addresses
 
 
+DEFAULT_NAMESPACE = "Global"
+
+
+def namespace_name(value: Any) -> str | None:
+    """A namespace given as a name or as a Nautobot object (``{"name": ...}``); blank is None."""
+    if isinstance(value, dict):
+        value = value.get("name")
+    if not isinstance(value, str):
+        return None
+    return value.strip() or None
+
+
+def ip_namespace(interface: dict[str, Any], ip_data: dict[str, Any]) -> str:
+    """Namespace of one interface IP: its own, else the interface's, else ``Global``.
+
+    A blank value counts as unset: ``Global`` always exists in Nautobot.
+    """
+    for source in (ip_data, interface):
+        name = namespace_name(source.get("namespace"))
+        if name:
+            return name
+    return DEFAULT_NAMESPACE
+
+
 def ip_map_key(interface_name: str, ip_address: str) -> str:
     return f"{interface_name}:{ip_address}"
 

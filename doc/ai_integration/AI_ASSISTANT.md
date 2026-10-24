@@ -1009,9 +1009,9 @@ authentication failures reuse `timeout` and `auth_failed`. A stream cut off befo
   `failure` outcome and on the devices it fails; the repository lock timeout is `repo_locked`; a
   missing / inactive repository is `bad_request`.
 - *Nautobot:* `NautobotError.failure` (same pattern as ISE; `http_status` and a `timeout` /
-  `transport` code are set in `NautobotService`, the message, which contains the response body,
-  is never read). Domain errors map too: "resource not found" is `not_found`, "already exists"
-  is `already_exists`. The device steps (`get-nautobot-attributes`, `add-to-nautobot`,
+  `transport` code are set in `NautobotService`, the message is never read; a REST 400 puts its
+  cleaned, capped validation text in the message, see `doc/WORKFLOW-STEPS.md`). Domain errors map
+  too: "resource not found" is `not_found`, "already exists" is `already_exists`. The device steps (`get-nautobot-attributes`, `add-to-nautobot`,
   `update-nautobot-device`, `exists-in-nautobot`, `add-nautobot-metadata`,
   `update-config-context`, `start-nautobot-job`, `check-nautobot-job`, `get-next-free-ip`,
   `add-ip-to-nautobot`, `update-nautobot-ip`) copy it to the device

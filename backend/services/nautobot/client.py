@@ -16,9 +16,23 @@ from services.nautobot.common.exceptions import (
     NautobotNotFoundError,
     NautobotValidationError,
 )
+from services.nautobot.common.response_detail import validation_detail, validation_fields
 from services.nautobot.credentials import NautobotCredentials
 
 logger = logging.getLogger(__name__)
+
+
+def _rest_400_info(response: Any) -> tuple[str | None, tuple[str, ...] | None]:
+    """``(message, failing fields)`` of a REST 400's validation body (see ``response_detail``).
+
+    The one place response text reaches an exception message: only structured validation JSON
+    of a 400, cleaned and capped. A body that is not JSON (an HTML error page) gives no detail.
+    """
+    try:
+        body = response.json()
+    except ValueError:
+        return None, None
+    return validation_detail(body), validation_fields(body) or None
 
 
 def _log_error_body(kind: str, response: Any) -> None:
@@ -189,9 +203,14 @@ class NautobotService:
                 _log_error_body("REST", response)
                 raise NautobotNotFoundError(f"Resource not found: {endpoint}", http_status=404)
             _log_error_body("REST", response)
+            message = f"REST request failed with status {response.status_code}"
+            detail, fields = (
+                _rest_400_info(response) if response.status_code == 400 else (None, None)
+            )
             raise NautobotAPIError(
-                f"REST request failed with status {response.status_code}",
+                f"{message}: {detail}" if detail else message,
                 http_status=response.status_code,
+                fields=fields,
             )
         except httpx.TimeoutException as exc:
             raise NautobotAPIError(

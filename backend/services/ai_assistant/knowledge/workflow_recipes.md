@@ -109,6 +109,12 @@ success/failure branch.
    end the run. Say so in your answer; an unconnected default outcome is deliberate.
 4. Only `add-to-nautobot` has this classification. Do not assume another create step sets
    `device_already_exists`.
+5. Two other codes mean the device must not be "updated": `preflight_failed` (checked before the
+   device was created: an interface without type, an unknown namespace, or no parent prefix with
+   `add_prefix` off; nothing exists in Nautobot) and `device_created_incomplete` (the device exists
+   without some interfaces or IPs; its id is kept for a repair or removal step). A blank IP
+   namespace is read as `Global`. Leave both on the default outcome unless the user asks for a
+   repair or removal path.
 
 ### "collect X for the report" / "store the serials for reports" / "record the interface states"
 One `store-for-report` ("Store for Report") step after the step that makes the data available; it

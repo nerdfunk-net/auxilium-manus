@@ -20,6 +20,7 @@ def get_config() -> dict:
             "rack": {"enabled": False, "value": ""},
             "face": {"enabled": False, "value": ""},
             "position": {"enabled": False, "value": ""},
+            "interface_type": {"enabled": False, "value": ""},
             "custom_fields": {},
             "interfaces": [],
         },

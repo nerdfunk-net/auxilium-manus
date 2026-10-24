@@ -13,7 +13,9 @@ import copy
 from typing import Any
 
 _NAMED_REFERENCE_KEYS = ("role", "status", "location", "platform", "secrets_group", "rack")
-_SCALAR_KEYS = ("software_version", "serial", "asset_tag", "face", "position")
+_SCALAR_KEYS = ("software_version", "serial", "asset_tag", "face", "position", "interface_type")
+# Not a bag key: it sets ``type`` on the bag's interfaces (``_apply_default_interface_type``).
+_INTERFACE_TYPE_KEY = "interface_type"
 
 
 def _is_empty(value: Any) -> bool:
@@ -58,6 +60,27 @@ def _merge_interfaces(existing: Any, defaults: Any, *, overwrite: bool) -> list[
     return [by_name[name] for name in order]
 
 
+def _apply_default_interface_type(
+    interfaces: Any, interface_type: Any, *, overwrite: bool
+) -> list[Any]:
+    """Return ``interfaces`` with ``type`` set on every interface that has none.
+
+    Only ``type`` is touched. ``overwrite=True`` also replaces an existing type.
+    """
+    if not isinstance(interfaces, list):
+        return []
+    default = str(interface_type).strip() if interface_type is not None else ""
+    if not default:
+        return interfaces
+    result: list[Any] = []
+    for item in interfaces:
+        if isinstance(item, dict) and (overwrite or _is_empty(item.get("type"))):
+            result.append({**item, "type": default})
+        else:
+            result.append(item)
+    return result
+
+
 def _merge_custom_fields(existing: Any, defaults: Any, *, overwrite: bool) -> dict[str, Any]:
     merged = dict(existing) if isinstance(existing, dict) else {}
     if not isinstance(defaults, dict):
@@ -80,14 +103,18 @@ def merge_nautobot_defaults(
     ``existing``; ``overwrite=True`` always applies the default. ``interfaces`` is
     matched by ``name`` (skip-or-replace-whole — never merged field-by-field within one
     interface); ``custom_fields`` is merged per key with the same overwrite/skip rule.
-    Any other nested dict (e.g. ``device_type``) is merged key-by-key recursively, so a
-    partial default (only ``manufacturer.name``, no ``model``) leaves the rest alone.
+    ``interface_type`` is not stored: it fills ``type`` on every interface that has none (all of
+    them with ``overwrite``). Any other nested dict (e.g. ``device_type``) is merged key-by-key
+    recursively, so a partial default (only ``manufacturer.name``, no ``model``) leaves the rest
+    alone.
     """
     merged: dict[str, Any] = dict(existing) if isinstance(existing, dict) else {}
     if not defaults:
         return merged
 
     for key, default_value in defaults.items():
+        if key == _INTERFACE_TYPE_KEY:
+            continue  # applied after the loop, once the interface list is final
         if key == "interfaces":
             merged[key] = _merge_interfaces(merged.get(key), default_value, overwrite=overwrite)
             continue
@@ -103,6 +130,11 @@ def merge_nautobot_defaults(
         if overwrite or _is_empty(current):
             # Copy: the same defaults block is merged into every device's bag.
             merged[key] = copy.deepcopy(default_value)
+
+    if _INTERFACE_TYPE_KEY in defaults and isinstance(merged.get("interfaces"), list):
+        merged["interfaces"] = _apply_default_interface_type(
+            merged["interfaces"], defaults[_INTERFACE_TYPE_KEY], overwrite=overwrite
+        )
 
     return merged
 

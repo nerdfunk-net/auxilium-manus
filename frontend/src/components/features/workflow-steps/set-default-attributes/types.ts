@@ -35,6 +35,8 @@ export interface AttributesConfig {
   rack: AttributeFieldSpec;
   face: AttributeFieldSpec;
   position: AttributeFieldSpec;
+  /** Type for every interface in the bag that has none; no other interface field is touched. */
+  interface_type: AttributeFieldSpec;
   custom_fields: Record<string, AttributeFieldSpec>;
   interfaces: InterfaceDefaultSpec[];
 }
