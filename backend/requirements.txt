@@ -1,10 +1,10 @@
-fastapi==0.143.1
+fastapi==0.156.4
 hatchet-sdk==1.42.1
 httpx==0.28.1
 aiosmtplib==5.1.3  # send-mail step (SMTP: none / STARTTLS / implicit TLS)
 reportlab==5.0.1  # report PDF export (pure Python, no system libraries)
 markdown-it-py==4.2.0  # report Markdown -> PDF / email HTML
-certifi==2026.7.22  # explicit: core/ssl_config.py loads this bundle alongside the OS trust store
+certifi==2026.10.19  # explicit: core/ssl_config.py loads this bundle alongside the OS trust store
 pydantic==2.14.1
 pwdlib[argon2]==0.3.1
 PyJWT==2.15.1
@@ -13,7 +13,7 @@ python-dotenv==1.2.4
 python-multipart==0.0.32
 PyYAML==6.0.3
 redis==8.1.0
-SQLAlchemy==2.1.4
+SQLAlchemy==2.1.5
 cryptography==50.0.2
 netmiko==4.8.0
 paramiko>=4.0,<5.0  # netmiko only requires >=3.5.1; 5.x has breaking changes, keep below 5
@@ -25,4 +25,4 @@ gitpython==3.2.1  # 3.1.60 fixes PYSEC-2026-3982/3984 + GHSA-whh4-5q6c-9v3x (pip
 cisco-config-parser==3.0.0
 croniter==6.2.4
 pybatfish==2026.9.17.3748
-anthropic==1.14.0  # in-app AI assistant, Anthropic provider adapter (services/ai_assistant/providers)
+anthropic==1.17.0  # in-app AI assistant, Anthropic provider adapter (services/ai_assistant/providers)
