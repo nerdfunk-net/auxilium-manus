@@ -7,6 +7,8 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
+from services.nautobot.common.validators import is_valid_uuid
+
 from ..common.exceptions import NautobotAPIError
 
 if TYPE_CHECKING:
@@ -63,6 +65,22 @@ class DeviceManager:
 
         logger.debug("Retrieved device data: %s", device_data.get("name", device_id))
         return device_data
+
+    async def delete_device(self, device_id: str) -> None:
+        """
+        Delete a device by its Nautobot UUID.
+
+        Only a UUID is accepted so a name or address can never select the device to remove.
+
+        Raises:
+            ValueError: If ``device_id`` is not a UUID.
+            NautobotNotFoundError: If the device does not exist.
+            NautobotAPIError: If Nautobot refuses the deletion.
+        """
+        if not is_valid_uuid(device_id.lower()):
+            raise ValueError("device_id is not a Nautobot UUID")
+        logger.info("Deleting device %s", device_id)
+        await self.nautobot.rest_request(endpoint=f"dcim/devices/{device_id}/", method="DELETE")
 
     async def extract_primary_ip_address(self, device_data: dict[str, Any]) -> str | None:
         """

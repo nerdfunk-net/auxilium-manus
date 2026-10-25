@@ -20,6 +20,7 @@ const GROUPS: PaletteGroup[] = [
       item("check-nautobot-job", "nautobot"),
       item("get-next-free-ip", "nautobot"),
       item("update-nautobot-ip", "nautobot"),
+      item("remove-from-nautobot", "nautobot"),
     ],
   },
   {
@@ -45,7 +46,10 @@ describe("buildStepSections", () => {
   it("splits the Nautobot category into DCIM / IPAM / JOBS sections", () => {
     const sections = buildStepSections(GROUPS, "nautobot");
     expect(sections.map((s) => s.label)).toEqual(["DCIM", "IPAM", "JOBS"]);
-    expect(sections[0].items.map((i) => i.kind)).toEqual(["get-nautobot-devices"]);
+    expect(sections[0].items.map((i) => i.kind)).toEqual([
+      "get-nautobot-devices",
+      "remove-from-nautobot",
+    ]);
     expect(sections[1].items.map((i) => i.kind)).toEqual([
       "add-ip-to-nautobot",
       "get-next-free-ip",

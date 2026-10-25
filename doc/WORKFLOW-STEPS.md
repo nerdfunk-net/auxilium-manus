@@ -517,6 +517,33 @@ All are in the `nautobot` palette category; the first two share
   as long as they name different addresses; two devices resolving to one `ip_id` with different values make
   the last write win.
 
+### Removing a device: `remove-from-nautobot`
+
+`remove-from-nautobot` ("Remove from Nautobot", `nautobot` palette category, DCIM sub-group) deletes a device
+from Nautobot. Outcomes `success` / `failure`, `requires: [identity]`, `produces: []`.
+
+- **Only a UUID selects the device.** `device_id` is a fixed UUID or a `{path}` expression (default
+  `{device.id}`), resolved with `reveal_secrets=False`. A value that is not a UUID fails the device with
+  `device_id_invalid` (`device_id_unresolved`, `device_id_is_secret` for the other refusals); the value is never
+  echoed. An unknown UUID fails it with `device_not_found` and nothing is deleted.
+- **`remove_ip_addresses` (default off).** Per device: the addresses assigned to its interfaces are looked up
+  (`IPManager.list_device_ip_ids`), those only this device holds are deleted (`delete_ip_address`), then the device
+  (`DeviceManager.delete_device`), all through the `DeviceCommonService` facade. An address that is also assigned
+  to an interface of another device or to a VM is **kept** and counted as `ips_shared_skipped`; so is one whose
+  lookup does not confirm this device as the only holder (an empty answer never leads to a delete). Other holders
+  (NAT inside/outside, services, FHRP groups) are not checked.
+- **One device at a time with address removal.** Holders are read from Nautobot's current state, so with
+  `remove_ip_addresses` on the devices of one run are processed sequentially: the last holder of an address
+  shared by devices of the same run sees it as exclusive and deletes it. Without the flag they run in parallel.
+- **No atomic delete.** Nautobot cannot delete a device and its addresses together. If the device delete fails
+  after addresses were removed, the device leaves through `failure` with `device_delete_failed`, and the message
+  lists the deleted address ids; nothing is rolled back and the operator checks Nautobot. If an address delete
+  fails the device is not removed (`ip_delete_failed`); an address that is already gone (a retry) is skipped, so
+  running the step again continues where it stopped. A device that disappears between check and delete is
+  `device_not_found`.
+- **Counts** are in `metadata["<node>.remove_counts"]`: `devices_removed`, `ips_removed`, `ips_shared_skipped`,
+  `failed`.
+
 ### Creating devices from a file: `get-git-devices` → `set-default-attributes` → `add-to-nautobot`
 
 - **Mapping targets** (`get-git-devices`): besides the Nautobot attributes, a column can feed the IP
@@ -1501,6 +1528,7 @@ A step is concurrency-safe when it:
 | `get-next-free-ip` | ⚠️ | Read-only (`/ipam/prefixes/{id}/available-ips/`), nothing is reserved in Nautobot. Devices of one execution get distinct addresses because they are served in order from one list, but fan-out children and parallel runs each read the same free list and can receive the same address. Place it before the fan-out step's children or after a **Fan In**, and create the address (**Add IP to Nautobot**) before another run reads the prefix. |
 | `add-ip-to-nautobot` | ✅ | Get-or-create through the shared `IPManager`: an address that exists is reused, and a concurrent creator of the same address or parent prefix is resolved by re-reading it, so fan-out children and sibling branches converge on one object. The addresses themselves still have to be distinct: take them from **Get Next Free IP** (which does not reserve them) and see its row. |
 | `update-nautobot-ip` | ✅ | Idempotent PATCH of the address each device names (`ip_id`), sent only when a value differs. Safe in fan-out children and sibling branches while the devices name different addresses; two devices naming the same address with different values race (last write wins). |
+| `remove-from-nautobot` | ⚠️ | Deletes the device each context device names by its own UUID. Within one execution the devices run one after another when `remove_ip_addresses` is on, so an address shared by them is removed by the last holder. Fan-out children and sibling branches run in separate executions and cannot see each other: two holders of one address removed there can both keep it, leaving it unassigned. Place the step after a **Fan In** when devices share addresses. Two devices naming the same UUID: the second fails `device_not_found`. |
 | `git-status` | ✅ | Read-only inspection (plus an optional `git fetch`) under the per-repository lock, so concurrent callers are serialised, not corrupted. Its result is per repository, not per device — inside a fan-out branch it re-checks the same repo once per child, so prefer a single check before the fan-out inventory step's children or after a Fan In. |
 | `start-workflow` | ⚠️ | Starts one run for all devices it receives, or one per device (`max_runs`), and optionally polls them for up to 600 s. Two concurrent callers start two sets of runs, so inside a fan-out child it starts runs per child, each waiting in its own worker slot: place it before the fan-out or after a **Fan In**. See "Starting another workflow: `start-workflow`" below. |
 | `send-mail` | ⚠️ | Sends one email per execution and holds no shared state, so concurrent callers never corrupt anything — but inside a fan-out child branch it sends **one mail per child**. Place it after a **Fan In** node (or at the end of a non-fanned workflow) for one mail per run. Mail is sent only through the SMTP server an administrator configured under Settings → Mail (server, port, security, login credential and sender address are not step settings; the admin's `allowed_recipient_domains` apply). The step config keeps `to`, `subject` and `body`. |

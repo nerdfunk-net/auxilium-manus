@@ -102,6 +102,7 @@ from workflow_steps.parse_cisco_config.executor import execute as parse_cisco_co
 from workflow_steps.reachable.executor import execute as reachable
 from workflow_steps.read_config.executor import execute as read_config
 from workflow_steps.read_from_file.executor import execute as read_from_file
+from workflow_steps.remove_from_nautobot.executor import execute as remove_from_nautobot
 from workflow_steps.render_jinja_template.executor import execute as render_jinja_template
 from workflow_steps.route_on_attribute.executor import execute as route_on_attribute
 from workflow_steps.route_on_content.executor import execute as route_on_content
@@ -216,6 +217,7 @@ STEP_REGISTRY: dict[str, StepExecutor] = {
     "check-nautobot-job": check_nautobot_job,
     "start-workflow": start_workflow,
     "update-nautobot-device": update_nautobot_device,
+    "remove-from-nautobot": remove_from_nautobot,
     "update-nautobot-ip": update_nautobot_ip,
     "update-config-context": update_config_context,
     "upload-config": upload_config,

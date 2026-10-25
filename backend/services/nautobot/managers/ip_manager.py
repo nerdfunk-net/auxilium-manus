@@ -9,7 +9,7 @@ import logging
 from collections.abc import Awaitable, Callable, Mapping
 from typing import TYPE_CHECKING
 
-from services.nautobot.common.rest import rest_query
+from services.nautobot.common.rest import rest_paginate, rest_query
 from services.nautobot.common.validators import is_valid_uuid
 
 from ..common.exceptions import NautobotAPIError
@@ -316,6 +316,71 @@ class IPManager:
         logger.info("Updating IP address %s fields=%s", ip_id, sorted(changes))
         await self.nautobot.rest_request(endpoint=endpoint, method="PATCH", data=changes)
         return True
+
+    async def list_device_ip_ids(self, device_id: str) -> tuple[list[str], list[str]]:
+        """
+        IP addresses assigned to the interfaces of a device.
+
+        Returns:
+            ``(owned, shared)``: ``owned`` addresses are confirmed to be assigned to this device
+            only; ``shared`` ones are also assigned to an interface of another device or a VM,
+            or could not be confirmed (they are kept).
+
+        Raises:
+            ValueError: If ``device_id`` is not a UUID.
+            NautobotAPIError: If Nautobot refuses a lookup.
+        """
+        if not is_valid_uuid(device_id.lower()):
+            raise ValueError("device_id is not a Nautobot UUID")
+        interfaces = await rest_paginate(
+            self.nautobot, f"dcim/interfaces/?{rest_query(device_id=device_id, limit=1000)}"
+        )
+        interface_ids = {str(item["id"]) for item in interfaces}
+        ip_ids: list[str] = []
+        for interface_id in interface_ids:
+            assignments = await rest_paginate(
+                self.nautobot,
+                f"ipam/ip-address-to-interface/?{rest_query(interface=interface_id, limit=1000)}",
+            )
+            for assignment in assignments:
+                ip_id = str(_reference_id(assignment.get("ip_address")))
+                if ip_id not in ip_ids:
+                    ip_ids.append(ip_id)
+
+        owned: list[str] = []
+        shared: list[str] = []
+        for ip_id in ip_ids:
+            assignments = await rest_paginate(
+                self.nautobot,
+                f"ipam/ip-address-to-interface/?{rest_query(ip_address=ip_id, limit=1000)}",
+            )
+            held_here = any(
+                str(_reference_id(assignment.get("interface"))) in interface_ids
+                for assignment in assignments
+            )
+            elsewhere = any(
+                assignment.get("vm_interface")
+                or str(_reference_id(assignment.get("interface"))) not in interface_ids
+                for assignment in assignments
+            )
+            # Exclusive only when the lookup confirms this device holds the address and nobody
+            # else does; an empty or inconsistent answer must never lead to a delete.
+            (owned if held_here and not elsewhere else shared).append(ip_id)
+        return owned, shared
+
+    async def delete_ip_address(self, ip_id: str) -> None:
+        """
+        Delete an IP address by its Nautobot UUID.
+
+        Raises:
+            ValueError: If ``ip_id`` is not a UUID.
+            NautobotNotFoundError: If the address does not exist.
+            NautobotAPIError: If Nautobot refuses the deletion.
+        """
+        if not is_valid_uuid(ip_id.lower()):
+            raise ValueError("ip_id is not a Nautobot UUID")
+        logger.info("Deleting IP address %s", ip_id)
+        await self.nautobot.rest_request(endpoint=f"ipam/ip-addresses/{ip_id}/", method="DELETE")
 
     async def assign_ip_to_interface(
         self, ip_id: str, interface_id: str, is_primary: bool = False

@@ -3117,6 +3117,46 @@ plugins:
           required: false
           default: false
 
+  - id: remove-from-nautobot
+    name: Remove from Nautobot
+    overview: Permanently delete a device from Nautobot, optionally with its IP addresses.
+    description: >
+      Delete a device from Nautobot, identified by its Nautobot ID (UUID) so the right device
+      is removed. Optionally remove the IP addresses assigned to the device first; an address
+      that is also assigned to another device or VM is kept. The removal is permanent.
+    artifact_type: command_execution
+    palette_category: nautobot
+    directory: remove_from_nautobot
+    enabled: true
+    requires: [identity]
+    produces: []
+    outcomes:
+      - name: success
+      - name: failure
+    metadata:
+      configuration_input:
+        - name: nautobot_source_id
+          description: ID of a Nautobot source configured under Settings → Sources.
+          data_type: string
+          required: true
+          example: prod-lab
+        - name: device_id
+          description: >
+            Nautobot ID (UUID) of the device to remove. Fixed value or a {path} expression
+            resolved per device. A name or address is not accepted.
+          data_type: string
+          required: true
+          default: "{device.id}"
+          example: "{device.id}"
+        - name: remove_ip_addresses
+          description: >
+            Also delete the IP addresses assigned to the device. They are removed first and
+            the device only when all of them are gone. An address shared with another device
+            or VM is kept.
+          data_type: boolean
+          required: false
+          default: false
+
   - id: start-nautobot-job
     name: Start Job
     overview: Start a Nautobot job and record its job result ID for status checks.

@@ -60,6 +60,7 @@ import {
   Type,
   type LucideIcon,
   CloudCog,
+  Trash2,
   UserRound,
   Wifi,
 } from "lucide-react";
@@ -126,6 +127,7 @@ export const CATEGORY_SUBGROUPS: Record<string, CategorySubgroup[]> = {
         "add-to-nautobot",
         "add-nautobot-metadata",
         "update-nautobot-device",
+        "remove-from-nautobot",
         "update-config-context",
       ],
     },
@@ -186,6 +188,7 @@ const nodeIconsByKind: Record<string, LucideIcon> = {
   "filter-output": Filter,
   "merge-content": Combine,
   "update-nautobot-device": CloudCog,
+  "remove-from-nautobot": Trash2,
   "add-nautobot-metadata": MapPin,
   "get-virtual-chassis": Layers,
   "get-device-location": MapPinned,

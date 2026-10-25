@@ -353,6 +353,18 @@ class DeviceCommonService:
         """Delegate to IPManager."""
         return await self.ip_manager.update_ip_address(ip_id, fields, find_parent=find_parent)
 
+    async def list_device_ip_ids(self, device_id: str) -> tuple[list[str], list[str]]:
+        """Delegate to IPManager: ``(owned, shared)`` IP address ids of a device."""
+        return await self.ip_manager.list_device_ip_ids(device_id)
+
+    async def delete_ip_address(self, ip_id: str) -> None:
+        """Delegate to IPManager."""
+        await self.ip_manager.delete_ip_address(ip_id)
+
+    async def delete_device(self, device_id: str) -> None:
+        """Delegate to DeviceManager."""
+        await self.device_manager.delete_device(device_id)
+
     async def assign_ip_to_interface(
         self, ip_id: str, interface_id: str, is_primary: bool = False
     ) -> dict:
