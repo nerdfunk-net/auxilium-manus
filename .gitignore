@@ -265,3 +265,6 @@ agent/.env~
 
 # ignore certs in the docker directory
 docker/certs/
+
+# config yaml
+config.yaml
