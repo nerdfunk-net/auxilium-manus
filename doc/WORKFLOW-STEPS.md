@@ -552,10 +552,17 @@ from Nautobot. Outcomes `success` / `failure`, `requires: [identity]`, `produces
   Nautobot data. Custom values live in `attribute_bags["custom"]`, never in the `nautobot` bag; they resolve
   as `{custom.<name>}` in file-path templates (strict mode fails on an empty one, like `nautobot.` and
   `git.`) and as `{{ custom.<name> }}` in Jinja. The full list is in `doc/MANUS_BASIS_DATATYPE.md`.
-- **Primary IP per device** (`get-git-devices`, target `_is_primary`): a true/false column picks the interface
-  whose IP becomes the device's `primary_ip4`. More than one flagged interface per device sends that device to
-  the step's `failure` outcome (`multiple_primary_ip`; also `primary_without_address`, `invalid_primary_flag`).
-  Details in `doc/MANUS_BASIS_DATATYPE.md`.
+- **Primary IP per device** (`get-git-devices`, target `_is_primary`): a true/false column (multi-line CSV, one
+  line per interface) picks the interface whose IP, with its namespace, becomes the device's `primary_ip4`. It
+  needs an `interfaces.ip_addresses.address` column and cannot be combined with any `primary_ip4.*` target.
+  No flagged line: no primary IP. The step has a `failure` outcome: a device with more than one flagged
+  interface (`multiple_primary_ip`; the same address in two namespaces counts twice), a flagged line without an
+  IP (`primary_without_address`) or a non-boolean flag (`invalid_primary_flag`) goes there with status `failed`
+  and gets no `primary_ip4`; all other devices continue on `success`. **With fan-out enabled there is no
+  `failure` outcome** (the engine fans out from `success` only): such a device fails the whole step. The preview
+  lists only accepted devices (`rejected_count`). Messages never quote the flag cell. "Load keys from repository"
+  pre-fills `interface_address`, `is_primary` and `namespace` columns. Full rules in
+  `doc/MANUS_BASIS_DATATYPE.md`.
 - **Default interface type** (`set-default-attributes`, `interface_type`): sets `type` on every interface of the
   `nautobot` bag that has none and changes nothing else on it (with `overwrite` it also replaces an existing
   type). It creates no interfaces and is not stored in the bag (`common/attribute_defaults.py`).
@@ -1310,6 +1317,10 @@ shared `workflow_steps/common/fan_out.py::build_fan_out_metadata` helper when `e
 is true (all seven inventory steps — `get-nautobot-devices`, `get-virtual-chassis`, `get-git-devices`,
 `get-ise-devices`, `get-catalyst-center-devices`, `get-from-list`, `get-from-user` — call this one helper; do not duplicate the
 sanitisation inline in a new inventory step).
+
+**Failure outcome and fan-out.** Fan-out starts every child from the inventory step's `success` outcome only, so
+an inventory step that reports devices on a `failure` outcome (today `get-git-devices` for primary-IP data
+problems) cannot deliver them when fan-out is enabled; it fails the step instead.
 
 ### Wait & Run — user-approved batching
 

@@ -42,6 +42,10 @@ YAML file separate it from the saved-inventory phrase above; a bare "get devices
   target list with `get_step_schema`. Map an IP "namespace" column to `primary_ip4.parent.namespace.name`
   (or `interfaces.ip_addresses.parent.namespace.name` for an interface address), and a value that is not
   Nautobot data to `custom.<name>`.
+- Which interface IP is the primary one: for a CSV with one line per interface (`csv_multiline`), map a
+  true/false column to `_is_primary` instead of mapping any `primary_ip4.*` target (the two cannot be combined;
+  `_is_primary` needs an `interfaces.ip_addresses.address` column). A device with more than one flagged
+  interface leaves through the `failure` outcome; with fan-out enabled it fails the step instead.
 - It needs no upstream step and produces `identity`. `get-nautobot-attributes` after it only works for
   devices that already exist in Nautobot.
 

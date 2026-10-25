@@ -182,6 +182,9 @@ from files in a Git repository and needs no Nautobot source.
    `get_step_schema` for the target list (it includes the IP namespace targets and `custom.<name>`).
    Map an IP "namespace" column to `primary_ip4.parent.namespace.name`, or `interfaces.ip_addresses.parent.namespace.name`
    for an interface address; use `custom.<name>` for a value that is not Nautobot data.
+   To choose the primary IP per device, map a true/false column to `_is_primary` (needs an
+   `interfaces.ip_addresses.address` column, cannot be combined with any `primary_ip4.*` target); a device with
+   several flagged interfaces leaves through the `failure` outcome (a step failure when fan-out is on).
 5. It `produces: [identity]` and `requires: []`, so it can start a branch and the chain convention above applies.
    It does not fill Nautobot attributes: `get-nautobot-attributes` after it only works for devices that
    already exist in Nautobot (with Nautobot ids).
