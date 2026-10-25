@@ -552,6 +552,10 @@ from Nautobot. Outcomes `success` / `failure`, `requires: [identity]`, `produces
   Nautobot data. Custom values live in `attribute_bags["custom"]`, never in the `nautobot` bag; they resolve
   as `{custom.<name>}` in file-path templates (strict mode fails on an empty one, like `nautobot.` and
   `git.`) and as `{{ custom.<name> }}` in Jinja. The full list is in `doc/MANUS_BASIS_DATATYPE.md`.
+- **Primary IP per device** (`get-git-devices`, target `_is_primary`): a true/false column picks the interface
+  whose IP becomes the device's `primary_ip4`. More than one flagged interface per device sends that device to
+  the step's `failure` outcome (`multiple_primary_ip`; also `primary_without_address`, `invalid_primary_flag`).
+  Details in `doc/MANUS_BASIS_DATATYPE.md`.
 - **Default interface type** (`set-default-attributes`, `interface_type`): sets `type` on every interface of the
   `nautobot` bag that has none and changes nothing else on it (with `overwrite` it also replaces an existing
   type). It creates no interfaces and is not stored in the bag (`common/attribute_defaults.py`).

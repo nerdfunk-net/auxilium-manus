@@ -31,6 +31,7 @@ import {
   customFieldName,
   customName,
   IGNORE_TARGET,
+  PRIMARY_FLAG_TARGET,
   isCustomFieldTarget,
   isCustomTarget,
   NAUTOBOT_TARGETS,
@@ -210,6 +211,14 @@ function DeviceMappingEditor({
                     </SelectTrigger>
                     <SelectContent className="max-h-72">
                       <SelectItem value={IGNORE_TARGET}>{targetLabel(IGNORE_TARGET)}</SelectItem>
+                      <SelectItem
+                        disabled={
+                          usedTargets.has(PRIMARY_FLAG_TARGET) && row.target !== PRIMARY_FLAG_TARGET
+                        }
+                        value={PRIMARY_FLAG_TARGET}
+                      >
+                        {targetLabel(PRIMARY_FLAG_TARGET)}
+                      </SelectItem>
                       {TARGET_GROUPS.map(({ group, targets }) => (
                         <SelectGroup key={group}>
                           <SelectLabel>{group}</SelectLabel>

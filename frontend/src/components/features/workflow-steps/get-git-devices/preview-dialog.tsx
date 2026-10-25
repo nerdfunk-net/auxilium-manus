@@ -45,6 +45,8 @@ interface GitDevicesPreviewDialogProps {
   onClose: () => void;
   devices: GitDevicePreview[];
   warnings: string[];
+  /** Devices a run would send to the failure output; they are not listed. */
+  rejectedCount: number;
   repositoryId: number | null;
 }
 
@@ -53,6 +55,7 @@ export function GitDevicesPreviewDialog({
   onClose,
   devices,
   warnings,
+  rejectedCount,
   repositoryId,
 }: GitDevicesPreviewDialogProps) {
   const repositoryLabel = useGitRepositoryLabel(repositoryId);
@@ -86,6 +89,8 @@ export function GitDevicesPreviewDialog({
             <code className="rounded bg-muted px-1 font-mono text-xs">
               {repositoryLabel ?? repositoryId}
             </code>
+            {rejectedCount > 0 &&
+              `; ${rejectedCount} more would leave through the failure output (see below)`}
           </DialogDescription>
         </DialogHeader>
 

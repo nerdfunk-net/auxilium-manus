@@ -10,10 +10,13 @@ from services.git.device_mapping import (
     DEFAULT_DEVICE_MAPPING,
     IGNORE_TARGET,
     NAUTOBOT_TARGETS,
+    PRIMARY_FLAG_TARGET,
     MappingRule,
     apply_device_mapping,
     apply_interface_mapping,
     collect_available_keys,
+    read_primary_flag,
+    resolve_primary_ip,
     resolve_source_value,
     validate_device_mapping,
     with_implicit_custom_field_rules,
@@ -435,6 +438,141 @@ class NamespaceAndCustomTargetTests(unittest.TestCase):
             {"interface": "eth0", "primary_ip4": "", "namespace": "black"}, rules
         )
         self.assertEqual(iface, {"name": "eth0"})
+
+
+class PrimaryFlagTests(unittest.TestCase):
+    BASE = [
+        {"source": "name", "target": "name"},
+        {"source": "interface_name", "target": "interfaces.name"},
+        {"source": "interface_address", "target": "interfaces.ip_addresses.address"},
+    ]
+
+    def _validate(self, *extra: dict) -> list[MappingRule]:
+        return validate_device_mapping([*self.BASE, *extra])
+
+    def test_target_accepted_and_not_a_nautobot_target(self) -> None:
+        rules = self._validate({"source": "is_primary", "target": PRIMARY_FLAG_TARGET})
+        self.assertIn(PRIMARY_FLAG_TARGET, [r.target for r in rules])
+        self.assertNotIn(PRIMARY_FLAG_TARGET, NAUTOBOT_TARGETS)
+
+    def test_only_once(self) -> None:
+        with self.assertRaisesRegex(ValueError, "duplicate"):
+            self._validate(
+                {"source": "a", "target": PRIMARY_FLAG_TARGET},
+                {"source": "b", "target": PRIMARY_FLAG_TARGET},
+            )
+
+    def test_requires_interface_ip(self) -> None:
+        with self.assertRaisesRegex(ValueError, "interfaces.ip_addresses.address"):
+            validate_device_mapping(
+                [
+                    {"source": "name", "target": "name"},
+                    {"source": "is_primary", "target": PRIMARY_FLAG_TARGET},
+                ]
+            )
+
+    def test_rejected_with_explicit_primary_address(self) -> None:
+        with self.assertRaisesRegex(ValueError, "primary_ip4.address"):
+            self._validate(
+                {"source": "is_primary", "target": PRIMARY_FLAG_TARGET},
+                {"source": "mgmt", "target": "primary_ip4.address"},
+            )
+
+    def test_flag_column_does_not_reach_device_or_interface(self) -> None:
+        rules = [MappingRule(**{"source": r["source"], "target": r["target"]}) for r in self.BASE]
+        rules.append(MappingRule("is_primary", PRIMARY_FLAG_TARGET))
+        row = {
+            "name": "d",
+            "interface_name": "eth0",
+            "interface_address": "10.0.0.2/24",
+            "is_primary": "true",
+        }
+        self.assertEqual(apply_device_mapping(row, rules), {"name": "d"})
+        self.assertEqual(
+            apply_interface_mapping(row, rules),
+            {"name": "eth0", "ip_addresses": [{"address": "10.0.0.2/24"}]},
+        )
+
+    def test_read_primary_flag_values(self) -> None:
+        rules = [MappingRule("p", PRIMARY_FLAG_TARGET)]
+        for text in ("true", "TRUE", " yes ", "y", "1", "t"):
+            self.assertIs(read_primary_flag({"p": text}, rules), True, text)
+        for text in ("false", "No", "n", "0", "f", "", "  "):
+            self.assertIs(read_primary_flag({"p": text}, rules), False, text)
+        self.assertIs(read_primary_flag({}, rules), False)
+        self.assertIsNone(read_primary_flag({"p": "maybe"}, rules))
+
+    def test_read_primary_flag_without_rule_is_false(self) -> None:
+        self.assertIs(read_primary_flag({"p": "true"}, [MappingRule("n", "name")]), False)
+
+    def test_resolve_none(self) -> None:
+        res = resolve_primary_ip([])
+        self.assertIsNone(res.primary_ip4)
+        self.assertEqual(res.problems, ())
+
+    def test_resolve_one_carries_namespace(self) -> None:
+        iface = {
+            "name": "eth0",
+            "ip_addresses": [
+                {"address": "10.0.0.2/24", "parent": {"namespace": {"name": "black"}}}
+            ],
+        }
+        res = resolve_primary_ip([iface])
+        self.assertEqual(
+            res.primary_ip4,
+            {"address": "10.0.0.2/24", "parent": {"namespace": {"name": "black"}}},
+        )
+        self.assertEqual(res.problems, ())
+
+    def test_resolve_multiple_is_a_problem(self) -> None:
+        a = {"name": "eth0", "ip_addresses": [{"address": "10.0.0.2/24"}]}
+        b = {"name": "eth1", "ip_addresses": [{"address": "192.168.1.1/24"}]}
+        res = resolve_primary_ip([a, b])
+        self.assertIsNone(res.primary_ip4)
+        self.assertEqual([p.code for p in res.problems], ["multiple_primary_ip"])
+        self.assertIn("eth0 (10.0.0.2/24)", res.problems[0].message)
+        self.assertIn("eth1 (192.168.1.1/24)", res.problems[0].message)
+
+    def test_resolve_identical_duplicates_collapse(self) -> None:
+        a = {"name": "eth0", "ip_addresses": [{"address": "10.0.0.2/24"}]}
+        res = resolve_primary_ip([a, dict(a)])
+        self.assertEqual(res.primary_ip4, {"address": "10.0.0.2/24"})
+        self.assertEqual(res.problems, ())
+
+    def test_resolve_flag_without_ip_is_a_problem(self) -> None:
+        res = resolve_primary_ip([{"name": "eth0"}])
+        self.assertIsNone(res.primary_ip4)
+        self.assertEqual([p.code for p in res.problems], ["primary_without_address"])
+
+    def test_resolve_same_address_in_two_namespaces_is_multiple(self) -> None:
+        def iface(namespace: str) -> dict:
+            return {
+                "name": "eth0",
+                "ip_addresses": [
+                    {"address": "10.0.0.2/24", "parent": {"namespace": {"name": namespace}}}
+                ],
+            }
+
+        res = resolve_primary_ip([iface("Global"), iface("black")])
+        self.assertIsNone(res.primary_ip4)
+        self.assertEqual([p.code for p in res.problems], ["multiple_primary_ip"])
+        self.assertIn("black", res.problems[0].message)
+
+    def test_problem_text_is_single_line_and_capped(self) -> None:
+        nasty = {"name": "eth0\nINFO forged", "ip_addresses": [{"address": "10.0.0.1/24"}]}
+        other = {"name": "x" * 500, "ip_addresses": [{"address": "10.0.0.2/24"}]}
+        message = resolve_primary_ip([nasty, other]).problems[0].message
+        self.assertNotIn("\n", message)
+        self.assertLess(len(message), 400)
+
+    def test_problem_list_is_capped(self) -> None:
+        many = [
+            {"name": f"e{i}", "ip_addresses": [{"address": f"10.0.0.{i}/24"}]} for i in range(20)
+        ]
+        message = resolve_primary_ip(many).problems[0].message
+        self.assertIn("20 interfaces", message)
+        self.assertIn("more", message)
+        self.assertNotIn("e19", message)
 
 
 class CatalogTests(unittest.TestCase):

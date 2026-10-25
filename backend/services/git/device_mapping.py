@@ -12,6 +12,7 @@ from __future__ import annotations
 import logging
 import re
 from collections.abc import Iterable, Mapping, Sequence
+from dataclasses import dataclass
 from typing import Any, NamedTuple
 
 logger = logging.getLogger(__name__)
@@ -87,6 +88,15 @@ NAME_TARGET = "name"
 # Pseudo target: the column/key is deliberately skipped. May be used for any number of columns.
 IGNORE_TARGET = "_ignore"
 
+# Pseudo target: the column flags the interface whose IP address becomes the device's primary IPv4
+# address (``true``/``false``). It feeds no Nautobot field; the line's interface IP is copied to
+# ``primary_ip4`` instead (``resolve_primary_ip``). At most one column.
+PRIMARY_FLAG_TARGET = "_is_primary"
+_PRIMARY_FLAG_TRUE = frozenset({"true", "t", "yes", "y", "1"})
+_PRIMARY_FLAG_FALSE = frozenset({"false", "f", "no", "n", "0"})
+PRIMARY_IP_PREFIX = "primary_ip4."
+_PSEUDO_TARGETS = frozenset({IGNORE_TARGET, PRIMARY_FLAG_TARGET})
+
 # Built-in mapping used when none is configured (the original hard-coded behaviour).
 DEFAULT_DEVICE_MAPPING: tuple[MappingRule, ...] = (
     MappingRule("name", "name"),
@@ -127,7 +137,8 @@ def validate_device_mapping(raw: Any) -> list[MappingRule]:
             rules.append(MappingRule(source, target))
             continue
         if (
-            target not in NAUTOBOT_TARGETS
+            target != PRIMARY_FLAG_TARGET
+            and target not in NAUTOBOT_TARGETS
             and not is_custom_field_target(target)
             and not is_custom_target(target)
         ):
@@ -148,6 +159,15 @@ def validate_device_mapping(raw: Any) -> list[MappingRule]:
             "device_mapping maps interface attributes but no source key "
             f"to '{INTERFACE_NAME_TARGET}'"
         )
+    if PRIMARY_FLAG_TARGET in seen_targets:
+        if _INTERFACE_IP_TARGET not in seen_targets:
+            raise ValueError(
+                f"device_mapping maps a primary flag but no source key to '{_INTERFACE_IP_TARGET}'"
+            )
+        clash = next((t for t in sorted(seen_targets) if t.startswith(PRIMARY_IP_PREFIX)), None)
+        if clash is not None:
+            # The flagged interface IP defines primary_ip4; a second source would be ambiguous.
+            raise ValueError(f"device_mapping: the primary flag cannot be combined with '{clash}'")
     if _PRIMARY_IP_NAMESPACE_TARGET in seen_targets and _PRIMARY_IP_TARGET not in seen_targets:
         raise ValueError(
             "device_mapping maps a primary IPv4 namespace but no source key "
@@ -206,7 +226,7 @@ def apply_device_mapping(entry: Any, rules: Iterable[MappingRule]) -> dict[str, 
         return None
     result: dict[str, Any] = {}
     for rule in rules:
-        if rule.target.startswith(INTERFACE_PREFIX) or rule.target == IGNORE_TARGET:
+        if rule.target.startswith(INTERFACE_PREFIX) or rule.target in _PSEUDO_TARGETS:
             continue
         value = _normalize_value(resolve_source_value(entry, rule.source), rule)
         if value is not None:
@@ -251,6 +271,127 @@ def apply_interface_mapping(entry: Any, rules: Iterable[MappingRule]) -> dict[st
             ip_entry = {**ip_entry, "parent": {"namespace": {"name": ip_namespace}}}
         result = {**result, "ip_addresses": [ip_entry]}
     return result
+
+
+class DeviceProblem(NamedTuple):
+    """A data problem that fails one device (routed to the step's ``failure`` outcome)."""
+
+    code: str
+    message: str
+
+
+@dataclass(frozen=True)
+class PrimaryResolution:
+    primary_ip4: dict[str, Any] | None
+    problems: tuple[DeviceProblem, ...] = ()
+
+
+def primary_flag_source(rules: Iterable[MappingRule]) -> str | None:
+    return next((r.source for r in rules if r.target == PRIMARY_FLAG_TARGET), None)
+
+
+def read_primary_flag(entry: Mapping[str, Any], rules: Iterable[MappingRule]) -> bool | None:
+    """The primary flag of a file line: ``True``/``False``, or ``None`` for an unreadable value.
+
+    Without a flag column, or with a blank cell, the line is not primary.
+    """
+    source = primary_flag_source(rules)
+    if source is None:
+        return False
+    value = resolve_source_value(entry, source)
+    if value is None:
+        return False
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (dict, list, tuple, set)):
+        return None
+    text = str(value).strip().lower()
+    if not text or text in _PRIMARY_FLAG_FALSE:
+        return False
+    return True if text in _PRIMARY_FLAG_TRUE else None
+
+
+def _interface_address(interface: Mapping[str, Any]) -> tuple[str | None, Mapping[str, Any]]:
+    ips = interface.get("ip_addresses")
+    first = ips[0] if isinstance(ips, list) and ips and isinstance(ips[0], Mapping) else {}
+    address = first.get("address")
+    return (str(address) if address else None), first
+
+
+_TEXT_LIMIT = 60
+_LISTED_LIMIT = 5
+
+
+def safe_text(value: object, limit: int = _TEXT_LIMIT) -> str:
+    """File content for a message: one line, printable characters only, at most ``limit`` long.
+
+    Messages end up in logs, persisted step output and the preview, so a cell must not be able
+    to add a log line or carry a long value (a shifted column can hold a secret) into them.
+    """
+    text = "".join(ch if ch.isprintable() else " " for ch in str(value)).strip()
+    return text if len(text) <= limit else f"{text[: limit - 1]}…"
+
+
+def _ip_namespace(ip_entry: Mapping[str, Any]) -> str | None:
+    parent = ip_entry.get("parent")
+    namespace = parent.get("namespace") if isinstance(parent, Mapping) else None
+    name = namespace.get("name") if isinstance(namespace, Mapping) else None
+    return str(name) if name else None
+
+
+def resolve_primary_ip(flagged_interfaces: Sequence[Mapping[str, Any]]) -> PrimaryResolution:
+    """Pick the device's primary IPv4 from the interfaces whose line was flagged primary.
+
+    Exactly one distinct (interface, address, namespace) gives ``primary_ip4`` (address plus
+    namespace of that interface IP); none gives no primary IP; several, or a flagged line
+    without an address, give a problem and no primary IP. The same address in two namespaces is
+    two addresses in Nautobot, so it counts as two.
+    """
+    with_address: dict[tuple[str, str, str | None], Mapping[str, Any]] = {}
+    without_address: list[str] = []
+    for interface in flagged_interfaces:
+        name = safe_text(interface.get("name") or "(unnamed interface)")
+        address, ip_entry = _interface_address(interface)
+        if address is None:
+            without_address.append(name)
+        else:
+            key = (name, safe_text(address), _ip_namespace(ip_entry))
+            with_address.setdefault(key, ip_entry)
+
+    problems: list[DeviceProblem] = []
+    if without_address:
+        listed = ", ".join(without_address[:_LISTED_LIMIT])
+        more = len(without_address) - _LISTED_LIMIT
+        problems.append(
+            DeviceProblem(
+                "primary_without_address",
+                "marked as primary but has no IP address: "
+                + listed
+                + (f" and {more} more" if more > 0 else ""),
+            )
+        )
+    if len(with_address) > 1:
+        entries = [
+            f"{name} ({address}{f', namespace {ns}' if ns else ''})"
+            for name, address, ns in with_address
+        ]
+        more = len(entries) - _LISTED_LIMIT
+        problems.append(
+            DeviceProblem(
+                "multiple_primary_ip",
+                f"{len(with_address)} interfaces are marked as primary, only one is allowed: "
+                + ", ".join(entries[:_LISTED_LIMIT])
+                + (f" and {more} more" if more > 0 else ""),
+            )
+        )
+    if problems or not with_address:
+        return PrimaryResolution(None, tuple(problems))
+    ip_entry = next(iter(with_address.values()))
+    address, _ = _interface_address({"ip_addresses": [ip_entry]})
+    primary: dict[str, Any] = {"address": address}
+    if isinstance(ip_entry.get("parent"), Mapping):
+        primary = {**primary, "parent": ip_entry["parent"]}
+    return PrimaryResolution(primary)
 
 
 def with_implicit_custom_field_rules(

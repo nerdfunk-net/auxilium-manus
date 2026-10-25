@@ -17,6 +17,12 @@ export const NAME_TARGET = "name";
 /** Pseudo target: skip this column/key. Mirrors `IGNORE_TARGET` in the backend. */
 export const IGNORE_TARGET = "_ignore";
 
+/**
+ * Pseudo target: a true/false column flagging the interface whose IP becomes the device's
+ * primary IPv4 address. Feeds no Nautobot field. Mirrors `PRIMARY_FLAG_TARGET` in the backend.
+ */
+export const PRIMARY_FLAG_TARGET = "_is_primary";
+
 export const NAUTOBOT_TARGETS: readonly NautobotTarget[] = [
   { value: "name", label: "Device name", group: "Device", core: true },
   { value: "hostname", label: "Hostname", group: "Device", core: false },
@@ -65,6 +71,7 @@ export const NAUTOBOT_TARGETS: readonly NautobotTarget[] = [
 
 export const INTERFACE_PREFIX = "interfaces.";
 export const INTERFACE_NAME_TARGET = "interfaces.name";
+export const PRIMARY_IP_PREFIX = "primary_ip4.";
 export const PRIMARY_IP_TARGET = "primary_ip4.address";
 export const PRIMARY_IP_NAMESPACE_TARGET = "primary_ip4.parent.namespace.name";
 export const INTERFACE_IP_TARGET = "interfaces.ip_addresses.address";
@@ -116,6 +123,9 @@ export function targetLabel(value: string): string {
   if (value === IGNORE_TARGET) {
     return "Ignore this column";
   }
+  if (value === PRIMARY_FLAG_TARGET) {
+    return "Primary interface flag (true/false)";
+  }
   if (isCustomTarget(value)) {
     return `Custom value · ${customName(value) || "…"}`;
   }
@@ -129,6 +139,7 @@ export function targetLabel(value: string): string {
 export function isKnownTarget(value: string): boolean {
   return (
     value === IGNORE_TARGET ||
+    value === PRIMARY_FLAG_TARGET ||
     TARGETS_BY_VALUE.has(value) ||
     isValidCustomFieldTarget(value) ||
     isValidCustomTarget(value)

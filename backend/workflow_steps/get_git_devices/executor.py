@@ -13,12 +13,15 @@ from services.git.device_service import GitDeviceService
 from workflow_steps.common.device_builders import device_context_from_git_detail
 from workflow_steps.common.fan_out import build_fan_out_metadata
 from workflow_steps.common.git_repository_loader import load_git_repository
+from workflow_steps.common.partial_outcomes import mark_device_failed
 from workflow_steps.common.step_flags import parse_bool_flag
 
 if TYPE_CHECKING:
     from services.network.netmiko.session_pool import DeviceSessionPool
 
 logger = logging.getLogger(__name__)
+
+_STEP_ID = "get-git-devices"
 
 
 async def execute(
@@ -82,6 +85,7 @@ async def execute(
     )
 
     new_devices: dict[str, DeviceContext] = {}
+    failed_devices: dict[str, DeviceContext] = {}
     for index, record in enumerate(result.records):
         device_ctx = device_context_from_git_detail(
             record.mapped,
@@ -89,14 +93,36 @@ async def execute(
             index=index,
             raw=record.raw,
         )
-        new_devices[device_ctx.id] = device_ctx
+        if record.problems:
+            # A data problem in the file (e.g. two primary interfaces) fails this device only.
+            for problem in record.problems:
+                device_ctx = mark_device_failed(
+                    device_ctx,
+                    node_id=node_id,
+                    step_id=_STEP_ID,
+                    code=problem.code,
+                    message=problem.message,
+                )
+            failed_devices[device_ctx.id] = device_ctx
+        else:
+            new_devices[device_ctx.id] = device_ctx
 
     fan_out_metadata = build_fan_out_metadata(config.get("fan_out"), node_id)
+    if fan_out_metadata is not None and failed_devices:
+        # The engine fans out from the success outcome only and seeds every child with it, so a
+        # failure outcome would be dropped and its devices never reach a later step.
+        codes = sorted({e.code for d in failed_devices.values() for e in d.errors})
+        raise RuntimeError(
+            f"get-git-devices: {len(failed_devices)} device(s) have invalid primary IP data "
+            f"({', '.join(codes)}); the failure outcome is not available with fan-out enabled, "
+            "fix the file or turn fan-out off"
+        )
 
     metadata_update: dict = {
         **context.metadata,
         f"{node_id}.git_repository_id": git_repository_id,
-        f"{node_id}.total": len(new_devices),
+        f"{node_id}.total": len(new_devices) + len(failed_devices),
+        f"{node_id}.failed": len(failed_devices),
         f"{node_id}.files_read": files_read,
         f"{node_id}.warnings": result.warnings,
     }
@@ -109,4 +135,19 @@ async def execute(
             "metadata": metadata_update,
         }
     )
-    return [StepOutcome(name="success", context=new_context)]
+    outcomes = [StepOutcome(name="success", context=new_context)]
+    if failed_devices:
+        # Only the failed devices travel on this path; the fan-out metadata stays on success.
+        failure_metadata = {k: v for k, v in metadata_update.items() if k != "_fan_out"}
+        outcomes.append(
+            StepOutcome(
+                name="failure",
+                context=context.model_copy(
+                    update={
+                        "devices": failed_devices,
+                        "metadata": failure_metadata,
+                    }
+                ),
+            )
+        )
+    return outcomes

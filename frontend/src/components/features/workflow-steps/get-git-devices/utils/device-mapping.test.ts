@@ -4,7 +4,7 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { NAUTOBOT_TARGETS } from "../constants/nautobot-targets";
-import { IGNORE_TARGET, isKnownTarget } from "../constants/nautobot-targets";
+import { IGNORE_TARGET, PRIMARY_FLAG_TARGET, isKnownTarget } from "../constants/nautobot-targets";
 import {
   DEFAULT_MAPPING,
   hasMappingErrors,
@@ -119,6 +119,37 @@ describe("ignore target", () => {
 });
 
 describe("suggestTarget", () => {
+  it("maps namespace columns to the interface IP namespace", () => {
+    for (const key of ["namespace", "interface_namespace", "interface_ip_namespace"]) {
+      expect(suggestTarget(key)).toBe("interfaces.ip_addresses.parent.namespace.name");
+    }
+  });
+
+  it("ignores a namespace column when the file has no interface IP address column", () => {
+    const rows = mappingFromKeys([], ["name", "namespace"]);
+    expect(rows.find((r) => r.source === "namespace")?.target).toBe(IGNORE_TARGET);
+    expect(hasMappingErrors(validateMapping(rows))).toBe(false);
+  });
+
+  it("pre-fills the whole interface CSV from its header", () => {
+    const rows = mappingFromKeys(
+      [],
+      ["name", "interface_name", "interface_address", "is_primary", "namespace"],
+    );
+    expect(rows.map((r) => r.target)).toEqual([
+      "name",
+      "interfaces.name",
+      "interfaces.ip_addresses.address",
+      PRIMARY_FLAG_TARGET,
+      "interfaces.ip_addresses.parent.namespace.name",
+    ]);
+    expect(hasMappingErrors(validateMapping(rows))).toBe(false);
+  });
+
+  it("maps interface_address to the interface IP address", () => {
+    expect(suggestTarget("interface_address")).toBe("interfaces.ip_addresses.address");
+  });
+
   it("recognises common column names, case-insensitively", () => {
     expect(suggestTarget("ip_address")).toBe("primary_ip4.address");
     expect(suggestTarget("Role")).toBe("role.name");
@@ -131,7 +162,7 @@ describe("suggestTarget", () => {
   });
 
   it("falls back to ignore for unknown columns", () => {
-    expect(suggestTarget("namespace")).toBe(IGNORE_TARGET);
+    expect(suggestTarget("something_else")).toBe(IGNORE_TARGET);
   });
 });
 
@@ -216,5 +247,54 @@ describe("namespace and custom value targets", () => {
     expect(isKnownTarget("custom.ns")).toBe(true);
     expect(isKnownTarget("custom_fields.ns")).toBe(true);
     expect(isKnownTarget("customs.ns")).toBe(false);
+  });
+});
+
+describe("primary flag target", () => {
+  const base = [
+    { source: "name", target: "name" },
+    { source: "interface_name", target: "interfaces.name" },
+    { source: "interface_address", target: "interfaces.ip_addresses.address" },
+  ];
+
+  it("is a known target and is suggested for is_primary", () => {
+    expect(isKnownTarget(PRIMARY_FLAG_TARGET)).toBe(true);
+    expect(suggestTarget("is_primary")).toBe(PRIMARY_FLAG_TARGET);
+  });
+
+  it("accepts the flag next to an interface IP column", () => {
+    const rules = [...base, { source: "is_primary", target: PRIMARY_FLAG_TARGET }];
+    expect(hasMappingErrors(validateMapping(rules))).toBe(false);
+  });
+
+  it("may only be mapped once", () => {
+    const rules = [
+      ...base,
+      { source: "a", target: PRIMARY_FLAG_TARGET },
+      { source: "b", target: PRIMARY_FLAG_TARGET },
+    ];
+    expect(validateMapping(rules).rows[4]).toMatch(/only be mapped once/);
+  });
+
+  it("needs an interface IP address column", () => {
+    const rules = [
+      { source: "name", target: "name" },
+      { source: "is_primary", target: PRIMARY_FLAG_TARGET },
+    ];
+    expect(validateMapping(rules).form).toMatch(/Interface IP address/);
+  });
+
+  it("cannot be combined with a primary IPv4 target", () => {
+    const rules = [
+      ...base,
+      { source: "is_primary", target: PRIMARY_FLAG_TARGET },
+      { source: "mgmt", target: "primary_ip4.address" },
+    ];
+    expect(validateMapping(rules).form).toMatch(/Primary IPv4/);
+  });
+
+  it("is only suggested once when two keys would claim it", () => {
+    const rows = mappingFromKeys([], ["is_primary", "primary"]);
+    expect(rows.filter((r) => r.target === PRIMARY_FLAG_TARGET)).toHaveLength(1);
   });
 });

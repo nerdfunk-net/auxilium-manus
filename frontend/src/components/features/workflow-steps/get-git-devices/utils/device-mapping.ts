@@ -8,7 +8,9 @@ import {
   INTERFACE_IP_TARGET,
   INTERFACE_NAME_TARGET,
   INTERFACE_PREFIX,
+  PRIMARY_FLAG_TARGET,
   PRIMARY_IP_NAMESPACE_TARGET,
+  PRIMARY_IP_PREFIX,
   PRIMARY_IP_TARGET,
   isCustomFieldTarget,
   isCustomTarget,
@@ -99,6 +101,15 @@ export function validateMapping(rules: readonly DeviceMappingRule[]): MappingErr
   ) {
     errors.form ??= "An interface IP namespace needs a column mapped to “Interface IP address”.";
   }
+  if (rules.some((rule) => rule.target === PRIMARY_FLAG_TARGET)) {
+    if (!rules.some((rule) => rule.target === INTERFACE_IP_TARGET)) {
+      errors.form ??= "The primary flag needs a column mapped to “Interface IP address”.";
+    }
+    if (rules.some((rule) => rule.target.startsWith(PRIMARY_IP_PREFIX))) {
+      errors.form ??=
+        "The primary flag defines the primary IPv4 address; do not also map a “Primary IPv4” attribute.";
+    }
+  }
   return errors;
 }
 
@@ -148,6 +159,14 @@ const KEY_ALIASES: Readonly<Record<string, string>> = {
   interface_status: "interfaces.status.name",
   interface_ip: "interfaces.ip_addresses.address",
   interface_ip_address: "interfaces.ip_addresses.address",
+  interface_address: "interfaces.ip_addresses.address",
+  // The primary IP is one of the interface IPs, so a namespace column belongs to the interface IP.
+  namespace: "interfaces.ip_addresses.parent.namespace.name",
+  interface_namespace: "interfaces.ip_addresses.parent.namespace.name",
+  interface_ip_namespace: "interfaces.ip_addresses.parent.namespace.name",
+  is_primary: PRIMARY_FLAG_TARGET,
+  primary: PRIMARY_FLAG_TARGET,
+  interface_is_primary: PRIMARY_FLAG_TARGET,
 };
 
 /** Best-guess target for a file key; `IGNORE_TARGET` when nothing matches. */
@@ -180,12 +199,16 @@ export function mappingFromKeys(
   const usedSources = new Set(base.map((rule) => rule.source));
   const usedTargets = new Set(base.map((rule) => rule.target));
   const added: DeviceMappingRule[] = [];
-  for (const key of keys) {
-    // Nested keys (a.b) are offered for picking but a row per column is what users expect.
-    if (key.includes(".") || usedSources.has(key)) {
-      continue;
-    }
-    const suggested = suggestTarget(key);
+  // Nested keys (a.b) are offered for picking but a row per column is what users expect.
+  const fileKeys = [...new Set(keys)].filter((key) => !key.includes(".") && !usedSources.has(key));
+  // An IP namespace is only valid next to an IP address column; without one it stays ignored.
+  const hasInterfaceIp =
+    usedTargets.has(INTERFACE_IP_TARGET) ||
+    fileKeys.some((key) => suggestTarget(key) === INTERFACE_IP_TARGET);
+  for (const key of fileKeys) {
+    const raw = suggestTarget(key);
+    const suggested =
+      raw === INTERFACE_IP_NAMESPACE_TARGET && !hasInterfaceIp ? IGNORE_TARGET : raw;
     const target =
       suggested !== IGNORE_TARGET && usedTargets.has(suggested) ? IGNORE_TARGET : suggested;
     usedSources.add(key);

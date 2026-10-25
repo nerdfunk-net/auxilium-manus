@@ -53,6 +53,9 @@ class GitDevicePreviewResponse(BaseModel):
     files_read: int
     available_keys: list[str]
     warnings: list[str]
+    # Devices left out of ``devices`` because the run would send them to the failure outcome
+    # (the reason of each is in ``warnings``).
+    rejected_count: int = 0
 
 
 class GitContentSearchPreviewRequest(BaseModel):
@@ -134,12 +137,14 @@ async def preview_git_devices(
                 csv_multiline=request.csv_multiline,
             ),
         )
+        accepted = [record for record in result.records if not record.problems]
         return GitDevicePreviewResponse(
-            devices=[record.mapped for record in result.records],
-            total_count=len(result.records),
+            devices=[record.mapped for record in accepted],
+            total_count=len(accepted),
             files_read=result.files_read,
             available_keys=result.available_keys,
             warnings=result.warnings,
+            rejected_count=len(result.records) - len(accepted),
         )
     except (HTTPException, DomainError):
         raise

@@ -86,6 +86,7 @@ function GitDevicesConfigPanel({ config, onChange }: PluginConfigPanelProps) {
   const [previewDevices, setPreviewDevices] = useState<GitDevicePreview[]>([]);
   const [availableKeys, setAvailableKeys] = useState<string[]>(EMPTY_KEYS);
   const [previewWarnings, setPreviewWarnings] = useState<string[]>(EMPTY_KEYS);
+  const [previewRejected, setPreviewRejected] = useState(0);
 
   const {
     mutateAsync: runPreview,
@@ -164,6 +165,7 @@ function GitDevicesConfigPanel({ config, onChange }: PluginConfigPanelProps) {
       });
       setAvailableKeys(result.available_keys);
       setPreviewWarnings(result.warnings);
+      setPreviewRejected(result.rejected_count ?? 0);
       return result;
     } catch {
       // error state is surfaced via previewIsError / previewError below
@@ -408,6 +410,7 @@ function GitDevicesConfigPanel({ config, onChange }: PluginConfigPanelProps) {
         onClose={() => setPreviewOpen(false)}
         devices={previewDevices}
         warnings={previewWarnings}
+        rejectedCount={previewRejected}
         repositoryId={repositoryId}
       />
     </div>

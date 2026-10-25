@@ -1270,7 +1270,24 @@ Extra mapping targets (all formats):
 
 - `_ignore` — skips that key/column; usable for any number of columns. An ignored `cf_<name>` column is not
   mapped to a custom field. In the UI, "Load keys from repository" adds one row per column found, pre-filled
-  from a table of common names and set to ignore otherwise.
+  from a table of common names (`interface_address`, `namespace`/`interface_namespace` -> interface IP address
+  and namespace, `is_primary` -> `_is_primary`) and set to ignore otherwise. A namespace column is only suggested
+  when the file also has an interface IP address column.
+- `_is_primary` — a true/false column (`true/t/yes/y/1`, `false/f/no/n/0`, blank = false) that chooses the
+  device's **primary IPv4 address** per device (multi-line CSV: one flagged line per device). It feeds no
+  Nautobot field: the IP address of the flagged line's interface (with its namespace) becomes
+  `nautobot.primary_ip4` and `DeviceContext.primary_ip4`. Mappable once; needs an
+  `interfaces.ip_addresses.address` column; rejected together with any `primary_ip4.*` target. No flagged
+  line: the device gets no primary IP. A device that leaves through the step's **`failure`** outcome
+  (status `failed`, `errors[].code`) has: more than one flagged interface (`multiple_primary_ip`), a flagged line
+  without an IP (`primary_without_address`) or a value that is not a boolean (`invalid_primary_flag`). The
+  remaining devices continue on `success`; the problems also appear in `<node>.warnings`. The same address in two
+  namespaces counts as two primaries. Messages never quote the flag cell (a shifted column can hold a secret);
+  interface names and addresses are printed on one line and capped. The preview lists only accepted devices and
+  reports the others as `rejected_count` plus a warning each. **With fan-out enabled the `failure` outcome does
+  not exist** (the engine fans out from `success` only): any rejected device fails the whole step with a
+  `RuntimeError` naming the codes, so fix the file or turn fan-out off. A device with any problem never gets a
+  `primary_ip4`, even when another line is validly flagged.
 
 A line whose field count differs from the header (a missing `;` shifts values into the wrong columns) is still
 read but reported in the step's `<node>.warnings` and in the preview. Mapping, parsing and merging live in

@@ -43,6 +43,8 @@ export interface GitPreviewResponse {
   available_keys: string[];
   /** Problems found while reading files (wrong shape, skipped entries, no files). */
   warnings: string[];
+  /** Devices left out of `devices` because a run would send them to the failure output. */
+  rejected_count?: number;
 }
 
 interface GitPreviewRequest {

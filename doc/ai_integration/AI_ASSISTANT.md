@@ -1014,7 +1014,7 @@ authentication failures reuse `timeout` and `auth_failed`. A stream cut off befo
   too: "resource not found" is `not_found`, "already exists" is `already_exists`. The device steps (`get-nautobot-attributes`, `add-to-nautobot`,
   `update-nautobot-device`, `exists-in-nautobot`, `add-nautobot-metadata`,
   `update-config-context`, `start-nautobot-job`, `check-nautobot-job`, `get-next-free-ip`,
-  `add-ip-to-nautobot`, `update-nautobot-ip`) copy it to the device
+  `add-ip-to-nautobot`, `update-nautobot-ip`, `remove-from-nautobot`) copy it to the device
   error; a Nautobot job that ended unsuccessfully or never finished is recorded as `task_failed` /
   `task_timeout` (phase `task`) with the check count; `start-workflow` records the same two kinds
   for a started run that ended unsuccessfully or was still running when its wait ran out (elapsed

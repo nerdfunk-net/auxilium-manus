@@ -10,11 +10,13 @@ from typing import Any
 import yaml
 
 from services.git.csv_device_reader import ALLOWED_DELIMITERS, read_csv_rows
-from services.git.device_grouping import map_single_row, merge_device_rows
+from services.git.device_grouping import map_single_row_with_problems, merge_device_rows
 from services.git.device_mapping import (
     NAME_TARGET,
+    DeviceProblem,
     MappingRule,
     collect_available_keys,
+    safe_text,
     validate_device_mapping,
     with_implicit_custom_field_rules,
 )
@@ -67,6 +69,8 @@ class GitDeviceRecord:
 
     raw: dict[str, Any]
     mapped: dict[str, Any]
+    # Data problems that fail this device (several primary interfaces, ...).
+    problems: tuple[DeviceProblem, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -175,15 +179,22 @@ class GitDeviceService:
 
         if file_format == "csv" and csv_multiline:
             groups, group_warnings = merge_device_rows(raw_entries, rules)
-            records = [GitDeviceRecord(raw=g.raw, mapped=g.mapped) for g in groups]
+            records = [
+                GitDeviceRecord(raw=g.raw, mapped=g.mapped, problems=g.problems) for g in groups
+            ]
             warnings.extend(group_warnings)
         else:
             records = []
             for entry in raw_entries:
-                mapped = map_single_row(entry, rules)
+                mapped, problems = map_single_row_with_problems(entry, rules)
                 if mapped is not None:
-                    records.append(GitDeviceRecord(raw=entry, mapped=mapped))
+                    records.append(GitDeviceRecord(raw=entry, mapped=mapped, problems=problems))
             warnings.extend(_single_mode_warnings(records, len(raw_entries), rules, file_format))
+        warnings.extend(
+            f"{safe_text(record.mapped['name'])}: {problem.message}"
+            for record in records
+            for problem in record.problems
+        )
 
         for warning in warnings:
             logger.warning("Git repository '%s': %s", name, warning)

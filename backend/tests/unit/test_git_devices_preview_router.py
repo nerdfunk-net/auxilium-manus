@@ -92,3 +92,32 @@ def test_preview_bad_delimiter_is_400(client) -> None:
         json={"filename_pattern": "*.csv", "file_format": "csv", "csv_delimiter": "abc"},
     )
     assert resp.status_code == 400
+
+
+def test_preview_leaves_out_devices_the_run_would_reject(client, tmp_path) -> None:
+    (tmp_path / "d.csv").write_text(
+        "name;interface_name;interface_address;is_primary\n"
+        "bad;eth0;10.0.0.2/24;true\n"
+        "bad;eth1;10.0.1.2/24;true\n"
+        "good;eth0;10.1.0.2/24;true\n"
+    )
+    resp = client.post(
+        "/api/git/1/preview-devices",
+        json={
+            "filename_pattern": "*.csv",
+            "file_format": "csv",
+            "csv_multiline": True,
+            "device_mapping": [
+                {"source": "name", "target": "name"},
+                {"source": "interface_name", "target": "interfaces.name"},
+                {"source": "interface_address", "target": "interfaces.ip_addresses.address"},
+                {"source": "is_primary", "target": "_is_primary"},
+            ],
+        },
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert [d["name"] for d in body["devices"]] == ["good"]
+    assert body["total_count"] == 1
+    assert body["rejected_count"] == 1
+    assert any(w.startswith("bad: ") for w in body["warnings"])

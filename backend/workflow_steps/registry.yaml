@@ -2056,6 +2056,7 @@ plugins:
     produces: [identity]
     outcomes:
       - name: success
+      - name: failure
     metadata:
       configuration_input:
         - name: git_repository_id
@@ -2107,7 +2108,15 @@ plugins:
             (needs an interfaces.ip_addresses.address column), custom_fields.<name>
             (keys or columns named cf_<name> map to it automatically) and custom.<name>, a
             value that is not Nautobot data (stored in the "custom" attribute bag, read as
-            {custom.<name>}). The target _ignore skips a key/column.
+            {custom.<name>}). The target _ignore skips a key/column. The target _is_primary
+            takes a true/false column (CSV with several lines per device) and makes the IP
+            address of the flagged interface line the device's primary IPv4 address
+            (primary_ip4, with that IP's namespace). It needs an interfaces.ip_addresses.address
+            column and cannot be combined with any primary_ip4.* target. A device with no
+            flagged line gets no primary IP; a device with more than one flagged interface (or
+            an unreadable flag) leaves through the failure outcome with error code
+            multiple_primary_ip, primary_without_address or invalid_primary_flag.
+            Not available with fan-out: then any such device fails the step.
           data_type: array
           required: false
           example:

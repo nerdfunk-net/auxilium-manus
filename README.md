@@ -98,8 +98,8 @@ trigger specific workflows and settings.
   configs, and read device details, topology, and health scores through the REST Intent API
   (see [doc/CISCO_CATALYST_INTEGRATION.md](doc/CISCO_CATALYST_INTEGRATION.md))
 - Deeper Nautobot steps: start and check Nautobot jobs, update devices, interfaces and
-  config contexts, add metadata (locations, device types), and read or split virtual
-  chassis (switch stacks)
+  config contexts, add metadata (locations, device types), remove devices (optionally with
+  their IP addresses), and read or split virtual chassis (switch stacks)
 - Route to Agent: send selected attributes and content to your own Python **agent** (HTTP, or Redis for
   agents on other hosts), encrypted and authenticated end to end, and use its JSON answer in the workflow
   (see [doc/AGENT_INTEGRATION.md](doc/AGENT_INTEGRATION.md); the reference agent is in [agent/](agent/))

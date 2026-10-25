@@ -173,6 +173,19 @@ export function GetGitDevicesHelpPanel() {
           <HelpCode>custom.namespace</HelpCode> →{" "}
           <HelpCode>{"{custom.namespace}"}</HelpCode>.
         </p>
+        <p>
+          To choose a device&apos;s primary IP address, add a{" "}
+          <HelpCode>true</HelpCode>/<HelpCode>false</HelpCode> column and map it to{" "}
+          <HelpCode>Primary interface flag</HelpCode> (needs a column mapped to{" "}
+          <HelpCode>Interface IP address</HelpCode>; do not also map a Primary IPv4
+          attribute). The IP address (and namespace) on the flagged line becomes the
+          device&apos;s primary IPv4 address. A device without a flagged line gets none.
+          A device with <span className="font-medium text-foreground">more than one</span>{" "}
+          flagged interface leaves through the{" "}
+          <span className="font-medium text-foreground">failure</span> output with the error
+          code <HelpCode>multiple_primary_ip</HelpCode>; all other devices continue on{" "}
+          <span className="font-medium text-foreground">success</span>.
+        </p>
       </HelpSection>
 
       <HelpSection title="Show Preview">
