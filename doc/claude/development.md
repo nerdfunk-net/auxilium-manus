@@ -98,9 +98,9 @@ python -m pytest tests/integration -m mutations --no-cov --run-mutations
 # after a change under docker/), audit.yml (weekly pip-audit and npm audit), secret-scan.yml
 # (gitleaks with .gitleaks.toml: gitleaks detect --source . --no-git --redact -v).
 
-# Agent (agent/ is standalone, Python 3.12 deps; its own ruff.toml and CI: .github/workflows/agent-ci.yml)
-cd agent && pip install -r requirements-dev.txt && ruff check . && python -m pytest
-# agent/manus_agent/envelope.py is a generated copy of backend/services/agents/envelope.py:
+# Agents (agent/<name>/ is standalone, one directory per agent: example-agent, get-ip-addresses; Python 3.12 deps; each has its own ruff.toml, the CI matrix is .github/workflows/agent-ci.yml)
+cd agent/<name> && pip install -r requirements-dev.txt && ruff check . && python -m pytest
+# agent/<name>/manus_agent/envelope.py is a generated copy of backend/services/agents/envelope.py:
 # change the backend file, regenerate the copy, never run ruff --fix on it (test_agent_envelope_sync.py)
 
 # Regression guards (run from backend/):

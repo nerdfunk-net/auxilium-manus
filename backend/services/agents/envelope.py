@@ -14,9 +14,9 @@ HTTP and on Redis::
 * AAD: the canonical header (everything except ``nonce`` and ``ct``), so the ids, the direction
   and the validity window cannot be changed without failing the tag check.
 * Replay: ``exp`` bounds a message's life; the receiving agent also remembers seen
-  ``command_id`` values until ``exp`` (see ``agent/manus_agent``).
+  ``command_id`` values until ``exp`` (see ``agent/<name>/manus_agent``).
 
-``agent/manus_agent/envelope.py`` is a standalone copy of this module (the agent must not import
+``agent/<name>/manus_agent/envelope.py`` is a standalone copy of this module (the agent must not import
 the backend); ``tests/unit/fixtures/agent_envelope_vectors.json`` is run against both and
 ``tests/unit/test_agent_envelope_sync.py`` fails when the two copies drift apart.
 Error messages never contain the secret or payload.

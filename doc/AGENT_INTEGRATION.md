@@ -9,8 +9,8 @@ Use it when the logic is too complex for expressions, filters or Jinja: for exam
 Nautobot attributes of a device and derive a location name from a naming convention.
 
 Read this file before changing anything under `backend/services/agents/`,
-`backend/workflow_steps/route_to_agent/`, `backend/routers/sources/agent/`, `agent/` or
-`docker/redis/`. The operator-facing guide for writing handlers is `agent/README.md`.
+`backend/workflow_steps/route_to_agent/`, `backend/routers/sources/agent/`, `agent/` (each agent is an independent directory: `example-agent`, `get-ip-addresses`) or
+`docker/redis/`. The operator-facing guide for writing handlers is `agent/example-agent/README.md`.
 
 ## Contents
 
@@ -95,10 +95,10 @@ The step applies the same rules as `store-for-report` and the persisted copy of 
 
 ## The message envelope
 
-`backend/services/agents/envelope.py` is the reference; `agent/manus_agent/envelope.py` is a standalone
-copy (the agent must not import the backend). `backend/tests/unit/test_agent_envelope_sync.py` fails when
+`backend/services/agents/envelope.py` is the reference; `agent/<name>/manus_agent/envelope.py` is a standalone
+copy in every agent (an agent must not import the backend). `backend/tests/unit/test_agent_envelope_sync.py` fails when
 they drift, and the same test vectors (`backend/tests/unit/fixtures/agent_envelope_vectors.json`, copied to
-`agent/tests/fixtures/`) are run by both suites. **Change both together**, then regenerate the agent copy
+`agent/<name>/tests/fixtures/`) are run by both suites. **Change both together**, then regenerate every agent copy
 (it differs only in the `MIN_AGENT_SECRET_LENGTH` import line).
 
 ```json
@@ -199,7 +199,7 @@ says so and keeps the saved agent visible; see `doc/OPEN_TODOS.md`.
 
 ### 3. Run the agent
 
-Standalone (`agent/README.md`): `python -m manus_agent` with `MANUS_AGENT_ID`, `MANUS_AGENT_SECRET` and
+Standalone (`agent/example-agent/README.md`): `python -m manus_agent` with `MANUS_AGENT_ID`, `MANUS_AGENT_SECRET` and
 `MANUS_AGENT_HTTP_PORT` and/or `MANUS_AGENT_REDIS_URL`.
 
 On the application's Docker host:
@@ -207,7 +207,7 @@ On the application's Docker host:
 ```bash
 cd docker
 cp docker-compose.agent.example.yml docker-compose.agent.yml
-mkdir agent-handlers && cp ../agent/handlers/examples.py agent-handlers/
+mkdir agent-handlers && cp ../agent/example-agent/handlers/examples.py agent-handlers/
 # docker/.env: MANUS_AGENT_ID, MANUS_AGENT_SECRET (and MANUS_AGENT_REDIS_PASSWORD for the Redis transport)
 docker compose -f docker-compose.yml -f docker-compose.agent.yml up -d --build
 ```
@@ -282,7 +282,7 @@ the secret-path rules, which fail the step at start instead.
 
 ## The agent
 
-`agent/` is a standalone package (Python 3.12, `cryptography`, `redis`, `aiohttp`) with its own tests, ruff
+`agent/<name>/` is a standalone package, one per agent (`example-agent` is the reference, `get-ip-addresses` an independent copy of it; Python 3.12, `cryptography`, `redis`, `aiohttp`) with its own tests, ruff
 config, Dockerfile and CI (`.github/workflows/agent-ci.yml`). Layout:
 
 - `manus_agent/envelope.py` generated copy of the backend envelope
@@ -379,6 +379,6 @@ The kinds are part of the closed vocabulary in `backend/models/failure.py`
 | Failure vocabulary | `backend/models/failure.py` |
 | Permissions | `backend/services/auth/rbac_seed.py` (`sources.agent`) |
 | Frontend | `frontend/src/components/features/workflow-steps/route-to-agent/`, `frontend/src/components/features/settings/dialogs/agent-source-dialog.tsx`, `…/settings/components/agent-status-panel.tsx`, `…/settings/utils/agent-redis-acl.ts`, `frontend/src/hooks/queries/use-agent-sources-*.ts` |
-| Agent | `agent/` |
+| Agent | `agent/example-agent/`, `agent/get-ip-addresses/` |
 | Redis ACL / compose | `docker/redis/`, `docker/docker-compose.yml` (`manus-redis`), `docker/docker-compose.agent.example.yml` |
-| Tests | `backend/tests/unit/test_agent_*.py`, `test_route_to_agent_*.py` (incl. `test_agent_interop.py`, `test_agent_envelope_sync.py`), `agent/tests/`, frontend `route-to-agent/*.test.*`, `agent-source-dialog.test.tsx` |
+| Tests | `backend/tests/unit/test_agent_*.py`, `test_route_to_agent_*.py` (incl. `test_agent_interop.py`, `test_agent_envelope_sync.py`), `agent/*/tests/`, frontend `route-to-agent/*.test.*`, `agent-source-dialog.test.tsx` |

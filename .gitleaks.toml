@@ -22,7 +22,7 @@ paths = [
   '''^backend/tests/unit/test_workflow_crypto_attribute_router\.py$''',
   # Fixed, public test secret shared by the backend and agent envelope tests (test vectors).
   '''^backend/tests/unit/fixtures/agent_envelope_vectors\.json$''',
-  '''^agent/tests/fixtures/agent_envelope_vectors\.json$''',
+  '''^agent/[^/]+/tests/fixtures/agent_envelope_vectors\.json$''',
 ]
 
 [[allowlists]]

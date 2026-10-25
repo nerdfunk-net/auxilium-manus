@@ -185,7 +185,7 @@ class HttpTokenTests(unittest.TestCase):
 
 
 class VectorTests(unittest.TestCase):
-    """The same vectors run in agent/tests: proves both copies are byte-compatible."""
+    """The same vectors run in agent/<name>/tests: proves both copies are byte-compatible."""
 
     def test_vectors_open(self) -> None:
         data = json.loads(VECTORS.read_text())

@@ -3,7 +3,7 @@ FROM python:3.12-slim
 WORKDIR /app
 
 # Optional company root CAs (TLS-inspecting proxy / private PKI): put PEM files named *.crt (or *.pem)
-# into agent/certs/. If there are none, nothing below is set and the image behaves as before.
+# into agent/example-agent/certs/. If there are none, nothing below is set and the image behaves as before.
 # pip.conf makes pip trust the bundle at build time; the marker file makes entrypoint.sh export
 # REQUESTS_CA_BUNDLE / SSL_CERT_FILE at run time.
 COPY certs/ /tmp/certs/

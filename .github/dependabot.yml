@@ -17,12 +17,20 @@ updates:
         update-types: ["version-update:semver-major"]
       - dependency-name: netmiko
   - package-ecosystem: pip
-    directory: /agent
+    directory: /agent/example-agent
     schedule:
       interval: weekly
     open-pull-requests-limit: 3
     groups:
       agent-minor-patch:
+        update-types: [minor, patch]
+  - package-ecosystem: pip
+    directory: /agent/get-ip-addresses
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 3
+    groups:
+      get-ip-addresses-minor-patch:
         update-types: [minor, patch]
   - package-ecosystem: pip
     directory: /pyats-shim

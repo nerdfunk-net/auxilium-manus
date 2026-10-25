@@ -1,6 +1,6 @@
-# Run a Route to Agent agent (agent/, doc/AGENT_INTEGRATION.md) next to the application.
+# Run a Route to Agent agent (agent/example-agent/, doc/AGENT_INTEGRATION.md) next to the application.
 #
-# Copy this file, put your handlers in ./agent-handlers (see agent/handlers/examples.py), set the
+# Copy this file, put your handlers in ./agent-handlers (see agent/example-agent/handlers/examples.py), set the
 # variables below in docker/.env, and start both files:
 #
 #   docker compose -f docker-compose.yml -f docker-compose.agent.yml up -d --build
@@ -17,7 +17,7 @@
 services:
   manus-agent:
     build:
-      context: ../agent
+      context: ../agent/example-agent
     container_name: manus-agent
     restart: unless-stopped
     environment:

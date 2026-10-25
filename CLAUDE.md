@@ -21,7 +21,7 @@ Netmiko, GitPython
 **Integrations:** Nautobot API, Cisco Catalyst Center (REST Intent API) — read
 `doc/CISCO_CATALYST_INTEGRATION.md` before changing it or adding Catalyst Center features/steps;
 external **agents** (Route to Agent step, `/agent` reference agent) — read `doc/AGENT_INTEGRATION.md`
-before changing `backend/services/agents/`, `route_to_agent`, `agent/` or `docker/redis/`
+before changing `backend/services/agents/`, `route_to_agent`, `agent/` (every agent below it) or `docker/redis/`
 
 ## Architecture
 
@@ -137,7 +137,7 @@ export default function MyFeatureRoute() {
 - `/backend/core/rate_limit.py` — `rate_limited(...)` per-user dependency
 - `/backend/core/vault.py`, `/backend/services/vault/` — OpenBao client; `/backend/services/secret_manager/` — Secret Manager connections
 - `/backend/core/dev_tools.py` — `ENABLE_DEV_TOOLS` gate
-- `/backend/services/agents/` — app ↔ agent envelope, transports, client; `/agent/` — standalone reference agent
+- `/backend/services/agents/` — app ↔ agent envelope, transports, client; `/agent/<name>/` — standalone agents (`example-agent` = reference agent, `get-ip-addresses`), each an independent copy
 
 **Frontend Core:**
 - `/frontend/src/lib/auth-store.ts` — Zustand auth state

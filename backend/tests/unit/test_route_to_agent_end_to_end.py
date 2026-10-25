@@ -44,7 +44,7 @@ def _connection() -> AgentConnection:
 
 
 class FakeAgent:
-    """What agent/manus_agent will do: check token, open, run handler, seal the answer."""
+    """What agent/example-agent/manus_agent will do: check token, open, run handler, seal the answer."""
 
     def __init__(self, secret: str = SECRET) -> None:
         self.secret = secret

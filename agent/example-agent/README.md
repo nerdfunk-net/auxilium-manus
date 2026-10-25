@@ -26,7 +26,7 @@ this agent's `handlers/` directory can run.
 ## Run it
 
 ```bash
-cd agent
+cd agent/example-agent
 python3 -m venv venv && ./venv/bin/pip install -r requirements.txt
 cp .env.example .env        # edit it; export the variables or use --env-file / EnvironmentFile
 set -a; . ./.env; set +a

@@ -1,4 +1,4 @@
-"""The backend's client, transports and step against the real reference agent (agent/).
+"""The backend client, transports and step against the real reference agent (agent/example-agent).
 
 The agent has its own copy of the envelope and knows nothing of the backend, so these tests are
 what proves the two implementations speak the same protocol: over a real HTTP socket and over
@@ -24,12 +24,12 @@ REPO = Path(__file__).resolve().parents[3]
 
 
 def _load_agent_package() -> None:
-    """Import ``manus_agent`` without putting agent/ on sys.path.
+    """Import ``manus_agent`` without putting agent/example-agent/ on sys.path.
 
     The agent has a regular top-level ``tests`` package; on sys.path it would win over the
     backend's namespace ``tests`` package and break every ``tests.unit`` import.
     """
-    package_dir = REPO / "agent" / "manus_agent"
+    package_dir = REPO / "agent" / "example-agent" / "manus_agent"
     spec = importlib.util.spec_from_file_location(
         "manus_agent",
         package_dir / "__init__.py",
@@ -70,7 +70,7 @@ def _agent_config(**overrides: Any) -> AgentConfig:
         "http_host": "127.0.0.1",
         "http_port": 1,
         "redis_url": None,
-        "handlers_dir": REPO / "agent" / "handlers",
+        "handlers_dir": REPO / "agent" / "example-agent" / "handlers",
         "max_concurrency": 4,
         "max_body_bytes": 1_048_576,
         "max_response_bytes": 1_048_576,
