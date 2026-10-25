@@ -1,8 +1,8 @@
-fastapi==0.156.4
+fastapi==0.159.1
 hatchet-sdk==1.42.1
 httpx==0.28.1
 aiosmtplib==5.1.3  # send-mail step (SMTP: none / STARTTLS / implicit TLS)
-reportlab==5.0.1  # report PDF export (pure Python, no system libraries)
+reportlab==5.1.0  # report PDF export (pure Python, no system libraries)
 markdown-it-py==4.2.0  # report Markdown -> PDF / email HTML
 certifi==2026.10.19  # explicit: core/ssl_config.py loads this bundle alongside the OS trust store
 pydantic==2.14.1
@@ -13,7 +13,7 @@ python-dotenv==1.2.4
 python-multipart==0.0.32
 PyYAML==6.0.3
 redis==8.1.0
-SQLAlchemy==2.1.5
+SQLAlchemy==2.1.6
 cryptography==50.0.2
 netmiko==4.8.0
 paramiko>=4.0,<5.0  # netmiko only requires >=3.5.1; 5.x has breaking changes, keep below 5
