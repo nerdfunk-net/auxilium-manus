@@ -1,12 +1,18 @@
 # Auxilium Manus agent: get-ip-addresses
 
-Independent copy of `agent/example-agent`; it shares no code with it. Replace the handlers in
-`handlers/` with the IP-address logic.
+Answers one question for the *Route to Agent* step: **which IP addresses does this device have?**
+At startup the agent pulls a git repository, reads the CSV files in it the way the *Get Git Devices*
+step does (same `{source, target}` column mapping) and keeps the parsed content in memory. The
+step sends a device name; the agent returns only the lines of that device. It is an independent
+copy of `agent/example-agent`: it shares no code with it.
 
-A small Python service that runs **your own handlers** for the *Route to Agent* workflow step.
-The step sends the attributes and content you select to a handler; the handler returns a JSON
-object and the workflow writes it to an attribute bag. Use it for logic that is too complex for
-expressions or templates, for example deriving a location name from Nautobot attributes.
+Example file (`;` separated, one line per interface):
+
+```
+name;interface_name;interface_address;is_primary;namespace
+device-1;eth0;10.0.0.2/24;true;black
+device-1;eth1;192.168.181.10/24;false;Global
+```
 
 The app sends **data, never code**: the step names a handler, and only handlers that exist in
 this agent's `handlers/` directory can run.
@@ -48,7 +54,10 @@ and the credential must match `MANUS_AGENT_ID` and `MANUS_AGENT_SECRET`. Save, t
 | `MANUS_AGENT_HTTP_PORT` | - | Enables the HTTP transport on this port. |
 | `MANUS_AGENT_HTTP_HOST` | `0.0.0.0` | Bind address for HTTP. |
 | `MANUS_AGENT_REDIS_URL` | - | Enables the Redis transport (`redis://`, `rediss://`, `unix://`). |
-| `MANUS_AGENT_HANDLERS_DIR` | `handlers` | Directory with your handler files. |
+| `MANUS_AGENT_HANDLERS_DIR` | `handlers` | Directory with the handler files. |
+| `MANUS_AGENT_DATA_CONFIG` | `config.yaml` | The data source (git, files, mapping), see below. |
+| `MANUS_AGENT_STATE_DIR` | `state` (`/data` in the image) | The only place the agent writes: the git checkout and the SSH `known_hosts`. Under systemd: `/var/lib/manus-agent`. |
+| `MANUS_AGENT_ALLOW_FILE_URLS` | - | `1` allows a `file://` git URL (development and tests only). |
 | `MANUS_AGENT_MAX_CONCURRENCY` | `4` | Handlers running at once. |
 | `MANUS_AGENT_MAX_BODY_BYTES` | 16 MiB | Largest HTTP request accepted. |
 | `MANUS_AGENT_MAX_RESPONSE_BYTES` | 16 MiB | Largest answer a handler may return; above it the device fails with `InvalidOutput`. |
@@ -56,37 +65,57 @@ and the credential must match `MANUS_AGENT_ID` and `MANUS_AGENT_SECRET`. Save, t
 
 At least one of `MANUS_AGENT_HTTP_PORT` and `MANUS_AGENT_REDIS_URL` is required.
 
-## Writing handlers
+## The data source (`config.yaml`)
 
-Put a `.py` file in the handlers directory (files starting with `_` are skipped):
+`config.example.yaml` documents every key. Summary:
 
-```python
-from manus_agent.registry import handler
+| Section | Keys |
+|---|---|
+| `git` | `url`, `branch` (default `main`), `checkout_dir` (default `repo`, a path inside the state directory), `verify_ssl`, `auth` |
+| `git.auth` | `type: none`, or `token` (`token_env` = environment variable holding the token, `username`), or `ssh` (`key_file`) |
+| `source` | `directory` inside the repository, `filename_pattern` (default `*.csv`), `csv_delimiter` (`;` `,` `\t` `\|`) |
+| `mapping` | `{source, target}` rows. Required: `name`, `interfaces.name`. Also `interfaces.ip_addresses.address`, `interfaces.ip_addresses.parent.namespace.name`, `interfaces.description/type/mac_address/mtu/status.name`, `_is_primary`, `_ignore` |
 
-@handler("resolve_location")
-def resolve_location(params, inputs):
-    name = inputs["attributes"].get("nautobot.location.name", "")
-    return {"location": name.split("-")[0]}
+On every start the agent clones the repository (or fetches and hard-resets the existing checkout
+to the branch tip), reads all matching files and builds the index. **If any of that fails the agent
+exits with code 4 and does not start**; it never serves an empty or stale cache. Warnings (ragged
+lines, devices with two primary interfaces) are logged with the device name and a problem code only (the details, such as addresses, are in the handler's `problems`). To load new data
+restart the agent. The startup reads at most 128 MiB and 1,000,000 lines in total; more makes the agent exit with code 4. Only `https://` remotes may use a token; `git.url` must not carry credentials. Credentials are never written to the config file, to the git command line or to
+the log.
+
+Lines with the same device name (in one or several files) are merged. A line flagged
+`_is_primary` makes its address (and namespace) the device's `primary_ip4`; two different primaries
+or an unreadable flag give a problem and no `primary_ip4`. Device names are compared exactly; a request that differs only in case still finds the device when exactly one name matches. Two names that differ only in case stay two devices (a startup warning says so).
+
+## The handler `get_ip_addresses`
+
+Route to Agent step setup:
+
+| Field | Value |
+|---|---|
+| Handler | `get_ip_addresses` |
+| Input paths | `name` (the device name; to use another attribute set `{"name_attribute": "<path>"}` as params) |
+| Output keys | `found`, `interfaces`, `primary_ip4`, `problems` |
+| Allow missing outputs | on (`primary_ip4` is left out when the device has none) |
+| Destination | for example `agent.ip` |
+
+Answer for `device-1` of the example file:
+
+```json
+{
+  "found": true,
+  "device": "device-1",
+  "interfaces": [
+    {"name": "eth0", "ip_addresses": [{"address": "10.0.0.2/24", "parent": {"namespace": {"name": "black"}}}]},
+    {"name": "eth1", "ip_addresses": [{"address": "192.168.181.10/24", "parent": {"namespace": {"name": "Global"}}}]}
+  ],
+  "primary_ip4": {"address": "10.0.0.2/24", "parent": {"namespace": {"name": "black"}}},
+  "problems": []
+}
 ```
 
-* `params` is the static JSON object configured on the step.
-* `inputs` is `{"attributes": {path: value}, "content": {name: text}}`. A path or content the
-  device does not have is missing, so use `.get`.
-* Return a JSON object. The step only accepts the keys listed in its *output_keys*.
-* `async def` handlers are supported; plain functions run in a thread, so blocking calls are
-  fine. Raising an exception fails that device and shows the class and message to the user.
-* A handler has until the request expires (the step's timeout); then it is reported as timed out.
-  A plain function cannot be interrupted: after a timeout it keeps its slot (and its thread)
-  until it returns, so a stuck handler reduces `MANUS_AGENT_MAX_CONCURRENCY` by one instead of
-  piling up threads, and further requests report that the agent is busy. Give blocking calls
-  their own timeouts (sockets, SSH, HTTP).
-* Handlers should be **idempotent**: the replay protection is in memory, so a restart inside a
-  request's validity window forgets which commands were seen and a captured request could run
-  again until it expires.
-* Exception messages (200 characters at most) are shown to users in the run view; keep secrets
-  and device content out of them.
-* `echo` is built in and returns its inputs: it is what *Test connection* calls. See
-  `handlers/examples.py` for a complete example.
+A device that is not in the files gets `{"found": false, "device": "...", "interfaces": [], "problems": []}`;
+this is an answer, not an error. `echo` is built in and is what *Test connection* calls.
 
 ## HTTP transport
 
@@ -121,11 +150,12 @@ timeout rather than an error: check both when *Test connection* times out.
 ## Docker
 
 ```bash
-docker build -t manus-agent .
-docker run --rm --env-file .env -p 8080:8080 -v "$PWD/handlers:/app/handlers:ro" manus-agent
+docker build -t manus-ip-agent .
+docker run --rm --env-file .env -p 8080:8080 \
+  -v "$PWD/config.yaml:/app/config.yaml:ro" manus-ip-agent
 ```
 
-On the app's Docker network use `http://<container-name>:8080` as the agent URL.
+The image contains git and a copy of `config.example.yaml`; mount your own `config.yaml` over it. The state directory is `/data` (checkout in `/data/repo`, SSH host keys in `/data/known_hosts`); mount a volume on `/data` only if you want to keep it across container re-creation, otherwise the repository is cloned again. The entrypoint starts as root, makes `/data` writable for the `agent` user and drops privileges, so a fresh volume works. On the app's Docker network use `http://<container-name>:8080` as the agent URL.
 
 ### Company root certificates (TLS-inspecting proxy / private PKI)
 

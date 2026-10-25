@@ -71,9 +71,7 @@ def test_load_directory_registers_decorated_functions_only(tmp_path):
         """,
     )
     private = (
-        "from manus_agent.registry import handler\n"
-        "@handler('hidden')\n"
-        "def h(p, i): return {}\n"
+        "from manus_agent.registry import handler\n@handler('hidden')\ndef h(p, i): return {}\n"
     )
     _write(tmp_path, "_private.py", private)
     (tmp_path / "notes.txt").write_text("ignored")

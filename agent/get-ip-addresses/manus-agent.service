@@ -7,6 +7,8 @@ Wants=network-online.target
 User=manus-agent
 WorkingDirectory=/opt/manus-agent
 EnvironmentFile=/etc/manus-agent/agent.env
+Environment=MANUS_AGENT_DATA_CONFIG=/etc/manus-agent/config.yaml
+Environment=MANUS_AGENT_STATE_DIR=/var/lib/manus-agent
 ExecStart=/opt/manus-agent/venv/bin/python -m manus_agent
 Restart=on-failure
 RestartSec=5
@@ -16,6 +18,10 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
+# The state directory (git checkout and ssh known_hosts, MANUS_AGENT_STATE_DIR above) is the only
+# writable place; the rest of the system is read-only.
+StateDirectory=manus-agent
+ReadWritePaths=/var/lib/manus-agent
 
 [Install]
 WantedBy=multi-user.target

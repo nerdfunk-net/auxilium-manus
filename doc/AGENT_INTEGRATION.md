@@ -300,6 +300,26 @@ Behaviour worth knowing:
 - If the Redis worker dies, the agent stops (exit 1) so a supervisor restarts it, instead of serving HTTP with
   Redis silently gone.
 
+### `agent/get-ip-addresses`
+
+Answers "which IP addresses does this device have?" from CSV files in a git repository (`agent/get-ip-addresses/README.md`).
+It is an independent copy of the example agent plus a data source: at startup it reads `config.yaml`
+(`MANUS_AGENT_DATA_CONFIG`), clones or fetches the repository with the `git` CLI, parses the files with a port of the
+*Get Git Devices* column mapping (lines of one device are merged) and keeps the result in memory. The handler
+`get_ip_addresses` takes the device name (input path `name`) and returns `found`, `interfaces`, `primary_ip4` (left out
+when the device has none) and `problems` for that device only; an unknown device is `found: false`, not an error.
+
+- The data is read **once per start**; a restart reloads it. If the pull or the parse fails the agent exits with code 4
+  and does not serve (no empty or stale cache).
+- Everything it writes (the checkout, SSH `known_hosts`) is under `MANUS_AGENT_STATE_DIR` (`/data` in the image, `/var/lib/manus-agent`
+  under systemd); `git.checkout_dir` must be a path inside it because the checkout is hard-reset and cleaned on every start.
+  Remotes: `https://` (token auth only there), `ssh://`, `user@host:path`; `file://` only with `MANUS_AGENT_ALLOW_FILE_URLS=1`.
+- Git credentials come from an environment variable (token) or a key file (ssh) named in `config.yaml`; they are passed to
+  git through its environment, never in a URL, argument list, log line or error message.
+- Its mapping code (`manus_agent/device_mapping.py`, `csv_reader.py`) is a **port** of `services/git/device_mapping.py`,
+  `device_grouping.py` and `csv_device_reader.py`, limited to names, interfaces and the primary flag. A change to the
+  primary-IP rules there should be mirrored in the agent.
+
 ## Failures and what they mean
 
 Per-device failures are `DeviceError`s with a `FailureInfo` (phase `agent`) and a `code`:

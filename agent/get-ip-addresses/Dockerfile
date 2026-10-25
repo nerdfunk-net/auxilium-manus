@@ -21,25 +21,35 @@ RUN set -e; \
     fi; \
     rm -rf /tmp/certs
 
+# git pulls the repository at startup; openssh-client is for git over ssh.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends git openssh-client \
+ && rm -rf /var/lib/apt/lists/*
+
 COPY --chmod=755 entrypoint.sh /usr/local/bin/entrypoint.sh
 
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY manus_agent ./manus_agent
-# The shipped example handlers; mount your own directory over /app/handlers (see README.md).
 COPY handlers ./handlers
+# The example config; mount your own over /app/config.yaml (see README.md).
+COPY config.example.yaml ./config.yaml
 
 # Run unprivileged: the agent holds the shared secret and sees the data it is sent.
-RUN useradd --system --create-home agent
-USER agent
+# The entrypoint starts as root only to hand /data (the state directory, possibly a freshly mounted
+# volume) to this user, then drops privileges to it.
+RUN useradd --system --create-home agent && mkdir /data && chown agent /data
 
 ENV PYTHONUNBUFFERED=1 \
     MANUS_AGENT_HTTP_HOST=0.0.0.0 \
-    MANUS_AGENT_HANDLERS_DIR=/app/handlers
+    MANUS_AGENT_HANDLERS_DIR=/app/handlers \
+    MANUS_AGENT_DATA_CONFIG=/app/config.yaml \
+    MANUS_AGENT_STATE_DIR=/data
 EXPOSE 8080
 
 # MANUS_AGENT_ID, MANUS_AGENT_SECRET and MANUS_AGENT_HTTP_PORT and/or MANUS_AGENT_REDIS_URL
-# are required at run time (see .env.example).
+# are required at run time (see .env.example). The container pulls the git repository from
+# config.yaml when it starts; restart it to reload the data.
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
 CMD ["python", "-m", "manus_agent"]

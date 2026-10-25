@@ -45,7 +45,7 @@ class BuildRegistryTests(unittest.TestCase):
 
     def test_the_shipped_example_handlers_load(self) -> None:
         registry = build_registry(make_config(handlers_dir=HANDLERS))
-        assert "resolve_location" in registry.names()
+        assert "get_ip_addresses" in registry.names()
 
 
 class ServeTests(unittest.IsolatedAsyncioTestCase):
@@ -75,15 +75,19 @@ class ServeTests(unittest.IsolatedAsyncioTestCase):
         config = make_config(http_port=None, redis_url="redis://localhost")
         stop = asyncio.Event()
         task = asyncio.create_task(
-            serve(config, build_registry(make_config(handlers_dir=HANDLERS)), stop,
-                  redis_factory=lambda url: fake)
+            serve(
+                config,
+                build_registry(make_config(handlers_dir=HANDLERS)),
+                stop,
+                redis_factory=lambda url: fake,
+            )
         )
         for _ in range(100):
             if await fake.exists(heartbeat_key(AGENT)):
                 break
             await asyncio.sleep(0.02)
         beat = await fake.hgetall(heartbeat_key(AGENT))
-        assert "resolve_location" in beat["handlers"]
+        assert "get_ip_addresses" in beat["handlers"]
         stop.set()
         await asyncio.wait_for(task, 5)
         assert await fake.exists(heartbeat_key(AGENT)) == 0
@@ -140,6 +144,7 @@ class MainTests(unittest.TestCase):
             "MANUS_AGENT_HANDLERS_DIR": str(HANDLERS),
         }
         with (
+            patch("manus_agent.main.load_index"),
             patch("manus_agent.main._run", side_effect=RuntimeError("boom")),
             contextlib.redirect_stderr(io.StringIO()),
         ):

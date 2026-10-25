@@ -11,7 +11,7 @@ from manus_agent.envelope import open_envelope, seal
 from manus_agent.registry import HandlerRegistry, builtin_registry
 
 SECRET = "t" * 40
-AGENT = "geo-agent"
+AGENT = "ip-agent"
 NOW = 1_700_000_000
 
 

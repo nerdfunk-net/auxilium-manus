@@ -15,7 +15,9 @@ from aiohttp import web
 
 from manus_agent.config import AgentConfig, ConfigError, load_config
 from manus_agent.core import AgentCore
+from manus_agent.data_source import DataSourceError, load_index
 from manus_agent.http_server import create_app
+from manus_agent.ip_index import set_index
 from manus_agent.redis_worker import RedisWorker
 from manus_agent.registry import HandlerRegistry, builtin_registry
 
@@ -102,6 +104,13 @@ def main(env: Mapping[str, str] | None = None) -> int:
     except (OSError, RuntimeError, ValueError) as exc:
         print(f"manus-agent: cannot load handlers: {exc}", file=sys.stderr)
         return 3
+    try:
+        # Pull the repository and cache its content before the first request can arrive. An
+        # agent without data must not start (a supervisor restarts it and the log says why).
+        set_index(load_index(os.environ if env is None else env))
+    except DataSourceError as exc:
+        print(f"manus-agent: cannot load the data: {exc}", file=sys.stderr)
+        return 4
     logger.info(
         "agent %s v%s starting; transports: %s; handlers: %s",
         config.agent_id,

@@ -106,6 +106,10 @@ class RedisWorker:
 
     async def _serve(self, raw: str, gate: asyncio.Semaphore) -> None:
         try:
+            if len(raw) > self._config.max_body_bytes:
+                # The same bound the HTTP transport applies to a request body.
+                logger.warning("dropped a request above the size limit")
+                return
             try:
                 envelope: Any = json.loads(raw)
             except ValueError:

@@ -109,6 +109,16 @@ class WorkerTests(WorkerTestCase):
         assert open_response(await self.answer("good"), command_id="good", now=int(time.time()))
         assert await self.redis.exists(response_key(AGENT, "bad")) == 0
 
+    async def test_a_request_above_the_size_limit_is_dropped_unparsed(self) -> None:
+        with self.assertLogs("manus_agent.redis_worker", "WARNING") as logs:
+            await self.redis.rpush(request_key(AGENT), "[" + "0," * 1_048_576 + "0]")
+            await self.send(self.envelope(command_id="after"))
+            assert open_response(
+                await self.answer("after"), command_id="after", now=int(time.time())
+            )
+        assert any("size limit" in line for line in logs.output)
+        assert await self.redis.llen(request_key(AGENT)) == 0
+
     async def test_a_replayed_request_is_answered_once(self) -> None:
         envelope = self.envelope()
         await self.send(envelope)

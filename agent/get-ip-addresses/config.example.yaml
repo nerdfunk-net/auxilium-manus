@@ -1,0 +1,36 @@
+# Data source of the get-ip-addresses agent. Copy to config.yaml and edit.
+# Read once at startup together with a git pull; restart the agent to load new data.
+# No secrets here: a token comes from the environment variable named below.
+
+git:
+  url: https://git.example.com/org/network-data.git   # https://, ssh://user@host/path or user@host:path (no credentials in the URL)
+  branch: main
+  checkout_dir: repo              # inside the state directory (MANUS_AGENT_STATE_DIR: /data in the image,
+                                  # /var/lib/manus-agent under systemd); cloned the first time, fetched
+                                  # and hard-reset on every start. Do not put anything else there.
+  verify_ssl: true
+  auth:
+    type: token                   # none | token | ssh
+    token_env: GIT_TOKEN          # token: name of the environment variable holding the token
+    username: oauth2              # token: user name for HTTP basic auth (GitLab oauth2, GitHub x-access-token)
+    # ssh: use  type: ssh  and  key_file: /run/secrets/git_key  (plain path characters only;
+    #      host keys are remembered in <state directory>/known_hosts)
+
+source:
+  directory: network/ips          # inside the repository
+  filename_pattern: "*.csv"
+  csv_delimiter: ";"              # ;  ,  \t  |
+
+# Same {source, target} rows as the "Get Git Devices" step: source is a column of the file.
+# Required targets: name, interfaces.name. Other targets:
+#   interfaces.description, interfaces.type, interfaces.mac_address, interfaces.mtu,
+#   interfaces.status.name, interfaces.ip_addresses.address,
+#   interfaces.ip_addresses.parent.namespace.name
+#   _is_primary  the column flags the interface whose IP becomes primary_ip4 (true/false)
+#   _ignore      skip the column
+mapping:
+  - {source: name, target: name}
+  - {source: interface_name, target: interfaces.name}
+  - {source: interface_address, target: interfaces.ip_addresses.address}
+  - {source: namespace, target: interfaces.ip_addresses.parent.namespace.name}
+  - {source: is_primary, target: _is_primary}

@@ -26,9 +26,7 @@ class SuccessTests(unittest.IsolatedAsyncioTestCase):
         assert open_response(response) == {"status": "success", "output": {"v": "BERLIN"}}
 
     async def test_runs_an_async_handler(self) -> None:
-        response = await make_core().handle(
-            request_envelope("slow", params={"seconds": 0}, ttl=30)
-        )
+        response = await make_core().handle(request_envelope("slow", params={"seconds": 0}, ttl=30))
         assert open_response(response)["output"] == {"done": True}
 
     async def test_echo_returns_its_inputs(self) -> None:
@@ -113,8 +111,12 @@ class RejectionTests(unittest.IsolatedAsyncioTestCase):
     async def test_a_response_cannot_be_sent_as_a_request(self) -> None:
         envelope = seal(
             {"handler": "echo", "params": {}, "inputs": {}},
-            secret=SECRET, agent_id=AGENT, command_id="c", direction="response",
-            ttl_seconds=30, now=NOW,
+            secret=SECRET,
+            agent_id=AGENT,
+            command_id="c",
+            direction="response",
+            ttl_seconds=30,
+            now=NOW,
         )
         with self.assertRaises(RequestRejected):
             await make_core().handle(envelope)

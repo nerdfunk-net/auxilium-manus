@@ -29,7 +29,9 @@ def test_http_only_defaults():
 
 
 def test_redis_only():
-    config = load_config(env(MANUS_AGENT_HTTP_PORT=None, MANUS_AGENT_REDIS_URL="rediss://u:p@h:6379/0"))
+    config = load_config(
+        env(MANUS_AGENT_HTTP_PORT=None, MANUS_AGENT_REDIS_URL="rediss://u:p@h:6379/0")
+    )
     assert config.http_port is None
     assert config.redis_url == "rediss://u:p@h:6379/0"
 
