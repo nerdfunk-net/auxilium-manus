@@ -328,8 +328,11 @@ function AiAssistantSettingsForm({ settings }: { settings: AiSettings }) {
                           />
                         </FormControl>
                         <FormDescription>
-                          The server&apos;s OpenAI-compatible base URL (for
-                          Ollama: http://host:11434/v1). A server on the same
+                          The server&apos;s OpenAI-compatible base URL,
+                          including the version prefix, usually /v1 (for
+                          Ollama: http://host:11434/v1). The app appends
+                          /chat/completions to it; a URL without /v1 is
+                          answered with 404 by most servers. A server on the same
                           machine as the backend is only reachable when the
                           backend runs with ALLOW_LOOPBACK_SOURCE_URLS enabled.
                           {!canSetServerUrl &&

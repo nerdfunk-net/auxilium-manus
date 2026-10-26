@@ -13,6 +13,7 @@ import json
 import logging
 from collections.abc import AsyncIterator, Sequence
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx
 
@@ -77,6 +78,14 @@ def _to_tools(tools: Sequence[ToolSpec]) -> list[dict[str, Any]]:
         }
         for tool in tools
     ]
+
+
+def _missing_version_hint(base_url: str) -> str:
+    """Hint for a 404 when the URL has no path: OpenAI-compatible servers serve ``/v1/...``."""
+    parsed = urlparse(base_url)
+    if parsed.path.strip("/"):
+        return ""
+    return f"The server URL has no version prefix; did you mean {base_url}/v1?"
 
 
 def _parse_arguments(raw: str) -> dict[str, Any]:
@@ -168,6 +177,11 @@ class OpenAiCompatProvider:
                             function = fragment.get("function") or {}
                             slot["name"] = function.get("name") or slot["name"]
                             slot["args"] += function.get("arguments") or ""
+        except ProviderRequestError as exc:
+            hint = _missing_version_hint(self._base_url)
+            if hint and "HTTP 404" in exc.message:
+                raise ProviderRequestError(f"{exc.message}. {hint}") from exc
+            raise
         except ProviderError:
             raise
         except httpx.HTTPError as exc:

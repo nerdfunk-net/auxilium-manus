@@ -377,6 +377,28 @@ def test_gemini_invalid_key_reported_as_400_is_an_auth_error() -> None:
 # -- OpenAI-compatible specifics ------------------------------------------------------------
 
 
+@pytest.mark.parametrize(
+    ("base_url", "hinted"),
+    [
+        ("http://10.0.0.5:11434", True),
+        ("http://10.0.0.5:11434/", True),
+        ("http://10.0.0.5:11434/v1", False),
+        ("http://10.0.0.5:11434/v1beta/openai", False),
+    ],
+)
+def test_openai_404_hints_at_a_missing_version_prefix_only_for_a_pathless_url(
+    base_url: str, hinted: bool
+) -> None:
+    recorder = Recorder(status=404, json_body={"error": {"message": "x"}})
+    provider = OpenAiCompatProvider(base_url, "", http_client=recorder.client())
+
+    with pytest.raises(ProviderRequestError) as info:
+        _collect(provider)
+
+    assert "HTTP 404" in info.value.message
+    assert ("did you mean http://10.0.0.5:11434/v1?" in info.value.message) is hinted
+
+
 def test_openai_request_shape_with_and_without_a_key() -> None:
     recorder = Recorder(body=OPENAI_TEXT)
 
