@@ -243,6 +243,7 @@ tools, so every value of those classes passes the opt-in of §4.2:
 | `list_field_values` | Nautobot's real names for a filter field (opt-in; `contains` narrows it) |
 | `preview_filter` | Runs a filter now: `total_count`, counts and sample rows only with the opt-in (§15: a filter touching unshared data is checked but not run) |
 | `propose_inventory` | Checks a filter and emits an `inventory` proposal (§15); offered only with `sources.nautobot:write` |
+| `get_glossary` | Administrators' definition of a local word or acronym as a filter fragment (§15, "Inventory glossary"); needs `share_inventory_data` |
 
 **Built (reports assistant, surface `reports`)** - see §20:
 
@@ -877,9 +878,55 @@ builder apply / detach / apply-once behaviour (mutation-checked). **Not verified
 user's local OpenAI-compatible one) producing valid filters from the example sentences, the panel in a
 browser, and child-location behaviour against real Nautobot data.
 
-**Still not built:** a glossary for acronyms and local vocabulary ("core", "DC") that do not match a
-Nautobot name (phase 2: admin-managed table read by a `get_glossary` tool, see OPEN_TODOS); depth beyond
-one level of groups.
+**Still not built:** depth beyond one level of groups. The glossary for acronyms and local vocabulary
+is built, see "Inventory glossary" below.
+
+**Inventory glossary (built 2026-10-27).** Words that match no Nautobot name ("core", "DC") are
+defined by administrators and read by the `get_glossary` tool.
+
+- **Entry:** `ai_glossary_terms` (`core/models/ai_glossary.py`): `term`, up to 10 `aliases`, a
+  structured `filter` (the `FilterInput` shape of §15: root conditions plus one level of groups)
+  and an admin-only `note` that is never sent to the model. The term and each alias are also one
+  row each in `ai_glossary_names` with a **unique** index on the folded name, so "a word means one
+  thing" is a database rule: two concurrent saves cannot both claim a word, and the loser gets a
+  409. Terms and aliases are ASCII letters, digits, spaces and `. _ / + & -` (no commas: the form
+  separates aliases with them), at most 64 characters; the API and the form use the same set. At
+  most 500 terms.
+- **What reaches the model.** Term, aliases and filter as JSON in a tool result, never in the
+  system prompt, and never the note. Filter values are free text for `name`, prefix and custom
+  fields, and the model is told to apply the filter, so they are held to plain text: a save is
+  refused when a value contains a control character, a newline, `<` or `>`, and `get_glossary`
+  flattens values to one line and escapes angle brackets again on every read. Value-list fields
+  (location, role, status, tag, device type, manufacturer, platform) must match a Nautobot name.
+- **Admin only.** `GET/POST /ai/glossary`, `PUT/DELETE /ai/glossary/{id}` need the `admin` role
+  (auth.md P3) and the operator switch; writes are rate limited. The assistant never writes.
+- **Validated on save** (`services/ai_assistant/glossary_service.py`): the builder's operator rules
+  (`structure_errors`) and every value-list value against live Nautobot, respelled as Nautobot
+  spells it. An unknown value is refused with the closest names. **A save is refused while
+  Nautobot is unreachable or returns no names** for such a field: an unchecked value would be
+  served to the model as the administrators' definition. The administrator picks the source the
+  check runs against (the first source with a token by default; the choice is not stored with the
+  entry) and it runs as the administrator (`sources.nautobot:read`).
+- **`get_glossary(term)`** (`tools/glossary_tools.py`, offered on the inventory surface): the entry
+  whose term or alias is **exactly** the word (whitespace and case folded). Partial matches are not
+  returned: `core` must not pull in `core-lab` or `score`, and `DC` must not pull in every acronym
+  containing those letters. Gated by `share_inventory_data`; without it the tool returns the
+  `not_shared` marker. An entry whose conditions touch an unshared class (`ip_prefix` /
+  `primary_prefix` need addresses, `cf_*` custom fields) is listed under `withheld` without its
+  filter. A user without `sources.nautobot:read` gets the same plain denial as the other inventory
+  tools. Entries are re-checked against the session's Nautobot source on every read: a value
+  renamed since saving, or a name list Nautobot could not supply, makes the entry `stale` with the
+  problems and **without its filter**, so there is nothing to copy. The prompt tells the model to
+  call it before asking the user.
+- **UI:** Settings -> AI Assistant shows an administrator-only card with the term count and an
+  "Open glossary" button. The button opens a dialog (debounced search over terms and aliases,
+  25 per page, steps back a page when the last row of a later page is deleted; add / edit / delete)
+  because the list can be long. The form lets the administrator pick the Nautobot source when more
+  than one has a token, and checks aliases (charset, length, duplicates, count) before sending.
+  Files: `settings/components/ai-glossary-card.tsx`, `settings/dialogs/ai-glossary-dialog.tsx`,
+  `ai-glossary-term-dialog.tsx`, `settings/components/glossary-filter-editor.tsx`.
+- **Not verified:** a real model calling `get_glossary` from a sentence, the settings page in a
+  browser, a glossary of hundreds of entries, and the save path against a real Nautobot.
 
 ## 16. Fine-grained inventory opt-in
 

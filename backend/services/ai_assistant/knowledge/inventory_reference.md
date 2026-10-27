@@ -44,6 +44,14 @@ A condition is `field`, `operator`, `value` (all text).
 7. Call `propose_inventory` with a one-line summary. The user reviews it in the inventory builder
    and saves it themselves; you cannot save.
 
+## Glossary
+
+A word the user used that matches no Nautobot name ("core", "DC") may be defined by the
+administrators. Call `get_glossary` with the word. It returns a filter fragment (`conditions` and
+`groups`): merge it into the filter you build, keeping the user's other conditions. A `stale` entry
+names a value Nautobot no longer has; check `list_field_values` and ask the user instead of using it.
+No entry means ask which Nautobot name they mean.
+
 ## Recipes
 
 - "all network devices in City A with a primary IP":

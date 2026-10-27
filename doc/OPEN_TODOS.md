@@ -634,18 +634,18 @@ rule holds for `store-in-db` / `get-from-db` (records are shared across workflow
   - *Proposal flow:* built 2026-10-28 for filters (`propose_inventory`, `AI_ASSISTANT.md` §15); open
     questions are still not answerable beyond what a filter can express.
 
-## AI assistant: glossary for inventory acronyms
+## AI assistant: glossary for inventory acronyms — IMPLEMENTED
 
-**Added:** 2026-10-28
+**Added:** 2026-10-28 · **Implemented:** 2026-10-27 (uncommitted)
 
-- Inventory proposals resolve words against Nautobot's names ("network devices" -> role `Network`). Words
-  that match no name ("core", "DC", "WAN edge") fail until the user spells the name.
-- **Idea:** admin-managed table (term -> field/operator/value or a small group), edited in Settings -> AI
-  Assistant, read by a `get_glossary` tool, gated by `share_inventory_data`. Admin-only write (the text
-  goes into the model's prompt, so treat it like the MCP instructions finding), length caps, validated
-  against live Nautobot values on save.
-- **Decide after** seeing which words fail with the real local model; the static alternative is a
-  section in `knowledge/inventory_reference.md`.
+- **Done:** admin-managed table `ai_glossary_terms` (term, aliases, structured filter, admin-only
+  note), `GET/POST/PUT/DELETE /ai/glossary` (admin only), the `get_glossary` tool gated by
+  `share_inventory_data`, and an administrator card in Settings -> AI Assistant with an "Open
+  glossary" dialog. Design and limits: `doc/ai_integration/AI_ASSISTANT.md` "Inventory glossary".
+- **Not verified:** a real (local) model calling `get_glossary` from a sentence like "all core
+  devices in City A", the dialogs in a browser, and the save-time check against a real Nautobot.
+- **Deliberately not built:** per-user glossaries, free-text definitions, import / export of the
+  table, use outside the inventory surface, groups nested deeper than one level.
 
 ---
 

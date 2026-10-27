@@ -34,6 +34,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import { AiGlossaryCard } from "./ai-glossary-card";
 import { AiProxySettingsCard } from "./ai-proxy-settings-card";
 import { ShareConfirmSwitch } from "./share-confirm-switch";
 import { useAuthStore } from "@/lib/auth-store";
@@ -598,6 +599,8 @@ function AiAssistantSettingsForm({ settings }: { settings: AiSettings }) {
         </Form>
 
         {canSetServerUrl && <AiProxySettingsCard />}
+
+        {canSetServerUrl && <AiGlossaryCard />}
 
         {available && (
           <Card>

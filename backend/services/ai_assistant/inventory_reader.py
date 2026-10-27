@@ -16,6 +16,7 @@ import service_factory
 from core.database import SessionLocal
 from dependencies import nautobot_credentials_from_source_id
 from models.sources_nautobot import LogicalOperation
+from services.ai_assistant.glossary_service import GlossaryService
 from services.ai_assistant.tools.inventory_tools import (
     InventoryAccessError,
     InventoryNotFoundError,
@@ -116,6 +117,14 @@ class DbInventoryReader:
             # The evaluator turns a failed condition into "no devices"; that is not an answer.
             raise InventoryQueryError
         return [d.model_dump(mode="json") for d in devices]
+
+    async def glossary_lookup(self, term: str) -> list[dict[str, Any]]:
+        return await asyncio.to_thread(self._glossary, term)
+
+    def _glossary(self, term: str) -> list[dict[str, Any]]:
+        with SessionLocal() as db:
+            self._credentials(db)  # same gate as every other inventory read
+            return GlossaryService(db).lookup(term)
 
     def _only_credentials(self) -> NautobotCredentials:
         with SessionLocal() as db:

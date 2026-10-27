@@ -1,4 +1,5 @@
 from core.models.ai_conversations import AiConversation
+from core.models.ai_glossary import AiGlossaryName, AiGlossaryTerm
 from core.models.background_tier import WorkflowBackgroundTier
 from core.models.base import Base
 from core.models.change_requests import ChangeRequest
@@ -51,6 +52,8 @@ __all__ = [
     "Template",
     "User",
     "AiConversation",
+    "AiGlossaryName",
+    "AiGlossaryTerm",
     "UserAiSettings",
     "UserPermission",
     "UserPreference",

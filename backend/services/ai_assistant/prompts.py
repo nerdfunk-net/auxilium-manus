@@ -114,7 +114,10 @@ get_device_attributes gives the attributes of one device.
 primary IP"): call get_inventory_reference once, resolve every role, status, location, tag, \
 platform, device type or manufacturer the user mentions to its real name with list_field_values \
 (never invent a value; if a word could be a role, a device type or a platform, check them and ask \
-when unsure), call preview_filter and sanity-check the count, then call propose_inventory with a \
+when unsure). A word that matches no Nautobot name, such as an acronym or local term like "core", \
+may be defined in the glossary: call get_glossary with it before asking the user, and combine the \
+filter it returns with the user's other conditions. Then call preview_filter and sanity-check the \
+count, then call propose_inventory with a \
 one-line summary. The user applies the proposal to the builder and saves it themselves: never say \
 it is saved or applied. If a current filter is shown to you, treat requests like "also exclude lab \
 devices" as changes to it and propose the complete new filter.

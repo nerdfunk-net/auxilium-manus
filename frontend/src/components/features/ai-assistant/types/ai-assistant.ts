@@ -356,3 +356,47 @@ export interface AiProxySettingsUpdate {
   credential_id: number | null;
   bypass_hosts: string[];
 }
+
+/** One condition of a glossary filter (same shape as the inventory assistant's filter). */
+export interface GlossaryCondition {
+  field: string;
+  operator: string;
+  value: string;
+}
+
+export interface GlossaryGroup {
+  logic: "AND" | "OR";
+  negate: boolean;
+  conditions: GlossaryCondition[];
+}
+
+export interface GlossaryFilter {
+  logic: "AND" | "OR";
+  conditions: GlossaryCondition[];
+  groups: GlossaryGroup[];
+}
+
+/** An administrator-managed word ("core") the inventory assistant expands into a filter. */
+export interface GlossaryTerm {
+  id: number;
+  term: string;
+  aliases: string[];
+  filter: GlossaryFilter;
+  /** For administrators only; never sent to the model. */
+  note: string | null;
+  /** Set by create / update: values Nautobot could not confirm. */
+  warnings: string[];
+}
+
+export interface GlossaryTermInput {
+  term: string;
+  aliases: string[];
+  filter: GlossaryFilter;
+  note: string | null;
+  source_id: string;
+}
+
+export interface GlossaryList {
+  items: GlossaryTerm[];
+  total: number;
+}

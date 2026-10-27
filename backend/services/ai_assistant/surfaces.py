@@ -31,6 +31,7 @@ from services.ai_assistant.prompts import (
 )
 from services.ai_assistant.redaction import MAX_REDACT_CHARS_PER_REQUEST, Redactor
 from services.ai_assistant.tools.base import Toolbox, ToolContext
+from services.ai_assistant.tools.glossary_tools import GLOSSARY_TOOLS
 from services.ai_assistant.tools.inventory_filter_tools import INVENTORY_FILTER_TOOLS
 from services.ai_assistant.tools.inventory_tools import (
     INVENTORY_TOOLS,
@@ -203,7 +204,7 @@ def build_inventory_session(
             "\n\nThe user may not save inventories, so you cannot propose one: you can still "
             "preview a filter to answer how many devices it would select."
         )
-    toolbox = Toolbox((*INVENTORY_TOOLS, *filter_tools), tool_context)
+    toolbox = Toolbox((*INVENTORY_TOOLS, *filter_tools, *GLOSSARY_TOOLS), tool_context)
     return AssistantSession(system=system, toolbox=toolbox)
 
 

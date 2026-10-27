@@ -95,6 +95,7 @@ def test_surface_offers_the_inventory_tools() -> None:
         "resolve_inventory",
         "search_devices",
         "get_device_attributes",
+        "get_glossary",
     }
 
 

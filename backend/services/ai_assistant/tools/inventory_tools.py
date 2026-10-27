@@ -77,6 +77,10 @@ class InventoryReader(Protocol):
         """Devices a filter selects now, as dicts (the same shape as ``resolve_inventory``)."""
         ...
 
+    async def glossary_lookup(self, term: str) -> list[dict[str, Any]]:
+        """Glossary entries for a word: ``{term, aliases, filter}`` (doc: AI_ASSISTANT.md)."""
+        ...
+
 
 @dataclass(frozen=True)
 class InventoryState:

@@ -28,7 +28,7 @@ before changing `backend/services/agents/`, `route_to_agent`, `agent/` (every ag
 ### Core Principles
 - **Complete separation**: Frontend (port 3000) ↔ Backend (port 8000)
 - **API proxy pattern**: Frontend → Next.js `/api/proxy/*` → Backend (NEVER direct backend calls)
-- **PostgreSQL single database** (32 tables, 5 of them RBAC), defined in `/backend/core/models/`; the list lives in `doc/claude/database.md`, not here
+- **PostgreSQL single database** (34 tables, 5 of them RBAC), defined in `/backend/core/models/`; the list lives in `doc/claude/database.md`, not here
 - **Layered backend**: Model → Repository → Service → Router
 - **Feature-based organization**: Group by domain, not by technical role
 - **Server Components default**: Use `'use client'` only when necessary
