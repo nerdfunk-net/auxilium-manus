@@ -140,6 +140,7 @@ class EvaluatorConditionTests(unittest.IsolatedAsyncioTestCase):
             LogicalCondition(field="nonsense", operator="equals", value="x")
         )
         self.assertEqual((ids, count), (set(), 0))
+        self.assertEqual(self.evaluator.failures, ["unsupported field nonsense"])
 
     async def test_ip_prefix_field_routes_to_prefix_query(self) -> None:
         self.qs._query_devices_by_ip_prefix.return_value = [_dev("a")]
@@ -174,12 +175,23 @@ class EvaluatorConditionTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(ids, {"b"})
 
-    async def test_condition_exception_is_swallowed(self) -> None:
+    async def test_condition_exception_is_swallowed_but_recorded(self) -> None:
         self.qs._query_devices_by_status.side_effect = RuntimeError("boom")
         ids, count, _ = await self.evaluator._execute_condition(
             LogicalCondition(field="status", operator="equals", value="active")
         )
         self.assertEqual((ids, count), (set(), 0))
+        self.assertEqual(self.evaluator.failures, ["status equals"])
+
+    async def test_a_real_empty_result_or_skipped_condition_is_not_a_failure(self) -> None:
+        self.qs._query_devices_by_status.return_value = []
+        await self.evaluator._execute_condition(
+            LogicalCondition(field="status", operator="equals", value="active")
+        )
+        await self.evaluator._execute_condition(
+            LogicalCondition(field="", operator="equals", value="")
+        )
+        self.assertEqual(self.evaluator.failures, [])
 
 
 class EvaluatorOperationTests(unittest.IsolatedAsyncioTestCase):

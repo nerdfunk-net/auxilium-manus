@@ -110,6 +110,10 @@ class NautobotSourceEvaluator:
 
     def __init__(self, query_service: NautobotSourceQueryService):
         self.query_service = query_service
+        # Conditions that failed (Nautobot error, invalid input). A failed condition still
+        # evaluates to "no devices" so the inventory page degrades; callers that must tell a
+        # failure from a real empty result (the AI assistant) read this after a preview.
+        self.failures: list[str] = []
         self.field_to_query_map = {
             "name": query_service._query_devices_by_name,
             "location": query_service._query_devices_by_location,
@@ -393,6 +397,7 @@ class NautobotSourceEvaluator:
             query_func = self.field_to_query_map.get(condition.field)
             if not query_func:
                 logger.error("No query function found for field: %s", condition.field)
+                self.failures.append(f"unsupported field {condition.field}")
                 return set(), 0, {}
 
             use_contains, is_negated = _operator_flags(condition.operator)
@@ -435,6 +440,7 @@ class NautobotSourceEvaluator:
                 condition.value,
                 e,
             )
+            self.failures.append(f"{condition.field} {condition.operator}")
             return set(), 0, {}
 
     def _intersect_sets(self, sets: list[set[str]]) -> set[str]:

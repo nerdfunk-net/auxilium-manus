@@ -26,6 +26,7 @@ import type {
   AssistantContext,
   ConversationScope,
   DisplayMessage,
+  InventoryProposal,
   QueryProposal,
   ReportOutlineProposal,
   SectionTextProposal,
@@ -37,6 +38,7 @@ import {
   toSavedMessages,
 } from "../utils/conversation-mapping";
 import { SavedConversationsDialog } from "./saved-conversations-dialog";
+import { InventoryProposalCard } from "./inventory-proposal-card";
 import { QueryProposalCard } from "./query-proposal-card";
 import { ReportOutlineCard, SectionTextCard } from "./report-proposal-cards";
 import { WorkflowProposalCard } from "./workflow-proposal-card";
@@ -60,6 +62,13 @@ export interface ReportProposalTarget {
   onApplySectionText: (proposal: SectionTextProposal) => void;
 }
 
+/** Where an inventory proposal is applied: the inventory builder, as unsaved state. */
+export interface InventoryProposalTarget {
+  /** Fingerprint of the builder's filter right now (see `filterTreeFingerprint`). */
+  currentFingerprint: string;
+  onApply: (proposal: InventoryProposal) => void;
+}
+
 /** Where a query proposal is applied: the Explore query builder. */
 export interface QueryProposalTarget {
   onApply: (proposal: QueryProposal) => void;
@@ -78,6 +87,7 @@ interface AssistantPanelProps {
   workflowTarget?: WorkflowProposalTarget;
   queryTarget?: QueryProposalTarget;
   reportTarget?: ReportProposalTarget;
+  inventoryTarget?: InventoryProposalTarget;
 }
 
 const DEFAULT_PLACEHOLDER = "Ask the assistant…";
@@ -104,6 +114,10 @@ const TOOL_LABELS: Record<string, string> = {
   resolve_inventory: "Resolving an inventory",
   search_devices: "Searching devices",
   get_device_attributes: "Reading device attributes",
+  get_inventory_reference: "Reading the inventory guide",
+  list_field_values: "Looking up names in Nautobot",
+  preview_filter: "Trying a filter",
+  propose_inventory: "Preparing an inventory",
   list_datasets: "Looking through report datasets",
   describe_dataset: "Reading a dataset's fields",
   run_query: "Running a report query",
@@ -133,6 +147,7 @@ export function AssistantPanel({
   workflowTarget,
   queryTarget,
   reportTarget,
+  inventoryTarget,
 }: AssistantPanelProps) {
   const { messages, isStreaming, send, stop, clear, setProposalState } =
     useAssistantChat({
@@ -301,6 +316,19 @@ export function AssistantPanel({
           onApply={() => {
             if (message.proposal?.kind === "workflow") {
               workflowTarget.onApply(message.proposal);
+              setProposalState(message.id, "applied");
+            }
+          }}
+          onReject={() => setProposalState(message.id, "rejected")}
+        />
+      )}
+      {message.proposal?.kind === "inventory" && inventoryTarget && (
+        <InventoryProposalCard
+          proposal={message.proposal}
+          currentFingerprint={inventoryTarget.currentFingerprint}
+          onApply={() => {
+            if (message.proposal?.kind === "inventory") {
+              inventoryTarget.onApply(message.proposal);
               setProposalState(message.id, "applied");
             }
           }}

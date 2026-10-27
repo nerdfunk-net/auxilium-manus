@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 from collections import Counter
 from dataclasses import dataclass
-from typing import Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -22,6 +22,9 @@ from services.ai_assistant.data_sharing import (
     not_shared_marker,
 )
 from services.ai_assistant.tools.base import Tool, ToolContext, ToolOutput
+
+if TYPE_CHECKING:
+    from models.sources_nautobot import LogicalOperation
 
 MAX_DEVICES_LISTED = 50
 MAX_FIELD_CHARS = 500
@@ -47,6 +50,10 @@ class InventoryAccessError(Exception):
     """The calling user may not read Nautobot data, or the source is unavailable."""
 
 
+class InventoryQueryError(Exception):
+    """Nautobot could not evaluate a filter (a condition failed): the result is not an answer."""
+
+
 class InventoryNotFoundError(Exception):
     """No such inventory, or it is private to someone else (indistinguishable on purpose)."""
 
@@ -61,6 +68,14 @@ class InventoryReader(Protocol):
     async def get_device_attributes(
         self, device_id: str, attributes: list[str] | None
     ) -> dict[str, Any]: ...
+
+    async def field_values(self, field: str) -> list[dict[str, str]]:
+        """Nautobot's names for a builder field (roles, statuses, locations, ...)."""
+        ...
+
+    async def preview_operations(self, operations: list[LogicalOperation]) -> list[dict[str, Any]]:
+        """Devices a filter selects now, as dicts (the same shape as ``resolve_inventory``)."""
+        ...
 
 
 @dataclass(frozen=True)

@@ -30,7 +30,7 @@ class StoredProposal(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    kind: Literal["template", "workflow", "query", "report_outline", "section_text"]
+    kind: Literal["template", "workflow", "query", "report_outline", "section_text", "inventory"]
     summary: str = Field(default="", max_length=2000)
 
 

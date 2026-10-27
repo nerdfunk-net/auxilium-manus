@@ -15,9 +15,11 @@ from typing import Any
 import service_factory
 from core.database import SessionLocal
 from dependencies import nautobot_credentials_from_source_id
+from models.sources_nautobot import LogicalOperation
 from services.ai_assistant.tools.inventory_tools import (
     InventoryAccessError,
     InventoryNotFoundError,
+    InventoryQueryError,
 )
 from services.auth.rbac_service import RBACService
 from services.nautobot.credentials import NautobotCredentials
@@ -100,6 +102,20 @@ class DbInventoryReader:
             return await self._service(credentials).get_device_attributes(device_id, attributes)
         except ValueError as exc:
             raise InventoryNotFoundError from exc
+
+    async def field_values(self, field: str) -> list[dict[str, str]]:
+        credentials = await asyncio.to_thread(self._only_credentials)
+        return await self._service(credentials).get_field_values(field)
+
+    async def preview_operations(self, operations: list[LogicalOperation]) -> list[dict[str, Any]]:
+        credentials = await asyncio.to_thread(self._only_credentials)
+        service = self._service(credentials)
+        service.evaluator.failures.clear()
+        devices, _operations_run = await service.preview_inventory(operations)
+        if service.evaluator.failures:
+            # The evaluator turns a failed condition into "no devices"; that is not an answer.
+            raise InventoryQueryError
+        return [d.model_dump(mode="json") for d in devices]
 
     def _only_credentials(self) -> NautobotCredentials:
         with SessionLocal() as db:

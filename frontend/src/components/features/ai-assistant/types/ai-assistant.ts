@@ -1,3 +1,4 @@
+import type { ConditionTree } from "@/components/features/inventory/types/device-selector";
 import type { ReportSection } from "@/components/features/reports/types/report-definition";
 import type { ReportQuerySpec } from "@/components/features/reports/types/report-query";
 
@@ -111,10 +112,12 @@ export interface RunViewerContext {
   run_id: number | null;
 }
 
-/** The inventory page: the Nautobot source it uses. Read-only surface. */
+/** The inventory page: its Nautobot source and the filter currently in the builder. */
 export interface InventoryContext {
   surface: "inventory";
   source_id: string;
+  /** The builder's (possibly unsaved) filter, so "also exclude lab devices" can refine it. */
+  filter_tree?: ConditionTree;
 }
 
 /** The reports page: the report source it uses. Read-only surface. */
@@ -250,12 +253,27 @@ export interface SectionTextProposal {
   state: ProposalState;
 }
 
+/** A checked inventory filter. Applying loads it into the builder as unsaved state; the user saves. */
+export interface InventoryProposal {
+  kind: "inventory";
+  summary: string;
+  tree: ConditionTree;
+  /** How many devices the filter selected when it was checked; null when the user has not
+   * shared that kind of data with the assistant (the builder shows the count). */
+  totalCount: number | null;
+  warnings: string[];
+  /** Fingerprint of the builder's filter when the turn started (detects edits made meanwhile). */
+  baseFingerprint: string;
+  state: ProposalState;
+}
+
 export type AssistantProposal =
   | TemplateProposal
   | WorkflowProposal
   | QueryProposal
   | ReportOutlineProposal
-  | SectionTextProposal;
+  | SectionTextProposal
+  | InventoryProposal;
 
 /** A message in the panel; `error` is set on an assistant turn that failed. */
 export interface DisplayMessage extends ChatMessage {
@@ -281,7 +299,13 @@ export interface ConversationScope {
 }
 
 export interface SavedProposal {
-  kind: "template" | "workflow" | "query" | "report_outline" | "section_text";
+  kind:
+    | "template"
+    | "workflow"
+    | "query"
+    | "report_outline"
+    | "section_text"
+    | "inventory";
   summary: string;
 }
 

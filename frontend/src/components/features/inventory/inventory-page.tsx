@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { List, Sparkles, X } from "lucide-react";
 
 import { AssistantPanel } from "@/components/features/ai-assistant/components/assistant-panel";
@@ -11,12 +11,16 @@ import { useAssistantSessionOpen } from "@/components/features/ai-assistant/hook
 import type {
   AssistantContext,
   ConversationScope,
+  InventoryProposal,
 } from "@/components/features/ai-assistant/types/ai-assistant";
+import { filterTreeFingerprint } from "@/components/features/ai-assistant/utils/filter-tree-fingerprint";
 import { Button } from "@/components/ui/button";
 
 import { DeviceSelector } from "./components/device-selector";
 import { NautobotSourceBanner } from "./components/nautobot-source-banner";
+import { createEmptyTree } from "./hooks/use-condition-tree";
 import { useInventorySource } from "./hooks/use-inventory-source";
+import type { AppliedConditionTree, ConditionTree } from "./types/device-selector";
 
 export function InventoryPage() {
   const source = useInventorySource();
@@ -35,9 +39,24 @@ export function InventoryPage() {
     setOpen: setAssistantOpen,
     toggle: toggleAssistant,
   } = useAssistantSessionOpen(assistantSessionKey);
+  // The builder's filter, so the assistant can refine it, and the place a proposal is applied.
+  const [builderTree, setBuilderTree] = useState<ConditionTree>(createEmptyTree);
+  const [appliedTree, setAppliedTree] = useState<AppliedConditionTree | null>(null);
+  const builderFingerprint = useMemo(() => filterTreeFingerprint(builderTree), [builderTree]);
   const getAssistantContext = useCallback(
-    (): AssistantContext => ({ surface: "inventory", source_id: sourceId }),
-    [sourceId],
+    (): AssistantContext => ({
+      surface: "inventory",
+      source_id: sourceId,
+      filter_tree: builderTree,
+    }),
+    [sourceId, builderTree],
+  );
+  const inventoryTarget = useMemo(
+    () => ({
+      currentFingerprint: builderFingerprint,
+      onApply: (proposal: InventoryProposal) => setAppliedTree({ tree: proposal.tree }),
+    }),
+    [builderFingerprint],
   );
   const showAssistant = assistantAvailable && source.isReady;
 
@@ -81,6 +100,8 @@ export function InventoryPage() {
             showActions
             showSaveLoad
             sourceReady={source.isReady}
+            onConditionTreeChange={setBuilderTree}
+            appliedTree={appliedTree}
           />
         </div>
       </div>
@@ -106,8 +127,9 @@ export function InventoryPage() {
             <AssistantPanel
               sessionKey={assistantSessionKey}
               conversationScope={conversationScope}
-              placeholder="Ask about your inventories, e.g. how many devices are in LAB?"
+              placeholder="Ask about your inventories, or describe one to build, e.g. all network devices in City A with a primary IP"
               getContext={getAssistantContext}
+              inventoryTarget={inventoryTarget}
             />
           </div>
         </ResizableAssistantAside>

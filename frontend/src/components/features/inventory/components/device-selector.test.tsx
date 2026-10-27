@@ -1,6 +1,7 @@
 import { act, render } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import type { AppliedConditionTree, ConditionTree } from "../types/device-selector";
 import { DeviceSelector } from "./device-selector";
 
 // The mutation hooks toast in their own onError, so these tests drive the handlers the page hands to
@@ -172,5 +173,69 @@ describe("DeviceSelector save and transfer handlers", () => {
     expect(h.saved.exportInventory).toHaveBeenCalledWith(3);
     expect(h.saved.importInventory).toHaveBeenCalledTimes(1);
     expect(h.toast).not.toHaveBeenCalled();
+  });
+});
+
+describe("DeviceSelector with the AI assistant", () => {
+  const proposed: AppliedConditionTree = {
+    tree: {
+      type: "root",
+      internalLogic: "AND",
+      items: [{ id: "c1", field: "location", operator: "equals", value: "City A" }],
+    },
+  };
+  const treeOnBuilder = () => h.captured.builder!.conditionTree as unknown as ConditionTree;
+
+  it("publishes the builder's tree, starting with the empty one", () => {
+    const onChange = vi.fn();
+    render(<DeviceSelector sourceId="nb-1" sourceReady onConditionTreeChange={onChange} />);
+
+    expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ type: "root", items: [] }));
+  });
+
+  it("puts an applied proposal in the builder and detaches the loaded inventory", async () => {
+    const onChange = vi.fn();
+    const { rerender } = render(
+      <DeviceSelector sourceId="nb-1" sourceReady onConditionTreeChange={onChange} />,
+    );
+    h.saved.loadInventory.mockResolvedValue({
+      id: 5, name: "core", description: "d", scope: "global", group_path: null,
+      inventory_type: "filter", tree: { type: "root", internalLogic: "AND", items: [] },
+    });
+    await act(async () => {
+      await (h.captured.modals!.onLoadInventory as unknown as (id: number) => Promise<void>)(5);
+    });
+    expect(h.captured.builder!.loadedInventoryName).toBe("core");
+
+    rerender(
+      <DeviceSelector
+        sourceId="nb-1"
+        sourceReady
+        onConditionTreeChange={onChange}
+        appliedTree={proposed}
+      />,
+    );
+
+    expect(treeOnBuilder().items).toEqual(proposed.tree.items);
+    expect(h.captured.builder!.loadedInventoryName).toBeUndefined();
+    expect(onChange).toHaveBeenLastCalledWith(proposed.tree);
+    await act(async () => {
+      await (h.captured.builder!.onSaveCurrent as unknown as () => Promise<void>)();
+    });
+    expect(h.saved.saveInventory).not.toHaveBeenCalled(); // nothing left to overwrite
+  });
+
+  it("applies a proposal once and keeps the user's later edits", () => {
+    const edited: ConditionTree = { type: "root", internalLogic: "OR", items: [] };
+    const { rerender } = render(
+      <DeviceSelector sourceId="nb-1" sourceReady appliedTree={proposed} />,
+    );
+
+    act(() => {
+      (h.captured.builder!.setConditionTree as unknown as (t: ConditionTree) => void)(edited);
+    });
+    rerender(<DeviceSelector sourceId="nb-1" sourceReady appliedTree={proposed} />);
+
+    expect(treeOnBuilder().internalLogic).toBe("OR");
   });
 });

@@ -115,6 +115,7 @@ def _session_for(
     config: AiRuntimeConfig,
     *,
     can_write_workflows: bool = False,
+    can_save_inventories: bool = False,
 ) -> AssistantSession:
     sharing = config.sharing
     # S5-04: with run / device content shared, scrub the exact secrets the user can resolve.
@@ -132,6 +133,7 @@ def _session_for(
             context=context,
             reader=DbInventoryReader(user.id, user.username, context.source_id),
             sharing=sharing,
+            may_propose=can_save_inventories,
         )
     if isinstance(context, RunViewerContext):
         return build_run_viewer_session(
@@ -271,8 +273,14 @@ def chat(
     db: Session = Depends(get_db),
 ) -> StreamingResponse:
     can_write_workflows = False
+    can_save_inventories = False
     try:
         config: AiRuntimeConfig = service.require_runtime_config(current_user.id)
+        if isinstance(body.context, InventoryContext):
+            # An inventory proposal is only useful to someone who can save it.
+            can_save_inventories = RBACService(db).has_permission(
+                current_user.id, "sources.nautobot", "write"
+            )
         if isinstance(body.context, WorkflowCanvasContext):
             # S5-08: the editor tools list real credentials / sources / inventories, so they
             # need the same permission the workflow list does; proposing needs write.
@@ -303,6 +311,7 @@ def chat(
                 request,
                 config,
                 can_write_workflows=can_write_workflows,
+                can_save_inventories=can_save_inventories,
             )
         except RedactionBudgetExceeded as exc:
             raise HTTPException(

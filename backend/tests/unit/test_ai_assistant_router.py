@@ -480,6 +480,36 @@ def test_inventory_context_gets_the_inventory_tools(
     assert "nothing about individual devices" in str(seen["system"])
 
 
+@pytest.mark.parametrize("may_save", [True, False])
+def test_inventory_proposal_tool_needs_permission_to_save_inventories(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch, may_save: bool
+) -> None:
+    _configure(client)
+    seen = _capture_chat(monkeypatch)
+    monkeypatch.setattr(
+        RBACService,
+        "has_permission",
+        lambda self, _uid, resource, action: (
+            (resource, action) != ("sources.nautobot", "write") or may_save
+        ),
+    )
+    body = {
+        "messages": [{"role": "user", "content": "make an inventory"}],
+        "context": {
+            "surface": "inventory",
+            "source_id": "nb",
+            "filter_tree": {"type": "root", "internalLogic": "AND", "items": []},
+        },
+    }
+
+    response = client.post("/api/ai/chat", json=body)
+
+    assert response.status_code == 200
+    assert ("propose_inventory" in seen["tools"]) is may_save
+    assert "preview_filter" in seen["tools"]
+    assert "current filter is empty" in str(seen["system"])
+
+
 def test_inventory_context_requires_a_source(client: TestClient) -> None:
     _configure(client)
     body = {"messages": [{"role": "user", "content": "hi"}], "context": {"surface": "inventory"}}

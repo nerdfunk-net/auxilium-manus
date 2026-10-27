@@ -25,6 +25,8 @@ import {
 } from "../store/assistant-session-store";
 import { buildChatHistory } from "../utils/chat-history";
 import { canvasFingerprint } from "../utils/canvas-fingerprint";
+import { filterTreeFingerprint } from "../utils/filter-tree-fingerprint";
+import { parseProposedConditionTree } from "../utils/parse-condition-tree";
 import { nextMessageId } from "../utils/message-id";
 import { parseSseBuffer } from "../utils/sse-parser";
 
@@ -64,6 +66,8 @@ interface ProposalPayload {
   section_id?: string;
   section_title?: string;
   text?: string;
+  tree?: unknown;
+  total_count?: number | null;
 }
 
 export interface UseAssistantChatOptions {
@@ -238,6 +242,29 @@ export function useAssistantChat({
                     summary: proposal.summary ?? "",
                     warnings: (proposal.warnings ?? []) as string[],
                     baseContent,
+                    state: "pending",
+                  },
+                }));
+              } else if (proposal.kind === "inventory") {
+                const tree = parseProposedConditionTree(proposal.tree);
+                if (!tree) {
+                  fail("The assistant sent an inventory filter that could not be read.");
+                  continue;
+                }
+                const baseFingerprint =
+                  context?.surface === "inventory" && context.filter_tree
+                    ? filterTreeFingerprint(context.filter_tree)
+                    : "";
+                patchAssistant(assistantId, (m) => ({
+                  ...m,
+                  proposal: {
+                    kind: "inventory",
+                    summary: proposal.summary ?? "",
+                    tree,
+                    totalCount:
+                      typeof proposal.total_count === "number" ? proposal.total_count : null,
+                    warnings: (proposal.warnings ?? []) as string[],
+                    baseFingerprint,
                     state: "pending",
                   },
                 }));

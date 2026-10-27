@@ -239,6 +239,10 @@ tools, so every value of those classes passes the opt-in of §4.2:
 | `resolve_inventory` | Devices of one inventory resolved now: `total_count` always; counts by role / platform / location / status / type / manufacturer over ALL devices and up to 50 device rows (chosen fields) only with the opt-in |
 | `search_devices` | Devices by name part across Nautobot (opt-in) |
 | `get_device_attributes` | Nautobot attributes of one device (opt-in) |
+| `get_inventory_reference` | Fields, operators, value formats and recipes for writing a filter (`knowledge/inventory_reference.md`) |
+| `list_field_values` | Nautobot's real names for a filter field (opt-in; `contains` narrows it) |
+| `preview_filter` | Runs a filter now: `total_count`, counts and sample rows only with the opt-in (§15: a filter touching unshared data is checked but not run) |
+| `propose_inventory` | Checks a filter and emits an `inventory` proposal (§15); offered only with `sources.nautobot:write` |
 
 **Built (reports assistant, surface `reports`)** - see §20:
 
@@ -732,7 +736,7 @@ Still open:
 - Read-only Nautobot GraphQL queries for open questions ("which devices are in City A?"); see
   `doc/OPEN_TODOS.md` "AI assistant: Nautobot GraphQL queries".
 - Inventory assistant follow-ups (§15): awareness of the unsaved filter being built and the loaded
-  inventory, and proposing a filter ("all core switches at site X") as a reviewable proposal.
+  inventory. (Proposing a filter was built 2026-10-28, see §15.)
 - Keeping a session across a full reload (not done on purpose: messages may hold device or run
   data, so nothing is written to browser storage).
 - A wider real-world redaction corpus (add a case to `test_ai_redaction_corpus.py` whenever a leak is found).
@@ -789,8 +793,9 @@ runs) and the panel in a browser. The injection corpus is in §17.
 (`/inventory`), not on the runs page or a global panel.
 
 **Surface.** `context = {surface: "inventory", source_id}`; `source_id` is the Nautobot source the page
-already uses. The button appears only while the assistant is available and the source is ready. The
-surface is read-only.
+already uses (plus, since 2026-10-28, the filter currently in the builder as `filter_tree`). The button
+appears only while the assistant is available and the source is ready. The surface reads and proposes: it
+has no execution tool and cannot save.
 
 **Data and access.** `inventory_reader.py` runs as the calling user: `sources.nautobot:read`, saved
 inventories through `InventoryService` (another user's private inventory looks like a missing one), and
@@ -811,8 +816,70 @@ inventory, denied access. The tools were run against the live Nautobot source an
 **Not verified:** a real model answering inventory questions, the panel in a browser, and behaviour on a
 large (thousands of devices) inventory.
 
-**Not built:** the assistant does not see the unsaved filter or loaded inventory of the page (it works
-from saved inventories by id), and it cannot propose filters. See §13 open items.
+**Inventory proposals (built 2026-10-28).** "Create an inventory with all network devices in City A that
+have a primary IP and status Active" produces a filter the user reviews and saves; the assistant never
+saves.
+
+- **Tools** (`tools/inventory_filter_tools.py`, model in `inventory_filter.py`): `get_inventory_reference`,
+  `list_field_values`, `preview_filter`, `propose_inventory` (table in §3.5). The model writes a small
+  non-recursive filter: root `logic`, `conditions`, and one level of `groups` (`logic`, `negate`).
+  Tool schemas cannot be recursive and small local models cope better with a flat shape.
+- **Checks before anything is shown:** operators must be ones the builder offers for the field
+  (`OPERATORS_BY_FIELD`, mirrors `field-operators.ts`), a filter of only negated groups is refused (it
+  selects nothing), `has_primary` must be `true`/`false`, and every location / role / status / tag /
+  platform / device type / manufacturer value is matched case-insensitively against Nautobot and
+  respelled as Nautobot spells it. An unknown value is an error back to the model with the closest names
+  (names are listed only when `share_inventory_data` is on). A value list Nautobot could not return
+  makes the value "unverified" (a warning), not wrong.
+- **Evaluation** reuses `utils/inventory_converter.tree_to_operations` and
+  `NautobotSourceService.preview_inventory`, the code a saved inventory runs through, so the count the
+  model sees is the count the builder will show. The evaluator turns a failed condition into "no devices"
+  (the inventory page relies on that), so it also records the failure in `evaluator.failures`;
+  `DbInventoryReader.preview_operations` raises `InventoryQueryError` when it is non-empty, and the tools
+  then return an error and emit **no proposal**: a failure is never shown as "0 devices". Prefix values are
+  also validated up front (CIDR plus an optional namespace).
+- **No membership oracle.** A count for a filter the model wrote tells it whether a guessed name, address
+  or custom-field value exists. So a filter is **checked but not run** (no count, no rows, nothing logged
+  by the evaluator) unless every class it touches is shared: any filter needs `share_inventory_data`;
+  `ip_prefix` / `primary_prefix` also need "Addresses and serial numbers"; `cf_*` also need "Custom
+  fields" (`field_data_class`). The result then carries `{"not_shared": <setting>}` instead of a count,
+  the proposal's `total_count` is null (the card shows no count), and the model is told it can still
+  propose; the user sees the count in the builder. (`resolve_inventory` keeps showing the size of a
+  saved inventory the user named: there the user chose the predicate.)
+- **Names that differ only by case** (`DC1` and `dc1`) are an error naming each spelling (without the
+  names when inventory data is not shared), not silently collapsed; an exact spelling is accepted.
+- **Proposal** `{kind: "inventory", summary, tree, total_count, warnings}`, where `tree` is the version-2
+  condition tree the builder saves. **Apply** puts it into the builder as unsaved state and detaches any
+  loaded saved inventory, so "Save" on a loaded inventory cannot overwrite it; the user saves with the
+  normal Save dialog (one write path, decision 8). Staleness is a warning (`filterTreeFingerprint`).
+- **The builder's filter is context:** `InventoryContext.filter_tree` (size-capped, untrusted) lets "also
+  exclude lab devices" refine what is on screen. It goes into the system prompt, so
+  `describe_condition_tree` flattens every value to one line, escapes `<` and `>` (a value cannot close
+  `<current_filter>` or start a new line of instructions) and caps depth and lines; the inventory prompt
+  says the block is data. Its values can be device names, so they reach the model only with
+  `share_inventory_data`, and `ip_prefix` / `primary_prefix` / `cf_*` values only with their own switches
+  (they show `(not shared)`); otherwise the model is told how many conditions exist and nothing else.
+  A loaded saved inventory (possibly written by another user) feeds this block, which is why it is
+  escaped.
+- **The client checks what it applies:** `parseProposedConditionTree` accepts only a root with conditions
+  and one level of groups (item cap, no recursion); anything else shows an error instead of reaching the
+  builder. The describe and fingerprint helpers cap depth because a loaded inventory can nest deeper.
+- **Permission:** `propose_inventory` is offered only to users with `sources.nautobot:write` (what saving
+  an inventory needs); others keep `preview_filter`.
+- **No new settings switch.** Everything is gated by the existing `share_inventory_data` and its three
+  sub-switches.
+- **Location semantics:** exact name match, and Nautobot resolves child locations server-side, so a
+  country includes its cities.
+
+**Verified:** unit tests for the filter model, each tool (gating, errors back to the model, no proposal
+on error, permission), the router and reader, and for the frontend card, fingerprint, chat hook and the
+builder apply / detach / apply-once behaviour (mutation-checked). **Not verified:** a real model (the
+user's local OpenAI-compatible one) producing valid filters from the example sentences, the panel in a
+browser, and child-location behaviour against real Nautobot data.
+
+**Still not built:** a glossary for acronyms and local vocabulary ("core", "DC") that do not match a
+Nautobot name (phase 2: admin-managed table read by a `get_glossary` tool, see OPEN_TODOS); depth beyond
+one level of groups.
 
 ## 16. Fine-grained inventory opt-in
 
@@ -891,7 +958,9 @@ secrets) placed in run errors, step names and artifacts are asserted to stay ins
 `<artifact>` fence; a forged closing tag does not end the fence. A scripted model that obeys an
 injection and asks for `propose_workflow`, `propose_template`, `trigger_run` or `execute_command` on a
 read-only surface gets "Unknown tool" and no `proposal` event is emitted; no read-only surface offers a
-tool whose name starts with propose / run / trigger / execute / delete. Secrets inside injected text are
+tool whose name starts with propose / run / trigger / execute / delete. The inventory surface is the one
+exception to the propose rule: its only such tool is `propose_inventory` (a test pins that), and it has
+no run / trigger / execute / delete tool. Secrets inside injected text are
 still redacted.
 
 **Not done / limits.** Prompt injection cannot be excluded for the model's text answer (it may repeat

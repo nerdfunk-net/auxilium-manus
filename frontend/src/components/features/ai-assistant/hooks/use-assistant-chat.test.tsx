@@ -12,6 +12,7 @@ import type {
   WorkflowProposal,
 } from "../types/ai-assistant";
 import { canvasFingerprint } from "../utils/canvas-fingerprint";
+import { filterTreeFingerprint } from "../utils/filter-tree-fingerprint";
 import { useAssistantChat } from "./use-assistant-chat";
 
 const KEY = "test_session";
@@ -281,6 +282,76 @@ describe("useAssistantChat", () => {
       summary: "Devices per site",
       state: "pending",
     });
+  });
+
+  it("keeps an inventory proposal with the tree, count and the builder's fingerprint", async () => {
+    const tree = {
+      type: "root",
+      internalLogic: "AND",
+      items: [{ id: "1", field: "role", operator: "equals", value: "Network" }],
+    };
+    fetchMock.mockResolvedValue(
+      sseResponse([
+        frame("proposal", {
+          kind: "inventory",
+          tree,
+          total_count: 12,
+          summary: "Network devices",
+          warnings: ["unverified"],
+        }),
+        frame("done", {}),
+      ]),
+    );
+    const context: AssistantContext = {
+      surface: "inventory",
+      source_id: "nb",
+      filter_tree: { type: "root", internalLogic: "AND", items: [] },
+    };
+    const { result } = renderHook(() =>
+      useAssistantChat({ sessionKey: KEY, getContext: () => context }),
+    );
+
+    await send(result, "go");
+
+    expect(result.current.messages[1].proposal).toEqual({
+      kind: "inventory",
+      tree,
+      totalCount: 12,
+      summary: "Network devices",
+      warnings: ["unverified"],
+      baseFingerprint: filterTreeFingerprint(context.filter_tree!),
+      state: "pending",
+    });
+  });
+
+  it("keeps an inventory proposal without a count when the server withheld it", async () => {
+    const tree = { type: "root", internalLogic: "AND", items: [] };
+    fetchMock.mockResolvedValue(
+      sseResponse([
+        frame("proposal", { kind: "inventory", tree, total_count: null, summary: "x" }),
+        frame("done", {}),
+      ]),
+    );
+    const { result } = renderHook(() => useAssistantChat({ sessionKey: KEY }));
+
+    await send(result, "go");
+
+    expect(result.current.messages[1].proposal).toMatchObject({ kind: "inventory", totalCount: null });
+  });
+
+  it("rejects an inventory proposal whose tree is malformed, with an error", async () => {
+    fetchMock.mockResolvedValue(
+      sseResponse([
+        frame("proposal", { kind: "inventory", tree: { items: "nope" }, summary: "x" }),
+        frame("done", {}),
+      ]),
+    );
+    const { result } = renderHook(() => useAssistantChat({ sessionKey: KEY }));
+
+    await send(result, "go");
+
+    expect(result.current.messages[1].proposal).toBeUndefined();
+    expect(result.current.messages[1].error).toMatch(/could not be read/);
   });
 
   it("keeps report outline and section text proposals, pending", async () => {

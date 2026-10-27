@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 
 import { useApi } from "@/hooks/use-api";
 import { useToast } from "@/hooks/use-toast";
@@ -20,6 +20,7 @@ import type { LoadedInventoryData } from "../hooks/use-saved-inventories";
 import { useSavedInventories } from "../hooks/use-saved-inventories";
 import { useSelectedInventory } from "../hooks/use-selected-inventory";
 import type {
+  AppliedConditionTree,
   DeviceInfo,
   DeviceSelectorProps,
   InventoryPreviewApiResponse,
@@ -51,6 +52,8 @@ export function DeviceSelector({
   selectedDeviceIds = EMPTY_DEVICE_IDS,
   onSelectionChange,
   onInventoryLoaded,
+  onConditionTreeChange,
+  appliedTree = null,
 }: DeviceSelectorProps) {
   const { toast } = useToast();
   const { apiCall } = useApi();
@@ -97,6 +100,23 @@ export function DeviceSelector({
     LoadedInventoryData,
     "id" | "name" | "description" | "scope" | "group_path" | "inventory_type"
   > | null>(null);
+
+  useEffect(() => {
+    onConditionTreeChange?.(conditionTree);
+  }, [conditionTree, onConditionTreeChange]);
+
+  const { setShowPreviewResults } = preview;
+  const lastAppliedTree = useRef<AppliedConditionTree | null>(null);
+  useEffect(() => {
+    // Apply each proposal once: later renders (or an unstable dependency) must not put it back
+    // over the user's edits.
+    if (!appliedTree || appliedTree === lastAppliedTree.current) return;
+    lastAppliedTree.current = appliedTree;
+    setConditionTree(appliedTree.tree);
+    // A proposal is a new, unsaved filter: "Save" on a loaded inventory must not overwrite it.
+    setLoadedInventory(null);
+    setShowPreviewResults(false);
+  }, [appliedTree, setConditionTree, setShowPreviewResults]);
 
   useEffect(() => {
     if (initialConditions.length > 0) {

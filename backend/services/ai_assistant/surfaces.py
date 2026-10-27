@@ -19,6 +19,7 @@ from models.ai_assistant import (
     WorkflowCanvasContext,
 )
 from services.ai_assistant.data_sharing import DeviceLabeler, SharingPolicy
+from services.ai_assistant.inventory_filter import describe_condition_tree, field_data_class
 from services.ai_assistant.prompts import (
     BASE_SYSTEM_PROMPT,
     INVENTORY_PROMPT,
@@ -30,6 +31,7 @@ from services.ai_assistant.prompts import (
 )
 from services.ai_assistant.redaction import MAX_REDACT_CHARS_PER_REQUEST, Redactor
 from services.ai_assistant.tools.base import Toolbox, ToolContext
+from services.ai_assistant.tools.inventory_filter_tools import INVENTORY_FILTER_TOOLS
 from services.ai_assistant.tools.inventory_tools import (
     INVENTORY_TOOLS,
     InventoryReader,
@@ -174,6 +176,7 @@ def build_inventory_session(
     context: InventoryContext,
     reader: InventoryReader,
     sharing: SharingPolicy,
+    may_propose: bool = True,
 ) -> AssistantSession:
     tool_context = ToolContext(
         user_id=user_id,
@@ -187,9 +190,46 @@ def build_inventory_session(
             BASE_SYSTEM_PROMPT,
             INVENTORY_PROMPT,
             f"Data the user shares with you: {shared}.",
+            _current_filter_block(context, tool_context.redactor, sharing),
         ]
     )
-    return AssistantSession(system=system, toolbox=Toolbox(INVENTORY_TOOLS, tool_context))
+    # Saving an inventory needs sources.nautobot:write; without it the user could not keep a
+    # proposal, so the tool is not offered (the workflow surface does the same).
+    filter_tools = tuple(
+        t for t in INVENTORY_FILTER_TOOLS if may_propose or t.name != "propose_inventory"
+    )
+    if not may_propose:
+        system += (
+            "\n\nThe user may not save inventories, so you cannot propose one: you can still "
+            "preview a filter to answer how many devices it would select."
+        )
+    toolbox = Toolbox((*INVENTORY_TOOLS, *filter_tools), tool_context)
+    return AssistantSession(system=system, toolbox=toolbox)
+
+
+def _current_filter_block(
+    context: InventoryContext, redactor: Redactor, sharing: SharingPolicy
+) -> str:
+    """What is in the builder now. Condition values can be device names, so they are class B."""
+    tree = context.filter_tree
+    items = tree.get("items") if isinstance(tree, dict) else None
+    if not isinstance(items, list) or not items:
+        return "The inventory builder's current filter is empty."
+    if not sharing.inventory:
+        return (
+            f"The inventory builder's current filter has {len(items)} condition(s) or group(s); "
+            "their contents are not shared with you."
+        )
+    # Prefix and custom-field values are addresses / possibly secrets: their own switches apply.
+    described = redactor.redact(
+        describe_condition_tree(
+            tree, hide=lambda field: not sharing.allows(field_data_class(field))
+        )
+    )
+    return (
+        "<current_filter>\nThe inventory builder's current (maybe unsaved) filter:\n"
+        f"{described}\n</current_filter>"
+    )
 
 
 def build_reports_session(

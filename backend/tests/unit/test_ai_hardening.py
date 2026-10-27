@@ -335,11 +335,14 @@ def test_no_read_only_surface_offers_a_write_or_execution_tool() -> None:
             sharing=SharingPolicy(),
         ).toolbox.specs()
     }
-    names |= {s.name for s in _inventory_toolbox().specs()}
+    inventory = {s.name for s in _inventory_toolbox().specs()}
 
     assert not [
         n for n in names if n.startswith(("propose", "run", "trigger", "execute", "delete"))
     ]
+    # The inventory surface proposes a filter (applied unsaved by the user) and nothing else.
+    assert {n for n in inventory if n.startswith("propose")} == {"propose_inventory"}
+    assert not [n for n in inventory if n.startswith(("run", "trigger", "execute", "delete"))]
 
 
 def test_every_secret_in_an_injected_tool_result_is_still_redacted() -> None:

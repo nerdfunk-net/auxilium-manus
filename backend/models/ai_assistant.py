@@ -150,13 +150,30 @@ class RunViewerContext(BaseModel):
     run_id: int | None = Field(default=None, ge=1)
 
 
+MAX_FILTER_JSON_CHARS = 100_000
+
+
 class InventoryContext(BaseModel):
-    """The inventory page: which Nautobot source it is using. Read-only surface."""
+    """The inventory page: its Nautobot source and the filter currently in the builder.
+
+    Read and propose only: the assistant never saves an inventory.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
     surface: Literal["inventory"]
     source_id: str = Field(min_length=1, max_length=64)
+    # The builder's (possibly unsaved) condition tree, as the client holds it. Untrusted: the
+    # server only renders it, bounded, and only to a model the user shares inventory data with.
+    filter_tree: dict[str, Any] | None = None
+
+    @model_validator(mode="after")
+    def _bounded_filter(self) -> InventoryContext:
+        if self.filter_tree is not None and (
+            len(json.dumps(self.filter_tree, default=str)) > MAX_FILTER_JSON_CHARS
+        ):
+            raise ValueError("The current filter is too large to send to the assistant")
+        return self
 
 
 class ReportsContext(BaseModel):

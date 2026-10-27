@@ -29,6 +29,7 @@ from services.ai_assistant.providers.registry import build_provider
 from services.ai_assistant.tools.inventory_tools import (
     InventoryAccessError,
     InventoryNotFoundError,
+    InventoryQueryError,
 )
 from services.ai_assistant.tools.run_tools import RunAccessError
 from services.ai_assistant.tools.template_tools import TemplatePermissionError
@@ -224,6 +225,8 @@ def test_inventory_reader_requires_nautobot_read(permissions: set) -> None:
         lambda: run(reader.resolve_inventory(1)),
         lambda: run(reader.search_devices("sw", 5)),
         lambda: run(reader.get_device_attributes("d", None)),
+        lambda: run(reader.field_values("role")),
+        lambda: run(reader.preview_operations([])),
     ):
         with pytest.raises(InventoryAccessError):
             call()
@@ -267,6 +270,72 @@ def test_another_users_private_inventory_looks_like_a_missing_one(
     for inventory_id in (1, 3):  # private to someone else, inactive
         with pytest.raises(InventoryNotFoundError):
             run(reader.resolve_inventory(inventory_id))
+
+
+def test_inventory_reader_refuses_a_preview_where_a_condition_failed(
+    permissions: set, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    permissions.add(("sources.nautobot", "read"))
+    monkeypatch.setattr(
+        inventory_reader, "nautobot_credentials_from_source_id", lambda *_a: object()
+    )
+
+    class Evaluator:
+        failures: list[str] = []
+
+    class Service:
+        evaluator = Evaluator()
+
+        async def preview_inventory(self, operations: list[Any]) -> tuple[list[Any], int]:
+            self.evaluator.failures.append("ip_prefix within")  # swallowed into "no devices"
+            return [], 0
+
+    monkeypatch.setattr(
+        inventory_reader.service_factory, "build_nautobot_source_service", lambda _c: Service()
+    )
+    reader = inventory_reader.DbInventoryReader(5, "tester", "nautobot")
+
+    with pytest.raises(InventoryQueryError):
+        run(reader.preview_operations([]))
+
+
+def test_inventory_reader_lists_field_values_and_previews_a_filter(
+    permissions: set, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    permissions.add(("sources.nautobot", "read"))
+    monkeypatch.setattr(
+        inventory_reader, "nautobot_credentials_from_source_id", lambda *_a: object()
+    )
+    seen: dict[str, Any] = {}
+
+    class Device:
+        def model_dump(self, mode: str) -> dict[str, str]:
+            return {"id": "d1", "name": "sw-1"}
+
+    class Evaluator:
+        failures: list[str] = []
+
+    class Service:
+        evaluator = Evaluator()
+
+        async def get_field_values(self, field: str) -> list[dict[str, str]]:
+            seen["field"] = field
+            return [{"value": "Network", "label": "Network"}]
+
+        async def preview_inventory(self, operations: list[Any]) -> tuple[list[Device], int]:
+            seen["operations"] = operations
+            return [Device()], 1
+
+    monkeypatch.setattr(
+        inventory_reader.service_factory, "build_nautobot_source_service", lambda _c: Service()
+    )
+    reader = inventory_reader.DbInventoryReader(5, "tester", "nautobot")
+
+    values = run(reader.field_values("role"))
+    devices = run(reader.preview_operations(["op"]))
+
+    assert values == [{"value": "Network", "label": "Network"}] and seen["field"] == "role"
+    assert devices == [{"id": "d1", "name": "sw-1"}] and seen["operations"] == ["op"]
 
 
 # -- provider registry -----------------------------------------------------------------------

@@ -631,8 +631,21 @@ rule holds for `store-in-db` / `get-from-db` (records are shared across workflow
     flexible. Decide whether raw GraphQL is worth the extra risk. Note that the project's rule
     "no client-side GraphQL" (`doc/claude/frontend.md`) concerns the browser; the backend already uses
     GraphQL internally.
-  - *Proposal flow:* a query that is useful to keep (a filter) could later become an inventory-filter
-    proposal the user reviews and saves.
+  - *Proposal flow:* built 2026-10-28 for filters (`propose_inventory`, `AI_ASSISTANT.md` §15); open
+    questions are still not answerable beyond what a filter can express.
+
+## AI assistant: glossary for inventory acronyms
+
+**Added:** 2026-10-28
+
+- Inventory proposals resolve words against Nautobot's names ("network devices" -> role `Network`). Words
+  that match no name ("core", "DC", "WAN edge") fail until the user spells the name.
+- **Idea:** admin-managed table (term -> field/operator/value or a small group), edited in Settings -> AI
+  Assistant, read by a `get_glossary` tool, gated by `share_inventory_data`. Admin-only write (the text
+  goes into the model's prompt, so treat it like the MCP instructions finding), length caps, validated
+  against live Nautobot values on save.
+- **Decide after** seeing which words fail with the real local model; the static alternative is a
+  section in `knowledge/inventory_reference.md`.
 
 ---
 

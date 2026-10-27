@@ -13,6 +13,7 @@ Background: `doc/ai_integration/AI_ASSISTANT.md` (design) and the section "In-ap
 |------|----------------------|---------|---------|
 | `template_reference.md` | `get_template_reference` | Template editor | Jinja2 syntax and what `device`, `nautobot`, `commands`, `parsed.*` and `run_input` contain |
 | `workflow_reference.md` | `get_workflow_reference` | Workflow builder | **Rules**: plan format, outcomes, capability flow, fan-out/fan-in, static attributes, references, secrets |
+| `inventory_reference.md` | `get_inventory_reference` | Inventory page | **Rules and recipes** for writing an inventory filter: fields, operators per field, value formats, AND/OR/negate, location semantics |
 | `workflow_recipes.md` | `get_workflow_recipes` | Workflow builder | **Recipes**: which steps and wiring a recurring request phrase usually means, plus silent-failure pitfalls |
 
 Rule of thumb for where new text goes:

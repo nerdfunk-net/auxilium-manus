@@ -97,6 +97,17 @@ export interface DeviceSelectorProps {
   selectedDeviceIds?: string[];
   onSelectionChange?: (selectedIds: string[], selectedDevices: DeviceInfo[]) => void;
   onInventoryLoaded?: (inventoryId: number) => void;
+  /** Called with the builder's condition tree whenever it changes (the AI assistant reads it). */
+  onConditionTreeChange?: (tree: ConditionTree) => void;
+  /**
+   * A filter to put in the builder (an applied AI proposal). A new object is applied once; it
+   * replaces the tree and detaches any loaded saved inventory so "Save" cannot overwrite it.
+   */
+  appliedTree?: AppliedConditionTree | null;
+}
+
+export interface AppliedConditionTree {
+  tree: ConditionTree;
 }
 
 export interface BackendCondition {

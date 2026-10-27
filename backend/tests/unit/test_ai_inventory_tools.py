@@ -83,10 +83,14 @@ def _call(session, name: str, **input_: Any):
     return asyncio.run(session.toolbox.execute(ToolCall("1", name, input_)))
 
 
-def test_surface_offers_four_read_tools() -> None:
+def test_surface_offers_the_inventory_tools() -> None:
     names = {s.name for s in _session().toolbox.specs()}
 
     assert names == {
+        "get_inventory_reference",
+        "list_field_values",
+        "preview_filter",
+        "propose_inventory",
         "list_inventories",
         "resolve_inventory",
         "search_devices",
