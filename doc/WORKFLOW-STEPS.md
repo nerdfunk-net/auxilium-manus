@@ -114,6 +114,15 @@ plugins:
 > normal result that still produces output. Name error outcomes `failure` (see the
 > style guide) so this projection applies.
 
+> **Step aliases (AI assistant).** Administrators can map a nickname to a step `id` under
+> Settings → AI Assistant → Assistant glossary → "Workflow step aliases"
+> (`doc/ai_integration/AI_ASSISTANT.md`, "Workflow step aliases"). An alias is stored as the
+> step's `id` and re-checked against this registry on every lookup: removing, disabling or making
+> a step non-executable, or giving another step an `id` or `name` equal to the alias word, makes
+> the alias *stale* (the assistant ignores it and falls back to `list_steps`). `id` is immutable
+> for the same reason; rename a `name` freely, but delete or re-point the aliases of a step you
+> remove.
+
 ### Artifact types
 
 | Value                   | Meaning                                      |
@@ -1701,3 +1710,8 @@ model, webhook, and API: [`doc/CICD_PIPELINE.md`](./CICD_PIPELINE.md).
     hand-mirrored. Leave both alone only for SSH-credential steps (the default). Never put
     the username/password in the step config; reference the vault credential by name.
     N/A for decorations.
+
+11. **AI step aliases** — when you remove, disable or rename a step, open the glossary tab
+    "Workflow step aliases" and delete or re-point aliases that name it (a stale alias is ignored
+    by the assistant, so nothing breaks, but it stays in the list). A new step's `id` or `name`
+    that equals an existing alias word wins over the alias. No code change is needed.

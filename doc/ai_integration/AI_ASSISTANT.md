@@ -217,6 +217,7 @@ All tools take/return JSON, run as the calling user, and have bounded output siz
 | `get_workflow_recipes` | workflow | Confirmed phrase -> steps/wiring recipes (§11) |
 | `list_steps` / `get_step_schema` | workflow | Step catalogue and per-step config schema, outcomes, capabilities |
 | `list_references` | workflow | Credentials (id/name/type only), git repositories, sources, saved inventories |
+| `get_glossary` | workflow | Administrator-defined nickname -> one registry step ("Workflow step aliases", §15); offered only when the session has a glossary reader |
 | `validate_workflow` | workflow | The four validation tiers on a plan, without proposing |
 | `propose_workflow` | workflow | Expand + validate; emits a `proposal` only when error-free |
 
@@ -561,6 +562,7 @@ returns to the model as a plan error. The user types a secret into a new step by
 | `get_workflow_recipes` | A | Recipes for recurring requests (devices from an inventory, ask for a device, attributes, onboarding) and silent-failure pitfalls (Batfish rename, TextFSM index) |
 | `list_steps` / `get_step_schema` | A | Step catalogue from the registry; full config schema, outcomes, capabilities for one step |
 | `list_references` | A | Credentials (id/name/type only, never secrets), git repositories, sources, saved inventories — so references are real, never invented |
+| `get_glossary` | A | The step an administrator-defined nickname means (whole-name match, `did_you_mean` names on a miss, stale when the step is gone or the word is now a real step name); see §15 "Workflow step aliases" |
 | `validate_workflow` | A | Run the tiers on a plan without proposing |
 | `propose_workflow` | proposal | Expand + validate; emits the `proposal` event with a change summary |
 
@@ -569,6 +571,10 @@ returns to the model as a plan error. The user types a secret into a new step by
 host-script and propose-in-chat mechanics (the in-app path has `list_references` and diff review
 instead). The two files are maintained separately; when a recipe is confirmed or corrected, update
 both. Recipes never replace `get_step_schema`; they say which steps and wiring a phrase usually means.
+
+**Recipe or alias?** A recipe is product knowledge reviewed in git (wiring, pitfalls). A nickname for
+a step that matches neither its id nor its display name is an admin-managed *step alias* instead
+(§15, "Workflow step aliases"): one word to one step id, never wiring or config.
 
 **Not in phase 4:** running a workflow, editing workflow metadata (name/folder/visibility), notes,
 creating schedules, canvas groups beyond preserving existing ones.
@@ -900,6 +906,12 @@ defined by administrators and read by the `get_glossary` tool. The same table an
   refused when a value contains a control character, a newline, `<` or `>`, and `get_glossary`
   flattens values to one line and escapes angle brackets again on every read. Value-list fields
   (location, role, status, tag, device type, manufacturer, platform) must match a Nautobot name.
+- **Did you mean.** The lookup is exact, so a paraphrase ("gets the devices from git" for the term
+  "get devices from git") finds nothing. A miss therefore returns up to 5 close names under
+  `did_you_mean` (`GlossaryService.suggest`: spelling similarity or one name containing the other,
+  names of 4+ characters), never a definition; the note tells the model to call `get_glossary`
+  again with one exact name or to ask the user. On the inventory surface the sharing gate comes
+  first, so no suggestion is returned without `share_inventory_data`. Applies to both kinds.
 - **Admin only.** `GET/POST /ai/glossary`, `PUT/DELETE /ai/glossary/{id}` need the `admin` role
   (auth.md P3) and the operator switch; writes are rate limited. The assistant never writes.
 - **Validated on save** (`services/ai_assistant/glossary_service.py`): the builder's operator rules
