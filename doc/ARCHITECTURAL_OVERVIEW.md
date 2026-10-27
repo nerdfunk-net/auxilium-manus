@@ -999,6 +999,15 @@ Consequences worth knowing:
 - **Knowledge loads on demand.** `get_workflow_reference` and `get_workflow_recipes` return markdown
   from `services/ai_assistant/knowledge/` only when the model asks, so turns that do not need them do
   not pay for them. Recipes are the in-app counterpart of `doc/ai_collaboration/AI_VOCABULARY.md`.
+- **Static knowledge vs. live vocabulary.** Those markdown files are product knowledge, reviewed in git
+  and read once per process. Organisation-specific words live in an admin-managed **glossary**
+  (`ai_glossary_terms`, one table, a `kind` per entry): on the inventory page a word like "core" expands
+  to a filter, on the workflow builder a nickname like "Get from GIT" maps to one registry step id. The
+  model reads it through `get_glossary`, by whole word only (a miss returns close names as
+  `did_you_mean`, never a definition), and every entry is re-checked on each read against Nautobot or the
+  step registry, so one that no longer holds comes back `stale` without its payload. Only administrators
+  write it, and the stored payload is data (a filter, a step id), never prompt text. See
+  `doc/ai_integration/AI_ASSISTANT.md` §15.
 - **Vendors differ, the loop does not.** Anthropic `tool_use` blocks, Gemini `functionCall` parts and
   OpenAI `tool_calls` are translated by the adapters in `providers/` to and from the neutral
   `ToolSpec` / `ToolCall` shapes.
@@ -1007,9 +1016,12 @@ Consequences worth knowing:
 
 - **Surfaces:** the template editor and the workflow builder have a proposal tool that changes their
   buffer or canvas; the reports page has `propose_query`, which is checked against the report catalog,
-  never run, and only fills the Explore query builder. The runs page and inventory page surfaces are
-  read-only: they offer no `propose_*`, run, trigger or execute tool, so even a prompt-injected model has
-  nothing to call (asking for one returns "Unknown tool").
+  never run, and only fills the Explore query builder. The inventory page has `propose_inventory`, which
+  checks a filter against Nautobot's real names and only fills the unsaved inventory builder (the user saves
+  it). The runs page surface is read-only: it offers no `propose_*`, run, trigger or execute tool, and no
+  surface has one for saving, running or touching a device, so even a prompt-injected model has nothing
+  to call (asking for one returns "Unknown tool"). The glossary is read-only for the model; only an
+  administrator edits it, through its own admin API.
 - **Tools** run as the calling user, each opening a short database session of its own and
   re-checking RBAC (`templates:read`, `credentials:read`, `sources.<type>:read`, ...). Input is
   validated with Pydantic, output is redacted and capped, and an exception becomes a generic tool
@@ -1025,7 +1037,9 @@ Consequences worth knowing:
 
 ### What the model is allowed to see
 
-*Definitions* (workflows, templates, step schemas, credential and repository names) always. Anything
+*Definitions* (workflows, templates, step schemas, credential and repository names, step aliases) always.
+Inventory glossary entries are the exception: their values are Nautobot names, so they follow the
+inventory opt-in. Anything
 derived from devices or runs only with the user's **opt-in**, which is enforced in the tool layer, not
 the UI (`services/ai_assistant/data_sharing.py`): a base switch for device basics, three nested switches
 for addresses and serials, custom fields and config context, one for run and device content
