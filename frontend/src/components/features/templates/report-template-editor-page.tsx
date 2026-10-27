@@ -1,9 +1,18 @@
 "use client";
 
-import { ArrowLeft, FileText, Play, RefreshCw, Save, Sparkles, X } from "lucide-react";
+import {
+  ArrowLeft,
+  FileText,
+  Play,
+  RefreshCw,
+  Save,
+  Sparkles,
+  X,
+} from "lucide-react";
 import { Suspense, useCallback, useMemo, useState } from "react";
 
 import { AssistantPanel } from "@/components/features/ai-assistant/components/assistant-panel";
+import { ResizableAssistantAside } from "@/components/features/ai-assistant/components/resizable-assistant-aside";
 import { useAiAssistantAvailable } from "@/components/features/ai-assistant/hooks/use-ai-assistant-available";
 import { useAssistantSessionOpen } from "@/components/features/ai-assistant/hooks/use-assistant-session-open";
 import type {
@@ -75,7 +84,11 @@ function ReportTemplateEditorContent() {
   const [snapshotChoice, setSnapshotChoice] = useState("");
   const [previewOpen, setPreviewOpen] = useState(false);
   const snapshotOptions = useMemo(
-    () => (snapshots.data ?? []).map((s) => ({ value: String(s.id), label: s.name })),
+    () =>
+      (snapshots.data ?? []).map((s) => ({
+        value: String(s.id),
+        label: s.name,
+      })),
     [snapshots.data],
   );
   const snapshotId = snapshotChoice || snapshotOptions[0]?.value || "";
@@ -106,10 +119,13 @@ function ReportTemplateEditorContent() {
               </div>
               <div>
                 <h1 className="text-3xl font-bold text-foreground">
-                  {editor.isEditMode ? "Edit Report Template" : "New Report Template"}
+                  {editor.isEditMode
+                    ? "Edit Report Template"
+                    : "New Report Template"}
                 </h1>
                 <p className="mt-1 text-muted-foreground">
-                  A Jinja2 template that turns a generated report into Markdown text
+                  A Jinja2 template that turns a generated report into Markdown
+                  text
                 </p>
               </div>
             </div>
@@ -124,7 +140,11 @@ function ReportTemplateEditorContent() {
                   AI Assistant
                 </Button>
               ) : null}
-              <Button type="button" variant="outline" onClick={() => editor.router.push("/templates")}>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => editor.router.push("/templates")}
+              >
                 <ArrowLeft className="size-4" />
                 Back
               </Button>
@@ -168,7 +188,11 @@ function ReportTemplateEditorContent() {
             right={
               <div className="h-full min-h-[480px] overflow-hidden rounded-lg border">
                 <CanvasErrorBoundary fallbackTitle="The editor failed to render">
-                  <CodeEditorPanel value={content} language="jinja2" onChange={setContent} />
+                  <CodeEditorPanel
+                    value={content}
+                    language="jinja2"
+                    onChange={setContent}
+                  />
                 </CanvasErrorBoundary>
               </div>
             }
@@ -180,7 +204,11 @@ function ReportTemplateEditorContent() {
                 value={snapshotId}
                 onChange={setSnapshotChoice}
                 options={snapshotOptions}
-                placeholder={snapshots.isLoading ? "Loading snapshots…" : "No snapshots yet"}
+                placeholder={
+                  snapshots.isLoading
+                    ? "Loading snapshots…"
+                    : "No snapshots yet"
+                }
                 ariaLabel="Snapshot to preview with"
                 className="h-9 w-72 text-sm"
               />
@@ -198,7 +226,11 @@ function ReportTemplateEditorContent() {
                 Preview
               </Button>
             </div>
-            <Button type="button" disabled={editor.isSaving} onClick={editor.save}>
+            <Button
+              type="button"
+              disabled={editor.isSaving}
+              onClick={editor.save}
+            >
               {editor.isSaving ? (
                 <RefreshCw className="size-4 animate-spin" />
               ) : (
@@ -226,7 +258,8 @@ function ReportTemplateEditorContent() {
                 <Alert variant="destructive">
                   <AlertDescription>{preview.data.error}</AlertDescription>
                 </Alert>
-              ) : preview.data?.markdown !== undefined && preview.data.markdown !== null ? (
+              ) : preview.data?.markdown !== undefined &&
+                preview.data.markdown !== null ? (
                 <MarkdownView markdown={preview.data.markdown} />
               ) : (
                 <RefreshCw className="size-4 animate-spin text-muted-foreground" />
@@ -236,10 +269,7 @@ function ReportTemplateEditorContent() {
         </Dialog>
       </div>
       {assistantAvailable && assistantOpen ? (
-        <aside
-          className="flex h-full w-[420px] shrink-0 flex-col gap-3 border-l bg-card p-4"
-          aria-label="AI Assistant"
-        >
+        <ResizableAssistantAside className="h-full">
           <div className="flex items-center justify-between">
             <h2 className="flex items-center gap-2 text-sm font-semibold">
               <Sparkles className="size-4" />
@@ -264,7 +294,7 @@ function ReportTemplateEditorContent() {
               templateTarget={proposalTarget}
             />
           </div>
-        </aside>
+        </ResizableAssistantAside>
       ) : null}
     </div>
   );

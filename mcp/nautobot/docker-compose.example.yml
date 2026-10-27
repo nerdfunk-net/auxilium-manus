@@ -1,0 +1,59 @@
+# Run the Nautobot MCP server as an HTTP service for clients in containers or on other hosts.
+#
+# 1. Create the client tokens, one "name=token" line per client (git-ignored, readable by the
+#    unprivileged container user):
+#      printf 'ui=%s\n' "$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))')" > mcp_client_tokens.txt
+#      chmod 0444 mcp_client_tokens.txt
+# 2. Set NAUTOBOT_URL and NAUTOBOT_TOKEN (a READ-ONLY Nautobot token) in .env next to this file.
+#    NAUTOBOT_URL must be reachable FROM THE CONTAINER: 127.0.0.1 is the container itself. For a
+#    Nautobot on the Docker host use http://host.docker.internal:8080 (Docker Desktop, OrbStack).
+# 3. docker compose -f docker-compose.example.yml up -d --build
+#
+# Clients on the same Docker network call http://nautobot-mcp:8000/mcp with
+# "Authorization: Bearer <token>". To reach it from another compose project, attach that
+# project's services to the network below:
+#
+#   networks:
+#     nautobot-mcp:
+#       external: true
+#
+# The server speaks plain HTTP: keep it on a private Docker network, or put a TLS reverse proxy
+# in front of it (then add the public name to MCP_ALLOWED_HOSTS). See README.md, "Run over HTTP".
+
+services:
+  nautobot-mcp:
+    build:
+      context: .
+    container_name: nautobot-mcp
+    restart: unless-stopped
+    environment:
+      NAUTOBOT_URL: "${NAUTOBOT_URL:?NAUTOBOT_URL is required (reachable from the container)}"
+      NAUTOBOT_TOKEN: "${NAUTOBOT_TOKEN:?NAUTOBOT_TOKEN is required (a read-only Nautobot token)}"
+      NAUTOBOT_VERIFY_SSL: "${NAUTOBOT_VERIFY_SSL:-true}"
+      # The Host names clients use; a request with another Host header is refused with 421.
+      MCP_ALLOWED_HOSTS: "${MCP_ALLOWED_HOSTS:-nautobot-mcp:8000}"
+      MCP_CLIENT_TOKENS_FILE: /run/secrets/mcp_client_tokens
+    secrets:
+      - mcp_client_tokens
+    # Publish only for clients on this machine; Docker clients use the network instead.
+    #ports:
+    #  - "127.0.0.1:8000:8000"
+    read_only: true
+    # The server needs no capability.
+    cap_drop:
+      - ALL
+      - NET_RAW
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 128
+    mem_limit: 256m
+    networks:
+      - nautobot-mcp
+
+secrets:
+  mcp_client_tokens:
+    file: ./mcp_client_tokens.txt
+
+networks:
+  nautobot-mcp:
+    name: nautobot-mcp

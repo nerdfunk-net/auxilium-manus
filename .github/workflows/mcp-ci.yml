@@ -1,0 +1,77 @@
+name: mcp-ci
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "mcp/**"
+      - ".github/workflows/mcp-ci.yml"
+  pull_request:
+    paths:
+      - "mcp/**"
+      - ".github/workflows/mcp-ci.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mcp-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        server: [nautobot]
+    defaults:
+      run:
+        working-directory: mcp/${{ matrix.server }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements-dev.txt
+      - name: ruff
+        run: ruff check .
+      - name: pytest
+        run: python -m pytest -q --cov=nautobot_mcp --cov-fail-under=100
+
+  image:
+    # Builds the image (nothing is pushed) and starts it without a Nautobot: healthy, unprivileged,
+    # /mcp refuses a request without a token, and no start without a client token. Also validates
+    # the example compose file with dummy values.
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        server: [nautobot]
+    defaults:
+      run:
+        working-directory: mcp/${{ matrix.server }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: build and smoke-test the image
+        run: ./check-image.sh
+      - name: validate the example compose file
+        run: NAUTOBOT_URL=http://nautobot.invalid NAUTOBOT_TOKEN=ci docker compose -f docker-compose.example.yml config -q
+
+  audit:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        server: [nautobot]
+    defaults:
+      run:
+        working-directory: mcp/${{ matrix.server }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+      - run: pip install pip-audit==2.10.1
+      - name: pip-audit
+        run: pip-audit -r requirements.txt

@@ -15,6 +15,7 @@ import {
 import { Suspense, useCallback, useMemo } from "react";
 
 import { AssistantPanel } from "@/components/features/ai-assistant/components/assistant-panel";
+import { ResizableAssistantAside } from "@/components/features/ai-assistant/components/resizable-assistant-aside";
 import { useAiAssistantAvailable } from "@/components/features/ai-assistant/hooks/use-ai-assistant-available";
 import { useAssistantSessionOpen } from "@/components/features/ai-assistant/hooks/use-assistant-session-open";
 import type {
@@ -345,10 +346,7 @@ function TemplateEditorContent() {
         />
       </div>
       {assistantAvailable && assistantOpen && (
-        <aside
-          className="flex h-full w-[420px] shrink-0 flex-col gap-3 border-l bg-card p-4"
-          aria-label="AI Assistant"
-        >
+        <ResizableAssistantAside className="h-full">
           <div className="flex items-center justify-between">
             <h2 className="flex items-center gap-2 text-sm font-semibold">
               <Sparkles className="size-4" />
@@ -373,7 +371,7 @@ function TemplateEditorContent() {
               templateTarget={proposalTarget}
             />
           </div>
-        </aside>
+        </ResizableAssistantAside>
       )}
     </div>
   );

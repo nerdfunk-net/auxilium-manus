@@ -10,7 +10,7 @@ import {
   Trash2,
   Wrench,
 } from "lucide-react";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -122,6 +122,8 @@ function toolLabel(name: string): string {
  * Reusable chat panel. Callers must gate rendering on `useAiAssistantAvailable()` so that
  * nothing assistant-related is shown when the user has switched it off.
  */
+const FOLLOW_THRESHOLD_PX = 48;
+
 export function AssistantPanel({
   sessionKey,
   conversationScope,
@@ -144,6 +146,24 @@ export function AssistantPanel({
     (state) => (state.sessions[sessionKey] ?? EMPTY_SESSION).savedId,
   );
   const [savedOpen, setSavedOpen] = useState(false);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  // Follow the newest text like a console, unless the user scrolled up to read.
+  const followRef = useRef(true);
+
+  const handleScroll = useCallback(() => {
+    const el = scrollRef.current;
+    if (el) {
+      followRef.current =
+        el.scrollHeight - el.scrollTop - el.clientHeight < FOLLOW_THRESHOLD_PX;
+    }
+  }, []);
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (el && followRef.current) {
+      el.scrollTop = el.scrollHeight;
+    }
+  }, [messages]);
   const { save } = useAiConversationsMutations();
 
   const handleSave = useCallback(() => {
@@ -196,6 +216,7 @@ export function AssistantPanel({
     if (!draft.trim() || isStreaming) {
       return;
     }
+    followRef.current = true;
     void send(draft);
     setDraft("");
   }, [draft, isStreaming, send, setDraft]);
@@ -362,6 +383,8 @@ export function AssistantPanel({
         </div>
       )}
       <div
+        ref={scrollRef}
+        onScroll={handleScroll}
         className="min-h-0 flex-1 space-y-3 overflow-y-auto"
         aria-live="polite"
       >

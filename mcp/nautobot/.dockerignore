@@ -1,0 +1,11 @@
+venv
+.env
+.git
+tests
+doc
+**/__pycache__
+.pytest_cache
+.ruff_cache
+.coverage
+mcp_client_tokens.txt
+docker-compose*.yml

@@ -1,0 +1,2 @@
+# Per-client bearer tokens for the Docker deployment (see docker-compose.example.yml).
+mcp_client_tokens.txt

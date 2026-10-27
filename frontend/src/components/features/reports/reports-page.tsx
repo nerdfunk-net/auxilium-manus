@@ -4,6 +4,7 @@ import { Sparkles, X } from "lucide-react";
 import { useCallback, useMemo, useRef, useState } from "react";
 
 import { AssistantPanel } from "@/components/features/ai-assistant/components/assistant-panel";
+import { ResizableAssistantAside } from "@/components/features/ai-assistant/components/resizable-assistant-aside";
 import { DataSharingNotice } from "@/components/features/ai-assistant/components/data-sharing-notice";
 import { useAiAssistantAvailable } from "@/components/features/ai-assistant/hooks/use-ai-assistant-available";
 import { useAssistantSessionOpen } from "@/components/features/ai-assistant/hooks/use-assistant-session-open";
@@ -32,11 +33,14 @@ const DEFAULT_SOURCE_ID = "report_data";
  */
 export function ReportsPage() {
   const [tab, setTab] = useState("explore");
-  const [loadRequest, setLoadRequest] = useState<{ id: number; query: ReportQuerySpec } | null>(
+  const [loadRequest, setLoadRequest] = useState<{
+    id: number;
+    query: ReportQuerySpec;
+  } | null>(null);
+  const nextLoadId = useRef(1);
+  const [draftRequest, setDraftRequest] = useState<ReportDraftRequest | null>(
     null,
   );
-  const nextLoadId = useRef(1);
-  const [draftRequest, setDraftRequest] = useState<ReportDraftRequest | null>(null);
   const handleDraftConsumed = useCallback(() => setDraftRequest(null), []);
 
   // AI assistant: explains the catalog and proposes queries; values only with the user's opt-in.
@@ -64,7 +68,10 @@ export function ReportsPage() {
     setLoadRequest({ id, query: proposal.query });
     setTab("explore");
   }, []);
-  const queryTarget = useMemo(() => ({ onApply: handleApplyQuery }), [handleApplyQuery]);
+  const queryTarget = useMemo(
+    () => ({ onApply: handleApplyQuery }),
+    [handleApplyQuery],
+  );
 
   const handleApplyOutline = useCallback((proposal: ReportOutlineProposal) => {
     const id = nextLoadId.current;
@@ -80,20 +87,26 @@ export function ReportsPage() {
     });
     setTab("reports");
   }, []);
-  const handleApplySectionText = useCallback((proposal: SectionTextProposal) => {
-    const id = nextLoadId.current;
-    nextLoadId.current += 1;
-    setDraftRequest({
-      id,
-      kind: "section_text",
-      reportId: proposal.reportId,
-      sectionId: proposal.sectionId,
-      text: proposal.text,
-    });
-    setTab("reports");
-  }, []);
+  const handleApplySectionText = useCallback(
+    (proposal: SectionTextProposal) => {
+      const id = nextLoadId.current;
+      nextLoadId.current += 1;
+      setDraftRequest({
+        id,
+        kind: "section_text",
+        reportId: proposal.reportId,
+        sectionId: proposal.sectionId,
+        text: proposal.text,
+      });
+      setTab("reports");
+    },
+    [],
+  );
   const reportTarget = useMemo(
-    () => ({ onApplyOutline: handleApplyOutline, onApplySectionText: handleApplySectionText }),
+    () => ({
+      onApplyOutline: handleApplyOutline,
+      onApplySectionText: handleApplySectionText,
+    }),
     [handleApplyOutline, handleApplySectionText],
   );
 
@@ -104,12 +117,15 @@ export function ReportsPage() {
           <div>
             <h1 className="text-xl font-semibold">Reports</h1>
             <p className="text-sm text-muted-foreground">
-              Query the data collected by Store for Report steps across all devices, and turn
-              queries into stored reports.
+              Query the data collected by Store for Report steps across all
+              devices, and turn queries into stored reports.
             </p>
           </div>
           {assistantAvailable ? (
-            <Button variant={assistantOpen ? "default" : "outline"} onClick={toggleAssistant}>
+            <Button
+              variant={assistantOpen ? "default" : "outline"}
+              onClick={toggleAssistant}
+            >
               <Sparkles className="size-4" />
               AI Assistant
             </Button>
@@ -124,19 +140,25 @@ export function ReportsPage() {
           <TabsContent value="explore" className="min-h-0 flex-1">
             <ExploreTab loadRequest={loadRequest} />
           </TabsContent>
-          <TabsContent value="reports" className="min-h-0 flex-1 overflow-y-auto">
-            <ReportsTab draftRequest={draftRequest} onDraftConsumed={handleDraftConsumed} />
+          <TabsContent
+            value="reports"
+            className="min-h-0 flex-1 overflow-y-auto"
+          >
+            <ReportsTab
+              draftRequest={draftRequest}
+              onDraftConsumed={handleDraftConsumed}
+            />
           </TabsContent>
-          <TabsContent value="snapshots" className="min-h-0 flex-1 overflow-y-auto">
+          <TabsContent
+            value="snapshots"
+            className="min-h-0 flex-1 overflow-y-auto"
+          >
             <SnapshotsTab />
           </TabsContent>
         </Tabs>
       </div>
       {assistantAvailable && assistantOpen ? (
-        <aside
-          className="flex w-[420px] shrink-0 flex-col gap-3 border-l bg-card p-4"
-          aria-label="AI Assistant"
-        >
+        <ResizableAssistantAside>
           <div className="flex items-center justify-between">
             <h2 className="flex items-center gap-2 text-sm font-semibold">
               <Sparkles className="size-4" />
@@ -163,7 +185,7 @@ export function ReportsPage() {
               reportTarget={reportTarget}
             />
           </div>
-        </aside>
+        </ResizableAssistantAside>
       ) : null}
     </div>
   );

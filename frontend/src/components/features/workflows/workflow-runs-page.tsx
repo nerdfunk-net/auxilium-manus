@@ -8,6 +8,7 @@ import { Play, Sparkles, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { AssistantPanel } from "@/components/features/ai-assistant/components/assistant-panel";
+import { ResizableAssistantAside } from "@/components/features/ai-assistant/components/resizable-assistant-aside";
 import { DataSharingNotice } from "@/components/features/ai-assistant/components/data-sharing-notice";
 import { useAiAssistantAvailable } from "@/components/features/ai-assistant/hooks/use-ai-assistant-available";
 import { useAssistantSessionOpen } from "@/components/features/ai-assistant/hooks/use-assistant-session-open";
@@ -128,10 +129,7 @@ export function WorkflowRunsPage() {
           )}
         </main>
         {assistantAvailable && assistantOpen ? (
-          <aside
-            className="flex w-[420px] shrink-0 flex-col gap-3 border-l bg-card p-4"
-            aria-label="AI Assistant"
-          >
+          <ResizableAssistantAside>
             <div className="flex items-center justify-between">
               <h2 className="flex items-center gap-2 text-sm font-semibold">
                 <Sparkles className="size-4" />
@@ -160,7 +158,7 @@ export function WorkflowRunsPage() {
                 getContext={getAssistantContext}
               />
             </div>
-          </aside>
+          </ResizableAssistantAside>
         ) : null}
       </div>
     </div>

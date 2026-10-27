@@ -268,3 +268,6 @@ docker/certs/
 
 # config yaml
 config.yaml
+
+# Agent runtime state (private repository checkouts, known_hosts)
+agent/*/state/

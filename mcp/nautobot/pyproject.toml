@@ -1,0 +1,22 @@
+# Packaging only, so the server can be installed into its venv (`pip install -e .`) and started
+# from any working directory without PYTHONPATH. requirements.txt stays the single list of
+# dependencies (pip-audit and the Dockerfile read it).
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nautobot-mcp"
+version = "0.1.0"
+description = "Read-only MCP server for Nautobot"
+requires-python = ">=3.12"
+dynamic = ["dependencies"]
+
+[project.scripts]
+nautobot-mcp = "nautobot_mcp.__main__:main"
+
+[tool.setuptools.dynamic]
+dependencies = { file = ["requirements.txt"] }
+
+[tool.setuptools.packages.find]
+include = ["nautobot_mcp*"]
