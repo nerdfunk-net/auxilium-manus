@@ -121,10 +121,18 @@ class DbInventoryReader:
     async def glossary_lookup(self, term: str) -> list[dict[str, Any]]:
         return await asyncio.to_thread(self._glossary, term)
 
+    async def glossary_suggest(self, term: str) -> list[str]:
+        return await asyncio.to_thread(self._glossary_suggest, term)
+
+    def _glossary_suggest(self, term: str) -> list[str]:
+        with SessionLocal() as db:
+            self._credentials(db)
+            return GlossaryService(db).suggest("inventory_filter", term)
+
     def _glossary(self, term: str) -> list[dict[str, Any]]:
         with SessionLocal() as db:
             self._credentials(db)  # same gate as every other inventory read
-            return GlossaryService(db).lookup(term)
+            return GlossaryService(db).lookup("inventory_filter", term)
 
     def _only_credentials(self) -> NautobotCredentials:
         with SessionLocal() as db:

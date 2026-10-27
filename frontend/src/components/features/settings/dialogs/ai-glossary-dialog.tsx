@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import type {
   GlossaryFilter,
+  GlossaryKind,
   GlossaryTerm,
 } from "@/components/features/ai-assistant/types/ai-assistant";
 import { Button } from "@/components/ui/button";
@@ -17,6 +18,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Table,
   TableBody,
@@ -49,6 +51,24 @@ export function summarizeFilter(filter: GlossaryFilter): string {
   return pieces.join(joiner);
 }
 
+/** What the table's Definition column shows for an entry. */
+export function summarizeTerm(term: GlossaryTerm): string {
+  return term.kind === "workflow_step"
+    ? `step ${term.payload.step_id}`
+    : summarizeFilter(term.payload);
+}
+
+const KIND_TEXT: Record<GlossaryKind, { tab: string; help: string }> = {
+  inventory_filter: {
+    tab: "Inventory terms",
+    help: "Words and acronyms the inventory assistant may expand into a filter.",
+  },
+  workflow_step: {
+    tab: "Workflow step aliases",
+    help: "Nicknames for workflow steps the workflow assistant may map to a step.",
+  },
+};
+
 interface AiGlossaryDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -58,6 +78,7 @@ export function AiGlossaryDialog({
   open,
   onOpenChange,
 }: AiGlossaryDialogProps) {
+  const [kind, setKind] = useState<GlossaryKind>("inventory_filter");
   const [search, setSearch] = useState("");
   const [query, setQuery] = useState("");
   const [offset, setOffset] = useState(0);
@@ -73,7 +94,8 @@ export function AiGlossaryDialog({
     return () => clearTimeout(timer);
   }, [search]);
 
-  const { data, isLoading, error } = useAiGlossaryQuery({
+  const { data, isLoading, isPlaceholderData, error } = useAiGlossaryQuery({
+    kind,
     query,
     offset,
     limit: PAGE_SIZE,
@@ -87,12 +109,19 @@ export function AiGlossaryDialog({
       (sources ?? []).filter((s) => s.token_configured).map((s) => s.source_id),
     [sources],
   );
-  const hasSource = sourceIds.length > 0;
+  // Only inventory terms are checked against a Nautobot source.
+  const canEdit = kind === "workflow_step" || sourceIds.length > 0;
   const { deleteTerm } = useAiGlossaryMutations();
 
   const total = data?.total ?? 0;
   const items = data?.items ?? [];
 
+  const handleKind = useCallback((next: string) => {
+    setKind(next as GlossaryKind);
+    setSearch("");
+    setQuery("");
+    setOffset(0);
+  }, []);
   const handleAdd = useCallback(() => {
     setEditing(null);
     setFormOpen(true);
@@ -122,12 +151,21 @@ export function AiGlossaryDialog({
       <Dialog open={open} onOpenChange={onOpenChange}>
         <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-5xl">
           <DialogHeader>
-            <DialogTitle>Inventory glossary</DialogTitle>
+            <DialogTitle>Assistant glossary</DialogTitle>
             <DialogDescription>
-              Words and acronyms the inventory assistant may expand into a
-              filter. Shared by every user; only administrators edit it.
+              {KIND_TEXT[kind].help} Shared by every user; only administrators
+              edit it.
             </DialogDescription>
           </DialogHeader>
+          <Tabs value={kind} onValueChange={handleKind}>
+            <TabsList>
+              {(Object.keys(KIND_TEXT) as GlossaryKind[]).map((k) => (
+                <TabsTrigger key={k} value={k}>
+                  {KIND_TEXT[k].tab}
+                </TabsTrigger>
+              ))}
+            </TabsList>
+          </Tabs>
           <div className="flex items-center gap-2">
             <Input
               aria-label="Search glossary"
@@ -135,12 +173,12 @@ export function AiGlossaryDialog({
               value={search}
               onChange={(e) => setSearch(e.target.value)}
             />
-            <Button type="button" onClick={handleAdd} disabled={!hasSource}>
+            <Button type="button" onClick={handleAdd} disabled={!canEdit}>
               <Plus className="mr-1 size-4" />
               Add term
             </Button>
           </div>
-          {!hasSource && sources && (
+          {kind === "inventory_filter" && !canEdit && sources && (
             <p className="text-sm text-muted-foreground">
               Configure a Nautobot source first: values are checked against it.
             </p>
@@ -155,7 +193,7 @@ export function AiGlossaryDialog({
               <TableRow>
                 <TableHead>Term</TableHead>
                 <TableHead>Aliases</TableHead>
-                <TableHead>Filter</TableHead>
+                <TableHead>Definition</TableHead>
                 <TableHead className="w-24" />
               </TableRow>
             </TableHeader>
@@ -165,7 +203,7 @@ export function AiGlossaryDialog({
                   <TableCell className="font-medium">{term.term}</TableCell>
                   <TableCell>{term.aliases.join(", ")}</TableCell>
                   <TableCell className="text-muted-foreground">
-                    {summarizeFilter(term.filter)}
+                    {summarizeTerm(term)}
                   </TableCell>
                   <TableCell className="text-right">
                     <Button
@@ -173,7 +211,7 @@ export function AiGlossaryDialog({
                       variant="ghost"
                       size="icon"
                       aria-label={`Edit ${term.term}`}
-                      disabled={!hasSource}
+                      disabled={!canEdit || isPlaceholderData}
                       onClick={() => handleEdit(term)}
                     >
                       <Pencil className="size-4" />
@@ -183,6 +221,7 @@ export function AiGlossaryDialog({
                       variant="ghost"
                       size="icon"
                       aria-label={`Delete ${term.term}`}
+                      disabled={isPlaceholderData}
                       onClick={() => setDeleting(term)}
                     >
                       <Trash2 className="size-4" />
@@ -213,7 +252,7 @@ export function AiGlossaryDialog({
                 type="button"
                 variant="outline"
                 size="sm"
-                disabled={offset === 0}
+                disabled={offset === 0 || isPlaceholderData}
                 onClick={() => setOffset(Math.max(0, offset - PAGE_SIZE))}
               >
                 Previous
@@ -222,7 +261,7 @@ export function AiGlossaryDialog({
                 type="button"
                 variant="outline"
                 size="sm"
-                disabled={offset + PAGE_SIZE >= total}
+                disabled={offset + PAGE_SIZE >= total || isPlaceholderData}
                 onClick={() => setOffset(offset + PAGE_SIZE)}
               >
                 Next
@@ -235,6 +274,7 @@ export function AiGlossaryDialog({
       <AiGlossaryTermDialog
         open={formOpen}
         onOpenChange={setFormOpen}
+        kind={kind}
         term={editing}
         sourceIds={sourceIds}
       />

@@ -8,9 +8,12 @@ import { z } from "zod";
 
 import type {
   GlossaryFilter,
+  GlossaryKind,
   GlossaryTerm,
+  GlossaryTermInput,
 } from "@/components/features/ai-assistant/types/ai-assistant";
 import { Button } from "@/components/ui/button";
+import { Combobox } from "@/components/ui/combobox";
 import {
   Dialog,
   DialogContent,
@@ -38,6 +41,7 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { useAiGlossaryMutations } from "@/hooks/queries/use-ai-glossary-mutations";
+import { useWorkflowStepsQuery } from "@/hooks/queries/use-workflow-steps-query";
 
 import {
   EMPTY_GLOSSARY_FILTER,
@@ -81,28 +85,60 @@ const filterSchema = z
     "The filter needs at least one condition or a group that is not excluded",
   );
 
-const formSchema = z
-  .object({
-    term: z
-      .string()
-      .trim()
-      .min(1, "A term is required")
-      .max(MAX_TERM_CHARS)
-      .regex(TERM_PATTERN, TERM_MESSAGE),
-    aliases: z.string().max(1000),
-    note: z.string().max(300),
-    source_id: z.string().min(1, "Choose a Nautobot source"),
-    filter: filterSchema,
-  })
-  .superRefine((values, ctx) => {
-    const aliases = parseAliases(values.aliases);
-    const problem = aliasProblem(values.term, aliases);
+const baseSchema = z.object({
+  term: z
+    .string()
+    .trim()
+    .min(1, "A term is required")
+    .max(MAX_TERM_CHARS)
+    .regex(TERM_PATTERN, TERM_MESSAGE),
+  aliases: z.string().max(1000),
+  note: z.string().max(300),
+  // Inventory entries only:
+  source_id: z.string(),
+  filter: z.custom<GlossaryFilter>(),
+  // Step aliases only:
+  step_id: z.string(),
+});
+
+/** The rules that depend on what the entry is: a filter and a source, or a step. */
+function makeSchema(kind: GlossaryKind) {
+  return baseSchema.superRefine((values, ctx) => {
+    const problem = aliasProblem(values.term, parseAliases(values.aliases));
     if (problem) {
       ctx.addIssue({ code: "custom", path: ["aliases"], message: problem });
     }
+    if (kind === "workflow_step") {
+      if (!values.step_id) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["step_id"],
+          message: "Choose a step",
+        });
+      }
+      return;
+    }
+    if (!values.source_id) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["source_id"],
+        message: "Choose a Nautobot source",
+      });
+    }
+    const parsed = filterSchema.safeParse(values.filter);
+    if (!parsed.success) {
+      for (const issue of parsed.error.issues) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["filter", ...issue.path],
+          message: issue.message,
+        });
+      }
+    }
   });
+}
 
-type FormValues = z.infer<typeof formSchema>;
+type FormValues = z.infer<typeof baseSchema>;
 
 /** "a, b" -> ["a", "b"] (commas separate; spaces inside an alias are kept). */
 export function parseAliases(raw: string): string[] {
@@ -152,6 +188,8 @@ export function firstErrorMessage(error: unknown): string | undefined {
 interface AiGlossaryTermDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** Which kind of entry this dialog edits or creates. */
+  kind: GlossaryKind;
   /** The entry being edited; null creates a new one. */
   term: GlossaryTerm | null;
   /** Nautobot sources the values can be checked against (the first is the default). */
@@ -161,22 +199,38 @@ interface AiGlossaryTermDialogProps {
 export function AiGlossaryTermDialog({
   open,
   onOpenChange,
+  kind,
   term,
   sourceIds,
 }: AiGlossaryTermDialogProps) {
   const { createTerm, updateTerm } = useAiGlossaryMutations();
+  const isStep = kind === "workflow_step";
+  const { data: steps } = useWorkflowStepsQuery(open && isStep);
+  const stepOptions = useMemo(
+    () =>
+      (steps?.plugins ?? [])
+        .filter((p) => p.enabled && p.executable !== false)
+        .map((p) => ({ value: p.id, label: `${p.name} (${p.id})` }))
+        .sort((x, y) => x.label.localeCompare(y.label)),
+    [steps],
+  );
+  const schema = useMemo(() => makeSchema(kind), [kind]);
   const values = useMemo<FormValues>(
     () => ({
       term: term?.term ?? "",
       aliases: term?.aliases.join(", ") ?? "",
       note: term?.note ?? "",
       source_id: sourceIds[0] ?? "",
-      filter: term?.filter ?? EMPTY_GLOSSARY_FILTER,
+      filter:
+        term?.kind === "inventory_filter"
+          ? term.payload
+          : EMPTY_GLOSSARY_FILTER,
+      step_id: term?.kind === "workflow_step" ? term.payload.step_id : "",
     }),
     [term, sourceIds],
   );
   const form = useForm<FormValues>({
-    resolver: zodResolver(formSchema),
+    resolver: zodResolver(schema),
     values,
   });
   const reset = form.reset;
@@ -192,13 +246,15 @@ export function AiGlossaryTermDialog({
 
   const handleSubmit = useCallback(
     (next: FormValues) => {
-      const data = {
+      const common = {
         term: next.term,
         aliases: parseAliases(next.aliases),
         note: next.note.trim() || null,
-        filter: next.filter,
-        source_id: next.source_id,
       };
+      const data: GlossaryTermInput =
+        kind === "workflow_step"
+          ? { kind, ...common, step_id: next.step_id }
+          : { kind, ...common, filter: next.filter, source_id: next.source_id };
       const options = { onSuccess: () => onOpenChange(false) };
       if (term) {
         updateTerm.mutate({ id: term.id, data }, options);
@@ -206,7 +262,7 @@ export function AiGlossaryTermDialog({
         createTerm.mutate(data, options);
       }
     },
-    [createTerm, onOpenChange, term, updateTerm],
+    [createTerm, kind, onOpenChange, term, updateTerm],
   );
 
   return (
@@ -214,12 +270,13 @@ export function AiGlossaryTermDialog({
       <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-3xl">
         <DialogHeader>
           <DialogTitle>
-            {term ? "Edit glossary term" : "Add glossary term"}
+            {term ? "Edit" : "Add"}{" "}
+            {isStep ? "workflow step alias" : "glossary term"}
           </DialogTitle>
           <DialogDescription>
-            When a user&apos;s word matches no Nautobot name, the assistant
-            looks it up here and combines this filter with the rest of the
-            request.
+            {isStep
+              ? "When a user's word matches no step id or name, the workflow assistant looks it up here and uses this step."
+              : "When a user's word matches no Nautobot name, the assistant looks it up here and combines this filter with the rest of the request."}
           </DialogDescription>
         </DialogHeader>
         <Form {...form}>
@@ -235,7 +292,10 @@ export function AiGlossaryTermDialog({
                 <FormItem>
                   <FormLabel>Term</FormLabel>
                   <FormControl>
-                    <Input {...field} placeholder="core" />
+                    <Input
+                      {...field}
+                      placeholder={isStep ? "git devices" : "core"}
+                    />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -257,7 +317,7 @@ export function AiGlossaryTermDialog({
                 </FormItem>
               )}
             />
-            {sourceIds.length > 1 && (
+            {!isStep && sourceIds.length > 1 && (
               <FormField
                 control={form.control}
                 name="source_id"
@@ -288,25 +348,51 @@ export function AiGlossaryTermDialog({
                 )}
               />
             )}
-            <FormField
-              control={form.control}
-              name="filter"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Filter</FormLabel>
-                  <GlossaryFilterEditor
-                    value={field.value as GlossaryFilter}
-                    sourceId={sourceId}
-                    onChange={field.onChange}
-                  />
-                  {filterError && (
-                    <p role="alert" className="text-sm text-destructive">
-                      {filterError}
-                    </p>
-                  )}
-                </FormItem>
-              )}
-            />
+            {isStep && (
+              <FormField
+                control={form.control}
+                name="step_id"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Step</FormLabel>
+                    <Combobox
+                      inline
+                      options={stepOptions}
+                      value={field.value}
+                      onValueChange={field.onChange}
+                      placeholder="Choose a step"
+                      searchPlaceholder="Search steps"
+                    />
+                    <FormDescription>
+                      The word and its aliases must differ from every step id
+                      and display name.
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            )}
+            {!isStep && (
+              <FormField
+                control={form.control}
+                name="filter"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Filter</FormLabel>
+                    <GlossaryFilterEditor
+                      value={field.value as GlossaryFilter}
+                      sourceId={sourceId}
+                      onChange={field.onChange}
+                    />
+                    {filterError && (
+                      <p role="alert" className="text-sm text-destructive">
+                        {filterError}
+                      </p>
+                    )}
+                  </FormItem>
+                )}
+              />
+            )}
             <FormField
               control={form.control}
               name="note"
@@ -333,7 +419,7 @@ export function AiGlossaryTermDialog({
               </Button>
               <Button
                 type="submit"
-                disabled={pending || sourceIds.length === 0}
+                disabled={pending || (!isStep && sourceIds.length === 0)}
               >
                 {pending && <Loader2 className="mr-2 size-4 animate-spin" />}
                 Save term

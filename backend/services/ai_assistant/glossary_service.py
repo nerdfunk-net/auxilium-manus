@@ -1,17 +1,16 @@
-"""Inventory assistant glossary: admin-managed terms that expand into a small structured filter.
+"""Assistant glossary: admin-managed words that expand into something the assistants can use.
 
-An entry maps a word ("core", "DC") plus aliases to a ``FilterInput``. Values are checked and
-respelled against Nautobot on save (``canonicalize_values``). A save is refused while Nautobot
-cannot supply the names a value must match, and values must be single-line text without angle
-brackets: the model receives term, aliases and filter as data through ``get_glossary`` and is
-told to apply them (doc/ai_integration/AI_ASSISTANT.md).
+An entry has a ``kind``: ``inventory_filter`` (a word -> a small structured filter, values checked
+against Nautobot) or ``workflow_step`` (a word -> one registry step id). Validation per kind is in
+``glossary_kinds``. The model receives the entry as data through ``get_glossary`` and is told to
+apply it, so nothing free-text is stored for it (doc/ai_integration/AI_ASSISTANT.md).
 """
 
 from __future__ import annotations
 
+import difflib
 import logging
-import re
-from typing import Any, Protocol
+from typing import Any
 
 from sqlalchemy.orm import Session
 
@@ -19,45 +18,32 @@ from core.domain_exceptions import ConflictError, NotFoundError, ValidationFaile
 from core.models.ai_glossary import AiGlossaryTerm
 from models.ai_glossary import (
     GlossaryListResponse,
-    GlossaryTermCreate,
     GlossaryTermResponse,
-    GlossaryTermUpdate,
+    InventoryTermBody,
+    StepAliasBody,
 )
 from repositories.ai_glossary_repository import AiGlossaryRepository
-from services.ai_assistant.inventory_filter import (
-    VALUE_LIST_FIELDS,
-    FilterInput,
-    canonicalize_values,
-    conditions_of,
-    structure_errors,
-)
-from services.ai_assistant.tools.inventory_tools import InventoryAccessError
+from services.ai_assistant.glossary_kinds import SaveContext, fold, prepare_payload
 
 logger = logging.getLogger(__name__)
 
-MAX_TERMS = 500
+MAX_TERMS = 500  # per kind
 MAX_LOOKUP_RESULTS = 10
-# Values reach the model as the administrators' definition, so they stay plain one-line text.
-_FORBIDDEN_VALUE_CHARS = re.compile(r"[<>\x00-\x1f\x7f]")
+MAX_SUGGESTIONS = 5
+SUGGEST_CUTOFF = 0.6
+MIN_CONTAINED = 4  # a shorter name inside a long phrase is too weak a hint
+
+TermBody = InventoryTermBody | StepAliasBody
 
 
-def fold(name: str) -> str:
-    """The form a term or alias is compared in: collapsed whitespace, lower case."""
-    return " ".join(name.split()).lower()
-
-
-class FieldValueReader(Protocol):
-    async def field_values(self, field: str) -> list[dict[str, str]]: ...
-
-
-def _to_response(row: AiGlossaryTerm, warnings: list[str] | None = None) -> GlossaryTermResponse:
+def _to_response(row: AiGlossaryTerm) -> GlossaryTermResponse:
     return GlossaryTermResponse(
         id=row.id,
+        kind=row.kind,  # type: ignore[arg-type]  # the column holds one of the two kinds
         term=row.term,
         aliases=list(row.aliases or []),
-        filter=dict(row.filter),
+        payload=dict(row.payload),
         note=row.note,
-        warnings=warnings or [],
         created_at=row.created_at,
         updated_at=row.updated_at,
     )
@@ -69,36 +55,42 @@ class GlossaryService:
 
     # -- admin reads ---------------------------------------------------------
 
-    def list_terms(self, query: str | None, limit: int, offset: int) -> GlossaryListResponse:
-        rows = self._repo.search(query, limit, offset)
+    def list_terms(
+        self, kind: str, query: str | None, limit: int, offset: int
+    ) -> GlossaryListResponse:
+        rows = self._repo.search(kind, query, limit, offset)
         return GlossaryListResponse(
-            items=[_to_response(r) for r in rows], total=self._repo.count(query)
+            items=[_to_response(r) for r in rows], total=self._repo.count(kind, query)
         )
 
     # -- admin writes --------------------------------------------------------
 
     async def create(
-        self, body: GlossaryTermCreate, reader: FieldValueReader, actor_user_id: int
+        self, body: TermBody, context: SaveContext, actor_user_id: int
     ) -> GlossaryTermResponse:
-        if self._repo.count() >= MAX_TERMS:
-            raise ConflictError(f"The glossary is limited to {MAX_TERMS} terms")
+        if self._repo.count(body.kind) >= MAX_TERMS:
+            raise ConflictError(f"The glossary is limited to {MAX_TERMS} terms per kind")
         self._check_names_free(body, own_id=None)
-        fixed, warnings = await _prepare_filter(body.filter, reader)
-        row = self._repo.create(_values(body, fixed), _names(body), created_by_id=actor_user_id)
-        logger.info("AI glossary term created id=%s by user_id=%s", row.id, actor_user_id)
-        return _to_response(row, warnings)
+        payload = await prepare_payload(body, context)
+        row = self._repo.create(_values(body, payload), _names(body), created_by_id=actor_user_id)
+        logger.info(
+            "AI glossary term created id=%s kind=%s by user_id=%s", row.id, row.kind, actor_user_id
+        )
+        return _to_response(row)
 
     async def update(
-        self, term_id: int, body: GlossaryTermUpdate, reader: FieldValueReader, actor_user_id: int
+        self, term_id: int, body: TermBody, context: SaveContext, actor_user_id: int
     ) -> GlossaryTermResponse:
         row = self._repo.get(term_id)
         if row is None:
             raise NotFoundError("Glossary term not found")
+        if row.kind != body.kind:
+            raise ValidationFailedError("The kind of a glossary term cannot be changed")
         self._check_names_free(body, own_id=term_id)
-        fixed, warnings = await _prepare_filter(body.filter, reader)
-        row = self._repo.update(row, _values(body, fixed), _names(body))
+        payload = await prepare_payload(body, context)
+        row = self._repo.update(row, _update_values(body, payload), _names(body))
         logger.info("AI glossary term updated id=%s by user_id=%s", row.id, actor_user_id)
-        return _to_response(row, warnings)
+        return _to_response(row)
 
     def delete(self, term_id: int, actor_user_id: int) -> None:
         row = self._repo.get(term_id)
@@ -107,18 +99,18 @@ class GlossaryService:
         self._repo.delete(row)
         logger.info("AI glossary term deleted id=%s by user_id=%s", term_id, actor_user_id)
 
-    def _check_names_free(self, body: GlossaryTermCreate | GlossaryTermUpdate, own_id: int | None):
+    def _check_names_free(self, body: TermBody, own_id: int | None) -> None:
         wanted = _names(body)
         if len(set(wanted)) != len(wanted):
             raise ValidationFailedError("A term and its aliases must all be different")
-        clash = self._repo.names_in_use(wanted, own_id)
+        clash = self._repo.names_in_use(body.kind, wanted, own_id)
         if clash:
             raise ConflictError(f"'{clash[0]}' is already used by another glossary term")
 
     # -- assistant lookup ----------------------------------------------------
 
-    def lookup(self, term: str) -> list[dict[str, Any]]:
-        """Entries whose term or alias is exactly ``term`` (whitespace and case folded).
+    def lookup(self, kind: str, term: str) -> list[dict[str, Any]]:
+        """Entries of ``kind`` whose term or alias is exactly ``term`` (whitespace, case folded).
 
         Whole-name matches only: a partial match ("core" inside "core-lab" or "score") is a
         different word and would hand the model a definition the user did not ask for.
@@ -126,66 +118,45 @@ class GlossaryService:
         key = fold(term)
         if not key:
             return []
-        rows = self._repo.find_by_name(key)[:MAX_LOOKUP_RESULTS]
+        rows = self._repo.find_by_name(kind, key)[:MAX_LOOKUP_RESULTS]
         return [
-            {"term": r.term, "aliases": list(r.aliases or []), "filter": dict(r.filter)}
+            {"term": r.term, "aliases": list(r.aliases or []), "payload": dict(r.payload)}
             for r in rows
         ]
 
+    def suggest(self, kind: str, term: str) -> list[str]:
+        """Names of ``kind`` close to ``term``, for a lookup that found nothing.
 
-def _names(body: GlossaryTermCreate | GlossaryTermUpdate) -> list[str]:
+        Only the word is returned (no payload): the model must look an exact name up to get a
+        definition, so a near miss never hands it something the user did not ask for.
+        """
+        key = fold(term)
+        if not key:
+            return []
+        return _close_names(key, self._repo.names_of_kind(kind))
+
+
+def _close_names(key: str, names: list[str]) -> list[str]:
+    """The names most like ``key``: close spelling, or one contains the other."""
+    close = difflib.get_close_matches(key, names, n=MAX_SUGGESTIONS, cutoff=SUGGEST_CUTOFF)
+    contained = [n for n in names if len(n) >= MIN_CONTAINED and (n in key or key in n)]
+    return list(dict.fromkeys([*close, *contained]))[:MAX_SUGGESTIONS]
+
+
+def _names(body: TermBody) -> list[str]:
     return [fold(body.term), *(fold(a) for a in body.aliases)]
 
 
-def _values(body: GlossaryTermCreate | GlossaryTermUpdate, fixed: FilterInput) -> dict[str, Any]:
+def _update_values(body: TermBody, payload: dict[str, Any]) -> dict[str, Any]:
     return {
         "term": body.term,
         "term_key": fold(body.term),
         "aliases": list(body.aliases),
         "search_text": " ".join(_names(body)),
-        "filter": fixed.model_dump(mode="json"),
+        "payload": payload,
         "note": body.note,
     }
 
 
-async def _prepare_filter(
-    filter_: FilterInput, reader: FieldValueReader
-) -> tuple[FilterInput, list[str]]:
-    """Structure checks, then values respelled as Nautobot spells them.
-
-    Returns the fixed filter and warnings (none today: a value that cannot be checked is refused,
-    because an unchecked value would be served to the model as the administrators' definition).
-    """
-    errors = structure_errors(filter_)
-    errors.extend(
-        f"{c.field} value {c.value!r} must be plain single-line text without < or >."
-        for c in conditions_of(filter_)
-        if _FORBIDDEN_VALUE_CHARS.search(c.value)
-    )
-    if errors:
-        raise ValidationFailedError("The filter is invalid: " + " ".join(errors))
-    fields = sorted({c.field for c in conditions_of(filter_) if c.field in VALUE_LIST_FIELDS})
-    known: dict[str, list[dict[str, str]]] = {}
-    for field in fields:
-        try:
-            known[field] = await reader.field_values(field)
-        except InventoryAccessError as exc:
-            raise ValidationFailedError(
-                "Nautobot names could not be read with this source (permission or source id)"
-            ) from exc
-        except Exception as exc:  # Nautobot unreachable
-            logger.warning("AI glossary: could not load %s values from Nautobot", field)
-            raise ValidationFailedError(_unverifiable(field)) from exc
-        if not known[field]:
-            raise ValidationFailedError(_unverifiable(field))
-    fixed, mismatches = canonicalize_values(filter_, known, show_names=True)
-    if mismatches:
-        raise ValidationFailedError("The filter has unknown values: " + " ".join(mismatches))
-    return fixed, []
-
-
-def _unverifiable(field: str) -> str:
-    return (
-        f"The {field} values could not be checked because Nautobot returned no names. "
-        "Try again when the source is reachable."
-    )
+def _values(body: TermBody, payload: dict[str, Any]) -> dict[str, Any]:
+    return {"kind": body.kind, **_update_values(body, payload)}

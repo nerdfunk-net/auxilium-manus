@@ -2,11 +2,15 @@
 
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 
-import type { GlossaryList } from "@/components/features/ai-assistant/types/ai-assistant";
+import type {
+  GlossaryKind,
+  GlossaryList,
+} from "@/components/features/ai-assistant/types/ai-assistant";
 import { useApi } from "@/hooks/use-api";
 import { queryKeys } from "@/lib/query-keys";
 
 interface UseAiGlossaryOptions {
+  kind: GlossaryKind;
   query: string;
   offset: number;
   limit: number;
@@ -15,6 +19,7 @@ interface UseAiGlossaryOptions {
 }
 
 export function useAiGlossaryQuery({
+  kind,
   query,
   offset,
   limit,
@@ -22,9 +27,10 @@ export function useAiGlossaryQuery({
 }: UseAiGlossaryOptions) {
   const { apiCall } = useApi();
   return useQuery<GlossaryList>({
-    queryKey: queryKeys.ai.glossaryList(query, offset, limit),
+    queryKey: queryKeys.ai.glossaryList(kind, query, offset, limit),
     queryFn: () => {
       const params = new URLSearchParams({
+        kind,
         limit: String(limit),
         offset: String(offset),
       });
@@ -36,7 +42,11 @@ export function useAiGlossaryQuery({
       });
     },
     enabled,
-    placeholderData: keepPreviousData,
+    // Keep the previous page while searching or paging, but never show another kind's rows.
+    placeholderData: (previous, previousQuery) =>
+      previousQuery?.queryKey[3] === kind
+        ? keepPreviousData(previous)
+        : undefined,
     staleTime: 30 * 1000,
   });
 }

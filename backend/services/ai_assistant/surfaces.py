@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 from collections.abc import Iterable
 from dataclasses import dataclass
+from typing import Any
 
 from models.ai_assistant import (
     MAX_CANVAS_JSON_CHARS,
@@ -31,7 +32,11 @@ from services.ai_assistant.prompts import (
 )
 from services.ai_assistant.redaction import MAX_REDACT_CHARS_PER_REQUEST, Redactor
 from services.ai_assistant.tools.base import Toolbox, ToolContext
-from services.ai_assistant.tools.glossary_tools import GLOSSARY_TOOLS
+from services.ai_assistant.tools.glossary_tools import (
+    GLOSSARY_TOOLS,
+    STEP_ALIAS_TOOLS,
+    StepAliasLookup,
+)
 from services.ai_assistant.tools.inventory_filter_tools import INVENTORY_FILTER_TOOLS
 from services.ai_assistant.tools.inventory_tools import (
     INVENTORY_TOOLS,
@@ -116,6 +121,7 @@ def build_workflow_editor_session(
     references: ReferenceReader,
     validator: WorkflowValidator,
     may_propose: bool = True,
+    glossary: StepAliasLookup | None = None,
 ) -> AssistantSession:
     # The canvas may be up to MAX_CANVAS_JSON_CHARS of JSON; its strings are redacted one by one.
     redactor = Redactor(max_chars=max(MAX_REDACT_CHARS_PER_REQUEST, MAX_CANVAS_JSON_CHARS))
@@ -128,9 +134,10 @@ def build_workflow_editor_session(
         references=references,
         validator=validator,
     )
-    tool_context = ToolContext(
-        user_id=user_id, redactor=redactor, extras={"workflow_editor": state}
-    )
+    extras: dict[str, Any] = {"workflow_editor": state}
+    if glossary is not None:
+        extras["glossary"] = glossary
+    tool_context = ToolContext(user_id=user_id, redactor=redactor, extras=extras)
     # Built first so secrets in step configs get their tokens before any tool runs.
     view = build_compact_view(
         context.canvas_nodes, context.canvas_edges, context.static_attributes, redactor
@@ -144,6 +151,8 @@ def build_workflow_editor_session(
     system = "\n\n".join([BASE_SYSTEM_PROMPT, WORKFLOW_EDITOR_PROMPT, canvas_block])
     # A user without ``workflows:write`` can still be advised, but gets no proposal tool (S5-08).
     tools = tuple(t for t in WORKFLOW_EDITOR_TOOLS if may_propose or t.name != "propose_workflow")
+    if glossary is not None:
+        tools = (*tools, *STEP_ALIAS_TOOLS)
     return AssistantSession(system=system, toolbox=Toolbox(tools, tool_context))
 
 

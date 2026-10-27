@@ -7,7 +7,7 @@ import { queryKeys } from "@/lib/query-keys";
 
 import type { PluginListResponse } from "@/components/features/workflows/types/plugin-registry";
 
-export function useWorkflowStepsQuery() {
+export function useWorkflowStepsQuery(enabled = true) {
   const { apiCall } = useApi();
 
   return useQuery({
@@ -15,5 +15,6 @@ export function useWorkflowStepsQuery() {
     queryFn: () => apiCall<PluginListResponse>("workflow-steps"),
     staleTime: Number.POSITIVE_INFINITY,
     refetchOnWindowFocus: false,
+    enabled,
   });
 }

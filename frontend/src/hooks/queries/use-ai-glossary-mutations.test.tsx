@@ -12,6 +12,7 @@ vi.mock("@/hooks/use-api", () => ({ useApi: () => ({ apiCall }) }));
 vi.mock("@/hooks/use-toast", () => ({ useToast: () => ({ toast }) }));
 
 const DATA = {
+  kind: "inventory_filter" as const,
   term: "core",
   aliases: ["backbone"],
   note: null,

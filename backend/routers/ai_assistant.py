@@ -44,6 +44,7 @@ from services.ai_assistant.exceptions import (
     AiAssistantNotConfiguredError,
     AiSettingsValidationError,
 )
+from services.ai_assistant.glossary_reader import DbGlossaryReader
 from services.ai_assistant.inventory_reader import DbInventoryReader
 from services.ai_assistant.known_secrets import load_visible_secret_values
 from services.ai_assistant.prompts import BASE_SYSTEM_PROMPT
@@ -160,6 +161,7 @@ def _session_for(
             references=DbReferenceReader(user.id, user.username),
             validator=DbWorkflowValidator(user.id, registry),
             may_propose=can_write_workflows,
+            glossary=DbGlossaryReader("workflow_step"),
         )
     return build_template_editor_session(
         user_id=user.id,

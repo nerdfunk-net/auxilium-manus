@@ -78,7 +78,11 @@ class InventoryReader(Protocol):
         ...
 
     async def glossary_lookup(self, term: str) -> list[dict[str, Any]]:
-        """Glossary entries for a word: ``{term, aliases, filter}`` (doc: AI_ASSISTANT.md)."""
+        """Glossary entries for a word: ``{term, aliases, payload}`` (doc: AI_ASSISTANT.md)."""
+        ...
+
+    async def glossary_suggest(self, term: str) -> list[str]:
+        """Glossary names close to a word that matched nothing (names only, no payload)."""
         ...
 
 

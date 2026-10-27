@@ -1,12 +1,16 @@
-"""Request and response models for the inventory assistant glossary (admin only)."""
+"""Request and response models for the assistant glossary (admin only).
+
+Two kinds share one table: ``inventory_filter`` (a word -> a filter for the inventory assistant)
+and ``workflow_step`` (a word -> one registry step id for the workflow assistant).
+"""
 
 from __future__ import annotations
 
 import re
 from datetime import datetime
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, field_validator
 
 from services.ai_assistant.inventory_filter import FilterInput
 
@@ -18,6 +22,10 @@ MAX_ALIASES = 10
 TERM_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9 ._/+&-]*$"
 _TERM = re.compile(TERM_PATTERN)
 
+KIND_INVENTORY = "inventory_filter"
+KIND_STEP = "workflow_step"
+GlossaryKind = Literal["inventory_filter", "workflow_step"]
+
 
 def _clean_term(value: str) -> str:
     cleaned = " ".join(value.split())
@@ -26,18 +34,15 @@ def _clean_term(value: str) -> str:
     return cleaned
 
 
-class GlossaryTermBase(BaseModel):
+class _TermBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     term: str = Field(min_length=1, max_length=MAX_TERM_CHARS)
     aliases: list[Annotated[str, Field(min_length=1, max_length=MAX_TERM_CHARS)]] = Field(
         default_factory=list, max_length=MAX_ALIASES
     )
-    filter: FilterInput
     # For administrators only; never sent to the model.
     note: str | None = Field(default=None, max_length=300)
-    # The Nautobot source whose names the filter values are checked against.
-    source_id: str = Field(min_length=1, max_length=64)
 
     @field_validator("term")
     @classmethod
@@ -50,21 +55,35 @@ class GlossaryTermBase(BaseModel):
         return [_clean_term(v) for v in values]
 
 
-class GlossaryTermCreate(GlossaryTermBase):
-    pass
+class InventoryTermBody(_TermBody):
+    kind: Literal["inventory_filter"]
+    filter: FilterInput
+    # The Nautobot source whose names the filter values are checked against.
+    source_id: str = Field(min_length=1, max_length=64)
 
 
-class GlossaryTermUpdate(GlossaryTermBase):
-    """Full replacement of one entry."""
+class StepAliasBody(_TermBody):
+    kind: Literal["workflow_step"]
+    step_id: str = Field(min_length=1, max_length=64, pattern=r"^[a-z0-9][a-z0-9-]*$")
+
+
+GlossaryTermBody = Annotated[InventoryTermBody | StepAliasBody, Field(discriminator="kind")]
+_BODY_ADAPTER: TypeAdapter[InventoryTermBody | StepAliasBody] = TypeAdapter(GlossaryTermBody)
+
+
+def parse_term_body(data: dict[str, Any]) -> InventoryTermBody | StepAliasBody:
+    """Validate a raw body the way the router does (used by callers outside FastAPI)."""
+    return _BODY_ADAPTER.validate_python(data)
 
 
 class GlossaryTermResponse(BaseModel):
     id: int
+    kind: GlossaryKind
     term: str
     aliases: list[str]
-    filter: dict[str, Any]
+    # inventory_filter: the FilterInput shape; workflow_step: {"step_id": ...}
+    payload: dict[str, Any]
     note: str | None
-    # Set by create / update: values Nautobot could not confirm.
     warnings: list[str] = Field(default_factory=list)
     created_at: datetime | None = None
     updated_at: datetime | None = None

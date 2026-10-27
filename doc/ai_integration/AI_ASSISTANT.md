@@ -243,7 +243,7 @@ tools, so every value of those classes passes the opt-in of §4.2:
 | `list_field_values` | Nautobot's real names for a filter field (opt-in; `contains` narrows it) |
 | `preview_filter` | Runs a filter now: `total_count`, counts and sample rows only with the opt-in (§15: a filter touching unshared data is checked but not run) |
 | `propose_inventory` | Checks a filter and emits an `inventory` proposal (§15); offered only with `sources.nautobot:write` |
-| `get_glossary` | Administrators' definition of a local word or acronym as a filter fragment (§15, "Inventory glossary"); needs `share_inventory_data` |
+| `get_glossary` | Administrators' definition of a local word. Inventory surface: a filter fragment (§15, "Inventory glossary"; needs `share_inventory_data`). Workflow surface: the one step a nickname means ("Workflow step aliases") |
 
 **Built (reports assistant, surface `reports`)** - see §20:
 
@@ -882,16 +882,18 @@ browser, and child-location behaviour against real Nautobot data.
 is built, see "Inventory glossary" below.
 
 **Inventory glossary (built 2026-10-27).** Words that match no Nautobot name ("core", "DC") are
-defined by administrators and read by the `get_glossary` tool.
+defined by administrators and read by the `get_glossary` tool. The same table and dialog also hold
+**workflow step aliases** (built 2026-10-28, see below): every entry has a `kind`
+(`inventory_filter` or `workflow_step`), a `payload` and its own uniqueness scope.
 
-- **Entry:** `ai_glossary_terms` (`core/models/ai_glossary.py`): `term`, up to 10 `aliases`, a
-  structured `filter` (the `FilterInput` shape of §15: root conditions plus one level of groups)
-  and an admin-only `note` that is never sent to the model. The term and each alias are also one
-  row each in `ai_glossary_names` with a **unique** index on the folded name, so "a word means one
+- **Entry:** `ai_glossary_terms` (`core/models/ai_glossary.py`): `kind`, `term`, up to 10 `aliases`, a
+  `payload` (for `inventory_filter` the `FilterInput` shape of §15: root conditions plus one level
+  of groups) and an admin-only `note` that is never sent to the model. The term and each alias are also one
+  row each in `ai_glossary_names` with a **unique** index on `(kind, name_key)`, so "a word means one
   thing" is a database rule: two concurrent saves cannot both claim a word, and the loser gets a
   409. Terms and aliases are ASCII letters, digits, spaces and `. _ / + & -` (no commas: the form
   separates aliases with them), at most 64 characters; the API and the form use the same set. At
-  most 500 terms.
+  most 500 terms per kind.
 - **What reaches the model.** Term, aliases and filter as JSON in a tool result, never in the
   system prompt, and never the note. Filter values are free text for `name`, prefix and custom
   fields, and the model is told to apply the filter, so they are held to plain text: a save is
@@ -927,6 +929,36 @@ defined by administrators and read by the `get_glossary` tool.
   `ai-glossary-term-dialog.tsx`, `settings/components/glossary-filter-editor.tsx`.
 - **Not verified:** a real model calling `get_glossary` from a sentence, the settings page in a
   browser, a glossary of hundreds of entries, and the save path against a real Nautobot.
+
+**Workflow step aliases (built 2026-10-28).** A nickname the user says for a workflow step
+("Get from GIT") that matches neither the step's registry id nor its display name.
+
+- **Entry:** `kind = workflow_step`, `payload = {"step_id": ...}`, nothing else: no config presets
+  (they need per-field validation, must exclude credential / git / inventory ids and secrets, and
+  overlap with `workflow_recipes.md`; add them only once real failures show the need).
+- **Validated on save** (`services/ai_assistant/glossary_kinds.py`): the step must exist in the
+  registry, be enabled and executable (400 with the closest ids otherwise), and the term and aliases
+  may not equal any step id or display name (409): an alias that shadows a real name defeats the
+  point. A word may exist once per kind: "core" can be an inventory term and a step alias.
+- **`get_glossary(term)` on the workflow surface** (offered only when the session has a glossary
+  reader; `tools/glossary_tools.py::STEP_ALIAS_TOOLS`): whole-name match; the step is taken fresh
+  from the registry (`{id, name, overview}`), never from stored text. A step that disappeared or was
+  disabled makes the alias `stale` without a step, and so does a word that has since become an
+  enabled step's id or display name (checked on every read, because a step added later can shadow
+  an alias that was free when it was saved). No sharing gate: step ids are class A
+  (definitions). The prompt tells the model to call it when the user's word is not the id or display name of
+  any step (a match inside an overview does not count), and to call `get_step_schema` before configuring the step.
+- **API and UI:** the same admin-only `/ai/glossary` routes with `kind`; the glossary dialog has a
+  tab per kind. Saving a step alias needs the registry (`app.state.plugin_service`, 503 otherwise)
+  and no Nautobot source.
+- **Static vs. live:** wiring conventions and silent-failure pitfalls stay in
+  `knowledge/workflow_recipes.md` (reviewed in git); only organisation-specific words live here.
+- **Upgrade note:** the first version of the glossary tables (`ai_glossary_terms` with a `filter`
+  column, `ai_glossary_names` with a unique `name_key`) is not compatible: `AutoSchemaMigration`
+  cannot drop a column or change a unique index. If the backend created them in a dev database, drop
+  both tables once (`DROP TABLE ai_glossary_names, ai_glossary_terms;`) before the next start. They
+  held no data worth keeping.
+- **Not verified:** a real model calling `get_glossary` for a nickname, the aliases tab in a browser.
 
 ## 16. Fine-grained inventory opt-in
 

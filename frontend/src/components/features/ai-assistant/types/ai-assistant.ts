@@ -376,25 +376,50 @@ export interface GlossaryFilter {
   groups: GlossaryGroup[];
 }
 
-/** An administrator-managed word ("core") the inventory assistant expands into a filter. */
-export interface GlossaryTerm {
+export type GlossaryKind = "inventory_filter" | "workflow_step";
+
+interface GlossaryTermBase {
   id: number;
   term: string;
   aliases: string[];
-  filter: GlossaryFilter;
   /** For administrators only; never sent to the model. */
   note: string | null;
-  /** Set by create / update: values Nautobot could not confirm. */
   warnings: string[];
 }
 
-export interface GlossaryTermInput {
+/** A word ("core") the inventory assistant expands into a filter. */
+export interface InventoryGlossaryTerm extends GlossaryTermBase {
+  kind: "inventory_filter";
+  payload: GlossaryFilter;
+}
+
+/** A word ("Get from GIT") the workflow assistant maps to one registry step. */
+export interface StepAliasTerm extends GlossaryTermBase {
+  kind: "workflow_step";
+  payload: { step_id: string };
+}
+
+export type GlossaryTerm = InventoryGlossaryTerm | StepAliasTerm;
+
+interface GlossaryInputBase {
   term: string;
   aliases: string[];
-  filter: GlossaryFilter;
   note: string | null;
+}
+
+export interface InventoryGlossaryInput extends GlossaryInputBase {
+  kind: "inventory_filter";
+  filter: GlossaryFilter;
+  /** Nautobot source the values are checked against. */
   source_id: string;
 }
+
+export interface StepAliasInput extends GlossaryInputBase {
+  kind: "workflow_step";
+  step_id: string;
+}
+
+export type GlossaryTermInput = InventoryGlossaryInput | StepAliasInput;
 
 export interface GlossaryList {
   items: GlossaryTerm[];

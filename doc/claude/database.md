@@ -8,7 +8,7 @@
 events), `change_requests`, `workflow_schedules`, `workflow_background_tier`,
 `workflow_changes`, `workflow_ai_sessions`, `notifications`, `user_preferences`,
 `job_statistics`, `device_data_records`, `report_data_records`, `report_datasets`, `report_definitions`, `report_snapshots`, `secret_manager_connections`, `user_ai_settings`,
-`ai_conversations`, `ai_glossary_terms`, `ai_glossary_names`
+`ai_conversations`, `ai_glossary_terms` (`kind`: inventory_filter / workflow_step), `ai_glossary_names` (unique per kind)
 
 **RBAC tables (5):** `roles`, `permissions`, `role_permissions`, `user_roles`, `user_permissions`
 

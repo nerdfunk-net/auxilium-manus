@@ -99,8 +99,8 @@ page-side query (`use-settings-mutations.ts`).
 rate limited. The shared secret is a global `shared_secret` credential referenced by id; no response or query
 carries it (`doc/AGENT_INTEGRATION.md`).
 
-**Inventory glossary.** `ai_glossary_terms` is global and its text steers the model, so every
-`/ai/glossary` route needs the `admin` role (P3 style); the seeded `viewer` and other roles have no
+**Assistant glossary** (inventory terms and workflow step aliases). `ai_glossary_terms` is global
+and its words steer the model, so every `/ai/glossary` route, for both kinds, needs the `admin` role (P3 style); the seeded `viewer` and other roles have no
 access. The assistant reads entries through the `get_glossary` tool as the calling user.
 
 ## Run control, change requests, schedules

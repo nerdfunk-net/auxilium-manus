@@ -21,6 +21,7 @@ from routers import ai_glossary
 from services.auth.rbac_service import RBACService
 
 BODY = {
+    "kind": "inventory_filter",
     "term": "core",
     "aliases": ["backbone"],
     "source_id": "nb",
@@ -76,7 +77,7 @@ def client(admin: dict[str, bool]) -> TestClient:
 def test_non_admin_is_refused_everywhere(client: TestClient, admin: dict[str, bool]) -> None:
     admin["value"] = False
 
-    assert client.get("/api/ai/glossary").status_code == 403
+    assert client.get("/api/ai/glossary", params={"kind": "inventory_filter"}).status_code == 403
     assert client.post("/api/ai/glossary", json=BODY).status_code == 403
     assert client.put("/api/ai/glossary/1", json=BODY).status_code == 403
     assert client.delete("/api/ai/glossary/1").status_code == 403
@@ -87,7 +88,9 @@ def test_crud_round_trip(client: TestClient) -> None:
     assert created.status_code == 201, created.text
     term_id = created.json()["id"]
 
-    listed = client.get("/api/ai/glossary", params={"q": "backb"}).json()
+    listed = client.get(
+        "/api/ai/glossary", params={"kind": "inventory_filter", "q": "backb"}
+    ).json()
     assert listed["total"] == 1 and listed["items"][0]["term"] == "core"
 
     changed = {**BODY, "aliases": ["bb"]}
@@ -108,4 +111,53 @@ def test_disabled_operator_switch_hides_the_api(
 ) -> None:
     monkeypatch.setattr(settings, "ai_assistant_enabled", False)
 
-    assert client.get("/api/ai/glossary").status_code == 404
+    assert client.get("/api/ai/glossary", params={"kind": "inventory_filter"}).status_code == 404
+
+
+STEP_BODY = {"kind": "workflow_step", "term": "git devices", "step_id": "get-git-devices"}
+
+
+class _Registry:
+    def __init__(self) -> None:
+        from repositories.plugin_repository import PluginRepository
+        from services.plugin_registry.plugin_registry_service import PluginRegistryService
+
+        self.inner = PluginRegistryService(PluginRepository(plugins_file=settings.plugins_file))
+
+    def list_plugins(self, include_disabled: bool = False):
+        return self.inner.list_plugins(include_disabled)
+
+    def get_plugin(self, plugin_id: str, include_disabled: bool = False):
+        return self.inner.get_plugin(plugin_id, include_disabled)
+
+
+def test_step_alias_without_a_registry_is_503(client: TestClient) -> None:
+    response = client.post("/api/ai/glossary", json=STEP_BODY)
+
+    assert response.status_code == 503
+    assert response.json()["detail"]["code"] == "plugin_registry_unavailable"
+
+
+def test_step_alias_crud_and_kind_separation(client: TestClient) -> None:
+    client.app.state.plugin_service = _Registry()
+
+    created = client.post("/api/ai/glossary", json=STEP_BODY)
+    assert created.status_code == 201, created.text
+    assert created.json()["payload"] == {"step_id": "get-git-devices"}
+
+    assert client.get("/api/ai/glossary", params={"kind": "workflow_step"}).json()["total"] == 1
+    assert client.get("/api/ai/glossary", params={"kind": "inventory_filter"}).json()["total"] == 0
+    assert client.get("/api/ai/glossary", params={"kind": "nope"}).status_code == 422
+
+    changed = client.put(f"/api/ai/glossary/{created.json()['id']}", json=BODY)
+    assert changed.status_code == 400  # an alias cannot become an inventory term
+
+
+def test_step_alias_rejects_unknown_fields_and_bad_ids(client: TestClient) -> None:
+    client.app.state.plugin_service = _Registry()
+
+    assert client.post("/api/ai/glossary", json={**STEP_BODY, "filter": {}}).status_code == 422
+    assert (
+        client.post("/api/ai/glossary", json={**STEP_BODY, "step_id": "Bad Id"}).status_code == 422
+    )
+    assert client.post("/api/ai/glossary", json={**STEP_BODY, "step_id": "nope"}).status_code == 400

@@ -71,6 +71,10 @@ pair, it's an alias, and gets recorded below.
 
 ### Confirmed aliases
 
+> The in-app assistant reads its aliases from the admin-managed glossary (Settings -> AI
+> Assistant, "Workflow step aliases"). This table is for the external AI session only; when you
+> confirm an alias here, an administrator should add it to the glossary too.
+
 A user may have their own personal shorthand for a step — a nickname, an
 abbreviation, a term carried over from another tool — that matches neither its
 `id` nor its display `name`. Record it here the first time it comes up, same

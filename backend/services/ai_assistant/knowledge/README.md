@@ -80,6 +80,17 @@ maintained separately, because they differ in mechanics:
 When a *mapping or wiring convention* is confirmed or corrected, update both. When a change only
 concerns one mechanic (a script, a tool), update only that file.
 
+## Recipe or alias?
+
+- A **recipe** (this directory, reviewed in git) says how steps are wired or why a wiring fails
+  silently. It is product knowledge and holds for every installation.
+- A **step alias** (Settings -> AI Assistant -> Assistant glossary, tab "Workflow step aliases")
+  maps one organisation-specific word to one step id, for example "Get from GIT" ->
+  `get-git-devices` ("Get from Git"). The assistant looks it up with `get_glossary` when
+  `list_steps` finds nothing; it can never carry wiring or config. Record a nickname there, not in
+  `workflow_recipes.md` and not in the aliases table of `AI_VOCABULARY.md` (that table remains for the
+  external AI session).
+
 ## What makes a good recipe
 
 A recipe records something the model cannot work out from the registry alone. Use this shape:

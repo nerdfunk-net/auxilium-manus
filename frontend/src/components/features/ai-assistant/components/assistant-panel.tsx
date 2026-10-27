@@ -115,6 +115,7 @@ const TOOL_LABELS: Record<string, string> = {
   search_devices: "Searching devices",
   get_device_attributes: "Reading device attributes",
   get_inventory_reference: "Reading the inventory guide",
+  get_glossary: "Looking up the glossary",
   list_field_values: "Looking up names in Nautobot",
   preview_filter: "Trying a filter",
   propose_inventory: "Preparing an inventory",

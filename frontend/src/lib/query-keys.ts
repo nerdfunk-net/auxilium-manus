@@ -94,8 +94,8 @@ export const queryKeys = {
     settings: () => [...queryKeys.ai.all, "settings"] as const,
     proxy: () => [...queryKeys.ai.all, "proxy"] as const,
     glossary: () => [...queryKeys.ai.all, "glossary"] as const,
-    glossaryList: (query: string, offset: number, limit: number) =>
-      [...queryKeys.ai.glossary(), "list", query, offset, limit] as const,
+    glossaryList: (kind: string, query: string, offset: number, limit: number) =>
+      [...queryKeys.ai.glossary(), "list", kind, query, offset, limit] as const,
     conversations: () => [...queryKeys.ai.all, "conversations"] as const,
     conversationList: (surface: string, subjectKey: string) =>
       [...queryKeys.ai.conversations(), "list", surface, subjectKey] as const,

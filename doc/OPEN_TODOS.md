@@ -645,7 +645,13 @@ rule holds for `store-in-db` / `get-from-db` (records are shared across workflow
 - **Not verified:** a real (local) model calling `get_glossary` from a sentence like "all core
   devices in City A", the dialogs in a browser, and the save-time check against a real Nautobot.
 - **Deliberately not built:** per-user glossaries, free-text definitions, import / export of the
-  table, use outside the inventory surface, groups nested deeper than one level.
+  table, groups nested deeper than one level.
+- **Workflow step aliases (built 2026-10-28, uncommitted):** same table with `kind = workflow_step`,
+  phrase -> one registry step id, `get_glossary` on the workflow surface. Not verified with a real
+  model or in a browser. **Deferred:** config presets in an alias, report and template kinds
+  (`describe_dataset` / variable paths are the validators), "save as alias" proposals after a user
+  correction, `list_steps(search=)` also returning alias hits. Drop the old glossary tables once
+  (see AI_ASSISTANT.md, "Upgrade note").
 
 ---
 

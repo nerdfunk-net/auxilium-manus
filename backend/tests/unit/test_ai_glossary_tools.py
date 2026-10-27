@@ -22,11 +22,13 @@ class Reader:
         denied: bool = False,
         no_names: bool = False,
         lookup_denied: bool = False,
+        suggestions: list[str] | None = None,
     ) -> None:
         self.entries = entries
         self.denied = denied
         self.no_names = no_names
         self.lookup_denied = lookup_denied
+        self.suggestions = suggestions or []
         self.lookups: list[str] = []
 
     async def glossary_lookup(self, term):
@@ -34,6 +36,9 @@ class Reader:
         if self.lookup_denied:
             raise InventoryAccessError
         return self.entries
+
+    async def glossary_suggest(self, term):
+        return self.suggestions
 
     async def field_values(self, field):
         if self.denied:
@@ -44,7 +49,7 @@ class Reader:
 
 
 def entry(term="core", filter_=None):
-    return {"term": term, "aliases": ["backbone"], "filter": filter_ or NETWORK}
+    return {"term": term, "aliases": ["backbone"], "payload": filter_ or NETWORK}
 
 
 def run(reader: Reader, **sharing: bool):
@@ -143,3 +148,18 @@ def test_source_without_permission_is_an_error() -> None:
     _, out = run(Reader([entry()], denied=True), inventory=True)
 
     assert out.is_error
+
+
+def test_no_match_offers_close_names_without_any_definition() -> None:
+    _, out = run(Reader([], suggestions=["core-lab", "score"]), inventory=True)
+
+    data = json.loads(out.content)
+    assert data["did_you_mean"] == ["core-lab", "score"]
+    assert "call get_glossary again" in data["note"] and "filter" not in out.content
+
+
+def test_suggestions_are_not_given_when_the_inventory_data_is_not_shared() -> None:
+    _, out = run(Reader([], suggestions=["core-lab"]))
+
+    assert json.loads(out.content)["not_shared"] == "inventory_data"
+    assert "core-lab" not in out.content

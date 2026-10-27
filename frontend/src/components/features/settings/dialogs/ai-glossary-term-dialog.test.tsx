@@ -1,7 +1,10 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { GlossaryTerm } from "@/components/features/ai-assistant/types/ai-assistant";
+import type {
+  GlossaryKind,
+  GlossaryTerm,
+} from "@/components/features/ai-assistant/types/ai-assistant";
 
 import {
   AiGlossaryTermDialog,
@@ -18,29 +21,85 @@ vi.mock("@/hooks/queries/use-ai-glossary-mutations", () => ({
     updateTerm: { mutate: h.update, isPending: false },
   }),
 }));
+vi.mock("@/components/ui/combobox", () => ({
+  Combobox: ({
+    options,
+    value,
+    onValueChange,
+  }: {
+    options: { value: string; label: string }[];
+    value: string;
+    onValueChange: (value: string) => void;
+  }) => (
+    <select
+      aria-label="Step"
+      value={value}
+      onChange={(e) => onValueChange(e.target.value)}
+    >
+      <option value="">none</option>
+      {options.map((o) => (
+        <option key={o.value} value={o.value}>
+          {o.label}
+        </option>
+      ))}
+    </select>
+  ),
+}));
+vi.mock("@/hooks/queries/use-workflow-steps-query", () => ({
+  useWorkflowStepsQuery: () => ({
+    data: {
+      plugins: [
+        {
+          id: "get-git-devices",
+          name: "Get from Git",
+          enabled: true,
+          executable: true,
+        },
+        { id: "off-step", name: "Off", enabled: false, executable: true },
+        { id: "decor", name: "Decor", enabled: true, executable: false },
+      ],
+    },
+  }),
+}));
 vi.mock("@/hooks/queries/use-get-nautobot-devices-field-values-query", () => ({
   useGetNautobotDevicesFieldValuesQuery: () => ({ data: undefined }),
 }));
 
 const EXISTING: GlossaryTerm = {
   id: 9,
+  kind: "inventory_filter",
   term: "core",
   aliases: ["backbone"],
   note: null,
   warnings: [],
-  filter: {
+  payload: {
     logic: "AND",
     conditions: [{ field: "role", operator: "equals", value: "Network" }],
     groups: [],
   },
 };
 
-function setup(term: GlossaryTerm | null = null, sourceIds: string[] = ["nb"]) {
+const ALIAS: GlossaryTerm = {
+  id: 4,
+  kind: "workflow_step",
+  term: "git devices",
+  aliases: [],
+  note: null,
+  warnings: [],
+  payload: { step_id: "get-git-devices" },
+};
+
+function setup(
+  term: GlossaryTerm | null = null,
+  sourceIds: string[] = ["nb"],
+  kind: GlossaryKind = term?.kind ?? "inventory_filter",
+) {
   const onOpenChange = vi.fn();
   render(
     <AiGlossaryTermDialog
       open
       onOpenChange={onOpenChange}
+      kind={kind}
       term={term}
       sourceIds={sourceIds}
     />,
@@ -169,6 +228,7 @@ describe("AiGlossaryTermDialog", () => {
 
     await waitFor(() => expect(h.create).toHaveBeenCalledTimes(1));
     expect(h.create.mock.calls[0][0]).toEqual({
+      kind: "inventory_filter",
       term: "dc",
       aliases: ["data center", "dc1"],
       note: null,
@@ -209,5 +269,77 @@ describe("AiGlossaryTermDialog", () => {
     expect(screen.getByLabelText("Exclude group 1")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Remove group 1" }));
     expect(screen.queryByLabelText("Exclude group 1")).toBeNull();
+  });
+
+  describe("workflow step aliases", () => {
+    it("offers enabled executable steps and hides the filter and source", () => {
+      setup(null, ["nb"], "workflow_step");
+
+      expect(
+        screen.getByRole("option", { name: "Get from Git (get-git-devices)" }),
+      ).toBeTruthy();
+      expect(screen.queryByRole("option", { name: /Off/ })).toBeNull();
+      expect(screen.queryByRole("option", { name: /Decor/ })).toBeNull();
+      expect(screen.queryByLabelText("Condition 1 value")).toBeNull();
+      expect(screen.queryByLabelText("Nautobot source")).toBeNull();
+    });
+
+    it("needs a step", async () => {
+      setup(null, [], "workflow_step");
+
+      fireEvent.change(screen.getByLabelText("Term"), {
+        target: { value: "git devices" },
+      });
+      fireEvent.click(screen.getByRole("button", { name: "Save term" }));
+
+      expect(await screen.findByText("Choose a step")).toBeTruthy();
+      expect(h.create).not.toHaveBeenCalled();
+    });
+
+    it("creates an alias without a Nautobot source", async () => {
+      setup(null, [], "workflow_step");
+
+      fireEvent.change(screen.getByLabelText("Term"), {
+        target: { value: "git devices" },
+      });
+      fireEvent.change(screen.getByLabelText("Aliases"), {
+        target: { value: "from git" },
+      });
+      fireEvent.change(screen.getByLabelText("Step"), {
+        target: { value: "get-git-devices" },
+      });
+      fireEvent.click(screen.getByRole("button", { name: "Save term" }));
+
+      await waitFor(() => expect(h.create).toHaveBeenCalledTimes(1));
+      expect(h.create.mock.calls[0][0]).toEqual({
+        kind: "workflow_step",
+        term: "git devices",
+        aliases: ["from git"],
+        note: null,
+        step_id: "get-git-devices",
+      });
+    });
+
+    it("edits an existing alias", async () => {
+      setup(ALIAS);
+
+      expect((screen.getByLabelText("Step") as HTMLSelectElement).value).toBe(
+        "get-git-devices",
+      );
+      fireEvent.change(screen.getByLabelText("Aliases"), {
+        target: { value: "gd" },
+      });
+      fireEvent.click(screen.getByRole("button", { name: "Save term" }));
+
+      await waitFor(() => expect(h.update).toHaveBeenCalledTimes(1));
+      expect(h.update.mock.calls[0][0]).toMatchObject({
+        id: 4,
+        data: {
+          kind: "workflow_step",
+          aliases: ["gd"],
+          step_id: "get-git-devices",
+        },
+      });
+    });
   });
 });

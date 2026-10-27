@@ -3,7 +3,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { GlossaryFilter } from "@/components/features/ai-assistant/types/ai-assistant";
 
-import { AiGlossaryDialog, summarizeFilter } from "./ai-glossary-dialog";
+import {
+  AiGlossaryDialog,
+  summarizeFilter,
+  summarizeTerm,
+} from "./ai-glossary-dialog";
 
 const h = vi.hoisted(() => ({
   query: vi.fn(),
@@ -27,15 +31,17 @@ vi.mock("@/hooks/queries/use-nautobot-configured-sources-query", () => ({
 vi.mock("./ai-glossary-term-dialog", () => ({
   AiGlossaryTermDialog: ({
     open,
+    kind,
     term,
     sourceIds,
   }: {
     open: boolean;
+    kind: string;
     term: { term: string } | null;
     sourceIds: string[];
   }) =>
     open ? (
-      <div>{`term dialog: ${term?.term ?? "new"} (${sourceIds.join("+")})`}</div>
+      <div>{`term dialog: ${kind} ${term?.term ?? "new"} (${sourceIds.join("+")})`}</div>
     ) : null,
 }));
 
@@ -52,9 +58,10 @@ const FILTER: GlossaryFilter = {
 };
 const ROW = {
   id: 4,
+  kind: "inventory_filter" as const,
   term: "core",
   aliases: ["backbone"],
-  filter: FILTER,
+  payload: FILTER,
   note: null,
   warnings: [],
 };
@@ -68,6 +75,21 @@ describe("summarizeFilter", () => {
     expect(summarizeFilter(FILTER)).toBe(
       "role equals Network AND NOT (name contains lab)",
     );
+  });
+});
+
+describe("summarizeTerm", () => {
+  it("shows the filter for inventory terms and the step for aliases", () => {
+    expect(summarizeTerm(ROW)).toBe(
+      "role equals Network AND NOT (name contains lab)",
+    );
+    expect(
+      summarizeTerm({
+        ...ROW,
+        kind: "workflow_step",
+        payload: { step_id: "get-git-devices" },
+      }),
+    ).toBe("step get-git-devices");
   });
 });
 
@@ -115,6 +137,64 @@ describe("AiGlossaryDialog", () => {
     );
   });
 
+  it("switches to the step aliases tab, which needs no Nautobot source", () => {
+    h.sources.value = [];
+    render(<AiGlossaryDialog open onOpenChange={vi.fn()} />);
+    expect(screen.getByText(/Configure a Nautobot source first/)).toBeTruthy();
+
+    fireEvent.mouseDown(
+      screen.getByRole("tab", { name: "Workflow step aliases" }),
+      {
+        button: 0,
+      },
+    );
+
+    expect(h.query).toHaveBeenLastCalledWith(
+      expect.objectContaining({ kind: "workflow_step", query: "", offset: 0 }),
+    );
+    expect(screen.queryByText(/Configure a Nautobot source first/)).toBeNull();
+    const add = screen.getByRole("button", {
+      name: "Add term",
+    }) as HTMLButtonElement;
+    expect(add.disabled).toBe(false);
+    fireEvent.click(add);
+    expect(screen.getByText("term dialog: workflow_step new ()")).toBeTruthy();
+  });
+
+  it("clears the search and the page when the tab changes", () => {
+    h.query.mockReturnValue(result([ROW], 60));
+    render(<AiGlossaryDialog open onOpenChange={vi.fn()} />);
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    fireEvent.change(screen.getByLabelText("Search glossary"), {
+      target: { value: "x" },
+    });
+
+    fireEvent.mouseDown(
+      screen.getByRole("tab", { name: "Workflow step aliases" }),
+      {
+        button: 0,
+      },
+    );
+
+    expect(h.query).toHaveBeenLastCalledWith(
+      expect.objectContaining({ kind: "workflow_step", query: "", offset: 0 }),
+    );
+    expect(
+      (screen.getByLabelText("Search glossary") as HTMLInputElement).value,
+    ).toBe("");
+  });
+
+  it("blocks paging, editing and deleting while a stale page is shown", () => {
+    h.query.mockReturnValue({ ...result([ROW], 60), isPlaceholderData: true });
+    render(<AiGlossaryDialog open onOpenChange={vi.fn()} />);
+
+    for (const name of ["Next", "Edit core", "Delete core"]) {
+      expect(
+        (screen.getByRole("button", { name }) as HTMLButtonElement).disabled,
+      ).toBe(true);
+    }
+  });
+
   it("pages through a long list", () => {
     h.query.mockReturnValue(result([ROW], 60));
     render(<AiGlossaryDialog open onOpenChange={vi.fn()} />);
@@ -136,7 +216,9 @@ describe("AiGlossaryDialog", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Add term" }));
 
-    expect(screen.getByText("term dialog: new (lab+prod)")).toBeTruthy();
+    expect(
+      screen.getByText("term dialog: inventory_filter new (lab+prod)"),
+    ).toBeTruthy();
   });
 
   it("steps back a page when the last row of a later page is deleted", () => {
@@ -160,10 +242,14 @@ describe("AiGlossaryDialog", () => {
     render(<AiGlossaryDialog open onOpenChange={vi.fn()} />);
 
     fireEvent.click(screen.getByRole("button", { name: "Add term" }));
-    expect(screen.getByText("term dialog: new (nb)")).toBeTruthy();
+    expect(
+      screen.getByText("term dialog: inventory_filter new (nb)"),
+    ).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "Edit core" }));
-    expect(screen.getByText("term dialog: core (nb)")).toBeTruthy();
+    expect(
+      screen.getByText("term dialog: inventory_filter core (nb)"),
+    ).toBeTruthy();
   });
 
   it("asks before deleting", () => {
