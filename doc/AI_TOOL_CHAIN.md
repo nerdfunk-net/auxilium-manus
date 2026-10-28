@@ -304,12 +304,16 @@ opted-out user gets `not_shared` for every tool.
 
 ## 11. Open questions
 
-- Confirm every execution, or auto-run allow-listed read-only commands under an opt-in?
-- Run shell A or B (§4)?
-- New permission `ai_assistant:run_commands`, or reuse `workflows:execute`?
-- Exact allow-list grammar for commands, and where it is enforced (choke point).
-- Retention for AI task artifacts (reuse `RUN_RETENTION_*`?).
-- Does the "general" surface need its own prompt and toolbox in `surfaces.py`?
+Decided on 2026-10-28, see §19: confirmation policy, run shell, permission, execution location, handle
+storage, released-workflow rules. Still open:
+
+- Exact allow-list grammar for device commands, and where it is enforced (choke point plus the
+  execution module, §13.2).
+- Retention and size limits for handles (§19 D6); behaviour when Redis is unavailable.
+- Does the "general" surface need its own prompt and toolbox in `surfaces.py`? (Probably yes: new
+  builder and prompt; check whether `surface` is a closed set, §18 fact 8.)
+- The items in §14.7, §16.9 and §17.5 that §19 does not settle.
+- Exact permissions and rate limits of `routers/netmiko.py` (to be read before phase 3, §18 fact 11).
 
 ## 12. Tools (deep dive)
 
@@ -967,3 +971,46 @@ Read on 2026-10-28; nothing was run. Each fact says what it changes in this docu
 - Phase 2 (released workflows) is unchanged except for the `TriggerType` extension.
 - The new risk to name: the assistant must not become a way around the rights, limits and host
   validation that the preview endpoints enforce; it must be at least as strict.
+
+## 19. Decisions (proposal accepted 2026-10-28)
+
+Principle: proceed in small, reversible steps from low risk to high risk, and use only paths the app
+already guards. Costly decisions are deferred until real use informs them.
+
+| # | Topic | Decision | Reason |
+|---|---|---|---|
+| D1 | Access to devices and Batfish | Wrap `NetmikoPreviewService` and `BatfishPreviewService`; no run (option C of §14.4). | The Template Editor already has this path with host validation, per-user credentials, allow-list, row cap and rate limits (§18 fact 5). No second security logic, no hidden system workflow. |
+| D2 | Confirmation | Batfish reads run without a click. Everything that opens an SSH session needs the user's click. Auto-run of device reads is not part of the first version; if ever, behind a per-user opt-in. | Batfish touches no device and has an allow-list. SSH is the prompt-injection path (§3); the click is the one control the model cannot satisfy itself. |
+| D3 | Permission | No new permission at first. Required: the same permission as the matching preview endpoint, an operator switch (off by default, in the style of `AI_ALLOWED_DATA`) and the data-class opt-in. A dedicated permission can follow on demand. | A new permission adds RBAC maintenance (P1 to P8). The operator switch is the honest emergency brake. |
+| D4 | Where execution runs | After the click, in the exec endpoint, for small sets (about 10 devices, hard time limit, to be fixed in config). Hatchet only for large sets and long runs. The contract (payload, handle, confirmation hash) is designed so the same code runs in a Hatchet task later. | Preview endpoints work this way; fewer moving parts, faster feedback, easier tests. A deliberate concession to simplicity versus the initial Hatchet idea (§4, §14.6). |
+| D5 | Run shell | Deferred. Until then an audit record with ids only (`audit_refs`). Decide §14 when artifacts must persist or runs get long. | Real requirements will make the choice easier. |
+| D6 | Handles (§6.1) | Short-lived store with expiry (hours), per user, not in the database; Redis is the candidate. An expired handle returns a clear "expired, fetch again" message. | No migration, no retention job; matches intermediate results. Move to DB or run artifacts if results must live for weeks. Limit the size per handle. |
+| D7 | Released workflows: version | Any edit of a released workflow clears the release (no hash pinning). | Simple to explain and safe; the admin re-releases deliberately. |
+| D8 | Released workflows: result | At release the admin marks one step output or artifact as the assistant result. Without it only status and step summary are returned. | The model gets a defined return value. |
+| D9 | Released workflows: visibility and start | Only non-private workflows can be released. Starting always needs the user's click in the first version. | A private workflow is accessible to its creator only. A workflow may change devices. |
+| D10 | PydanticAI | Not now. Spike only on the triggers in §8. | The loop is ~106 lines; the work is in the tools; seams in §7 keep the switch local. |
+
+### 19.1 Order of work (from the plan)
+
+1. Plan item 0.2: amend Rules 3 and 4 in `AI_ASSISTANT.md` (also the `tools/base.py` docstring).
+2. Phase 1: Batfish read tools (traceroute added to the service, preview service wrapped, result
+   envelope and handles, "general" surface). §10a.
+3. Phase 2: released workflows (§16, with D7 to D9).
+4. Phase 3: device tools with click confirmation and small sets (D2, D4); run shell and Hatchet when
+   real tasks require them.
+5. Phase 4 and 5 on demand (§6, §8).
+
+### 19.2 What we deliberately do not do (first versions)
+
+- No auto-run of SSH commands.
+- No new table for handles or results while short-lived storage is enough.
+- No free `run_question` catalogue for Batfish at the start, only named tools.
+- No calls from the assistant into executors (§17).
+
+### 19.3 Assumptions to verify before the matching phase
+
+- Permission and limits of `routers/netmiko.py` equal what D3 assumes ("same permission as the
+  preview endpoint") before phase 3.
+- Redis is sufficient for the expected handle sizes; otherwise cap sizes or switch the store (D6).
+- Running device work inside the exec endpoint stays within request timeouts for the chosen set
+  size (D4); otherwise lower the limit or move to Hatchet earlier, which brings §14 forward.
