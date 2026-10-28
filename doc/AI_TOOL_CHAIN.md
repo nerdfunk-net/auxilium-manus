@@ -19,6 +19,32 @@ A general assistant that can, on request:
 Constraint from the product owner: **no dedicated workflow** is started for this. The code already
 exists in the workflow steps and must be reused.
 
+## 1a. Guiding principle: tools first
+
+The tools matter at least as much as the agent loop, and in practice more.
+
+- **The loop is replaceable, the tools are not.** The loop is ~106 lines and can later be swapped for
+  PydanticAI (§7). The tools hold the app logic: what may run, with whose rights, what the result looks
+  like, what the model gets to see.
+- **Safety lives in the tools.** The model can only do what a tool allows. Allow-list, confirmation,
+  rights check and redaction sit in the tool layer and the choke point (§13). A weak loop yields bad
+  proposals; a badly built tool can be a vulnerability.
+- **Answer quality depends on the tools.** Whether a multi-device investigation works depends on
+  condensed results, handles and fan-out inside tools (§6), not on the loop. A mediocre model with good
+  tools beats a strong model with tools that flood the context.
+- **Most of the work is tool infrastructure**: run shell, Hatchet task, handle storage, command policy.
+
+Consequences for the work plan:
+
+1. Build and test the tools first, **without an LLM**: inputs, rights, `not_shared`, truncation, policy
+   bypasses (§12.6, §13.5).
+2. Make them callable by hand early (a test harness or internal endpoint) to design handles and
+   previews before a model is involved.
+3. Treat tool names, descriptions and input fields as prompt engineering: few, clearly separated tools
+   work better than many overlapping ones.
+4. Tune the model and loop afterwards. Test with the smallest model the app must support; weak local
+   models misfill parameters even with good tools (see "Local models" in `AI_ASSISTANT.md` §3.1).
+
 ## 2. Facts about the current code (verified by reading)
 
 | Topic | Finding |
