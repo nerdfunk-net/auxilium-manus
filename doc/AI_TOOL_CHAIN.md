@@ -1024,3 +1024,65 @@ already guards. Costly decisions are deferred until real use informs them.
 - Redis is sufficient for the expected handle sizes; otherwise cap sizes or switch the store (D6).
 - Running device work inside the exec endpoint stays within request timeouts for the chosen set
   size (D4); otherwise lower the limit or move to Hatchet earlier, which brings §14 forward.
+
+## 20. Handover: continuing locally
+
+State on 2026-10-28: design and decisions are complete (§19); the invariants in
+`doc/ai_integration/AI_ASSISTANT.md` and the `tools/base.py` docstring are amended; **no feature code
+exists yet.** Branch: `claude/ai-assistant-hatchet-tasks-na2e5h` (based on `main`, documentation and
+docstring changes only).
+
+### 20.1 Getting the work onto the Mac
+
+```bash
+git fetch origin claude/ai-assistant-hatchet-tasks-na2e5h
+git switch claude/ai-assistant-hatchet-tasks-na2e5h     # or: git switch -c <name> origin/<branch>
+# local setup as in doc/claude/development.md (venv at ../.venv, Python 3.14, backend/.env)
+```
+
+Everything needed is in the repository: this file is the single source for the reasoning and the
+decisions. Nothing lives only in the cloud session. Not saved (and not needed): the two read-only
+clones of `batfish/batfish` and `batfish/pybatfish` used for the study in §15; re-clone
+`batfish/pybatfish` and read `pybatfish/mcp/server.py` if the reference is needed again.
+
+### 20.2 Read first, in this order
+
+1. `doc/AI_TOOL_CHAIN.md` §1, §1a, §19 (goal, principle, decisions), then §18 (facts) and §10/§10a (order).
+2. `doc/ai_integration/AI_ASSISTANT.md` principles 2 to 4, §3.5, §5, §17.
+3. Code: `services/ai_assistant/agent_loop.py`, `tools/base.py`, `tools/run_tools.py` (pattern for
+   class B/C tools), `services/batfish/preview_service.py`, `query_helpers.py`,
+   `routers/sources/batfish/query.py`.
+
+### 20.3 Next step: Phase 1, Batfish read tools (§10a)
+
+Order inside phase 1:
+
+1. Add a traceroute to `services/batfish/` (service level, not in a step); decide allow-list vs. a
+   dedicated method (§18 fact 6).
+2. Result envelope `{rows, total_rows, truncated}` and helpers next to `tools/base.py` (§15.2).
+3. Handle store with expiry and ownership check (D6), plus `query_result` / `fetch_slice`.
+4. `tools/batfish_tools.py`: typed Pydantic inputs, wrap `BatfishPreviewService`, data class labels,
+   `get_traceroute`, `get_routes`, `get_bgp_session_status`, `get_interface_properties` first.
+5. A `general` surface in `surfaces.py` (builder plus prompt); check whether `surface` is a closed set.
+6. Tests without an LLM (§12.6) and the hardening test for the `general` surface (allowed
+   `propose_*` names pinned; nothing starting with run/trigger/execute/start/delete).
+7. Acceptance (§10a): "which route does 10.1.2.3 use on r1, and where does a packet to it go?" in at
+   most 3 tool calls, tested with the smallest supported model.
+
+Before starting, verify the assumptions in §19.3 and the "not yet checked" list in §18 fact 11 that
+phase 1 touches (`MAX_PREVIEW_ROWS`, closed `surface` set).
+
+### 20.4 Checks to run locally (from `doc/claude/development.md`)
+
+`ruff check` on touched files, `python -m pytest` (at least `tests/unit/test_ai_hardening.py` and the
+AI assistant tests), the guard scripts in `backend/scripts/` (`check_text_sql.py`,
+`check_router_repositories.py`, `check_http_500_leaks.py`, `check_http_4xx_leaks.py`), `pyright`.
+The cloud session could not run tests (no venv); the docstring change in `tools/base.py` is untested.
+
+### 20.5 Prompt to resume with Claude Code on the Mac
+
+> Read `doc/AI_TOOL_CHAIN.md` (especially §19 decisions, §18 facts, §10a and §20) and
+> `doc/ai_integration/AI_ASSISTANT.md` principles 2 to 4. We are at Phase 1: Batfish read tools for the
+> `general` surface. Follow §20.3 step by step, starting with a plan and the checks in §20.3 and §18
+> fact 11. Do not call executors from `workflow_steps`; wrap the Batfish preview service. No tool may
+> execute or write by itself; names follow the rule in `AI_ASSISTANT.md` §3.5.
