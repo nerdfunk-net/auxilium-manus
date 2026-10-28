@@ -832,15 +832,15 @@ Checked by reading the code:
 |---|---|
 | Batfish reads | `services/batfish/client.py::BatfishService` already offers `routes`, `reachability`, `test_filters`, `node_properties`, `interface_properties`, `ospf_*`, `bgp_*`, `bgp_session_status`, `file_parse_status`, `undefined_references`, `unused_structures`, `generic_question`, `list_snapshots(_with_metadata)`. **Reusable as is.** No `traceroute` method yet: add it to the service (not to a step). |
 | Batfish snapshot choice | `workflow_steps/common/batfish_context.py` resolves the snapshot from an upstream step via `WorkflowContext`: workflow-specific, **not reusable**. The tool needs its own snapshot selection on top of `list_snapshots_with_metadata` (§15.5). |
-| Run a command | `services/network/netmiko/service.py::NetmikoService.send_command(s)` supports TextFSM (`use_textfsm`). **Reusable.** Needs a `DeviceSessionPool` and a resolved credential (`resolve_ssh_credential`, currently under `workflow_steps/common/`: **extract** the credential resolution into a service, since `services/*` may not import it). |
-| Fetch configs | `NetmikoService.get_running_config` / `get_startup_config` / `get_configs`. **Reusable**, same credential point. |
-| Per-device loop, retry, outcome shaping | in `workflow_steps/run_command/exec_mode.py` (~300 lines) and `get_device_configs/executor.py`. Step-specific outcome building stays. Extract only the part both would share (bounded concurrency over devices, per-device result record, partial failures) into a service, if the tools need it (§6.3). |
+| Run a command | `services/network/netmiko/service.py::NetmikoService.send_command(s)` supports TextFSM (`use_textfsm`); device type via `services/network/netmiko/platform.py`. **Reusable.** An ad-hoc path with host validation and credential-by-id already exists: `NetmikoPreviewService` (§18, fact 5). |
+| Fetch configs | `NetmikoService.get_running_config` / `get_startup_config` / `get_configs`, and `NetmikoPreviewService.get_configs`. **Reusable.** |
+| Per-device loop, retry, outcome shaping | in `workflow_steps/run_command/exec_mode.py` (~300 lines) and `get_device_configs/executor.py`. Tied to `DeviceContext`, `StepOutcome`, `fail_device`, `record_dry_run`; **stays in the steps**. The tool calls `NetmikoService` directly (§18, fact 3). |
 | TextFSM/Genie normalisation | `workflow_steps/run_command/enrichment.py` works on `DeviceContext`. For tools, call the netmiko TextFSM path and shape the result in the tool; do not import the step module. |
-| Credential resolution for the acting user | `workflow_steps/common/credential_resolver.py`: **extract** to `services/credentials/` (it already has the credentials service) and let the step module call the service. |
+| Credential resolution for the acting user | `workflow_steps/common/credential_resolver.py` is already a thin shim over `services/credentials/manager.py::CredentialManager(db, acting_user_id=...)`. **No extraction needed**: tools call `CredentialManager` (its docstring says new code should). |
 | Run creation | `RunService.trigger_run` / `_create_and_dispatch_run` (services/execution): reusable for released workflows (§16). |
 
-So the refactoring is small and concrete: **credential resolution, a shared per-device fan-out
-helper if needed, and a traceroute method on `BatfishService`.** Everything else is reuse.
+So the refactoring is smaller than first assumed (see §18): **at most a shared per-device fan-out
+helper, and a traceroute method on `BatfishService`.** Everything else is reuse.
 
 **Extraction means moving, not copying.** The forbidden import direction does not cause duplicate
 code as long as shared logic is moved into a service and the step is changed, in the same PR, to call
@@ -880,10 +880,90 @@ after:   step ──┐
 
 ### 17.5 Open points
 
-- Where should the extracted credential resolver live (`services/credentials/` is the natural place),
-  and does it need an `acting_user_id` variant for the Hatchet task?
+- (Resolved by §18 fact 4: `CredentialManager` already takes `acting_user_id`; no extraction.)
 - Do handles live in the database (new table, repository, retention) or as artifacts of a run
   (§14)? This decides whether `results/`, `ai_result_repository.py` and `core/models/ai_results.py`
   exist.
 - Does `routers/ai_assistant.py` get too large? A separate `routers/ai_exec.py` for confirm, status and
   cancel keeps rate-limit buckets and permissions separate.
+
+## 18. Pre-checks before implementation (plan item 0.3), facts by reading the code
+
+Read on 2026-10-28; nothing was run. Each fact says what it changes in this document.
+
+1. **Run status and result reading already exist as tools.** `services/ai_assistant/run_reader.py::DbRunReader`
+   delegates to `RunService` (so visibility rules are the REST ones), requires `workflow_runs:read`, and
+   uses a short `SessionLocal()` per call in `asyncio.to_thread`. `tools/run_tools.py` offers `get_run`,
+   `get_step_result`, `get_artifact`, `list_run_events`, `get_run_workflow` (class B/C gated by the
+   opt-in). *Effect:* for §16 `get_run_status` is `get_run`; `get_run_result` can reuse
+   `get_artifact`. What is missing is only the "designated result" concept and the start tool.
+2. **`object_session(run)` is used by about 16 executors** (for example `get_device_configs`,
+   `secret_get`, `add_to_ise`, `deploy_rendered_template`) to obtain the DB session, and they raise
+   `RuntimeError("... WorkflowRun has no active DB session")` without one. *Effect:* an adapter object
+   instead of an ORM row cannot work (confirms §14.3). It only matters if executors are called, which
+   §17 avoids; service-based tools need no `WorkflowRun` at all.
+3. **`run-command`'s `exec_mode.py` need not be split.** It is bound to `DeviceContext`, `StepOutcome`,
+   `fail_device`, `record_dry_run` and `ParsedRunCommandConfig`. Its core is
+   `resolve_connection_device_type(...)` plus `NetmikoService.send_commands(..., use_textfsm=...)`, both
+   in `services/`. `models.workflow_context` lives outside `workflow_steps/` and is importable.
+   *Effect:* the tool calls `NetmikoService` directly; no extraction. `run-command` also has a
+   `config_mode` that writes configuration (`write_config_after_execution`, `auto_confirm_prompts`);
+   the tool must not expose any of it.
+4. **Credential resolution needs no extraction.** `workflow_steps/common/credential_resolver.py` is a
+   shim over `services/credentials/manager.py::CredentialManager(db, acting_user_id=...)`; global
+   credentials plus the acting user's private ones resolve. *Effect:* §17.3 corrected above.
+5. **Ad-hoc device and Batfish access without any run already exists in the Template Editor.**
+   - `services/network/netmiko/preview_service.py::NetmikoPreviewService` (`run_commands`, `get_configs`)
+     with host validation (`core/safe_hosts.py::validate_netmiko_preview_host`), credential by id with
+     `acting_user_id`, router `routers/netmiko.py`.
+   - `services/batfish/preview_service.py::BatfishPreviewService` (`run_routes`, `run_reachability`,
+     `run_test_filters`, `run_generic`, facts), router `routers/sources/batfish/query.py` with
+     `sources.batfish:query` permission, rate limits, `PREVIEW_ROW_LIMIT` (context var, capped by
+     `MAX_PREVIEW_ROWS`) and `assert_batfish_network_exists`.
+   *Effect:* (a) the app already accepts the principle "a user runs an ad-hoc read without a workflow
+   run"; the new assistant tools can wrap these services, so **§14.4 option C (no run) becomes the
+   natural start for ad-hoc tools** and the run-shell decision (§14) can be deferred until persistent
+   audit or artifacts are needed; (b) their permissions, rate limits and host validation are the
+   baseline the assistant tools must at least match; (c) the rule text in `AI_ASSISTANT.md` ("no tool can
+   open an SSH session") concerns the assistant, not the app. Not yet verified: exact permission and
+   rate limits on `routers/netmiko.py`, and whether the preview service stores anything.
+6. **Batfish.** `BatfishService` takes a `BatfishConnection` (from
+   `BatfishSourceConfigService.resolve_connection(source_id)`) and a network name; sessions are cached
+   per `(host, port, network)`; the snapshot is passed explicitly on every question. Ad-hoc generic
+   questions go through `query_helpers.py::GENERIC_QUESTION_ALLOWLIST` (BGP, OSPF, edges, named
+   structures, ipOwners, undefined/unused references, filterLineReachability, switchedVlanProperties).
+   **No traceroute** exists (not a method, not in the allow-list). Snapshot names are caller-chosen
+   (workflow runs use `run-<uuid>`), so selection must sort by `creationTimestamp`
+   (`list_snapshots_with_metadata`). The `viewer` role has `sources.batfish:read` but not `:query`.
+   *Effect:* §10a: add traceroute to the service plus a bounded wrapper; reuse the preview service
+   and its row cap for the first tools; define which permission the assistant tools require
+   (`sources.batfish:query`); decide the snapshot selection rule (§15.5).
+7. **`trigger_type`.** The API model is `TriggerType = Literal["manual", "scheduled", "webhook"]`
+   (`models/runs.py`); `"workflow"` is set internally (`start_child_run`); the column is `String(20)`.
+   *Effect:* `"ai_assistant"` (12 chars) needs the `Literal` extended or a dedicated server-side start
+   method; screens that switch on `trigger_type` (dashboard, runs list) were not inspected.
+8. **Conversations.** `ai_conversations` stores `messages` as JSON per `user_id`, `surface`
+   (`String(32)`) and `subject_key`; surfaces are assembled in `surfaces.py` (one builder and prompt
+   per surface). A late tool result (§12.5) needs a stored-message shape; not inspected in detail.
+   *Effect:* the "general" surface is a new builder plus prompt; check whether `surface` values are
+   validated against a closed set.
+9. **No hidden/system flag on `workflows`.** `core/models/workflows.py` has none (columns: name,
+   creator, visibility, canvas, static_attributes, `is_version_controlled`, ...). *Effect:* §14.2
+   needs a new column and filters in workflow list/schedule/export queries; those queries were not
+   inspected. With fact 5 this option is needed later than assumed.
+10. **Run creation for released workflows** is `RunService.trigger_run(workflow_id, data, user_id)`:
+    `_assert_workflow_access` (private workflows only for the creator), `resolve_run_inputs`,
+    `_create_and_dispatch_run`. *Effect:* §16.5 holds as written; the permission check for
+    `workflows:execute` is done by the router, so the new endpoint must repeat it.
+11. **Not yet checked** (open before the matching phase): retention and run reaper behaviour for a
+    non-workflow run source; exact router permissions/limits in `routers/netmiko.py`; UI places that
+    list runs by `trigger_type`; closed set of `surface` values; `MAX_PREVIEW_ROWS` value.
+
+### 18.1 Consequences for the plan
+
+- Phase 1 (Batfish) is cheaper: services, allow-list, row cap and permission exist; add traceroute.
+- Phase 3 (ad-hoc devices): no credential extraction, no executor split, and the run shell can start
+  as option C; §14 becomes a later decision.
+- Phase 2 (released workflows) is unchanged except for the `TriggerType` extension.
+- The new risk to name: the assistant must not become a way around the rights, limits and host
+  validation that the preview endpoints enforce; it must be at least as strict.
