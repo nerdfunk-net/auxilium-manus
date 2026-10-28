@@ -230,16 +230,64 @@ intact, no extra network egress.
   Either way the autonomy of the model raises the weight of the allow-list, rate limits and
   confirmation (§3).
 
-## 10. Implementation order (tools §12, security §13, run shell §14)
+## 10. Implementation order (tools §12, security §13, run shell §14; step 0 in §10a)
 
-1. Amend `AI_ASSISTANT.md` invariants (Rules 3 and 4) with §3.
-2. Run shell decision (§4 A vs B) and, for A, make `workflow_id` nullable and audit its users.
-3. Result handles + artifact storage + `query_result` / `fetch_slice` (§6.1).
+0. **First increment: Batfish read tools (§15.4, §10a).** Proves the tool layer without touching a
+   device. Needs no change to Rules 3 and 4 as long as the tools only read from the Batfish service;
+   they still need the data-class opt-in and redaction.
+1. Amend `AI_ASSISTANT.md` invariants (Rules 3 and 4) with §3 (before any SSH tool).
+2. Run shell decision (§14): recommended is a real `WorkflowRun` under a hidden system workflow; do
+   **not** make `workflow_id` nullable (§14.1 lists what depends on it).
+3. Result handles + artifact storage + `query_result` / `fetch_slice` (§6.1). If step 0 is done, the
+   handle mechanism already exists and is reused here.
 4. Execution proposal flow + thin Hatchet task + allow-list + rights + rate limit.
 5. Tools: `get_device_config`, `run_show_command`, `parse_output`.
 6. Per-surface step budget, fan-out inside tools, condensing tools.
 7. Scratchpad and (optional) Hatchet-driven long investigations.
 8. Runner interface extraction (§7.4) if not already clean; PydanticAI spike only on §8 triggers.
+
+### 10a. Step 0 in detail: Batfish read tools as the first increment
+
+Why first: these tools read from a Batfish service and open no SSH session, so they carry the lowest
+risk of all execution-like tools, and they exercise everything the later tools need.
+
+What step 0 proves, in order:
+
+1. **Tool module and registration:** a new `tools/batfish_tools.py` with typed Pydantic inputs
+   (`extra="forbid"`, bounded lists) and a "general" surface in `surfaces.py` that offers them.
+2. **Standard result envelope:** `{rows, total_rows, truncated}` plus a preview size constant, shared
+   helpers next to `tools/base.py` (§15.2 items 2 and 8).
+3. **Handles:** results above the preview size are stored and referenced by handle; `query_result` and
+   `fetch_slice` work on them; ownership is checked on every use (§6.1, §12.6). For step 0 the storage
+   can be a per-conversation store (no run shell needed because nothing is executed on a device);
+   decide here whether it moves to run artifacts later (§14).
+4. **Redaction and opt-in:** each tool is labelled with its data class (topology, configs are class B/C)
+   and returns `not_shared` when the user has not opted in (`run_tools.py` pattern).
+5. **Audit and limits:** ids only in `audit_refs`; `rate_limited(...)` on the endpoint; per-turn step
+   cap as today.
+6. **Tests without an LLM:** invalid input, opted-out sharing, truncation and handle ownership,
+   authorisation failure (§12.6).
+
+Candidate tools, in order of value (names follow §15.4; wrap the existing Batfish service code, do not
+call Batfish a second way):
+
+| Tool | Notes |
+|---|---|
+| `get_routes` | `prefix_match_type=LONGEST_PREFIX_MATCH` answers "which route does this IP use" |
+| `run_traceroute` | `trace_format=summary` by default, `max_traces` bounded |
+| `get_bgp_session_status` | status per session, condensed |
+| `get_interface_properties` | projected to useful fields |
+| `analyze_acl` / `check_reachability` | bounded result, summary first |
+| catalog tool (later) | allow-listed questions only, each with a data-class label and size policy |
+
+Preconditions to check first: which Batfish reads exist as services versus only as step executors
+(`batfish_*` steps); where the snapshot comes from (a snapshot made by a workflow run, selected by id,
+or created from inventory) and who may use it. The assistant must not take a filesystem path or a
+network destination from the model (§15.3).
+
+Exit criteria for step 0: the model can answer "which route does 10.1.2.3 use on r1, and where does a
+packet to it go?" with at most 3 tool calls, no result above the preview size enters the prompt, and an
+opted-out user gets `not_shared` for every tool.
 
 ## 11. Open questions
 
