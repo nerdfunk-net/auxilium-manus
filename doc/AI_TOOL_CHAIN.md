@@ -46,7 +46,7 @@ prompt-injection path. **Rules 3 and 4 and the sentence "Tools must be pure read
 amended in `AI_ASSISTANT.md` before any code is written**, with the mitigations below as the new
 invariant.
 
-### Mitigations (proposed)
+### Mitigations (proposed; details in §13)
 
 1. **No free command text where avoidable.** Prefer a catalog of named actions
    (`get_device_config`, `run_show_command(device, command, parse)`). Free text only against an
@@ -73,7 +73,7 @@ tool (propose_execution)  ->  SSE proposal  ->  user confirms  ->  POST /ai/exec
       -> result handle returned to the chat (SSE/polling)
 ```
 
-Open design point, **the run shell**. Executors need a `WorkflowRun`. Options:
+Open design point, **the run shell** (deep dive in §14). Executors need a `WorkflowRun`. Options:
 
 - **A (preferred):** a lightweight `WorkflowRun` with `trigger_type="ai_assistant"` and no
   `workflow_id`. Artifacts, secret redaction (`secret_fields`), run events, retention and audit work
@@ -204,7 +204,7 @@ intact, no extra network egress.
   Either way the autonomy of the model raises the weight of the allow-list, rate limits and
   confirmation (§3).
 
-## 10. Implementation order
+## 10. Implementation order (tools §12, security §13, run shell §14)
 
 1. Amend `AI_ASSISTANT.md` invariants (Rules 3 and 4) with §3.
 2. Run shell decision (§4 A vs B) and, for A, make `workflow_id` nullable and audit its users.
@@ -223,3 +223,251 @@ intact, no extra network egress.
 - Exact allow-list grammar for commands, and where it is enforced (choke point).
 - Retention for AI task artifacts (reuse `RUN_RETENTION_*`?).
 - Does the "general" surface need its own prompt and toolbox in `surfaces.py`?
+
+## 12. Tools (deep dive)
+
+### 12.1 What exists
+
+A tool is `Tool(name, description, input_model, handler)` (`tools/base.py`). `Toolbox.execute`
+already is the choke point: it validates the input with the Pydantic model (errors go back to the model
+as text), runs the handler, contains every exception (logged, generic message to the model),
+redacts the output, detects `not_shared` markers and truncates at `MAX_TOOL_OUTPUT_CHARS` (20 000).
+`ToolContext` carries `user_id`, `redactor`, `sharing` (the opt-in) and `audit_refs`, and is built per
+request. The handler contract is `async (ToolContext, args) -> ToolOutput`, where `ToolOutput` has
+`content` (to the model), `proposal` (to the client only), `truncated` and `withheld`.
+The module docstring states the rule "pure read or proposal; nothing here executes or touches a
+device". The new tools change that rule (§13).
+
+### 12.2 Tool classes
+
+| Class | Examples | Executes? | Goes through |
+|---|---|---|---|
+| Read | `list_inventory`, `query_result`, `fetch_slice`, `get_notes` | no | today's path |
+| Proposal | `propose_template`, `propose_config_change`, **`propose_execution`** | no | proposal event, user confirms |
+| Execution (new) | `get_device_config`, `run_show_command`, `parse_output` | yes, on the user's click | Hatchet task (§4), never inline in the handler |
+
+Important: the **handler of an execution tool does not touch a device**. It validates and returns an
+`exec_proposal`; the device access happens in the Hatchet task after the user's confirmation (or, if
+auto-run is later allowed, after the policy check in §13). This keeps `Toolbox.execute` free of
+long-running I/O (the loop has a request timeout) and keeps the loop-agnostic property (§7).
+
+### 12.3 Proposed tool set (first increment)
+
+| Tool | Input (Pydantic) | Result to the model |
+|---|---|---|
+| `propose_show_command` | `devices: list[str]` (max N), `command: str`, `parse: bool` | proposal only; after confirmation the result arrives as a handle message (§12.5) |
+| `propose_get_config` | `devices`, `format: running\|startup` | same |
+| `parse_output` | `handle`, `parser: textfsm\|genie`, `template?` | new handle + preview + row count |
+| `query_result` | `handle`, `filter?`, `fields?`, `limit` | bounded rows |
+| `fetch_slice` | `handle`, `offset`, `limit` | bounded text |
+| `diff_results` | `handle_a`, `handle_b` | bounded diff |
+| `propose_template` / `propose_config_change` | existing / new | proposal with diff |
+
+Naming: tools that need a click are named `propose_*` so the model and the UI see that they do not
+return data immediately. The model gets the data in a later turn (see 12.5).
+
+### 12.4 Reuse of existing code
+
+Per task the Hatchet task calls one of:
+
+- the step executor from `STEP_REGISTRY` (`run-command`, `get-device-configs`) with a config built by
+  the tool layer from the validated tool input, **never** from raw model text (so `execution_mode`,
+  `write_config_after_execution`, `auto_confirm_prompts`, `dry_run` and similar flags are fixed by the
+  tool, not model-controlled; `run-command` has a `config_mode` that can write config and must be
+  unreachable), or
+- the netmiko service directly (`services/network/netmiko/service.py`) for "command + TextFSM", which
+  avoids the `WorkflowContext` plumbing for plain reads.
+
+Prefer the second where the step wrapper adds nothing; prefer the executor where artifacts,
+credentials resolution (`resolve_ssh_credential`) and per-device outcomes are wanted. Decide per tool
+and write the choice in the tool module docstring.
+
+### 12.5 Asynchronous results and the conversation
+
+A confirmed execution produces a result that arrives after the model turn ended. Options:
+
+- **A (preferred):** the Hatchet task writes the result handle(s) + preview to the conversation as a
+  *tool-result message* tied to the original tool call id; the UI shows progress via `progress`
+  events, and the loop continues in the next turn ("continue" is automatic when the result lands, or
+  the user sends the next message). Needs: a conversation store that accepts a late tool result
+  (`ai_conversations` / `conversation_service.py`) and a resume path in `chat_service`.
+- **B:** the execution proposal is awaited inside the turn (the SSE stream stays open while the user
+  confirms and the task runs). Simple, but ties the turn to a held connection and the loop timeout,
+  and breaks for long tasks. Use only for a first prototype.
+
+### 12.6 Tool design rules
+
+1. Input models `extra="forbid"`, bounded lists (max devices per call), bounded string lengths,
+   enums instead of free text wherever possible.
+2. Output always bounded; large data becomes a handle (§6.1). The preview size is a constant, not a
+   parameter.
+3. Every device-related value passes `ctx.sharing` (class B/C), like `run_tools.py`.
+4. IDs and handles the model supplies are **re-authorised on every use** (ownership check in the
+   choke point); the model never receives a capability it can pass on to another user.
+5. No tool returns secrets; credential references are by name (`resolve_ssh_credential`), the secret
+   is resolved inside the task and registered for redaction (`unwrap_secret`).
+6. Each tool has a unit test for: invalid input, opted-out sharing (`not_shared`), truncation, and
+   authorisation failure.
+
+## 13. Security (deep dive)
+
+### 13.1 Threat model
+
+Assets: device access (SSH credentials, write access to network gear), device data (configs,
+topology), other users' data, the Redis/DB state.
+
+Attackers: (1) **Prompt injection** through anything the model reads: device banners, interface
+descriptions, config comments, SNMP locations, Nautobot fields, run logs, file contents. (2) A
+legitimate low-privilege user trying to escalate through the assistant. (3) A confused model making a
+wrong but "valid" call (large blast radius, repeated calls, wrong device).
+
+Core property to preserve: **the model's text never becomes a device-side effect without a gate that
+the model cannot satisfy by itself.**
+
+### 13.2 Layers
+
+| Layer | Control | Where |
+|---|---|---|
+| 1. Capability | Execution tools are offered only if the operator enabled them, the user has the permission, and the surface is allowed. Off by default. | settings/policy (`policy.py`), `surfaces.py` |
+| 2. Command policy | Allow-list of read-only commands; deny list for config mode, `reload`, `copy`, `write`, `delete`, `erase`, `debug`, `terminal`, redirections and pipes that write, command chaining characters (`;`, `&&`, newline). Matching on the normalised command, per device platform. | one module, called from the tool **and** again in the Hatchet task (defence in depth: the task never trusts the queue payload) |
+| 3. Fixed flags | The tool builds the step config; mode flags are constants. No model-controlled `config_mode`. | tool module |
+| 4. Confirmation | The click starts the task; the confirmation shows the exact devices and command. The task stores a hash of what was confirmed and refuses a payload that differs. | `POST /ai/exec`, task |
+| 5. Authorisation | `user_id` from the JWT of the confirming request (not from the payload), `workflows:execute` or `ai_assistant:run_commands`, device visibility via the user's inventory access. | router + task |
+| 6. Credentials | Resolved with `acting_user_id`; only credentials that user may use. Secrets never in the prompt, the payload, logs or results (redaction + `secret_fields`). | `resolve_ssh_credential` |
+| 7. Limits | Max devices per call, max commands per call, per-user `rate_limited("ai_exec", ...)`, per-conversation budget, per-device timeout, Hatchet execution timeout, `device_sessions` pool closed after the task. | router + task |
+| 8. Output | Class C data only after opt-in; redaction on every result; handle storage per user. | choke point |
+| 9. Audit | One audit record per confirmed execution: user, conversation id, device ids, command hash, task id, outcome. Ids only, no content (existing `audit_refs` principle). A `WorkflowChange`-style record is not needed for reads. | `audit.py` |
+
+### 13.3 Prompt injection specifically
+
+- The tool descriptions and the system prompt tell the model that tool output is untrusted data
+  (already the case); this is **not** a control, only a hint.
+- Real controls are layers 2 to 4: even a fully compromised model can only *propose* an allow-listed
+  read command on devices the user can already access, which the user then sees verbatim.
+- The confirmation UI must show the **actual command and devices**, not the model's description of
+  them, and must not render untrusted text as markdown/links in that dialog.
+- Output that came from a device is wrapped/marked as data when it is put back into the conversation
+  (existing practice for run logs); a handle preview is treated the same.
+- Chained attacks: a result handle from device A being used by a tool call on device B is allowed
+  (read-only), but a *write* path (`propose_config_change` and later deploy) always goes through the
+  existing save path with RBAC and `WorkflowChange`. The assistant has **no** deploy tool; deployment
+  stays a normal workflow run by the user.
+
+### 13.4 Auto-run of allow-listed reads (later, optional)
+
+If confirmation proves too slow for investigations (many reads across devices), allow auto-run only
+when all hold: per-user opt-in in AI settings, operator switch, command on the strict read allow-list,
+device count within a small limit, and rate limit/budget per conversation. Everything else still needs
+a click. This is a separate decision (open question in §11) and must be documented in
+`AI_ASSISTANT.md` as a deliberate exception to the rule that the model never executes.
+
+### 13.5 Changes to existing documents and checks
+
+- `AI_ASSISTANT.md` Rules 3 and 4 and the `tools/base.py` docstring ("nothing here executes ... touches
+  a device") are rewritten to: *the model never executes; confirmed, policy-checked read tasks run in
+  a Hatchet task as the user.*
+- New permission, if chosen: `ai_assistant:run_commands`. It is not in the viewer set
+  (`VIEWER_PERMISSIONS`); document it in `doc/claude/auth.md`.
+- Guard scripts: extend or add a check that `services/ai_assistant/` imports netmiko/steps only through
+  the one execution module, so no other tool can open a device session (same idea as
+  `check_text_sql.py`).
+- Tests: command policy table tests (allowed, denied, bypass attempts: case, whitespace, unicode
+  homoglyphs, `|` and `;`, abbreviations like `conf t`, `wr`), payload-tamper test (confirmed hash
+  mismatch), RBAC test (user without permission cannot confirm), secret-leak test on results.
+
+## 14. Run shell (deep dive)
+
+### 14.1 What the executors really require
+
+Verified in the code:
+
+- `WorkflowContext` requires `run_id: str` and `workflow_id: str` (`models/workflow_context.py`).
+- Executors read `run.id`, `run.run_inputs` and `run.triggered_by_id` (`get-device-configs`,
+  `run-command`: credential resolution runs `acting_user_id=run.triggered_by_id`). A few common helpers
+  read `run.workflow_id` and load the workflow (`workflow_steps/common/notification_context.py`).
+- Artifacts are keyed by the **run uuid** (`FilesystemArtifactService`: `meta["run_id"]` is the uuid);
+  retention deletes by `delete_for_run(run_uuid)` and purges as **orphan** every artifact whose run uuid
+  is not in `valid_run_uuids` once it is older than a grace period. So artifacts of a run that has no
+  row in `workflow_runs` would be deleted by the orphan sweep.
+- Log-attribute files live under `<root>/<workflow_id>/<run_uuid>/` (`log_attribute_files.py`).
+- `workflow_runs.workflow_id` is `NOT NULL`, FK to `workflows.id`, `ondelete=CASCADE`.
+- `RunService` calls `_assert_workflow_access(run.workflow_id, user_id)` in about a dozen places (read,
+  cancel, delete, events, artifacts), plus the dashboard, schedules and the AI `run_reader`.
+
+### 14.2 Option A: real `WorkflowRun` with a hidden system workflow
+
+Instead of making `workflow_id` nullable (which breaks all the above), create **one system workflow
+per user** (or one global), e.g. name `__ai_assistant__`, flagged so it is hidden from lists, and
+create the AI task runs as normal `WorkflowRun` rows with `trigger_type="ai_assistant"` under it.
+
+- Pros: no schema change to `workflow_runs`; artifacts, orphan sweep, retention, redaction, run events,
+  audit and `_assert_workflow_access` work unchanged; the existing runs page can show these runs
+  (filter by `trigger_type`) so users can inspect what the assistant did; `delete_run_dir` paths stay valid.
+- Cons: a "fake" workflow object must be excluded from workflow lists, schedules, exports and the
+  git-versioned workflow store; per-user ownership of the hidden workflow must be settled
+  (a per-user row keeps `_assert_workflow_access` meaningful; a global one needs an explicit rule).
+- Needs: a flag column on `workflows` (e.g. `is_system`/`hidden`, **nullable-safe add** via
+  `AutoSchemaMigration`) and filters in the workflow list/schedule/export queries; a new
+  `trigger_type` value (the column is `String(20)`, no enum; `ai_assistant` is 12 chars); a repository
+  method `create_ai_task_run(user_id, device_ids)`.
+
+### 14.3 Option B: separate `ai_task_runs` table
+
+A new table (`user_id`, `conversation_id`, `status`, `task_ids`, timestamps, `uuid`) and a small adapter
+object exposing what the executors read (`id`, `uuid`, `run_inputs`, `triggered_by_id`,
+`workflow_id`).
+
+- Pros: no fake workflow, no pollution of workflow queries, clean ownership by user and conversation.
+- Cons: artifacts need the run uuid to be in `valid_run_uuids` for the orphan sweep, so the retention
+  service must be extended to include these uuids; run events, log-attribute paths and the runs UI
+  must be re-plumbed or duplicated; any executor or helper that does `isinstance`/ORM access on
+  `WorkflowRun` or `object_session(run)` (both seen in the executors) would break with an adapter,
+  because `object_session(run)` returns the DB session from the ORM instance.
+
+`object_session(run)` is used by `get-device-configs` and `run-command`; this alone argues for a real
+ORM row, i.e. option A, or an ORM-mapped class for B.
+
+### 14.4 Option C: no run at all for plain reads
+
+For "command + TextFSM" and "get config" the netmiko service can be called directly (§12.4) with
+credentials resolved by the tool layer. Results are stored as AI-owned artifacts. No `WorkflowRun`.
+Cons: two code paths for storing results, no run-level audit, and artifact ownership/retention must be
+built for AI artifacts separately. Reasonable as a first spike for single-device reads, not as the
+end state.
+
+### 14.5 Recommendation
+
+**Option A with a hidden system workflow per user**, revisited after a spike that checks:
+
+1. which workflow queries need the hidden flag (lists, schedules, exports, dashboard, git versioning),
+2. that `_assert_workflow_access` passes for the owner and rejects others,
+3. that retention, the reaper (`run_reaper`) and `purge_retention` treat the runs correctly
+   (they must not be reaped as "stuck" while a long investigation runs; they must be purged after
+   `RUN_RETENTION_DAYS`),
+4. that the runs page filters or labels `ai_assistant` runs.
+
+Granularity: **one run per confirmed execution** (not per conversation), so the retention and the
+reaper rules fit short-lived runs; the conversation links to the run ids (`audit_refs`). Result handles
+(§6.1) point to artifacts of those runs.
+
+### 14.6 Hatchet side
+
+- A new, thin `hatchet.workflow(name="AiToolExecution", input_validator=...)` in
+  `backend/hatchet/workflows/`, registered in the worker like the others; input carries only
+  `run_id`, `user_id`, `confirmation_hash`, the validated tool name and arguments; no secrets, no free
+  command text beyond the already policy-checked argument.
+- Inline comment on queue/worker settings is required by the project rules for Hatchet code
+  (`doc/claude/development.md`, "Python Conventions"). The task sets `execution_timeout` and uses
+  bounded concurrency per user so one user cannot saturate the worker slots.
+- The task opens its own DB session (`SessionLocal`), runs the executor/service, always closes the
+  `DeviceSessionPool`, writes the result handle, and finalises the run status. On any exception: fixed
+  message plus `error_id`, the stack in the worker log (same pattern as `run_device_group`).
+- Cancel: the same owner-only cancel rule as any run (`triggered_by_id`).
+
+### 14.7 Open points specific to the run shell
+
+- Hidden workflow per user vs one global system workflow (ownership and access rule).
+- Whether `WorkflowContext.workflow_id` gets the hidden workflow id or a fixed string such as
+  `"ai-assistant"` (helpers that load the workflow by id would fail on the string).
+- Whether AI runs appear in the user's run list by default.
+- Retention class for AI task runs (shorter than workflow runs?).
