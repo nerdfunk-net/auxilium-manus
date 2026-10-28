@@ -842,6 +842,30 @@ Checked by reading the code:
 So the refactoring is small and concrete: **credential resolution, a shared per-device fan-out
 helper if needed, and a traceroute method on `BatfishService`.** Everything else is reuse.
 
+**Extraction means moving, not copying.** The forbidden import direction does not cause duplicate
+code as long as shared logic is moved into a service and the step is changed, in the same PR, to call
+that service:
+
+```
+before:  step ──> workflow_steps/common/credential_resolver.py
+after:   step ──┐
+                ├──> services/credentials/ (resolver)
+         tool ──┘
+```
+
+- A step gets thinner, not heavier; this is the layering the project already prescribes
+  (Model -> Repository -> Service -> Router; logic in services).
+- What stays separate on purpose is the adapter layer, because step and tool serve different
+  contracts: step config in / `StepOutcome` + `DeviceContext` out versus Pydantic tool input in /
+  result envelope or handle out (plus redaction, data class, audit). That is small mapping code, not
+  duplicated domain knowledge.
+- Copying part of an executor into a tool is the failure mode to avoid. Countermeasures: the import
+  check in §17.4, a review rule (needing something that exists only in a step means: move it to a
+  service first, point the step at it, in the same PR) and service-level tests that both callers share.
+- Relaxing the rule so tools may import `workflow_steps.common.*` is rejected: the rule is documented
+  and tested in the project, and the import would tie the assistant to plugin internals that change
+  more often than services do.
+
 ### 17.4 Guard rails for the layout
 
 - Add a check script (same style as `scripts/check_text_sql.py`) that fails when
