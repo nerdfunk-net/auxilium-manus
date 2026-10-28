@@ -241,7 +241,7 @@ intact, no extra network egress.
   Either way the autonomy of the model raises the weight of the allow-list, rate limits and
   confirmation (§3).
 
-## 10. Implementation order (tools §12, security §13, run shell §14; step 0 in §10a)
+## 10. Implementation order (tools §12, security §13, run shell §14; step 0 in §10a; layout §17)
 
 0. **First increment: Batfish read tools (§15.4, §10a).** Proves the tool layer without touching a
    device. Needs no change to Rules 3 and 4 as long as the tools only read from the Batfish service;
@@ -767,3 +767,99 @@ keep the generic form as the escape hatch.
 - Who may write the assistant description, and is it reviewed together with the release?
 - How long a run may the assistant wait for (polling interval and time limits), and how does the
   result reach the conversation after the turn ended (§12.5)?
+
+## 17. Code layout
+
+### 17.1 Rule
+
+Tools are **thin adapters**; logic lives in **services** that workflow steps and tools both call.
+Tools do not live next to `workflow_steps/`, and they never import it.
+
+- `workflow_steps/` is a plugin system (`executor.py`, `config.py`, `registry.yaml`,
+  `step_registry.py`, a frontend `ConfigPanel`, a canvas node). A tool has a different consumer and
+  different needs (Pydantic input, data class, redaction, handles). A second registry beside it would
+  duplicate the concept.
+- `services/*` must not import `workflow_steps.*` (enforced in
+  `services/workflow/workflow_validation_service.py`; CLAUDE.md: "External code must never import
+  `workflow_steps` packages directly"). A tool that called an executor directly would break that rule.
+  The only legitimate path to an executor is the run engine (`StepRunner -> STEP_REGISTRY`).
+- Executors carry workflow concepts (`WorkflowContext`, `WorkflowRun`, `node_id`, `StepOutcome`) that
+  a one-command tool does not need.
+
+A tool therefore does: validate (Pydantic) -> check rights and data class -> call a service ->
+return the result envelope (§15.2) or a handle (§6.1). Anything beyond that is a smell.
+
+### 17.2 Proposed tree (all Python under `backend/`)
+
+```
+backend/
+  services/
+    network/netmiko/         # exists: send_command(s), get_running_config, textfsm      (tools + steps)
+    batfish/                 # exists: BatfishService (routes, reachability, bgp, ospf, ...) (tools + steps)
+    ai_assistant/
+      agent_loop.py, chat_service.py, providers/, ...      # exist
+      tools/
+        base.py                    # choke point (exists)
+        batfish_tools.py           # new: adapter on services/batfish
+        device_tools.py            # new: propose_show_command, propose_get_config, parse_output
+        result_tools.py            # new: query_result, fetch_slice, diff_results
+        released_workflow_tools.py # new: list/describe/start/status/result (section 16)
+        workflow_tools.py          # exists: authoring (proposals); keep separate from the above
+      results/                     # new: handle store, result envelope, preview size constants
+      execution/                   # new: command policy (allow-list), confirmation hash, task payload
+  hatchet/workflows/
+    ai_tool_execution.py           # new: thin task (section 14.6)
+  routers/
+    ai_assistant.py                # exists; add confirm/exec endpoint here or in routers/ai_exec.py
+  repositories/
+    ai_result_repository.py        # only if handles are stored in the database
+  core/models/
+    ai_results.py                  # only if handles are stored in the database
+```
+
+Frontend (confirmation dialog, execution proposal card, progress, result view) goes under
+`frontend/src/components/features/ai-assistant/`, next to the existing panels, with query hooks in
+`hooks/queries/` and keys in `lib/query-keys.ts` (project rules, `doc/claude/frontend.md`).
+
+If the number of tools grows, split `tools/` into subpackages (`tools/batfish/`, `tools/devices/`,
+`tools/workflows/`); one module per domain, not per tool.
+
+### 17.3 What can be reused as is, and what must be extracted
+
+Checked by reading the code:
+
+| Need | Status |
+|---|---|
+| Batfish reads | `services/batfish/client.py::BatfishService` already offers `routes`, `reachability`, `test_filters`, `node_properties`, `interface_properties`, `ospf_*`, `bgp_*`, `bgp_session_status`, `file_parse_status`, `undefined_references`, `unused_structures`, `generic_question`, `list_snapshots(_with_metadata)`. **Reusable as is.** No `traceroute` method yet: add it to the service (not to a step). |
+| Batfish snapshot choice | `workflow_steps/common/batfish_context.py` resolves the snapshot from an upstream step via `WorkflowContext`: workflow-specific, **not reusable**. The tool needs its own snapshot selection on top of `list_snapshots_with_metadata` (§15.5). |
+| Run a command | `services/network/netmiko/service.py::NetmikoService.send_command(s)` supports TextFSM (`use_textfsm`). **Reusable.** Needs a `DeviceSessionPool` and a resolved credential (`resolve_ssh_credential`, currently under `workflow_steps/common/`: **extract** the credential resolution into a service, since `services/*` may not import it). |
+| Fetch configs | `NetmikoService.get_running_config` / `get_startup_config` / `get_configs`. **Reusable**, same credential point. |
+| Per-device loop, retry, outcome shaping | in `workflow_steps/run_command/exec_mode.py` (~300 lines) and `get_device_configs/executor.py`. Step-specific outcome building stays. Extract only the part both would share (bounded concurrency over devices, per-device result record, partial failures) into a service, if the tools need it (§6.3). |
+| TextFSM/Genie normalisation | `workflow_steps/run_command/enrichment.py` works on `DeviceContext`. For tools, call the netmiko TextFSM path and shape the result in the tool; do not import the step module. |
+| Credential resolution for the acting user | `workflow_steps/common/credential_resolver.py`: **extract** to `services/credentials/` (it already has the credentials service) and let the step module call the service. |
+| Run creation | `RunService.trigger_run` / `_create_and_dispatch_run` (services/execution): reusable for released workflows (§16). |
+
+So the refactoring is small and concrete: **credential resolution, a shared per-device fan-out
+helper if needed, and a traceroute method on `BatfishService`.** Everything else is reuse.
+
+### 17.4 Guard rails for the layout
+
+- Add a check script (same style as `scripts/check_text_sql.py`) that fails when
+  `services/ai_assistant/` imports `workflow_steps`, `netmiko` or `paramiko` directly, or opens an
+  SSH session outside `services/ai_assistant/execution/` plus the Hatchet task. The command policy and
+  the one execution module are then the only way to reach a device.
+- Tool modules import only: `tools/base.py`, services, `core.*`, models. No router, no repository
+  (the `check_router_repositories.py` spirit), no direct `sqlalchemy.text()`.
+- One test module per tool module, runnable without a model (§1a, §12.6).
+- Documentation: register new tools in `doc/ai_integration/AI_ASSISTANT.md` §3.5 (tool table) and add
+  the rights/permission entries to `doc/claude/auth.md` when they exist.
+
+### 17.5 Open points
+
+- Where should the extracted credential resolver live (`services/credentials/` is the natural place),
+  and does it need an `acting_user_id` variant for the Hatchet task?
+- Do handles live in the database (new table, repository, retention) or as artifacts of a run
+  (§14)? This decides whether `results/`, `ai_result_repository.py` and `core/models/ai_results.py`
+  exist.
+- Does `routers/ai_assistant.py` get too large? A separate `routers/ai_exec.py` for confirm, status and
+  cancel keeps rate-limit buckets and permissions separate.
