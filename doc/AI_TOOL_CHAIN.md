@@ -497,3 +497,90 @@ reaper rules fit short-lived runs; the conversation links to the run ids (`audit
   `"ai-assistant"` (helpers that load the workflow by id would fail on the string).
 - Whether AI runs appear in the user's run list by default.
 - Retention class for AI task runs (shorter than workflow runs?).
+
+## 15. Reference study: the Batfish MCP server
+
+Source: `batfish/pybatfish`, `pybatfish/mcp/server.py` (~1770 lines, Apache-2.0, marked **beta**;
+FastMCP, stdio transport, entry point `batfish-mcp`). It is not in `batfish/batfish`. Read at the
+default branch on 2026-10-28. We use it for ideas on tool design only; we do not adopt its code, its
+transport or its trust model.
+
+### 15.1 Tool surface (about 40 tools)
+
+| Group | Tools |
+|---|---|
+| Sessions / snapshots | `register_session`, `list_sessions`, `get_server_info`, `list_networks`, `set_network`, `delete_network`, `list_snapshots`, `init_snapshot`, `init_snapshot_from_text`, `delete_snapshot`, `fork_snapshot`, `generate_dataplane` |
+| Diagnostics of parsing | `get_parse_warnings`, `get_init_issues`, `get_file_parse_status`, `get_vi_conversion_status`, `get_vi_conversion_warnings`, `get_undefined_references`, `get_defined_structures`, `get_unused_structures` |
+| Forwarding analysis | `run_traceroute`, `run_bidirectional_traceroute`, `check_reachability`, `detect_loops`, `analyze_acl`, `search_filters`, `compare_filters` |
+| Routing | `get_routes`, `compare_routes`, `get_bgp_rib`, `get_evpn_rib`, `get_lpm_routes`, `get_bgp_session_status`, `get_bgp_session_compatibility`, `get_bgp_peer_configuration`, `get_bgp_process_configuration` |
+| Inventory | `get_node_properties`, `get_interface_properties`, `get_ip_owners`, `get_edges` |
+| Escape hatch | `list_questions`, `run_question` |
+
+### 15.2 Patterns worth copying
+
+1. **Mostly one tool per intent, plus a generic escape hatch.** Frequent questions get a dedicated tool
+   with named, typed parameters; everything else goes through `run_question(question, parameters)` with
+   `list_questions` for discovery, and unknown names are rejected with a pointer to `list_questions`.
+   This keeps the tool list from growing without bound while nothing is unreachable.
+   *For us:* dedicated tools for the 5 to 10 common reads, one catalog-style tool for the rest. Our
+   escape hatch must be an allow-listed catalog (§13), never free text.
+2. **Output shaping is a parameter of the tool**, not a global cap. `max_rows` turns a bare array into
+   `{"rows", "total_rows", "truncated"}`, so the model sees that data was cut and by how much.
+   `run_traceroute(trace_format=text|structured|summary, max_traces)`: `summary` collapses identical
+   (disposition, node path) traces into counts. That is a **condensing tool** in the sense of §6.2.
+   *For us:* make `{rows, total_rows, truncated}` our standard result envelope and add summary modes
+   where raw data is large. Their `max_rows` default is 0 = unlimited; ours must default to a safe cap
+   (their server has no equivalent of `MAX_TOOL_OUTPUT_CHARS`).
+3. **Hide deprecated or redundant columns** (`_drop_legacy_nexthop_columns`): less noise and fewer
+   tokens for the model, no loss of information. *For us:* project parsed output to the useful fields.
+4. **Explicit state in every call.** Every analysis tool takes `network` and `snapshot` and sets them
+   on the session itself (`_analysis_session`), so the model never relies on hidden "current snapshot"
+   state and calls are order-independent. *For us:* tools take explicit device list / handle, never an
+   implicit "current device".
+5. **Docstrings are the prompt.** Each tool has a docstring with a purpose sentence, `:param` lines with
+   examples (`'10.0.0.1'`, `'bgp,ospf'`, `'1024-65535'`) and a `:return:` shape, and the server has an
+   `instructions` string telling the model where to start. *For us:* same discipline for `Tool.description`
+   and for the field `description=` in the Pydantic input models.
+6. **Diagnostics as first-class tools** (`get_parse_warnings`, `get_init_issues`, undefined references):
+   the model can check whether its input was understood before reasoning about results.
+   *For us:* a "was the output parsed?" signal on parse results (parser used, rows, unparsed lines).
+7. **Bidirectional / compare variants** (`run_bidirectional_traceroute`, `compare_routes`,
+   `compare_filters`) fold a common two-call pattern into one call and save steps (§6.4).
+8. **Small helper layer** for JSON handling (`_df_to_json`, `_json_default` sorts sets, strings the rest)
+   so tool bodies stay short. *For us:* shared result-serialisation helpers next to `tools/base.py`.
+
+### 15.3 What we deliberately do differently
+
+| Their choice | Our choice | Why |
+|---|---|---|
+| Every parameter is a string, including lists and JSON objects (`nodes: str`, `extra_args: str = "{}"`) parsed in the tool | Typed Pydantic input models (lists, enums, bounded ints) with `extra="forbid"` | validation errors go back to the model (§12.6); fewer malformed calls from weak models |
+| `max_rows=0` means unlimited, truncation is opt-in | Output always bounded, handles for the rest (§6.1) | a multi-device run would flood the context |
+| No users, rights, redaction, audit; trust model of a local stdio process | RBAC per call, opt-in data classes, redaction, audit, rate limits (§13) | multi-user server with device access |
+| Process-global session registry (`_session_configs`, `_session_cache`) | Request-scoped `ToolContext`, handles owned per user | tenancy and testability |
+| `init_snapshot(snapshot_path)` reads an arbitrary local path | No tool takes a filesystem path from the model | path traversal / data exfiltration; snapshots come from our own steps (`batfish_init_snapshot`) |
+| `register_session(host, ...)` lets the model point the server at another host | No tool lets the model choose a network destination | SSRF policy (`core/safe_urls.py`); sources are admin-configured |
+| Errors are raised exceptions, FastMCP renders them | `ToolOutput(is_error=True)` with a fixed message, details in the log | no internal text to the model or client |
+| Pure analysis server: no tool changes a device | Same for the first increment; writes only as proposals | §13 |
+
+### 15.4 Overlap with our existing Batfish steps
+
+We already have `batfish_init_snapshot`, `get_batfish_devices`, `batfish_node_properties`,
+`batfish_interface_properties`, `batfish_routing_table`, `batfish_ospf_facts`, `batfish_bgp_facts`,
+`batfish_path_check`, `batfish_acl_check`, `batfish_extract_facts`, `batfish_validate_facts`. The
+assistant tools should wrap the same service code, not call Batfish a second way. Candidate first set,
+roughly in the order of value: `get_routes` (with `prefix_match_type=LONGEST_PREFIX_MATCH` for "which
+route does this IP use"), `run_traceroute` (summary mode), `get_bgp_session_status`,
+`get_interface_properties`, `analyze_acl`, `check_reachability`, plus a catalog tool for the rest.
+These are reads against a Batfish service, so they are the lowest-risk execution-like tools: they touch
+no device. They are a good **first increment to prove the tool layer** (handles, envelope, redaction,
+audit) before the SSH-based tools exist. Batfish data still counts as data class B/C (topology,
+configs) and goes through the opt-in.
+
+### 15.5 Open questions from this study
+
+- Which Batfish reads does the existing code already expose as services (versus only as step
+  executors)? Wrap services where they exist; extract a service where only an executor exists.
+- Snapshot lifecycle for the assistant: reuse a snapshot made by a workflow run (by handle/id) or let a
+  tool create one from the current inventory? The reference server leaves this to the model; we should not.
+- Do we expose a generic `run_question` catalog at all? Useful for reach, but every entry then needs a
+  data-class label and a size policy (§12.6).
