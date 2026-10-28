@@ -83,6 +83,11 @@ prompt-injection path. **Rules 3 and 4 and the sentence "Tools must be pure read
 amended in `AI_ASSISTANT.md` before any code is written**, with the mitigations below as the new
 invariant.
 
+*Status 2026-10-28: done. Principles 2 to 4, §3.5 (tool rule and naming), the §5 prompt-injection row,
+the §17 injection paragraph and the `tools/base.py` docstring now state: no tool executes; effects are
+`propose_*` proposals carried out by the confirmed-execution endpoint. The hardening test for the
+`general` surface is still to be written with the first tool.*
+
 ### Mitigations (proposed; details in §13)
 
 1. **No free command text where avoidable.** Prefer a catalog of named actions
@@ -287,7 +292,7 @@ call Batfish a second way):
 | Tool | Notes |
 |---|---|
 | `get_routes` | `prefix_match_type=LONGEST_PREFIX_MATCH` answers "which route does this IP use" |
-| `run_traceroute` | `trace_format=summary` by default, `max_traces` bounded |
+| `get_traceroute` | `trace_format=summary` by default, `max_traces` bounded |
 | `get_bgp_session_status` | status per session, condensed |
 | `get_interface_properties` | projected to useful fields |
 | `analyze_acl` / `check_reachability` | bounded result, summary first |
@@ -399,6 +404,11 @@ A confirmed execution produces a result that arrives after the model turn ended.
    is resolved inside the task and registered for redaction (`unwrap_secret`).
 6. Each tool has a unit test for: invalid input, opted-out sharing (`not_shared`), truncation, and
    authorisation failure.
+7. **Naming (pinned by `tests/unit/test_ai_hardening.py`, see `AI_ASSISTANT.md` §3.5):** reads use
+   `get_` / `list_` / `search_` / `describe_` / `query_`; every tool that proposes an effect starts with
+   `propose_`; no tool name starts with `run`, `trigger`, `execute`, `start` or `delete`. Hence
+   `get_traceroute` (not `run_traceroute`) and `propose_workflow_run` (not `start_workflow`). Names of
+   the Batfish MCP server's tools in §15 are quoted from that project and are not ours.
 
 ## 13. Security (deep dive)
 
@@ -634,7 +644,7 @@ We already have `batfish_init_snapshot`, `get_batfish_devices`, `batfish_node_pr
 `batfish_path_check`, `batfish_acl_check`, `batfish_extract_facts`, `batfish_validate_facts`. The
 assistant tools should wrap the same service code, not call Batfish a second way. Candidate first set,
 roughly in the order of value: `get_routes` (with `prefix_match_type=LONGEST_PREFIX_MATCH` for "which
-route does this IP use"), `run_traceroute` (summary mode), `get_bgp_session_status`,
+route does this IP use"), `get_traceroute` (summary mode), `get_bgp_session_status`,
 `get_interface_properties`, `analyze_acl`, `check_reachability`, plus a catalog tool for the rest.
 These are reads against a Batfish service, so they are the lowest-risk execution-like tools: they touch
 no device. They are a good **first increment to prove the tool layer** (handles, envelope, redaction,
@@ -685,11 +695,11 @@ It also removes a problem from §14: a released workflow runs as a normal `Workf
 |---|---|---|
 | `list_released_workflows` | read | name, id, short description, category; only workflows the calling user may run |
 | `describe_workflow` | read | assistant description, inputs (from `static_attributes`: name, type, required, default, description), whether devices are needed, result contract, expected duration |
-| `start_workflow` | execution proposal | `workflow_id`, `inputs`, `device_ids` or an inventory filter. Emits an `exec_proposal` for the user to confirm (§13.2 layer 4); the click calls the normal run endpoint |
+| `propose_workflow_run` | execution proposal | `workflow_id`, `inputs`, `device_ids` or an inventory filter. Emits an `exec_proposal` for the user to confirm (§13.2 layer 4); the click calls the normal run endpoint |
 | `get_run_status` | read | exists in spirit in `run_tools.py` / `run_reader.py`; reuse |
 | `get_run_result` | read | returns the declared result as a handle + preview (§6.1), class C, opt-in |
 
-Prefer **two generic tools** (`describe_workflow`, `start_workflow`) over one tool per released
+Prefer **two generic tools** (`describe_workflow`, `propose_workflow_run`) over one tool per released
 workflow, so the tool list stays small and stable (§15.2 item 1). Generating a typed tool per workflow
 from `static_attributes` is possible later and gives better parameter validation for small models;
 keep the generic form as the escape hatch.
@@ -719,7 +729,7 @@ keep the generic form as the escape hatch.
   workflow is accessible only to its creator, so release should require a non-private visibility (or
   an explicit decision that release grants run access). Open question.
 - The assistant never gets more than the user has: if the user cannot run the workflow, it is not
-  listed and `start_workflow` refuses.
+  listed and `propose_workflow_run` refuses.
 
 ### 16.6 Security
 
@@ -753,7 +763,7 @@ keep the generic form as the escape hatch.
 1. Model and migration: `workflows.ai_released` (+ by, at), clear-on-edit in the workflow update path.
 2. Admin API: set/clear release (admin only, audited) and a field for the assistant description and
    result designation; UI toggle in the workflow editor.
-3. Tools: `list_released_workflows`, `describe_workflow`, `start_workflow` (proposal),
+3. Tools: `list_released_workflows`, `describe_workflow`, `propose_workflow_run` (proposal),
    `get_run_status`, `get_run_result`.
 4. Exec endpoint: confirm → `RunService.trigger_run` with `trigger_type="ai_assistant"`; verify the
    release flag again at start time (defence in depth, the proposal may be old).
