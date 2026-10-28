@@ -13,11 +13,22 @@ A general assistant that can, on request:
 - run a (read-only) command on one or more network devices,
 - download configs and parse them (TextFSM / existing parsers),
 - chain such results into authoring work (create a Jinja2 template, propose a config change),
+- **start workflows that an administrator has released for the assistant** (§16). Such workflows
+  encapsulate more complex procedures that were designed, tested and approved in advance, so the
+  assistant can rely on them working and on the shape of their result,
 - later: troubleshoot across many devices (multi-hop fault finding) with chains well beyond
   eight tool calls.
 
-Constraint from the product owner: **no dedicated workflow** is started for this. The code already
-exists in the workflow steps and must be reused.
+Two ways to act, deliberately kept apart:
+
+| Way | For | Who defines it | Risk profile |
+|---|---|---|---|
+| **Ad-hoc tools** (run a read-only command, fetch and parse a config) | exploration, one-off questions | developers (tool code, allow-list) | bounded by the command policy (§13) |
+| **Released workflows** | repeatable, complex or state-changing procedures | workflow authors, approved by an admin | bounded by the review the admin did |
+
+Constraint from the product owner: **no dedicated workflow is created or started for the ad-hoc
+tools.** The code already exists in the workflow steps and must be reused. Starting an *existing,
+released* workflow is a separate capability and is allowed (§16).
 
 ## 1a. Guiding principle: tools first
 
@@ -67,7 +78,7 @@ Consequences for the work plan:
   attacker-influenced text. Safety rests on writes being proposal-only and there being no
   execution tools; a prompt-injected model can at worst produce a bad proposal.
 
-A tool that runs a command on a device breaks both. Gerätetext -> model -> SSH command is a textbook
+A tool that runs a command on a device breaks both, and so does a tool that starts a workflow (§16). Gerätetext -> model -> SSH command is a textbook
 prompt-injection path. **Rules 3 and 4 and the sentence "Tools must be pure reads or proposals" must be
 amended in `AI_ASSISTANT.md` before any code is written**, with the mitigations below as the new
 invariant.
@@ -236,6 +247,8 @@ intact, no extra network egress.
    device. Needs no change to Rules 3 and 4 as long as the tools only read from the Batfish service;
    they still need the data-class opt-in and redaction.
 1. Amend `AI_ASSISTANT.md` invariants (Rules 3 and 4) with §3 (before any SSH tool).
+1b. Released-workflow tools (§16): list, describe, start, status and result. Independent of the run shell
+   (they create ordinary runs), so they can ship before the ad-hoc execution tools.
 2. Run shell decision (§14): recommended is a real `WorkflowRun` under a hidden system workflow; do
    **not** make `workflow_id` nullable (§14.1 lists what depends on it).
 3. Result handles + artifact storage + `query_result` / `fetch_slice` (§6.1). If step 0 is done, the
@@ -632,3 +645,125 @@ configs) and goes through the opt-in.
   tool create one from the current inventory? The reference server leaves this to the model; we should not.
 - Do we expose a generic `run_question` catalog at all? Useful for reach, but every entry then needs a
   data-class label and a size policy (§12.6).
+
+## 16. Starting released workflows
+
+### 16.1 Idea
+
+An administrator marks selected workflows as **released for the assistant**. The assistant can list
+them, read what each one does, start one with validated inputs and read its result. The workflow
+itself is ordinary, built and tested in the normal editor, so complex procedures (collect, parse,
+compare, report, even change steps) are written once by people and the model only chooses and
+parameterises them. This is the safe way to give the assistant powerful abilities: **the model selects,
+the admin has reviewed.**
+
+It also removes a problem from §14: a released workflow runs as a normal `WorkflowRun` under its own
+`Workflow`, so the hidden system workflow is not needed for this path.
+
+### 16.2 What "released" means
+
+- A flag set only by an administrator (P3-style rule in `doc/claude/auth.md`: changes to what the
+  assistant may execute are admin-only). Proposed column: `workflows.ai_released` (bool, NOT NULL,
+  scalar default `False`, so `AutoSchemaMigration` back-fills) plus `ai_released_by_id` and
+  `ai_released_at`, and a `WorkflowChange`-style audit record for set and clear.
+- **A release is bound to the version that was reviewed.** If the workflow is edited afterwards, the
+  guarantee "it works and returns this" no longer holds. Simplest rule: any edit of a released workflow
+  clears the flag, and the admin re-releases. Alternative: store a hash of the released definition and
+  only offer the workflow while the hash matches. Pick one; the first is easier to explain.
+- **An assistant description is part of the release**: what the workflow does, when to use it, what
+  each input means and what the result contains (§16.4). Written by the author or the admin; it is the
+  tool documentation the model sees (§1a), so it is reviewed like code.
+- Optional gate: require a successful run of the current version before the flag can be set.
+
+### 16.3 Tools
+
+| Tool | Class | Notes |
+|---|---|---|
+| `list_released_workflows` | read | name, id, short description, category; only workflows the calling user may run |
+| `describe_workflow` | read | assistant description, inputs (from `static_attributes`: name, type, required, default, description), whether devices are needed, result contract, expected duration |
+| `start_workflow` | execution proposal | `workflow_id`, `inputs`, `device_ids` or an inventory filter. Emits an `exec_proposal` for the user to confirm (§13.2 layer 4); the click calls the normal run endpoint |
+| `get_run_status` | read | exists in spirit in `run_tools.py` / `run_reader.py`; reuse |
+| `get_run_result` | read | returns the declared result as a handle + preview (§6.1), class C, opt-in |
+
+Prefer **two generic tools** (`describe_workflow`, `start_workflow`) over one tool per released
+workflow, so the tool list stays small and stable (§15.2 item 1). Generating a typed tool per workflow
+from `static_attributes` is possible later and gives better parameter validation for small models;
+keep the generic form as the escape hatch.
+
+### 16.4 Inputs and results
+
+- **Inputs** reuse the existing contract: `static_attributes` declare name, type and required/default,
+  and `run_input_validation.resolve_run_inputs` rejects unknown keys, missing values and type
+  mismatches. The tool layer validates against this schema before it even proposes the start, so the
+  model gets the error and can fix its call. A secret-typed attribute is **never** settable by the model
+  (sealed secrets stay sealed; the confirmation UI collects them from the user, if at all).
+- **Devices** are chosen by the model only from devices the user may see in the inventory; a hard
+  maximum per start; larger sets need the user to select them in the UI.
+- **Result contract.** "Returns a suitable result" needs a definition. Proposal: the author marks one
+  artifact or one step output as the workflow's *assistant result* (for example the output of a
+  designated step or a `store-artifact`), with a short schema/description. `get_run_result` returns
+  that, bounded, via a handle. Without a designated result the tool returns only status and a summary
+  of step statuses. This is open design work (§11).
+
+### 16.5 Rights and ownership
+
+- The run is started **as the confirming user** (`RunService.trigger_run(workflow_id, data, user_id)`),
+  with `trigger_type="ai_assistant"` (the column is `String(20)`; no enum). The existing rules then
+  hold unchanged: the user needs `workflows:execute`, `_assert_workflow_access` applies, the user
+  owns the run (cancel, approve, delete), Wait & Run approvals stay with the user.
+- A released workflow must be visible to the users who should be able to use it. Today a `private`
+  workflow is accessible only to its creator, so release should require a non-private visibility (or
+  an explicit decision that release grants run access). Open question.
+- The assistant never gets more than the user has: if the user cannot run the workflow, it is not
+  listed and `start_workflow` refuses.
+
+### 16.6 Security
+
+- Starting a workflow is an **execution**, so §13 applies: default is a confirmation that shows the
+  workflow name, the resolved inputs and the device list as data (not as model-written prose).
+- A released workflow may change devices (deploy, configure). That is the admin's decision when
+  releasing; the confirmation is therefore on by default. A per-workflow switch "may start without
+  confirmation" (for read-only workflows) is possible later and is an admin-only part of the release.
+- Budgets: maximum concurrent assistant-started runs per user, maximum starts per conversation, and
+  `rate_limited("ai_workflow_start", ...)`. No chain where the assistant starts workflow after workflow
+  without a user action in between unless auto-start is explicitly released.
+- Child workflows (`start-workflow` step) keep working under the existing recursion guard and the
+  triggering-user rule.
+- The workflow's output is untrusted data when it comes back (device text inside results): same
+  class C handling as any tool result.
+- Audit: run id, workflow id, user id, conversation id, input keys (not values) in the audit line.
+
+### 16.7 Why this matters for the design
+
+- It is the cheapest way to offer complex abilities safely, and it reuses the most existing code
+  (workflow editor, validation, run engine, Hatchet dispatch, run viewer, retention).
+- It changes the roadmap: for repeatable procedures (collect interface errors across a site, backup
+  configs, run a compliance check) build a workflow and release it, instead of a new ad-hoc tool.
+  Ad-hoc tools stay for exploration. This keeps the number of risky tools small.
+- A good first workflow-based increment: one or two read-only, admin-released workflows (for example
+  "collect and parse show interface for a device set") to prove release, listing, start, status and
+  result handles end to end, in parallel with the Batfish read tools (§10a).
+
+### 16.8 Implementation sketch
+
+1. Model and migration: `workflows.ai_released` (+ by, at), clear-on-edit in the workflow update path.
+2. Admin API: set/clear release (admin only, audited) and a field for the assistant description and
+   result designation; UI toggle in the workflow editor.
+3. Tools: `list_released_workflows`, `describe_workflow`, `start_workflow` (proposal),
+   `get_run_status`, `get_run_result`.
+4. Exec endpoint: confirm → `RunService.trigger_run` with `trigger_type="ai_assistant"`; verify the
+   release flag again at start time (defence in depth, the proposal may be old).
+5. Result handle storage for `get_run_result` (shared with §6.1).
+6. Tests without an LLM: not released, edited after release, user without access, secret input,
+   device limit, confirmation payload tamper, result truncation.
+
+### 16.9 Open questions
+
+- Clear-on-edit versus hash-pinned release?
+- How is the assistant result declared (designated step output, designated artifact, or a dedicated
+  "return to assistant" step)?
+- Visibility of released workflows (require non-private, or release grants run access)?
+- Auto-start without confirmation for read-only released workflows: allowed at all?
+- Who may write the assistant description, and is it reviewed together with the release?
+- How long a run may the assistant wait for (polling interval and time limits), and how does the
+  result reach the conversation after the turn ended (§12.5)?
