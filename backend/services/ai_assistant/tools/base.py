@@ -2,7 +2,8 @@
 error containment, output redaction and size capping.
 
 Rule for every tool (doc/ai_integration/AI_ASSISTANT.md §3.5): it is either a pure read or a
-proposal. Nothing here persists, executes a workflow or touches a device.
+proposal. No tool performs a write, opens a device session or starts a workflow itself; those are
+proposals carried out by the confirmed-execution endpoint after the user's click.
 """
 
 from __future__ import annotations

@@ -32,11 +32,15 @@ app's own services, observes the results, and corrects itself before presenting 
 
 | In | Out (later) |
 |----|-------------|
-| Authoring (as proposals) and explaining | Running/dispatching workflows or any device access |
+| Authoring (as proposals) and explaining | Auto-run of device commands or workflows without a user click |
 | Providers: Anthropic Claude, Google Gemini, OpenAI-compatible (covers Ollama) | Other provider-native features (batch, files API) |
 | Per-user private API key | Shared/global keys |
 | Entry points: template editor, workflow canvas, runs page, inventory page | Change requests, global panel |
 | Read tools + proposal-only write tools | Auto-apply, MCP server for external agents |
+
+Since the tool-chain extension (`doc/AI_TOOL_CHAIN.md`), the assistant may also *propose* device reads
+and runs of administrator-released workflows. Nothing runs until the user confirms (§2.3). Batfish
+reads run without a click because they touch no device.
 
 ## 2. Design principles
 
@@ -44,16 +48,25 @@ app's own services, observes the results, and corrects itself before presenting 
    through the same service layer and `require_permission` checks as the equivalent
    REST call. There is no assistant super-principal. (The `ai-assistant` principal in
    `doc/ai_collaboration/` stays what it is: the identity of an *external* session.)
-2. **Read freely, write by proposal only.** Read tools execute immediately. Write tools
-   never persist; they produce a *proposal* (a patch) that the user reviews as a diff and
-   explicitly accepts. Accepting goes through the normal save path, so `WorkflowChange`
-   auditing, git versioning and permission checks apply unchanged.
-3. **No execution tools.** No tool can run a workflow, open an SSH session, or push to
-   git. Rendering a template against sample data is allowed (it is a pure computation).
+2. **Read freely, act by proposal only.** Read tools execute immediately. Tools with an effect
+   (writes, device access, starting a workflow) never perform it: they produce a *proposal*
+   that the user reviews and explicitly confirms. Accepting a write goes through the normal save
+   path, so `WorkflowChange` auditing, git versioning and permission checks apply unchanged.
+   Accepting an execution proposal calls the confirmed-execution endpoint (principle 3).
+3. **No tool executes; execution is a separate, confirmed step.** No tool the model can call
+   opens an SSH session, runs a workflow or pushes to git. A tool may *propose* one of these
+   (its name starts with `propose_`). The proposal is run only by the confirmed-execution
+   endpoint, after the user's click, as the confirming user, and after the command policy
+   (allow-list), the user's rights, the operator switch and the rate limits have been checked
+   again from the request, never from the model's text (`doc/AI_TOOL_CHAIN.md` §13).
+   Reads against a Batfish coordinator are read tools: they change nothing and touch no device.
+   Rendering a template against sample data is allowed (a pure computation).
 4. **Untrusted content stays data.** Device configs, Nautobot descriptions, command output
-   and run logs are attacker-influenced text. Because writes are proposal-only and there
-   are no execution tools, a prompt-injected model can at worst produce a bad proposal the
-   user sees as a diff. This invariant must hold for every future tool.
+   and run logs are attacker-influenced text. Because the model can neither write nor execute
+   by itself, a prompt-injected model can at worst produce a bad proposal that the user sees
+   verbatim (the confirmation shows the actual command, devices and inputs, not the model's
+   description). This invariant must hold for every future tool: **a tool that performs an
+   effect on its own does not ship.**
 5. **Validate before showing.** A proposal is run through the existing validation tiers
    (and Jinja render for templates) and the model gets the findings back to self-correct
    before the user ever sees it.
@@ -258,8 +271,12 @@ tools, so every value of those classes passes the opt-in of §4.2:
 
 **Planned (not started):** a way to read a saved workflow other than the open one.
 
-Rule for new tools: if it cannot be classified as "pure read" or "proposal", it does not
-ship in this feature.
+Rule for new tools: it is either a pure read or a proposal. A proposal never performs its
+effect; execution proposals (device commands, workflow runs) are only carried out by the
+confirmed-execution endpoint. A tool that cannot be classified as one of these two does not ship
+in this feature. Names: reads use `get_` / `list_` / `search_` / `describe_` / `query_`; every tool
+that proposes something starts with `propose_`; no tool name starts with `run`, `trigger`,
+`execute`, `start` or `delete`.
 
 ### 3.6 Proposals and the diff UI
 
@@ -395,7 +412,7 @@ ML/entropy-based detection.
 |---------|-----------|
 | Key theft | Per-user, encrypted, write-only API, redaction registration, never logged |
 | Secrets in prompts | No tool returns decrypted credentials; run-scoped redaction applied to tool output before it reaches the model |
-| Prompt injection | Proposal-only writes, no execution tools, diff review (principle 4) |
+| Prompt injection | No tool writes or executes by itself; writes and executions are proposals the user confirms on screen, with the real command/devices shown; execution re-checks policy, rights and the operator switch server-side (principle 3, `doc/AI_TOOL_CHAIN.md` §13) |
 | Data exfiltration to a 3rd-party LLM | Opt-in only for device-derived data (§4); active provider and enabled data classes shown in the panel; Ollama as the local option |
 | SSRF | Server URL through `safe_urls` at save and before every call, no redirects, no new bypass (loopback needs `ALLOW_LOOPBACK_SOURCE_URLS`); https required for a key outside development |
 | Cost / runaway loops | Step, token and time caps; per-user rate limit |
@@ -1053,6 +1070,11 @@ tool whose name starts with propose / run / trigger / execute / delete. The inve
 exception to the propose rule: its only such tool is `propose_inventory` (a test pins that), and it has
 no run / trigger / execute / delete tool. Secrets inside injected text are
 still redacted.
+
+The read-only surfaces keep the rule above. The `general` surface may offer `propose_*` execution
+proposals, pinned by name in a test; it still has no tool whose name starts with
+run / trigger / execute / start / delete. Obeying an injection can therefore at worst produce a
+proposal; no execution proposal is carried out without the user's confirmation.
 
 **Not done / limits.** Prompt injection cannot be excluded for the model's text answer (it may repeat
 what a tool result said); the safety property is that it cannot act (no write or execution tool on any
