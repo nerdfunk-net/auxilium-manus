@@ -2183,9 +2183,62 @@ existing knowledge files already work.
   content only be used with the local provider option?
 - [OPEN-U] Which first local playbooks matter most (for example "how is site X connected")? A real example
   helps to fix the structure of the organisation reference.
-- [OPEN-C] How the existing `get_*_reference` tools can take the overlay (they read their files through
-  cached functions in `tools/*.py`), and how the load interacts with `@cache`.
-- [OPEN-C] Whether `AI_ALLOWED_DATA`/`data_sharing.py` has a class that fits `B` for operator-written text, or whether
-  a new class is needed.
-- [OPEN-C] Packaging: whether the Dockerfiles copy `knowledge/` and whether an empty
-  `${DATA_DIRECTORY}/ai/` needs creating at start.
+- [CHECKED] How the existing reference tools can take the overlay: see 25.10 (1).
+- [CHECKED] Data class for operator-written text: see 25.10 (2).
+- [CHECKED] Packaging: see 25.10 (3).
+
+### 25.10 Findings from the code checks, 2026-10-30
+
+Read by code, nothing was run.
+
+**(1) How the existing reference tools read their files**
+
+- There is no shared loader. Four read sites each build their own path next to the module and read the file
+  directly: `tools/inventory_filter_tools.py` (`_REFERENCE_PATH`, read on every call, no cache),
+  `tools/template_tools.py` (`_REFERENCE_PATH`), `tools/workflow_tools.py` (`_REFERENCE_PATH` and
+  `_RECIPES_PATH`, behind `@cache`, so read once per process; the knowledge `README.md` says the same).
+- Consequence for the overlay: introduce **one small loader** (for example
+  `services/ai_assistant/knowledge_loader.py`) that takes a name, reads the built-in file and, if present, the local
+  overlay `${DATA_DIRECTORY}/ai/knowledge/<name>.local.md`, and returns the combined text; switch the four sites
+  to it. Cache by `(path, mtime)` instead of a bare `@cache`, which also gives reload-without-restart for
+  free and costs nothing for files this small. The same loader serves playbooks and the organisation reference,
+  so there is one place for the path handling and the size cap.
+- The loader must treat a missing local directory or file as "nothing", read with `encoding="utf-8"`, cap the size
+  of each file and of the combined result (the tool output cap truncates at 20,000 characters, `tools/base.py`),
+  and never take a path from the model.
+
+**(2) Data class for operator-written text**
+
+- `data_sharing.py` defines six classes: `INVENTORY` (device names, basic attributes, inventories),
+  `ADDRESSES`, `CUSTOM_FIELDS`, `CONFIG_CONTEXT` (all class B, each needs the inventory switch as well),
+  `CONTENT` (class C) and `REPORT_DATA`. Each is the user's switch ANDed with the operator's `AI_ALLOWED_DATA`
+  token (`policy.py`, `DATA_TOKEN_FOR_FLAG`). **There is no class for operator-written organisation text.**
+- Proposal: `data_class: A` (default) means no gating, as for the built-in knowledge files. `data_class: B` maps to
+  the existing **`INVENTORY`** class: a user without the inventory opt-in gets a `not_shared` marker instead of the
+  playbook. That is a natural fit, since a playbook that names sites, roles and devices is useless without
+  inventory data anyway, and it needs **no new switch, no new operator token and no settings UI change**.
+- A new class (for example `organisation_knowledge`) would need a user flag, an operator token, a row in
+  `_SETTING_FOR`, `describe()` and the settings screen. Only worth it if the organisation wants to share
+  inventory data but not its playbooks (or the reverse); noted as an option, not recommended now.
+- `get_organisation_reference` follows the same rule through the front matter of the file (default `B`, since it
+  describes internal naming and topology).
+
+**(3) Packaging**
+
+- `Dockerfile.basic` and `Dockerfile.all-in-one` both `COPY backend/ ./backend/`, so
+  `backend/services/ai_assistant/knowledge/` (and a future `knowledge/playbooks/`) is in the image with no change.
+  The worker image was not examined; the assistant runs in the web process.
+- `/app/data` exists in the images (`mkdir -p /app/data ...`) and is mounted from the host in
+  `docker/docker-compose.yml` as `./data:/app/data` (three services use it). `/app/data/ai/` does **not**
+  exist; the container start script (`docker/start.sh`) creates `settings`, `git`, `cache` and `logs` under
+  `/app/data` and then runs `chown -R manus:manus /app/data`. So: add `/app/data/ai/playbooks` and
+  `/app/data/ai/knowledge` to that `mkdir -p` line (one-line change), and have the loader treat a missing
+  directory as empty. Because of the recursive `chown` at start, files an operator puts on the host side are
+  readable by the application user after the next container start.
+- Outside Docker (development) `DATA_DIRECTORY` defaults to `<project>/data` (`core/config.py`).
+- Open for a later step: `docker/check-image.sh` and `check-compose.sh` run after changes under `docker/`
+  (`doc/claude/development.md`); the start-script change must pass them.
+
+**Effect on the plan.** The loader (1) is the first piece of code for §25; it is small and testable (temporary
+directories, mtime reload, size caps, missing paths). The data class decision (2) needs no new settings. The
+start-script change (3) is one line plus the two checks.
