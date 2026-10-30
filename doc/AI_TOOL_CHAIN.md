@@ -1281,3 +1281,164 @@ model is told to skip steps whose tools are missing and to say so.
 - Language of playbooks (English like the other knowledge files, or German for German users)?
 - Do playbooks count toward the data-class model (they are class A) and the audit line
   (`audit_refs` with the playbook name)?
+
+## 22. Baseline comparison tools (Git-based)
+
+Status: proposal, discussed 2026-10-30. No code. Replaces the earlier idea of storing baselines in the
+database: **everything lives in Git, nothing in PostgreSQL.**
+
+### 22.1 Terms
+
+- **Snapshot:** what Batfish and the workflows store in Git for one device at one point in time:
+  the **extracted facts** (YAML, from `batfish-extract-facts`) and, as a rule, **both
+  configurations** (running and startup).
+- **Baseline:** a snapshot that has been marked as the reference. Marking = a per-device
+  *pointer file* (22.3). "Baseline" is not a concept in the code today (`grep` finds none); this section
+  defines it. The workflow that captures and marks baselines is built later and not part of the tools.
+- **Current state:** the device's state now, obtained either from the **last backup** in Git or **live
+  via SSH** (22.5). The user chooses which.
+
+### 22.2 Where things live
+
+| What | Where | Existing support |
+|---|---|---|
+| Repository | a `GitRepository` row (category `batfish` for facts and baselines, `device_configs` for backups; one repository may serve both) | `GitRepositoryService.get_repository`, `services/git/sync.py::git_checkout` (lease, strict pull) |
+| Snapshot files | `snapshots/<device>/<timestamp>.<kind>` (layout is the workflow's; the tool only follows pointers) | `store-artifact` with Git sink (`filename_template`) |
+| Pointer file | `baselines/<device>.yaml` (one file per device: disjoint files, so fan-out and parallel runs cannot conflict) | written by the workflow, read by the tool |
+| Backups | the existing config-backup layout in the `device_configs` repository | to be confirmed (22.9) |
+
+Configuration (which repositories, base paths, backup path template) is an operator setting that
+references `git_repository_id` (int), never a URL or a free string (project rule: one git configuration
+system).
+
+### 22.3 Pointer file
+
+```yaml
+version: 1
+device: router1                 # canonical (lower-case) node name as Batfish uses it
+captured_at: 2026-10-01T12:00:00Z
+run_id: 123                     # the workflow run that captured it
+commit: 3f2a9c1                 # commit that contains the snapshot files
+artifacts:
+  facts:           {path: snapshots/router1/2026-10-01T12-00Z.facts.yaml,   sha256: "..."}
+  running_config:  {path: snapshots/router1/2026-10-01T12-00Z.running.cfg,  sha256: "..."}
+  startup_config:  {path: snapshots/router1/2026-10-01T12-00Z.startup.cfg,  sha256: "..."}
+ignore: []                      # optional extra line patterns to ignore in diffs (22.7)
+```
+
+Rules: a pointer lists only artifacts that exist; the tool verifies `sha256` and reports a mismatch as
+"baseline damaged", never silently. A missing pointer means "no baseline for this device". The model
+never writes pointers or snapshots; only the captured, admin-released workflow does.
+
+### 22.4 Tools
+
+| Tool | Class | Purpose |
+|---|---|---|
+| `get_baseline_status(devices)` | read, metadata (B) | per device: baseline present, `captured_at`, age, which artifacts, hash check, commit. No content. At most N devices per call. |
+| `get_backup_status(devices)` | read, metadata (B) | per device: latest backup (path, commit, time, age) from the backup repository. No content. |
+| `get_baseline(device, artifact)` | read, content (C) | content of one baseline artifact through a handle (bounded preview); needs the content opt-in |
+| `propose_baseline_compare(device, compare, scope)` | proposal | `compare` = `config` / `facts` / `both`, `scope` = `running` / `startup` / `both` (config only). Produces an execution proposal; the **user** picks the source of the current state in the confirmation (22.5). The confirmed run returns the diff. |
+
+Names follow the rule in `AI_ASSISTANT.md` §3.5. Comparison itself is carried out by the confirmed
+endpoint, not by a tool call of the model.
+
+### 22.5 The user decides where the current state comes from
+
+Sometimes SSH is impossible because of the very problem being analysed; sometimes it is possible and
+gives the freshest data. So the choice is not made by the model:
+
+1. The model calls `get_baseline_status` and `get_backup_status`, and tells the user what exists and how old
+   each is.
+2. The model calls `propose_baseline_compare`. The confirmation card shows:
+   - the baseline (time, commit),
+   - option **A, last backup** (time, age, commit): no device contact, no extra approval, may be stale,
+   - option **B, live via SSH**: needs the device reachable, the operator switch (D3) and the rights; the
+     click on B is the confirmation of the SSH access (D2); the card shows device and read-only commands,
+   - a default preselected from the conversation (for example the user said SSH is not possible: A).
+3. The server enforces the choice: B is refused if SSH tools are disabled or the user lacks the
+   permission; A needs only Git read rights. The model's text cannot select B.
+4. If B fails (unreachable, auth), the result says so and offers A; the model does not retry silently.
+
+### 22.6 How the current state becomes comparable
+
+| Compare | Baseline side | Current side (backup) | Current side (live) | Diff |
+|---|---|---|---|---|
+| `config` | baseline `running_config` / `startup_config` text | latest backup text | `NetmikoService.get_running_config` / `get_startup_config` | `GitDiffService.compare_text_content` after normalisation (22.7) |
+| `facts` | baseline `facts` YAML | needs Batfish facts of the current config | same | `BatfishService.validate_facts` with the baseline facts as *expected*, or a structural diff of two facts dicts |
+
+Notes:
+
+- **Config compare needs no Batfish and no database**: two texts and a diff. It is the simplest first
+  increment and works with both current-state sources.
+- **Facts compare needs a Batfish snapshot of the current config.** Existing code builds snapshots in a
+  workflow-specific network from the configs of a run (`batfish-init-snapshot`, `retain_snapshots`).
+  For the tool this would need a *scratch network* with its own naming and clean-up (a state-changing
+  action on the shared coordinator, so it only runs inside the confirmed endpoint). Whether
+  `BatfishService.init_snapshot` can take raw config text directly was not checked.
+- `validate_facts` reuse is attractive: the baseline YAML is already in the `expected_facts` format; the
+  per-node mismatch map is the diff. Known pitfalls from `BATFISH_INTEGRATION.md` apply (the `version`
+  key must be dropped; node keys are lower-case; only keys present in the expected file are compared, so
+  a new fact on the device that the baseline lacks is not reported).
+- A first increment can ship `config` only; `facts` follows once the scratch-network question is settled.
+
+### 22.7 Diff quality and result shape
+
+- **Normalisation before diffing** (configurable, reviewed in code): line endings, trailing whitespace,
+  volatile lines (`! Last configuration change`, `! NVRAM config last updated`, `Building configuration...`,
+  `ntp clock-period`, timestamps, uptime), per-baseline `ignore` patterns from the pointer file. Without it
+  every diff is noise. `compare-data` has related options (`normalize_line_endings`,
+  `ignore_trailing_whitespace`); reuse the logic through a service, do not import the step.
+- **Result envelope** (bounded; large parts behind a handle, §6.1):
+
+```json
+{ "device": "router1", "compare": "config", "scope": "running",
+  "baseline": {"captured_at": "...", "commit": "...", "sha256_ok": true},
+  "current":  {"source": "backup|live", "captured_at": "...", "age_seconds": 0},
+  "identical": false,
+  "stats": {"added": 4, "removed": 2, "hunks": 3},
+  "hunks_preview": [ ... first N hunks ... ], "truncated": true, "handle": "res_ab12" }
+```
+
+The model must state in its answer **what was compared with what and how old the current side is**.
+A diff against a three-week-old backup says little about the device now; the age is always in the
+result and the playbook text requires mentioning it.
+
+### 22.8 Security and rules
+
+- Reading Git content is class C (configs, facts): content opt-in, redaction on every result (configs
+  contain hashes and keys), size caps.
+- Paths: device names are sanitised (`sanitize_relative_path`) and every path is resolved inside the
+  repository (`resolve_within_repo`); the model never supplies a path, only a device name and enums.
+  Pointer `path` values are validated to stay inside the repository.
+- No tool writes to the repository. Capturing or changing a baseline is a workflow (admin-released),
+  because the baseline is a trust anchor: if the model could overwrite it, comparisons would prove nothing.
+- Git access under the repository lease (`git_checkout`, strict pull); a stale read is flagged in the
+  result like the existing warning event does. Permission to read baselines/backups: to be decided
+  (22.9).
+- Live SSH (option B) follows §13 in full: confirmation, command allow-list (`show running-config`,
+  `show startup-config` and the vendor equivalents only), rights, rate limit, audit with ids.
+
+### 22.9 Open questions
+
+1. Which `GitRepository` (or two) holds baselines and facts, which holds backups, and where is that
+   configured (operator setting referencing `git_repository_id`)?
+2. The exact path layout of existing backups and facts (to implement `get_backup_status` and to let the
+   workflow write pointers that match). How are device names spelled in paths (case, domain suffix)?
+3. Which permission allows reading baselines and backups (they contain configs of every device)? Ties to
+   Git repository access (`git.repositories`) or a new one?
+4. Facts compare: scratch network and clean-up policy, and `init_snapshot` from config text (not
+   checked).
+5. Facts that exist on the device but not in the baseline: report or ignore?
+6. Which volatile-line patterns are the default per platform?
+7. Should the playbook "device behaves differently after a change" be the first user of these tools
+   (section 21)?
+
+### 22.10 Phasing
+
+| Part | Needs | Phase |
+|---|---|---|
+| `get_baseline_status`, `get_backup_status`, `get_baseline` | Git read only | with phase 1 (no device, no SSH) |
+| `propose_baseline_compare`, option A (backup), `config` | Git read, `GitDiffService`, handles | with phase 1 or directly after |
+| Option B (live SSH) | device tools, confirmation, operator switch, allow-list (§13) | phase 3 |
+| `facts` compare | Batfish scratch snapshot (22.6) | after the scratch-network decision |
+| Capture/mark workflow (writes snapshots and pointers) | workflow, §16 release | separate work, before the tools can be useful in production |
