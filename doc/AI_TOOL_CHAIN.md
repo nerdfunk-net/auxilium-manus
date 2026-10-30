@@ -1728,11 +1728,12 @@ Names follow the rule in `AI_ASSISTANT.md` §3.5.
 |---|---|---|
 | `get_neighbor_sources(device)` | read, metadata | which evidence exists without touching the device: last snapshot of the model (Batfish) and its age, last backup, whether device-side data could be fetched; configured protocols from the model |
 | `get_modelled_neighbors(device, layer, protocol)` | read, content (B/C) | neighbours from the **Batfish model** (no SSH): L3 edges and routing-protocol edges from existing allow-listed questions (`edges`, `ospfEdges`, `bgpEdges`), BGP session status, OSPF process data; labelled "modelled, may differ from reality" |
+| `get_documented_neighbors(device)` | read, content (B) | neighbours **as documented in Nautobot** (interfaces with `connected_interface` and `cable`); labelled "documented, not necessarily complete or current" (24.11) |
 | `propose_neighbor_discovery(device, layer, protocol, vrf)` | proposal | **live** discovery on the device; produces an execution proposal; the user confirms; runs read-only commands from a reviewed catalogue and returns the neighbours (24.5) |
 | `get_discovery_result(handle)` | read | page through a large live result (the preview is bounded) |
 
 `layer` is `l2`, `l3` or `both`; `protocol` is an enum: `routing_table` (default), `connected`, `static`,
-`ospf`, `bgp`, `eigrp`, `isis`, `rip`, `all_configured`. `vrf` defaults to the default VRF. All enums,
+`ospf`, `bgp`, `eigrp`, `isis`, `rip`, `all_configured`. `vrf` is `default` (the default), a VRF name from the discovered list, or `all` (capped, 24.12). All enums,
 no free text (cf. §13: a catalogue of named actions, not command text from the model).
 
 The model-or-live choice is the user's, as for baselines (§23.3): the model reports what exists and its age,
@@ -1747,9 +1748,10 @@ The model-or-live choice is the user's, as for baselines (§23.3): the model rep
 | Genie parsing | `workflow_steps/run_command/enrichment.py` works on step types; a service-level equivalent is not there |
 | Batfish edges | allow-list in `services/batfish/query_helpers.py` contains `edges`, `ospfEdges`, `bgpEdges`, `bgpSessionCompatibility`, `ipOwners`; `BatfishService` has `bgp_session_status`, `ospf_*`, `bgp_*` |
 | Map a neighbour to an inventory device | Nautobot resolvers (`DeviceCommonService.resolve_device_by_name`), `bare_hostname` helper; IP to device through Nautobot IPs or Batfish `ipOwners` |
+| Nautobot cabling as a neighbour source | verified: the device attribute query (`services/nautobot/devices/attribute_bag.py`, group `interfaces`) returns for each interface `connected_interface { name, device { name } }` and `cable { id, status }`, reachable through `get_device_attributes`. **VRFs are not part of that query** ([OPEN-C] whether VRF data is needed from Nautobot) |
 | CDP / LLDP / neighbour parsing | **nothing**: `grep` finds no CDP or LLDP code in the backend |
 | Command catalogue per platform | **missing**, must be written (24.5) |
-| Whether TextFSM templates exist for the chosen commands | [OPEN-C]: netmiko 4.8.0 brings its template set (ntc-templates), but the installed set and the template names per platform (for example `cisco_ios_show_cdp_neighbors_detail`) were not checked in this environment |
+| Whether TextFSM templates exist for the chosen commands | **CDP: confirmed by the product owner** (a ready template for `show cdp neighbors` exists and will be used). Not yet confirmed: the *detail* variant (`show cdp neighbors detail`, which carries the neighbour's IP, platform and software) and the templates for LLDP, routing and the protocol commands per platform ([OPEN-C]; netmiko 4.8.0 brings its template set, which was not inspected here) |
 
 ### 24.5 Command catalogue (reviewed, in code, read-only)
 
@@ -1770,6 +1772,11 @@ This table is a starting point from general knowledge of the platforms and **has
 devices**; each row needs verification against real output and the available TextFSM template. Platforms
 not in the table return "not supported for this platform" and the playbook falls back to the model. [OPEN-U]
 which platforms are in the fleet (to fill the table in priority order).
+
+**CDP summary versus detail.** The confirmed template covers `show cdp neighbors`; that output has device id,
+local and remote interface, holdtime, capability and platform but **no neighbour IP**. IP-based inventory
+matching and the L3 cross-check need `show cdp neighbors detail`. Plan: run `detail` when its template parses,
+fall back to the summary and say that the IP is missing. [OPEN-C] which of the two templates is installed.
 
 Rules: only the catalogued commands; one `vrf` argument validated against `[A-Za-z0-9_.-]{1,32}`; no
 pipes, no chaining; per-device read timeout; a hard cap on devices per call (D4) and on rows per result.
@@ -1805,6 +1812,8 @@ Notes:
 - **Routing table is aggregated, not dumped.** A full RIB is large: the result groups routes by
   `(protocol, next_hop, interface)` with counts and a few example prefixes, and the full list is behind the
   handle. The default route and the number of routes per protocol are always reported.
+- **Per-neighbour sources.** Each record has `seen_by`, a list of the sources that report it (`live`, `model`,
+  `nautobot`), and the summary counts the discrepancies (24.11).
 - **Source and age are always in the result** (`source`, `captured_at`); a modelled result carries the
   snapshot age, and the model must say so.
 - Data class: neighbour names, IPs and interfaces are device-derived (class B/C): opt-in required,
@@ -1847,14 +1856,80 @@ composition, but the playbook (§21) is the first step.
 
 - [OPEN-U] Platforms in the fleet and priority; real sample output per command and platform.
 - [OPEN-U] Is LLDP in use alongside CDP? Are there non-Cisco devices to cover first?
-- [OPEN-U] VRFs: only the default VRF at first, or per-VRF from the start?
+- [DECIDED 2026-10-30] VRFs are handled **from the start** (24.12).
 - [OPEN-U] Should the routing-table view default to all protocols aggregated, or only to the protocol the
   user chose?
-- [OPEN-U] Is Nautobot the source of truth for names and IPs of neighbours (inventory match), or are there
-  devices outside it?
-- [OPEN-C] TextFSM template availability and names per platform (24.4); whether a service-level Genie
-  parser exists for neighbour tables.
+- [DECIDED 2026-10-30] Nautobot is **one source among others, not the single source of truth**; neighbour
+  relations may be missing there (24.11). Still [OPEN-U]: which other places hold neighbour information (other
+  documentation systems, a CMDB, monitoring)?
+- [OPEN-C] TextFSM templates beyond `show cdp neighbors` (detail variant, LLDP, routing, OSPF/BGP/EIGRP/IS-IS)
+  per platform (24.4); whether a service-level Genie parser exists for neighbour tables.
+- [OPEN-C] Interface-name canonicalisation (`Gi1/0/1` versus `GigabitEthernet1/0/1`) for matching sources; look at
+  `workflow_steps/common/nautobot_interfaces.py` and Batfish interface naming first.
 - [OPEN-C] Whether `BatfishService` can answer the `edges` question with the edge type needed (layer 1 and
   layer 3 views), or whether a method must be added (cf. the missing traceroute, §18 fact 6).
 - Decision needed later: expose the model result (`get_modelled_neighbors`) before the live path; I
   recommend yes, since it is read-only and needs no SSH.
+
+### 24.11 Several sources, none of them the single source of truth
+
+Neighbour information comes from different places that can disagree. Nautobot is useful but incomplete
+(relations may not be entered), so the tool treats every source as *evidence* and reports where they
+agree and where they differ.
+
+| Source | Tool | What it says | Strength | Weakness |
+|---|---|---|---|---|
+| **Live device** | `propose_neighbor_discovery` | what the device sees now (CDP, LLDP, adjacencies, RIB) | current, authoritative for the present | needs SSH and the user's click; the device may be unreachable; CDP/LLDP can be disabled |
+| **Batfish model** | `get_modelled_neighbors` | what the configs imply | no SSH, whole network | as old as the snapshot; models intent, not the wire (no CDP) |
+| **Nautobot** | `get_documented_neighbors` | documented cabling (`connected_interface`, `cable`) | names, roles, intent | often incomplete or stale; absent data means nothing |
+
+Rules for the answer (the model is told in the tool text and the playbook):
+
+1. **Absence in a source is not absence of a link.** Missing in Nautobot is "not documented", not "not
+   connected". Report each source separately and label "no data" versus "no neighbour".
+2. **Priority for the current state:** live over model over Nautobot. Nautobot is used for names, roles and
+   intended topology, not to override what the device reports.
+3. **Reconciliation per neighbour pair**, keyed by `(local device, local interface, remote device, remote interface)`
+   after name normalisation (hostname case and domain suffix, interface long and short forms). Classes:
+   - `confirmed`: live and documented (or live and model) agree,
+   - `undocumented`: seen live but not in Nautobot (a documentation gap, not an error),
+   - `not_seen_live`: documented or modelled but not seen on the device (a finding: link down, CDP off, wrong
+     documentation),
+   - `single_source`: only one source reports it,
+   - `conflict`: the sources name different remote devices or interfaces for the same local port.
+4. The summary reports counts of each class and lists the non-`confirmed` ones first.
+5. Further sources can be added later as tools of the same shape (another documentation system, monitoring,
+   the last backup's CDP output) without changing the reconciliation rules.
+
+The matching service from N2 (24.8) is extended by this reconciliation; its input is the per-source
+neighbour lists, its output the classes above. It is a pure function and testable with fixtures.
+
+### 24.12 VRFs from the start
+
+- **L2 neighbours** are VRF-independent. **L3 records always carry `vrf`.**
+- **Discovery of VRFs** is part of the first question to the user (24.2): from the model (Batfish `routes`
+  rows carry a VRF column; node properties list VRFs) or from the device (`show vrf` / `show ip vrf` on IOS,
+  `show vrf` on NX-OS and EOS, `show route instance` on Junos). The user then chooses `default`, one or more
+  VRFs, or `all`.
+- **Commands per VRF** (catalogue, 24.5): IOS/XE `show ip route vrf <name>`, `show ip ospf neighbor` (lists all
+  VRFs; filter in the parser), `show ip bgp vpnv4 vrf <name> summary` (or `show ip bgp vrf <name> summary` by
+  platform), `show ip eigrp vrf <name> neighbors`; NX-OS `show ip route vrf <name>`, `show ip ospf neighbors vrf
+  <name>`, `show bgp vrf <name> ipv4 unicast summary`; Junos `show route table <instance>.inet.0`; EOS
+  `show ip route vrf <name>`. As elsewhere these are starting points from general knowledge, not verified on
+  devices.
+- **`all`** runs the command set for each discovered VRF with a cap on the number of VRFs and total rows, and
+  says when the cap truncated the result.
+- The VRF name is validated (`[A-Za-z0-9_.-]{1,32}`) and must be one of the discovered names (or `default`)
+  before it is used in a command.
+- Nautobot VRF data is not in the current attribute query; whether it should be used for VRF discovery is
+  [OPEN-C] (24.10).
+
+### 24.13 Effect on the plan (24.8)
+
+- N2 (matching service) grows to include name and interface canonicalisation and the reconciliation classes
+  (24.11), tested with fixtures.
+- N3 gains `get_documented_neighbors` (Nautobot via `get_device_attributes`, group `interfaces`), read-only and
+  without SSH; it can ship with the first increment together with the model tool.
+- N1 starts with the confirmed CDP template; the detail variant and the L3 parsers follow as their templates
+  are confirmed.
+- N4 includes the per-VRF commands.
