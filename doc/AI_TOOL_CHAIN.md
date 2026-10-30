@@ -1686,3 +1686,175 @@ Read by code, nothing was run.
 - B4: the facts diff design above; tests need real sample files (Q6).
 - The facts-as-YAML production path (`rendered_template` from `device.parsed`) is a point to confirm
   with the owner; if the existing capture already writes the YAML, nothing changes.
+
+## 24. Connectivity tool: neighbours of a device (Layer 2 and Layer 3)
+
+Status 2026-10-30: **description only, no code.** Goal of this first tool: *return the connectivity of
+one device to its neighbours.* A second tool (connectivity between two given devices) is composed from it
+(24.9). Markers as in §23: [OPEN-U] owner decides or looks up, [OPEN-C] Claude checks in code.
+
+### 24.1 What "neighbour" means
+
+| Layer | Neighbour is | Evidence on the device | Typical commands (Cisco IOS family) |
+|---|---|---|---|
+| **L2** | a directly attached device seen by a link-layer discovery protocol | CDP (and LLDP where CDP is absent or disabled) | `show cdp neighbors detail`, `show lldp neighbors detail` |
+| **L3, adjacency** | a router that has formed a routing-protocol adjacency | per protocol | OSPF `show ip ospf neighbor`, BGP `show ip bgp summary`, EIGRP `show ip eigrp neighbors`, IS-IS `show isis neighbors` |
+| **L3, routing table** | a next-hop address in the routing table | the RIB | `show ip route` (also per VRF, `show ip route summary`, `show ip route <protocol>`) |
+
+Layer 2 answers "what is cabled to this device"; Layer 3 answers "which routers does it exchange routes
+with and through which next hops does it reach prefixes". Both are needed: a device can see a CDP
+neighbour and still have no OSPF adjacency to it, which is a typical finding.
+
+### 24.2 The user is asked which routing protocol is relevant
+
+Routing tables mix protocols (connected, static, OSPF, BGP, EIGRP, IS-IS, RIP). A fully automatic scan
+of all of them is slow, noisy and device-specific, so the flow is:
+
+1. **Find candidates** without guessing: first from the model if a snapshot exists (Batfish
+   `ospfProcessConfiguration`, `bgpProcessConfiguration`, both already exposed by `BatfishService`; no device
+   contact), otherwise from the device (`show ip protocols`, `show ip route summary`: a *proposal* that
+   needs the click, §19 D2).
+2. **Ask the user**: "OSPF and BGP are configured on r1. Which should I look at? (default: routing table
+   only)". The question is required by the playbook text; the tool takes an explicit `protocol`
+   parameter.
+3. **Run only what was chosen.** `show ip route` is the default and the safe start; protocol-specific
+   adjacency commands follow only for the chosen protocol(s).
+
+### 24.3 Tools
+
+Names follow the rule in `AI_ASSISTANT.md` §3.5.
+
+| Tool | Class | Purpose |
+|---|---|---|
+| `get_neighbor_sources(device)` | read, metadata | which evidence exists without touching the device: last snapshot of the model (Batfish) and its age, last backup, whether device-side data could be fetched; configured protocols from the model |
+| `get_modelled_neighbors(device, layer, protocol)` | read, content (B/C) | neighbours from the **Batfish model** (no SSH): L3 edges and routing-protocol edges from existing allow-listed questions (`edges`, `ospfEdges`, `bgpEdges`), BGP session status, OSPF process data; labelled "modelled, may differ from reality" |
+| `propose_neighbor_discovery(device, layer, protocol, vrf)` | proposal | **live** discovery on the device; produces an execution proposal; the user confirms; runs read-only commands from a reviewed catalogue and returns the neighbours (24.5) |
+| `get_discovery_result(handle)` | read | page through a large live result (the preview is bounded) |
+
+`layer` is `l2`, `l3` or `both`; `protocol` is an enum: `routing_table` (default), `connected`, `static`,
+`ospf`, `bgp`, `eigrp`, `isis`, `rip`, `all_configured`. `vrf` defaults to the default VRF. All enums,
+no free text (cf. §13: a catalogue of named actions, not command text from the model).
+
+The model-or-live choice is the user's, as for baselines (§23.3): the model reports what exists and its age,
+**asks**, then calls either `get_modelled_neighbors` or `propose_neighbor_discovery`.
+
+### 24.4 Code that exists and what is missing (verified by reading)
+
+| Need | Status |
+|---|---|
+| Run a command with TextFSM | `NetmikoService.send_command(s)` (`use_textfsm`), platform mapping in `services/network/netmiko/platform.py` (supports `cisco_ios`, `cisco_xe`, `cisco_xr`, `cisco_nxos`, `cisco_asa`, `juniper_junos`, `arista_eos`, `hp_comware`) |
+| Ad-hoc path without a run | `NetmikoPreviewService.run_commands` (host validation, credential by id with the acting user) |
+| Genie parsing | `workflow_steps/run_command/enrichment.py` works on step types; a service-level equivalent is not there |
+| Batfish edges | allow-list in `services/batfish/query_helpers.py` contains `edges`, `ospfEdges`, `bgpEdges`, `bgpSessionCompatibility`, `ipOwners`; `BatfishService` has `bgp_session_status`, `ospf_*`, `bgp_*` |
+| Map a neighbour to an inventory device | Nautobot resolvers (`DeviceCommonService.resolve_device_by_name`), `bare_hostname` helper; IP to device through Nautobot IPs or Batfish `ipOwners` |
+| CDP / LLDP / neighbour parsing | **nothing**: `grep` finds no CDP or LLDP code in the backend |
+| Command catalogue per platform | **missing**, must be written (24.5) |
+| Whether TextFSM templates exist for the chosen commands | [OPEN-C]: netmiko 4.8.0 brings its template set (ntc-templates), but the installed set and the template names per platform (for example `cisco_ios_show_cdp_neighbors_detail`) were not checked in this environment |
+
+### 24.5 Command catalogue (reviewed, in code, read-only)
+
+One table maps `(platform, layer, protocol)` to a list of read-only commands and the parser. It is code,
+reviewed, tested, and the only source of commands for this tool (no model text reaches the device).
+
+| (layer, protocol) | IOS / XE | NX-OS | Junos | EOS | Parser |
+|---|---|---|---|---|---|
+| l2 | `show cdp neighbors detail`, `show lldp neighbors detail` | `show cdp neighbors detail`, `show lldp neighbors detail` | `show lldp neighbors` | `show lldp neighbors detail` | TextFSM |
+| l3 routing_table | `show ip route` (`vrf <name>` when set) | `show ip route` (`vrf <name>`) | `show route` | `show ip route` | TextFSM |
+| l3 ospf | `show ip ospf neighbor` | `show ip ospf neighbors` | `show ospf neighbor` | `show ip ospf neighbor` | TextFSM |
+| l3 bgp | `show ip bgp summary` | `show ip bgp summary` | `show bgp summary` | `show ip bgp summary` | TextFSM |
+| l3 eigrp | `show ip eigrp neighbors` | `show ip eigrp neighbors` | n/a | n/a | TextFSM |
+| l3 isis | `show isis neighbors` | `show isis adjacency` | `show isis adjacency` | `show isis neighbors` | TextFSM |
+| discovery of protocols | `show ip protocols`, `show ip route summary` | same | `show route summary` | `show ip route summary` | TextFSM |
+
+This table is a starting point from general knowledge of the platforms and **has not been run against
+devices**; each row needs verification against real output and the available TextFSM template. Platforms
+not in the table return "not supported for this platform" and the playbook falls back to the model. [OPEN-U]
+which platforms are in the fleet (to fill the table in priority order).
+
+Rules: only the catalogued commands; one `vrf` argument validated against `[A-Za-z0-9_.-]{1,32}`; no
+pipes, no chaining; per-device read timeout; a hard cap on devices per call (D4) and on rows per result.
+The execution runs in the confirmed endpoint (D4), as the confirming user, with the credential resolved
+through `CredentialManager` (`acting_user_id`).
+
+### 24.6 Result shape
+
+Bounded envelope (§22.7 style) with a handle for the full list. One record per neighbour:
+
+```json
+{ "device": "r1", "source": "live|model", "captured_at": "...", "layer": "l2",
+  "neighbors": [
+    {"layer": "l2", "protocol": "cdp", "local_interface": "Gi1/0/1",
+     "neighbor_name": "sw2", "neighbor_interface": "Gi0/24", "neighbor_ip": "192.0.2.2",
+     "platform": "WS-C3850", "capabilities": ["switch","igmp"],
+     "inventory": {"matched": true, "device": "sw2", "how": "name"}},
+    {"layer": "l3", "protocol": "ospf", "vrf": "default", "neighbor_ip": "192.0.2.1",
+     "neighbor_id": "10.0.0.1", "interface": "Gi1/0/3", "state": "FULL", "uptime": "3d02h",
+     "inventory": {"matched": true, "device": "r2", "how": "ip"}},
+    {"layer": "l3", "protocol": "routing_table", "prefix": "198.51.100.0/24",
+     "next_hop": "192.0.2.1", "protocol_code": "O", "interface": "Gi1/0/3", "metric": 20}
+  ],
+  "summary": {"l2": 5, "l3_adjacencies": 2, "next_hops": 7, "unmatched": 1},
+  "truncated": false, "handle": "res_cd34" }
+```
+
+Notes:
+
+- **Inventory match.** Every neighbour is matched to an inventory device by name (domain suffix and case
+  normalised; CDP device ids often carry a suffix or serial) and by IP; the record says how it matched or
+  that it did not. An unmatched neighbour is a finding, not an error.
+- **Routing table is aggregated, not dumped.** A full RIB is large: the result groups routes by
+  `(protocol, next_hop, interface)` with counts and a few example prefixes, and the full list is behind the
+  handle. The default route and the number of routes per protocol are always reported.
+- **Source and age are always in the result** (`source`, `captured_at`); a modelled result carries the
+  snapshot age, and the model must say so.
+- Data class: neighbour names, IPs and interfaces are device-derived (class B/C): opt-in required,
+  redaction applies.
+
+### 24.7 Security and limits
+
+Follows §13 and the decisions in §19: SSH only after the user's click (D2), operator switch off by
+default (D3), the same rights as the matching preview endpoint, rate limit
+`rate_limited("ai_neighbor_discovery", ...)`, bounded devices and rows, audit with ids only.
+The catalogue and the VRF validation are the injection defence on the input side; on the output side
+CDP/LLDP data comes from neighbouring devices and is **attacker-influenced text** (system names,
+descriptions, banners can contain instructions): it is returned as quoted data fields, length-capped, and
+never interpolated into prompts or commands. `get_modelled_neighbors` reads the Batfish coordinator only.
+
+### 24.8 Plan
+
+| Step | Work | Needs |
+|---|---|---|
+| N0 | Decide platforms in the fleet; verify the command table against real output; confirm TextFSM templates exist | owner, a lab device |
+| N1 | Parsers: CDP/LLDP detail, `show ip route` (grouping), OSPF/BGP/EIGRP/IS-IS neighbour tables into the record shape (24.6); golden tests from real sample output | N0 |
+| N2 | Inventory matching service (name normalisation, IP owner lookup) | Nautobot resolvers |
+| N3 | `get_neighbor_sources`, `get_modelled_neighbors` (Batfish, no SSH), result envelope and handles | phase 1 |
+| N4 | Command catalogue and `propose_neighbor_discovery` through the confirmed endpoint | D2/D4 infrastructure (phase 3) |
+| N5 | Playbook "Is device A connected to B?" (24.9) using these tools | §21 |
+| N6 | Optional: protocol discovery step (`show ip protocols`) to make the user question concrete | N4 |
+
+N1, N2 and N3 are testable without devices and without a model.
+
+### 24.9 Next tool and playbook: connectivity between two devices
+
+Not built here; the composition is: (1) `get_neighbor_sources` for A and B; (2) L2: is B in A's neighbour
+list (and A in B's)? record both interfaces; (3) L3: ask the user for the protocol, check that A has an
+adjacency or a next hop towards B's address (and the reverse), and whether a route to the B prefix exists;
+(4) report per layer: connected (with interfaces), connected one way only, not connected, or unknown
+(no data); mention source and age. A dedicated `check_connectivity(a, b)` tool is possible later as a thin
+composition, but the playbook (§21) is the first step.
+
+### 24.10 Open points
+
+- [OPEN-U] Platforms in the fleet and priority; real sample output per command and platform.
+- [OPEN-U] Is LLDP in use alongside CDP? Are there non-Cisco devices to cover first?
+- [OPEN-U] VRFs: only the default VRF at first, or per-VRF from the start?
+- [OPEN-U] Should the routing-table view default to all protocols aggregated, or only to the protocol the
+  user chose?
+- [OPEN-U] Is Nautobot the source of truth for names and IPs of neighbours (inventory match), or are there
+  devices outside it?
+- [OPEN-C] TextFSM template availability and names per platform (24.4); whether a service-level Genie
+  parser exists for neighbour tables.
+- [OPEN-C] Whether `BatfishService` can answer the `edges` question with the edge type needed (layer 1 and
+  layer 3 views), or whether a method must be added (cf. the missing traceroute, §18 fact 6).
+- Decision needed later: expose the model result (`get_modelled_neighbors`) before the live path; I
+  recommend yes, since it is read-only and needs no SSH.
