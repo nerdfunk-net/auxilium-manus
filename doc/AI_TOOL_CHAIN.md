@@ -1455,6 +1455,7 @@ the tool, and the open points with who has to check them. Markers:
 
 - **[OPEN-U]** the product owner has to look something up or decide (needs access to Git or the app).
 - **[OPEN-C]** Claude checks in the code (no input needed).
+- **[CHECKED]** an OPEN-C point that was checked by reading the code on 2026-10-30; details in §23.9.
 - **[RISK]** a design risk to resolve before coding.
 - **[DECIDED]** settled.
 
@@ -1548,14 +1549,13 @@ Steps B1 to B6 need no SSH and no Batfish. B7 and B8 depend on the workflows and
 - [RISK] **Pointer and commit hash.** The pointer shall name the commit containing the snapshot files,
   but a commit hash is only known after the commit that stores them; writing both in one commit is
   impossible. Options: make `commit` optional and derive it with `git log -1 -- <path>` (preferred), or let W1
-  commit snapshots first and the pointer in a second commit. Needs a look at how `store-artifact` commits
-  ([OPEN-C]).
+  commit snapshots first and the pointer in a second commit. Checked, see 23.9 (Q11): the commit hash is
+  available after the first commit, so a second commit for the pointer works.
 - [RISK] **Can W1 write the pointer with existing steps?** `store-artifact` writes content from fixed
   `content_source` values; whether a pointer YAML (with a SHA-256 of the files) can be produced by existing
-  steps or needs a small new step is not checked ([OPEN-C]).
+  steps or needs a small new step: checked, see 23.9 (Q11): a small new step is needed.
 - [RISK] **Parallel runs** writing different devices into the same repository: pointer files per device
-  avoid file conflicts, but pushes can still collide; the repository lease and fan-out rules decide
-  ([OPEN-C]: how other steps push from fan-out children).
+  avoid file conflicts, but pushes can still collide; the repository lease serialises writers; checked, see 23.9 (Q12).
 - [RISK] **Staleness:** a backup or baseline can be old. The result always carries both ages; the
   playbook must mention them.
 - [RISK] **Secrets in configs and facts.** Redaction is best-effort; the opt-in and size caps apply.
@@ -1579,10 +1579,10 @@ When the repositories are reachable, the product owner answers these; Claude ask
 | Q8 | [OPEN-U] | Who may read baselines and backups: an existing permission (for example Git repository access) or a new one? | RBAC concept, `doc/claude/auth.md` |
 | Q9 | [OPEN-U] | First version: config compare only, or facts compare too? | decision |
 | Q10 | [OPEN-U] | Age threshold at which the assistant must warn that a backup is old (for example 24 h) and typical number of devices per compare | operations |
-| Q11 | [OPEN-C] | How `store-artifact` commits and pushes (one commit per run? message pattern?), what content sources it offers, and whether it can write the pointer file | code: `store_artifact`, `content_resolver.py`, `git_sink.py` |
-| Q12 | [OPEN-C] | How fan-out children push to a shared repository without conflicts (lease, retries) | code: `repo_lock.py`, `git_push_helpers.py` |
-| Q13 | [OPEN-C] | Where an operator setting referencing `git_repository_id` should live (general settings, AI settings) | code: `settings`, `general`, `ai_assistant/settings_service.py` |
-| Q14 | [OPEN-C] | Structure of the real facts output of `batfish-extract-facts` (nested keys, lists, ordering) to design the structural diff | code and `BATFISH_INTEGRATION.md` |
+| Q11 | [CHECKED] | How `store-artifact` commits and pushes (one commit per run? message pattern?), what content sources it offers, and whether it can write the pointer file | code: `store_artifact`, `content_resolver.py`, `git_sink.py` |
+| Q12 | [CHECKED] | How fan-out children push to a shared repository without conflicts (lease, retries) | code: `repo_lock.py`, `git_push_helpers.py` |
+| Q13 | [CHECKED] | Where an operator setting referencing `git_repository_id` should live (general settings, AI settings) | code: `settings`, `general`, `ai_assistant/settings_service.py` |
+| Q14 | [CHECKED] | Structure of the real facts output of `batfish-extract-facts` (nested keys, lists, ordering) to design the structural diff | code and `BATFISH_INTEGRATION.md`; result in 23.9. Still [OPEN-U] (Q6): one real example file per platform |
 
 ### 23.8 What happens next
 
@@ -1592,3 +1592,97 @@ When the repositories are reachable, the product owner answers these; Claude ask
 3. Build B1 to B6 stepwise (23.4), each with tests; then W2 and B7 once the owner has implemented W2 and
    §16 exists.
 4. Neither workflow nor tools are implemented at this point.
+
+### 23.9 Findings from the code checks (Q11 to Q14), 2026-10-30
+
+Read by code, nothing was run.
+
+**Q11: how `store-artifact` writes to Git, and whether it can write the pointer**
+
+- Destinations: `filesystem` or `git`. Content sources are a fixed set: `running_config`,
+  `startup_config`, `command_output`, `latest_command_output`, `rendered_template`, `merged_content`,
+  `comparison_diff`, `filtered_output`, `pyats_snapshot`, `updated_content`. **There is no source for
+  Batfish facts.** The facts YAML must reach `store-artifact` as a `rendered_template` (a Render Jinja
+  Template step over `device.parsed.<key>.parsed` of `batfish-extract-facts`). I found no YAML-dump
+  filter in the Jinja code that I searched; whether a template can emit valid YAML for nested facts is
+  [OPEN-U] (Q6): the owner may already have such a template, since the existing expected-facts workflow
+  renders YAML from Nautobot data.
+- File names come from `filename_template` (default `{device.name}_{nautobot.location.name}_{run.timestamp}.cfg`)
+  with `repository_subdirectory` as prefix. Timestamped names mean "the latest file" has to be derived
+  from the name or from Git; the pointer file removes that ambiguity.
+- Commits: `commit_after_write` and `push_after_write` default to **False**; `commit_message_template`
+  defaults to `commit {timestamp}`. The sink stages only the files it wrote and creates **one commit per
+  step execution** (a fan-out child group produces its own commit). It records
+  `<node_id>.git_export` = `{committed, pushed, commit_sha, files_changed, message}` and
+  `<node_id>.stored_artifacts` = records of `{destination, path, size_bytes, sha256}` in
+  `context.metadata`. So after the step, paths, SHA-256 values and the commit hash exist as run data.
+- Consequence for the pointer: the metadata is not visible to Jinja templates (no use of `metadata` in
+  `device_template.py`), so a Render Jinja Template step cannot assemble the pointer from it. A step
+  that consumes `*.stored_artifacts` already exists as a pattern (`git_push_helpers.collect_export_paths_for_commit`).
+  **A small new step is needed** (working name `write-baseline-pointer`): it reads the stored-artifact
+  records and `git_export` from the metadata of the upstream `store-artifact` step, writes
+  `baselines/<device>.yaml` (or `current/<device>.yaml`) with paths, hashes and the commit hash, and
+  commits it. The commit hash chicken-and-egg problem (23.6) disappears: snapshot files are committed
+  first, the pointer in a second commit. Alternative: extend `store-artifact` with a "pointer" option; a
+  separate step keeps `store-artifact` unchanged. The new step must follow `doc/WORKFLOW-STEPS.md`
+  (read both step documents before building it) and the git rules in `doc/claude/backend.md`.
+
+**Q12: pushing to a shared repository from fan-out children**
+
+- `services/git/repo_lock.py`: a per-repository Redis advisory lock (`git-repo-lock:<id>`, TTL 120 s,
+  renewed every 40 s, acquire timeout 90 s). `store-artifact` holds it across prepare, all writes and
+  finalize, so fan-out children, sibling branches and separate runs against one repository are
+  serialised. With `GIT_REPO_LOCK_REQUIRED` (default outside development) a missing Redis fails the step
+  with a retryable `repo_locked` error; a lock held past the timeout always fails the caller.
+- `GitService.push` is a plain push (no force). A rejected push returns "Push rejected. Try pulling
+  first"; the sink does not pull, rebase or retry. Safe pattern for parallel capture: `pull_before_write=True`,
+  `commit_after_write=True`, `push_after_write=True` under the lock. Writers inside the app cannot cause
+  a non-fast-forward; **external pushes** to the same branch can, and then the step fails with that
+  message.
+- Per-device pointer files avoid file conflicts; the lock avoids races between writers.
+- **For the read tools:** `git_checkout` holds the same lease while the caller reads. Tools must read
+  quickly (copy what is needed, then release), read many devices in one checkout, and turn a
+  `repo_locked` failure into a clear "repository is busy, try again" result rather than an error.
+  Reading a ref directly (`git show <ref>:<path>`) without the working tree would avoid the lease, at the
+  price of a possibly stale local clone; to be decided at B1.
+
+**Q13: where the repository settings should live**
+
+- Precedents: operator switches as environment variables in `core/config.py` (`AI_ALLOWED_DATA` and
+  friends); a typed JSON row in the `settings` table via `SettingsRepository` with a service on top
+  (`AiProxySettingsService`: one row `{enabled, url, credential_id, bypass_hosts}`, the credential
+  referenced by id); `GeneralSettings` (small model: session timeout, export directory,
+  `switch_to_runs_on_start`).
+- Recommendation: **one `settings` row** for the baseline feature, e.g. `{baseline_repository_id,
+  snapshot_repository_id, backup_repository_id, path templates, age_warning_hours, max_devices}`, edited
+  by an admin-only endpoint like the proxy settings, validated on save (repository exists, active, right
+  category: `batfish` for baselines and facts, `device_configs` for backups). This follows the project
+  rule: the row holds **only `git_repository_id` integers**, never a URL or branch, so there is still one
+  git configuration system (`GitRepository`). The operator switch for the feature itself stays an
+  environment variable, in line with the other AI switches (D3).
+
+**Q14: shape of the facts**
+
+- `BatfishService.extract_facts` returns pybatfish's dict; the step and the preview take
+  `facts["nodes"]` as `{node: {fact_key: value}}` (`batfish_extract_facts/executor.py`, `preview_service.py`).
+  The `validate-facts` expected-file format is the same: a top-level `nodes` mapping keyed by the
+  lower-case node name. pybatfish stamps a `version` (`batfish_v0`) at the top level; `validate-facts`
+  drops any `version` key before use (known pitfall, `BATFISH_INTEGRATION.md`). The existing help text
+  mentions about 40 fact keys (for example `Hostname`, `TACACS_Servers`, `NTP_Servers`); values are scalars,
+  lists and nested mappings. I did not run Batfish, so the exact nesting per key and list ordering are not
+  verified here; one real file per platform is needed (Q6).
+- Design of the facts diff (B4): flatten both sides to `path -> value` (path = node, key, nested keys);
+  compare scalars directly; for **lists of scalars** compare as multisets (order often not meaningful,
+  e.g. NTP or TACACS servers), for **lists of mappings** match by a key field when one exists, otherwise by
+  position; report added, removed and changed paths; ignore `version`; compare node names
+  case-insensitively. Which lists are order-sensitive is a decision per fact key and needs the sample
+  files.
+
+### 23.10 Effect on the plan (§23.4)
+
+- B1: add the settings row and its admin endpoint (Q13); decide worktree read versus `git show` (Q12).
+- New step before B8: the small `write-baseline-pointer` step (Q11), also used by W2 for
+  `current/<device>.yaml`. It is workflow-step work and follows the step documents.
+- B4: the facts diff design above; tests need real sample files (Q6).
+- The facts-as-YAML production path (`rendered_template` from `device.parsed`) is a point to confirm
+  with the owner; if the existing capture already writes the YAML, nothing changes.
