@@ -1287,6 +1287,10 @@ model is told to skip steps whose tools are missing and to say so.
 Status: proposal, discussed 2026-10-30. No code. Replaces the earlier idea of storing baselines in the
 database: **everything lives in Git, nothing in PostgreSQL.**
 
+> **Update:** §23 refines this section (a simpler tool set: the tools only *diff* stored snapshots; two
+> workflows create them) and lists the open points with owners. Where §22.4/22.5/22.6 and §23 differ,
+> §23 is the newer proposal.
+
 ### 22.1 Terms
 
 - **Snapshot:** what Batfish and the workflows store in Git for one device at one point in time:
@@ -1318,7 +1322,7 @@ version: 1
 device: router1                 # canonical (lower-case) node name as Batfish uses it
 captured_at: 2026-10-01T12:00:00Z
 run_id: 123                     # the workflow run that captured it
-commit: 3f2a9c1                 # commit that contains the snapshot files
+commit: 3f2a9c1                 # optional: commit that contains the snapshot files (see §23.6, may be derived)
 artifacts:
   facts:           {path: snapshots/router1/2026-10-01T12-00Z.facts.yaml,   sha256: "..."}
   running_config:  {path: snapshots/router1/2026-10-01T12-00Z.running.cfg,  sha256: "..."}
@@ -1442,3 +1446,149 @@ result and the playbook text requires mentioning it.
 | Option B (live SSH) | device tools, confirmation, operator switch, allow-list (§13) | phase 3 |
 | `facts` compare | Batfish scratch snapshot (22.6) | after the scratch-network decision |
 | Capture/mark workflow (writes snapshots and pointers) | workflow, §16 release | separate work, before the tools can be useful in production |
+
+## 23. Baseline tool: plan, open points, workflows
+
+Status 2026-10-30: **plan only.** The exact implementation will be walked through step by step, with the
+repositories at hand. This section records the agreed direction, the plan, the two workflows that feed
+the tool, and the open points with who has to check them. Markers:
+
+- **[OPEN-U]** the product owner has to look something up or decide (needs access to Git or the app).
+- **[OPEN-C]** Claude checks in the code (no input needed).
+- **[RISK]** a design risk to resolve before coding.
+- **[DECIDED]** settled.
+
+### 23.1 Agreed direction
+
+- [DECIDED] Baselines and snapshots live in **Git**; no database table for this feature (§22).
+- [DECIDED] A snapshot = extracted facts (YAML) and, as a rule, both configurations (running and startup).
+- [DECIDED] The baseline is marked by a **pointer file per device** (`baselines/<device>.yaml`, §22.3).
+- [DECIDED] **The user chooses** where the current state comes from: last backup or a fresh snapshot from the
+  device via SSH. The model asks; SSH additionally needs the user's confirmation.
+- [DECIDED] The baseline is only written by a workflow, never by the model.
+
+### 23.2 Simplification: tools diff, workflows produce snapshots
+
+The central idea of this plan: **the tool never talks to a device and never to Batfish.** Two workflows
+produce the data, the tool only reads two stored snapshots and returns the diff.
+
+| Workflow | Produces | Built by | Status |
+|---|---|---|---|
+| **W1: capture baseline** | snapshot files (facts YAML, running and startup config) in Git plus the pointer file `baselines/<device>.yaml` | product owner (name to be given) | [OPEN-U] name, steps, what it writes where |
+| **W2: capture current snapshot** | a fresh snapshot of one device pulled over SSH (same artifacts as W1, but not marked as baseline) | product owner (to be implemented) | [OPEN-U] name, inputs, output location |
+| Existing config backup | latest backup of the configuration in the `device_configs` repository | exists | [OPEN-U] layout |
+
+Consequences:
+
+- **Live SSH is a released workflow (§16), not new SSH code in the assistant.** The assistant uses
+  `propose_workflow_run` for W2 (user confirms), then compares. No new command allow-list, no new SSH
+  path, no scratch Batfish network in the tool: W2 can run the same Batfish extraction steps as W1, so a
+  facts compare is a **diff of two YAML files**, not a Batfish call. This resolves the open scratch-network
+  question of §22.6/§22.9 (4). §13 still applies to W2 as to every released workflow.
+- The tool set shrinks to reads (see 23.3). The playbook (§21) decides the order.
+- W1 and W2 should share the steps that produce the artifacts, so baseline and current snapshot are
+  comparable by construction (same facts keys, same normalisation).
+
+### 23.3 Revised tools (supersedes the tool table in §22.4)
+
+| Tool | Class | Purpose |
+|---|---|---|
+| `get_baseline_status(devices)` | read, metadata | pointer present? time, age, artifacts, hash check (no content) |
+| `get_backup_status(devices)` | read, metadata | latest backup per device: time, age, commit |
+| `get_current_snapshot_status(devices)` | read, metadata | latest W2 result per device (if any): run id, time, age |
+| `get_baseline_diff(device, compare, scope, current)` | read, content (C) | diff of baseline versus `current` = `backup` or `run:<id>` (the snapshot produced by a W2 run); returns the bounded diff envelope (§22.7) with handle |
+| `get_baseline(device, artifact)` | read, content (C) | content of a baseline artifact through a handle |
+| `propose_workflow_run` (§16) | proposal | starts W2 after the user's confirmation; no new tool needed |
+
+Naming note: the diff is a read (immediate, no click) because it only reads Git; the one action with
+effect on a device is W2 behind `propose_workflow_run`. `propose_baseline_compare` from §22.4 is
+dropped.
+
+How "the user decides" is realised:
+
+1. The model reports what exists (baseline age, backup age, whether a recent W2 result exists).
+2. The model **asks** the user: "Compare with the last backup (age X) or fetch a fresh snapshot from the
+   device via SSH?" This is required by the playbook text; for a backup older than a threshold it must
+   say so. (Soft rule, by prompt.)
+3. Backup: the model calls `get_baseline_diff(..., current="backup")`. Live: `propose_workflow_run` for
+   W2 (hard gate: confirmation card, rights, operator switch), then `get_baseline_diff(..., current="run:<id>")`.
+4. If W2 fails (device unreachable), the result says so and the model offers the backup. No silent retry.
+
+### 23.4 Implementation plan (steps)
+
+Order is chosen so each step is testable without a model and without a device.
+
+| Step | Work | Needs | Output |
+|---|---|---|---|
+| B0 | Collect facts (23.7), decide repositories, layout and permission | product owner | answers to the OPEN-U items |
+| B1 | Settings: which `GitRepository` rows hold baselines, snapshots and backups (operator setting referencing `git_repository_id`); a reader service that resolves them via `GitRepositoryService` and `git_checkout` | B0 | `services/.../baseline_repository.py` (name to decide), unit tests with a temporary Git repository |
+| B2 | Pointer model (Pydantic, `extra="forbid"`, version field), path safety (`sanitize_relative_path`, `resolve_within_repo`), hash check | B1 | pointer parser and validator, tests for traversal, bad hash, missing artifact |
+| B3 | `get_baseline_status`, `get_backup_status`, `get_current_snapshot_status` | B1, B2 | three read tools, metadata only |
+| B4 | Normalisation and diff service: config text (via `GitDiffService`) and facts YAML (structural diff); bounded result envelope | B0 (volatile lines, facts keys) | service plus golden tests from real sample files |
+| B5 | `get_baseline_diff` and `get_baseline` with the handle store (phase 1 handles, D6) | B3, B4, phase 1 | read tools, opt-in, redaction tests |
+| B6 | Playbook "device behaves differently after a change" (§21) using the tools | B5 | playbook file, tool-name test |
+| B7 | Wire W2 as a released workflow (§16) and test the live path end to end | W2 built by owner, §16 implemented | live compare |
+| B8 | W1 capture workflow integration: pointer writing, hash and commit handling (23.6) | W1 | baselines can be created in production |
+
+Steps B1 to B6 need no SSH and no Batfish. B7 and B8 depend on the workflows and on phase 2 (§16).
+
+### 23.5 What can already be reused (verified by reading)
+
+| Need | Existing |
+|---|---|
+| Resolve a repository | `services/git/repository_service.py::GitRepositoryService.get_repository` (the step helper `load_git_repository` only wraps it) |
+| Working tree under the repository lease, strict pull | `services/git/sync.py::git_checkout`, `services/git/tree_scope.py` |
+| Safe paths | `services/git/paths.py` (`resolve_within_repo`, `validate_relative_glob`), `sanitize_relative_path` |
+| Text diff and stats | `services/git/diff.py::GitDiffService` (`compare_text_content`, `unified_diff`, `calculate_diff_stats`) |
+| Diff of two refs | `GitService.diff_refs` (no tag support exists) |
+| Writing snapshots to Git in a workflow | `store-artifact` with a Git sink (`services/artifacts/sinks/git_sink.py`) |
+
+### 23.6 Risks to resolve before coding
+
+- [RISK] **Pointer and commit hash.** The pointer shall name the commit containing the snapshot files,
+  but a commit hash is only known after the commit that stores them; writing both in one commit is
+  impossible. Options: make `commit` optional and derive it with `git log -1 -- <path>` (preferred), or let W1
+  commit snapshots first and the pointer in a second commit. Needs a look at how `store-artifact` commits
+  ([OPEN-C]).
+- [RISK] **Can W1 write the pointer with existing steps?** `store-artifact` writes content from fixed
+  `content_source` values; whether a pointer YAML (with a SHA-256 of the files) can be produced by existing
+  steps or needs a small new step is not checked ([OPEN-C]).
+- [RISK] **Parallel runs** writing different devices into the same repository: pointer files per device
+  avoid file conflicts, but pushes can still collide; the repository lease and fan-out rules decide
+  ([OPEN-C]: how other steps push from fan-out children).
+- [RISK] **Staleness:** a backup or baseline can be old. The result always carries both ages; the
+  playbook must mention them.
+- [RISK] **Secrets in configs and facts.** Redaction is best-effort; the opt-in and size caps apply.
+- [RISK] **Facts diff blind spot:** a plain structural diff of two YAML files reports added, removed and
+  changed keys. That is more complete than `validate_facts`, which only compares keys present in the
+  expected file (§22.6).
+
+### 23.7 Open points and who checks them
+
+When the repositories are reachable, the product owner answers these; Claude asks for them one by one.
+
+| ID | Marker | Question | Where to look |
+|---|---|---|---|
+| Q1 | [OPEN-U] | Which Git repositories hold (a) snapshot facts and baselines, (b) config backups? Names, `git_repositories.id`, category, branch | Settings, Git Repositories |
+| Q2 | [OPEN-U] | Exact path layout of existing facts YAML and configs: folders, file names, extension, timestamp format, how device names are written (case, domain suffix) | the repositories |
+| Q3 | [OPEN-U] | Does the existing backup contain both running and startup config? How is the latest backup identified (file name, newest commit, folder)? How often is it written? | backup workflow, repository |
+| Q4 | [OPEN-U] | W1: name of the workflow that creates a baseline; its steps; what it writes where; does it write anything that marks a baseline today? | workflow editor |
+| Q5 | [OPEN-U] | W2: name, inputs (device, credential), where the result is written (Git path or only run artifact), and what marks the run's output as the result | workflow editor (to be built) |
+| Q6 | [OPEN-U] | Which facts are in the YAML (full `extract-facts` output or a subset)? One example file per platform (sanitised) | repository |
+| Q7 | [OPEN-U] | Volatile lines in your configs that must be ignored in diffs (examples per platform) | a few real diffs of backups |
+| Q8 | [OPEN-U] | Who may read baselines and backups: an existing permission (for example Git repository access) or a new one? | RBAC concept, `doc/claude/auth.md` |
+| Q9 | [OPEN-U] | First version: config compare only, or facts compare too? | decision |
+| Q10 | [OPEN-U] | Age threshold at which the assistant must warn that a backup is old (for example 24 h) and typical number of devices per compare | operations |
+| Q11 | [OPEN-C] | How `store-artifact` commits and pushes (one commit per run? message pattern?), what content sources it offers, and whether it can write the pointer file | code: `store_artifact`, `content_resolver.py`, `git_sink.py` |
+| Q12 | [OPEN-C] | How fan-out children push to a shared repository without conflicts (lease, retries) | code: `repo_lock.py`, `git_push_helpers.py` |
+| Q13 | [OPEN-C] | Where an operator setting referencing `git_repository_id` should live (general settings, AI settings) | code: `settings`, `general`, `ai_assistant/settings_service.py` |
+| Q14 | [OPEN-C] | Structure of the real facts output of `batfish-extract-facts` (nested keys, lists, ordering) to design the structural diff | code and `BATFISH_INTEGRATION.md` |
+
+### 23.8 What happens next
+
+1. The product owner sits down with the repositories and the workflow editor and answers Q1 to Q10; the
+   Claude-side checks (Q11 to Q14) can be done any time.
+2. Update §22 and §23 with the answers; fix the pointer format and the layout.
+3. Build B1 to B6 stepwise (23.4), each with tests; then W2 and B7 once the owner has implemented W2 and
+   §16 exists.
+4. Neither workflow nor tools are implemented at this point.
