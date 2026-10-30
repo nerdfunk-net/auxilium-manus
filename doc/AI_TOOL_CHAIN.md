@@ -1862,12 +1862,10 @@ composition, but the playbook (§21) is the first step.
 - [DECIDED 2026-10-30] Nautobot is **one source among others, not the single source of truth**; neighbour
   relations may be missing there (24.11). Still [OPEN-U]: which other places hold neighbour information (other
   documentation systems, a CMDB, monitoring)?
-- [OPEN-C] TextFSM templates beyond `show cdp neighbors` (detail variant, LLDP, routing, OSPF/BGP/EIGRP/IS-IS)
-  per platform (24.4); whether a service-level Genie parser exists for neighbour tables.
-- [OPEN-C] Interface-name canonicalisation (`Gi1/0/1` versus `GigabitEthernet1/0/1`) for matching sources; look at
-  `workflow_steps/common/nautobot_interfaces.py` and Batfish interface naming first.
-- [OPEN-C] Whether `BatfishService` can answer the `edges` question with the edge type needed (layer 1 and
-  layer 3 views), or whether a method must be added (cf. the missing traceroute, §18 fact 6).
+- [CHECKED] TextFSM templates per platform and a service-level Genie path: see 24.14.
+- [CHECKED] Interface-name canonicalisation: no helper exists, it has to be written (24.14).
+- [CHECKED] The Batfish `edges` question takes an `edgeType`; no new service method is needed for the model
+  view, but the model has no CDP data (24.14).
 - Decision needed later: expose the model result (`get_modelled_neighbors`) before the live path; I
   recommend yes, since it is read-only and needs no SSH.
 
@@ -1921,8 +1919,8 @@ neighbour lists, its output the classes above. It is a pure function and testabl
   says when the cap truncated the result.
 - The VRF name is validated (`[A-Za-z0-9_.-]{1,32}`) and must be one of the discovered names (or `default`)
   before it is used in a command.
-- Nautobot VRF data is not in the current attribute query; whether it should be used for VRF discovery is
-  [OPEN-C] (24.10).
+- Nautobot VRF data is not in the current attribute query; whether it should be used for VRF discovery was
+  [CHECKED]: not needed for the first version (24.14).
 
 ### 24.13 Effect on the plan (24.8)
 
@@ -1933,3 +1931,99 @@ neighbour lists, its output the classes above. It is a pure function and testabl
 - N1 starts with the confirmed CDP template; the detail variant and the L3 parsers follow as their templates
   are confirmed.
 - N4 includes the per-VRF commands.
+
+### 24.14 Findings from the code checks, 2026-10-30
+
+Read by code and by inspecting the packages; no device and no Batfish was run.
+
+**TextFSM templates (ntc-templates)**
+
+- netmiko 4.8.0 declares `ntc-templates>=3.1.0` and `textfsm>=1.1.3` (read from its wheel metadata). The
+  project's `requirements.txt` does not pin ntc-templates, so the installed version decides the template set.
+  I inspected **ntc-templates 9.3.0** (the current release when I downloaded it): 979 templates. Confirm with
+  `pip show ntc-templates` in the project environment ([OPEN-U], one command).
+- **IOS-XE has no templates of its own.** netmiko retries `cisco_xe` output with the `cisco_ios` templates
+  (comment "Retry the output if cisco_xe and not structured data" in `utilities.py`), so XE is covered by the
+  IOS column.
+- Availability by platform (template present = yes). *Command matching in ntc-templates is by prefix, so
+  `show ip route vrf X` should use the `show ip route` template; this was inferred from the index patterns and
+  is [OPEN-U] to confirm with real output.*
+
+| Need | IOS / XE | NX-OS | IOS-XR | Junos | EOS | ASA | Comware |
+|---|---|---|---|---|---|---|---|
+| CDP summary (`show cdp neighbors`) | yes | yes | no | n/a | n/a | n/a | n/a |
+| CDP detail (`show cdp neighbors detail`) | yes | yes | yes | n/a | n/a | n/a | n/a |
+| LLDP summary | yes | yes | yes | yes | yes | no | no |
+| LLDP detail | yes | yes | yes | no | yes | no | no |
+| `show ip route` (RIB; vrf suffix by prefix match) | yes | yes | yes | **no** (only `show route summary`) | yes | yes (`show route`) | no |
+| OSPF neighbours | yes | yes | yes | yes | yes | yes | no |
+| BGP summary | yes (`show ip bgp [all] summary`) | yes, plus a `vrf` variant | yes (`show ip bgp summary`, vrf-all variant) | yes | yes | yes | no |
+| EIGRP neighbours | yes (`show ip eigrp neighbors`) | yes | yes | n/a | n/a | n/a | no |
+| IS-IS neighbours | yes | **no** | yes | yes (adjacency) | yes | n/a | no |
+| VRF list | yes (`show vrf`, `show ip vrf interfaces`) | yes (`show vrf`) | yes (`show vrf all detail`) | **no** | yes (`show vrf`) | n/a | no |
+| Route summary (protocol counts) | yes | no | no | yes | no | no | no |
+| `show ip protocols` | **no** | no | no | no | no | no | no |
+
+Consequences for the catalogue (24.5):
+
+- **CDP detail has a template on IOS/XE, NX-OS and XR**, so the preferred command (neighbour IP, platform,
+  software) can be parsed; the summary form is the fallback (XR has detail only).
+- **Protocol discovery cannot use `show ip protocols`** (no template anywhere). Use `show ip route summary`
+  (IOS/XE, Junos `show route summary`), which lists the protocols present in the RIB with counts, or the
+  Batfish process configuration (model). NX-OS, XR and EOS have no route-summary template: use the model or
+  parse the RIB's protocol column.
+- **Per-VRF variants with gaps:** IOS `show ip bgp vpnv4 vrf X summary` and `show ip eigrp vrf X neighbors`
+  have **no matching template**; `show ip bgp all summary` and the plain EIGRP command do. NX-OS has a BGP
+  `vrf` summary template; XR has vrf-all variants for BGP and OSPF. Where a per-VRF template is missing: parse
+  the all-VRF output and filter by the VRF column, run Genie through the shim (below), or report
+  "not supported for this platform and VRF".
+- **Junos:** no TextFSM template for the full route table or the VRF (routing-instance) list. First version:
+  Junos L3 uses the model, adjacency commands (OSPF, BGP, IS-IS) and LLDP; the Junos RIB and instances need
+  Genie or a project-owned template.
+- **Comware and anything else not in the table:** unsupported in the first version.
+- The detail/summary decision from 24.5 stands: try detail, fall back to the summary and say the IP is missing.
+
+**Genie as a service-level fallback.** The step helper `enrich_with_genie` lives in `workflow_steps` (not
+importable), but what it uses is on the service side: `resolve_pyats_os` (`services/network/pyats/platform.py`),
+`PyATSSourceConfigService(db).resolve_credentials(source_id)` and
+`service_factory.get_pyats_app_service().parse_batch(credentials, devices={id: {os, commands: [{command, output}]}})`.
+So a tool can send the raw output it already fetched to the pyATS shim and get a Genie parse, **if a pyATS
+source is configured**. It stays non-fatal (raw output remains) as in the step. Use it only for the gaps above.
+
+**Interface-name canonicalisation: nothing to reuse.**
+
+- The only interface-name code is `infer_interface_type_from_name` (prefix to Nautobot type) in
+  `workflow_steps/common/nautobot_interfaces.py`; it has prefix tables (`te`, `twe`, `fo`, `hu`, `xe`, ...) but
+  no function that maps short to long names and it is a workflow-step module anyway.
+- The forms to reconcile: Batfish and configs use the full names (`GigabitEthernet1/0/1`); CDP *summary*
+  prints short names with a space (`Gig 1/0/1`, `Ten 1/1/1`, `Fas 0/1`); CDP *detail* and LLDP print the full name;
+  NX-OS says `Eth1/1` while configs say `Ethernet1/1`; Nautobot has whatever name was entered.
+- Plan: a pure helper in `services/` (for example `services/network/interface_names.py`), a prefix table to a
+  canonical long name per platform family (`gi`, `gig` to `GigabitEthernet`; `fa`, `fas` to `FastEthernet`; `te`, `ten`
+  to `TenGigabitEthernet`; `twe` to `TwentyFiveGigE`; `fo` to `FortyGigabitEthernet`; `hu` to `HundredGigE`; `eth` to
+  `Ethernet` on NX-OS; `po` to `Port-channel`; `lo` to `Loopback`; `vl` to `Vlan`), whitespace and case
+  normalisation, tested with a table of real examples. The reconciliation (24.11) compares the canonical form;
+  the original string is kept for display. [OPEN-U] real interface names from the fleet to build the table from.
+
+**Batfish `edges`.** The question exists in the Batfish question set (`questions/stable/edges.json`) with
+`edgeType` (one of `bgp`, `eigrp`, `ipsec`, `isis`, `layer1`, `layer3`, `ospf`, `user_provided_layer1`,
+`vxlan`), `nodes`, `remoteNodes` and `initial`. It is already in the app's ad-hoc allow-list, so
+`BatfishService.generic_question` can serve it without a new service method (whether the ad-hoc helper passes
+`edgeType` through was not exercised; check at N3). **Important limit for L2:** Batfish does not model CDP/LLDP.
+`layer1` edges come from a user-provided Layer 1 topology only, so `get_modelled_neighbors(layer=l2)` returns
+nothing unless such a topology was supplied. The model is a source for **L3 adjacencies and protocol edges**
+(`layer3`, `ospf`, `bgp`, `eigrp`, `isis`); for L2 the sources are the live device and Nautobot's cabling.
+
+**Nautobot VRFs.** Not needed for the first version: VRFs are discovered from the model (the Batfish `routes`
+question has a VRF column) or from the device (`show vrf` on IOS/NX-OS/XR/EOS). The Nautobot attribute query
+does not include VRFs and need not be extended now.
+
+**Effect on the plan (24.8, 24.13).**
+
+- N0: confirm the ntc-templates version, the platforms in the fleet and sample output; this decides the
+  supported matrix above.
+- N1: parsers use the templates in the table; missing ones are marked unsupported or routed to Genie.
+- N2: add the interface-name helper and its table-driven tests.
+- N3: `get_modelled_neighbors` handles L3 edges only and says clearly that L2 is not modelled.
+- Add a "supported platforms and VRF variants" test that checks, for every row of the command catalogue, that
+  a template exists in the installed ntc-templates (fails the build when a catalogue entry has no parser).
