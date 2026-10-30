@@ -1277,7 +1277,7 @@ model is told to skip steps whose tools are missing and to say so.
 
 - Granularity: one playbook per symptom (as above) or per domain (routing, switching, wireless)?
 - Should `list_playbooks` be called automatically by the surface prompt, or only on request?
-- Where do site-specific playbooks live: same folder, or a separate path that is not shipped?
+- Where do site-specific playbooks live? Proposal in §25 (a local directory on the data volume, overlaid on the built-in ones).
 - Language of playbooks (English like the other knowledge files, or German for German users)?
 - Do playbooks count toward the data-class model (they are class A) and the audit line
   (`audit_refs` with the playbook name)?
@@ -2027,3 +2027,165 @@ does not include VRFs and need not be extended now.
 - N3: `get_modelled_neighbors` handles L3 edges only and says clearly that L2 is not modelled.
 - Add a "supported platforms and VRF variants" test that checks, for every row of the command catalogue, that
   a template exists in the installed ntc-templates (fails the build when a catalogue entry has no parser).
+
+## 25. Local, organisation-specific playbooks
+
+Status 2026-10-30: requirement and proposal, no code.
+
+### 25.1 Requirement
+
+Most playbooks (§21) only make sense for one organisation. "How is branch office A connected?" has no
+generic answer: it depends on how sites are named, which devices play the WAN-edge role, which carriers and
+protocols are used, where the documentation lives. The model cannot guess this, so **the operator must be
+able to write and change playbooks locally**, without a code change or a new image. A restart of the
+application or the container is acceptable; being able to adapt the playbooks at all is what matters.
+
+### 25.2 What local knowledge consists of
+
+| Kind | Example | Where it is used |
+|---|---|---|
+| **Local playbooks** | "How is site X connected?", "Is the VPN up for site Y?", "Which device terminates carrier Z?" | `list_playbooks`, `get_playbook` (§21) |
+| **Organisation reference** (shared facts) | site-code scheme and how it maps to device names, role names (`wan-edge`, `core`), which routing protocol runs where, where circuit data lives, escalation contacts | referenced by many playbooks; returned by a small read tool (25.5) |
+| **Overlay for existing knowledge files** | local additions to `workflow_recipes.md`, `inventory_reference.md` | appended to what the existing tools return |
+| **Glossary** (exists) | "branch" means filter `location_type=branch` | `get_glossary`, administrator-defined in the database (`AI_ASSISTANT.md` §15) |
+
+The glossary already holds organisation words; playbooks hold organisation *procedures*. A playbook can
+use glossary terms ("resolve the site with `get_glossary` / the inventory tools").
+
+### 25.3 Example: "How is branch office A connected?"
+
+A local playbook for such a question typically encodes:
+
+1. **How to find the site's devices**: site code in the name (for example `sitea-rt01`), the Nautobot
+   location, a role filter for the WAN edge; which inventory filter or glossary term to use.
+2. **Where the answer is documented**: circuit IDs in a custom field or a Git file; which source wins when
+   sources disagree (cf. §24.11).
+3. **What to look at**: L2 neighbours of the edge devices (§24 tools) to find the access switch and the
+   hand-off; the routing protocol at the WAN edge for this organisation (for example eBGP to the carrier,
+   OSPF inside), including the VRF name; the tunnels or interfaces that carry the primary and backup path.
+4. **How to phrase the answer** in the organisation's terms (primary MPLS via carrier X, backup DSL), with
+   evidence and ages, and what was not checked.
+
+Sketch of the file (front matter as in §21.4):
+
+```markdown
+---
+name: site-connectivity
+title: How is a branch office connected?
+when: "how is <site> connected; what links does <site> have; which carrier serves <site>"
+tools: [list_inventories, resolve_inventory, get_documented_neighbors, get_modelled_neighbors,
+        propose_neighbor_discovery, get_baseline_status]
+scope: read-only
+data_class: B
+---
+## When to use
+## Organisation facts used
+- Site codes: three letters + digit (sitea1); devices are named <site>-rt01/-sw01 (see organisation reference).
+- WAN edge role: wan-edge; carriers: MPLS (eBGP, VRF CARRIER-A), DSL backup (IPsec, VRF INET).
+## Steps
+1. Resolve the site: ... (glossary or inventory filter)
+2. Find the WAN edge devices (role wan-edge) ...
+3. Ask the user whether to use documented/modelled data or a live check ...
+## Report
+...
+```
+
+All names above are examples, not facts about any organisation.
+
+### 25.4 How local content is provided
+
+Two layers, merged when the playbooks are loaded:
+
+| Layer | Location | Owner | Changes with |
+|---|---|---|---|
+| **Built-in** | `backend/services/ai_assistant/knowledge/playbooks/` (in the image) | developers, reviewed in Git | a release |
+| **Local** | a directory on the **data volume**: `${DATA_DIRECTORY}/ai/playbooks/` (default `/app/data/ai/playbooks/`), overridable with an environment variable (for example `AI_PLAYBOOK_DIR`) | the operator of the installation | a file edit and a restart (or reload, 25.6) |
+
+Why the data volume: `docker/docker-compose.yml` already sets `DATA_DIRECTORY: /app/data` and mounts
+`./data:/app/data` for the web and worker services, so files placed there survive container recreation and
+image updates and are included in whatever backs up the data directory. No new mount is required. (Only the
+web process serves the assistant; workers do not need the directory.)
+
+Merge rules:
+
+- Same `name` in both layers: **local overrides built-in**; `list_playbooks` shows `source: local` and
+  `overrides_builtin: true`.
+- A local file may set `disabled: true` to hide a built-in playbook of that name.
+- Local-only names are added.
+- The organisation reference is one local file (for example `${DATA_DIRECTORY}/ai/organisation.md`); a missing
+  file means the tool says "no organisation reference configured".
+- Overlay for existing knowledge files: `${DATA_DIRECTORY}/ai/knowledge/<file>.local.md` is appended under a
+  heading "Local additions" to what `get_workflow_recipes`, `get_inventory_reference` and similar tools return.
+
+### 25.5 Tools
+
+| Tool | Class | Change |
+|---|---|---|
+| `list_playbooks`, `get_playbook` (§21.3) | read | read the merged set; each entry carries `source` (`builtin` or `local`) and validity |
+| `get_organisation_reference` | read | returns the local organisation reference (or "not configured"); the prompt of the `general` surface says to read it when a question names a site, role or carrier; playbooks refer to it by name |
+
+Local invalid files are never silent: `list_playbooks` marks them `invalid` with the reason (visible to users
+who may manage the assistant), they are not offered to the model, and the load logs a warning.
+
+### 25.6 Validation, trust and reloading
+
+- **Validation at load time** (the same checks as for built-in playbooks, §21.7): front matter fields and
+  length caps; `name` equals the file name; `scope: read-only` enforced; every named tool exists in the toolbox
+  of the surface (a typo is reported, not ignored); the deny pattern for configuration commands; size cap per
+  file and in total.
+- **A standalone check** `backend/scripts/check_playbooks.py [--dir PATH]` validates built-in and local
+  files without starting the application, in the style of the other guard scripts, so an operator can test
+  an edit before restarting.
+- **Trust:** local files are written by whoever has access to the installation's data volume, i.e. an
+  operator with the same trust as an administrator. They are not user input and never come from chat text,
+  device output or the model. A playbook cannot grant rights: it only names tools, and every tool still
+  checks the user's rights, the operator switch and the confirmation rules (D2, D3). `propose_*` tools
+  named in a local playbook still need the user's click.
+- **Reloading:** the existing knowledge files are read once per process (`@cache`) and need a restart
+  (`knowledge/README.md`); that is acceptable here. A cheap improvement is to check file modification times
+  on each `list_playbooks` and reload changed files, so an edit is live without a restart. Not required.
+- **Data sensitivity:** local playbooks and the organisation reference describe internal topology and are
+  sent to the configured LLM provider when the model reads them. Front matter carries `data_class` (default
+  `A`); content that names internal systems should be marked `B`, which is then subject to the user's data-sharing
+  opt-in like other device-derived data (§4 and `data_sharing.py`). Authors are warned in the template file
+  and in the documentation not to put credentials, secrets or customer data into playbooks. Redaction still
+  applies to tool output.
+
+### 25.7 Authoring support
+
+- A template file `_template.md` and one worked example per kind (built-in `examples/` in the documentation,
+  not loaded as playbooks).
+- Documentation in `backend/services/ai_assistant/knowledge/README.md` extended: where local files live, the
+  precedence rule, how to validate, how to restart, how to check that the model uses the playbook.
+- A short checklist for authors (steps with exact tool names, decision points, stop conditions, report shape,
+  nothing that changes configuration) and how to test: ask the question in the assistant and read the tool
+  calls in the panel; keep two or three scripted scenarios (§21.7).
+
+### 25.8 Later options (not part of the first version)
+
+| Option | Idea | Trade-off |
+|---|---|---|
+| **Git as the source** | a `GitRepository` row (a new category such as `playbooks`) holds the local playbooks; they are pulled like other repository content | versioned, reviewed, shared between instances; needs a new category and the pull/lease handling (§23.9) |
+| **Editor in the UI** | an administrator edits playbooks in Settings, stored in the database like the glossary | convenient; adds a table, versioning and admin-only rules (P3-style); would be another reason to prefer Git for history |
+| **Per-user playbooks** | each user keeps private variants | more surface, prompt-injection and sharing questions; not planned |
+
+The first version is the file-based layer with a restart, which fulfils the requirement and matches how the
+existing knowledge files already work.
+
+### 25.9 Open questions
+
+- [OPEN-U] Directory name and location: `${DATA_DIRECTORY}/ai/playbooks/` and an environment variable
+  `AI_PLAYBOOK_DIR` acceptable? Is the data volume mounted (and backed up) in every deployment form (compose,
+  all-in-one image)?
+- [OPEN-U] Who writes organisation playbooks and the organisation reference, and in which language (the
+  built-in knowledge is English; the organisation may prefer German)?
+- [OPEN-U] Is it acceptable that local playbook text goes to the LLM provider (`data_class`), or should such
+  content only be used with the local provider option?
+- [OPEN-U] Which first local playbooks matter most (for example "how is site X connected")? A real example
+  helps to fix the structure of the organisation reference.
+- [OPEN-C] How the existing `get_*_reference` tools can take the overlay (they read their files through
+  cached functions in `tools/*.py`), and how the load interacts with `@cache`.
+- [OPEN-C] Whether `AI_ALLOWED_DATA`/`data_sharing.py` has a class that fits `B` for operator-written text, or whether
+  a new class is needed.
+- [OPEN-C] Packaging: whether the Dockerfiles copy `knowledge/` and whether an empty
+  `${DATA_DIRECTORY}/ai/` needs creating at start.
