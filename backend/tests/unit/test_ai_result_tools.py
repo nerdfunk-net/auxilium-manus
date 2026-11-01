@@ -103,7 +103,9 @@ class ResultToolsTests(unittest.IsolatedAsyncioTestCase):
 
     def test_tool_names_follow_the_read_rule(self) -> None:
         for tool in build_result_tools():
-            self.assertTrue(tool.name.startswith(("query_", "fetch_", "get_", "list_")), tool.name)
+            self.assertTrue(
+                tool.name.startswith(("query_", "fetch_", "get_", "list_", "diff_")), tool.name
+            )
             self.assertFalse(tool.name.startswith(("run", "trigger", "execute", "start", "delete")))
 
     # -- query_result ------------------------------------------------------------------------

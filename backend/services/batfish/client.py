@@ -195,6 +195,44 @@ class BatfishService:
         # live coordinator: the shape of "Traces" is checked when the tool is built.
         return await self._answer(connection, batfish_network, snapshot, "traceroute", params)
 
+    async def compare_filters(
+        self,
+        connection: BatfishConnection,
+        *,
+        batfish_network: str,
+        snapshot: str,
+        reference_snapshot: str,
+        **params: Any,
+    ) -> list[dict[str, Any]]:
+        # Differential-only question: same-named filters that treat a common flow differently.
+        return await self._answer(
+            connection,
+            batfish_network,
+            snapshot,
+            "compareFilters",
+            params,
+            reference_snapshot=reference_snapshot,
+        )
+
+    async def differential_reachability(
+        self,
+        connection: BatfishConnection,
+        *,
+        batfish_network: str,
+        snapshot: str,
+        reference_snapshot: str,
+        **params: Any,
+    ) -> list[dict[str, Any]]:
+        # Differential-only question: example flows that succeed in one snapshot but not the other.
+        return await self._answer(
+            connection,
+            batfish_network,
+            snapshot,
+            "differentialReachability",
+            params,
+            reference_snapshot=reference_snapshot,
+        )
+
     async def test_filters(
         self, connection: BatfishConnection, *, batfish_network: str, snapshot: str, **params: Any
     ) -> list[dict[str, Any]]:
@@ -410,16 +448,22 @@ class BatfishService:
         snapshot: str,
         question_name: str,
         params: dict[str, Any],
+        reference_snapshot: str | None = None,
     ) -> list[dict[str, Any]]:
         session = await self._get_session(connection, network)
         # None means "not set" -- pybatfish question constructors reject
         # unexpected kwargs, so omit rather than pass None through.
         clean_params = {k: v for k, v in params.items() if v is not None}
         row_limit = PREVIEW_ROW_LIMIT.get()
+        # A differential answer (doc/AI_TOOL_CHAIN.md §27.0b) compares ``snapshot`` with
+        # ``reference_snapshot``; every other question keeps the plain one-snapshot call.
+        answer_args: dict[str, Any] = {"snapshot": snapshot}
+        if reference_snapshot is not None:
+            answer_args["reference_snapshot"] = reference_snapshot
 
         def _run() -> list[dict[str, Any]]:
             question = getattr(session.q, question_name)
-            answer = question(**clean_params).answer(snapshot=snapshot)
+            answer = question(**clean_params).answer(**answer_args)
             # A question the coordinator ran but couldn't turn into a result
             # table (typically an unresolved node/location specifier) comes
             # back as a plain Answer, not a TableAnswer -- it has no .frame().

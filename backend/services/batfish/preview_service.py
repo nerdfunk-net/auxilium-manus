@@ -30,6 +30,8 @@ from typing import Any
 
 from models.batfish import (
     BatfishBgpFactsQueryRequest,
+    BatfishCompareFiltersQueryRequest,
+    BatfishDifferentialReachabilityQueryRequest,
     BatfishExtractFactsQueryRequest,
     BatfishGenericQueryRequest,
     BatfishInterfacePropertiesQueryRequest,
@@ -55,10 +57,13 @@ from services.batfish.node_properties_spec import NODE_PROPERTIES_SPEC
 from services.batfish.ospf_facts import OSPF_QUESTION_SPECS
 from services.batfish.query_helpers import (
     assert_batfish_network_exists,
+    assert_snapshot_exists,
     query_bgp_edges,
     query_bgp_peer_configuration,
     query_bgp_process_configuration,
     query_bgp_session_status,
+    query_compare_filters,
+    query_differential_reachability,
     query_generic,
     query_interface_properties,
     query_node_properties,
@@ -117,6 +122,77 @@ class BatfishPreviewService:
                 self._batfish, connection, clean_network
             )
         return connection, resolved_snapshot
+
+    async def _resolve_pair(
+        self, source_id: str, network: str, snapshot: str | None, reference_snapshot: str
+    ) -> tuple[BatfishConnection, str, str]:
+        """Both snapshots of a differential question: ``snapshot`` (default newest) and an
+        explicit ``reference_snapshot`` that must exist and differ from it."""
+        connection, resolved = await self._resolve(source_id, network, snapshot)
+        reference = reference_snapshot.strip()
+        if not reference:
+            raise ValueError("reference_snapshot is required")
+        if reference == resolved:
+            raise ValueError(
+                f"The reference snapshot must differ from the snapshot compared ({resolved!r})."
+            )
+        await assert_snapshot_exists(self._batfish, connection, network.strip(), reference)
+        return connection, resolved, reference
+
+    async def run_compare_filters(
+        self, source_id: str, request: BatfishCompareFiltersQueryRequest
+    ) -> BatfishQueryResponse:
+        connection, snapshot, reference = await self._resolve_pair(
+            source_id, request.network, request.snapshot, request.reference_snapshot
+        )
+        rows = await query_compare_filters(
+            self._batfish,
+            connection,
+            batfish_network=request.network.strip(),
+            snapshot=snapshot,
+            reference_snapshot=reference,
+            nodes=request.nodes,
+            filters=request.filters,
+        )
+        return BatfishQueryResponse(
+            success=True,
+            question="compareFilters",
+            network=request.network,
+            snapshot=snapshot,
+            reference_snapshot=reference,
+            rows=rows,
+        )
+
+    async def run_differential_reachability(
+        self, source_id: str, request: BatfishDifferentialReachabilityQueryRequest
+    ) -> BatfishQueryResponse:
+        start_node = require_field(request.start_node, "start_node")
+        connection, snapshot, reference = await self._resolve_pair(
+            source_id, request.network, request.snapshot, request.reference_snapshot
+        )
+        rows = await query_differential_reachability(
+            self._batfish,
+            connection,
+            batfish_network=request.network.strip(),
+            snapshot=snapshot,
+            reference_snapshot=reference,
+            start_node=start_node,
+            end_node=request.end_node,
+            dst_ips=request.dst_ips,
+            src_ips=request.src_ips,
+            applications=request.applications,
+            ip_protocols=request.ip_protocols,
+            max_traces=request.max_traces,
+            ignore_filters=request.ignore_filters,
+        )
+        return BatfishQueryResponse(
+            success=True,
+            question="differentialReachability",
+            network=request.network,
+            snapshot=snapshot,
+            reference_snapshot=reference,
+            rows=rows,
+        )
 
     async def run_routes(
         self, source_id: str, request: BatfishRoutesQueryRequest

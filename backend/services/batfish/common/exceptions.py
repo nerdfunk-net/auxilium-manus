@@ -9,6 +9,14 @@ class BatfishError(Exception):
     """Base exception for Batfish operations."""
 
 
+class FilterNotFoundError(RuntimeError):
+    """``testFilters`` returned no rows: the node or filter name matches nothing in the snapshot.
+
+    A ``RuntimeError`` subclass so callers that already catch ``RuntimeError`` (the ACL-check step,
+    the preview endpoint) keep working, while the assistant can tell this case from any other
+    runtime failure."""
+
+
 class BatfishValidationError(BatfishError):
     """Raised when config/input validation fails, or the coordinator rejects the request."""
 

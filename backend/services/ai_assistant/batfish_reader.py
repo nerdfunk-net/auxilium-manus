@@ -22,18 +22,22 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Any, Literal, cast
+from typing import Any, cast
 
 import service_factory
 from core.database import SessionLocal
 from core.safe_http_errors import client_error_message
 from models.batfish import (
     MAX_PREVIEW_ROWS,
+    BatfishCompareFiltersQueryRequest,
+    BatfishDifferentialReachabilityQueryRequest,
     BatfishExtractFactsQueryRequest,
     BatfishGenericQueryRequest,
     BatfishInterfacePropertiesQueryRequest,
     BatfishQueryResponse,
+    BatfishReachabilityQueryRequest,
     BatfishRoutesQueryRequest,
+    BatfishTestFiltersQueryRequest,
     BatfishTracerouteQueryRequest,
 )
 from services.ai_assistant.tools.batfish_tools import (
@@ -41,11 +45,16 @@ from services.ai_assistant.tools.batfish_tools import (
     BatfishAnswer,
     BatfishInputError,
     BatfishUnavailableError,
+    QueryKind,
 )
 from services.auth.login_rate_limiter import RateLimitExceededError
 from services.auth.rbac_service import RBACService
 from services.batfish.client import PREVIEW_ROW_LIMIT
-from services.batfish.common.exceptions import BatfishAnswerFailedError, BatfishValidationError
+from services.batfish.common.exceptions import (
+    BatfishAnswerFailedError,
+    BatfishValidationError,
+    FilterNotFoundError,
+)
 from services.batfish.credentials import BatfishConnection
 from services.batfish.preview_service import BatfishPreviewService
 from services.batfish.query_helpers import assert_batfish_network_exists
@@ -61,7 +70,7 @@ RATE_LIMIT_BUCKET = "batfish-query"
 RATE_LIMIT_ATTEMPTS = 30
 RATE_LIMIT_WINDOW_SECONDS = 60
 
-Kind = Literal["routes", "traceroute", "bgp_sessions", "interfaces", "facts"]
+Kind = QueryKind
 
 
 class _ResolvedSource:
@@ -154,6 +163,11 @@ class DbBatfishReader:
         finally:
             PREVIEW_ROW_LIMIT.reset(token)
         created = await self._snapshot_created(connection, network, response.snapshot)
+        reference_created = (
+            await self._snapshot_created(connection, network, response.reference_snapshot)
+            if response.reference_snapshot
+            else None
+        )
         rows = response.rows
         if kind == "facts":
             # extract_facts answers per node, not as rows: one row per node keeps the tools uniform.
@@ -165,6 +179,8 @@ class DbBatfishReader:
             rows=rows,
             snapshot=response.snapshot,
             snapshot_created=created,
+            reference_snapshot=response.reference_snapshot,
+            reference_created=reference_created,
             truncated=response.truncated,
         )
 
@@ -196,6 +212,21 @@ class DbBatfishReader:
                 network=network, snapshot=snapshot, **params
             )
             return await preview.run_interface_rows(source_id, iface)
+        if kind == "reachability":
+            reach = BatfishReachabilityQueryRequest(network=network, snapshot=snapshot, **params)
+            return await preview.run_reachability(source_id, reach)
+        if kind == "compare_filters":
+            cmp_request = BatfishCompareFiltersQueryRequest(
+                network=network, snapshot=snapshot, **params
+            )
+            return await preview.run_compare_filters(source_id, cmp_request)
+        if kind == "differential_reachability":
+            diff_request = BatfishDifferentialReachabilityQueryRequest(
+                network=network, snapshot=snapshot, **params
+            )
+            return await preview.run_differential_reachability(source_id, diff_request)
+        if kind == "acl":
+            return await self._run_acl(preview, source_id, network, snapshot, params)
         if kind == "facts":
             nodes_filter = (params.get("nodes") or "").strip() or "/.*/"
             facts = BatfishExtractFactsQueryRequest(
@@ -203,6 +234,26 @@ class DbBatfishReader:
             )
             return await preview.run_extract_facts(source_id, facts)
         raise BatfishInputError(f"Unknown Batfish query '{kind}'.")
+
+    @staticmethod
+    async def _run_acl(
+        preview: BatfishPreviewService,
+        source_id: str,
+        network: str,
+        snapshot: str | None,
+        params: dict[str, Any],
+    ) -> BatfishQueryResponse:
+        request = BatfishTestFiltersQueryRequest(network=network, snapshot=snapshot, **params)
+        try:
+            return await preview.run_test_filters(source_id, request)
+        except FilterNotFoundError as exc:
+            # testFilters returns nothing when the device or filter name matches nothing; any
+            # other RuntimeError is not a bad name and takes the 'unavailable' path.
+            logger.info("testFilters matched nothing: %s", exc)
+            raise BatfishInputError(
+                "Batfish found no filter with that name on that device in this snapshot. Get the "
+                "name from get_interface_properties (Incoming_Filter_Name / Outgoing_Filter_Name)."
+            ) from exc
 
     # -- helpers -----------------------------------------------------------------------------
 

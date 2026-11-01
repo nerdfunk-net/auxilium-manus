@@ -1291,11 +1291,24 @@ database: **everything lives in Git, nothing in PostgreSQL.**
 > workflows create them) and lists the open points with owners. Where §22.4/22.5/22.6 and §23 differ,
 > §23 is the newer proposal.
 
+> **Correction (2026-11-01, product owner): the baseline is not a Batfish feature.** §22 and §23 were written on
+> the assumption that a baseline is built from Batfish data (snapshots = `batfish-extract-facts` output plus
+> configs, facts compared with `validate_facts`, a `batfish` Git category for baselines). That assumption was
+> wrong and came from the product owner's own earlier statement. The baseline feature belongs to the **pyATS
+> side** (Genie "learn" snapshots: `get-pyats-snapshot`, `compare-pyats-snapshot`, `store-artifact` with
+> `content_source=pyats_snapshot`; see `doc/PYATS_INTEGRATION.md` "Genie-native snapshot comparison") and is to be
+> implemented later. **Treat §22 and §23 as unverified earlier thinking, not as the design:** everything in them
+> that names Batfish (the snapshot definition in 22.1, the `facts` row in 22.6, the Batfish-based W1/W2 artifacts
+> and the Batfish steps in 23.2) must be redone from the pyATS steps when that work starts. The parts that do not
+> depend on Batfish (Git pointer files, "the model never writes a baseline", the user choosing backup or live,
+> diff normalisation, the staleness rule) may still carry over. Comparing two **Batfish** snapshots is a different,
+> existing capability: `diff_results` (§27.0b) and Batfish's own differential questions.
+
 ### 22.1 Terms
 
-- **Snapshot:** what Batfish and the workflows store in Git for one device at one point in time:
-  the **extracted facts** (YAML, from `batfish-extract-facts`) and, as a rule, **both
-  configurations** (running and startup).
+- **Snapshot** *(premise superseded, see the correction above; this was the Batfish-based definition)*: what
+  Batfish and the workflows store in Git for one device at one point in time: the **extracted facts** (YAML, from
+  `batfish-extract-facts`) and, as a rule, **both configurations** (running and startup).
 - **Baseline:** a snapshot that has been marked as the reference. Marking = a per-device
   *pointer file* (22.3). "Baseline" is not a concept in the code today (`grep` finds none); this section
   defines it. The workflow that captures and marks baselines is built later and not part of the tools.
@@ -1448,6 +1461,10 @@ result and the playbook text requires mentioning it.
 | Capture/mark workflow (writes snapshots and pointers) | workflow, §16 release | separate work, before the tools can be useful in production |
 
 ## 23. Baseline tool: plan, open points, workflows
+
+> **On hold, and its Batfish premise is wrong (2026-11-01).** See the correction at the top of §22: the baseline
+> feature belongs to the pyATS side and will be designed from `get-pyats-snapshot` / `compare-pyats-snapshot`.
+> The open points below (Q1 to Q10 and so on) are not to be answered in this form.
 
 Status 2026-10-30: **plan only.** The exact implementation will be walked through step by step, with the
 repositories at hand. This section records the agreed direction, the plan, the two workflows that feed
@@ -2282,7 +2299,8 @@ existence guard and the call see them.
 
 **Not done / not verified.**
 
-- The frontend (below) is built but has only been tested with unit tests, not looked at in a browser.
+- The frontend (§27.1) has been used in the browser by the product owner (the page, the chat, Markdown answers,
+  tool progress lines); only unit tests cover the details.
 - Live checks (product owner, 2026-11-01). Lab with one router: `get_interface_properties` returned the right
   interfaces. Lab with OSPF and no BGP (two routers, `lab` and `lab-2`): the model's answers (not raw rows)
   confirm `get_routes` (connected and OSPF route; a bare IP resolved to its covering /24, so longest-prefix match
@@ -2290,12 +2308,34 @@ existence guard and the call see them.
   zero rows, so `get_bgp_session_status` is verified only for the empty case; its column names are
   **unverified** until a network with sessions is asked (the product owner will try the production BGP setup and
   open a new session for fixes). Redis handles (results above 20 rows) were not exercised with a table that large.
-- Step 7 acceptance (§10a: "which route does 10.1.2.3 use on r1, and where does a packet to it go?" in at
-  most 3 calls, with the smallest supported model) is not run.
+- Step 7 acceptance (§10a: "which route does 10.1.2.3 use on r1, and where does a packet to it go?"):
+  run live 2026-11-01 (product owner, lab): **two tool calls** (`get_routes`, `get_traceroute`), so the "at most
+  3 calls" criterion is met. Not yet repeated with the smallest supported model.
 - Per-surface step budget (§6.4) is **done** (2026-11-01): `agent_loop.RunBudget` (steps, total tokens, wall
   clock; steps clamped to `HARD_MAX_TOOL_STEPS = 24`), carried by `AssistantSession.budget` and passed through
   `stream_chat`. Other surfaces keep the default (8 steps, no token/time limit); `general` uses
   `surfaces.GENERAL_BUDGET` (16 steps, 400k tokens, 180 s). The numbers are first guesses, to be tuned from use.
+
+### 27.0-A Batfish tool inventory (end of 2026-11-01)
+
+| Tool | Status | Live check (product owner, lab) |
+|---|---|---|
+| `list_batfish_networks`, `list_batfish_snapshots` | done | used in every question |
+| `get_routes` | done | confirmed (connected, OSPF, longest-prefix match) |
+| `get_traceroute` | done | confirmed (`Traces` shape recognised) |
+| `get_interface_properties` | done | confirmed |
+| `get_device_facts` | done | confirmed after the section-nesting fix (§27.0) |
+| `check_reachability`, `analyze_acl` | done | confirmed (§27.0a) |
+| `compare_filters`, `differential_reachability` | done | confirmed by the answers; the `Snapshot_*` / `Reference_*` side mapping was not checked against raw rows (§27.0c) |
+| `get_bgp_session_status` | done | empty case only; columns **unverified** until the production BGP setup is asked |
+| `query_result`, `fetch_slice` | done | handles above 20 rows not exercised with a large real table |
+| `diff_results` | done | not tried live |
+
+**Not built (candidates, none needed for the first playbook):** diagnostics (`get_parse_warnings`,
+`get_undefined_references`, init issues), `compare_routes`, BGP RIB / peer configuration / OSPF details,
+`detect_loops`, `search_filters`, a bidirectional traceroute, `get_ip_owners` / `get_edges` (see §24), and an
+allow-listed question catalog (§15.5). Diagnostics are the first to add if wrong answers turn out to come from
+configs Batfish did not parse.
 
 ### 27.0 `get_device_facts` (2026-11-01)
 
@@ -2312,6 +2352,80 @@ reported" for every device. `batfish_shaping._node_facts` now folds the sections
 facts, not where they sit. A real answer from the product owner's lab (three devices) confirmed the sections and that `Hostname`,
 `Domain_Name`, `Configuration_Format`, `VRFs` and `Zones` are top-level; `Canonical_IP` does not occur in it and
 was removed from the offered keys. `tests/unit/test_ai_batfish_tools.py` has a test built from those values.
+
+### 27.0a `analyze_acl` and `check_reachability` (2026-11-01)
+
+`analyze_acl` wraps `testFilters` (one flow, one named filter on one device), `check_reachability` wraps
+`reachability` (with `ignore_filters`, so the model can compare with and without ACLs). Both reuse the preview
+service; the reader gained the kinds `acl` and `reachability`. A filter that matches nothing is an input error with
+a hint to use the names from `get_interface_properties`. The filter name cannot start with `/` (a regex specifier).
+
+**Decision for the product owner:** §27 said both would need the content class. I made `analyze_acl` addresses
+class for the verdict and filter name, with the matching line (`Line_Content`, config text) only under the
+content opt-in (same pattern as interface descriptions: then the whole stored table is content-class), and
+`check_reachability` addresses class because it returns only dispositions and paths. If you want the stricter
+rule, change `data_class` in `_analyze_acl` / `_check_reachability` and the gate in `_run`.
+Tool names `analyze_*` and `check_*` are now allowed read prefixes (`test_ai_hardening`, `test_ai_general_surface`).
+**Verified live (product owner, 2026-11-01, lab):** a reachability question (with and without filters) and an
+"does this ACL permit this flow" question were both answered correctly. The `testFilters` columns (`Action`,
+`Line_Content`, `Filter_Name`, `Node`, `Flow`) and the `Traces` shape of `reachability` are therefore confirmed in
+effect (the answers were prose, not raw rows).
+
+### 27.0b `diff_results` (2026-11-01)
+
+Compares two stored tables by handle: `tools/result_diff.py` (pure: keyed or multiset diff), `tools/diff_tool.py`
+(handles under the calling user, class of **both** checked on every read, redaction, result published as an
+envelope with a handle of its own, class = the stricter of the two). The typical use is the same query on two
+snapshots. Limits worth knowing: top-level `ignore_fields` only; the stored copies are already redacted (a changed
+secret shows as the same token); a table stored as a size-limited prefix is compared as stored, and the handle's
+note ("holds only the first N rows") is not carried into the diff. Not tried live yet.
+
+*Fixed after review (2026-11-01):* `StoredResult.partial` is set when a table was cut at the Batfish preview cap or to
+fit the store; `diff_results` then says the comparison covers only a prefix, reports `complete: false` and an
+inexact total. A row that lacks a key column is refused (an absent column no longer equals a null value).
+
+**Comparing two Batfish snapshots.** With the existing tools: run the same query twice with `snapshot=` set to each
+snapshot (for example `get_routes` or `get_device_facts`), then `diff_results` on the two handles with key columns.
+Batfish can also compare natively: most questions accept a `reference_snapshot` in `answer()` (pybatfish
+`bf.q.routes().answer(snapshot=..., reference_snapshot=...)`), and two questions exist only in differential form:
+`compareFilters` (same-named filters whose lines permit and deny a common flow differently) and
+`differentialReachability` (example flows that succeed in one snapshot but not the other, columns `Flow`,
+`Snapshot_Traces`, `Reference_Traces` and their counts; docs:
+https://batfish.readthedocs.io/en/latest/notebooks/differentialQuestions.html). Those two answer questions that a
+row diff cannot (a changed ACL or forwarding change expressed as flows), so they are the natural next tools
+(`compare_filters`, `differential_reachability`), built in §27.0c. The page leaves unclear which
+of `snapshot` / `reference_snapshot` is called "Snapshot" and which "Reference" in the output columns: check the
+mapping against real output before relying on it.
+
+### 27.0c `compare_filters` and `differential_reachability` (2026-11-01)
+
+Batfish's own snapshot comparison. `BatfishService._answer` takes an optional `reference_snapshot` and passes it to
+pybatfish `answer(snapshot=..., reference_snapshot=...)`; ordinary questions still make the one-snapshot call. The
+preview service validates the pair first: the reference is required, must exist in the network (a typo gets a
+clear error) and must differ from the snapshot (default: the newest). Rule for the model: `snapshot` is the newer
+state, `reference_snapshot` the older.
+
+- `compare_filters` (addresses; line text only with the content opt-in, then the whole table is content-class):
+  columns `Node`, `Filter_Name`, `Line_Index`, `Line_Action`, `Reference_Line_Index`, `Reference_Line_Action`,
+  plus `Line_Content` / `Reference_Line_Content`. Filter selection is a name, never a regex.
+- `differential_reachability` (addresses): same constraints as `check_reachability` (node, end node, dst, protocol,
+  port, `ignore_filters`), plus the reference; each row is condensed to the flow and the dispositions and paths of
+  both sides.
+
+*Fixed after review (2026-11-01):* Batfish's `compareFilters` has **no** `Reference_Line_Action` column (an earlier
+version invented it, and its test fixtures too); the tool derives it as the opposite of `Line_Action` (only lines
+with differing actions are returned) and explains `Reference_Line_Index` = `End of ACL`. An empty `compare_filters`
+answer no longer says the ACLs match (a mistyped filter name also returns nothing). An empty
+`differential_reachability` answer no longer says the flows work in both snapshots (it also covers "fails in both"),
+names the destination that was examined, and `dst_ip` is optional. A `testFilters` answer with no rows raises
+`FilterNotFoundError` (a `RuntimeError` subclass); any other `RuntimeError` is reported as "Batfish unavailable"
+instead of "no such filter".
+
+**Not verified live.** Column names come from the Batfish documentation page, not from a real answer. Open points to
+check against a lab with two different snapshots: that `Snapshot_*` columns belong to `snapshot` and `Reference_*`
+to `reference_snapshot` (the page is ambiguous), that the trace objects in the differential columns have the same
+shape as in `traceroute` (an unrecognised shape is returned raw with a note), and the `compareFilters` columns.
+Test with two snapshots of the lab that differ in one ACL line.
 
 ### 27.1 Frontend (2026-11-01)
 
@@ -2334,37 +2448,57 @@ was removed from the offered keys. `tests/unit/test_ai_batfish_tools.py` has a t
   `noopener`). Only assistant messages are parsed; what the user typed stays literal. The component is memoised on
   the text so a streaming reply does not re-parse earlier messages; wide tables scroll inside the bubble.
 
-## 28. Handover for the next session (2026-11-01)
+## 28. Handover for the next session (2026-11-01, end of day)
 
-State: phase 1 (§20.3) is built and works in the UI; everything is on branch `feature/ask-the-net`. The product
-owner commits; the latest work (second review round, frontend, Markdown rendering) may still be uncommitted.
-Backend tests: `python -m pytest tests/unit -k "ai_ or batfish" --no-cov` (1270 passed); frontend: `npx vitest run`
-(2037 passed). Guard scripts and `ruff`/`pyright`/`tsc`/`eslint` were clean.
+State: phase 1 (§20.3) and the Batfish read tools (§27.0-A) are built, reviewed and live-checked as far as the
+inventory says. Branch `feature/ask-the-net`; the product owner commits (everything described here is meant to be
+committed before the next session starts). Checks at the end of the session: backend
+`python -m pytest tests/unit -k "ai_ or batfish" --no-cov` (1339 passed), frontend `npx vitest run` (2046 passed);
+the guard scripts, `ruff`, `pyright`, `tsc` and `eslint` were clean.
 
 **Open, in the order I would take them**
 
-1. **Live verification of the Batfish tools** (needs the running stack, the user's coordinator): ask for a route
-   (`get_routes` with a bare IP), a path (`get_traceroute`), BGP sessions, and compare with what Batfish really
-   returns. Confirm the `Traces` shape and the route/BGP column names in `tools/batfish_shaping.py`; fix the
-   shaping and its fixtures from a real row. Then the §10a acceptance question in at most 3 tool calls.
-2. ~~Per-surface step budget~~ done, see §27.
-3. **More phase-1 tools:** `analyze_acl` / `check_reachability` (content class, §10a table), `diff_results`
-   (§12.3). Conversation-scoped handles (§6.1 says "same conversation"; today scope is the user).
-4. **Playbooks** (§21, §25): start with the knowledge loader (§25.10 (1)) and `list_playbooks` / `get_playbook`
-   with the organisation overlay; the first playbook is "a destination is not reachable" (§21.5).
-5. **Baseline comparison** (§22, §23) and **neighbour discovery** (§24) need answers from the product owner first
-   (Q1 to Q10 in §23.7, N0 in §24.8).
-6. **Phase 2: released workflows** (§16, D7 to D9), then **phase 3: device tools with click confirmation**
+1. **Playbooks** (§21, §25): start with the knowledge loader (§25.10 (1): one loader with the built-in file plus the
+   local overlay `${DATA_DIRECTORY}/ai/knowledge/<name>.local.md`, cache by `(path, mtime)`, size caps, never a
+   path from the model; switch the four existing read sites to it), then `list_playbooks` / `get_playbook` with the
+   overlay (§21.3, §21.4, §25.4, §25.5), data class per front matter (§25.10 (2): `A` ungated, `B` = the inventory
+   opt-in), the container directories (§25.10 (3): `docker/start.sh` `mkdir -p`), and the first playbook "a
+   destination is not reachable" (§21.5). It uses only tools that exist today. Open questions in §21.8 and §25.9
+   need the product owner's decision before the format is fixed.
+2. **BGP columns** (`get_bgp_session_status`): the product owner will ask BGP questions on the production setup and
+   open a separate session if something is wrong. Fix the shaping from real rows with a failing test first.
+3. **Conversation-scoped handles** (§6.1 says "same conversation"; today a handle belongs to the user for 4 hours).
+   Needs a conversation id from the browser (request model with `extra="forbid"`, router, chat hook). Low value;
+   do it only if a requirement appears.
+4. **Optional Batfish tools** (see "Not built" in §27.0-A), diagnostics first.
+5. **Neighbour discovery** (§24) needs the product owner's answers (N0 in §24.8).
+6. **Baseline comparison** (§22, §23) is **on hold**: it is a pyATS feature, not a Batfish one (correction at the
+   top of §22). Do not plan it around Batfish.
+7. **Phase 2: released workflows** (§16, D7 to D9), then **phase 3: device tools with click confirmation**
    (§19 D2/D4). Rules 3 and 4 in `AI_ASSISTANT.md` are already amended.
 
 **Facts worth knowing**
 
 - Tools never touch workflows or devices: they read a Batfish snapshot through `BatfishPreviewService` as the
   calling user (`sources.batfish:query`, rate-limit bucket `batfish-query` shared with the Template Editor).
-- Data classes: inventory for discovery, addresses for the four query tools, content for interface descriptions
-  (the whole stored table is then content-class). Results above 20 rows go to Redis (4 h, per user, 2 MB).
+- Data classes: inventory for discovery, addresses for the query tools; the matching config line of an ACL
+  (`analyze_acl`, `compare_filters`) and interface descriptions need the content opt-in, and then the whole stored
+  table is content-class. Results above 20 rows go to Redis (4 h, per user, 2 MB) **redacted at rest**; the copy is
+  redacted with `Redactor.fork()` and has its own character budget.
 - Values are redacted as data before JSON encoding (`redact_envelope`), text slices go outside the JSON.
+- Content sharing **fails closed**: if the user's credential values cannot be loaded for exact-match redaction
+  (`known_secrets.try_load_visible_secret_values` returns `None`), `_session_for` turns the content opt-in off for
+  that request (ACL lines, descriptions and run content are then withheld).
+- Every surface has a `RunBudget` (`agent_loop.py`); `general` gets 16 steps, 400k tokens and 180 s
+  (`surfaces.GENERAL_BUDGET`), the others keep 8 steps. The time limit is checked before every model call and
+  tool and cancels a tool that outlives it.
+- Tool names: reads start with `get_`, `list_`, `query_`, `fetch_`, `analyze_`, `check_`, `diff_`, `compare_` or
+  `differential_`; nothing starts with `run`, `trigger`, `execute`, `start`, `delete` or `propose` on the `general`
+  surface (pinned by `test_ai_hardening` and `test_ai_general_surface`). Add a prefix there on purpose.
 - `surface` is a closed set: a new surface needs `models/ai_assistant.py`, `models/ai_conversations.py`, the
   router dispatch, `surfaces.py`, and the frontend `AssistantContext` / `AssistantSurface` types.
-- Reviews live in `doc/analysis/REVIEW.md` (overwritten each round); both rounds so far were fixed.
-
+- Batfish nests several facts under a section (`Syslog`, `NTP`, `DNS`, `SNMP`, `TACACS`); the shaping folds them.
+  Read a real answer before assuming a column or key name (flat fact keys were wrong the first time).
+- Reviews live in `doc/analysis/REVIEW.md` (overwritten each round); all rounds so far were fixed.
+- Working rules that paid off: failing test first; mutation-check new tests with a small Python script (macOS
+  `sed -i` fails); `ruff format` only files you touched; verify every review finding in the code before fixing.

@@ -330,6 +330,43 @@ class BatfishServiceQuestionTests(unittest.IsolatedAsyncioTestCase):
         call_answer = self.instance.q.reachability.return_value.answer
         call_answer.assert_called_once_with(snapshot="run-42")
 
+    async def test_compare_filters_asks_for_a_differential_answer(self) -> None:
+        self.instance.q.compareFilters = self._stub_question('[{"Node": "r1"}]')
+
+        result = await self.service.compare_filters(
+            _connection(),
+            batfish_network="net",
+            snapshot="new",
+            reference_snapshot="old",
+            nodes="R1",
+        )
+
+        self.assertEqual(result, [{"Node": "r1"}])
+        self.instance.q.compareFilters.assert_called_once_with(nodes="R1")
+        answer = self.instance.q.compareFilters.return_value.answer
+        answer.assert_called_once_with(snapshot="new", reference_snapshot="old")
+
+    async def test_differential_reachability_asks_for_a_differential_answer(self) -> None:
+        self.instance.q.differentialReachability = self._stub_question("[]")
+
+        await self.service.differential_reachability(
+            _connection(),
+            batfish_network="net",
+            snapshot="new",
+            reference_snapshot="old",
+            pathConstraints={"startLocation": "r1"},
+        )
+
+        answer = self.instance.q.differentialReachability.return_value.answer
+        answer.assert_called_once_with(snapshot="new", reference_snapshot="old")
+
+    async def test_an_ordinary_question_does_not_pass_a_reference_snapshot(self) -> None:
+        self.instance.q.routes = self._stub_question("[]")
+
+        await self.service.routes(_connection(), batfish_network="net", snapshot="snap")
+
+        self.instance.q.routes.return_value.answer.assert_called_once_with(snapshot="snap")
+
     async def test_node_properties_returns_parsed_rows(self) -> None:
         self.instance.q.nodeProperties = self._stub_question('[{"Node": "r1"}, {"Node": "r2"}]')
 

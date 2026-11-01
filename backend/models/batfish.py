@@ -117,6 +117,32 @@ class BatfishTestFiltersQueryRequest(BaseModel):
     start_location: str | None = None
 
 
+class BatfishCompareFiltersQueryRequest(BaseModel):
+    """Differential ``compareFilters``: ``snapshot`` (default newest) vs ``reference_snapshot``."""
+
+    network: str = Field(..., min_length=1)
+    snapshot: str | None = None
+    reference_snapshot: str = Field(..., min_length=1)
+    nodes: str | None = None
+    filters: str | None = None
+
+
+class BatfishDifferentialReachabilityQueryRequest(BaseModel):
+    """Differential ``differentialReachability``: flows that succeed in only one snapshot."""
+
+    network: str = Field(..., min_length=1)
+    snapshot: str | None = None
+    reference_snapshot: str = Field(..., min_length=1)
+    start_node: str = Field(..., min_length=1)
+    end_node: str | None = None
+    dst_ips: str | None = None
+    src_ips: str | None = None
+    applications: list[str] | None = None
+    ip_protocols: str | None = None
+    max_traces: int | None = Field(default=None, ge=1)
+    ignore_filters: bool = False
+
+
 class BatfishExtractFactsQueryRequest(BaseModel):
     """Ad-hoc counterpart of the batfish-extract-facts step's config fields."""
 
@@ -212,6 +238,8 @@ class BatfishQueryResponse(BaseModel):
     question: str
     network: str
     snapshot: str
+    # Set only by the differential questions: the snapshot ``snapshot`` was compared with.
+    reference_snapshot: str | None = None
     rows: list[dict[str, Any]]
     reachable: bool | None = None
     action: str | None = None

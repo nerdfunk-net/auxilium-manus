@@ -19,7 +19,11 @@ from services.ai_assistant.tools.batfish_tools import (
 )
 from services.auth.login_rate_limiter import RateLimitExceededError
 from services.batfish.client import PREVIEW_ROW_LIMIT
-from services.batfish.common.exceptions import BatfishAnswerFailedError, BatfishAPIError
+from services.batfish.common.exceptions import (
+    BatfishAnswerFailedError,
+    BatfishAPIError,
+    FilterNotFoundError,
+)
 from services.batfish.credentials import BatfishConnection
 from services.batfish.source_config_service import BatfishSourceNotFoundError
 
@@ -69,6 +73,15 @@ class ReaderTests(unittest.IsolatedAsyncioTestCase):
         self.preview = MagicMock()
         for name in ("run_routes", "run_traceroute", "run_generic", "run_interface_rows"):
             setattr(self.preview, name, AsyncMock(return_value=_response()))
+        for name, question in (
+            ("run_compare_filters", "compareFilters"),
+            ("run_differential_reachability", "differentialReachability"),
+        ):
+            diff = _response(question)
+            diff.reference_snapshot = "run-1"
+            setattr(self.preview, name, AsyncMock(return_value=diff))
+        self.preview.run_reachability = AsyncMock(return_value=_response("reachability"))
+        self.preview.run_test_filters = AsyncMock(return_value=_response("testFilters"))
         self.preview.run_extract_facts = AsyncMock(
             return_value=BatfishQueryResponse(
                 success=True,
@@ -218,6 +231,87 @@ class ReaderTests(unittest.IsolatedAsyncioTestCase):
         await self.reader.query("facts", "lab", "net1", None, {"nodes": None})
 
         self.assertEqual(self.preview.run_extract_facts.await_args.args[1].nodes_filter, "/.*/")
+
+    async def test_acl_and_reachability_are_forwarded(self) -> None:
+        await self.reader.query(
+            "acl",
+            "lab",
+            "net1",
+            None,
+            {
+                "node": "r1",
+                "filter_name": "A",
+                "dst_ips": "10.0.0.1",
+                "src_ips": None,
+                "applications": ["tcp/22"],
+                "ip_protocols": None,
+            },
+        )
+        await self.reader.query(
+            "reachability",
+            "lab",
+            "net1",
+            None,
+            {"start_node": "r1", "end_node": "r2", "dst_ips": "10.0.0.1", "ignore_filters": True},
+        )
+
+        acl = self.preview.run_test_filters.await_args.args[1]
+        self.assertEqual((acl.node, acl.filter_name, acl.applications), ("r1", "A", ["tcp/22"]))
+        reach = self.preview.run_reachability.await_args.args[1]
+        self.assertEqual(
+            (reach.start_node, reach.end_node, reach.ignore_filters), ("r1", "r2", True)
+        )
+
+    async def test_differential_kinds_forward_the_reference_and_report_both_snapshots(self) -> None:
+        answer = await self.reader.query(
+            "compare_filters",
+            "lab",
+            "net1",
+            "run-2",
+            {"reference_snapshot": "run-1", "nodes": "r1", "filters": "A"},
+        )
+        await self.reader.query(
+            "differential_reachability",
+            "lab",
+            "net1",
+            "run-2",
+            {"reference_snapshot": "run-1", "start_node": "r1", "dst_ips": "10.0.0.1"},
+        )
+
+        request = self.preview.run_compare_filters.await_args.args[1]
+        self.assertEqual(
+            (request.reference_snapshot, request.nodes, request.filters), ("run-1", "r1", "A")
+        )
+        self.assertEqual(
+            self.preview.run_differential_reachability.await_args.args[1].start_node, "r1"
+        )
+        self.assertEqual((answer.snapshot, answer.reference_snapshot), ("run-2", "run-1"))
+        self.assertEqual(answer.reference_created, "2026-10-01T00:00:00Z")
+
+    async def test_an_acl_that_matches_nothing_is_an_input_error_for_the_model(self) -> None:
+        self.preview.run_test_filters.side_effect = FilterNotFoundError("No result returned")
+
+        with self.assertRaises(BatfishInputError) as ctx:
+            await self.reader.query(
+                "acl",
+                "lab",
+                "net1",
+                None,
+                {"node": "r1", "filter_name": "NOPE", "dst_ips": "1.1.1.1"},
+            )
+        self.assertIn("filter", str(ctx.exception).lower())
+
+    async def test_any_other_runtime_error_from_the_acl_query_means_unavailable(self) -> None:
+        self.preview.run_test_filters.side_effect = RuntimeError("event loop is closed")
+
+        with self.assertRaises(BatfishUnavailableError):
+            await self.reader.query(
+                "acl",
+                "lab",
+                "net1",
+                None,
+                {"node": "r1", "filter_name": "A", "dst_ips": "1.1.1.1"},
+            )
 
     async def test_the_preview_row_cap_is_set_during_the_query_and_reset_after(self) -> None:
         seen: list[int | None] = []

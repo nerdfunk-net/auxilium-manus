@@ -346,8 +346,9 @@ def test_no_read_only_surface_offers_a_write_or_execution_tool() -> None:
 
 
 def test_the_general_surface_offers_reads_only_and_pins_its_proposal_names() -> None:
-    """Ask the Net (AI_TOOL_CHAIN.md §12.6 rule 7): reads use get_/list_/query_/fetch_, nothing
-    is named run*/trigger*/execute*/start*/delete*, and no proposal tool exists yet."""
+    """Ask the Net (AI_TOOL_CHAIN.md §12.6 rule 7): reads use get_/list_/query_/fetch_/analyze_/
+    check_/diff_, nothing is named run*/trigger*/execute*/start*/delete*,
+    and no proposal tool exists yet."""
     from services.ai_assistant.results.store import InMemoryResultBackend, ResultStore
     from services.ai_assistant.surfaces import build_general_session
     from tests.unit.test_ai_batfish_tools import FakeReader
@@ -364,7 +365,22 @@ def test_the_general_surface_offers_reads_only_and_pins_its_proposal_names() -> 
     ]
 
     assert names
-    assert all(n.startswith(("get_", "list_", "query_", "fetch_")) for n in names), names
+    assert all(
+        n.startswith(
+            (
+                "get_",
+                "list_",
+                "query_",
+                "fetch_",
+                "analyze_",
+                "check_",
+                "diff_",
+                "compare_",
+                "differential_",
+            )
+        )
+        for n in names
+    ), names
     assert not [n for n in names if n.startswith(("run", "trigger", "execute", "start", "delete"))]
     # Pinned: when device tools arrive (phase 3) this set changes on purpose, in review.
     assert {n for n in names if n.startswith("propose")} == set()

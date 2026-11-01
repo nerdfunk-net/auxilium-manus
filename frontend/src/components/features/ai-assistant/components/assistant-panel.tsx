@@ -135,8 +135,13 @@ const TOOL_LABELS: Record<string, string> = {
   get_bgp_session_status: "Checking BGP sessions",
   get_interface_properties: "Reading interface settings",
   get_device_facts: "Reading device facts",
+  analyze_acl: "Testing a packet against an ACL",
+  check_reachability: "Checking reachability",
   query_result: "Reading a stored result",
   fetch_slice: "Reading a stored result",
+  diff_results: "Comparing two results",
+  compare_filters: "Comparing ACLs between snapshots",
+  differential_reachability: "Comparing reachability between snapshots",
 };
 
 function toolLabel(name: string): string {

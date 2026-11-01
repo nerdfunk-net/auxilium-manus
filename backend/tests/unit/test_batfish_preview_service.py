@@ -12,6 +12,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 from models.batfish import (
     BatfishBgpFactsQueryRequest,
+    BatfishCompareFiltersQueryRequest,
+    BatfishDifferentialReachabilityQueryRequest,
     BatfishExtractFactsQueryRequest,
     BatfishGenericQueryRequest,
     BatfishInterfacePropertiesQueryRequest,
@@ -21,6 +23,7 @@ from models.batfish import (
     BatfishRoutesQueryRequest,
     BatfishTestFiltersQueryRequest,
 )
+from services.batfish.common.exceptions import FilterNotFoundError
 from services.batfish.credentials import BatfishConnection
 from services.batfish.preview_service import BatfishPreviewService
 
@@ -230,7 +233,7 @@ class BatfishPreviewServiceTestFiltersTests(unittest.IsolatedAsyncioTestCase):
         service, _, batfish = _make_service()
         batfish.test_filters = AsyncMock(return_value=[])
 
-        with self.assertRaises(RuntimeError):
+        with self.assertRaises(FilterNotFoundError):
             await service.run_test_filters(
                 "lab",
                 BatfishTestFiltersQueryRequest(
@@ -594,3 +597,85 @@ class BatfishPreviewServiceInterfaceRowsTests(unittest.IsolatedAsyncioTestCase):
                 "lab", BatfishInterfacePropertiesQueryRequest(network="net")
             )
         batfish.interface_properties.assert_not_called()
+
+
+_SNAPSHOTS = [
+    {"name": "old", "metadata": {"creationTimestamp": "2026-10-01T00:00:00Z"}},
+    {"name": "new", "metadata": {"creationTimestamp": "2026-11-01T00:00:00Z"}},
+]
+
+
+class BatfishPreviewServiceDifferentialTests(unittest.IsolatedAsyncioTestCase):
+    def _service(self):
+        service, _, batfish = _make_service()
+        batfish.list_snapshots_with_metadata = AsyncMock(return_value=_SNAPSHOTS)
+        return service, batfish
+
+    async def test_compare_filters_forwards_both_snapshots(self) -> None:
+        service, batfish = self._service()
+        batfish.compare_filters = AsyncMock(return_value=[{"Node": "r1"}])
+
+        result = await service.run_compare_filters(
+            "lab",
+            BatfishCompareFiltersQueryRequest(
+                network="net", reference_snapshot="old", nodes="r1", filters="ACL"
+            ),
+        )
+
+        self.assertEqual(result.question, "compareFilters")
+        self.assertEqual((result.snapshot, result.reference_snapshot), ("new", "old"))
+        _, kwargs = batfish.compare_filters.await_args
+        self.assertEqual(kwargs["snapshot"], "new")
+        self.assertEqual(kwargs["reference_snapshot"], "old")
+        self.assertEqual((kwargs["nodes"], kwargs["filters"]), ("r1", "ACL"))
+
+    async def test_an_unknown_reference_snapshot_is_refused_before_asking(self) -> None:
+        service, batfish = self._service()
+        batfish.compare_filters = AsyncMock()
+
+        with self.assertRaises(ValueError) as ctx:
+            await service.run_compare_filters(
+                "lab",
+                BatfishCompareFiltersQueryRequest(network="net", reference_snapshot="typo"),
+            )
+        self.assertIn("typo", str(ctx.exception))
+        batfish.compare_filters.assert_not_called()
+
+    async def test_the_reference_must_differ_from_the_snapshot(self) -> None:
+        service, batfish = self._service()
+        batfish.compare_filters = AsyncMock()
+
+        with self.assertRaises(ValueError):
+            await service.run_compare_filters(
+                "lab",
+                BatfishCompareFiltersQueryRequest(
+                    network="net", snapshot="old", reference_snapshot="old"
+                ),
+            )
+        batfish.compare_filters.assert_not_called()
+
+    async def test_differential_reachability_builds_constraints_and_headers(self) -> None:
+        service, batfish = self._service()
+        batfish.differential_reachability = AsyncMock(return_value=[{"Flow": {}}])
+
+        result = await service.run_differential_reachability(
+            "lab",
+            BatfishDifferentialReachabilityQueryRequest(
+                network="net",
+                reference_snapshot="old",
+                start_node="r1",
+                end_node="r2",
+                dst_ips="10.0.0.1",
+                applications=["tcp/22"],
+                max_traces=3,
+                ignore_filters=True,
+            ),
+        )
+
+        self.assertEqual(result.question, "differentialReachability")
+        _, kwargs = batfish.differential_reachability.await_args
+        self.assertEqual(kwargs["pathConstraints"], {"startLocation": "r1", "endLocation": "r2"})
+        self.assertEqual(kwargs["headers"], {"dstIps": "10.0.0.1", "applications": ["tcp/22"]})
+        self.assertEqual(kwargs["maxTraces"], 3)
+        self.assertIs(kwargs["ignoreFilters"], True)
+        self.assertEqual(kwargs["reference_snapshot"], "old")

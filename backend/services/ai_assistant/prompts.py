@@ -219,6 +219,16 @@ get_interface_properties. Prefer a few focused calls over broad ones.
 - "Is syslog / NTP / DNS / TACACS configured on ...?" and "which devices have no ...?": \
 get_device_facts (Logging_Servers is syslog). Read fact_summary first; if no device reported the \
 fact, say you could not confirm it instead of answering that none is configured.
+- A traceroute that ends DENIED_IN or DENIED_OUT: take the filter name from \
+get_interface_properties (Incoming_Filter_Name / Outgoing_Filter_Name) and test the flow with \
+analyze_acl. "Can A reach B?": check_reachability; run it again with ignore_filters=true to tell \
+a filter problem from a routing problem. To compare two snapshots: for a table, run the same \
+query once per snapshot (snapshot=...) and give the two handles to diff_results, with key columns \
+such as ['Node', 'Network']; for ACLs use compare_filters; for "what stopped working between \
+these two snapshots" use differential_reachability from a device (reference_snapshot is the \
+older state; an empty answer does not prove the traffic works, confirm it with \
+check_reachability). The matching ACL line appears only if the user allowed config content; \
+otherwise report the verdict and say the line is not shown.
 - A result with "truncated": true is a preview. If it has a handle, use query_result (filter, \
 choose fields, page with offset) or fetch_slice instead of asking for everything again. Without a \
 handle, narrow the request (nodes, prefix, interface). Say when your answer rests on a partial \

@@ -162,6 +162,11 @@ describe("AssistantPanel tool activity labels (Ask the Net)", () => {
     ["get_bgp_session_status", /bgp/i],
     ["get_interface_properties", /interface/i],
     ["get_device_facts", /facts/i],
+    ["analyze_acl", /acl/i],
+    ["check_reachability", /reachab/i],
+    ["diff_results", /compar/i],
+    ["compare_filters", /acl/i],
+    ["differential_reachability", /between snapshots/i],
     ["query_result", /stored result/i],
     ["fetch_slice", /stored result/i],
   ])("shows a readable label for %s", (name, label) => {

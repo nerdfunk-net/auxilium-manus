@@ -7,9 +7,11 @@ import unittest
 
 from services.ai_assistant.tools.batfish_shaping import (
     shape_bgp_sessions,
+    shape_filter_comparison,
     shape_interfaces,
     shape_routes,
     summarize_bgp_sessions,
+    summarize_differential_traces,
     summarize_traces,
 )
 
@@ -172,3 +174,100 @@ class TracerouteTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class FilterComparisonTests(unittest.TestCase):
+    ROW = {
+        "Node": "r1",
+        "Filter_Name": "MGMT_in",
+        "Line_Index": 3,
+        "Line_Content": "permit tcp any any eq 22",
+        "Line_Action": "PERMIT",
+        "Reference_Line_Index": 3,
+        "Reference_Line_Content": "deny tcp any any eq 22",
+        "Junk": 1,
+    }
+
+    def test_lines_are_left_out_without_the_content_opt_in(self) -> None:
+        shaped = shape_filter_comparison([self.ROW], include_lines=False)
+
+        self.assertEqual(
+            shaped,
+            [
+                {
+                    "Node": "r1",
+                    "Filter_Name": "MGMT_in",
+                    "Line_Index": 3,
+                    "Line_Action": "PERMIT",
+                    "Reference_Line_Index": 3,
+                    "Reference_Line_Action": "DENY",
+                }
+            ],
+        )
+
+    def test_the_reference_action_is_the_opposite_one(self) -> None:
+        deny_now = {**self.ROW, "Line_Action": "DENY"}
+        odd = {**self.ROW, "Line_Action": "SOMETHING"}
+        no_action = {k: v for k, v in self.ROW.items() if k != "Line_Action"}
+
+        shaped = shape_filter_comparison([self.ROW, deny_now, odd, no_action], include_lines=False)
+
+        self.assertEqual(shaped[0]["Reference_Line_Action"], "DENY")
+        self.assertEqual(shaped[1]["Reference_Line_Action"], "PERMIT")
+        self.assertNotIn("Reference_Line_Action", shaped[2])
+        self.assertNotIn("Reference_Line_Action", shaped[3])
+
+    def test_lines_are_kept_with_the_content_opt_in(self) -> None:
+        shaped = shape_filter_comparison([self.ROW], include_lines=True)
+
+        self.assertEqual(shaped[0]["Line_Content"], "permit tcp any any eq 22")
+        self.assertEqual(shaped[0]["Reference_Line_Content"], "deny tcp any any eq 22")
+        self.assertNotIn("Junk", shaped[0])
+
+
+class DifferentialTraceTests(unittest.TestCase):
+    ROW = {
+        "Flow": {"srcIp": "1.1.1.1", "dstIp": "10.0.0.1", "ipProtocol": "TCP", "extra": 1},
+        "Snapshot_Traces": [_trace("ACCEPTED", ["r1", "r2"])],
+        "Snapshot_TraceCount": 1,
+        "Reference_Traces": [_trace("DENIED_IN", ["r1"]), _trace("DENIED_IN", ["r1"])],
+        "Reference_TraceCount": 2,
+    }
+
+    def test_each_side_is_condensed_to_dispositions_and_paths(self) -> None:
+        rows, recognised = summarize_differential_traces([self.ROW])
+
+        self.assertTrue(recognised)
+        self.assertEqual(
+            rows,
+            [
+                {
+                    "flow": {"srcIp": "1.1.1.1", "dstIp": "10.0.0.1", "ipProtocol": "TCP"},
+                    "in_snapshot": [{"disposition": "ACCEPTED", "path": "r1 -> r2", "traces": 1}],
+                    "in_reference": [{"disposition": "DENIED_IN", "path": "r1", "traces": 2}],
+                }
+            ],
+        )
+
+    def test_a_flow_with_no_traces_on_one_side_has_an_empty_list(self) -> None:
+        row = {**self.ROW, "Reference_Traces": [], "Reference_TraceCount": 0}
+
+        rows, recognised = summarize_differential_traces([row])
+
+        self.assertTrue(recognised)
+        self.assertEqual(rows[0]["in_reference"], [])
+
+    def test_an_unknown_shape_comes_back_unchanged_and_unrecognised(self) -> None:
+        rows = [{"Flow": {}, "Snapshot_Traces": [{"weird": 1}], "Reference_Traces": []}]
+
+        shaped, recognised = summarize_differential_traces(copy.deepcopy(rows))
+
+        self.assertFalse(recognised)
+        self.assertEqual(shaped, rows)
+
+    def test_input_is_not_mutated(self) -> None:
+        rows = [copy.deepcopy(self.ROW)]
+
+        summarize_differential_traces(rows)
+
+        self.assertEqual(rows, [self.ROW])

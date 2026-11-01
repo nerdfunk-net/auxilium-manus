@@ -65,7 +65,9 @@ async def publish_table(
     if note:
         envelope = envelope.with_note(note)
     if len(rows) > PREVIEW_ROWS:
-        envelope = await _attach_handle(ctx, envelope, rows, kind, data_class)
+        envelope = await _attach_handle(
+            ctx, envelope, rows, kind, data_class, source_truncated=source_truncated
+        )
     envelope = await asyncio.to_thread(redact_envelope, envelope, ctx.redactor)
     return envelope_output(envelope, extra=extra)
 
@@ -76,6 +78,8 @@ async def _attach_handle(
     rows: list[dict[str, Any]],
     kind: str,
     data_class: DataClass,
+    *,
+    source_truncated: bool,
 ) -> ResultEnvelope:
     store = ctx.extras.get(RESULT_STORE_KEY)
     if not isinstance(store, ResultStore):
@@ -88,7 +92,13 @@ async def _attach_handle(
                 ctx.redactor.fork(max_chars=STORED_REDACT_CHARS).redact_data, keep
             )
             handle = await store.put(
-                ctx.user_id, StoredResult(kind=kind, data_class=data_class, rows=stored_rows)
+                ctx.user_id,
+                StoredResult(
+                    kind=kind,
+                    data_class=data_class,
+                    rows=stored_rows,
+                    partial=source_truncated or len(keep) < len(rows),
+                ),
             )
         except ValueError:
             # Too large for one handle, or too much text to redact (``RedactionBudgetExceeded``

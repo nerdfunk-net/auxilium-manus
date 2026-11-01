@@ -13,7 +13,17 @@ from services.ai_assistant.results.store import InMemoryResultBackend, ResultSto
 from services.ai_assistant.surfaces import build_general_session
 from tests.unit.test_ai_batfish_tools import FakeReader
 
-READ_PREFIXES = ("get_", "list_", "query_", "fetch_")
+READ_PREFIXES = (
+    "get_",
+    "list_",
+    "query_",
+    "fetch_",
+    "analyze_",
+    "check_",
+    "diff_",
+    "compare_",
+    "differential_",
+)
 FORBIDDEN_PREFIXES = ("run", "trigger", "execute", "start", "delete", "propose")
 
 
@@ -61,8 +71,13 @@ def test_session_offers_batfish_and_result_tools() -> None:
         "get_bgp_session_status",
         "get_interface_properties",
         "get_device_facts",
+        "analyze_acl",
+        "check_reachability",
+        "compare_filters",
+        "differential_reachability",
         "query_result",
         "fetch_slice",
+        "diff_results",
     }
 
 

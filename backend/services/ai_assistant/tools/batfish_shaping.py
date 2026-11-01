@@ -150,6 +150,11 @@ def _trace_summary(trace: Any) -> tuple[str, tuple[str, ...], str | None] | None
     return disposition, nodes, last_action
 
 
+def _path_text(nodes: tuple[str, ...]) -> str:
+    shown = nodes if len(nodes) <= MAX_PATH_NODES else nodes[:MAX_PATH_NODES]
+    return " -> ".join(shown) + (" -> ..." if len(shown) < len(nodes) else "")
+
+
 def _example_flow(flow: Any) -> Any:
     if not isinstance(flow, Mapping):
         return flow
@@ -179,11 +184,10 @@ def summarize_traces(rows: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], 
             entry["flows"] += 1
     shaped = []
     for (disposition, nodes, last_action), entry in groups.items():
-        shown = nodes if len(nodes) <= MAX_PATH_NODES else nodes[:MAX_PATH_NODES]
         shaped.append(
             {
                 "disposition": disposition,
-                "path": " -> ".join(shown) + (" -> ..." if len(shown) < len(nodes) else ""),
+                "path": _path_text(nodes),
                 "hops": len(nodes),
                 "last_hop": nodes[-1] if nodes else None,
                 "last_action": last_action,
@@ -285,3 +289,98 @@ def fact_keys_seen(rows: Iterable[Mapping[str, Any]]) -> list[str]:
     """Names (never values) of the facts Batfish returned, to diagnose a requested key that no
     node reported."""
     return sorted({str(k) for row in rows for k in _node_facts(row)})
+
+
+# -- filter (ACL) results ----------------------------------------------------------------------
+
+FILTER_COLUMNS = ("Node", "Filter_Name", "Action")
+
+
+def shape_filter_results(
+    rows: Iterable[Mapping[str, Any]], *, include_line: bool
+) -> list[dict[str, Any]]:
+    """The verdict of ``testFilters`` per (node, filter): action, and with ``include_line`` the
+    matching config line (``Line_Content``, config text, so it needs the content opt-in). The
+    internal ``Trace`` column is never passed on; the tested flow is kept in short form."""
+    columns = (*FILTER_COLUMNS, "Line_Content") if include_line else FILTER_COLUMNS
+    shaped = []
+    for row in rows:
+        record = {c: row[c] for c in columns if c in row}
+        if "Flow" in row:
+            record["Flow"] = _example_flow(row["Flow"])
+        shaped.append(record)
+    return shaped
+
+
+# -- differential (two snapshots) --------------------------------------------------------------
+
+COMPARISON_COLUMNS = (
+    "Node",
+    "Filter_Name",
+    "Line_Index",
+    "Line_Action",
+    "Reference_Line_Index",
+)
+# compareFilters only returns lines whose actions differ, so the reference action is the opposite.
+_OPPOSITE_ACTION = {"PERMIT": "DENY", "DENY": "PERMIT"}
+COMPARISON_LINE_COLUMNS = ("Line_Content", "Reference_Line_Content")
+
+
+def shape_filter_comparison(
+    rows: Iterable[Mapping[str, Any]], *, include_lines: bool
+) -> list[dict[str, Any]]:
+    """``compareFilters`` rows: where the same-named filter treats a flow differently in the two
+    snapshots. Batfish returns no reference action column; since only lines with different actions
+    are listed, ``Reference_Line_Action`` is derived as the opposite of ``Line_Action``. The line
+    text is config content, so it needs ``include_lines`` (the content opt-in)."""
+    columns = (
+        (*COMPARISON_COLUMNS, *COMPARISON_LINE_COLUMNS) if include_lines else COMPARISON_COLUMNS
+    )
+    shaped = _keep(rows, columns)
+    for record in shaped:
+        opposite = _OPPOSITE_ACTION.get(str(record.get("Line_Action", "")).upper())
+        if opposite is not None:
+            record["Reference_Line_Action"] = opposite
+    return shaped
+
+
+def _side(traces: Any) -> list[dict[str, Any]] | None:
+    """One side of a differential row as ``[{disposition, path, traces}]``, grouped; ``None`` when
+    the shape is not understood."""
+    if not isinstance(traces, list):
+        return None
+    groups: Counter[tuple[str, str]] = Counter()
+    for trace in traces:
+        summary = _trace_summary(trace)
+        if summary is None:
+            return None
+        disposition, nodes, _ = summary
+        groups[(disposition, _path_text(nodes))] += 1
+    return [
+        {"disposition": disposition, "path": path, "traces": count}
+        for (disposition, path), count in groups.items()
+    ]
+
+
+def summarize_differential_traces(
+    rows: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], bool]:
+    """``differentialReachability`` rows (``Flow``, ``Snapshot_Traces``, ``Reference_Traces``)
+    condensed to one record per flow with the dispositions and paths of both sides.
+
+    Returns ``(rows, recognised)`` like ``summarize_traces``: an unrecognised shape comes back
+    unchanged with ``recognised=False`` so the caller says so instead of presenting a guess."""
+    shaped = []
+    for row in rows:
+        in_snapshot = _side(_ci(row, "snapshot_traces"))
+        in_reference = _side(_ci(row, "reference_traces"))
+        if in_snapshot is None or in_reference is None:
+            return rows, False
+        shaped.append(
+            {
+                "flow": _example_flow(_ci(row, "flow")),
+                "in_snapshot": in_snapshot,
+                "in_reference": in_reference,
+            }
+        )
+    return shaped, True

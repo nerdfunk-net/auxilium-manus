@@ -107,6 +107,10 @@ class BatfishToolsTests(unittest.IsolatedAsyncioTestCase):
                 "get_bgp_session_status",
                 "get_interface_properties",
                 "get_device_facts",
+                "analyze_acl",
+                "check_reachability",
+                "compare_filters",
+                "differential_reachability",
             },
         )
         for name in names:
@@ -127,6 +131,21 @@ class BatfishToolsTests(unittest.IsolatedAsyncioTestCase):
             ("get_bgp_session_status", {"network": "net1"}),
             ("get_interface_properties", {"network": "net1"}),
             ("get_device_facts", {"network": "net1"}),
+            (
+                "analyze_acl",
+                {"network": "net1", "node": "r1", "filter_name": "A", "dst_ip": "10.0.0.1"},
+            ),
+            ("check_reachability", {"network": "net1", "node": "r1", "dst_ip": "10.0.0.1"}),
+            ("compare_filters", {"network": "net1", "reference_snapshot": "run-1"}),
+            (
+                "differential_reachability",
+                {
+                    "network": "net1",
+                    "reference_snapshot": "run-1",
+                    "node": "r1",
+                    "dst_ip": "10.0.0.1",
+                },
+            ),
         ):
             with self.subTest(name):
                 out, data = await self._call(name, ctx, **args)
@@ -629,6 +648,367 @@ class BatfishToolsTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(data["rows"][1]["Logging_Servers"], [])
         self.assertNotIn("keys_seen", data)
+
+    # -- analyze_acl ---------------------------------------------------------------------------
+
+    ACL_ROWS = [
+        {
+            "Node": "r1",
+            "Filter_Name": "MGMT_in",
+            "Flow": {"srcIp": "1.1.1.1", "dstIp": "10.0.0.1", "ipProtocol": "TCP", "dstPort": 22},
+            "Action": "DENY",
+            "Line_Content": "deny ip any any",
+            "Trace": "internal",
+        }
+    ]
+
+    async def test_acl_verdict_is_forwarded_and_the_matching_line_needs_the_content_opt_in(
+        self,
+    ) -> None:
+        self.reader.answer = BatfishAnswer(rows=self.ACL_ROWS, snapshot="run-2")
+        no_content = self._ctx(SharingPolicy(inventory=True, addresses=True))
+
+        out, data = await self._call(
+            "analyze_acl",
+            no_content,
+            network="net1",
+            node="R1",
+            filter_name="MGMT_in",
+            dst_ip="10.0.0.1",
+            ip_protocol="tcp",
+            dst_port=22,
+        )
+
+        params = self.reader.calls[-1][5]
+        self.assertEqual(self.reader.calls[-1][1], "acl")
+        self.assertEqual(params["node"], "r1")
+        self.assertEqual(params["filter_name"], "MGMT_in")
+        self.assertEqual(params["dst_ips"], "10.0.0.1")
+        self.assertEqual(params["applications"], ["tcp/22"])
+        self.assertEqual(data["rows"][0]["Action"], "DENY")
+        self.assertEqual(data["rows"][0]["Filter_Name"], "MGMT_in")
+        self.assertNotIn("Line_Content", out.content)
+        self.assertNotIn("internal", out.content)
+
+        _, with_content = await self._call(
+            "analyze_acl", network="net1", node="r1", filter_name="MGMT_in", dst_ip="10.0.0.1"
+        )
+        self.assertEqual(with_content["rows"][0]["Line_Content"], "deny ip any any")
+
+    async def test_acl_handle_class_follows_whether_the_line_is_included(self) -> None:
+        rows = [{**self.ACL_ROWS[0], "Filter_Name": f"F{i}"} for i in range(25)]
+        self.reader.answer = BatfishAnswer(rows=rows, snapshot="run-2")
+        args = {"network": "net1", "node": "r1", "filter_name": "F", "dst_ip": "10.0.0.1"}
+
+        _, with_line = await self._call("analyze_acl", **args)  # ALL sharing
+        _, without = await self._call(
+            "analyze_acl", self._ctx(SharingPolicy(inventory=True, addresses=True)), **args
+        )
+
+        stored_with = await self.store.get(7, with_line["handle"])
+        stored_without = await self.store.get(7, without["handle"])
+        assert stored_with is not None and stored_without is not None
+        self.assertEqual(stored_with.data_class, DataClass.CONTENT)
+        self.assertEqual(stored_without.data_class, DataClass.ADDRESSES)
+        self.assertTrue(all("Line_Content" not in r for r in stored_without.rows or []))
+
+    async def test_acl_inputs_are_restricted(self) -> None:
+        base = {"network": "net1", "node": "r1", "dst_ip": "10.0.0.1"}
+        for name, bad in (
+            ("filter_name", "/.*/"),  # a leading slash would be a regex specifier
+            ("filter_name", "A,B"),
+            ("filter_name", ""),
+            ("dst_ip", "10.0.0.0/8; drop"),
+        ):
+            with self.subTest(name, bad=bad):
+                args = {**base, "filter_name": "ACL1", name: bad}
+                out, _ = await self._call("analyze_acl", **args)
+                self.assertTrue(out.is_error)
+        out, _ = await self._call(
+            "analyze_acl", **base, filter_name="ACL1", dst_port=22
+        )  # a port needs tcp or udp
+        self.assertTrue(out.is_error)
+        self.assertEqual([c for c in self.reader.calls if c[0] == "query"], [])
+
+    # -- check_reachability --------------------------------------------------------------------
+
+    TRACE_ROW = {
+        "Flow": {"srcIp": "1.1.1.1", "dstIp": "10.0.0.1", "ipProtocol": "TCP"},
+        "Traces": [
+            {
+                "disposition": "ACCEPTED",
+                "hops": [{"node": "r1", "steps": [{"action": "FORWARDED"}]}, {"node": "r2"}],
+            }
+        ],
+    }
+
+    async def test_reachability_summarises_the_successful_flows(self) -> None:
+        self.reader.answer = BatfishAnswer(rows=[self.TRACE_ROW], snapshot="run-2")
+
+        _, data = await self._call(
+            "check_reachability",
+            network="net1",
+            node="r1",
+            end_node="R2",
+            dst_ip="10.0.0.1",
+            ignore_filters=True,
+        )
+
+        params = self.reader.calls[-1][5]
+        self.assertEqual(self.reader.calls[-1][1], "reachability")
+        self.assertEqual(
+            (params["start_node"], params["end_node"], params["dst_ips"], params["ignore_filters"]),
+            ("r1", "r2", "10.0.0.1", True),
+        )
+        self.assertTrue(data["reachable"])
+        self.assertEqual(data["rows"][0]["path"], "r1 -> r2")
+        self.assertEqual(data["rows"][0]["disposition"], "ACCEPTED")
+
+    async def test_no_matching_flow_means_not_reachable_in_the_model(self) -> None:
+        self.reader.answer = BatfishAnswer(rows=[], snapshot="run-2")
+
+        _, data = await self._call(
+            "check_reachability", network="net1", node="r1", dst_ip="10.0.0.1"
+        )
+
+        self.assertFalse(data["reachable"])
+        self.assertEqual(data["rows"], [])
+        self.assertIn("get_traceroute", data["note"])
+
+    async def test_unrecognised_reachability_traces_are_shown_raw_and_say_so(self) -> None:
+        self.reader.answer = BatfishAnswer(
+            rows=[{"Flow": {}, "Traces": [{"weird": 1}]}], snapshot="run-2"
+        )
+
+        _, data = await self._call(
+            "check_reachability", network="net1", node="r1", dst_ip="10.0.0.1"
+        )
+
+        self.assertIn("could not be summarised", data["note"])
+
+    # -- compare_filters / differential_reachability --------------------------------------------
+
+    CMP_ROWS = [
+        {
+            "Node": "r1",
+            "Filter_Name": "MGMT_in",
+            "Line_Index": 3,
+            "Line_Content": "permit tcp any any eq 22",
+            "Line_Action": "PERMIT",
+            "Reference_Line_Index": 3,
+            "Reference_Line_Content": "deny tcp any any eq 22",
+        }
+    ]
+    # compareFilters returns no Reference_Line_Action column (Batfish documentation), and a
+    # reference line that is the implicit deny at the end of the ACL comes back like this.
+    IMPLICIT_DENY_ROW = {
+        "Node": "r1",
+        "Filter_Name": "MGMT_in",
+        "Line_Index": 2,
+        "Line_Content": "permit ip any any",
+        "Line_Action": "PERMIT",
+        "Reference_Line_Index": "End of ACL",
+        "Reference_Line_Content": "",
+    }
+
+    def _differential_answer(self, rows: list[dict[str, Any]]) -> BatfishAnswer:
+        return BatfishAnswer(
+            rows=rows,
+            snapshot="run-2",
+            snapshot_created="2026-11-01T10:00:00Z",
+            reference_snapshot="run-1",
+            reference_created="2026-10-01T10:00:00Z",
+        )
+
+    async def test_compare_filters_reports_both_snapshots_and_gates_the_lines(self) -> None:
+        self.reader.answer = self._differential_answer(self.CMP_ROWS)
+        no_content = self._ctx(SharingPolicy(inventory=True, addresses=True))
+
+        out, data = await self._call(
+            "compare_filters",
+            no_content,
+            network="net1",
+            reference_snapshot="run-1",
+            nodes=["R1"],
+            filters="MGMT_in",
+        )
+
+        call = self.reader.calls[-1]
+        self.assertEqual(call[1], "compare_filters")
+        self.assertEqual(
+            call[5], {"reference_snapshot": "run-1", "nodes": "r1", "filters": "MGMT_in"}
+        )
+        self.assertEqual(data["snapshot"], "run-2")
+        self.assertEqual(data["reference_snapshot"], "run-1")
+        self.assertEqual(data["reference_snapshot_created"], "2026-10-01T10:00:00Z")
+        self.assertEqual(data["rows"][0]["Line_Action"], "PERMIT")
+        self.assertEqual(data["rows"][0]["Reference_Line_Action"], "DENY")
+        self.assertNotIn("Line_Content", out.content)
+        self.assertNotIn("deny tcp", out.content)
+
+        _, with_lines = await self._call(
+            "compare_filters", network="net1", reference_snapshot="run-1"
+        )
+        self.assertEqual(with_lines["rows"][0]["Reference_Line_Content"], "deny tcp any any eq 22")
+
+    async def test_compare_filters_handle_class_follows_whether_lines_are_included(self) -> None:
+        rows = [{**self.CMP_ROWS[0], "Line_Index": i} for i in range(25)]
+        self.reader.answer = self._differential_answer(rows)
+        args = {"network": "net1", "reference_snapshot": "run-1"}
+
+        _, with_lines = await self._call("compare_filters", **args)  # ALL sharing
+        _, without = await self._call(
+            "compare_filters", self._ctx(SharingPolicy(inventory=True, addresses=True)), **args
+        )
+
+        stored_with = await self.store.get(7, with_lines["handle"])
+        stored_without = await self.store.get(7, without["handle"])
+        assert stored_with is not None and stored_without is not None
+        self.assertEqual(stored_with.data_class, DataClass.CONTENT)
+        self.assertEqual(stored_without.data_class, DataClass.ADDRESSES)
+        self.assertTrue(all("Line_Content" not in r for r in stored_without.rows or []))
+
+    async def test_compare_filters_derives_the_reference_action_and_explains_end_of_acl(
+        self,
+    ) -> None:
+        self.reader.answer = self._differential_answer([self.CMP_ROWS[0], self.IMPLICIT_DENY_ROW])
+        no_content = self._ctx(SharingPolicy(inventory=True, addresses=True))
+
+        _, data = await self._call(
+            "compare_filters", no_content, network="net1", reference_snapshot="run-1"
+        )
+
+        # Only lines whose actions differ are returned, so the other side is the opposite action.
+        self.assertEqual(data["rows"][0]["Reference_Line_Action"], "DENY")
+        self.assertEqual(data["rows"][1]["Reference_Line_Index"], "End of ACL")
+        self.assertIn("implicit deny", data["note"])
+        self.assertIn("derived", data["note"].lower())
+
+    async def test_compare_filters_with_nothing_returned_does_not_claim_the_acls_match(
+        self,
+    ) -> None:
+        self.reader.answer = self._differential_answer([])
+
+        _, data = await self._call(
+            "compare_filters", network="net1", reference_snapshot="run-1", filters="TYPO_ACL"
+        )
+
+        self.assertFalse(data["differences_found"])
+        note = data["note"].lower()
+        self.assertIn("does not prove", note)
+        self.assertIn("get_interface_properties", note)
+        self.assertNotIn("no filter line differs", note)
+
+    async def test_differential_reachability_needs_no_destination(self) -> None:
+        self.reader.answer = self._differential_answer([self.DIFF_ROW])
+
+        out, data = await self._call(
+            "differential_reachability", network="net1", reference_snapshot="run-1", node="r1"
+        )
+
+        self.assertFalse(out.is_error)
+        self.assertIsNone(self.reader.calls[-1][5]["dst_ips"])
+        self.assertTrue(data["differences_found"])
+
+    async def test_check_reachability_still_needs_a_destination(self) -> None:
+        out, _ = await self._call("check_reachability", network="net1", node="r1")
+
+        self.assertTrue(out.is_error)
+
+    async def test_an_empty_differential_answer_is_not_called_success_in_both(self) -> None:
+        self.reader.answer = self._differential_answer([])
+
+        _, data = await self._call(
+            "differential_reachability",
+            network="net1",
+            reference_snapshot="run-1",
+            node="r1",
+            dst_ip="10.0.0.1",
+        )
+
+        note = data["note"]
+        self.assertFalse(data["differences_found"])
+        self.assertNotIn("same flows succeed", note)
+        self.assertIn("only one snapshot", note)
+        self.assertIn("fails in both", note)
+        self.assertIn("check_reachability", note)
+        self.assertIn("10.0.0.1", note)  # says which destination was covered
+
+    async def test_the_tool_descriptions_do_not_promise_success_in_both(self) -> None:
+        tools = {t.name: t for t in build_batfish_tools()}
+
+        self.assertNotIn("same flows succeed", tools["differential_reachability"].description)
+        self.assertNotIn("actions in both", tools["compare_filters"].description)
+
+    async def test_a_reference_snapshot_is_required_and_bounded(self) -> None:
+        for args in (
+            {"network": "net1"},
+            {"network": "net1", "reference_snapshot": ""},
+            {"network": "net1", "reference_snapshot": "x" * 300},
+        ):
+            with self.subTest(args=args):
+                out, _ = await self._call("compare_filters", **args)
+                self.assertTrue(out.is_error)
+        self.assertEqual([c for c in self.reader.calls if c[0] == "query"], [])
+
+    async def test_filter_selection_cannot_be_a_regex(self) -> None:
+        out, _ = await self._call(
+            "compare_filters", network="net1", reference_snapshot="run-1", filters="/.*/"
+        )
+
+        self.assertTrue(out.is_error)
+
+    DIFF_ROW = {
+        "Flow": {"srcIp": "1.1.1.1", "dstIp": "10.0.0.1", "ipProtocol": "TCP"},
+        "Snapshot_Traces": [{"disposition": "ACCEPTED", "hops": [{"node": "r1"}, {"node": "r2"}]}],
+        "Snapshot_TraceCount": 1,
+        "Reference_Traces": [{"disposition": "DENIED_IN", "hops": [{"node": "r1"}]}],
+        "Reference_TraceCount": 1,
+    }
+
+    async def test_differential_reachability_condenses_both_sides(self) -> None:
+        self.reader.answer = self._differential_answer([self.DIFF_ROW])
+
+        _, data = await self._call(
+            "differential_reachability",
+            network="net1",
+            reference_snapshot="run-1",
+            node="r1",
+            end_node="r2",
+            dst_ip="10.0.0.1",
+            ip_protocol="tcp",
+            dst_port=22,
+            ignore_filters=True,
+        )
+
+        call = self.reader.calls[-1]
+        self.assertEqual(call[1], "differential_reachability")
+        params = call[5]
+        self.assertEqual(
+            (params["reference_snapshot"], params["start_node"], params["end_node"]),
+            ("run-1", "r1", "r2"),
+        )
+        self.assertEqual((params["dst_ips"], params["applications"]), ("10.0.0.1", ["tcp/22"]))
+        self.assertIs(params["ignore_filters"], True)
+        self.assertTrue(data["differences_found"])
+        self.assertEqual(data["rows"][0]["in_snapshot"][0]["disposition"], "ACCEPTED")
+        self.assertEqual(data["rows"][0]["in_reference"][0]["disposition"], "DENIED_IN")
+        self.assertEqual(data["reference_snapshot"], "run-1")
+
+    async def test_unrecognised_differential_traces_are_shown_raw_and_say_so(self) -> None:
+        self.reader.answer = self._differential_answer(
+            [{"Flow": {}, "Snapshot_Traces": [{"weird": 1}], "Reference_Traces": []}]
+        )
+
+        _, data = await self._call(
+            "differential_reachability",
+            network="net1",
+            reference_snapshot="run-1",
+            node="r1",
+            dst_ip="10.0.0.1",
+        )
+
+        self.assertIn("could not be summarised", data["note"])
 
     # -- audit -------------------------------------------------------------------------------
 

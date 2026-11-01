@@ -39,6 +39,7 @@ from services.ai_assistant.tools.envelope import (
     envelope_output,
     redact_envelope,
 )
+from services.ai_assistant.tools.result_diff import get_path
 
 # Key of the ``ResultStore`` in ``ToolContext.extras``; the surface builder puts it there.
 RESULT_STORE_KEY = "result_store"
@@ -46,7 +47,7 @@ MAX_SLICE_CHARS = 4000
 MAX_FILTERS = 5
 MAX_FIELDS = 20
 
-_HANDLE_FIELD = Field(
+HANDLE_FIELD = Field(
     min_length=1,
     max_length=64,
     description="Handle of a stored result, for example 'res_8f3a1c0d2b4e'",
@@ -85,7 +86,7 @@ class Filter(BaseModel):
 class QueryResultInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    handle: str = _HANDLE_FIELD
+    handle: str = HANDLE_FIELD
     filters: list[Filter] = Field(
         default_factory=list, max_length=MAX_FILTERS, description="All filters must match (AND)"
     )
@@ -103,7 +104,7 @@ class QueryResultInput(BaseModel):
 class FetchSliceInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    handle: str = _HANDLE_FIELD
+    handle: str = HANDLE_FIELD
     offset: int = Field(
         default=0, ge=0, le=10_000_000, description="First row (table) or character (text)"
     )
@@ -142,13 +143,13 @@ async def _load(ctx: ToolContext, handle: str) -> StoredResult | ToolOutput:
     return stored
 
 
-def _get_path(row: dict[str, Any], path: str) -> tuple[bool, Any]:
-    node: Any = row
-    for part in path.split("."):
-        if not isinstance(node, dict) or part not in node:
-            return False, None
-        node = node[part]
-    return True, node
+# Public name for tools in other modules that read a stored result (``diff_results``).
+load_stored_result = _load
+
+
+_get_path = get_path
+
+# Public name for tools in other modules that read a stored result (``diff_results``).
 
 
 def _number(value: Any) -> float | None:
@@ -356,7 +357,12 @@ def build_result_tools() -> list[Tool]:
         "query_result": (QueryResultInput, _query_result),
         "fetch_slice": (FetchSliceInput, _fetch_slice),
     }
-    return [
+    tools = [
         Tool(name=name, description=_DESCRIPTIONS[name], input_model=model, handler=handler)
         for name, (model, handler) in handlers.items()
     ]
+    # Imported here: diff_tool needs this module (the store key, ``load_stored_result``), so a
+    # module-level import would be circular.
+    from services.ai_assistant.tools.diff_tool import DIFF_RESULTS_TOOL
+
+    return [*tools, DIFF_RESULTS_TOOL]

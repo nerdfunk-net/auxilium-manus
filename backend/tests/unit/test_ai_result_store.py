@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import unittest
 
 import fakeredis
@@ -149,3 +150,32 @@ class RedisBackendTests(unittest.IsolatedAsyncioTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PartialFlagTests(unittest.IsolatedAsyncioTestCase):
+    async def test_the_partial_flag_round_trips(self) -> None:
+        store = ResultStore(InMemoryResultBackend())
+        handle = await store.put(
+            1, StoredResult(kind="t", data_class=DataClass.ADDRESSES, rows=[{"a": 1}], partial=True)
+        )
+
+        stored = await store.get(1, handle)
+
+        assert stored is not None
+        self.assertTrue(stored.partial)
+
+    async def test_an_entry_written_without_the_flag_reads_as_complete(self) -> None:
+        backend = InMemoryResultBackend()
+        store = ResultStore(backend)
+        handle = await store.put(
+            1, StoredResult(kind="t", data_class=DataClass.ADDRESSES, rows=[{"a": 1}])
+        )
+        key = next(iter(backend._data))
+        expiry, raw = backend._data[key]
+        legacy = {k: v for k, v in json.loads(raw).items() if k != "partial"}
+        backend._data[key] = (expiry, json.dumps(legacy))
+
+        stored = await store.get(1, handle)
+
+        assert stored is not None
+        self.assertFalse(stored.partial)

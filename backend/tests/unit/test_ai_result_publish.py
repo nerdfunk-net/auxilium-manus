@@ -131,6 +131,36 @@ class PublishTableTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("could not be stored", data["note"])
         self.assertEqual(len(data["rows"]), PREVIEW_ROWS)
 
+    async def test_a_complete_table_is_stored_as_complete(self) -> None:
+        store = ResultStore(InMemoryResultBackend())
+
+        out = await publish_table(_ctx(store), _rows(60), kind="r", data_class=DataClass.ADDRESSES)
+
+        stored = await store.get(7, json.loads(out.content)["handle"])
+        assert stored is not None
+        self.assertFalse(stored.partial)
+
+    async def test_a_table_cut_at_the_source_is_stored_as_partial(self) -> None:
+        store = ResultStore(InMemoryResultBackend())
+
+        out = await publish_table(
+            _ctx(store), _rows(60), kind="r", data_class=DataClass.ADDRESSES, source_truncated=True
+        )
+
+        stored = await store.get(7, json.loads(out.content)["handle"])
+        assert stored is not None
+        self.assertTrue(stored.partial)
+
+    async def test_a_table_cut_to_fit_the_store_is_stored_as_partial(self) -> None:
+        store = ResultStore(InMemoryResultBackend())
+        big = [{"i": i, "pad": "x" * 2000} for i in range(1500)]
+
+        out = await publish_table(_ctx(store), big, kind="r", data_class=DataClass.ADDRESSES)
+
+        stored = await store.get(7, json.loads(out.content)["handle"])
+        assert stored is not None
+        self.assertTrue(stored.partial)
+
     async def test_oversized_table_is_stored_partially_and_says_so(self) -> None:
         store = ResultStore(InMemoryResultBackend())
         big = [{"i": i, "pad": "x" * 2000} for i in range(1500)]  # about 3 MB

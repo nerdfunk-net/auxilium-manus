@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import json
 from collections.abc import AsyncIterator
+from dataclasses import replace
 from typing import NoReturn
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -49,7 +50,7 @@ from services.ai_assistant.exceptions import (
 )
 from services.ai_assistant.glossary_reader import DbGlossaryReader
 from services.ai_assistant.inventory_reader import DbInventoryReader
-from services.ai_assistant.known_secrets import load_visible_secret_values
+from services.ai_assistant.known_secrets import try_load_visible_secret_values
 from services.ai_assistant.prompts import BASE_SYSTEM_PROMPT
 from services.ai_assistant.providers.base import ChatMessage
 from services.ai_assistant.proxy_settings_service import AiProxySettingsService
@@ -127,7 +128,15 @@ def _session_for(
 ) -> AssistantSession:
     sharing = config.sharing
     # S5-04: with run / device content shared, scrub the exact secrets the user can resolve.
-    known = load_visible_secret_values(user.id) if sharing.content else ()
+    known: list[str] | tuple[()] = ()
+    if sharing.content:
+        loaded = try_load_visible_secret_values(user.id)
+        if loaded is None:
+            # Fail closed: without the exact credential values only pattern redaction would
+            # protect the content, so it is not shared for this request.
+            sharing = replace(sharing, content=False)
+        else:
+            known = loaded
     if isinstance(context, GeneralContext):
         return build_general_session(
             user_id=user.id,

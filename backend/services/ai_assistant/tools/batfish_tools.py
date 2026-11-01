@@ -46,9 +46,12 @@ from services.ai_assistant.tools.batfish_shaping import (
     fact_keys_seen,
     shape_bgp_sessions,
     shape_facts,
+    shape_filter_comparison,
+    shape_filter_results,
     shape_interfaces,
     shape_routes,
     summarize_bgp_sessions,
+    summarize_differential_traces,
     summarize_facts,
     summarize_traces,
 )
@@ -74,11 +77,27 @@ class BatfishUnavailableError(Exception):
     """The coordinator could not be reached or failed."""
 
 
+QueryKind = Literal[
+    "routes",
+    "traceroute",
+    "bgp_sessions",
+    "interfaces",
+    "facts",
+    "acl",
+    "reachability",
+    "compare_filters",
+    "differential_reachability",
+]
+
+
 @dataclass(frozen=True)
 class BatfishAnswer:
     rows: list[dict[str, Any]]
     snapshot: str
     snapshot_created: str | None = None
+    # Only for the differential kinds: the snapshot ``snapshot`` was compared with.
+    reference_snapshot: str | None = None
+    reference_created: str | None = None
     # The source cut the table at its preview cap, so ``rows`` is a prefix.
     truncated: bool = False
 
@@ -92,7 +111,7 @@ class BatfishReader(Protocol):
 
     async def query(
         self,
-        kind: Literal["routes", "traceroute", "bgp_sessions", "interfaces", "facts"],
+        kind: QueryKind,
         source_id: str,
         network: str,
         snapshot: str | None,
@@ -251,6 +270,102 @@ class InterfacesInput(Target):
     )
 
 
+FilterName = Annotated[
+    str,
+    StringConstraints(
+        strip_whitespace=True,
+        min_length=1,
+        max_length=100,
+        # Must not start with "/" (a regex specifier in Batfish) and has no comma or space.
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9_.:/\-]*$",
+    ),
+]
+
+
+class _FlowInput(Target):
+    """The flow fields the ACL and reachability tools share."""
+
+    dst_ip: str = Field(max_length=45, description="Destination IP address, e.g. '10.1.2.3'")
+    src_ip: str | None = Field(
+        default=None, max_length=45, description="Source IP address; optional"
+    )
+    ip_protocol: Literal["tcp", "udp", "icmp"] | None = Field(
+        default=None, description="Protocol; optional"
+    )
+    dst_port: int | None = Field(
+        default=None, ge=1, le=65535, description="Destination port; needs tcp or udp"
+    )
+
+    @field_validator("dst_ip", "src_ip")
+    @classmethod
+    def _valid_ip(cls, value: str | None) -> str | None:
+        return None if value is None else _ip(value)
+
+    @model_validator(mode="after")
+    def _port_needs_a_port_protocol(self) -> _FlowInput:
+        if self.dst_port is not None and self.ip_protocol not in ("tcp", "udp"):
+            raise ValueError("dst_port needs ip_protocol tcp or udp")
+        return self
+
+
+class AclInput(_FlowInput):
+    node: NodeName = Field(description="Device that holds the filter")
+    filter_name: FilterName = Field(
+        description="Exact name of the access list / filter on that device"
+    )
+
+
+class ReachabilityInput(_FlowInput):
+    node: NodeName = Field(description="Device the packet starts on")
+    end_node: NodeName | None = Field(default=None, description="Device it should reach; optional")
+    ignore_filters: bool = Field(
+        default=False,
+        description="Ignore ACLs: compare with and without to see whether a filter is the cause",
+    )
+    max_traces: int = Field(
+        default=DEFAULT_TRACES, ge=1, le=MAX_TRACES, description="Paths to return at most"
+    )
+
+
+ReferenceSnapshotName = Annotated[
+    str, StringConstraints(strip_whitespace=True, min_length=1, max_length=255)
+]
+_REFERENCE_DESCRIPTION = (
+    "The snapshot to compare against: the older state. 'snapshot' (omit for the newest) is the "
+    "newer state. Name from list_batfish_snapshots; it must differ from 'snapshot'"
+)
+
+
+class CompareFiltersInput(Target):
+    reference_snapshot: ReferenceSnapshotName = Field(description=_REFERENCE_DESCRIPTION)
+    nodes: list[NodeName] = Field(
+        default_factory=list,
+        max_length=MAX_NODES,
+        description="Device names; empty means every device",
+    )
+    filters: FilterName | None = Field(
+        default=None, description="Exact filter / ACL name; omit for every filter"
+    )
+
+
+class DifferentialReachabilityInput(ReachabilityInput):
+    reference_snapshot: ReferenceSnapshotName = Field(description=_REFERENCE_DESCRIPTION)
+    # Unlike the other flow tools the destination is optional: "what changed from this device"
+    # is a question about every destination, which the header space of the question covers.
+    dst_ip: str | None = Field(  # pyright: ignore[reportIncompatibleVariableOverride]
+        default=None,
+        max_length=45,
+        description="Destination IP address; omit to look at every destination",
+    )
+
+
+def _flow_params(args: _FlowInput | TracerouteInput) -> tuple[list[str] | None, str | None]:
+    """Batfish ``applications`` (protocol and port) and ``ipProtocols`` for the flow."""
+    applications = [f"{args.ip_protocol}/{args.dst_port}"] if args.dst_port else None
+    protocol = args.ip_protocol.upper() if args.ip_protocol and not args.dst_port else None
+    return applications, protocol
+
+
 class FactsInput(Target):
     nodes: list[NodeName] = Field(
         default_factory=list,
@@ -358,7 +473,7 @@ async def _list_snapshots(ctx: ToolContext, args: SnapshotsInput) -> ToolOutput:
 async def _run(
     ctx: ToolContext,
     args: Target,
-    kind: Literal["routes", "traceroute", "bgp_sessions", "interfaces", "facts"],
+    kind: QueryKind,
     params: dict[str, Any],
 ) -> tuple[str, BatfishAnswer] | ToolOutput:
     if (blocked := _gate(ctx, DataClass.ADDRESSES)) is not None:
@@ -384,6 +499,15 @@ def _context(source: str, args: Target, answer: BatfishAnswer) -> dict[str, Any]
     }
 
 
+def _differential_context(source: str, args: Target, answer: BatfishAnswer) -> dict[str, Any]:
+    """Both snapshots a comparison rests on, with their ages."""
+    return {
+        **_context(source, args, answer),
+        "reference_snapshot": answer.reference_snapshot,
+        "reference_snapshot_created": answer.reference_created,
+    }
+
+
 async def _get_routes(ctx: ToolContext, args: RoutesInput) -> ToolOutput:
     params = {
         "nodes": _csv(args.nodes),
@@ -406,9 +530,19 @@ async def _get_routes(ctx: ToolContext, args: RoutesInput) -> ToolOutput:
     )
 
 
+def _summarised_traces(rows: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], str | None]:
+    """Trace rows condensed to paths; the raw rows and a note when the shape is not understood."""
+    summary, recognised = summarize_traces(rows)
+    if recognised:
+        return summary, None
+    return rows, (
+        "The traces could not be summarised (unexpected shape), so the raw rows are shown. "
+        "Say so and do not infer a path from them."
+    )
+
+
 async def _get_traceroute(ctx: ToolContext, args: TracerouteInput) -> ToolOutput:
-    applications = [f"{args.ip_protocol}/{args.dst_port}"] if args.dst_port else None
-    protocol = args.ip_protocol.upper() if args.ip_protocol and not args.dst_port else None
+    applications, protocol = _flow_params(args)
     params = {
         "start_node": args.node,
         "dst_ips": args.dst_ip,
@@ -421,14 +555,9 @@ async def _get_traceroute(ctx: ToolContext, args: TracerouteInput) -> ToolOutput
     if isinstance(ran, ToolOutput):
         return ran
     source, answer = ran
-    rows, note = answer.rows, None
-    if args.trace_format == "summary":
-        rows, recognised = summarize_traces(answer.rows)
-        if not recognised:
-            note = (
-                "The traces could not be summarised (unexpected shape), so the raw rows are "
-                "shown. Say so and do not infer a path from them."
-            )
+    rows, note = (
+        _summarised_traces(answer.rows) if args.trace_format == "summary" else (answer.rows, None)
+    )
     return await publish_table(
         ctx,
         rows,
@@ -484,6 +613,184 @@ async def _get_interfaces(ctx: ToolContext, args: InterfacesInput) -> ToolOutput
         data_class=DataClass.CONTENT if with_description else DataClass.ADDRESSES,
         source_truncated=answer.truncated,
         extra=_context(source, args, answer),
+    )
+
+
+async def _analyze_acl(ctx: ToolContext, args: AclInput) -> ToolOutput:
+    applications, protocol = _flow_params(args)
+    params = {
+        "node": args.node,
+        "filter_name": args.filter_name,
+        "dst_ips": args.dst_ip,
+        "src_ips": args.src_ip,
+        "applications": applications,
+        "ip_protocols": protocol,
+    }
+    ran = await _run(ctx, args, "acl", params)
+    if isinstance(ran, ToolOutput):
+        return ran
+    source, answer = ran
+    # The matching line is config text: only with the content opt-in, and then the whole table
+    # (and its handle) is content-class, like interface descriptions.
+    with_line = ctx.sharing.allows(DataClass.CONTENT)
+    note = (
+        None
+        if with_line
+        else (
+            "The matching ACL line is not shown: the user has not allowed config content to be "
+            "shared. The verdict (Action) is still valid."
+        )
+    )
+    return await publish_table(
+        ctx,
+        shape_filter_results(answer.rows, include_line=with_line),
+        kind="acl",
+        data_class=DataClass.CONTENT if with_line else DataClass.ADDRESSES,
+        source_truncated=answer.truncated,
+        note=note,
+        extra=_context(source, args, answer),
+    )
+
+
+async def _check_reachability(ctx: ToolContext, args: ReachabilityInput) -> ToolOutput:
+    applications, protocol = _flow_params(args)
+    params = {
+        "start_node": args.node,
+        "end_node": args.end_node,
+        "dst_ips": args.dst_ip,
+        "src_ips": args.src_ip,
+        "applications": applications,
+        "ip_protocols": protocol,
+        "max_traces": args.max_traces,
+        "ignore_filters": args.ignore_filters,
+    }
+    ran = await _run(ctx, args, "reachability", params)
+    if isinstance(ran, ToolOutput):
+        return ran
+    source, answer = ran
+    rows, note = _summarised_traces(answer.rows)
+    reachable = bool(answer.rows)
+    if not reachable:
+        note = (
+            "No flow matching this description succeeds in the model. Use get_traceroute to see "
+            "where the packet stops, and try ignore_filters=true to test whether a filter is the "
+            "cause."
+        )
+    return await publish_table(
+        ctx,
+        rows,
+        kind="reachability",
+        data_class=DataClass.ADDRESSES,
+        source_truncated=answer.truncated,
+        note=note,
+        extra={**_context(source, args, answer), "reachable": reachable},
+    )
+
+
+def _filter_comparison_note(rows: list[dict[str, Any]], *, with_lines: bool) -> str:
+    if not rows:
+        return (
+            "No differing filter line was returned. This does not prove the ACLs are the same: a "
+            "filter name that matches nothing, and a filter that exists in only one snapshot, "
+            "also return nothing. If a filter name was given, confirm it exists "
+            "(get_interface_properties lists Incoming_Filter_Name / Outgoing_Filter_Name) before "
+            "saying nothing changed."
+        )
+    parts = [
+        "Reference_Line_Action is derived: compareFilters lists only lines whose actions differ, "
+        "so it is the opposite of Line_Action."
+    ]
+    if any(row.get("Reference_Line_Index") == "End of ACL" for row in rows):
+        parts.append(
+            "Reference_Line_Index 'End of ACL' means no line of the reference ACL matched the "
+            "flow: its implicit deny at the end applied."
+        )
+    if not with_lines:
+        parts.append(
+            "The filter lines are not shown: the user has not allowed config content to be shared."
+        )
+    return " ".join(parts)
+
+
+async def _compare_filters(ctx: ToolContext, args: CompareFiltersInput) -> ToolOutput:
+    params = {
+        "reference_snapshot": args.reference_snapshot,
+        "nodes": _csv(args.nodes),
+        "filters": args.filters,
+    }
+    ran = await _run(ctx, args, "compare_filters", params)
+    if isinstance(ran, ToolOutput):
+        return ran
+    source, answer = ran
+    # The filter lines are config text: only with the content opt-in, and then the whole table
+    # (and its handle) is content-class, like analyze_acl.
+    with_lines = ctx.sharing.allows(DataClass.CONTENT)
+    differences = bool(answer.rows)
+    note = _filter_comparison_note(answer.rows, with_lines=with_lines)
+    return await publish_table(
+        ctx,
+        shape_filter_comparison(answer.rows, include_lines=with_lines),
+        kind="compare_filters",
+        data_class=DataClass.CONTENT if with_lines else DataClass.ADDRESSES,
+        source_truncated=answer.truncated,
+        note=note,
+        extra={**_differential_context(source, args, answer), "differences_found": differences},
+    )
+
+
+async def _differential_reachability(
+    ctx: ToolContext, args: DifferentialReachabilityInput
+) -> ToolOutput:
+    applications, protocol = _flow_params(args)
+    params = {
+        "reference_snapshot": args.reference_snapshot,
+        "start_node": args.node,
+        "end_node": args.end_node,
+        "dst_ips": args.dst_ip,
+        "src_ips": args.src_ip,
+        "applications": applications,
+        "ip_protocols": protocol,
+        "max_traces": args.max_traces,
+        "ignore_filters": args.ignore_filters,
+    }
+    ran = await _run(ctx, args, "differential_reachability", params)
+    if isinstance(ran, ToolOutput):
+        return ran
+    source, answer = ran
+    differences = bool(answer.rows)
+    rows, note = answer.rows, None
+    destination = args.dst_ip or "any destination"
+    _scope = (
+        f"Only flows from {args.node} to {destination} were examined, not the rest of the network."
+    )
+    if differences:
+        rows, recognised = summarize_differential_traces(answer.rows)
+        if not recognised:
+            rows, note = (
+                answer.rows,
+                (
+                    "The traces could not be summarised (unexpected shape), so the raw rows are "
+                    "shown. Say so and do not infer a path from them."
+                ),
+            )
+    else:
+        note = (
+            "No flow was found that succeeds in only one snapshot. That includes a flow that "
+            "fails in both, so this does not show that the traffic works: confirm with "
+            "check_reachability in each snapshot before saying it works. " + _scope
+        )
+    return await publish_table(
+        ctx,
+        rows,
+        kind="differential_reachability",
+        data_class=DataClass.ADDRESSES,
+        source_truncated=answer.truncated,
+        note=note,
+        extra={
+            **_differential_context(source, args, answer),
+            "differences_found": differences,
+            "examined": {"from": args.node, "to": args.dst_ip},
+        },
     )
 
 
@@ -581,6 +888,47 @@ _TOOLS: tuple[tuple[str, str, type[BaseModel], Callable[..., Awaitable[ToolOutpu
         "asked) first. Key material and large structures are not available." + _SNAPSHOT_HINT,
         FactsInput,
         _get_device_facts,
+    ),
+    (
+        "analyze_acl",
+        "Test one flow against one named ACL / filter on a device: PERMIT or DENY, and (when the "
+        "user allows config content) the matching line. Use it after get_traceroute reports "
+        "DENIED_IN or DENIED_OUT, with the filter name from get_interface_properties "
+        "(Incoming_Filter_Name / Outgoing_Filter_Name)." + _SNAPSHOT_HINT,
+        AclInput,
+        _analyze_acl,
+    ),
+    (
+        "check_reachability",
+        "Whether traffic matching a description can get from a device to a destination (or to "
+        "end_node) in the model, with the paths found. reachable=false means no matching flow "
+        "succeeds. Run it with and without ignore_filters to tell a filter problem from a "
+        "routing problem." + _SNAPSHOT_HINT,
+        ReachabilityInput,
+        _check_reachability,
+    ),
+    (
+        "compare_filters",
+        "Compare the ACLs / filters of two snapshots (same-named filters): the lines that treat a "
+        "flow differently, with the line numbers in both snapshots and the action of the newer "
+        "line (the older action is the opposite, shown as the derived Reference_Line_Action). "
+        "Use it after a change, or to find why a flow was permitted before and is denied now. "
+        "'reference_snapshot' is the older state, 'snapshot' (default newest) the newer. "
+        "Filters present in only one snapshot are not compared; an empty answer does not prove "
+        "the ACLs are the same." + _SNAPSHOT_HINT,
+        CompareFiltersInput,
+        _compare_filters,
+    ),
+    (
+        "differential_reachability",
+        "Flows whose outcome differs between two snapshots: example flows that succeed in one but "
+        "not the other, with the dispositions and paths on each side (in_snapshot = the newer "
+        "'snapshot', in_reference = the older 'reference_snapshot'). Constrain it with node, "
+        "end_node, dst_ip (optional) and protocol/port. No rows means no flow succeeds in only one "
+        "snapshot; it does not show that the traffic works (it may fail in both), so confirm "
+        "with check_reachability." + _SNAPSHOT_HINT,
+        DifferentialReachabilityInput,
+        _differential_reachability,
     ),
 )
 

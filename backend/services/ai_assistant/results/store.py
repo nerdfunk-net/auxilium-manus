@@ -59,6 +59,9 @@ class StoredResult:
     data_class: DataClass
     rows: list[dict[str, Any]] | None = None
     text: str | None = None
+    # True when ``rows`` is only a prefix of the full answer (cut at the source's preview cap or
+    # to fit the store). A comparison of two stored tables must say so.
+    partial: bool = False
 
     def __post_init__(self) -> None:
         if (self.rows is None) == (self.text is None):
@@ -142,6 +145,7 @@ class ResultStore:
                 "data_class": result.data_class.value,
                 "rows": result.rows,
                 "text": result.text,
+                "partial": result.partial,
             },
             default=_json_default,
             ensure_ascii=False,
@@ -167,6 +171,7 @@ class ResultStore:
                 data_class=DataClass(data["data_class"]),
                 rows=data["rows"],
                 text=data["text"],
+                partial=bool(data.get("partial", False)),
             )
         except ValueError, KeyError, TypeError:
             logger.warning("Dropping a damaged AI result entry")

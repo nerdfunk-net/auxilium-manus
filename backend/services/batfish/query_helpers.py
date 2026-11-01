@@ -19,6 +19,7 @@ from __future__ import annotations
 from typing import Any
 
 from services.batfish.client import BatfishService
+from services.batfish.common.exceptions import FilterNotFoundError
 from services.batfish.credentials import BatfishConnection
 
 # The generic ad-hoc question surface (Template Editor "Custom Question..."
@@ -88,6 +89,19 @@ async def assert_batfish_network_exists(
             f"Batfish network {network!r} does not exist on this source -- check for "
             "a typo, or initialize it first (e.g. an upstream Init Batfish Snapshot "
             "step for a workflow-scoped network)."
+        )
+
+
+async def assert_snapshot_exists(
+    batfish: BatfishService, connection: BatfishConnection, network: str, snapshot: str
+) -> None:
+    """Raise ``ValueError`` unless ``snapshot`` exists in ``network``, so a typo never reaches
+    pybatfish (whose error would be less helpful)."""
+    entries = await batfish.list_snapshots_with_metadata(connection, batfish_network=network)
+    if snapshot not in {str(e.get("name")) for e in entries}:
+        raise ValueError(
+            f"Snapshot {snapshot!r} does not exist in Batfish network {network!r}; "
+            "list the snapshots of the network and choose one of them."
         )
 
 
@@ -244,6 +258,63 @@ async def query_reachability(
     return rows, len(rows) > 0
 
 
+async def query_compare_filters(
+    batfish: BatfishService,
+    connection: BatfishConnection,
+    *,
+    batfish_network: str,
+    snapshot: str,
+    reference_snapshot: str,
+    nodes: Any = None,
+    filters: Any = None,
+) -> list[dict[str, Any]]:
+    """Run the differential ``compareFilters`` question (same-named filters, different actions)."""
+    return await batfish.compare_filters(
+        connection,
+        batfish_network=batfish_network,
+        snapshot=snapshot,
+        reference_snapshot=reference_snapshot,
+        nodes=_or_none(nodes),
+        filters=_or_none(filters),
+    )
+
+
+async def query_differential_reachability(
+    batfish: BatfishService,
+    connection: BatfishConnection,
+    *,
+    batfish_network: str,
+    snapshot: str,
+    reference_snapshot: str,
+    start_node: str,
+    end_node: Any = None,
+    dst_ips: Any = None,
+    src_ips: Any = None,
+    applications: Any = None,
+    ip_protocols: Any = None,
+    max_traces: Any = None,
+    ignore_filters: bool = False,
+) -> list[dict[str, Any]]:
+    """Run ``differentialReachability``: flows that succeed in one snapshot but not the other."""
+    path_constraints: dict[str, Any] = {"startLocation": start_node}
+    end_node_clean = str(end_node or "").strip()
+    if end_node_clean:
+        path_constraints["endLocation"] = end_node_clean
+    headers = build_batfish_headers(
+        dst_ips=dst_ips, src_ips=src_ips, applications=applications, ip_protocols=ip_protocols
+    )
+    return await batfish.differential_reachability(
+        connection,
+        batfish_network=batfish_network,
+        snapshot=snapshot,
+        reference_snapshot=reference_snapshot,
+        pathConstraints=path_constraints,
+        headers=headers or None,
+        maxTraces=max_traces,
+        ignoreFilters=bool(ignore_filters),
+    )
+
+
 async def query_traceroute(
     batfish: BatfishService,
     connection: BatfishConnection,
@@ -316,7 +387,7 @@ async def query_test_filters(
         startLocation=start_location_clean,
     )
     if not rows:
-        raise RuntimeError(
+        raise FilterNotFoundError(
             "No result returned -- check that node/filter_name match the snapshot"
         )
     action = str(rows[0].get("Action", "")).strip().upper()
