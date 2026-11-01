@@ -2282,10 +2282,89 @@ existence guard and the call see them.
 
 **Not done / not verified.**
 
-- No frontend: the "Ask the Net" menu entry and page (`frontend/.../ai-assistant/`, `AssistantContext`
-  type in `types/ai-assistant.ts`) are still to build; until then the surface can only be reached by API.
-- Nothing was run against a real Batfish coordinator or Redis. The `Traces` shape and the column names
-  in `tools/batfish_shaping.py` are unverified; an unrecognised trace shape is reported, not guessed.
+- The frontend (below) is built but has only been tested with unit tests, not looked at in a browser.
+- Live checks (product owner, 2026-11-01). Lab with one router: `get_interface_properties` returned the right
+  interfaces. Lab with OSPF and no BGP (two routers, `lab` and `lab-2`): the model's answers (not raw rows)
+  confirm `get_routes` (connected and OSPF route; a bare IP resolved to its covering /24, so longest-prefix match
+  works) and `get_traceroute` (the `Traces` shape is recognised; disposition, path, example flow). BGP returned
+  zero rows, so `get_bgp_session_status` is verified only for the empty case; its column names are
+  **unverified** until a network with sessions is asked (the product owner will try the production BGP setup and
+  open a new session for fixes). Redis handles (results above 20 rows) were not exercised with a table that large.
 - Step 7 acceptance (§10a: "which route does 10.1.2.3 use on r1, and where does a packet to it go?" in at
   most 3 calls, with the smallest supported model) is not run.
-- Per-surface step budget (§6.4) is not done: the loop still stops at 8 tool steps for every surface.
+- Per-surface step budget (§6.4) is **done** (2026-11-01): `agent_loop.RunBudget` (steps, total tokens, wall
+  clock; steps clamped to `HARD_MAX_TOOL_STEPS = 24`), carried by `AssistantSession.budget` and passed through
+  `stream_chat`. Other surfaces keep the default (8 steps, no token/time limit); `general` uses
+  `surfaces.GENERAL_BUDGET` (16 steps, 400k tokens, 180 s). The numbers are first guesses, to be tuned from use.
+
+### 27.0 `get_device_facts` (2026-11-01)
+
+Added after the product owner asked "are any syslog servers configured?" and the assistant had no tool for
+Batfish facts. It wraps `BatfishPreviewService.run_extract_facts` (the same call as the `batfish-extract-facts`
+step), data class addresses. The reader (`kind="facts"`) turns the per-node answer into one `{Node, Facts}` row
+per node; `shape_facts` keeps only the requested keys. The keys are a closed list (`FactKey`): servers, hostname,
+domain, format, VRFs, zones. Key material and large structures are excluded by design (see `AI_ASSISTANT.md`).
+**Nesting (found live, 2026-11-01):** Batfish files the server facts under a section, not at the top level:
+`Facts["Syslog"]["Logging_Servers"]`, likewise `NTP`, `DNS`, `SNMP`, `TACACS` (pybatfish `NODE_PROPERTIES_REORG`;
+the Validate Facts help panel says the same). The first version looked for flat keys and so answered "not
+reported" for every device. `batfish_shaping._node_facts` now folds the sections away, so the model asks for
+`Logging_Servers`. `IPsec` is never folded or offered. Lesson: the key list in `batfish-fact-keys.ts` names the
+facts, not where they sit. A real answer from the product owner's lab (three devices) confirmed the sections and that `Hostname`,
+`Domain_Name`, `Configuration_Format`, `VRFs` and `Zones` are top-level; `Canonical_IP` does not occur in it and
+was removed from the offered keys. `tests/unit/test_ai_batfish_tools.py` has a test built from those values.
+
+### 27.1 Frontend (2026-11-01)
+
+- Route `/ask-the-net` (`app/(dashboard)/ask-the-net/page.tsx`, a stub) renders
+  `components/features/ask-the-net/ask-the-net-page.tsx`.
+- The page reuses `AssistantPanel` full-page with `context = {surface: "general"}`, the session key `general`
+  and the conversation scope `{surface: "general", subjectKey: "ask-the-net"}` (Save / Saved work). It has no
+  proposal targets: this surface proposes nothing.
+- Sidebar entry **Ask the Net** (`app-sidebar.tsx`), shown only with both `ai_assistant:use` and
+  `sources.batfish:query`. The sidebar is a flat list, so "submenu" (§26) is implemented as a menu entry.
+- Unlike the side panels, which stay hidden when the assistant is off, this page explains why it is
+  unavailable (`assistant-unavailable.tsx`: operator switch, permission, user switch, no key, provider not allowed).
+- Example questions fill the message box and are not sent; the data-sharing notice is shown above the chat;
+  the page text says the answers come from a snapshot, not the live network.
+- `types/ai-assistant.ts` gained `GeneralContext` and the `general` surface; `assistant-panel.tsx` has readable
+  labels for the eight new tools.
+- **Answers are rendered as Markdown** (tables, lists, code) for every assistant surface:
+  `ai-assistant/components/assistant-message-text.tsx` wraps the shared `components/ui/markdown-view.tsx`
+  (react-markdown + remark-gfm; no raw HTML, images blocked, `javascript:` links dropped, links open with
+  `noopener`). Only assistant messages are parsed; what the user typed stays literal. The component is memoised on
+  the text so a streaming reply does not re-parse earlier messages; wide tables scroll inside the bubble.
+
+## 28. Handover for the next session (2026-11-01)
+
+State: phase 1 (§20.3) is built and works in the UI; everything is on branch `feature/ask-the-net`. The product
+owner commits; the latest work (second review round, frontend, Markdown rendering) may still be uncommitted.
+Backend tests: `python -m pytest tests/unit -k "ai_ or batfish" --no-cov` (1270 passed); frontend: `npx vitest run`
+(2037 passed). Guard scripts and `ruff`/`pyright`/`tsc`/`eslint` were clean.
+
+**Open, in the order I would take them**
+
+1. **Live verification of the Batfish tools** (needs the running stack, the user's coordinator): ask for a route
+   (`get_routes` with a bare IP), a path (`get_traceroute`), BGP sessions, and compare with what Batfish really
+   returns. Confirm the `Traces` shape and the route/BGP column names in `tools/batfish_shaping.py`; fix the
+   shaping and its fixtures from a real row. Then the §10a acceptance question in at most 3 tool calls.
+2. ~~Per-surface step budget~~ done, see §27.
+3. **More phase-1 tools:** `analyze_acl` / `check_reachability` (content class, §10a table), `diff_results`
+   (§12.3). Conversation-scoped handles (§6.1 says "same conversation"; today scope is the user).
+4. **Playbooks** (§21, §25): start with the knowledge loader (§25.10 (1)) and `list_playbooks` / `get_playbook`
+   with the organisation overlay; the first playbook is "a destination is not reachable" (§21.5).
+5. **Baseline comparison** (§22, §23) and **neighbour discovery** (§24) need answers from the product owner first
+   (Q1 to Q10 in §23.7, N0 in §24.8).
+6. **Phase 2: released workflows** (§16, D7 to D9), then **phase 3: device tools with click confirmation**
+   (§19 D2/D4). Rules 3 and 4 in `AI_ASSISTANT.md` are already amended.
+
+**Facts worth knowing**
+
+- Tools never touch workflows or devices: they read a Batfish snapshot through `BatfishPreviewService` as the
+  calling user (`sources.batfish:query`, rate-limit bucket `batfish-query` shared with the Template Editor).
+- Data classes: inventory for discovery, addresses for the four query tools, content for interface descriptions
+  (the whole stored table is then content-class). Results above 20 rows go to Redis (4 h, per user, 2 MB).
+- Values are redacted as data before JSON encoding (`redact_envelope`), text slices go outside the JSON.
+- `surface` is a closed set: a new surface needs `models/ai_assistant.py`, `models/ai_conversations.py`, the
+  router dispatch, `surfaces.py`, and the frontend `AssistantContext` / `AssistantSurface` types.
+- Reviews live in `doc/analysis/REVIEW.md` (overwritten each round); both rounds so far were fixed.
+

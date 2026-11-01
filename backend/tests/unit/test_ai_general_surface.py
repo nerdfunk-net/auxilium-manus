@@ -60,6 +60,7 @@ def test_session_offers_batfish_and_result_tools() -> None:
         "get_traceroute",
         "get_bgp_session_status",
         "get_interface_properties",
+        "get_device_facts",
         "query_result",
         "fetch_slice",
     }
@@ -129,3 +130,21 @@ def test_result_store_factory_is_cached_and_does_not_connect(monkeypatch) -> Non
     assert created[0]["decode_responses"] is True
     # Short timeouts: a Redis outage must degrade a tool, not hang the chat turn.
     assert created[0]["socket_timeout"] <= 5 and created[0]["socket_connect_timeout"] <= 5
+
+
+def test_general_surface_has_a_larger_budget_than_the_default() -> None:
+    from services.ai_assistant.agent_loop import DEFAULT_BUDGET
+
+    budget = _session().budget
+
+    assert budget.max_tool_steps > DEFAULT_BUDGET.max_tool_steps
+    assert budget.max_total_tokens is not None
+    assert budget.max_seconds is not None
+
+
+def test_session_without_batfish_permission_keeps_the_default_budget() -> None:
+    from services.ai_assistant.agent_loop import DEFAULT_BUDGET
+
+    session = _session(may_query_batfish=False)
+
+    assert session.budget == DEFAULT_BUDGET

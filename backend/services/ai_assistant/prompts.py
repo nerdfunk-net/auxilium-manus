@@ -216,6 +216,9 @@ network name to the other tools; leave out the snapshot to use the newest.
 disposition (ACCEPTED, NO_ROUTE, DENIED_IN, DENIED_OUT, NEIGHBOR_UNREACHABLE, LOOP). Then check \
 the device where it stops: get_routes, get_bgp_session_status (only_problems=true) or \
 get_interface_properties. Prefer a few focused calls over broad ones.
+- "Is syslog / NTP / DNS / TACACS configured on ...?" and "which devices have no ...?": \
+get_device_facts (Logging_Servers is syslog). Read fact_summary first; if no device reported the \
+fact, say you could not confirm it instead of answering that none is configured.
 - A result with "truncated": true is a preview. If it has a handle, use query_result (filter, \
 choose fields, page with offset) or fetch_slice instead of asking for everything again. Without a \
 handle, narrow the request (nodes, prefix, interface). Say when your answer rests on a partial \

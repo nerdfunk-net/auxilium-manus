@@ -281,6 +281,7 @@ the opt-in of the class shown:
 | `get_traceroute` | addresses (B) | Simulated hop-by-hop path and disposition; identical paths grouped with a count |
 | `get_bgp_session_status` | addresses (B) | BGP sessions with counts per status; `only_problems` hides ESTABLISHED |
 | `get_interface_properties` | addresses (B); content (C) for the whole table when `Description` is included | One flat record per interface. `Description` is free text from the config, so it is included only with the content opt-in (and then the handle needs it too) |
+| `get_device_facts` | addresses (B) | Facts from Batfish `extract_facts` (the `batfish-extract-facts` step's data): syslog (`Logging_Servers`), NTP, DNS, TACACS and SNMP trap servers, hostname, domain, config format, VRFs, zones. The keys are a closed list in `tools/batfish_shaping.py` (`FactKey`); key material (`IKE_*`, `Authentication_Key_Chains`) and large structures (`Interfaces`, ACLs, routing policies) cannot be requested. The result has a `fact_summary` (nodes with a value / nodes asked) and, when no node reported any requested fact, `keys_seen` so 'not reported' is never read as 'none configured' |
 | `query_result` | class of the stored result | Filter / project / page (`offset`) a stored table by handle; at most 20 rows |
 | `fetch_slice` | class of the stored result | Page a stored table (rows) or text (characters, `next_offset`) by handle |
 
@@ -443,7 +444,10 @@ ML/entropy-based detection.
 - Feature dir `components/features/ai-assistant/` (`components/`, `hooks/`, `store/`, `types/`, `utils/`).
 - One reusable `AssistantPanel` (chat, tool-activity disclosure, proposal card with diff),
   mounted by each surface with a `surface` + context ref. Surfaces: template editor,
-  workflow canvas, runs page, inventory page; more later.
+  workflow canvas, runs page, inventory page, reports page and the full-page **Ask the Net** (`/ask-the-net`,
+  surface `general`, `components/features/ask-the-net/`).
+- Assistant messages are rendered as Markdown through `assistant-message-text.tsx` -> `components/ui/markdown-view.tsx`
+  (no raw HTML, images blocked, safe links); user messages stay literal text.
 - Settings → **AI Assistant** (per-user): enable switch, provider, model, base URL, key, test
   connection, data-sharing switches.
 - **Visibility gate:** one hook, `useAiAssistantAvailable()` (TanStack Query on `/ai/status`),

@@ -8,6 +8,7 @@ import {
   KeyRound,
   LayoutDashboard,
   LogOut,
+  MessageCircleQuestion,
   Network,
   PlayCircle,
   Settings,
@@ -62,6 +63,16 @@ const navigationItems: NavigationItem[] = [
     href: "/inventory",
     isActive: (pathname) => pathname === "/inventory",
     canShow: (user) => hasPermission(user, "sources.nautobot", "read"),
+  },
+  {
+    label: "Ask the Net",
+    icon: MessageCircleQuestion,
+    href: "/ask-the-net",
+    isActive: (pathname) => pathname.startsWith("/ask-the-net"),
+    // The assistant, and the Batfish query permission its tools need (the backend checks both).
+    canShow: (user) =>
+      hasPermission(user, "ai_assistant", "use") &&
+      hasPermission(user, "sources.batfish", "query"),
   },
   {
     label: "Templates",

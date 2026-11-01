@@ -106,6 +106,7 @@ class BatfishToolsTests(unittest.IsolatedAsyncioTestCase):
                 "get_traceroute",
                 "get_bgp_session_status",
                 "get_interface_properties",
+                "get_device_facts",
             },
         )
         for name in names:
@@ -125,6 +126,7 @@ class BatfishToolsTests(unittest.IsolatedAsyncioTestCase):
             ("get_traceroute", {"network": "net1", "node": "r1", "dst_ip": "10.1.2.3"}),
             ("get_bgp_session_status", {"network": "net1"}),
             ("get_interface_properties", {"network": "net1"}),
+            ("get_device_facts", {"network": "net1"}),
         ):
             with self.subTest(name):
                 out, data = await self._call(name, ctx, **args)
@@ -432,6 +434,201 @@ class BatfishToolsTests(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertTrue(out.is_error)
+
+    # -- get_device_facts ----------------------------------------------------------------------
+
+    # The shape Batfish really returns (pybatfish NODE_PROPERTIES_REORG): server facts sit under a
+    # section name (Syslog, NTP, DNS, SNMP, TACACS), plain facts such as Hostname stay top-level.
+    FACT_ROWS = [
+        {
+            "Node": "r1",
+            "Facts": {
+                "Hostname": "r1",
+                "Syslog": {"Logging_Servers": ["10.9.9.9"], "Logging_Source_Interface": "Lo0"},
+                "NTP": {"NTP_Servers": []},
+                "IPsec": {"IKE_Phase1_Keys": {"k": "should-never-be-here"}},
+                "Interfaces": {"Gi0/1": {"big": "structure"}},
+            },
+        },
+        {
+            "Node": "r2",
+            "Facts": {
+                "Hostname": "r2",
+                "Syslog": {"Logging_Servers": []},
+                "NTP": {"NTP_Servers": ["1.1.1.1"]},
+            },
+        },
+    ]
+
+    async def test_facts_are_cut_to_the_requested_keys_and_nodes_are_forwarded(self) -> None:
+        self.reader.answer = BatfishAnswer(rows=self.FACT_ROWS, snapshot="run-2")
+
+        out, data = await self._call(
+            "get_device_facts", network="net1", nodes=["R1", "r2"], facts=["Logging_Servers"]
+        )
+
+        self.assertEqual(self.reader.calls[-1][1], "facts")
+        self.assertEqual(self.reader.calls[-1][5], {"nodes": "r1,r2"})
+        self.assertEqual(
+            data["rows"],
+            [
+                {"Node": "r1", "Logging_Servers": ["10.9.9.9"]},
+                {"Node": "r2", "Logging_Servers": []},
+            ],
+        )
+        self.assertNotIn("should-never-be-here", out.content)
+        self.assertNotIn("structure", out.content)
+
+    async def test_default_facts_answer_the_management_server_questions(self) -> None:
+        self.reader.answer = BatfishAnswer(rows=self.FACT_ROWS, snapshot="run-2")
+
+        _, data = await self._call("get_device_facts", network="net1")
+
+        self.assertEqual(
+            data["rows"][0],
+            {"Node": "r1", "Hostname": "r1", "Logging_Servers": ["10.9.9.9"], "NTP_Servers": []},
+        )
+
+    async def test_summary_counts_the_nodes_that_have_a_value(self) -> None:
+        self.reader.answer = BatfishAnswer(rows=self.FACT_ROWS, snapshot="run-2")
+
+        _, data = await self._call(
+            "get_device_facts", network="net1", facts=["Logging_Servers", "NTP_Servers"]
+        )
+
+        self.assertEqual(
+            data["fact_summary"],
+            {
+                "Logging_Servers": {"nodes_with_values": 1, "nodes_total": 2},
+                "NTP_Servers": {"nodes_with_values": 1, "nodes_total": 2},
+            },
+        )
+
+    async def test_secret_bearing_or_huge_fact_keys_cannot_be_requested(self) -> None:
+        for key in ("IKE_Phase1_Keys", "Authentication_Key_Chains", "Interfaces", "Nope"):
+            with self.subTest(key):
+                out, _ = await self._call("get_device_facts", network="net1", facts=[key])
+                self.assertTrue(out.is_error)
+        self.assertEqual([c for c in self.reader.calls if c[0] == "query"], [])
+
+    async def test_a_key_no_node_reports_lists_the_keys_batfish_did_return(self) -> None:
+        self.reader.answer = BatfishAnswer(
+            rows=[
+                {
+                    "Node": "r1",
+                    "Facts": {"Hostname": "r1", "Weird": ["x"], "IPsec": {"IKE_Phase1_Keys": {}}},
+                }
+            ],
+            snapshot="run-2",
+        )
+
+        _, data = await self._call("get_device_facts", network="net1", facts=["Logging_Servers"])
+
+        self.assertEqual(data["fact_summary"]["Logging_Servers"]["nodes_with_values"], 0)
+        # IPsec stays one opaque name: its inner (key material) names are not folded out.
+        self.assertEqual(data["keys_seen"], ["Hostname", "IPsec", "Weird"])
+        self.assertIn("not reported", data["note"])
+
+    async def test_fact_values_are_redacted(self) -> None:
+        self.reader.answer = BatfishAnswer(
+            rows=[{"Node": "r1", "Facts": {"Logging_Servers": ["logserver-secret-xyz"]}}],
+            snapshot="run-2",
+        )
+        self.ctx.redactor.add_known_secrets(["logserver-secret-xyz"])
+
+        out, _ = await self._call("get_device_facts", network="net1", facts=["Logging_Servers"])
+
+        self.assertNotIn("logserver-secret-xyz", out.content)
+
+    async def test_a_fact_inside_its_section_is_found_by_its_plain_name(self) -> None:
+        self.reader.answer = BatfishAnswer(
+            rows=[
+                {
+                    "Node": "lab",
+                    "Facts": {
+                        "Syslog": {
+                            "Logging_Servers": ["192.168.178.254"],
+                            "Logging_Source_Interface": "Loopback0",
+                        }
+                    },
+                }
+            ],
+            snapshot="run-2",
+        )
+
+        _, data = await self._call(
+            "get_device_facts",
+            network="net1",
+            facts=["Logging_Servers", "Logging_Source_Interface"],
+        )
+
+        self.assertEqual(
+            data["rows"],
+            [
+                {
+                    "Node": "lab",
+                    "Logging_Servers": ["192.168.178.254"],
+                    "Logging_Source_Interface": "Loopback0",
+                }
+            ],
+        )
+        self.assertEqual(data["fact_summary"]["Logging_Servers"]["nodes_with_values"], 1)
+        self.assertNotIn("keys_seen", data)
+
+    async def test_real_lab_facts_answer_the_syslog_question(self) -> None:
+        # Values copied from a real extract_facts of the product owner's lab (2026-11-01):
+        # only "lab" has a syslog server; lab-2 and switch have an empty list.
+        def node(name: str, domain: str, syslog: list[str], tacacs: list[str]) -> dict[str, Any]:
+            return {
+                "Node": name,
+                "Facts": {
+                    "Configuration_Format": "CISCO_IOS",
+                    "Domain_Name": domain,
+                    "Hostname": name,
+                    "VRFs": ["default"],
+                    "Zones": [],
+                    "DNS": {"DNS_Servers": [], "DNS_Source_Interface": None},
+                    "NTP": {"NTP_Servers": [], "NTP_Source_Interface": None},
+                    "Syslog": {
+                        "Logging_Servers": syslog,
+                        "Logging_Source_Interface": "Loopback0" if syslog else None,
+                    },
+                    "SNMP": {"SNMP_Source_Interface": None, "SNMP_Trap_Servers": []},
+                    "TACACS": {"TACACS_Servers": tacacs, "TACACS_Source_Interface": None},
+                    "OSPF": {"Processes": {}},
+                },
+            }
+
+        self.reader.answer = BatfishAnswer(
+            rows=[
+                node("lab", "local.zz", ["192.168.178.254"], ["ISE_SERVER_1"]),
+                node("lab-2", "local.zz", [], []),
+                node("switch", "lab.zz", [], []),
+            ],
+            snapshot="run-2",
+        )
+
+        _, data = await self._call(
+            "get_device_facts",
+            network="net1",
+            facts=["Logging_Servers", "Logging_Source_Interface", "TACACS_Servers", "Domain_Name"],
+        )
+
+        self.assertEqual(
+            data["fact_summary"]["Logging_Servers"], {"nodes_with_values": 1, "nodes_total": 3}
+        )
+        self.assertEqual(
+            data["rows"][0],
+            {
+                "Node": "lab",
+                "Logging_Servers": ["192.168.178.254"],
+                "Logging_Source_Interface": "Loopback0",
+                "TACACS_Servers": ["ISE_SERVER_1"],
+                "Domain_Name": "local.zz",
+            },
+        )
+        self.assertEqual(data["rows"][1]["Logging_Servers"], [])
+        self.assertNotIn("keys_seen", data)
 
     # -- audit -------------------------------------------------------------------------------
 

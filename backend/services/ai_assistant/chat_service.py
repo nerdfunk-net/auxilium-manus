@@ -12,7 +12,7 @@ import logging
 from collections.abc import AsyncIterator, Callable
 from typing import Any
 
-from services.ai_assistant.agent_loop import run_agent
+from services.ai_assistant.agent_loop import DEFAULT_BUDGET, RunBudget, run_agent
 from services.ai_assistant.audit import AuditContext, TurnAudit
 from services.ai_assistant.base_url_policy import BaseUrlPolicyError, validate_proxy_url_async
 from services.ai_assistant.events import ChatEvent
@@ -46,10 +46,11 @@ async def stream_chat(
     toolbox: Toolbox | None = None,
     system: str = BASE_SYSTEM_PROMPT,
     audit: AuditContext | None = None,
+    budget: RunBudget = DEFAULT_BUDGET,
 ) -> AsyncIterator[ChatEvent]:
     turn = TurnAudit(audit) if audit is not None else None
     try:
-        async for event in _stream(config, messages, provider_factory, toolbox, system):
+        async for event in _stream(config, messages, provider_factory, toolbox, system, budget):
             if turn is not None:
                 turn.observe(event)
             yield event
@@ -72,6 +73,7 @@ async def _stream(
     provider_factory: ProviderFactory,
     toolbox: Toolbox | None,
     system: str,
+    budget: RunBudget,
 ) -> AsyncIterator[ChatEvent]:
     provider: LlmProvider | None = None
     try:
@@ -83,6 +85,7 @@ async def _stream(
             system=system,
             messages=messages,
             toolbox=toolbox,
+            budget=budget,
         ):
             yield event
     except ProviderError as exc:

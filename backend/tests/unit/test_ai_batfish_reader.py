@@ -69,6 +69,16 @@ class ReaderTests(unittest.IsolatedAsyncioTestCase):
         self.preview = MagicMock()
         for name in ("run_routes", "run_traceroute", "run_generic", "run_interface_rows"):
             setattr(self.preview, name, AsyncMock(return_value=_response()))
+        self.preview.run_extract_facts = AsyncMock(
+            return_value=BatfishQueryResponse(
+                success=True,
+                question="extractFacts",
+                network="net1",
+                snapshot="run-2",
+                rows=[],
+                facts_by_node={"r1": {"Hostname": "r1"}, "r2": {"Hostname": "r2"}},
+            )
+        )
         stack.enter_context(
             patch(f"{MOD}.BatfishPreviewService", MagicMock(return_value=self.preview))
         )
@@ -190,6 +200,24 @@ class ReaderTests(unittest.IsolatedAsyncioTestCase):
         generic = self.preview.run_generic.await_args.args[1]
         self.assertEqual((generic.question, generic.params), ("bgpSessionStatus", {"nodes": "r1"}))
         self.assertEqual(self.preview.run_interface_rows.await_args.args[1].interfaces, "Gi0/1")
+
+    async def test_facts_become_one_row_per_node_and_the_filter_is_forwarded(self) -> None:
+        answer = await self.reader.query("facts", "lab", "net1", None, {"nodes": "r1,r2"})
+
+        request = self.preview.run_extract_facts.await_args.args[1]
+        self.assertEqual(request.nodes_filter, "r1,r2")
+        self.assertEqual(
+            answer.rows,
+            [
+                {"Node": "r1", "Facts": {"Hostname": "r1"}},
+                {"Node": "r2", "Facts": {"Hostname": "r2"}},
+            ],
+        )
+
+    async def test_facts_without_a_node_list_ask_for_every_node(self) -> None:
+        await self.reader.query("facts", "lab", "net1", None, {"nodes": None})
+
+        self.assertEqual(self.preview.run_extract_facts.await_args.args[1].nodes_filter, "/.*/")
 
     async def test_the_preview_row_cap_is_set_during_the_query_and_reset_after(self) -> None:
         seen: list[int | None] = []

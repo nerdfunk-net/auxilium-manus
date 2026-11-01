@@ -149,3 +149,104 @@ describe("AssistantPanel saved conversations", () => {
     expect(state().sessions[KEY].savedId).toBeNull();
   });
 });
+
+
+describe("AssistantPanel tool activity labels (Ask the Net)", () => {
+  const KEY_GENERAL = "general";
+
+  it.each([
+    ["list_batfish_networks", /networks/i],
+    ["list_batfish_snapshots", /snapshots/i],
+    ["get_routes", /routes/i],
+    ["get_traceroute", /path/i],
+    ["get_bgp_session_status", /bgp/i],
+    ["get_interface_properties", /interface/i],
+    ["get_device_facts", /facts/i],
+    ["query_result", /stored result/i],
+    ["fetch_slice", /stored result/i],
+  ])("shows a readable label for %s", (name, label) => {
+    state().updateMessages(KEY_GENERAL, () => [
+      {
+        id: "1",
+        role: "assistant",
+        content: "",
+        tools: [{ id: "t1", name, status: "done" }],
+      },
+    ]);
+    render(<AssistantPanel sessionKey={KEY_GENERAL} />);
+
+    const activity = screen.getByLabelText("Assistant activity");
+    expect(activity.textContent).toMatch(label);
+    expect(activity.textContent).not.toContain(name);
+  });
+});
+
+
+describe("AssistantPanel message formatting", () => {
+  const KEY_MD = "general";
+
+  const seedMessages = (assistantText: string, userText = "show interfaces") =>
+    state().updateMessages(KEY_MD, () => [
+      { id: "1", role: "user", content: userText },
+      { id: "2", role: "assistant", content: assistantText },
+    ]);
+
+  it("renders the assistant's Markdown table as a table", () => {
+    seedMessages(
+      "**Interfaces on `lab` (2 total):**\n\n| Interface | State |\n|---|---|\n| Ethernet0/0 | Up |\n| Loopback0 | Up |\n",
+    );
+    render(<AssistantPanel sessionKey={KEY_MD} />);
+
+    expect(screen.getByRole("table")).toBeTruthy();
+    expect(screen.getByRole("columnheader", { name: "State" })).toBeTruthy();
+    expect(screen.getByRole("cell", { name: "Ethernet0/0" })).toBeTruthy();
+    expect(screen.getByText("lab").tagName).toBe("CODE");
+    // No raw Markdown syntax is left on screen.
+    expect(screen.queryByText(/\|---\|/)).toBeNull();
+    expect(screen.queryByText(/\*\*Interfaces/)).toBeNull();
+  });
+
+  it("keeps what the user typed literal", () => {
+    seedMessages("ok", "is **this** a | table |?");
+    const { container } = render(<AssistantPanel sessionKey={KEY_MD} />);
+
+    expect(screen.getByText("is **this** a | table |?")).toBeTruthy();
+    expect(container.querySelector("strong")).toBeNull();
+    expect(container.querySelector("table")).toBeNull();
+  });
+
+  it("does not render HTML, images or script from the model's text", () => {
+    seedMessages(
+      '<script>alert(1)</script><img src=x onerror=alert(1)>\n\n![p](https://evil.example/p.png)\n\nfine',
+    );
+    const { container } = render(<AssistantPanel sessionKey={KEY_MD} />);
+
+    expect(container.querySelector("script")).toBeNull();
+    expect(container.querySelector("img")).toBeNull();
+    expect(screen.getByText("fine")).toBeTruthy();
+  });
+
+  it("opens links from the model in a new tab without leaking the opener", () => {
+    seedMessages("see [docs](https://example.com)");
+    const { container } = render(<AssistantPanel sessionKey={KEY_MD} />);
+
+    const link = container.querySelector("a[href='https://example.com']");
+    expect(link?.getAttribute("target")).toBe("_blank");
+    expect(link?.getAttribute("rel")).toContain("noopener");
+  });
+
+  it("lets a wide table scroll sideways instead of widening the panel", () => {
+    seedMessages("| a | b |\n|---|---|\n| 1 | 2 |\n");
+    render(<AssistantPanel sessionKey={KEY_MD} />);
+
+    const wrapper = screen.getByRole("table").parentElement;
+    expect(wrapper?.className).toContain("overflow-x-auto");
+  });
+
+  it("still shows plain text answers", () => {
+    seedMessages("Nothing found.");
+    render(<AssistantPanel sessionKey={KEY_MD} />);
+
+    expect(screen.getByText("Nothing found.")).toBeTruthy();
+  });
+});

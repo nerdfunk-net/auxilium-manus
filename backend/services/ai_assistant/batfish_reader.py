@@ -29,6 +29,7 @@ from core.database import SessionLocal
 from core.safe_http_errors import client_error_message
 from models.batfish import (
     MAX_PREVIEW_ROWS,
+    BatfishExtractFactsQueryRequest,
     BatfishGenericQueryRequest,
     BatfishInterfacePropertiesQueryRequest,
     BatfishQueryResponse,
@@ -60,7 +61,7 @@ RATE_LIMIT_BUCKET = "batfish-query"
 RATE_LIMIT_ATTEMPTS = 30
 RATE_LIMIT_WINDOW_SECONDS = 60
 
-Kind = Literal["routes", "traceroute", "bgp_sessions", "interfaces"]
+Kind = Literal["routes", "traceroute", "bgp_sessions", "interfaces", "facts"]
 
 
 class _ResolvedSource:
@@ -153,8 +154,15 @@ class DbBatfishReader:
         finally:
             PREVIEW_ROW_LIMIT.reset(token)
         created = await self._snapshot_created(connection, network, response.snapshot)
+        rows = response.rows
+        if kind == "facts":
+            # extract_facts answers per node, not as rows: one row per node keeps the tools uniform.
+            rows = [
+                {"Node": node, "Facts": facts}
+                for node, facts in sorted((response.facts_by_node or {}).items())
+            ]
         return BatfishAnswer(
-            rows=response.rows,
+            rows=rows,
             snapshot=response.snapshot,
             snapshot_created=created,
             truncated=response.truncated,
@@ -188,6 +196,12 @@ class DbBatfishReader:
                 network=network, snapshot=snapshot, **params
             )
             return await preview.run_interface_rows(source_id, iface)
+        if kind == "facts":
+            nodes_filter = (params.get("nodes") or "").strip() or "/.*/"
+            facts = BatfishExtractFactsQueryRequest(
+                network=network, snapshot=snapshot, nodes_filter=nodes_filter
+            )
+            return await preview.run_extract_facts(source_id, facts)
         raise BatfishInputError(f"Unknown Batfish query '{kind}'.")
 
     # -- helpers -----------------------------------------------------------------------------

@@ -37,6 +37,7 @@ from models.ai_assistant import (
     UserAiSettingsUpdate,
     WorkflowCanvasContext,
 )
+from services.ai_assistant.agent_loop import DEFAULT_BUDGET
 from services.ai_assistant.audit import AuditContext
 from services.ai_assistant.batfish_reader import DbBatfishReader
 from services.ai_assistant.chat_service import ChatEvent, check_connection, stream_chat
@@ -327,6 +328,7 @@ def chat(
     messages = [ChatMessage(role=m.role, content=m.content) for m in body.messages]
     system = BASE_SYSTEM_PROMPT
     toolbox: Toolbox | None = None
+    budget = DEFAULT_BUDGET
     if body.context is not None:
         try:
             session = _session_for(
@@ -343,7 +345,7 @@ def chat(
                 status_code=status.HTTP_413_CONTENT_TOO_LARGE,
                 detail={"code": "ai_context_too_large", "message": str(exc)},
             ) from exc
-        system, toolbox = session.system, session.toolbox
+        system, toolbox, budget = session.system, session.toolbox, session.budget
 
     audit = AuditContext(
         user_id=current_user.id,
@@ -354,7 +356,7 @@ def chat(
 
     async def event_stream() -> AsyncIterator[str]:
         async for event in stream_chat(
-            config, messages, system=system, toolbox=toolbox, audit=audit
+            config, messages, system=system, toolbox=toolbox, audit=audit, budget=budget
         ):
             yield _sse(event)
 

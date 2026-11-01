@@ -303,6 +303,14 @@ class Redactor:
         merged = set(self._known) | wanted
         self._known = sorted(merged, key=len, reverse=True)
 
+    def fork(self, *, max_chars: int) -> Redactor:
+        """A fresh redactor with its own character budget and token table that knows the same
+        exact secrets. For redacting a copy that outlives the request (a stored result) without
+        spending this request's budget."""
+        other = Redactor(max_chars=max_chars)
+        other.add_known_secrets(self._known)
+        return other
+
     def _replace(self, match: re.Match[str]) -> str:
         value = match.group("s")
         # A value that touches a masked Jinja span is a template expression, never a secret.

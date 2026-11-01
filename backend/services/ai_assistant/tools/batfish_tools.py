@@ -27,7 +27,7 @@ import ipaddress
 import json
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from typing import Annotated, Any, Literal, Protocol
+from typing import Annotated, Any, Literal, Protocol, get_args
 
 from pydantic import (
     BaseModel,
@@ -41,10 +41,15 @@ from pydantic import (
 from services.ai_assistant.data_sharing import DataClass, not_shared_marker
 from services.ai_assistant.tools.base import Tool, ToolContext, ToolOutput
 from services.ai_assistant.tools.batfish_shaping import (
+    DEFAULT_FACT_KEYS,
+    FactKey,
+    fact_keys_seen,
     shape_bgp_sessions,
+    shape_facts,
     shape_interfaces,
     shape_routes,
     summarize_bgp_sessions,
+    summarize_facts,
     summarize_traces,
 )
 from services.ai_assistant.tools.result_publish import publish_table
@@ -87,7 +92,7 @@ class BatfishReader(Protocol):
 
     async def query(
         self,
-        kind: Literal["routes", "traceroute", "bgp_sessions", "interfaces"],
+        kind: Literal["routes", "traceroute", "bgp_sessions", "interfaces", "facts"],
         source_id: str,
         network: str,
         snapshot: str | None,
@@ -246,6 +251,23 @@ class InterfacesInput(Target):
     )
 
 
+class FactsInput(Target):
+    nodes: list[NodeName] = Field(
+        default_factory=list,
+        max_length=MAX_NODES,
+        description="Device names; empty means every device",
+    )
+    facts: list[FactKey] = Field(
+        default_factory=lambda: list(DEFAULT_FACT_KEYS),
+        min_length=1,
+        max_length=len(get_args(FactKey)),
+        description=(
+            "Which facts to return. Default: Hostname, Logging_Servers (syslog), NTP_Servers, "
+            "DNS_Servers, TACACS_Servers, SNMP_Trap_Servers"
+        ),
+    )
+
+
 # -- helpers ----------------------------------------------------------------------------------
 
 
@@ -336,7 +358,7 @@ async def _list_snapshots(ctx: ToolContext, args: SnapshotsInput) -> ToolOutput:
 async def _run(
     ctx: ToolContext,
     args: Target,
-    kind: Literal["routes", "traceroute", "bgp_sessions", "interfaces"],
+    kind: Literal["routes", "traceroute", "bgp_sessions", "interfaces", "facts"],
     params: dict[str, Any],
 ) -> tuple[str, BatfishAnswer] | ToolOutput:
     if (blocked := _gate(ctx, DataClass.ADDRESSES)) is not None:
@@ -465,6 +487,36 @@ async def _get_interfaces(ctx: ToolContext, args: InterfacesInput) -> ToolOutput
     )
 
 
+async def _get_device_facts(ctx: ToolContext, args: FactsInput) -> ToolOutput:
+    ran = await _run(ctx, args, "facts", {"nodes": _csv(args.nodes)})
+    if isinstance(ran, ToolOutput):
+        return ran
+    source, answer = ran
+    keys = list(dict.fromkeys(args.facts))
+    summary = summarize_facts(answer.rows, keys)
+    extra: dict[str, Any] = {**_context(source, args, answer), "fact_summary": summary}
+    note = (
+        "Facts with an empty list are configured with no entries; a fact a device does not "
+        "report is left out of its record."
+    )
+    if answer.rows and not any(entry["nodes_with_values"] for entry in summary.values()):
+        extra["keys_seen"] = fact_keys_seen(answer.rows)
+        note = (
+            "No device reported a value for the requested facts (a fact that is not reported is "
+            "not the same as 'none configured'). keys_seen lists the fact names Batfish returned; "
+            "say that you could not confirm it rather than answering 'none'."
+        )
+    return await publish_table(
+        ctx,
+        shape_facts(answer.rows, keys),
+        kind="facts",
+        data_class=DataClass.ADDRESSES,
+        source_truncated=answer.truncated,
+        note=note,
+        extra=extra,
+    )
+
+
 # -- registration -----------------------------------------------------------------------------
 
 _SNAPSHOT_HINT = (
@@ -519,6 +571,16 @@ _TOOLS: tuple[tuple[str, str, type[BaseModel], Callable[..., Awaitable[ToolOutpu
         + _SNAPSHOT_HINT,
         InterfacesInput,
         _get_interfaces,
+    ),
+    (
+        "get_device_facts",
+        "Facts Batfish extracted from the configs: management servers (Logging_Servers = syslog, "
+        "NTP_Servers, DNS_Servers, TACACS_Servers, SNMP_Trap_Servers), hostname, domain name, "
+        "config format, VRFs and zones. Use it for 'is syslog/NTP/DNS configured on ...' and "
+        "'which devices have no ...'. Check the fact_summary (devices with a value / devices "
+        "asked) first. Key material and large structures are not available." + _SNAPSHOT_HINT,
+        FactsInput,
+        _get_device_facts,
     ),
 )
 

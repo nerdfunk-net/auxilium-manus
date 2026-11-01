@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from collections import Counter
 from collections.abc import Iterable, Mapping
-from typing import Any
+from typing import Any, Literal, get_args
 
 from services.ai_assistant.tools.envelope import drop_columns
 
@@ -191,3 +191,97 @@ def summarize_traces(rows: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], 
             }
         )
     return shaped, True
+
+
+# -- device facts ------------------------------------------------------------------------------
+
+# The facts Batfish's extract_facts reports that are safe and small enough to offer to the model:
+# names, addresses and settings. Left out on purpose: key material (``IKE_Phase1_Keys``,
+# ``Authentication_Key_Chains``, ``IPsec_*``) and the large structures that have their own tools or
+# would flood the prompt (``Interfaces``, the access lists, routing policies, route filters).
+FactKey = Literal[
+    "Hostname",
+    "Domain_Name",
+    "Configuration_Format",
+    "DNS_Servers",
+    "DNS_Source_Interface",
+    "Logging_Servers",
+    "Logging_Source_Interface",
+    "NTP_Servers",
+    "NTP_Source_Interface",
+    "SNMP_Trap_Servers",
+    "SNMP_Source_Interface",
+    "TACACS_Servers",
+    "TACACS_Source_Interface",
+    "VRFs",
+    "Zones",
+]
+FACT_KEYS: tuple[str, ...] = get_args(FactKey)
+DEFAULT_FACT_KEYS: tuple[FactKey, ...] = (
+    "Hostname",
+    "Logging_Servers",
+    "NTP_Servers",
+    "DNS_Servers",
+    "TACACS_Servers",
+    "SNMP_Trap_Servers",
+)
+
+
+# Batfish groups these facts under a section name (pybatfish ``NODE_PROPERTIES_REORG``): a node's
+# syslog servers are ``Facts["Syslog"]["Logging_Servers"]``, not ``Facts["Logging_Servers"]``.
+# Plain facts (Hostname, Domain_Name, VRFs, ...) stay top-level. ``IPsec`` is deliberately absent:
+# it holds key material and is never offered.
+_FACT_SECTIONS = ("DNS", "NTP", "Syslog", "SNMP", "TACACS")
+
+
+def _node_facts(row: Mapping[str, Any]) -> Mapping[str, Any]:
+    """A node's facts with the section names folded away, so the model asks for
+    ``Logging_Servers`` and not for where Batfish happens to file it."""
+    facts = row.get("Facts")
+    if not isinstance(facts, Mapping):
+        return {}
+    flat: dict[str, Any] = {k: v for k, v in facts.items() if k not in _FACT_SECTIONS}
+    for section in _FACT_SECTIONS:
+        inner = facts.get(section)
+        if isinstance(inner, Mapping):
+            flat.update({k: v for k, v in inner.items() if k not in flat})
+        elif section in facts:
+            flat.setdefault(section, facts[section])  # not the expected shape: keep it visible
+    return flat
+
+
+def _has_value(value: Any) -> bool:
+    return value not in (None, "", [], {}, ())
+
+
+def shape_facts(rows: Iterable[Mapping[str, Any]], keys: Iterable[str]) -> list[dict[str, Any]]:
+    """One record per node with only the requested facts that the node reports. A fact the node
+    does not report is left out, an empty value stays (``[]`` means 'configured with none')."""
+    wanted = tuple(keys)
+    shaped = []
+    for row in rows:
+        facts = _node_facts(row)
+        record: dict[str, Any] = {"Node": row.get("Node")}
+        record.update({k: facts[k] for k in wanted if k in facts})
+        shaped.append(record)
+    return shaped
+
+
+def summarize_facts(
+    rows: Iterable[Mapping[str, Any]], keys: Iterable[str]
+) -> dict[str, dict[str, int]]:
+    """Per requested fact: on how many nodes it has a non-empty value, out of all nodes asked."""
+    node_rows = list(rows)
+    return {
+        key: {
+            "nodes_with_values": sum(1 for r in node_rows if _has_value(_node_facts(r).get(key))),
+            "nodes_total": len(node_rows),
+        }
+        for key in keys
+    }
+
+
+def fact_keys_seen(rows: Iterable[Mapping[str, Any]]) -> list[str]:
+    """Names (never values) of the facts Batfish returned, to diagnose a requested key that no
+    node reported."""
+    return sorted({str(k) for row in rows for k in _node_facts(row)})

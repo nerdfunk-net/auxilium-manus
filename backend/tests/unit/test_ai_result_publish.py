@@ -96,6 +96,41 @@ class PublishTableTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("could not be stored", data["note"])
         self.assertFalse(out.is_error)
 
+    async def test_stored_rows_are_redacted_not_only_the_preview(self) -> None:
+        # Review 2026-11-01 (outside the diff): the Redis copy lives for hours; a secret in a
+        # cell must not sit there in the clear.
+        secret_line = "enable secret 9 hunter2hunter2"
+        rows = [{"i": i, "cfg": f"hostname r{i}\n{secret_line}"} for i in range(60)]
+        store = ResultStore(InMemoryResultBackend())
+        ctx = _ctx(store)
+        ctx.redactor.add_known_secrets(["knownsecret123"])
+        rows[40]["cfg"] += "\nsnmp note knownsecret123"
+
+        out = await publish_table(ctx, rows, kind="r", data_class=DataClass.CONTENT)
+        stored = await store.get(7, json.loads(out.content)["handle"])
+
+        assert stored is not None
+        text = json.dumps(stored.rows)
+        self.assertNotIn("hunter2hunter2", text)
+        self.assertNotIn("knownsecret123", text)
+        self.assertEqual(len(stored.rows), 60)
+
+    async def test_a_table_too_big_to_redact_is_not_stored_raw(self) -> None:
+        from unittest import mock
+
+        from services.ai_assistant.tools import result_publish
+
+        store = ResultStore(InMemoryResultBackend())
+        rows = [{"i": i, "pad": "y" * 40} for i in range(60)]
+
+        with mock.patch.object(result_publish, "STORED_REDACT_CHARS", 50):
+            out = await publish_table(_ctx(store), rows, kind="r", data_class=DataClass.ADDRESSES)
+        data = json.loads(out.content)
+
+        self.assertNotIn("handle", data)
+        self.assertIn("could not be stored", data["note"])
+        self.assertEqual(len(data["rows"]), PREVIEW_ROWS)
+
     async def test_oversized_table_is_stored_partially_and_says_so(self) -> None:
         store = ResultStore(InMemoryResultBackend())
         big = [{"i": i, "pad": "x" * 2000} for i in range(1500)]  # about 3 MB

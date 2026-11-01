@@ -7,7 +7,10 @@ blocks, only neutral ``tool`` status events and ``proposal`` events. Bounded by
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
+import asyncio
+import time
+from collections.abc import AsyncIterator, Callable
+from dataclasses import dataclass
 
 from services.ai_assistant.events import ChatEvent
 from services.ai_assistant.providers.base import (
@@ -21,7 +24,31 @@ from services.ai_assistant.providers.base import (
 from services.ai_assistant.tools.base import Toolbox
 
 MAX_TOOL_STEPS = 8
+# No surface may ask for more than this, whatever its budget says (doc/AI_TOOL_CHAIN.md §6.4).
+HARD_MAX_TOOL_STEPS = 24
 MAX_OUTPUT_TOKENS = 16000
+
+
+@dataclass(frozen=True)
+class RunBudget:
+    """Limits for one chat turn. A surface picks its own; the step count is clamped to
+    ``HARD_MAX_TOOL_STEPS``. ``max_total_tokens`` counts input plus output tokens of every
+    provider call in the turn (input is re-sent each step, so it grows fast); ``max_seconds``
+    is wall-clock time since the turn began. ``None`` means no limit of that kind."""
+
+    max_tool_steps: int = MAX_TOOL_STEPS
+    max_total_tokens: int | None = None
+    max_seconds: float | None = None
+
+    def __post_init__(self) -> None:
+        if self.max_tool_steps < 1:
+            raise ValueError("max_tool_steps must be at least 1")
+        object.__setattr__(self, "max_tool_steps", min(self.max_tool_steps, HARD_MAX_TOOL_STEPS))
+
+
+DEFAULT_BUDGET = RunBudget()
+
+_TOO_LONG = "The assistant took too long for one question; please narrow the request"
 
 
 async def run_agent(
@@ -31,6 +58,8 @@ async def run_agent(
     system: str,
     messages: list[ChatMessage],
     toolbox: Toolbox | None,
+    budget: RunBudget = DEFAULT_BUDGET,
+    clock: Callable[[], float] = time.monotonic,
 ) -> AsyncIterator[ChatEvent]:
     """Yields ``text`` / ``tool`` / ``proposal`` events and a cumulative ``usage`` after every
     provider turn. Provider errors propagate."""
@@ -39,8 +68,22 @@ async def run_agent(
     input_tokens = 0
     output_tokens = 0
     wrote_text = False
+    started = clock()
+    max_steps = budget.max_tool_steps
 
-    for step in range(MAX_TOOL_STEPS + 1):
+    def time_left() -> float | None:
+        """Seconds left in the budget, ``None`` without a time limit; raises once it is used up
+        (at exactly ``max_seconds`` too). Read before every model call and every tool, and the
+        tool itself is cancelled when it outlives what is left."""
+        if budget.max_seconds is None:
+            return None
+        left = budget.max_seconds - (clock() - started)
+        if left <= 0:
+            raise ProviderRequestError(_TOO_LONG)
+        return left
+
+    for step in range(max_steps + 1):
+        time_left()
         turn: StreamEvent | None = None
         step_text: list[str] = []
         separate = wrote_text
@@ -73,9 +116,15 @@ async def run_agent(
             raise ProviderRequestError("The response was cut off; try a shorter request")
         if not turn.tool_calls or toolbox is None:
             break
-        if step == MAX_TOOL_STEPS:
+        if step == max_steps:
             raise ProviderRequestError(
                 "The assistant used too many tool steps; please narrow the request"
+            )
+        if budget.max_total_tokens is not None and (
+            input_tokens + output_tokens > budget.max_total_tokens
+        ):
+            raise ProviderRequestError(
+                "The assistant used too many tokens for one question; please narrow the request"
             )
 
         conversation.append(
@@ -88,8 +137,12 @@ async def run_agent(
         )
         results: list[ToolResult] = []
         for call in turn.tool_calls:
+            remaining = time_left()
             yield ChatEvent("tool", {"id": call.id, "name": call.name, "status": "running"})
-            output = await toolbox.execute(call)
+            try:
+                output = await asyncio.wait_for(toolbox.execute(call), timeout=remaining)
+            except TimeoutError as exc:
+                raise ProviderRequestError(_TOO_LONG) from exc
             yield ChatEvent(
                 "tool",
                 {

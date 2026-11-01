@@ -19,6 +19,7 @@ from models.ai_assistant import (
     TemplateEditorContext,
     WorkflowCanvasContext,
 )
+from services.ai_assistant.agent_loop import DEFAULT_BUDGET, RunBudget
 from services.ai_assistant.data_sharing import DeviceLabeler, SharingPolicy
 from services.ai_assistant.inventory_filter import describe_condition_tree, field_data_class
 from services.ai_assistant.prompts import (
@@ -69,11 +70,16 @@ from services.ai_assistant.workflow_expand import build_compact_view
 
 MAX_VARIABLE_VALUE_CHARS = 1000
 
+# Ask the Net chains discovery, query and result tools, so it gets more steps than the editors.
+# The token figure counts input re-sent on every step; the time figure is wall clock per question.
+GENERAL_BUDGET = RunBudget(max_tool_steps=16, max_total_tokens=400_000, max_seconds=180)
+
 
 @dataclass(frozen=True)
 class AssistantSession:
     system: str
     toolbox: Toolbox
+    budget: RunBudget = DEFAULT_BUDGET
 
 
 def _editor_state_block(context: TemplateEditorContext, redactor: Redactor) -> str:
@@ -305,4 +311,9 @@ def build_general_session(
             "The user is not allowed to query Batfish, so you have no tools. Say so and answer "
             "only from general knowledge, without claiming anything about their network."
         )
-    return AssistantSession(system="\n\n".join(parts), toolbox=Toolbox(tools, tool_context))
+    return AssistantSession(
+        system="\n\n".join(parts),
+        toolbox=Toolbox(tools, tool_context),
+        # No tools, no reason for the larger budget.
+        budget=GENERAL_BUDGET if may_query_batfish else DEFAULT_BUDGET,
+    )

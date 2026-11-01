@@ -289,3 +289,207 @@ def test_usage_is_reported_before_a_turn_that_then_fails() -> None:
 
     assert events[-1].event == "usage"
     assert events[-1].data == {"input_tokens": 50, "output_tokens": 16000}
+
+
+# -- per-surface budget (doc/AI_TOOL_CHAIN.md §6.4) ----------------------------------------------
+
+
+def _run_budget(provider: ScriptedProvider, budget, clock=None) -> list[ChatEvent]:
+    kwargs = {"clock": clock} if clock is not None else {}
+
+    async def go() -> list[ChatEvent]:
+        return [
+            e
+            async for e in run_agent(
+                provider=provider,
+                model="m",
+                system="s",
+                messages=[ChatMessage(role="user", content="hi")],
+                toolbox=_toolbox(),
+                budget=budget,
+                **kwargs,
+            )
+        ]
+
+    return asyncio.run(go())
+
+
+def _looping(n: int, **turn_kwargs: Any) -> ScriptedProvider:
+    return ScriptedProvider(
+        [[_turn(_call(f"t{i}"), stop="tool_use", **turn_kwargs)] for i in range(n)]
+    )
+
+
+def test_budget_raises_the_step_cap_for_one_surface() -> None:
+    from services.ai_assistant.agent_loop import RunBudget
+
+    provider = ScriptedProvider(
+        [[_turn(_call(f"t{i}"), stop="tool_use")] for i in range(12)] + [[_turn()]]
+    )
+
+    events = _run_budget(provider, RunBudget(max_tool_steps=12))
+
+    assert len(provider.calls) == 13
+    assert not [e for e in events if e.event == "error"]
+
+
+def test_budget_step_cap_is_clamped_to_the_hard_ceiling() -> None:
+    from services.ai_assistant.agent_loop import HARD_MAX_TOOL_STEPS, RunBudget
+
+    assert RunBudget(max_tool_steps=10_000).max_tool_steps == HARD_MAX_TOOL_STEPS
+    with pytest.raises(ValueError):
+        RunBudget(max_tool_steps=0)
+
+
+def test_token_budget_stops_before_the_next_tool_round() -> None:
+    from services.ai_assistant.agent_loop import RunBudget
+
+    provider = _looping(5, i=600, o=0)
+
+    with pytest.raises(ProviderRequestError, match="token"):
+        _run_budget(provider, RunBudget(max_tool_steps=10, max_total_tokens=1000))
+
+    # Turn 1 (600) is within budget, turn 2 (1200) is not: the second tool is never run.
+    assert len(provider.calls) == 2
+
+
+def test_time_budget_stops_the_loop() -> None:
+    from services.ai_assistant.agent_loop import RunBudget
+
+    ticks = iter([0.0, 1.0, 100.0, 200.0, 300.0, 400.0])
+    provider = _looping(5)
+
+    with pytest.raises(ProviderRequestError, match="too long"):
+        _run_budget(
+            provider,
+            RunBudget(max_tool_steps=10, max_seconds=50),
+            clock=lambda: next(ticks),
+        )
+
+    assert len(provider.calls) < 5
+
+
+# -- the time budget covers tools and the next model call too (review 2026-11-01, finding 1) ------
+
+
+class _Clock:
+    def __init__(self) -> None:
+        self.now = 0.0
+
+    def __call__(self) -> float:
+        return self.now
+
+
+def test_time_budget_stops_before_the_model_call_that_follows_slow_tools() -> None:
+    from services.ai_assistant.agent_loop import RunBudget
+
+    clock = _Clock()
+
+    async def slow(ctx: ToolContext, args: Echo) -> ToolOutput:
+        clock.now += 100  # the tool itself eats the budget
+        return ToolOutput("late")
+
+    provider = ScriptedProvider([[_turn(_call("t0"), stop="tool_use")], [_text("never asked for")]])
+
+    async def go() -> list[ChatEvent]:
+        return [
+            e
+            async for e in run_agent(
+                provider=provider,
+                model="m",
+                system="s",
+                messages=[ChatMessage(role="user", content="hi")],
+                toolbox=_toolbox(slow),
+                budget=RunBudget(max_tool_steps=5, max_seconds=50),
+                clock=clock,
+            )
+        ]
+
+    with pytest.raises(ProviderRequestError, match="too long"):
+        asyncio.run(go())
+
+    assert len(provider.calls) == 1  # no second model call after the deadline passed
+
+
+def test_time_budget_does_not_start_the_next_tool_of_a_batch_after_the_deadline() -> None:
+    from services.ai_assistant.agent_loop import RunBudget
+
+    clock = _Clock()
+    ran: list[str] = []
+
+    async def slow(ctx: ToolContext, args: Echo) -> ToolOutput:
+        ran.append(args.value)
+        clock.now += 100
+        return ToolOutput("x")
+
+    provider = ScriptedProvider(
+        [[_turn(_call("a", value="1"), _call("b", value="2"), stop="tool_use")]]
+    )
+
+    async def go() -> None:
+        async for _ in run_agent(
+            provider=provider,
+            model="m",
+            system="s",
+            messages=[ChatMessage(role="user", content="hi")],
+            toolbox=_toolbox(slow),
+            budget=RunBudget(max_tool_steps=5, max_seconds=50),
+            clock=clock,
+        ):
+            pass
+
+    with pytest.raises(ProviderRequestError, match="too long"):
+        asyncio.run(go())
+
+    assert ran == ["1"]
+
+
+def test_time_budget_cancels_a_tool_that_outlives_it() -> None:
+    from services.ai_assistant.agent_loop import RunBudget
+
+    async def hangs(ctx: ToolContext, args: Echo) -> ToolOutput:
+        await asyncio.sleep(30)
+        return ToolOutput("never")
+
+    provider = ScriptedProvider([[_turn(_call("t0"), stop="tool_use")]])
+
+    async def go() -> None:
+        async for _ in run_agent(
+            provider=provider,
+            model="m",
+            system="s",
+            messages=[ChatMessage(role="user", content="hi")],
+            toolbox=_toolbox(hangs),
+            budget=RunBudget(max_tool_steps=5, max_seconds=0.2),
+        ):
+            pass
+
+    with pytest.raises(ProviderRequestError, match="too long"):
+        asyncio.run(asyncio.wait_for(go(), timeout=10))
+
+
+def test_time_budget_is_reached_at_exactly_max_seconds() -> None:
+    from services.ai_assistant.agent_loop import RunBudget
+
+    clock = _Clock()
+
+    async def exact(ctx: ToolContext, args: Echo) -> ToolOutput:
+        clock.now += 50
+        return ToolOutput("x")
+
+    provider = ScriptedProvider([[_turn(_call("t0"), stop="tool_use")], [_turn()]])
+
+    async def go() -> None:
+        async for _ in run_agent(
+            provider=provider,
+            model="m",
+            system="s",
+            messages=[ChatMessage(role="user", content="hi")],
+            toolbox=_toolbox(exact),
+            budget=RunBudget(max_tool_steps=5, max_seconds=50),
+            clock=clock,
+        ):
+            pass
+
+    with pytest.raises(ProviderRequestError, match="too long"):
+        asyncio.run(go())

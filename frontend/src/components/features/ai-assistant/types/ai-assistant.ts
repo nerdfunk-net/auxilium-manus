@@ -126,12 +126,18 @@ export interface ReportsContext {
   source_id: string;
 }
 
+/** Ask the Net: free questions about the network. No client state; the server decides what it reads. */
+export interface GeneralContext {
+  surface: "general";
+}
+
 export type AssistantContext =
   | TemplateEditorContext
   | WorkflowCanvasContext
   | RunViewerContext
   | InventoryContext
-  | ReportsContext;
+  | ReportsContext
+  | GeneralContext;
 
 export type ToolStatus = "running" | "done" | "error";
 
@@ -290,7 +296,8 @@ export type AssistantSurface =
   | "workflow_editor"
   | "run_viewer"
   | "inventory"
-  | "reports";
+  | "reports"
+  | "general";
 
 /** What a panel needs to save and list conversations: its surface and subject (for example a workflow id). */
 export interface ConversationScope {

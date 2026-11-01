@@ -37,6 +37,7 @@ import {
   fromSavedMessages,
   toSavedMessages,
 } from "../utils/conversation-mapping";
+import { AssistantMessageText } from "./assistant-message-text";
 import { SavedConversationsDialog } from "./saved-conversations-dialog";
 import { InventoryProposalCard } from "./inventory-proposal-card";
 import { QueryProposalCard } from "./query-proposal-card";
@@ -127,6 +128,15 @@ const TOOL_LABELS: Record<string, string> = {
   propose_query: "Checking a query",
   propose_report_outline: "Drafting a report",
   propose_section_text: "Drafting section text",
+  list_batfish_networks: "Listing Batfish networks",
+  list_batfish_snapshots: "Listing Batfish snapshots",
+  get_routes: "Reading routes",
+  get_traceroute: "Tracing the path of a packet",
+  get_bgp_session_status: "Checking BGP sessions",
+  get_interface_properties: "Reading interface settings",
+  get_device_facts: "Reading device facts",
+  query_result: "Reading a stored result",
+  fetch_slice: "Reading a stored result",
 };
 
 function toolLabel(name: string): string {
@@ -287,9 +297,13 @@ export function AssistantPanel({
           ))}
         </ul>
       )}
-      {message.content && (
-        <p className="whitespace-pre-wrap break-words">{message.content}</p>
-      )}
+      {message.content &&
+        (message.role === "assistant" ? (
+          <AssistantMessageText markdown={message.content} />
+        ) : (
+          // What the user typed is shown as typed, never interpreted as Markdown.
+          <p className="whitespace-pre-wrap break-words">{message.content}</p>
+        ))}
       {message.role === "assistant" &&
         !message.content &&
         !message.error &&

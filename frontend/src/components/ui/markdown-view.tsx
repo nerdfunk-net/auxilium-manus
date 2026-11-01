@@ -6,6 +6,10 @@ import remarkGfm from "remark-gfm";
 import { cn } from "@/lib/utils";
 
 import { MARKDOWN_PREVIEW_CLASSES } from "./markdown-editor";
+import { remarkLineBreaks } from "./remark-line-breaks";
+
+const PLUGINS = [remarkGfm];
+const PLUGINS_WITH_BREAKS = [remarkGfm, remarkLineBreaks];
 
 const TABLE_CLASSES =
   "[&_table]:mb-3 [&_table]:w-full [&_table]:border-collapse [&_table]:text-xs " +
@@ -15,6 +19,8 @@ const TABLE_CLASSES =
 interface MarkdownViewProps {
   markdown: string;
   className?: string;
+  /** A single newline in running text stays a line break (model answers, CLI text). */
+  preserveLineBreaks?: boolean;
 }
 
 /**
@@ -22,11 +28,15 @@ interface MarkdownViewProps {
  * ignores it unless a plugin enables it) and unsafe link protocols are dropped, so text that came
  * from a user-written template cannot inject markup.
  */
-export function MarkdownView({ markdown, className }: MarkdownViewProps) {
+export function MarkdownView({
+  markdown,
+  className,
+  preserveLineBreaks = false,
+}: MarkdownViewProps) {
   return (
     <div className={cn(MARKDOWN_PREVIEW_CLASSES, TABLE_CLASSES, className)}>
       <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
+        remarkPlugins={preserveLineBreaks ? PLUGINS_WITH_BREAKS : PLUGINS}
         // Data values can contain Markdown: an image would make the browser fetch an address
         // chosen by whoever wrote the value, and a link would lead there.
         disallowedElements={["img"]}

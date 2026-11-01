@@ -157,6 +157,13 @@ sent only with the user's opt-in): `backend/services/ai_assistant/`,
 `doc/ai_integration/AI_ASSISTANT.md` first. Tools there must be pure reads or proposals - never
 persist or execute.
 
+Ask the Net (`/ask-the-net`, surface `general`: free questions about the network, answered from a Batfish
+snapshot with read-only tools; frontend `components/features/ask-the-net/`): read
+`doc/AI_TOOL_CHAIN.md` first (status in §27, next steps in §28). A new assistant surface touches
+`models/ai_assistant.py`, `models/ai_conversations.py`, `routers/ai_assistant.py`, `services/ai_assistant/surfaces.py`
+and the frontend `AssistantContext` types. Tool results above 20 rows are stored in Redis behind a handle
+(`services/ai_assistant/results/`).
+
 ### Adding New Permission
 1. UI: `/settings/users` → Permissions tab lists the catalog; create from Roles tab's
    "Manage permissions" dialog (or `POST /api/rbac/permissions`), then grant to a role

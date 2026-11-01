@@ -34,6 +34,9 @@ from services.ai_assistant.tools.result_tools import RESULT_STORE_KEY
 
 logger = logging.getLogger(__name__)
 
+# Character budget for redacting the copy that goes to the store (it lives for hours, so it is
+# stored redacted, like the preview). Separate from the request's own budget.
+STORED_REDACT_CHARS = 2_000_000
 # How often an over-size table is halved before giving up on storing it.
 _MAX_HALVINGS = 4
 _NOT_STORED = (
@@ -80,11 +83,17 @@ async def _attach_handle(
     keep = rows
     for _ in range(_MAX_HALVINGS + 1):
         try:
+            # The stored copy is redacted like the preview: it lives for hours.
+            stored_rows = await asyncio.to_thread(
+                ctx.redactor.fork(max_chars=STORED_REDACT_CHARS).redact_data, keep
+            )
             handle = await store.put(
-                ctx.user_id, StoredResult(kind=kind, data_class=data_class, rows=keep)
+                ctx.user_id, StoredResult(kind=kind, data_class=data_class, rows=stored_rows)
             )
         except ValueError:
-            keep = keep[: len(keep) // 2]  # too large for one handle: store a prefix
+            # Too large for one handle, or too much text to redact (``RedactionBudgetExceeded``
+            # is a ``ValueError``): store a prefix.
+            keep = keep[: len(keep) // 2]
             if not keep:
                 break
             continue
