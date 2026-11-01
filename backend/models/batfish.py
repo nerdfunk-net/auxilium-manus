@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Literal, Self
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from core.source_keys import SOURCE_ID_PATTERN
 
@@ -93,6 +93,8 @@ class BatfishReachabilityQueryRequest(BaseModel):
 class BatfishTracerouteQueryRequest(BaseModel):
     """Simulated forwarding path from a node (pybatfish ``traceroute``). A pure model read."""
 
+    model_config = ConfigDict(extra="forbid")
+
     network: str = Field(..., min_length=1)
     snapshot: str | None = None
     start_node: str = Field(..., min_length=1)
@@ -120,6 +122,8 @@ class BatfishTestFiltersQueryRequest(BaseModel):
 class BatfishCompareFiltersQueryRequest(BaseModel):
     """Differential ``compareFilters``: ``snapshot`` (default newest) vs ``reference_snapshot``."""
 
+    model_config = ConfigDict(extra="forbid")
+
     network: str = Field(..., min_length=1)
     snapshot: str | None = None
     reference_snapshot: str = Field(..., min_length=1)
@@ -129,6 +133,8 @@ class BatfishCompareFiltersQueryRequest(BaseModel):
 
 class BatfishDifferentialReachabilityQueryRequest(BaseModel):
     """Differential ``differentialReachability``: flows that succeed in only one snapshot."""
+
+    model_config = ConfigDict(extra="forbid")
 
     network: str = Field(..., min_length=1)
     snapshot: str | None = None

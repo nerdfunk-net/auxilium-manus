@@ -116,6 +116,8 @@ python scripts/check_flag_parsing.py   # step flags only via workflow_steps/comm
 
 - `python scripts/link_oidc_identity.py <username> <provider_id> <subject>` — bind an existing local
   user to an IdP identity (the only way; OIDC login never matches by username). Ends the user's sessions.
+- `python scripts/check_playbooks.py [--dir PATH]` — validate the Ask the Net playbooks (built-in and
+  `${DATA_DIRECTORY}/ai/playbooks`) before relying on an edit; `knowledge/README.md` has the format.
 - `python scripts/purge_retention.py`, `python scripts/repair_database.py` — see their docstrings.
 
 ## Common Tasks

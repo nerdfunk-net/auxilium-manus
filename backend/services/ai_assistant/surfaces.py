@@ -51,6 +51,7 @@ from services.ai_assistant.tools.inventory_tools import (
     InventoryReader,
     InventoryState,
 )
+from services.ai_assistant.tools.playbook_tools import AVAILABLE_TOOLS_KEY, build_playbook_tools
 from services.ai_assistant.tools.report_tools import REPORT_TOOLS, ReportReader, ReportsState
 from services.ai_assistant.tools.result_tools import RESULT_STORE_KEY, build_result_tools
 from services.ai_assistant.tools.run_tools import RUN_VIEWER_TOOLS, RunReader, RunViewerState
@@ -300,6 +301,11 @@ def build_general_session(
         if store is not None:
             extras[RESULT_STORE_KEY] = store
             tools.extend(build_result_tools())
+        # Playbooks only guide the Batfish tools, so they come with them; without the permission
+        # the session has no tools at all.
+        tools.extend(build_playbook_tools())
+        # Lets list_playbooks tell the model which of a playbook's tools this user lacks.
+        extras[AVAILABLE_TOOLS_KEY] = frozenset(t.name for t in tools)
     tool_context = ToolContext(user_id=user_id, redactor=redactor, extras=extras, sharing=sharing)
     parts = [
         BASE_SYSTEM_PROMPT,

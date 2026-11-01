@@ -128,6 +128,8 @@ const TOOL_LABELS: Record<string, string> = {
   propose_query: "Checking a query",
   propose_report_outline: "Drafting a report",
   propose_section_text: "Drafting section text",
+  list_playbooks: "Looking for a matching playbook",
+  get_playbook: "Reading a playbook",
   list_batfish_networks: "Listing Batfish networks",
   list_batfish_snapshots: "Listing Batfish snapshots",
   get_routes: "Reading routes",

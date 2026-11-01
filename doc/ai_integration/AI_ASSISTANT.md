@@ -284,6 +284,7 @@ the opt-in of the class shown:
 | `get_device_facts` | addresses (B) | Facts from Batfish `extract_facts` (the `batfish-extract-facts` step's data): syslog (`Logging_Servers`), NTP, DNS, TACACS and SNMP trap servers, hostname, domain, config format, VRFs, zones. The keys are a closed list in `tools/batfish_shaping.py` (`FactKey`); key material (`IKE_*`, `Authentication_Key_Chains`) and large structures (`Interfaces`, ACLs, routing policies) cannot be requested. The result has a `fact_summary` (nodes with a value / nodes asked) and, when no node reported any requested fact, `keys_seen` so 'not reported' is never read as 'none configured' |
 | `analyze_acl` | addresses (B); content (C) for the whole table when `Line_Content` is included | One flow against one named filter on one device (`testFilters`): `Action` PERMIT/DENY and the filter name. The matching line (`Line_Content`, config text) only with the content opt-in. The filter name is validated (no leading `/`, no comma), so a regex specifier cannot be passed |
 | `check_reachability` | addresses (B) | Whether traffic matching a description can get from a device to a destination or to `end_node` (`reachability`): `reachable` plus the paths, condensed like `get_traceroute`. `ignore_filters` tells a filter problem from a routing problem |
+| `list_playbooks` / `get_playbook` | none (A); local playbooks default to inventory (B) | Reviewed step-by-step recipes for troubleshooting (`doc/AI_TOOL_CHAIN.md` §21, §25, §27.2). Built-in files in `knowledge/playbooks/`, operator files in `${DATA_DIRECTORY}/ai/playbooks/` (a local file of the same name overrides, `disabled: true` hides). The model passes a name, never a path. `list_playbooks` lists name, title, when, tools and which of those this user lacks; `get_playbook` returns the text and audits `playbook:<name>`. Class B playbooks need the inventory opt-in (omitted from the list with a `not_shared` marker; a hidden name is answered like an unknown one). The list is paged (`offset`, `next_offset`). Validated at load time (`playbooks.py`), also by `python scripts/check_playbooks.py [--dir PATH]` |
 | `query_result` | class of the stored result | Filter / project / page (`offset`) a stored table by handle; at most 20 rows |
 | `fetch_slice` | class of the stored result | Page a stored table (rows) or text (characters, `next_offset`) by handle |
 | `diff_results` | stricter class of the two stored results | Compare two stored tables by handle. With `key` columns (dot paths) rows are matched and a changed row lists the differing fields; without a key whole rows are compared as a multiset. `ignore_fields` drops noisy top-level columns. Counts plus the differing rows (preview and a handle of its own). A key that is not unique is refused. Stored copies are redacted, so a value the redactor hid cannot be compared. A stored table that was cut (Batfish preview cap or store size limit) is marked `partial`; a diff that involves one says so, sets `complete: false` and `total_rows_exact: false` |
@@ -1385,6 +1386,13 @@ Companies that control outbound traffic with an HTTP/HTTPS proxy can route every
 (checked in the chat route and again on every call by `batfish_reader.py::DbBatfishReader`) and the handle
 tools only when a result store exists. No tool on this surface writes, proposes or executes; the naming rule
 and that fact are pinned by `tests/unit/test_ai_hardening.py`.
+
+**Playbooks.** `build_general_session` also offers `list_playbooks` / `get_playbook` (only together with the
+Batfish tools) and records the names of the tools it really offers in `ToolContext.extras["available_tools"]`,
+so a playbook can tell the model which of its tools this user lacks. The prompt sends troubleshooting requests
+to `list_playbooks` first. A local playbook with no `data_class` is class B; a built-in one is class A. Local
+knowledge files (`${DATA_DIRECTORY}/ai/knowledge/<name>.local.md`) are placed first in the four reference tools'
+answers under "Local additions" (regular files only, no symlinks) (`knowledge_loader.py`). See `doc/AI_TOOL_CHAIN.md` §27.2.
 
 **No new setting.** Results are gated by the existing opt-ins (inventory for discovery, addresses for the
 query tools) ANDed with the operator's `AI_ALLOWED_DATA`, as for the other surfaces.

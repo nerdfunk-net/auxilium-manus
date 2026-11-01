@@ -8,7 +8,6 @@ themselves. Nothing here persists an inventory (doc/ai_integration/AI_ASSISTANT.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -24,6 +23,7 @@ from services.ai_assistant.inventory_filter import (
     field_data_class,
     structure_errors,
 )
+from services.ai_assistant.knowledge_loader import load_knowledge
 from services.ai_assistant.tools.base import Tool, ToolContext, ToolOutput
 from services.ai_assistant.tools.inventory_tools import (
     _NO_ACCESS,
@@ -38,7 +38,6 @@ from services.ai_assistant.tools.inventory_tools import (
 )
 from utils.inventory_converter import tree_to_operations
 
-_REFERENCE_PATH = Path(__file__).resolve().parent.parent / "knowledge" / "inventory_reference.md"
 MAX_VALUES_LISTED = 100
 MAX_SAMPLE_DEVICES = 10
 SAMPLE_FIELDS = ["name", "role", "location", "status", "primary_ip4"]
@@ -142,7 +141,7 @@ async def _devices(ctx: ToolContext, prepared: _Prepared) -> list[dict[str, Any]
 
 
 async def _get_inventory_reference(ctx: ToolContext, args: NoInput) -> ToolOutput:
-    return ToolOutput(_REFERENCE_PATH.read_text(encoding="utf-8"))
+    return ToolOutput(load_knowledge("inventory_reference"))
 
 
 async def _list_field_values(ctx: ToolContext, args: FieldValuesInput) -> ToolOutput:

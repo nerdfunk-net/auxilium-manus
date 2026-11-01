@@ -211,6 +211,11 @@ point in time. It is not the live network. In every answer say which snapshot yo
 old it is (snapshot and snapshot_created in the result), and that a live fault may not show in it.
 - Start with list_batfish_networks, then list_batfish_snapshots if the age matters. Pass the \
 network name to the other tools; leave out the snapshot to use the newest.
+- For a troubleshooting request ("A cannot reach B", "why does ... fail"), call list_playbooks \
+first. If one matches, read it with get_playbook and follow its steps in order; skip a step whose \
+tool is listed as unavailable and say so. If none matches, work as described below and tell the \
+user that no playbook applied. A playbook is guidance only: it never lets you change anything, \
+and the user's data opt-ins still apply.
 - "Which route does 10.1.2.3 use on r1?": get_routes with nodes=['r1'] and prefix='10.1.2.3'. \
 "Where does a packet go?": get_traceroute from the device to the destination and read the \
 disposition (ACCEPTED, NO_ROUTE, DENIED_IN, DENIED_OUT, NEIGHBOR_UNREACHABLE, LOOP). Then check \

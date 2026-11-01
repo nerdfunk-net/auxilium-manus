@@ -4,6 +4,7 @@ set -euo pipefail
 echo "=== Auxilium Manus Container Startup ==="
 
 mkdir -p /app/data/settings /app/data/git /app/data/cache /app/data/logs \
+         /app/data/ai/playbooks /app/data/ai/knowledge \
          /app/config/certs /var/log/supervisor /run/supervisor
 
 if [ "$(id -u)" = "0" ]; then

@@ -11,13 +11,12 @@ import asyncio
 import json
 from collections.abc import Sequence
 from dataclasses import dataclass
-from functools import cache
-from pathlib import Path
 from typing import Any, Literal, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from models.plugins import PluginDefinition
+from services.ai_assistant.knowledge_loader import load_knowledge
 from services.ai_assistant.redaction import (
     STATIC_ATTRIBUTES_SCOPE,
     Redactor,
@@ -32,9 +31,6 @@ from services.ai_assistant.workflow_expand import (
 )
 
 MAX_LISTED_STEPS = 200
-_KNOWLEDGE_DIR = Path(__file__).resolve().parent.parent / "knowledge"
-_REFERENCE_PATH = _KNOWLEDGE_DIR / "workflow_reference.md"
-_RECIPES_PATH = _KNOWLEDGE_DIR / "workflow_recipes.md"
 
 ReferenceKind = Literal["credentials", "git_repositories", "sources", "inventories"]
 
@@ -91,16 +87,6 @@ class WorkflowEditorState:
 
 def _state(ctx: ToolContext) -> WorkflowEditorState:
     return ctx.extras["workflow_editor"]
-
-
-@cache
-def _reference_text() -> str:
-    return _REFERENCE_PATH.read_text(encoding="utf-8")
-
-
-@cache
-def _recipes_text() -> str:
-    return _RECIPES_PATH.read_text(encoding="utf-8")
 
 
 # -- inputs -----------------------------------------------------------------------------------
@@ -170,11 +156,11 @@ def _field_line(field: Any) -> str:
 
 
 async def _get_reference(ctx: ToolContext, args: NoInput) -> ToolOutput:
-    return ToolOutput(_reference_text())
+    return ToolOutput(load_knowledge("workflow_reference"))
 
 
 async def _get_recipes(ctx: ToolContext, args: NoInput) -> ToolOutput:
-    return ToolOutput(_recipes_text())
+    return ToolOutput(load_knowledge("workflow_recipes"))
 
 
 async def _list_steps(ctx: ToolContext, args: ListStepsInput) -> ToolOutput:

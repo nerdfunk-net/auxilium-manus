@@ -8,13 +8,12 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
-from functools import cache
-from pathlib import Path
 from typing import Any, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from models.ai_assistant import EditorVariableIn, TemplateEditorContext
+from services.ai_assistant.knowledge_loader import load_knowledge
 from services.ai_assistant.redaction import Redactor
 from services.ai_assistant.render_isolated import render_isolated
 from services.ai_assistant.template_render import build_context, check_syntax
@@ -23,7 +22,6 @@ from services.ai_assistant.tools.base import Tool, ToolContext, ToolOutput
 MAX_CONTENT_CHARS = 200000
 RENDER_TIMEOUT_SECONDS = 5.0
 MAX_RENDER_OUTPUT_CHARS = 8000
-_REFERENCE_PATH = Path(__file__).resolve().parent.parent / "knowledge" / "template_reference.md"
 
 
 class TemplatePermissionError(Exception):
@@ -50,11 +48,6 @@ class TemplateEditorState:
 
 def _state(ctx: ToolContext) -> TemplateEditorState:
     return ctx.extras["template_editor"]
-
-
-@cache
-def _reference_text() -> str:
-    return _REFERENCE_PATH.read_text(encoding="utf-8")
 
 
 # -- inputs -----------------------------------------------------------------
@@ -95,7 +88,7 @@ class ProposeTemplateInput(BaseModel):
 
 
 async def _get_reference(ctx: ToolContext, args: NoInput) -> ToolOutput:
-    return ToolOutput(_reference_text())
+    return ToolOutput(load_knowledge("template_reference"))
 
 
 async def _list_templates(ctx: ToolContext, args: ListTemplatesInput) -> ToolOutput:

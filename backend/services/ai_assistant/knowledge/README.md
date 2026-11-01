@@ -42,7 +42,8 @@ Consequences:
 - The model decides *whether* to read it, guided by the tool description and the prompt. If a recipe
   is never applied, check that the tool description still mentions the topic (see "If the assistant
   ignores a recipe" below).
-- The text is read once per backend process (`@cache` on `_recipes_text()` and `_reference_text()`).
+- The text is read through `services/ai_assistant/knowledge_loader.py::load_knowledge`, which caches by file
+  modification time: an edit is live on the next tool call, no restart needed.
 
 ## Updating a file
 
@@ -54,9 +55,8 @@ Consequences:
    - fields, outcomes, capabilities: `get_step_schema` in a chat, or the step's entry in
      `registry.yaml`.
    A stale recipe is worse than none, because the model will follow it with confidence.
-3. **Restart the backend.** The dev server auto-reloads on `.py` changes only, so a markdown edit
-   alone does not reload it. Stop and start `python start.py`, or touch a `.py` file in the backend.
-   The Hatchet workers do not read these files.
+3. **No restart needed.** `load_knowledge` re-reads a file when its modification time changes. The Hatchet
+   workers do not read these files.
 4. **Try it** in the workflow builder: open the AI Assistant panel, ask for something the recipe
    covers, and check that a "Reading the workflow recipes" chip appears and the proposal follows it.
 5. **Run the tests:** `cd backend && python -m pytest tests/unit/test_ai_workflow_tools.py --no-cov`.
@@ -142,8 +142,8 @@ Work from the cheapest cause to the most expensive:
 ## Adding a new knowledge file or tool
 
 1. Add the markdown file here.
-2. In the matching tools module, load it with `Path(...)` and `@cache` like `_recipes_text()`, add an
-   async function returning `ToolOutput(text)`, and register a `Tool("name", "description", NoInput,
+2. In the matching tools module, load it with `load_knowledge("<file name without .md>")` (never build a
+   path yourself), add an async function returning `ToolOutput(text)`, and register a `Tool("name", "description", NoInput,
    fn)` in the surface's tool tuple (for example `WORKFLOW_EDITOR_TOOLS`).
 3. Mention it in the surface prompt in `prompts.py` if the model should read it proactively.
 4. Add the friendly label to the tool-name map in
@@ -152,6 +152,48 @@ Work from the cheapest cause to the most expensive:
    module) and document it in `doc/ai_integration/AI_ASSISTANT.md` (tool tables in §3.5 and §11).
 
 A tool must be a pure read or a proposal; anything else does not ship in this feature.
+
+## Local additions and local playbooks (operators)
+
+Nothing here needs a code change or a new image. Both locations live on the data volume
+(`${DATA_DIRECTORY}`, `/app/data` in Docker, created by `docker/start.sh`); a missing directory is empty.
+
+| What | Where | Effect |
+|------|-------|--------|
+| Addition to a reference file | `${DATA_DIRECTORY}/ai/knowledge/<name>.local.md`, where `<name>` is `inventory_reference`, `template_reference`, `workflow_reference` or `workflow_recipes` | Placed **first**, under "Local additions", in what the matching tool returns (at most 8,000 characters; the whole answer is capped at 20,000, and if the built-in text no longer fits its tail is cut with a marker, so site rules are never the part that is lost) |
+| Playbook | `${DATA_DIRECTORY}/ai/playbooks/<name>.md` | Offered by `list_playbooks` / `get_playbook` on Ask the Net. Same name as a built-in one: the local file wins. `disabled: true` (with just `name`) hides a built-in one |
+
+Local files are edited by whoever can write to the data volume; they are not user input. They must be regular
+files: a symlink or a FIFO is refused (and logged), and the text must be valid UTF-8. Everything in them
+is sent to the AI provider when the model reads it: **no credentials, secrets or customer data**. A local
+playbook has `data_class: B` unless it says `A`, so a user who has not shared inventory data does not get it. **`data_class: A`
+turns that gate off**: the text is offered to every user and sent to the provider, and the model is told to
+follow it (`check_playbooks.py` prints a note for each such file). A knowledge overlay has no data class at
+all and is always shown, so keep both free of anything that should not reach every user.
+
+Playbook format (`playbooks/target-unreachable.md` is the model to copy; files starting with `_` are ignored):
+
+```
+---
+name: my-playbook            # lowercase slug, equals the file name
+title: One line
+when: "phrases that should make the model pick it"
+tools: [get_routes, ...]     # exact tool names of the general surface
+scope: read-only
+data_class: B                # optional: A or B (local default B, built-in A)
+---
+## Steps
+1. ...
+```
+
+Rules the loader enforces: all front matter fields above; every tool named in `tools` exists; a tool-like word
+(`get_...`, `list_...`, ..., with or without backticks) in the text is a real tool and also listed in `tools`; a `## Steps` heading; no configuration command in the text
+(a command at the start of a line or in backticks: `conf t`, `reload`, `write memory`, `copy running-config ...`,
+`commit`, `clear ip bgp`, ...; the title and `when` are checked too, and prose that only mentions a word such as
+"the device was reloaded" is fine); at most 16,000 characters and 100 files per
+directory. An invalid local file is ignored (the built-in playbook of that name keeps working) and logged.
+Check an edit before relying on it, from `backend/`: `python scripts/check_playbooks.py` (add `--dir PATH` to
+check another local directory). Edits are live without a restart.
 
 ## Deployment note
 

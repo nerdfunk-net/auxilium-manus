@@ -78,6 +78,8 @@ def test_session_offers_batfish_and_result_tools() -> None:
         "query_result",
         "fetch_slice",
         "diff_results",
+        "list_playbooks",
+        "get_playbook",
     }
 
 

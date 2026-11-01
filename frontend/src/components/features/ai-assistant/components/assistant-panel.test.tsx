@@ -155,6 +155,8 @@ describe("AssistantPanel tool activity labels (Ask the Net)", () => {
   const KEY_GENERAL = "general";
 
   it.each([
+    ["list_playbooks", /playbook/i],
+    ["get_playbook", /playbook/i],
     ["list_batfish_networks", /networks/i],
     ["list_batfish_snapshots", /snapshots/i],
     ["get_routes", /routes/i],

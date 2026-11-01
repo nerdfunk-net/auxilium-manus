@@ -1275,6 +1275,8 @@ model is told to skip steps whose tools are missing and to say so.
 
 ### 21.8 Open questions
 
+Answered 2026-11-01 (see §27.2): per symptom; the `general` prompt tells the model to call `list_playbooks` first for a troubleshooting request; English; the playbook name goes into the audit refs as `playbook:<name>`; local playbooks live in `${DATA_DIRECTORY}/ai/playbooks/`. The list below is the original text.
+
 - Granularity: one playbook per symptom (as above) or per domain (routing, switching, wireless)?
 - Should `list_playbooks` be called automatically by the surface prompt, or only on request?
 - Where do site-specific playbooks live? Proposal in §25 (a local directory on the data volume, overlaid on the built-in ones).
@@ -2191,6 +2193,8 @@ existing knowledge files already work.
 
 ### 25.9 Open questions
 
+Decided 2026-11-01 (product owner): fixed directory `${DATA_DIRECTORY}/ai/playbooks/`, **no** `AI_PLAYBOOK_DIR`; a local playbook is class B unless its front matter says `data_class: A` (built-in: A); `get_organisation_reference` is not part of the first round. Language and the first real local playbook remain with the operator. Original text:
+
 - [OPEN-U] Directory name and location: `${DATA_DIRECTORY}/ai/playbooks/` and an environment variable
   `AI_PLAYBOOK_DIR` acceptable? Is the data volume mounted (and backed up) in every deployment form (compose,
   all-in-one image)?
@@ -2448,6 +2452,38 @@ Test with two snapshots of the lab that differ in one ACL line.
   `noopener`). Only assistant messages are parsed; what the user typed stays literal. The component is memoised on
   the text so a streaming reply does not re-parse earlier messages; wide tables scroll inside the bubble.
 
+### 27.2 Playbooks and the knowledge loader (2026-11-01)
+
+Built after the Batfish tools (§28 item 1). Decisions by the product owner: a local playbook defaults to
+**class B** (A only when its front matter says so; built-in files are A); the local directory is fixed,
+**no** `AI_PLAYBOOK_DIR`; `get_organisation_reference` is **not built** (the loader already supports another
+overlay name). Defaults taken without asking: one playbook per symptom, English, the surface prompt tells the
+model to call `list_playbooks` first for a troubleshooting request, audit ref `playbook:<name>`, local overrides
+built-in with the same name, `disabled: true` hides a built-in one.
+
+| Piece | Where | Notes |
+|---|---|---|
+| Knowledge loader | `services/ai_assistant/knowledge_loader.py` | `load_knowledge(name)` = built-in `knowledge/<name>.md` + `${DATA_DIRECTORY}/ai/knowledge/<name>.local.md` under "## Local additions". Name must match `[a-z][a-z0-9_]*` (code passes it, never the model). Cache by `(path, mtime, size)`. Review fixes (`doc/analysis/REVIEW.md`): files are opened with `O_NOFOLLOW | O_NONBLOCK` and must be regular (a symlink is refused, a FIFO cannot block the worker); decoding is strict (a character split by the byte cap is dropped, bad bytes are an error however long the file is); the overlay comes **first** (max 8,000 characters) and the built-in tail is cut with a marker, combined cap 20,000 = the tool output cap (pinned by a test), so site rules are never the part the cap removes. Missing local file/dir = empty; unreadable/non-UTF-8 = empty + warning; a missing **built-in** file still raises, as before. The four read sites (`inventory_filter_tools`, `template_tools`, `workflow_tools` x2) use it; their `@cache` and path constants are gone, so edits to those files are now live without a restart |
+| Playbook format and merge | `services/ai_assistant/playbooks.py` | Front matter: `name` (slug, equals the file name), `title` (120), `when` (400), `tools` (max 20, each a real general-surface tool), `scope: read-only`, optional `data_class` A/B, optional `disabled` (local only). Body needs `## Steps`; a `verb_name` word (backticked or not, with or without `()`; verbs: get, list, query, ..., run, propose, ...; a word followed by `=` is a parameter) must be a real tool **and** listed in `tools` (an author lint, not what keeps the model on its tools); no configuration command, recognised where it would be typed (backticks or line start; `conf t`, `reload`, `write memory/erase`, `copy ... running/startup-config`, `commit`, `clear ip bgp`, `request system reboot`, `no shutdown`, ...), also in `title` and `when`; prose that merely contains a word is allowed; file at most 16,000 characters; 100 files per directory; files starting with `_` ignored. An invalid local file is ignored, logged, and **never replaces** a working built-in one. A symlink or other non-regular file is invalid ("must be a regular file"), also when `stat` fails |
+| Tools | `tools/playbook_tools.py` | `list_playbooks(offset)` (name, title, when, tools, `tools_unavailable`, source, `overrides_builtin`; `total`, and `next_offset` when the entries do not fit in about 14,000 characters, so the JSON is never cut mid-string) and `get_playbook(name)` (name must be a slug, so a bad name fails validation and is never quoted back; text without front matter, plus a note about unavailable tools; unknown **or hidden** name = the same error with the closest visible names). Class B needs the inventory opt-in: without it `list_playbooks` omits them (titles included) and adds the `not_shared` marker, `withheld_playbooks`, and counts only visible ones in `total`; `get_playbook` does not confirm the name and records no audit ref. Offered only together with the Batfish tools |
+| Surface | `surfaces.py`, `prompts.py` | `build_general_session` adds the tools and `extras["available_tools"]`; the prompt has one bullet sending troubleshooting requests to `list_playbooks` |
+| Check script | `backend/scripts/check_playbooks.py [--dir PATH]` | Same validation without starting the app; exit 1 on an invalid file. Not in the CI guard job (that job installs only the dev requirements); `test_ai_playbooks.py::test_every_shipped_playbook_is_valid_for_the_general_surface` covers the built-in files in the test job |
+| Container | `docker/start.sh` | `mkdir -p /app/data/ai/playbooks /app/data/ai/knowledge` (the existing recursive `chown` covers the files). `check-compose.sh` and `check-image.sh` passed |
+| First playbook | `knowledge/playbooks/target-unreachable.md` | §21.5 adapted to today's tools: `get_traceroute`, `get_routes`, `get_bgp_session_status`, `get_interface_properties`, `analyze_acl`, `check_reachability`, `query_result`, `fetch_slice`, `list_batfish_*`. Differences from §21.5: no `propose_show_command` (step 7 tells the user which read-only commands they can run themselves and to share the result), no released-workflow hint (no such tool yet), the filter name comes from `get_interface_properties` |
+| UI | `assistant-panel.tsx` | Activity labels for both tools |
+
+**Review 2026-11-01 (`doc/analysis/REVIEW.md`).** All nine findings checked against the code. Fixed: 1 (confinement), 3 and 5 (command shapes, title/when, tool-name lint), 4 (paging), 6 (hidden name), 7 (strict decoding), 8 (overlay first, 20,000 cap), 9 (slug input). **Finding 2 is a decision, not changed:** a local playbook may set `data_class: A` (you chose "A when explicit"), which removes the gate for every user and tells the model to follow the file; an overlay has no data class by design (§25.10 (2)). What was added: `check_playbooks.py` prints a note for each local class A playbook. If you want the gate to be a boundary, the option is to ignore `data_class: A` in local files (always B) or to require the admin to enable it. Still no checker for knowledge overlays.
+
+**Deviations from the design text.** (1) `list_playbooks` does not list invalid local files to the model; they
+are visible in the log and in `check_playbooks.py` (the model must not be shown operator error text, and no
+UI exists yet for "users who may manage the assistant"). (2) `get_organisation_reference` and an
+`_template.md` / worked examples (§25.7) are not built. (3) The deny pattern is command-shaped, not the bare
+words `write` / `copy`, which would reject ordinary prose.
+
+**Not verified.** Nothing was run against a real model: whether the model calls `list_playbooks` first, picks
+`target-unreachable`, and follows it with the smallest supported model is untested (§21.7 scripted scenarios are
+not written). The playbook text was checked against the tool inputs by reading, not by a live run.
+
 ## 28. Handover for the next session (2026-11-01, end of day)
 
 State: phase 1 (§20.3) and the Batfish read tools (§27.0-A) are built, reviewed and live-checked as far as the
@@ -2458,7 +2494,7 @@ the guard scripts, `ruff`, `pyright`, `tsc` and `eslint` were clean.
 
 **Open, in the order I would take them**
 
-1. **Playbooks** (§21, §25): start with the knowledge loader (§25.10 (1): one loader with the built-in file plus the
+1. **Playbooks: built 2026-11-01 (§27.2), not tried with a model.** Next: try `target-unreachable` live in the lab (ask "10.1.2.3 is not reachable from r1" and read the tool chips), then the optional follow-ups: `get_organisation_reference`, `_template.md`, scripted scenarios (§21.7), a UI hint for invalid local files. Original text of this item: start with the knowledge loader (§25.10 (1): one loader with the built-in file plus the
    local overlay `${DATA_DIRECTORY}/ai/knowledge/<name>.local.md`, cache by `(path, mtime)`, size caps, never a
    path from the model; switch the four existing read sites to it), then `list_playbooks` / `get_playbook` with the
    overlay (§21.3, §21.4, §25.4, §25.5), data class per front matter (§25.10 (2): `A` ungated, `B` = the inventory
