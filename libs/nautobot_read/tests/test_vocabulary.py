@@ -1,6 +1,6 @@
 import pytest
 
-from nautobot_mcp.vocabulary import UnknownNameError, Vocabulary
+from nautobot_read.vocabulary import UnknownNameError, Vocabulary
 
 ROLES = ("Network", "Server", "lab")
 

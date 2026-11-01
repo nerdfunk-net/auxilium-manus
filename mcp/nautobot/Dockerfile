@@ -25,8 +25,13 @@ RUN set -e; \
 
 COPY --chmod=755 entrypoint.sh /usr/local/bin/entrypoint.sh
 
+# The shared query library comes from a named build context (libs/nautobot_read), so the build
+# context stays this directory: docker build --build-context nautobot_read=../../libs/nautobot_read .
+# (docker-compose.example.yml and check-image.sh pass it).
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+COPY --from=nautobot_read . /tmp/nautobot_read
+RUN pip install --no-cache-dir -r requirements.txt /tmp/nautobot_read \
+    && rm -rf /tmp/nautobot_read
 
 COPY nautobot_mcp ./nautobot_mcp
 

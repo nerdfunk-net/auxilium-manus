@@ -1,8 +1,9 @@
 import httpx
 import pytest
 import respx
+from nautobot_read.client import NautobotError
 
-from nautobot_mcp.client import NautobotClient, NautobotError
+from nautobot_mcp.client import NautobotClient
 from nautobot_mcp.config import Config
 
 CONFIG = Config(url="http://nb.test", token="s3cret-token")
@@ -28,28 +29,47 @@ async def test_graphql_sends_token_and_returns_data(client):
 
 
 @respx.mock
-async def test_graphql_errors_become_nautobot_error_without_the_token(client):
+async def test_graphql_errors_reach_the_model_as_a_fixed_sentence_only(client, caplog):
+    # Nautobot's message (schema hints, choice lists, fragments of internals) must not become
+    # model context; the operator reads it in the server log.
     respx.post(GRAPHQL).mock(
         return_value=httpx.Response(
             200,
             json={"errors": [{"message": "{'role': ['Select a valid choice. Nope is not one']}"}]},
         )
     )
-    with pytest.raises(NautobotError) as exc:
-        await client.graphql("{devices{name}}")
-    assert "Select a valid choice" in str(exc.value)
+    with caplog.at_level("WARNING", logger="nautobot_mcp.client"):
+        with pytest.raises(NautobotError) as exc:
+            await client.graphql("{devices{name}}")
+    assert str(exc.value) == "Nautobot rejected the query."
+    assert "Select a valid choice" not in str(exc.value)
     assert "s3cret-token" not in str(exc.value)
+    assert "Select a valid choice" in caplog.text
 
 
 @respx.mock
-async def test_unknown_argument_http_400_is_reported(client):
+async def test_graphql_errors_on_http_400_are_the_same_fixed_sentence(client, caplog):
     respx.post(GRAPHQL).mock(
         return_value=httpx.Response(
             400, json={"errors": [{"message": "Unknown argument 'x' on field 'Query.devices'."}]}
         )
     )
-    with pytest.raises(NautobotError, match="Unknown argument"):
-        await client.graphql("{devices(x:1){name}}")
+    with caplog.at_level("WARNING", logger="nautobot_mcp.client"):
+        with pytest.raises(NautobotError) as exc:
+            await client.graphql("{devices(x:1){name}}")
+    assert str(exc.value) == "Nautobot rejected the query."
+    assert "Unknown argument" in caplog.text
+
+
+@respx.mock
+async def test_the_logged_graphql_error_text_is_bounded(client, caplog):
+    respx.post(GRAPHQL).mock(
+        return_value=httpx.Response(200, json={"errors": [{"message": "x" * 5000}, "plain"]})
+    )
+    with caplog.at_level("WARNING", logger="nautobot_mcp.client"):
+        with pytest.raises(NautobotError):
+            await client.graphql("{devices{name}}")
+    assert "x" * 500 in caplog.text and "x" * 501 not in caplog.text
 
 
 @pytest.mark.parametrize(("status", "hint"), [(401, "token"), (403, "permission"), (500, "500")])
@@ -92,39 +112,3 @@ async def test_list_page_asks_for_one_extra_row_to_detect_more(client):
     assert '"limit":3' in body.replace(" ", "")  # limit + 1
     assert "$f_role" in body
     assert '"f_role":["Network"]' in body.replace(" ", "")
-
-
-@respx.mock
-async def test_list_page_last_page_has_no_more(client):
-    respx.post(GRAPHQL).mock(return_value=_page("a"))
-    page = await client.list_page("devices", "name", {}, limit=2, offset=4)
-    assert page.items == ({"name": "a"},)
-    assert page.has_more is False
-
-
-@respx.mock
-async def test_list_page_skips_empty_filters(client):
-    route = respx.post(GRAPHQL).mock(return_value=_page("a"))
-    await client.list_page("devices", "name", {"role": [], "status": None}, limit=1, offset=0)
-    body = route.calls.last.request.content.decode()
-    assert "$f_role" not in body
-    assert "$f_status" not in body
-
-
-async def test_list_page_rejects_unsafe_identifiers(client):
-    with pytest.raises(ValueError, match="identifier"):
-        await client.list_page("devices", "name", {"role) { x } #": ["a"]}, limit=1, offset=0)
-
-
-@respx.mock
-async def test_list_all_follows_pages_until_exhausted(client):
-    respx.post(GRAPHQL).mock(side_effect=[_page("a", "b", "c"), _page("d")])
-    rows = await client.list_all("devices", "name", page_size=2)
-    assert [r["name"] for r in rows] == ["a", "b", "d"]
-
-
-@respx.mock
-async def test_list_all_stops_at_max_items(client):
-    respx.post(GRAPHQL).mock(return_value=_page("a", "b", "c"))
-    rows = await client.list_all("devices", "name", page_size=2, max_items=3)
-    assert len(rows) == 3

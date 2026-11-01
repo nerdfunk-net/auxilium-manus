@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import logging
 
-from nautobot_mcp.client import NautobotError
-from nautobot_mcp.vocabularies import (
+from nautobot_read.client import NautobotError
+from nautobot_read.vocabularies import (
     LOCATION_TYPES_SPEC,
     VocabularyCache,
     roles_spec,

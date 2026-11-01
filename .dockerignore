@@ -25,5 +25,9 @@
 /screenshots
 /tools
 /backend/tests
+# libs/nautobot_read is copied into the backend images: only its package, not a local venv
+/libs/nautobot_read/venv
+/libs/nautobot_read/tests
+**/*.egg-info
 /frontend/**/*.test.ts
 /frontend/**/*.test.tsx

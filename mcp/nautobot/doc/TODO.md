@@ -29,7 +29,7 @@ Run the gate from `mcp/nautobot/`:
 
 ## 1. Do first
 
-- [ ] **Remove the silent 5000-row cap.** `NautobotClient.list_all` (`client.py`,
+- [x] **Remove the silent 5000-row cap** (done: `list_all` now raises `NautobotError` above `max_items` instead of truncating). `NautobotClient.list_all` (`client.py`,
       `DEFAULT_MAX_ITEMS = 5000`) truncates without telling anyone. Locations beyond the cap
       vanish from `LocationDirectory`, so lookups of those locations fail with a misleading
       "No location …". Page without a cap, or raise a clear `NautobotError` when the limit is

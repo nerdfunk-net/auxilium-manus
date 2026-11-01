@@ -1,12 +1,12 @@
 import pytest
 
-from nautobot_mcp.vocabularies import (
+from nautobot_read.vocabularies import (
     AmbiguousNameError,
     LocationDirectory,
     VocabularyCache,
     roles_spec,
 )
-from nautobot_mcp.vocabulary import UnknownNameError
+from nautobot_read.vocabulary import UnknownNameError
 
 UUID_A = "11111111-1111-1111-1111-111111111111"
 UUID_B = "22222222-2222-2222-2222-222222222222"
@@ -113,7 +113,7 @@ async def test_invalidate_forces_a_reload():
 
 
 def test_specs_filter_by_content_type():
-    from nautobot_mcp.vocabularies import statuses_spec, tags_spec
+    from nautobot_read.vocabularies import statuses_spec, tags_spec
 
     assert statuses_spec("dcim.device").filters == (("content_types", ("dcim.device",)),)
     assert tags_spec("dcim.device").root == "tags"

@@ -45,10 +45,10 @@ Python 3.12, from this directory:
 
 ```bash
 python3.12 -m venv venv
-./venv/bin/pip install -e .
+./venv/bin/pip install -e ../../libs/nautobot_read -e .
 ```
 
-This installs the package into the venv (dependencies come from `requirements.txt`) and creates
+This installs the shared query library (`libs/nautobot_read`, which holds the tool logic) and the server into the venv (dependencies come from `requirements.txt`) and creates
 the command `venv/bin/nautobot-mcp`, so the server starts from any working directory with no
 `PYTHONPATH`. Clients such as Claude Desktop start it from an unrelated directory; without the
 install they fail with `No module named nautobot_mcp`.
@@ -111,7 +111,7 @@ absolute paths:
 ```
 
 If the log says `No module named nautobot_mcp`, the package is not installed in that venv: run
-`./venv/bin/pip install -e .` in this directory. (Desktop's logs are in
+`./venv/bin/pip install -e ../../libs/nautobot_read -e .` in this directory. (Desktop's logs are in
 `~/Library/Logs/Claude/mcp-server-nautobot.log` on macOS.)
 
 This file starts local stdio servers. For the HTTP/Docker server use Claude Code (`claude mcp add
@@ -186,18 +186,24 @@ docker compose -f docker-compose.example.yml up -d --build
 
 ## Develop
 
+The tool logic (vocabularies, filter building, paging, item shaping) lives in the shared library
+`libs/nautobot_read`, which the backend's Ask the Net tools use as well. This directory only holds
+the MCP layer: config, transports, instructions and one thin wrapper per tool.
+
 ```bash
-./venv/bin/pip install -r requirements-dev.txt
+./venv/bin/pip install -r requirements-dev.txt     # includes ../../libs/nautobot_read
 ./venv/bin/ruff check .
 ./venv/bin/python -m pytest -q --cov=nautobot_mcp --cov-fail-under=100
 ./venv/bin/pip-audit -r requirements.txt
+# the library has its own checks, see ../../libs/nautobot_read/README.md
 ```
 
-CI (`.github/workflows/mcp-ci.yml`) runs the same and requires 100 % coverage. The tool tests
-talk to the server over the real MCP protocol in memory against a fake Nautobot
+CI (`.github/workflows/mcp-ci.yml`) runs the same for both and requires 100 % coverage. The tool
+tests talk to the server over the real MCP protocol in memory against a fake Nautobot
 (`tests/conftest.py`); nothing needs a running Nautobot.
 
-Rules for new tools: register them in `nautobot_mcp/tools/`, mark them read-only, validate
-names through `VocabularyCache` and addresses through `networks.py` **before** calling
-Nautobot, wrap them with `@guarded` (only `ToolError` text reaches the model), return
-`envelope(...)`, and check the query against a live instance first.
+Rules for new tools: add the query as a function in `libs/nautobot_read/nautobot_read/queries/`
+(validate names through `VocabularyCache` and addresses through `networks.py` **before** calling
+Nautobot, return `envelope(...)`), then register a wrapper in `nautobot_mcp/tools/`: mark it
+read-only, add the parameter descriptions and wrap it with `@guarded` (only `ToolError` text
+reaches the model). Check the query against a live instance first.

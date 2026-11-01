@@ -56,6 +56,7 @@ def known_general_tool_names() -> frozenset[str]:
     from services.ai_assistant.tools.batfish_tools import build_batfish_tools
     from services.ai_assistant.tools.config_backup_tools import build_config_backup_tools
     from services.ai_assistant.tools.device_tools import build_device_tools
+    from services.ai_assistant.tools.nautobot_tools import build_nautobot_tools
     from services.ai_assistant.tools.result_tools import build_result_tools
 
     names = {
@@ -65,6 +66,7 @@ def known_general_tool_names() -> frozenset[str]:
             *build_result_tools(),
             *build_device_tools(),
             *build_config_backup_tools(),
+            *build_nautobot_tools(),
         )
     }
     return frozenset(names | {t.name for t in build_playbook_tools()})

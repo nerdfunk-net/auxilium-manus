@@ -7,12 +7,12 @@ import pytest
 import uvicorn
 from mcp.client import Client
 from mcp.client.streamable_http import streamable_http_client
+from nautobot_read.context import QueryContext
+from nautobot_read.vocabularies import VocabularyCache
 
-from nautobot_mcp.context import AppContext
 from nautobot_mcp.http_app import build_http_app
 from nautobot_mcp.http_config import HttpConfig
 from nautobot_mcp.server import build_server
-from nautobot_mcp.vocabularies import VocabularyCache
 from tests.conftest import FakeNautobot
 
 TOKEN = "t" * 40
@@ -32,7 +32,7 @@ def served():
         async def __aenter__(self):
             self.port = free_port()
             fake = FakeNautobot()
-            app = AppContext(client=fake, vocabularies=VocabularyCache(fake))
+            app = QueryContext(client=fake, vocabularies=VocabularyCache(fake))
             config = HttpConfig.from_env(
                 {"MCP_CLIENT_TOKENS": f"ui={TOKEN}", "MCP_PORT": str(self.port)}
             )

@@ -92,6 +92,8 @@ ARG HTTPS_PROXY
 ARG NO_PROXY
 
 COPY backend/requirements.txt /tmp/
+# Shared Nautobot query library (also used by mcp/nautobot); no third-party dependencies.
+COPY libs/nautobot_read /tmp/nautobot_read
 # Throwaway stage (only /tmp/wheelhouse is copied out): company CAs, if any, are trusted for pip here.
 RUN --mount=type=bind,source=docker/certs,target=/tmp/certs \
     set -e; \
@@ -104,6 +106,7 @@ RUN --mount=type=bind,source=docker/certs,target=/tmp/certs \
     if [ "$found" = 1 ]; then update-ca-certificates; export PIP_CERT=/etc/ssl/certs/ca-certificates.crt; fi; \
     pip install --upgrade pip wheel \
  && pip wheel -r /tmp/requirements.txt -w /tmp/wheelhouse \
+ && pip wheel /tmp/nautobot_read -w /tmp/wheelhouse \
  && pip wheel supervisor -w /tmp/wheelhouse
 
 FROM base AS runtime
@@ -125,7 +128,7 @@ WORKDIR /app
 
 COPY --from=python-builder /tmp/wheelhouse /tmp/wheelhouse
 COPY backend/requirements.txt ./backend/
-RUN pip install --no-index --find-links /tmp/wheelhouse -r backend/requirements.txt \
+RUN pip install --no-index --find-links /tmp/wheelhouse -r backend/requirements.txt nautobot-read \
     && pip install --no-index --find-links /tmp/wheelhouse supervisor \
     && rm -rf /tmp/wheelhouse
 

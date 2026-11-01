@@ -75,6 +75,7 @@ from services.ai_assistant.exceptions import (
 from services.ai_assistant.glossary_reader import DbGlossaryReader
 from services.ai_assistant.inventory_reader import DbInventoryReader
 from services.ai_assistant.known_secrets import try_load_visible_secret_values
+from services.ai_assistant.nautobot_query_reader import DbNautobotQueryReader
 from services.ai_assistant.prompts import BASE_SYSTEM_PROMPT
 from services.ai_assistant.providers.base import ChatMessage
 from services.ai_assistant.proxy_settings_service import AiProxySettingsService
@@ -96,6 +97,7 @@ from services.ai_assistant.template_reader import DbTemplateReader
 from services.ai_assistant.tools.base import Toolbox
 from services.ai_assistant.workflow_reader import DbReferenceReader, DbWorkflowValidator
 from services.auth.rbac_service import RBACService
+from services.settings.settings_service import SettingsService
 
 logger = logging.getLogger(__name__)
 
@@ -153,6 +155,7 @@ def _session_for(
     can_query_batfish: bool = False,
     can_run_device_commands: bool = False,
     can_read_config_backups: bool = False,
+    can_read_nautobot: bool = False,
 ) -> AssistantSession:
     sharing = config.sharing
     # S5-04: with run / device content shared, scrub the exact secrets the user can resolve.
@@ -185,6 +188,9 @@ def _session_for(
                 if can_read_config_backups and sharing.content
                 else None
             ),
+            # Documented inventory (DCIM / IPAM); what it may show is gated per field by the
+            # sharing policy inside the tools.
+            nautobot_reader=DbNautobotQueryReader(user.id) if can_read_nautobot else None,
         )
     if isinstance(context, ReportsContext):
         return build_reports_session(
@@ -344,6 +350,7 @@ def chat(
     can_query_batfish = False
     can_run_device_commands = False
     can_read_config_backups = False
+    can_read_nautobot = False
     try:
         config: AiRuntimeConfig = service.require_runtime_config(current_user.id)
         if isinstance(body.context, InventoryContext):
@@ -361,6 +368,10 @@ def chat(
                 current_user.id, "netmiko", "execute"
             )
             can_read_config_backups = rbac.has_permission(current_user.id, "git.files", "read")
+            # The Nautobot tools need the source permission and a configured source.
+            can_read_nautobot = rbac.has_permission(
+                current_user.id, "sources.nautobot", "read"
+            ) and bool(SettingsService(db).list_nautobot_source_summaries().sources)
         if isinstance(body.context, WorkflowCanvasContext):
             # S5-08: the editor tools list real credentials / sources / inventories, so they
             # need the same permission the workflow list does; proposing needs write.
@@ -396,6 +407,7 @@ def chat(
                 can_query_batfish=can_query_batfish,
                 can_run_device_commands=can_run_device_commands,
                 can_read_config_backups=can_read_config_backups,
+                can_read_nautobot=can_read_nautobot,
             )
         except RedactionBudgetExceeded as exc:
             raise HTTPException(

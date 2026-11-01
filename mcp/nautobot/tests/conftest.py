@@ -2,11 +2,11 @@ from typing import Any
 
 import pytest
 from mcp.client import Client
+from nautobot_read.client import NautobotError, Page
+from nautobot_read.context import QueryContext
+from nautobot_read.vocabularies import VocabularyCache
 
-from nautobot_mcp.client import NautobotError, Page
-from nautobot_mcp.context import AppContext
 from nautobot_mcp.server import build_server
-from nautobot_mcp.vocabularies import VocabularyCache
 
 UUID_DE = "11111111-1111-1111-1111-111111111111"
 UUID_BER = "22222222-2222-2222-2222-222222222222"
@@ -140,5 +140,5 @@ class McpHarness:
 
 @pytest.fixture
 def mcp_client(nautobot):
-    app = AppContext(client=nautobot, vocabularies=VocabularyCache(nautobot))
+    app = QueryContext(client=nautobot, vocabularies=VocabularyCache(nautobot))
     return McpHarness(build_server(app, instructions="test instructions"))

@@ -5,10 +5,12 @@ on:
     branches: [main]
     paths:
       - "mcp/**"
+      - "libs/nautobot_read/**"
       - ".github/workflows/mcp-ci.yml"
   pull_request:
     paths:
       - "mcp/**"
+      - "libs/nautobot_read/**"
       - ".github/workflows/mcp-ci.yml"
 
 permissions:
@@ -19,6 +21,23 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  lib:
+    # Shared query library used by the MCP server and the backend's Ask the Net tools.
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: libs/nautobot_read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements-dev.txt -e .
+      - name: ruff
+        run: ruff check .
+      - name: pytest
+        run: python -m pytest -q --cov=nautobot_read --cov-fail-under=100
+
   test:
     runs-on: ubuntu-latest
     strategy:

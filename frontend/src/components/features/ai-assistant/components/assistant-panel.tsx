@@ -149,6 +149,20 @@ const TOOL_LABELS: Record<string, string> = {
   diff_results: "Comparing two results",
   compare_filters: "Comparing ACLs between snapshots",
   differential_reachability: "Comparing reachability between snapshots",
+  list_locations: "Looking through Nautobot locations",
+  get_location: "Reading a Nautobot location",
+  list_location_types: "Reading Nautobot location types",
+  list_roles: "Looking up Nautobot roles",
+  list_statuses: "Looking up Nautobot statuses",
+  list_tags: "Looking up Nautobot tags",
+  list_devices: "Looking through Nautobot devices",
+  get_device: "Reading a Nautobot device",
+  list_device_types: "Looking up Nautobot device types",
+  list_platforms: "Looking up Nautobot platforms",
+  list_ip_addresses: "Looking through Nautobot IP addresses",
+  list_prefixes: "Looking through Nautobot prefixes",
+  list_namespaces: "Looking up Nautobot namespaces",
+  get_next_free_ip: "Looking for the next free IP address",
 };
 
 function toolLabel(name: string): string {

@@ -105,6 +105,11 @@ holds) and the user's content opt-in; no operator switch. The path comes from th
 `config_path_running` / `config_path_startup` template, which only an admin can set (P3), never from the model
 (`doc/AI_TOOL_CHAIN.md` §30).
 
+**Ask the Net Nautobot tools** (`list_devices`, `list_ip_addresses`, `list_locations`, ...). They need `sources.nautobot:read`
+(checked on every call, which the seeded `viewer` role holds) and a configured Nautobot source; the user's data opt-ins
+gate the fields (inventory for devices, addresses for IPAM and addresses/serials). They run on the source's shared
+Nautobot token, so what the token may read is what a user with the permission can ask for (`doc/AI_TOOL_CHAIN.md` §31).
+
 **Assistant glossary** (inventory terms and workflow step aliases). `ai_glossary_terms` is global
 and its words steer the model, so every `/ai/glossary` route, for both kinds, needs the `admin` role (P3 style); the seeded `viewer` and other roles have no
 access. The assistant reads entries through the `get_glossary` tool as the calling user.

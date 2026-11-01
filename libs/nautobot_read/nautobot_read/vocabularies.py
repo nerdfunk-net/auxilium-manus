@@ -12,7 +12,7 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, Protocol
 
-from nautobot_mcp.vocabulary import UUID_PATTERN, Vocabulary
+from nautobot_read.vocabulary import UUID_PATTERN, Vocabulary
 
 DEFAULT_TTL_SECONDS = 300.0
 PATH_SEPARATOR = " → "

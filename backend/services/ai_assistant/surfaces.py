@@ -29,6 +29,7 @@ from services.ai_assistant.prompts import (
     CONFIG_BACKUP_PROMPT,
     DEVICE_COMMANDS_PROMPT,
     INVENTORY_PROMPT,
+    NAUTOBOT_PROMPT,
     REPORT_TEMPLATE_PROMPT,
     REPORTS_PROMPT,
     RUN_VIEWER_PROMPT,
@@ -62,6 +63,11 @@ from services.ai_assistant.tools.inventory_tools import (
     INVENTORY_TOOLS,
     InventoryReader,
     InventoryState,
+)
+from services.ai_assistant.tools.nautobot_tools import (
+    NAUTOBOT_READER_KEY,
+    NautobotQueryReader,
+    build_nautobot_tools,
 )
 from services.ai_assistant.tools.playbook_tools import AVAILABLE_TOOLS_KEY, build_playbook_tools
 from services.ai_assistant.tools.report_tools import REPORT_TOOLS, ReportReader, ReportsState
@@ -299,11 +305,14 @@ def build_general_session(
     known_secrets: Iterable[str] = (),
     device_resolver: DeviceResolver | None = None,
     config_reader: ConfigBackupReader | None = None,
+    nautobot_reader: NautobotQueryReader | None = None,
 ) -> AssistantSession:
     """Ask the Net: read-only questions about the network (doc/AI_TOOL_CHAIN.md §10a, §20.3).
 
     The Batfish tools are offered only to a user who may query Batfish (the same permission the
-    query endpoints need); the handle tools only when a result store exists. No tool here writes,
+    query endpoints need); the handle tools only when a result store exists. The Nautobot tools
+    (DCIM / IPAM reads) are independent of Batfish: the router passes ``nautobot_reader`` when the
+    user holds ``sources.nautobot:read``. No tool here writes,
     proposes or executes: pinned by ``test_ai_hardening``. The one exception is
     ``propose_device_command`` (doc/AI_TOOL_CHAIN.md §29), offered only when the router passes a
     ``device_resolver``, i.e. when the operator switch, the permission and the content opt-in all
@@ -329,6 +338,12 @@ def build_general_session(
         if config_reader is not None:
             extras[CONFIG_READER_KEY] = config_reader
             tools.extend(build_config_backup_tools())
+    # Documented inventory reads (doc/AI_TOOL_CHAIN.md, "Nautobot tools"). They do not need
+    # Batfish, so they sit outside the Batfish branch.
+    if nautobot_reader is not None:
+        extras[NAUTOBOT_READER_KEY] = nautobot_reader
+        tools.extend(build_nautobot_tools())
+    if may_query_batfish:
         # Lets list_playbooks tell the model which of a playbook's tools this user lacks.
         extras[AVAILABLE_TOOLS_KEY] = frozenset(t.name for t in tools)
     tool_context = ToolContext(user_id=user_id, redactor=redactor, extras=extras, sharing=sharing)
@@ -341,14 +356,21 @@ def build_general_session(
         parts.append(DEVICE_COMMANDS_PROMPT)
     if config_reader is not None and may_query_batfish:
         parts.append(CONFIG_BACKUP_PROMPT)
-    if not may_query_batfish:
+    if nautobot_reader is not None:
+        parts.append(NAUTOBOT_PROMPT)
+    if not may_query_batfish and nautobot_reader is None:
         parts.append(
             "The user is not allowed to query Batfish, so you have no tools. Say so and answer "
             "only from general knowledge, without claiming anything about their network."
+        )
+    elif not may_query_batfish:
+        parts.append(
+            "The user is not allowed to query Batfish, so you have only the Nautobot tools. Say "
+            "so where it matters: Nautobot shows what is documented, not how the network behaves."
         )
     return AssistantSession(
         system="\n\n".join(parts),
         toolbox=Toolbox(tools, tool_context),
         # No tools, no reason for the larger budget.
-        budget=GENERAL_BUDGET if may_query_batfish else DEFAULT_BUDGET,
+        budget=GENERAL_BUDGET if tools else DEFAULT_BUDGET,
     )

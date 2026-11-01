@@ -2633,3 +2633,84 @@ the config backup in a `device_configs` git repository, with the backup's age, n
   follow-ups are queued and sent as one turn.
 * **Open.** The optional "test with device" endpoint for the admin UI. `{nautobot.custom_fields.<name>}` does
   not work (the reader requests no attribute groups); add the group if a site needs it.
+
+## 31. Nautobot tools: DCIM and IPAM reads (2026-11-01)
+
+Ask the Net can ask Nautobot what is **documented**: devices, locations, IP addresses, prefixes and the names
+around them. The queries are not written twice: they live in the shared library `libs/nautobot_read/`, which
+`mcp/nautobot/` (the MCP server) wraps as MCP tools and the backend wraps as assistant tools. Nautobot is one
+source among others (§24): the prompt says it can be incomplete or stale and that "is it up" is a Batfish or
+live question.
+
+* **Library** `libs/nautobot_read/` (no third-party dependencies, Python 3.12+, 100 % coverage in
+  `mcp-ci.yml`): `GraphQLClient` (implement `graphql()`; paging is shared), name vocabularies with "closest /
+  available" errors, `LocationDirectory`, address and prefix validation, and one async function per query in
+  `queries/{organization,dcim,ipam}.py`. Every name is resolved against a vocabulary before it is sent, because
+  Nautobot fails the whole query on an unknown filter value. `EXPECTED_ERRORS` are the errors written for the
+  model. `list_all` raises above 5000 rows instead of truncating. The library imports neither `mcp` nor
+  `backend`.
+* **Large location trees.** The tree (`LocationDirectory`) is loaded whole and gives `Parent → Name` paths. Above
+  5000 locations `list_all` raises `TooManyRowsError`; the queries then fall back instead of failing
+  (`queries/locations.py`): a location filter is looked up by exact name or id (an ambiguous name lists
+  candidates with their ids), a `Parent → Name` path is refused with a clear message, and labels are plain names.
+  Any other Nautobot failure while loading the tree still propagates. `get_location` children carry `id`, `name`,
+  `location_type` and `path`, so two children with one name can be told apart. Offsets are capped at 100,000.
+* **Child locations.** Only the device filter is verified to include them; the prompt, the `location` input and
+  the tool description for prefixes say the prefix filter is not (`mcp/nautobot/doc/TODO.md`).
+* **Playbooks** may name the Nautobot tools (`known_general_tool_names`).
+* **Reader** `services/ai_assistant/nautobot_query_reader.py`: `DbNautobotQueryReader.context()` checks
+  `sources.nautobot:read` on every call and binds to the first usable Nautobot source (the pages' convention).
+  The transport is the app's `NautobotService.graphql_query(strict=True)`, so the SSRF policy, TLS setting and
+  credential handling stay in one place; failures become short fixed sentences (`failure_message`), never
+  upstream text. A source whose credentials do not load is skipped and logged with its
+  error type (not the message); all sources failing is logged apart from having none configured. The name vocabularies are cached per instance and token for the process (`vocabularies_for`,
+  5 minutes, at most 8 instances), not per chat request.
+* **Tools** `tools/nautobot_tools.py`, 14 reads (13 with the MCP tool names, plus `get_next_free_ip`) (`list_devices`, `get_device`,
+  `list_locations`, `get_location`, `list_location_types`, `list_roles`, `list_statuses`, `list_tags`,
+  `list_device_types`, `list_platforms`, `list_ip_addresses`, `list_prefixes`, `list_namespaces`); the
+  names are shared on purpose, the library's errors say "use list_devices". A page is 20 rows by default, 100 at
+  most. The general session adds them when the router passes `nautobot_reader`: independent of the Batfish
+  permission, so a user without it still has these tools.
+* **Gating** (no new data class):
+
+  | Data | Needs |
+  |---|---|
+  | roles, statuses, tags, device types, platforms, namespaces, location types, the location tree | nothing |
+  | location description, facility, address, time zone, coordinates | inventory |
+  | devices (`list_devices`, `get_device`) | inventory; `primary_ip4/6`, `serial`, `asset_tag`, interfaces also addresses |
+  | `list_ip_addresses`, `list_prefixes`, `get_next_free_ip` | addresses (whole tool, checked **before** any request, so a count cannot leak) |
+  | device `comments` | never |
+
+  A field no rule names is never sent (fail closed); `withheld_fields` says which setting releases a field.
+  Values are redacted before JSON encoding (a known secret with a quote or backslash would not match after
+  `json.dumps`), long text is cut at 500 characters.
+* **Next free IP** (`get_next_free_ip`, `queries/free_ip.py`): the question "Get the next IP address in the
+  prefix xyz", the same lookup as the workflow step `get-next-free-ip` (`workflow_steps/get_next_free_ip/`),
+  whose code is not imported (the library depends on neither `backend` nor `workflow_steps`); the step and the
+  tool must keep the same rules. A prefix in CIDR form (host bits cleared, as in the step) or a bare address
+  (the most specific containing prefix); the prefix is found through GraphQL (`prefix` / `contains`, optional
+  `namespace` resolved against the vocabulary), then the free addresses come from the REST endpoint
+  `ipam/prefixes/{id}/available-ips/` (GraphQL has none), so `GraphQLClient` gained `rest_get`, implemented
+  by the backend adapter with a GET through `NautobotService.rest_request` and left unsupported by default
+  (the MCP server does not offer this tool). Differences from the step on purpose: no namespace default
+  `Global`: a prefix that exists in several namespaces is an error that lists them, because a model
+  assuming `Global` would answer for the wrong network; `count` is at most 20; a shortage is an answer
+  (`complete: false`, with a note) not an error, and the note tells a full prefix from a read window cut at 1000
+  addresses. **It reserves nothing**: the result and the prompt say so, so the model does not present the
+  address as allocated. `start_offset` defaults to 1 as in the step. Not verified live: whether Nautobot's
+  `available-ips` lists the network and broadcast address.
+* **Router.** `can_read_nautobot` = `sources.nautobot:read` and at least one configured Nautobot source; without
+  a source the tools are not offered.
+* **Tests.** `backend/tests/unit/test_ai_nautobot_tools.py` (gates, errors, redaction, transport, reader,
+  session wiring), `libs/nautobot_read/tests/`, `mcp/nautobot/tests/`. Mutation-checked: ungating
+  `list_devices`, `list_prefixes` or `list_ip_addresses`, allowing unknown fields, sharing `comments` or the
+  location description, removing the redaction or the cap, and turning expected errors into "no access" each
+  fail a test.
+* **Packaging.** `pip install ../libs/nautobot_read` next to the requirements: `backend-ci.yml`,
+  `Dockerfile.basic`, `.worker`, `.all-in-one` (wheelhouse) and the MCP image (named build context
+  `nautobot_read`, `mcp/nautobot/Dockerfile`). For local work, from `backend/`: `pip install -e ../libs/nautobot_read
+  --config-settings editable_mode=compat` (Pyright does not follow the default editable hook).
+* **Open.** Live check with a real model and the dev Nautobot (the library is verified against the MCP tests
+  and a fake Nautobot only); several Nautobot sources (the first usable one is used, no `source` argument);
+  counts ("how many devices in Germany") are paged, there is no count tool; whether the prompt should mention
+  `get_device_attributes` (inventory surface only) is undecided.

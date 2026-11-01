@@ -1,6 +1,7 @@
-from nautobot_mcp.client import NautobotError
+from nautobot_read.client import NautobotError
+from nautobot_read.vocabularies import VocabularyCache
+
 from nautobot_mcp.instructions import FALLBACK_INSTRUCTIONS, build_instructions
-from nautobot_mcp.vocabularies import VocabularyCache
 from tests.conftest import FakeNautobot
 
 

@@ -12,7 +12,7 @@ image="${1:-nautobot-mcp-ci-check:latest}"
 name="nautobot-mcp-ci-check-$$"
 trap 'docker rm -f "${name}" >/dev/null 2>&1 || true' EXIT
 
-docker build -t "${image}" .
+docker build --build-context nautobot_read=../../libs/nautobot_read -t "${image}" .
 
 # Port 1 on localhost: nothing listens there, so the vocabulary load fails fast.
 docker run -d --name "${name}" --read-only --cap-drop ALL \

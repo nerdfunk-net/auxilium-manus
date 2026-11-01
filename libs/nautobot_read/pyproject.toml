@@ -1,0 +1,16 @@
+# Shared, transport-neutral Nautobot read logic (vocabularies, filter building, paging, item
+# shaping). No runtime dependencies: a client only implements GraphQLClient.graphql. Installed by
+# path into mcp/nautobot and backend/ (see README.md).
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nautobot-read"
+version = "0.1.0"
+description = "Read-only Nautobot queries shared by the MCP server and the assistant"
+requires-python = ">=3.12"
+dependencies = []
+
+[tool.setuptools.packages.find]
+include = ["nautobot_read*"]

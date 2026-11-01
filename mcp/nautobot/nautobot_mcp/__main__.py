@@ -9,21 +9,21 @@ import sys
 
 import uvicorn
 from mcp.server.mcpserver import MCPServer
+from nautobot_read.context import QueryContext
+from nautobot_read.vocabularies import VocabularyCache
 
 from nautobot_mcp.client import NautobotClient
 from nautobot_mcp.config import Config, ConfigError
-from nautobot_mcp.context import AppContext
 from nautobot_mcp.http_app import build_http_app
 from nautobot_mcp.http_config import HttpConfig
 from nautobot_mcp.instructions import build_instructions
 from nautobot_mcp.server import build_server
-from nautobot_mcp.vocabularies import VocabularyCache
 
 TRANSPORTS = ("stdio", "http")
 
 
 async def _build(client: NautobotClient) -> MCPServer:
-    app = AppContext(client=client, vocabularies=VocabularyCache(client))
+    app = QueryContext(client=client, vocabularies=VocabularyCache(client))
     # Instructions are fixed when the server is built, so fetch the vocabulary first.
     return build_server(app, instructions=await build_instructions(app.vocabularies))
 

@@ -1,0 +1,22 @@
+# Read by `docker build --build-context nautobot_read=libs/nautobot_read` (mcp/nautobot/Dockerfile).
+# Only the package and its pyproject.toml belong in an image layer; the `rm` after `pip install`
+# cannot shrink a layer that already holds a local venv or an env file.
+venv
+.venv
+tests
+**/__pycache__
+**/*.pyc
+*.egg-info
+build
+dist
+.pytest_cache
+.ruff_cache
+.coverage*
+.env
+.env.*
+!.env.example
+README.md
+requirements-dev.txt
+pytest.ini
+ruff.toml
+.gitignore

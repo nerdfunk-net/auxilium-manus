@@ -89,6 +89,28 @@ def test_known_general_tool_names_cover_the_batfish_result_and_playbook_tools() 
     assert {n for n in names if n.startswith("propose")} == {"propose_device_command"}
 
 
+def test_known_general_tool_names_cover_every_nautobot_tool() -> None:
+    from services.ai_assistant.tools.nautobot_tools import build_nautobot_tools
+
+    nautobot = {t.name for t in build_nautobot_tools()}
+
+    assert nautobot and nautobot <= pt.known_general_tool_names()
+
+
+def test_a_local_playbook_may_name_the_nautobot_tools(dirs) -> None:
+    _, local = dirs
+    body = "## Steps\n1. `list_prefixes` for the site.\n2. `get_next_free_ip` for the prefix.\n"
+    (local / "free-ip.md").write_text(
+        _front("free-ip", title="Demo", tools="[list_prefixes, get_next_free_ip]", extra="") + body,
+        encoding="utf-8",
+    )
+
+    # A local playbook is class B by default: visible only when inventory data is shared.
+    listed = {p["name"] for p in _listed(_ctx(sharing=SharingPolicy(inventory=True)))["playbooks"]}
+
+    assert "free-ip" in listed
+
+
 # -- list_playbooks ---------------------------------------------------------------------------
 
 

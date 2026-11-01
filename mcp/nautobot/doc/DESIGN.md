@@ -19,6 +19,11 @@ Later: writes, VLANs, interfaces, circuits, and so on.
 Standalone project in this repo, `mcp/nautobot/`, following the `agent/<name>/` convention:
 own requirements, own `ruff.toml`, own CI matrix entry. It does **not** import `backend/`.
 
+**Update 2026-11-01:** the transport-neutral query logic moved to `libs/nautobot_read/` so the
+backend's Ask the Net tools can use it too (see `doc/AI_TOOL_CHAIN.md`). The dependency still only
+runs one way: `mcp/nautobot` and `backend/` import `nautobot_read`; it imports neither. The module
+table below lists where each module lives now.
+
 `backend/services/nautobot/client.py` depends on `core.ssl_config`, `core.safe_urls`,
 `models.failure` and `services.network.transport_failure`, so it is not reusable as is.
 The server gets a small dedicated async client (httpx + GraphQL). We copy ideas from the
@@ -131,17 +136,17 @@ Python 3.12. Package `nautobot_mcp/`:
 | Module | Role | Status |
 |--------|------|--------|
 | `config.py` | env to frozen `Config`, fail fast, token hidden from `repr` | done |
-| `vocabulary.py` | `Vocabulary.resolve()`: case-insensitive, "Closest/Available" errors | done |
-| `vocabularies.py` | `LocationDirectory` (name / `A → B` path / id, ambiguity), TTL `VocabularyCache`, specs | done |
-| `client.py` | async GraphQL client, token auth, `list_page` (limit+1 for `has_more`), `list_all`, safe errors | done |
-| `context.py`, `server.py` | `AppContext`, `build_server()` registers the tool groups | done |
+| `vocabulary.py` (now `libs/nautobot_read`) | `Vocabulary.resolve()`: case-insensitive, "Closest/Available" errors | done |
+| `vocabularies.py` (lib) | `LocationDirectory` (name / `A → B` path / id, ambiguity), TTL `VocabularyCache`, specs | done |
+| `client.py` | httpx transport: token auth, safe errors. `list_page` (limit+1 for `has_more`) and `list_all` (raises above 5000 rows instead of truncating) are `GraphQLClient` in the lib | done |
+| `server.py` | `build_server()` registers the tool groups against a `QueryContext` (lib) | done |
 | `instructions.py` | live-vocabulary instructions, static fallback if Nautobot is down | done |
 | `__main__.py` | `python -m nautobot_mcp`, stdio, logs to stderr, exit 2 on bad config | done |
-| `tools/common.py` | `@guarded` (domain errors to `ToolError`), `envelope()`, `Limit`/`Offset` | done |
-| `tools/organization.py` | `list_locations`, `get_location`, `list_location_types`, `list_roles`, `list_statuses`, `list_tags` | done |
-| `tools/dcim.py` | `list_devices`, `get_device`, `list_device_types`, `list_platforms` | done |
-| `networks.py` | validates addresses/prefixes before any query (`InvalidInputError`) | done |
-| `tools/ipam.py` | `list_ip_addresses`, `list_prefixes`, `list_namespaces` | done |
+| `tools/common.py` | `@guarded` (`EXPECTED_ERRORS` to `ToolError`), `Limit`/`Offset` (`envelope()` is in the lib) | done |
+| `tools/organization.py` | wrappers; logic in the lib: `list_locations`, `get_location`, `list_location_types`, `list_roles`, `list_statuses`, `list_tags` | done |
+| `tools/dcim.py` | wrappers; logic in the lib: `list_devices`, `get_device`, `list_device_types`, `list_platforms` | done |
+| `networks.py` (lib) | validates addresses/prefixes before any query (`InvalidInputError`) | done |
+| `tools/ipam.py` | wrappers; logic in the lib: `list_ip_addresses`, `list_prefixes`, `list_namespaces` | done |
 
 Deviation from the first draft: "did you mean" uses stdlib `difflib`, not `rapidfuzz`
 (no extra dependency; vocabularies are small).

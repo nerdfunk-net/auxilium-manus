@@ -70,6 +70,14 @@ cd frontend && npm run dev
 # Frontend: http://localhost:3000 (PORT in frontend/.env.local overrides it)
 # Backend:  http://localhost:8000 (BACKEND_PORT in backend/.env overrides it)
 
+# Shared Nautobot query library (once, and after a pull that changes it); the backend imports it.
+# Run from backend/ like everything else in this block (the venv is already active):
+pip install -e ../libs/nautobot_read --config-settings editable_mode=compat
+# its own checks, also from backend/ (CI runs them on Python 3.12, the project venv is 3.14):
+# (no `-e .` here: it would replace the compat install above, which Pyright needs)
+(cd ../libs/nautobot_read && pip install -r requirements-dev.txt &&
+  ruff check . && python -m pytest -q --cov=nautobot_read --cov-fail-under=100)
+
 # Python linting (Ruff — run before larger backend changes)
 # From backend/: scope to touched files only, never bare repo-wide `ruff format .`
 ruff check .          # check

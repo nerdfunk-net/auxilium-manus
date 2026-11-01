@@ -33,7 +33,10 @@ RUN if ls /tmp/certs/*.crt >/dev/null 2>&1; then \
     fi
 
 COPY backend/requirements.txt ./backend/
-RUN pip install --no-cache-dir -r backend/requirements.txt
+# Shared Nautobot query library (also used by mcp/nautobot); no third-party dependencies.
+COPY libs/nautobot_read /tmp/nautobot_read
+RUN pip install --no-cache-dir -r backend/requirements.txt /tmp/nautobot_read \
+ && rm -rf /tmp/nautobot_read
 
 COPY backend/ ./backend/
 COPY contributing-data/ ./contributing-data/

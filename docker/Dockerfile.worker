@@ -14,7 +14,10 @@ RUN apt-get update && apt-get install -y \
 RUN mkdir -p /app/config/certs
 
 COPY backend/requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# Shared Nautobot query library (also used by mcp/nautobot); no third-party dependencies.
+COPY libs/nautobot_read /tmp/nautobot_read
+RUN pip install --no-cache-dir -r requirements.txt /tmp/nautobot_read \
+ && rm -rf /tmp/nautobot_read
 
 COPY backend/ .
 

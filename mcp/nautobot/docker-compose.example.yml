@@ -24,6 +24,8 @@ services:
   nautobot-mcp:
     build:
       context: .
+      additional_contexts:
+        nautobot_read: ../../libs/nautobot_read
     container_name: nautobot-mcp
     restart: unless-stopped
     environment:

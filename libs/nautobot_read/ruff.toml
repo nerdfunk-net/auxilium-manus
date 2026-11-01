@@ -1,0 +1,9 @@
+# Same rules as the standalone agents (agent/*/ruff.toml); Python 3.12.
+line-length = 100
+target-version = "py312"
+
+[lint]
+select = ["E", "F", "I", "UP", "B", "S", "ASYNC"]
+
+[lint.per-file-ignores]
+"tests/**" = ["S", "ASYNC"]  # asserts and fixed test secrets are fine in test code

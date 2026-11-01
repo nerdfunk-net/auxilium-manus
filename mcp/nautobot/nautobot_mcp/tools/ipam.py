@@ -1,99 +1,20 @@
-"""IPAM tools: IP addresses, prefixes and namespaces."""
+"""IPAM tools: IP addresses, prefixes and namespaces (the logic is in nautobot_read)."""
 
 from __future__ import annotations
 
 from typing import Annotated, Any
 
 from mcp.server.mcpserver import MCPServer
+from nautobot_read.context import QueryContext
+from nautobot_read.queries import ipam
+from nautobot_read.queries.common import DEFAULT_LIMIT
 from pydantic import Field
 
-from nautobot_mcp import networks
-from nautobot_mcp.context import AppContext
-from nautobot_mcp.tools.common import (
-    DEFAULT_LIMIT,
-    READ_ONLY,
-    Limit,
-    Offset,
-    envelope,
-    guarded,
-    names,
-)
-from nautobot_mcp.tools.dcim import device_name
-from nautobot_mcp.vocabularies import NAMESPACES_SPEC, roles_spec, statuses_spec, tags_spec
-
-IP_SELECTION = (
-    "id address dns_name type description status { name } role { name } "
-    "parent { prefix namespace { name } } tenant { name } tags { name } "
-    "interfaces { name device { name } } primary_ip4_for { name }"
-)
-PREFIX_SELECTION = (
-    "id prefix type status { name } role { name } namespace { name } description "
-    "tenant { name } vlan { vid name } locations { name } tags { name } parent { prefix }"
-)
+from nautobot_mcp.tools.common import READ_ONLY, Limit, Offset, guarded
 
 
-def ip_item(row: dict[str, Any]) -> dict[str, Any]:
-    parent = row.get("parent") or {}
-    return {
-        "id": row["id"],
-        "address": row["address"],
-        "prefix": parent.get("prefix"),
-        "namespace": (parent.get("namespace") or {}).get("name"),
-        "status": (row.get("status") or {}).get("name"),
-        "role": (row.get("role") or {}).get("name"),
-        "type": row.get("type"),
-        "dns_name": row.get("dns_name") or "",
-        "description": row.get("description") or "",
-        "tenant": (row.get("tenant") or {}).get("name"),
-        "tags": names(row.get("tags")),
-        "assigned_to": [
-            {"device": (i.get("device") or {}).get("name"), "interface": i["name"]}
-            for i in row.get("interfaces") or []
-        ],
-        "primary_ip_for": names(row.get("primary_ip4_for")),
-    }
-
-
-def prefix_item(row: dict[str, Any]) -> dict[str, Any]:
-    vlan = row.get("vlan")
-    return {
-        "id": row["id"],
-        "prefix": row["prefix"],
-        "type": row.get("type"),
-        "namespace": (row.get("namespace") or {}).get("name"),
-        "status": (row.get("status") or {}).get("name"),
-        "role": (row.get("role") or {}).get("name"),
-        "description": row.get("description") or "",
-        "tenant": (row.get("tenant") or {}).get("name"),
-        "vlan": f"{vlan['vid']} {vlan['name']}" if vlan else None,
-        "locations": names(row.get("locations")),
-        "parent": (row.get("parent") or {}).get("prefix"),
-        "tags": names(row.get("tags")),
-    }
-
-
-def register(server: MCPServer, app: AppContext) -> None:
+def register(server: MCPServer, app: QueryContext) -> None:
     """Add the IPAM tools to ``server``."""
-    vocabularies = app.vocabularies
-
-    async def named_filters(
-        content_type: str, namespace: str | None, role: str | None, status: str | None,
-        tag: str | None,
-    ) -> tuple[dict[str, list[str]], dict[str, Any]]:
-        """Resolve the vocabulary filters shared by IP addresses and prefixes."""
-        filters: dict[str, list[str]] = {}
-        applied: dict[str, Any] = {}
-        specs = (
-            ("namespace", "namespace", namespace, NAMESPACES_SPEC),
-            ("role", "role", role, roles_spec(content_type)),
-            ("status", "status", status, statuses_spec(content_type)),
-            ("tag", "tags", tag, tags_spec(content_type)),
-        )
-        for param, filter_name, value, spec in specs:
-            if value:
-                canonical = (await vocabularies.get(spec)).resolve(value)
-                filters[filter_name], applied[param] = [canonical], canonical
-        return filters, applied
 
     @server.tool(annotations=READ_ONLY)
     @guarded
@@ -126,23 +47,10 @@ def register(server: MCPServer, app: AppContext) -> None:
         Each item shows its prefix, namespace and the device interfaces it is assigned to.
         Addresses and prefixes are validated first; names are matched case-insensitively.
         """
-        filters, applied = await named_filters("ipam.ipaddress", namespace, role, status, tag)
-        if address:
-            filters["address"], applied["address"] = [networks.address(address)], address
-        if prefix:
-            normalized = networks.prefix(prefix)
-            filters["prefix"], applied["prefix"] = [normalized], normalized
-        if device:
-            exact = await device_name(app, device.strip())
-            filters["device"], applied["device"] = [exact], exact
-        if dns_name_contains:
-            filters["dns_name__ic"] = [dns_name_contains]
-            applied["dns_name_contains"] = dns_name_contains
-        page = await app.client.list_page(
-            "ip_addresses", IP_SELECTION, filters, limit=limit, offset=offset
-        )
-        return envelope(
-            [ip_item(row) for row in page.items], page, offset=offset, applied_filters=applied
+        return await ipam.list_ip_addresses(
+            app, address=address, prefix=prefix, device=device, namespace=namespace, role=role,
+            status=status, tag=tag, dns_name_contains=dns_name_contains, limit=limit,
+            offset=offset,
         )
 
     @server.tool(annotations=READ_ONLY)
@@ -174,29 +82,13 @@ def register(server: MCPServer, app: AppContext) -> None:
         offset: Offset = 0,
     ) -> dict[str, Any]:
         """List IP prefixes (networks), optionally filtered. Filters combine with AND."""
-        filters, applied = await named_filters("ipam.prefix", namespace, role, status, tag)
-        if prefix:
-            normalized = networks.prefix(prefix)
-            filters["prefix"], applied["prefix"] = [normalized], normalized
-        if within:
-            normalized = networks.prefix(within)
-            filters["within_include"], applied["within"] = [normalized], normalized
-        if contains:
-            checked = networks.address(contains)
-            filters["contains"], applied["contains"] = [checked], checked
-        if location:
-            record = (await vocabularies.locations()).resolve(location)
-            filters["location"], applied["location"] = [record.id], record.path
-        page = await app.client.list_page(
-            "prefixes", PREFIX_SELECTION, filters, limit=limit, offset=offset
-        )
-        return envelope(
-            [prefix_item(row) for row in page.items], page, offset=offset, applied_filters=applied
+        return await ipam.list_prefixes(
+            app, prefix=prefix, within=within, contains=contains, location=location,
+            namespace=namespace, role=role, status=status, tag=tag, limit=limit, offset=offset,
         )
 
     @server.tool(annotations=READ_ONLY)
     @guarded
     async def list_namespaces() -> dict[str, Any]:
         """List IPAM namespaces (the same prefix can exist once per namespace)."""
-        vocabulary = await vocabularies.get(NAMESPACES_SPEC)
-        return envelope([{"name": n} for n in vocabulary.names], None, offset=0, applied_filters={})
+        return await ipam.list_namespaces(app)
