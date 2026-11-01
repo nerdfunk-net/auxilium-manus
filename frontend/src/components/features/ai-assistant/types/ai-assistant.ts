@@ -273,13 +273,47 @@ export interface InventoryProposal {
   state: ProposalState;
 }
 
+/** What a confirmed device command returned (redacted, capped). */
+export interface DeviceCommandResult {
+  success: boolean;
+  error: string | null;
+  deviceName: string;
+  commands: string[];
+  output: string;
+  truncated: boolean;
+  /** Lets the assistant read the output (fetch_slice); null when it could not be stored. */
+  handle: string | null;
+}
+
+/**
+ * Read-only `show` commands the assistant wants run on one device. Nothing runs until the user
+ * picks an SSH login and clicks Run; the token (signed by the server) carries the device and the
+ * commands, so what runs is what the card shows.
+ */
+export interface DeviceCommandProposal {
+  kind: "device_command";
+  summary: string;
+  token: string;
+  /** Unix seconds; the server refuses the token after this. */
+  expiresAt: number;
+  device: { id: string; name: string; host: string; platform: string | null };
+  commands: string[];
+  /** False when the inventory's platform names no SSH driver: the user must choose one. */
+  driverKnown: boolean;
+  /** The device types the user may choose from (a closed list from the server). */
+  driverChoices: string[];
+  result?: DeviceCommandResult;
+  state: ProposalState;
+}
+
 export type AssistantProposal =
   | TemplateProposal
   | WorkflowProposal
   | QueryProposal
   | ReportOutlineProposal
   | SectionTextProposal
-  | InventoryProposal;
+  | InventoryProposal
+  | DeviceCommandProposal;
 
 /** A message in the panel; `error` is set on an assistant turn that failed. */
 export interface DisplayMessage extends ChatMessage {
@@ -312,7 +346,8 @@ export interface SavedProposal {
     | "query"
     | "report_outline"
     | "section_text"
-    | "inventory";
+    | "inventory"
+    | "device_command";
   summary: string;
 }
 

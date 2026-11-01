@@ -165,3 +165,98 @@ def test_session_without_batfish_permission_keeps_the_default_budget() -> None:
     session = _session(may_query_batfish=False)
 
     assert session.budget == DEFAULT_BUDGET
+
+
+# -- device commands (doc/AI_TOOL_CHAIN.md §29) -----------------------------------------------
+
+
+class _Resolver:
+    async def resolve(self, name):
+        raise AssertionError("not used by these tests")
+
+
+def test_the_device_tool_is_absent_unless_the_router_offers_a_resolver() -> None:
+    names = {s.name for s in _session().toolbox.specs()}
+
+    assert "propose_device_command" not in names
+    assert "propose_device_command" not in _session().system
+
+
+def test_with_a_resolver_the_session_offers_exactly_one_proposal_tool() -> None:
+    session = _session(device_resolver=_Resolver())
+
+    names = [s.name for s in session.toolbox.specs()]
+
+    assert [n for n in names if n.startswith("propose")] == ["propose_device_command"]
+    assert not [n for n in names if n.startswith(("run", "trigger", "execute", "start", "delete"))]
+    assert "propose_device_command" in session.system
+    assert "show running-config" in session.system
+    assert "show startup-config" in session.system
+    assert "propose_device_command" in session.toolbox._context.extras["available_tools"]
+
+
+def test_the_prompt_says_the_command_is_not_run_by_the_model() -> None:
+    system = _session(device_resolver=_Resolver()).system
+
+    assert "confirm" in system.lower()
+    assert "not run" in system.lower() or "does not run" in system.lower()
+
+
+def test_without_the_batfish_permission_a_resolver_gives_no_tool() -> None:
+    session = _session(device_resolver=_Resolver(), may_query_batfish=False)
+
+    assert session.toolbox.specs() == []
+    assert "propose_device_command" not in session.system
+    assert "cannot run commands on devices" in session.system  # no tool, so the old line stands
+
+
+def test_playbooks_may_name_the_device_tool() -> None:
+    from services.ai_assistant.tools.playbook_tools import known_general_tool_names
+
+    assert "propose_device_command" in known_general_tool_names()
+
+
+def test_the_offered_tool_really_reaches_the_resolver_through_the_toolbox() -> None:
+    import asyncio
+
+    from core.config import settings
+    from services.ai_assistant.device_access import ResolvedDevice
+    from services.ai_assistant.providers.base import ToolCall
+
+    class Found:
+        names: list[str] = []
+
+        async def resolve(self, name):
+            self.names.append(name)
+            return ResolvedDevice("nb1", "dev-1", name, "10.1.2.3", None, None)
+
+    resolver = Found()
+    session = _session(device_resolver=resolver)
+    old = settings.secret_key
+    settings.secret_key = "k" * 40
+    try:
+        out = asyncio.run(
+            session.toolbox.execute(
+                ToolCall(
+                    id="1",
+                    name="propose_device_command",
+                    input={"device": "LAB", "commands": ["show running-config"]},
+                )
+            )
+        )
+    finally:
+        settings.secret_key = old
+
+    assert not out.is_error and out.proposal is not None
+    assert resolver.names == ["LAB"]
+
+
+def test_with_device_commands_the_prompt_no_longer_says_commands_cannot_be_run() -> None:
+    plain = _session().system
+    with_tool = _session(device_resolver=_Resolver()).system
+
+    assert "cannot run commands on devices" in plain  # unchanged where the tool is not offered
+    assert "cannot run commands on devices" not in with_tool
+    assert "never run anything yourself" in with_tool.lower()
+    assert "change configuration" in with_tool  # still told it cannot change anything
+    assert "propose_device_command" in with_tool

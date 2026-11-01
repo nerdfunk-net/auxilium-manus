@@ -21,16 +21,18 @@ from models.ai_assistant import (
 )
 from services.ai_assistant.agent_loop import DEFAULT_BUDGET, RunBudget
 from services.ai_assistant.data_sharing import DeviceLabeler, SharingPolicy
+from services.ai_assistant.device_access import DeviceResolver
 from services.ai_assistant.inventory_filter import describe_condition_tree, field_data_class
 from services.ai_assistant.prompts import (
     BASE_SYSTEM_PROMPT,
-    GENERAL_PROMPT,
+    DEVICE_COMMANDS_PROMPT,
     INVENTORY_PROMPT,
     REPORT_TEMPLATE_PROMPT,
     REPORTS_PROMPT,
     RUN_VIEWER_PROMPT,
     TEMPLATE_EDITOR_PROMPT,
     WORKFLOW_EDITOR_PROMPT,
+    general_prompt,
 )
 from services.ai_assistant.redaction import MAX_REDACT_CHARS_PER_REQUEST, Redactor
 from services.ai_assistant.results.store import ResultStore
@@ -39,6 +41,10 @@ from services.ai_assistant.tools.batfish_tools import (
     BATFISH_READER_KEY,
     BatfishReader,
     build_batfish_tools,
+)
+from services.ai_assistant.tools.device_tools import (
+    DEVICE_RESOLVER_KEY,
+    build_device_tools,
 )
 from services.ai_assistant.tools.glossary_tools import (
     GLOSSARY_TOOLS,
@@ -285,12 +291,16 @@ def build_general_session(
     sharing: SharingPolicy,
     may_query_batfish: bool,
     known_secrets: Iterable[str] = (),
+    device_resolver: DeviceResolver | None = None,
 ) -> AssistantSession:
     """Ask the Net: read-only questions about the network (doc/AI_TOOL_CHAIN.md §10a, §20.3).
 
     The Batfish tools are offered only to a user who may query Batfish (the same permission the
     query endpoints need); the handle tools only when a result store exists. No tool here writes,
-    proposes or executes: pinned by ``test_ai_hardening``.
+    proposes or executes: pinned by ``test_ai_hardening``. The one exception is
+    ``propose_device_command`` (doc/AI_TOOL_CHAIN.md §29), offered only when the router passes a
+    ``device_resolver``, i.e. when the operator switch, the permission and the content opt-in all
+    hold. It only proposes; the user's click runs it.
     """
     redactor = Redactor()
     redactor.add_known_secrets(known_secrets)
@@ -304,14 +314,19 @@ def build_general_session(
         # Playbooks only guide the Batfish tools, so they come with them; without the permission
         # the session has no tools at all.
         tools.extend(build_playbook_tools())
+        if device_resolver is not None:
+            extras[DEVICE_RESOLVER_KEY] = device_resolver
+            tools.extend(build_device_tools())
         # Lets list_playbooks tell the model which of a playbook's tools this user lacks.
         extras[AVAILABLE_TOOLS_KEY] = frozenset(t.name for t in tools)
     tool_context = ToolContext(user_id=user_id, redactor=redactor, extras=extras, sharing=sharing)
     parts = [
         BASE_SYSTEM_PROMPT,
-        GENERAL_PROMPT,
+        general_prompt(device_commands=device_resolver is not None and may_query_batfish),
         f"Data the user shares with you: {sharing.describe()}.",
     ]
+    if device_resolver is not None and may_query_batfish:
+        parts.append(DEVICE_COMMANDS_PROMPT)
     if not may_query_batfish:
         parts.append(
             "The user is not allowed to query Batfish, so you have no tools. Say so and answer "

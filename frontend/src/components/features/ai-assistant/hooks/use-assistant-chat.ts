@@ -12,6 +12,7 @@ import { useAuthStore } from "@/lib/auth-store";
 import type {
   AssistantContext,
   ChatMessage,
+  DeviceCommandResult,
   DisplayMessage,
   ProposalState,
   ToolActivity,
@@ -68,6 +69,12 @@ interface ProposalPayload {
   text?: string;
   tree?: unknown;
   total_count?: number | null;
+  token?: unknown;
+  expires_at?: unknown;
+  device?: unknown;
+  commands?: unknown;
+  driver_known?: unknown;
+  driver_choices?: unknown;
 }
 
 export interface UseAssistantChatOptions {
@@ -88,6 +95,61 @@ function upsertTool(
 }
 
 const nextId = nextMessageId;
+
+interface ParsedDeviceCommand {
+  token: string;
+  expiresAt: number;
+  device: { id: string; name: string; host: string; platform: string | null };
+  commands: string[];
+  driverKnown: boolean;
+  driverChoices: string[];
+}
+
+/** The device-command payload, or null when anything the card needs is missing or mistyped. */
+function parseDeviceCommand(
+  payload: ProposalPayload,
+): ParsedDeviceCommand | null {
+  const { token, expires_at: expiresAt, device, commands } = payload;
+  if (typeof token !== "string" || !token || typeof expiresAt !== "number") {
+    return null;
+  }
+  if (typeof device !== "object" || device === null) {
+    return null;
+  }
+  const { id, name, host, platform } = device as Record<string, unknown>;
+  if (
+    typeof id !== "string" ||
+    typeof name !== "string" ||
+    typeof host !== "string"
+  ) {
+    return null;
+  }
+  if (
+    !Array.isArray(commands) ||
+    commands.length === 0 ||
+    !commands.every((command): command is string => typeof command === "string")
+  ) {
+    return null;
+  }
+  const choices = payload.driver_choices;
+  return {
+    token,
+    expiresAt,
+    device: {
+      id,
+      name,
+      host,
+      platform: typeof platform === "string" ? platform : null,
+    },
+    commands,
+    // Unknown unless the server says it is known: the card then asks the user, never guesses.
+    driverKnown: payload.driver_known === true,
+    driverChoices:
+      Array.isArray(choices) && choices.every((c) => typeof c === "string")
+        ? (choices as string[])
+        : [],
+  };
+}
 
 /**
  * Client-held chat (the server is stateless): the history is re-sent each turn. Messages live
@@ -245,6 +307,19 @@ export function useAssistantChat({
                     state: "pending",
                   },
                 }));
+              } else if (proposal.kind === "device_command") {
+                const parsed = parseDeviceCommand(proposal);
+                if (parsed) {
+                  patchAssistant(assistantId, (m) => ({
+                    ...m,
+                    proposal: {
+                      kind: "device_command",
+                      summary: `${parsed.commands.join("; ")} on ${parsed.device.name}`,
+                      ...parsed,
+                      state: "pending",
+                    },
+                  }));
+                }
               } else if (proposal.kind === "inventory") {
                 const tree = parseProposedConditionTree(proposal.tree);
                 if (!tree) {
@@ -392,6 +467,21 @@ export function useAssistantChat({
     [sessionKey],
   );
 
+  const completeDeviceCommand = useCallback(
+    (messageId: string, result: DeviceCommandResult) => {
+      useAssistantSessionStore
+        .getState()
+        .updateMessages(sessionKey, (prev) =>
+          prev.map((m) =>
+            m.id === messageId && m.proposal?.kind === "device_command"
+              ? { ...m, proposal: { ...m.proposal, state: "applied", result } }
+              : m,
+          ),
+        );
+    },
+    [sessionKey],
+  );
+
   // Null the ref synchronously so a send right after stop/clear is not dropped while the
   // aborted request's `finally` has not run yet.
   const stop = useCallback(() => {
@@ -406,7 +496,23 @@ export function useAssistantChat({
   }, [sessionKey]);
 
   return useMemo(
-    () => ({ messages, isStreaming, send, stop, clear, setProposalState }),
-    [messages, isStreaming, send, stop, clear, setProposalState],
+    () => ({
+      messages,
+      isStreaming,
+      send,
+      stop,
+      clear,
+      setProposalState,
+      completeDeviceCommand,
+    }),
+    [
+      messages,
+      isStreaming,
+      send,
+      stop,
+      clear,
+      setProposalState,
+      completeDeviceCommand,
+    ],
   );
 }

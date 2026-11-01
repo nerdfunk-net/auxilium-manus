@@ -25,6 +25,7 @@ import {
 import type {
   AssistantContext,
   ConversationScope,
+  DeviceCommandResult,
   DisplayMessage,
   InventoryProposal,
   QueryProposal,
@@ -39,6 +40,7 @@ import {
 } from "../utils/conversation-mapping";
 import { AssistantMessageText } from "./assistant-message-text";
 import { SavedConversationsDialog } from "./saved-conversations-dialog";
+import { DeviceCommandProposalCard } from "./device-command-proposal-card";
 import { InventoryProposalCard } from "./inventory-proposal-card";
 import { QueryProposalCard } from "./query-proposal-card";
 import { ReportOutlineCard, SectionTextCard } from "./report-proposal-cards";
@@ -128,6 +130,7 @@ const TOOL_LABELS: Record<string, string> = {
   propose_query: "Checking a query",
   propose_report_outline: "Drafting a report",
   propose_section_text: "Drafting section text",
+  propose_device_command: "Preparing a device command",
   list_playbooks: "Looking for a matching playbook",
   get_playbook: "Reading a playbook",
   list_batfish_networks: "Listing Batfish networks",
@@ -155,6 +158,8 @@ function toolLabel(name: string): string {
  * nothing assistant-related is shown when the user has switched it off.
  */
 const FOLLOW_THRESHOLD_PX = 48;
+/** A result handle as the server makes it; anything else is not put into a message. */
+const STORED_HANDLE = /^res_[0-9a-f]{12}$/;
 
 export function AssistantPanel({
   sessionKey,
@@ -167,11 +172,18 @@ export function AssistantPanel({
   reportTarget,
   inventoryTarget,
 }: AssistantPanelProps) {
-  const { messages, isStreaming, send, stop, clear, setProposalState } =
-    useAssistantChat({
-      sessionKey,
-      getContext,
-    });
+  const {
+    messages,
+    isStreaming,
+    send,
+    stop,
+    clear,
+    setProposalState,
+    completeDeviceCommand,
+  } = useAssistantChat({
+    sessionKey,
+    getContext,
+  });
   const draft = useAssistantSessionStore(
     (state) => (state.sessions[sessionKey] ?? EMPTY_SESSION).draft,
   );
@@ -179,6 +191,8 @@ export function AssistantPanel({
     (state) => (state.sessions[sessionKey] ?? EMPTY_SESSION).savedId,
   );
   const [savedOpen, setSavedOpen] = useState(false);
+  const isStreamingRef = useRef(false);
+  const pendingFollowUpRef = useRef<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   // Follow the newest text like a console, unless the user scrolled up to read.
   const followRef = useRef(true);
@@ -198,6 +212,48 @@ export function AssistantPanel({
     }
   }, [messages]);
   const { save } = useAiConversationsMutations();
+
+  // After a confirmed device command the assistant is told which stored result holds the output
+  // (its handle). The output itself never goes into the chat text: the assistant reads it with
+  // fetch_slice, which applies the content opt-in and the redaction again.
+  const handleDeviceResult = useCallback(
+    (messageId: string, result: DeviceCommandResult) => {
+      completeDeviceCommand(messageId, result);
+      if (
+        result.success &&
+        result.handle &&
+        STORED_HANDLE.test(result.handle)
+      ) {
+        const followUp =
+          `I ran ${result.commands.join(", ")} on ${result.deviceName}. ` +
+          `The output is stored as ${result.handle}. Please read it and answer my request.`;
+        // `send` ignores a message while an answer is streaming, which would lose this one: the
+        // user can start another question while the command runs. Hold it until the stream ends.
+        if (isStreamingRef.current) {
+          pendingFollowUpRef.current = followUp;
+        } else {
+          void send(followUp);
+        }
+      }
+    },
+    [completeDeviceCommand, send],
+  );
+
+  useEffect(() => {
+    isStreamingRef.current = isStreaming;
+    if (!isStreaming && pendingFollowUpRef.current) {
+      const followUp = pendingFollowUpRef.current;
+      pendingFollowUpRef.current = null;
+      void send(followUp);
+    }
+  }, [isStreaming, send]);
+
+  // A cleared conversation has nothing for the follow-up to refer to.
+  useEffect(() => {
+    if (messages.length === 0) {
+      pendingFollowUpRef.current = null;
+    }
+  }, [messages.length]);
 
   const handleSave = useCallback(() => {
     if (!conversationScope) {
@@ -318,6 +374,14 @@ export function AssistantPanel({
         !message.tools?.length && (
           <Loader2 className="size-4 animate-spin text-muted-foreground" />
         )}
+      {message.proposal?.kind === "device_command" && (
+        <DeviceCommandProposalCard
+          proposal={message.proposal}
+          busy={isStreaming}
+          onResult={(result) => handleDeviceResult(message.id, result)}
+          onReject={() => setProposalState(message.id, "rejected")}
+        />
+      )}
       {message.proposal?.kind === "template" && templateTarget && (
         <TemplateProposalCard
           proposal={message.proposal}

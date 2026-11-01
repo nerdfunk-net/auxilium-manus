@@ -667,3 +667,319 @@ def test_general_context_rejects_extra_fields(client: TestClient) -> None:
     }
 
     assert client.post("/api/ai/chat", json=body).status_code == 422
+
+
+# -- device commands (doc/AI_TOOL_CHAIN.md §29) -----------------------------------------------
+
+
+def _device_result(**overrides):
+    from services.ai_assistant.device_exec_service import DeviceCommandResult
+
+    base = {
+        "success": True,
+        "error": None,
+        "device_name": "LAB",
+        "commands": ("show running-config",),
+        "output": "$ show running-config\nhostname LAB",
+        "truncated": False,
+        "handle": "res_0123456789ab",
+    }
+    base.update(overrides)
+    return DeviceCommandResult(**base)
+
+
+class _FakeExecutor:
+    def __init__(self, result=None, error: Exception | None = None) -> None:
+        self.result, self.error, self.calls = result or _device_result(), error, []
+
+    async def execute(self, *, user_id, token, credential_id, network_driver=None):
+        self.calls.append((user_id, token, credential_id, network_driver))
+        if self.error:
+            raise self.error
+        return self.result
+
+
+def _register_domain_error_handler(client: TestClient) -> None:
+    """The real app maps ``DomainError`` to its status; add the same before the first request."""
+    from fastapi import Request
+    from fastapi.responses import JSONResponse
+
+    from core.domain_exceptions import DomainError
+
+    @client.app.exception_handler(DomainError)
+    async def _handler(_request: Request, exc: DomainError) -> JSONResponse:
+        return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
+
+
+@pytest.fixture
+def device_client(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> tuple[TestClient, dict]:
+    monkeypatch.setattr(settings, "ai_device_commands_enabled", True)
+    _register_domain_error_handler(client)
+    _configure(client)
+    client.patch("/api/ai/settings", json={"share_content_data": True})
+    holder: dict = {"executor": _FakeExecutor()}
+    client.app.dependency_overrides[ai_router_module.get_device_executor] = lambda: holder[
+        "executor"
+    ]
+    return client, holder
+
+
+_CONFIRM = {"token": "signed.token", "credential_id": 11}
+
+
+def test_confirming_runs_the_executor_as_the_calling_user(device_client) -> None:
+    client, holder = device_client
+
+    response = client.post("/api/ai/exec/device-command", json=_CONFIRM)
+
+    assert response.status_code == 200, response.text
+    assert holder["executor"].calls == [(1, "signed.token", 11, None)]
+    assert response.json() == {
+        "success": True,
+        "error": None,
+        "device_name": "LAB",
+        "commands": ["show running-config"],
+        "output": "$ show running-config\nhostname LAB",
+        "truncated": False,
+        "handle": "res_0123456789ab",
+    }
+
+
+def test_the_users_device_type_choice_reaches_the_executor(device_client) -> None:
+    client, holder = device_client
+
+    response = client.post(
+        "/api/ai/exec/device-command", json={**_CONFIRM, "network_driver": "cisco_xe"}
+    )
+
+    assert response.status_code == 200, response.text
+    assert holder["executor"].calls == [(1, "signed.token", 11, "cisco_xe")]
+
+
+def test_turning_content_sharing_off_stops_a_proposal_that_is_still_valid(device_client) -> None:
+    client, holder = device_client
+    client.patch("/api/ai/settings", json={"share_content_data": False})
+
+    response = client.post("/api/ai/exec/device-command", json=_CONFIRM)
+
+    assert response.status_code == 403
+    assert response.json()["detail"]["code"] == "content_sharing_off"
+    assert holder["executor"].calls == []  # no SSH session, nothing stored
+
+
+def test_the_assistant_must_be_set_up_to_confirm_a_run(device_client) -> None:
+    client, holder = device_client
+    client.patch("/api/ai/settings", json={"enabled": False})
+
+    response = client.post("/api/ai/exec/device-command", json=_CONFIRM)
+
+    assert response.status_code in (403, 409)
+    assert holder["executor"].calls == []
+
+
+def test_the_endpoint_does_not_exist_while_the_operator_switch_is_off(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(settings, "ai_device_commands_enabled", False)
+    holder = {"executor": _FakeExecutor()}
+    client.app.dependency_overrides[ai_router_module.get_device_executor] = lambda: holder[
+        "executor"
+    ]
+
+    assert client.post("/api/ai/exec/device-command", json=_CONFIRM).status_code == 404
+    assert holder["executor"].calls == []
+
+
+def test_the_endpoint_does_not_exist_while_the_assistant_is_off(
+    device_client, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client, holder = device_client
+    monkeypatch.setattr(settings, "ai_assistant_enabled", False)
+
+    assert client.post("/api/ai/exec/device-command", json=_CONFIRM).status_code == 404
+    assert holder["executor"].calls == []
+
+
+@pytest.mark.parametrize("missing", [("ai_assistant", "use"), ("netmiko", "execute")])
+def test_both_permissions_are_required(
+    device_client, monkeypatch: pytest.MonkeyPatch, missing: tuple[str, str]
+) -> None:
+    client, holder = device_client
+    monkeypatch.setattr(
+        RBACService,
+        "has_permission",
+        lambda self, _uid, resource, action: (resource, action) != missing,
+    )
+
+    assert client.post("/api/ai/exec/device-command", json=_CONFIRM).status_code == 403
+    assert holder["executor"].calls == []
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        {},
+        {"token": "t"},
+        {"credential_id": 1},
+        {"token": "", "credential_id": 1},
+        {"token": "t", "credential_id": 0},
+        {"token": "t", "credential_id": "x"},
+        {"token": "x" * 5000, "credential_id": 1},
+        {"token": "t", "credential_id": 1, "commands": ["show version"]},
+        {"token": "t", "credential_id": 1, "host": "10.0.0.1"},
+        {"token": "t", "credential_id": 1, "device": "LAB"},
+        {"token": "t", "credential_id": 1, "network_driver": "rm -rf"},
+        {"token": "t", "credential_id": 1, "network_driver": "cisco_ios_telnet"},
+        {"token": "t", "credential_id": 1, "network_driver": ["cisco_ios"]},
+    ],
+)
+def test_the_body_is_only_a_token_and_a_credential(device_client, body) -> None:
+    client, holder = device_client
+
+    assert client.post("/api/ai/exec/device-command", json=body).status_code == 422
+    assert holder["executor"].calls == []
+
+
+def test_the_endpoint_is_rate_limited() -> None:
+    by_path = {r.path: r for r in router.routes if isinstance(r, APIRoute)}
+
+    assert "rate_limited_ai-device-command" in _dependency_names(by_path["/ai/exec/device-command"])
+
+
+def _errors():
+    from services.ai_assistant.command_policy import CommandNotAllowedError
+    from services.ai_assistant.device_access import (
+        DeviceAccessDeniedError,
+        DeviceAmbiguousError,
+        DeviceNoAddressError,
+        DeviceNotFoundError,
+        DeviceUnsupportedPlatformError,
+    )
+    from services.ai_assistant.device_exec_service import (
+        DeviceChangedError,
+        InvalidConfirmationError,
+        SecretsUnavailableError,
+        TooManyRunsError,
+    )
+
+    return [
+        (InvalidConfirmationError(), 400, "invalid_confirmation"),
+        (CommandNotAllowedError("not allowed"), 400, "command_not_allowed"),
+        (DeviceNotFoundError(), 404, "device_not_found"),
+        (DeviceAmbiguousError(), 409, "device_ambiguous"),
+        (DeviceNoAddressError(), 409, "device_no_address"),
+        (DeviceUnsupportedPlatformError(), 409, "device_platform_unsupported"),
+        (DeviceChangedError(), 409, "device_changed"),
+        (DeviceAccessDeniedError(), 403, "device_access_denied"),
+        (SecretsUnavailableError(), 503, "secrets_unavailable"),
+        (TooManyRunsError(), 429, "too_many_runs"),
+    ]
+
+
+@pytest.mark.parametrize(("error", "status", "code"), _errors(), ids=lambda v: str(v)[:30])
+def test_each_failure_has_its_own_status_and_code(device_client, error, status, code) -> None:
+    client, holder = device_client
+    holder["executor"] = _FakeExecutor(error=error)
+
+    response = client.post("/api/ai/exec/device-command", json=_CONFIRM)
+
+    assert response.status_code == status
+    assert response.json()["detail"]["code"] == code
+    message = response.json()["detail"]["message"]
+    assert message
+    if code in {
+        "command_not_allowed",
+        "device_not_found",
+        "device_ambiguous",
+        "device_no_address",
+        "device_platform_unsupported",
+    }:
+        assert message == str(error)  # the refusal reason / device problem is shown as it is
+
+
+def test_an_unexpected_error_is_a_generic_500_without_internals(device_client) -> None:
+    client, holder = device_client
+    holder["executor"] = _FakeExecutor(error=RuntimeError("secret-internal-detail 10.9.9.9"))
+
+    response = client.post("/api/ai/exec/device-command", json=_CONFIRM)
+
+    assert response.status_code == 500
+    assert "secret-internal-detail" not in response.text and "10.9.9.9" not in response.text
+
+
+def test_a_domain_error_from_the_credential_lookup_keeps_its_status(device_client) -> None:
+    from core.domain_exceptions import NotFoundError
+
+    client, holder = device_client
+    holder["executor"] = _FakeExecutor(error=NotFoundError("Credential 11 not found"))
+
+    response = client.post("/api/ai/exec/device-command", json=_CONFIRM)
+
+    assert response.status_code == 404
+
+
+@pytest.mark.parametrize(
+    ("switch", "may_execute", "content", "expected"),
+    [
+        (True, True, True, True),
+        (False, True, True, False),
+        (True, False, True, False),
+        (True, True, False, False),
+    ],
+)
+def test_the_chat_offers_the_device_tool_only_when_all_three_gates_hold(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+    switch: bool,
+    may_execute: bool,
+    content: bool,
+    expected: bool,
+) -> None:
+    _configure(client)
+    client.patch("/api/ai/settings", json={"share_content_data": content})
+    monkeypatch.setattr(settings, "ai_device_commands_enabled", switch)
+    monkeypatch.setattr(ai_router_module, "try_load_visible_secret_values", lambda _uid: [])
+    monkeypatch.setattr(
+        RBACService,
+        "has_permission",
+        lambda self, _uid, resource, action: (
+            (resource, action) != ("netmiko", "execute") or may_execute
+        ),
+    )
+    seen = _capture_chat(monkeypatch)
+
+    client.post(
+        "/api/ai/chat",
+        json={"messages": [{"role": "user", "content": "hi"}], "context": {"surface": "general"}},
+    )
+
+    assert ("propose_device_command" in seen["tools"]) is expected
+
+
+def test_other_surfaces_never_get_the_device_tool(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _configure(client)
+    client.patch("/api/ai/settings", json={"share_content_data": True})
+    monkeypatch.setattr(settings, "ai_device_commands_enabled", True)
+    monkeypatch.setattr(ai_router_module, "try_load_visible_secret_values", lambda _uid: [])
+    seen = _capture_chat(monkeypatch)
+
+    client.post(
+        "/api/ai/chat",
+        json={
+            "messages": [{"role": "user", "content": "hi"}],
+            "context": {"surface": "run_viewer", "run_id": 5},
+        },
+    )
+
+    assert "propose_device_command" not in seen["tools"]
+
+
+def test_the_device_type_choices_in_the_request_model_match_the_resolver_list() -> None:
+    from typing import get_args
+
+    from models.ai_assistant import DeviceDriver
+    from services.ai_assistant.device_access import DEVICE_DRIVERS
+
+    assert set(get_args(DeviceDriver)) == set(DEVICE_DRIVERS)

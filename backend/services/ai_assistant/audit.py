@@ -64,3 +64,22 @@ class TurnAudit:
             self.output_tokens,
             self.outcome,
         )
+
+
+def log_device_command(
+    *,
+    user_id: int,
+    device_id: str,
+    command_hash: str,
+    outcome: str,
+    handle: str | None,
+) -> None:
+    """One line per confirmed device command: ids and a hash of the commands, never content."""
+    logger.info(
+        "ai_assistant_device_command user_id=%s device_id=%s commands=%s outcome=%s handle=%s",
+        user_id,
+        device_id,
+        command_hash,
+        outcome,
+        handle or "-",
+    )

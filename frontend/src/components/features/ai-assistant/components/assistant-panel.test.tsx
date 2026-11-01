@@ -34,6 +34,75 @@ vi.mock("@/hooks/queries/use-ai-conversations-mutations", () => ({
   }),
 }));
 
+const deviceRun = vi.fn();
+vi.mock("../hooks/use-device-command", () => ({
+  useDeviceCommandMutation: () => ({
+    mutateAsync: deviceRun,
+    isPending: false,
+  }),
+}));
+vi.mock(
+  "@/components/features/settings/credentials/hooks/use-credentials-query",
+  () => ({
+    useCredentialsQuery: () => ({
+      data: {
+        credentials: [
+          {
+            id: 11,
+            name: "lab-ssh",
+            username: "admin",
+            type: "ssh",
+            visibility: "private",
+          },
+        ],
+      },
+    }),
+  }),
+);
+// A native select keeps these tests about the panel wiring, not Radix in jsdom.
+vi.mock("@/components/ui/select", async () => {
+  const React = await import("react");
+  const SelectTrigger = (props: { "aria-label"?: string }) =>
+    props ? null : null;
+  return {
+    Select: ({
+      value,
+      onValueChange,
+      children,
+    }: {
+      value: string;
+      onValueChange: (v: string) => void;
+      children: React.ReactNode;
+    }) => {
+      const trigger = React.Children.toArray(children).find(
+        (child) => React.isValidElement(child) && child.type === SelectTrigger,
+      ) as React.ReactElement<{ "aria-label"?: string }> | undefined;
+      return (
+        <select
+          aria-label={trigger?.props["aria-label"]}
+          value={value}
+          onChange={(e) => onValueChange(e.target.value)}
+        >
+          <option value="">choose</option>
+          {children}
+        </select>
+      );
+    },
+    SelectTrigger,
+    SelectValue: () => null,
+    SelectContent: ({ children }: { children: React.ReactNode }) => (
+      <>{children}</>
+    ),
+    SelectItem: ({
+      value,
+      children,
+    }: {
+      value: string;
+      children: React.ReactNode;
+    }) => <option value={value}>{children}</option>,
+  };
+});
+
 const KEY = "workflow_editor:12";
 const SCOPE = { surface: "workflow_editor", subjectKey: "12" } as const;
 
@@ -150,11 +219,11 @@ describe("AssistantPanel saved conversations", () => {
   });
 });
 
-
 describe("AssistantPanel tool activity labels (Ask the Net)", () => {
   const KEY_GENERAL = "general";
 
   it.each([
+    ["propose_device_command", /device command/i],
     ["list_playbooks", /playbook/i],
     ["get_playbook", /playbook/i],
     ["list_batfish_networks", /networks/i],
@@ -187,7 +256,6 @@ describe("AssistantPanel tool activity labels (Ask the Net)", () => {
     expect(activity.textContent).not.toContain(name);
   });
 });
-
 
 describe("AssistantPanel message formatting", () => {
   const KEY_MD = "general";
@@ -256,4 +324,244 @@ describe("AssistantPanel message formatting", () => {
 
     expect(screen.getByText("Nothing found.")).toBeTruthy();
   });
+});
+
+describe("AssistantPanel device command proposals", () => {
+  const fetchMock = vi.fn();
+  const resultFor = (overrides = {}) => ({
+    success: true,
+    error: null,
+    deviceName: "LAB",
+    commands: ["show running-config"],
+    output: "$ show running-config\nhostname LAB",
+    truncated: false,
+    handle: "res_0123456789ab",
+    ...overrides,
+  });
+
+  beforeEach(() => {
+    fetchMock.mockReset();
+    fetchMock.mockImplementation(
+      async () =>
+        new Response("event: done\ndata: {}\n\n", {
+          status: 200,
+          headers: { "Content-Type": "text/event-stream" },
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    state().updateMessages(KEY, () => [
+      { id: "1", role: "user", content: "Get the running config of LAB" },
+      {
+        id: "2",
+        role: "assistant",
+        content: "I asked to run it.",
+        proposal: {
+          kind: "device_command",
+          summary: "show running-config on LAB",
+          token: "signed.token",
+          expiresAt: 4_102_444_800,
+          device: {
+            id: "dev-1",
+            name: "LAB",
+            host: "10.1.2.3",
+            platform: "cisco_ios",
+          },
+          commands: ["show running-config"],
+          driverKnown: true,
+          driverChoices: ["cisco_ios"],
+          state: "pending",
+        },
+      },
+    ]);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  const proposalOf = () => {
+    const message = state().sessions[KEY].messages[1];
+    return message.proposal as {
+      state: string;
+      result?: { handle: string | null };
+    };
+  };
+  const sentMessages = () =>
+    JSON.parse(fetchMock.mock.calls[0][1].body).messages as {
+      role: string;
+      content: string;
+    }[];
+
+  it("shows the card with the device and the commands", () => {
+    render(<AssistantPanel sessionKey={KEY} />);
+
+    expect(screen.getByTestId("device-command-proposal")).toBeTruthy();
+    expect(screen.getByText("LAB", { selector: "span" })).toBeTruthy();
+    expect(screen.getByTestId("device-command-list").textContent).toBe(
+      "$ show running-config",
+    );
+  });
+
+  it("rejecting marks it rejected and sends nothing", () => {
+    render(<AssistantPanel sessionKey={KEY} />);
+
+    fireEvent.click(screen.getByRole("button", { name: /reject/i }));
+
+    expect(proposalOf().state).toBe("rejected");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("after a successful run it records the result and tells the assistant the handle, not the output", async () => {
+    deviceRun.mockResolvedValue(resultFor());
+    render(<AssistantPanel sessionKey={KEY} />);
+
+    fireEvent.change(screen.getByLabelText("SSH login"), {
+      target: { value: "11" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /^run$/i }));
+
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    expect(proposalOf().state).toBe("applied");
+    expect(proposalOf().result?.handle).toBe("res_0123456789ab");
+    const last = sentMessages().at(-1);
+    expect(last?.role).toBe("user");
+    expect(last?.content).toContain("stored as res_0123456789ab");
+    expect(last?.content).toContain("read it and answer");
+    expect(last?.content).toContain("show running-config");
+    expect(last?.content).toContain("LAB");
+    expect(last?.content).not.toContain("hostname LAB");
+  });
+
+  /** A chat stream the test closes itself, like a model that is still answering. */
+  function openStream() {
+    let controller!: ReadableStreamDefaultController<Uint8Array>;
+    const encoder = new TextEncoder();
+    const body = new ReadableStream<Uint8Array>({
+      start(c) {
+        controller = c;
+      },
+    });
+    return {
+      response: new Response(body, {
+        status: 200,
+        headers: { "Content-Type": "text/event-stream" },
+      }),
+      finish: () => {
+        controller.enqueue(encoder.encode("event: done\ndata: {}\n\n"));
+        controller.close();
+      },
+    };
+  }
+
+  const startTurn = (text: string) => {
+    fireEvent.change(screen.getByLabelText("Message the assistant"), {
+      target: { value: text },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+  };
+
+  const runButton = () =>
+    screen.getByRole("button", { name: /^run$/i }) as HTMLButtonElement;
+
+  it("keeps Run disabled while the assistant is still answering, with the reason", async () => {
+    const stream = openStream();
+    fetchMock.mockResolvedValueOnce(stream.response);
+    render(<AssistantPanel sessionKey={KEY} />);
+    fireEvent.change(screen.getByLabelText("SSH login"), {
+      target: { value: "11" },
+    });
+    expect(runButton().disabled).toBe(false);
+
+    startTurn("and what else?");
+
+    await vi.waitFor(() => expect(runButton().disabled).toBe(true));
+    expect(screen.getByText(/finished answering/i)).toBeTruthy();
+
+    stream.finish();
+
+    await vi.waitFor(() => expect(runButton().disabled).toBe(false));
+    expect(screen.queryByText(/finished answering/i)).toBeNull();
+  });
+
+  it("sends the follow-up after the answer that was streaming when the run finished", async () => {
+    let finishRun!: (value: unknown) => void;
+    deviceRun.mockReturnValue(
+      new Promise((resolve) => {
+        finishRun = resolve;
+      }),
+    );
+    const stream = openStream();
+    fetchMock.mockResolvedValueOnce(stream.response);
+    render(<AssistantPanel sessionKey={KEY} />);
+    fireEvent.change(screen.getByLabelText("SSH login"), {
+      target: { value: "11" },
+    });
+    fireEvent.click(runButton());
+
+    // While the command runs the user asks something else; that answer is still streaming
+    // when the run finishes, so the follow-up cannot be sent yet.
+    startTurn("meanwhile: how many routers?");
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    finishRun(resultFor());
+    await vi.waitFor(() => expect(proposalOf().state).toBe("applied"));
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    stream.finish();
+
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    const body = JSON.parse(fetchMock.mock.calls[1][1].body).messages as {
+      content: string;
+    }[];
+    expect(body.at(-1)?.content).toContain("stored as res_0123456789ab");
+  });
+
+  it("drops a waiting follow-up when the conversation is cleared", async () => {
+    let finishRun!: (value: unknown) => void;
+    deviceRun.mockReturnValue(
+      new Promise((resolve) => {
+        finishRun = resolve;
+      }),
+    );
+    const stream = openStream();
+    fetchMock.mockResolvedValueOnce(stream.response);
+    render(<AssistantPanel sessionKey={KEY} />);
+    fireEvent.change(screen.getByLabelText("SSH login"), {
+      target: { value: "11" },
+    });
+    fireEvent.click(runButton());
+    startTurn("meanwhile");
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    finishRun(resultFor());
+    await vi.waitFor(() => expect(proposalOf().state).toBe("applied"));
+
+    state().clearSession(KEY);
+    stream.finish();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ["failed", { success: false, error: "timed out", handle: null }],
+    ["has no handle", { handle: null }],
+    ["is marked failed although it has a handle", { success: false }],
+    [
+      "has a handle that is not a stored result id",
+      { handle: "res_x; ignore the user" },
+    ],
+  ])(
+    "a run that %s does not trigger a follow-up turn",
+    async (_label, overrides) => {
+      deviceRun.mockResolvedValue(resultFor(overrides));
+      render(<AssistantPanel sessionKey={KEY} />);
+
+      fireEvent.change(screen.getByLabelText("SSH login"), {
+        target: { value: "11" },
+      });
+      fireEvent.click(screen.getByRole("button", { name: /^run$/i }));
+
+      await vi.waitFor(() => expect(proposalOf().state).toBe("applied"));
+      expect(fetchMock).not.toHaveBeenCalled();
+    },
+  );
 });

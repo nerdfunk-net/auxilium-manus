@@ -339,6 +339,173 @@ describe("useAssistantChat", () => {
     expect(result.current.messages[1].proposal).toMatchObject({ kind: "inventory", totalCount: null });
   });
 
+  describe("device command proposals", () => {
+    const payload = {
+      kind: "device_command",
+      token: "signed.token",
+      expires_at: 1_800_000_600,
+      device: {
+        id: "dev-1",
+        name: "LAB",
+        host: "10.1.2.3",
+        platform: "cisco_ios",
+      },
+      commands: ["show running-config"],
+      driver_known: true,
+      driver_choices: ["cisco_ios", "cisco_xe"],
+    };
+
+    it("keeps the device, the exact commands, the token and the expiry as a pending proposal", async () => {
+      fetchMock.mockResolvedValue(
+        sseResponse([frame("proposal", payload), frame("done", {})]),
+      );
+      const { result } = renderHook(() => useAssistantChat({ sessionKey: KEY }));
+
+      await send(result, "Get the running config of LAB");
+
+      expect(result.current.messages[1].proposal).toEqual({
+        kind: "device_command",
+        summary: "show running-config on LAB",
+        token: "signed.token",
+        expiresAt: 1_800_000_600,
+        device: {
+          id: "dev-1",
+          name: "LAB",
+          host: "10.1.2.3",
+          platform: "cisco_ios",
+        },
+        commands: ["show running-config"],
+        driverKnown: true,
+        driverChoices: ["cisco_ios", "cisco_xe"],
+        state: "pending",
+      });
+    });
+
+    it("keeps an unknown driver, a missing platform and the choices the server offers", async () => {
+      fetchMock.mockResolvedValue(
+        sseResponse([
+          frame("proposal", {
+            ...payload,
+            device: { id: "dev-1", name: "LAB", host: "10.1.2.3" },
+            driver_known: false,
+          }),
+          frame("done", {}),
+        ]),
+      );
+      const { result } = renderHook(() => useAssistantChat({ sessionKey: KEY }));
+
+      await send(result, "go");
+
+      expect(result.current.messages[1].proposal).toMatchObject({
+        driverKnown: false,
+        driverChoices: ["cisco_ios", "cisco_xe"],
+        device: { platform: null },
+      });
+    });
+
+    it("treats a missing driver flag as unknown so the user is asked, never guessed", async () => {
+      const without = { ...payload, driver_known: undefined };
+      fetchMock.mockResolvedValue(
+        sseResponse([frame("proposal", without), frame("done", {})]),
+      );
+      const { result } = renderHook(() => useAssistantChat({ sessionKey: KEY }));
+
+      await send(result, "go");
+
+      expect(result.current.messages[1].proposal).toMatchObject({
+        driverKnown: false,
+      });
+    });
+
+    it("ignores driver choices that are not a list of text", async () => {
+      fetchMock.mockResolvedValue(
+        sseResponse([
+          frame("proposal", { ...payload, driver_choices: [1, "x"] }),
+          frame("done", {}),
+        ]),
+      );
+      const { result } = renderHook(() => useAssistantChat({ sessionKey: KEY }));
+
+      await send(result, "go");
+
+      expect(result.current.messages[1].proposal).toMatchObject({
+        driverChoices: [],
+      });
+    });
+
+    it.each([
+      ["a missing token", { ...payload, token: undefined }],
+      ["a token that is not text", { ...payload, token: 5 }],
+      ["no device", { ...payload, device: undefined }],
+      ["a null device", { ...payload, device: null }],
+      ["a device without an id", { ...payload, device: { name: "LAB", host: "h" } }],
+      ["a device without a host", { ...payload, device: { id: "x", name: "LAB" } }],
+      ["a device without a name", { ...payload, device: { id: "x", host: "h" } }],
+      ["no commands", { ...payload, commands: [] }],
+      ["commands that are not text", { ...payload, commands: [1] }],
+      ["no expiry", { ...payload, expires_at: undefined }],
+    ])("ignores a proposal with %s", async (_label, bad) => {
+      fetchMock.mockResolvedValue(
+        sseResponse([frame("proposal", bad), frame("done", {})]),
+      );
+      const { result } = renderHook(() => useAssistantChat({ sessionKey: KEY }));
+
+      await send(result, "go");
+
+      expect(result.current.messages[1].proposal).toBeUndefined();
+      expect(result.current.messages[1].error).toBeUndefined(); // ignored, not a failed turn
+    });
+
+    it("records the result on the proposal and marks it done", async () => {
+      fetchMock.mockResolvedValue(
+        sseResponse([frame("proposal", payload), frame("done", {})]),
+      );
+      const { result } = renderHook(() => useAssistantChat({ sessionKey: KEY }));
+      await send(result, "go");
+      const outcome = {
+        success: true,
+        error: null,
+        deviceName: "LAB",
+        commands: ["show running-config"],
+        output: "$ show running-config\nhostname LAB",
+        truncated: false,
+        handle: "res_0123456789ab",
+      };
+
+      act(() => {
+        result.current.completeDeviceCommand(result.current.messages[1].id, outcome);
+      });
+
+      expect(result.current.messages[1].proposal).toMatchObject({
+        kind: "device_command",
+        state: "applied",
+        result: outcome,
+      });
+    });
+
+    it("leaves other proposals alone when a device result arrives for a different message", async () => {
+      fetchMock.mockResolvedValue(
+        sseResponse([frame("proposal", payload), frame("done", {})]),
+      );
+      const { result } = renderHook(() => useAssistantChat({ sessionKey: KEY }));
+      await send(result, "go");
+
+      act(() => {
+        result.current.completeDeviceCommand("no-such-message", {
+          success: true,
+          error: null,
+          deviceName: "LAB",
+          commands: [],
+          output: "",
+          truncated: false,
+          handle: null,
+        });
+      });
+
+      expect(result.current.messages[1].proposal).toMatchObject({ state: "pending" });
+    });
+  });
+
   it("rejects an inventory proposal whose tree is malformed, with an error", async () => {
     fetchMock.mockResolvedValue(
       sseResponse([

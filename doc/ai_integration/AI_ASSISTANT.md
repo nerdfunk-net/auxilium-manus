@@ -285,6 +285,7 @@ the opt-in of the class shown:
 | `analyze_acl` | addresses (B); content (C) for the whole table when `Line_Content` is included | One flow against one named filter on one device (`testFilters`): `Action` PERMIT/DENY and the filter name. The matching line (`Line_Content`, config text) only with the content opt-in. The filter name is validated (no leading `/`, no comma), so a regex specifier cannot be passed |
 | `check_reachability` | addresses (B) | Whether traffic matching a description can get from a device to a destination or to `end_node` (`reachability`): `reachable` plus the paths, condensed like `get_traceroute`. `ignore_filters` tells a filter problem from a routing problem |
 | `list_playbooks` / `get_playbook` | none (A); local playbooks default to inventory (B) | Reviewed step-by-step recipes for troubleshooting (`doc/AI_TOOL_CHAIN.md` §21, §25, §27.2). Built-in files in `knowledge/playbooks/`, operator files in `${DATA_DIRECTORY}/ai/playbooks/` (a local file of the same name overrides, `disabled: true` hides). The model passes a name, never a path. `list_playbooks` lists name, title, when, tools and which of those this user lacks; `get_playbook` returns the text and audits `playbook:<name>`. Class B playbooks need the inventory opt-in (omitted from the list with a `not_shared` marker; a hidden name is answered like an unknown one). The list is paged (`offset`, `next_offset`). Validated at load time (`playbooks.py`), also by `python scripts/check_playbooks.py [--dir PATH]` |
+| `propose_device_command` | content (C) for the output; offered only with the content opt-in | **A proposal, never an execution** (`doc/AI_TOOL_CHAIN.md` §29). `device` (an inventory name, resolved by exact match in the Nautobot sources the user may read) and up to 5 `commands`. Offered only when `AI_DEVICE_COMMANDS_ENABLED=true`, the user holds `netmiko:execute`, and content sharing is on. Commands pass `command_policy.py` (full `show` only, one safe output filter, ASCII, no chaining). The client gets a `device_command` proposal with the device, host, exact commands and a signed token (HMAC over user, source, device, commands and expiry, 10 minutes); the model gets only "shown to the user, NOT run". It never sees the host, the token or a credential |
 | `query_result` | class of the stored result | Filter / project / page (`offset`) a stored table by handle; at most 20 rows |
 | `fetch_slice` | class of the stored result | Page a stored table (rows) or text (characters, `next_offset`) by handle |
 | `diff_results` | stricter class of the two stored results | Compare two stored tables by handle. With `key` columns (dot paths) rows are matched and a changed row lists the differing fields; without a key whole rows are compared as a multiset. `ignore_fields` drops noisy top-level columns. Counts plus the differing rows (preview and a handle of its own). A key that is not unique is refused. Stored copies are redacted, so a value the redactor hid cannot be compared. A stored table that was cut (Batfish preview cap or store size limit) is marked `partial`; a diff that involves one says so, sets `complete: false` and `total_rows_exact: false` |
@@ -1393,6 +1394,22 @@ so a playbook can tell the model which of its tools this user lacks. The prompt 
 to `list_playbooks` first. A local playbook with no `data_class` is class B; a built-in one is class A. Local
 knowledge files (`${DATA_DIRECTORY}/ai/knowledge/<name>.local.md`) are placed first in the four reference tools'
 answers under "Local additions" (regular files only, no symlinks) (`knowledge_loader.py`). See `doc/AI_TOOL_CHAIN.md` §27.2.
+
+**Device commands (phase 3 start).** `POST /ai/exec/device-command` `{token, credential_id, network_driver?}` is the only way
+anything reaches a device from Ask the Net. It exists only while `AI_DEVICE_COMMANDS_ENABLED=true` (404
+otherwise), needs `ai_assistant:use` and `netmiko:execute`, is rate limited (`ai-device-command`, 10 per
+minute), allows two open runs per user (429 `too_many_runs`), caps a run at 300 s, and re-checks the content
+opt-in (403 `content_sharing_off`) because a token outlives a settings change. `device_exec_service.DeviceCommandExecutor` verifies the token (user-bound, signed, expiring), runs the
+command policy again, loads the user's exact secret values **before** touching the device (refuses with 503
+if it cannot), resolves the device by name again (it must be the same device in the same source), runs the
+commands through `NetmikoPreviewService.run_commands(host_from_inventory=True)` with the SSH credential the
+user picked in the card (visibility checked with `acting_user_id`), redacts the output, stores it as a
+content-class text handle (Redis, 4 hours) and writes one audit line (`ai_assistant_device_command`: ids and a
+hash of the commands, no content). The body never carries a host or a command, so a request cannot ask for
+more than the card showed. `network_driver` is the user's choice of device type from a closed list, offered
+only when the inventory's platform names no Netmiko driver (409 `device_platform_unsupported` otherwise). Only `services/ai_assistant/device_access.py` may import Netmiko or the step
+executors (`test_ai_device_guard.py`). The card shows the redacted output; the panel then sends one follow-up
+turn naming the stored handle (never the output), and the model reads it with `fetch_slice`.
 
 **No new setting.** Results are gated by the existing opt-ins (inventory for discovery, addresses for the
 query tools) ANDed with the operator's `AI_ALLOWED_DATA`, as for the other surfaces.

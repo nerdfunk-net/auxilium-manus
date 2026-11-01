@@ -48,6 +48,16 @@ def test_assistant_off_by_default() -> None:
     assert built.ai_allowed_data == frozenset()
 
 
+def test_device_commands_are_off_by_default_and_on_only_when_the_operator_says_so() -> None:
+    with mock.patch.dict("os.environ"):
+        os.environ.pop("AI_DEVICE_COMMANDS_ENABLED", None)
+        assert config.Settings().ai_device_commands_enabled is False
+        os.environ["AI_DEVICE_COMMANDS_ENABLED"] = "true"
+        assert config.Settings().ai_device_commands_enabled is True
+        os.environ["AI_DEVICE_COMMANDS_ENABLED"] = "false"
+        assert config.Settings().ai_device_commands_enabled is False
+
+
 def test_operator_switch_off_refuses_every_runtime_config(
     service: AiSettingsService, monkeypatch: pytest.MonkeyPatch
 ) -> None:

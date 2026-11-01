@@ -14,7 +14,7 @@ from typing import Any
 
 from core.config import settings
 from core.domain_exceptions import NotFoundError, ValidationFailedError
-from core.safe_hosts import validate_netmiko_preview_host
+from core.safe_hosts import validate_device_host, validate_netmiko_preview_host
 from models.netmiko import (
     NetmikoCommandEntry,
     NetmikoGetConfigsRequest,
@@ -55,8 +55,12 @@ class NetmikoPreviewService:
     def __init__(self, credentials_service: CredentialsService) -> None:
         self._credentials = credentials_service
 
-    def _resolve_host(self, host: str) -> str:
+    def _resolve_host(self, host: str, *, from_inventory: bool = False) -> str:
         try:
+            if from_inventory:
+                # The caller took the host from the inventory, not from the user's input, so the
+                # arbitrary-host switch (which is about user-typed hosts) does not apply.
+                return validate_device_host(host)
             return validate_netmiko_preview_host(
                 host,
                 environment=settings.environment,
@@ -86,13 +90,18 @@ class NetmikoPreviewService:
         return credential, password
 
     async def run_commands(
-        self, payload: NetmikoRunCommandsRequest, *, acting_user_id: int
+        self,
+        payload: NetmikoRunCommandsRequest,
+        *,
+        acting_user_id: int,
+        host_from_inventory: bool = False,
+        read_timeout: int | None = None,
     ) -> NetmikoRunCommandsResponse:
         commands = [command.strip() for command in payload.commands if command.strip()]
         if not commands:
             raise ValidationFailedError("At least one non-empty command is required")
 
-        host = self._resolve_host(payload.host)
+        host = self._resolve_host(payload.host, from_inventory=host_from_inventory)
         credential, password = self._resolve_ssh_credential(
             payload.credential_id, acting_user_id=acting_user_id
         )
@@ -108,6 +117,7 @@ class NetmikoPreviewService:
                 password=password,
                 commands=commands,
                 use_textfsm=payload.use_textfsm,
+                read_timeout=read_timeout,
                 credential_reference=f"credential:{payload.credential_id}",
             )
         except NetmikoConnectionError as exc:

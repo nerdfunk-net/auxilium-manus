@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from collections.abc import AsyncIterator
 from dataclasses import replace
 from typing import NoReturn
@@ -22,13 +23,17 @@ from sqlalchemy.orm import Session
 from core.auth import get_current_user, require_permission, require_role
 from core.config import settings
 from core.database import get_db
+from core.domain_exceptions import DomainError
 from core.models.users import User
 from core.rate_limit import rate_limited
+from core.safe_http_errors import raise_internal_server_error
 from models.ai_assistant import (
     AiProxySettingsResponse,
     AiProxySettingsUpdate,
     AiStatusResponse,
     ChatRequest,
+    DeviceCommandConfirmRequest,
+    DeviceCommandResponse,
     GeneralContext,
     InventoryContext,
     ReportsContext,
@@ -42,6 +47,24 @@ from services.ai_assistant.agent_loop import DEFAULT_BUDGET
 from services.ai_assistant.audit import AuditContext
 from services.ai_assistant.batfish_reader import DbBatfishReader
 from services.ai_assistant.chat_service import ChatEvent, check_connection, stream_chat
+from services.ai_assistant.command_policy import CommandNotAllowedError
+from services.ai_assistant.device_access import (
+    DbDeviceCommandRunner,
+    DbDeviceResolver,
+    DeviceAccessDeniedError,
+    DeviceAccessError,
+    DeviceAmbiguousError,
+    DeviceNoAddressError,
+    DeviceNotFoundError,
+    DeviceUnsupportedPlatformError,
+)
+from services.ai_assistant.device_exec_service import (
+    DeviceChangedError,
+    DeviceCommandExecutor,
+    InvalidConfirmationError,
+    SecretsUnavailableError,
+    TooManyRunsError,
+)
 from services.ai_assistant.exceptions import (
     AiAssistantDisabledError,
     AiAssistantError,
@@ -72,6 +95,8 @@ from services.ai_assistant.template_reader import DbTemplateReader
 from services.ai_assistant.tools.base import Toolbox
 from services.ai_assistant.workflow_reader import DbReferenceReader, DbWorkflowValidator
 from services.auth.rbac_service import RBACService
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/ai", tags=["ai-assistant"])
 
@@ -125,6 +150,7 @@ def _session_for(
     can_write_workflows: bool = False,
     can_save_inventories: bool = False,
     can_query_batfish: bool = False,
+    can_run_device_commands: bool = False,
 ) -> AssistantSession:
     sharing = config.sharing
     # S5-04: with run / device content shared, scrub the exact secrets the user can resolve.
@@ -145,6 +171,12 @@ def _session_for(
             sharing=sharing,
             may_query_batfish=can_query_batfish,
             known_secrets=known,
+            # The output of a device command is content: without the opt-in (or when the exact
+            # secret values could not be loaded, which switches content off above) the tool would
+            # be useless, so it is not offered.
+            device_resolver=(
+                DbDeviceResolver(user.id) if can_run_device_commands and sharing.content else None
+            ),
         )
     if isinstance(context, ReportsContext):
         return build_reports_session(
@@ -302,6 +334,7 @@ def chat(
     can_write_workflows = False
     can_save_inventories = False
     can_query_batfish = False
+    can_run_device_commands = False
     try:
         config: AiRuntimeConfig = service.require_runtime_config(current_user.id)
         if isinstance(body.context, InventoryContext):
@@ -312,8 +345,11 @@ def chat(
         if isinstance(body.context, GeneralContext):
             # The Batfish tools show the same data as the query endpoints, so they need the same
             # permission; the reader checks it again on every call.
-            can_query_batfish = RBACService(db).has_permission(
-                current_user.id, "sources.batfish", "query"
+            rbac = RBACService(db)
+            can_query_batfish = rbac.has_permission(current_user.id, "sources.batfish", "query")
+            # Device commands: the operator switch, and the permission of the Netmiko preview API.
+            can_run_device_commands = settings.ai_device_commands_enabled and rbac.has_permission(
+                current_user.id, "netmiko", "execute"
             )
         if isinstance(body.context, WorkflowCanvasContext):
             # S5-08: the editor tools list real credentials / sources / inventories, so they
@@ -348,6 +384,7 @@ def chat(
                 can_write_workflows=can_write_workflows,
                 can_save_inventories=can_save_inventories,
                 can_query_batfish=can_query_batfish,
+                can_run_device_commands=can_run_device_commands,
             )
         except RedactionBudgetExceeded as exc:
             raise HTTPException(
@@ -373,4 +410,135 @@ def chat(
         event_stream(),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+# -- confirmed device commands (doc/AI_TOOL_CHAIN.md §29) -------------------------------------
+
+
+def require_device_commands_enabled() -> None:
+    """The operator switch ``AI_DEVICE_COMMANDS_ENABLED``: off means the route does not exist."""
+    if not settings.ai_device_commands_enabled:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not Found")
+
+
+# Each confirmed run opens an SSH session; the budget matches the Netmiko preview API.
+_DEVICE_BUDGET = rate_limited("ai-device-command", attempts=10, window_seconds=60)
+
+_DEVICE_ERRORS: tuple[tuple[type[Exception], int, str, str], ...] = (
+    (
+        InvalidConfirmationError,
+        status.HTTP_400_BAD_REQUEST,
+        "invalid_confirmation",
+        "This confirmation expired or is not valid. Ask the assistant again.",
+    ),
+    (
+        DeviceChangedError,
+        status.HTTP_409_CONFLICT,
+        "device_changed",
+        "The device name no longer points at the device that was shown. Ask again.",
+    ),
+    (
+        TooManyRunsError,
+        status.HTTP_429_TOO_MANY_REQUESTS,
+        "too_many_runs",
+        "You already have device commands running. Wait for them to finish.",
+    ),
+    (
+        SecretsUnavailableError,
+        status.HTTP_503_SERVICE_UNAVAILABLE,
+        "secrets_unavailable",
+        "The output cannot be scrubbed safely right now, so nothing was run. Try again later.",
+    ),
+)
+_DEVICE_ACCESS_ERRORS: tuple[tuple[type[DeviceAccessError], int, str], ...] = (
+    (DeviceAccessDeniedError, status.HTTP_403_FORBIDDEN, "device_access_denied"),
+    (DeviceNotFoundError, status.HTTP_404_NOT_FOUND, "device_not_found"),
+    (DeviceAmbiguousError, status.HTTP_409_CONFLICT, "device_ambiguous"),
+    (DeviceNoAddressError, status.HTTP_409_CONFLICT, "device_no_address"),
+    (DeviceUnsupportedPlatformError, status.HTTP_409_CONFLICT, "device_platform_unsupported"),
+)
+
+
+def get_device_executor(current_user: User = Depends(get_current_user)) -> DeviceCommandExecutor:
+    return DeviceCommandExecutor(
+        DbDeviceResolver(current_user.id), DbDeviceCommandRunner(), get_result_store()
+    )
+
+
+def _device_http_error(exc: Exception) -> HTTPException | None:
+    for kind, code_status, code, message in _DEVICE_ERRORS:
+        if isinstance(exc, kind):
+            return HTTPException(status_code=code_status, detail={"code": code, "message": message})
+    for access_kind, code_status, code in _DEVICE_ACCESS_ERRORS:
+        if isinstance(exc, access_kind):
+            return HTTPException(
+                status_code=code_status, detail={"code": code, "message": str(exc)}
+            )
+    if isinstance(exc, CommandNotAllowedError):
+        return HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"code": "command_not_allowed", "message": str(exc)},
+        )
+    return None
+
+
+@router.post(
+    "/exec/device-command",
+    response_model=DeviceCommandResponse,
+    dependencies=[
+        _OPERATOR,
+        Depends(require_device_commands_enabled),
+        _USE,
+        Depends(require_permission("netmiko", "execute")),
+        Depends(_DEVICE_BUDGET),
+    ],
+)
+async def confirm_device_command(
+    body: DeviceCommandConfirmRequest,
+    current_user: User = Depends(get_current_user),
+    executor: DeviceCommandExecutor = Depends(get_device_executor),
+    service: AiSettingsService = Depends(get_ai_settings_service),
+) -> DeviceCommandResponse:
+    """The user clicked Run on a proposed device command.
+
+    The device and commands come from the signed token, the SSH credential from the body (and is
+    checked against the user's own credentials). Everything is verified again here.
+    """
+    # The card is offered only with the content opt-in, and a token lives for ten minutes: turning
+    # sharing off in between must stop the run (no SSH session, nothing stored), not only the offer.
+    try:
+        config = await asyncio.to_thread(service.require_runtime_config, current_user.id)
+    except AiAssistantError as exc:
+        _raise_http(exc)
+    if not config.sharing.content:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "code": "content_sharing_off",
+                "message": "Sharing run and device content with the assistant is switched off.",
+            },
+        )
+    try:
+        result = await executor.execute(
+            user_id=current_user.id,
+            token=body.token,
+            credential_id=body.credential_id,
+            network_driver=body.network_driver,
+        )
+    except DomainError:
+        raise
+    except Exception as exc:
+        mapped = _device_http_error(exc)
+        if mapped is not None:
+            raise mapped from exc
+        raise_internal_server_error(logger, "Failed to run the device command", exc)
+    return DeviceCommandResponse(
+        success=result.success,
+        error=result.error,
+        device_name=result.device_name,
+        commands=list(result.commands),
+        output=result.output,
+        truncated=result.truncated,
+        handle=result.handle,
     )

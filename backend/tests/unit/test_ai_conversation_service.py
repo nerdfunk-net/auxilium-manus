@@ -202,3 +202,23 @@ def test_prepare_rejects_oversized_input_before_redacting(
     big = [mod.StoredMessage(role="user", content="x" * 19000) for _ in range(12)]
     with pytest.raises(mod.AiConversationTooLargeError):
         mod.AiConversationService._prepare(big)
+
+
+def test_a_device_command_proposal_can_be_saved_as_kind_and_summary_only() -> None:
+    stored = StoredMessage.model_validate(
+        {
+            "role": "assistant",
+            "content": "Asked to run it.",
+            "proposal": {"kind": "device_command", "summary": "show running-config on LAB"},
+        }
+    )
+
+    assert stored.proposal is not None and stored.proposal.kind == "device_command"
+    with pytest.raises(ValueError):
+        StoredMessage.model_validate(
+            {
+                "role": "assistant",
+                "content": "x",
+                "proposal": {"kind": "device_command", "summary": "s", "token": "signed"},
+            }
+        )

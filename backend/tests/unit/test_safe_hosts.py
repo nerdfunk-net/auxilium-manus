@@ -51,3 +51,35 @@ class ValidateNetmikoPreviewHostTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ValidateDeviceHostTests(unittest.TestCase):
+    """The sanity rules alone, for a host that came from the inventory (not typed by a user)."""
+
+    def test_accepts_a_private_address_in_any_environment(self) -> None:
+        from core.safe_hosts import validate_device_host
+
+        self.assertEqual(validate_device_host(" 10.1.2.3 "), "10.1.2.3")
+        self.assertEqual(validate_device_host("r1.example.net"), "r1.example.net")
+
+    def test_rejects_the_same_hosts_as_the_preview_policy(self) -> None:
+        from core.safe_hosts import validate_device_host
+
+        for host in (
+            "",
+            "  ",
+            "127.0.0.1",
+            "169.254.169.254",
+            "0.0.0.0",
+            "224.0.0.1",
+            "metadata.google.internal",
+            "METADATA.GOOGLE.COM",
+        ):
+            with self.subTest(host=host), self.assertRaises(ValueError):
+                validate_device_host(host)
+
+    def test_the_preview_policy_still_adds_the_arbitrary_host_rule_on_top(self) -> None:
+        with self.assertRaises(ValueError):
+            validate_netmiko_preview_host(
+                "10.1.2.3", environment="production", allow_arbitrary=False
+            )

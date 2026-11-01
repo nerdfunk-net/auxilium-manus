@@ -85,7 +85,8 @@ def test_known_general_tool_names_cover_the_batfish_result_and_playbook_tools() 
         "list_playbooks",
         "get_playbook",
     } <= names
-    assert not {n for n in names if n.startswith(("run", "propose", "execute"))}
+    assert not {n for n in names if n.startswith(("run", "execute"))}
+    assert {n for n in names if n.startswith("propose")} == {"propose_device_command"}
 
 
 # -- list_playbooks ---------------------------------------------------------------------------

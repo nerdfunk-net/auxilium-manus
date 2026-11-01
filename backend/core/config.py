@@ -116,6 +116,7 @@ class Settings:
     ai_conversation_retention_days: int
     process_role: str
     ai_assistant_enabled: bool
+    ai_device_commands_enabled: bool
     ai_allowed_providers: frozenset[str]
     ai_allowed_data: frozenset[str]
     apply_safe_migrations: bool
@@ -250,6 +251,9 @@ class Settings:
         if self.database_pool_timeout < 1:
             raise RuntimeError("DATABASE_POOL_TIMEOUT must be at least 1")
         self.ai_assistant_enabled = self._get_bool("AI_ASSISTANT_ENABLED", False)
+        # Lets Ask the Net propose read-only show commands for a device; the user still confirms
+        # every one. Off unless the operator turns it on (doc/AI_TOOL_CHAIN.md §29).
+        self.ai_device_commands_enabled = self._get_bool("AI_DEVICE_COMMANDS_ENABLED", False)
         self.ai_allowed_providers = frozenset(self._get_csv("AI_ALLOWED_PROVIDERS", ""))
         self.ai_allowed_data = frozenset(self._get_csv("AI_ALLOWED_DATA", ""))
         validate_ai_operator_policy(providers=self.ai_allowed_providers, data=self.ai_allowed_data)

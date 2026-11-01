@@ -2538,3 +2538,49 @@ the guard scripts, `ruff`, `pyright`, `tsc` and `eslint` were clean.
 - Reviews live in `doc/analysis/REVIEW.md` (overwritten each round); all rounds so far were fixed.
 - Working rules that paid off: failing test first; mutation-check new tests with a small Python script (macOS
   `sed -i` fails); `ruff format` only files you touched; verify every review finding in the code before fixing.
+
+## 29. Phase 3 start: device commands from Ask the Net (2026-11-01)
+
+Target examples (product owner): **"Get the running config of LAB"** and **"Get the startup config of LAB"**
+(`show running-config`, `show startup-config` on the device named LAB). Decisions: allow-listed read-only `show`
+commands through one propose tool; the user picks the SSH credential in the confirm card (the model never names
+or sees a credential); one device per proposal, at most 5 commands; no auto-run (D2); no TextFSM; the model sees
+the output only with the content opt-in. Gates follow §13.2 and D1 to D4.
+
+| Step | What | Status |
+|---|---|---|
+| 1 | `services/ai_assistant/command_policy.py`: `check_command` / `check_commands`. Only the full word `show` + arguments from a character whitelist, at most one output filter (`include`, `exclude`, `begin`, `section`, `match`, `except`, `find` with a safe pattern; `count`; `no-more`; `display set\|json\|xml`); ASCII and printable only (a newline would otherwise split as a space); 200 characters, 5 commands. The reason never echoes the command. Run at propose time **and** again at execution | done |
+| 2 | Operator switch `AI_DEVICE_COMMANDS_ENABLED` (default off; `core/config.py`, docker compose and `.env.example`). The import guard `tests/unit/test_ai_device_guard.py`: only `device_access.py` may import Netmiko, paramiko, `workflow_steps`, the step registry or runner | done |
+| 3 | `device_access.py`: `select_device` (exact name, then a single case-insensitive match; ambiguous or substring matches never count; mask removed from `primary_ip4`; `validate_device_host` on the result), `DbDeviceResolver` (as the user: `sources.nautobot:read`, every configured Nautobot source), `DbDeviceCommandRunner`. `core/safe_hosts.py` gained `validate_device_host` (the sanity rules without the arbitrary-host switch) and `NetmikoPreviewService.run_commands` a `host_from_inventory` flag, so an inventory host works in production without `ALLOW_NETMIKO_ARBITRARY_HOSTS` while loopback, link-local and metadata hosts stay refused | done |
+| 4 | `tools/device_tools.py` `propose_device_command(device, commands)`; `device_token.py` (HMAC over user, source, device, commands, expiry; 10 minutes; constant-time compare; user-bound). Offered by `build_general_session(device_resolver=...)`, which the router passes only if the switch is on, the user has `netmiko:execute` **and** the content opt-in holds (content is switched off when the exact secrets cannot be loaded). The prompt (`DEVICE_COMMANDS_PROMPT`) uses your two examples. Pinned: without a resolver the surface has no `propose` tool; with one, exactly `propose_device_command` | done |
+| 5 | `device_exec_service.py` and `POST /ai/exec/device-command` in `routers/ai_assistant.py` (see `AI_ASSISTANT.md` §23). Failures map to `invalid_confirmation` 400, `command_not_allowed` 400, `device_not_found` 404, `device_ambiguous` / `device_no_address` / `device_changed` 409, `device_access_denied` 403, `secrets_unavailable` 503; anything else is a generic 500 with an error id. `StoredProposal` accepts the kind `device_command` for saved conversations | done |
+| 6 | Frontend: `DeviceCommandProposalCard` (device and host, the exact commands as plain text, an SSH-login dropdown of the user's own `ssh` credentials, Run / Reject, expiry checked on render and again at the click, the redacted output afterwards), `useDeviceCommandMutation`, `parseDeviceCommand` + `completeDeviceCommand` in `useAssistantChat`, and the panel's follow-up turn (handle only, validated against `res_[0-9a-f]{12}`) | done |
+| 7 | Live check in the lab (below) | **open: needs you** |
+
+**Review fixes (`doc/analysis/REVIEW.md`, 2026-11-01).** All seven findings checked against the code and fixed.
+(1, High) The follow-up turn was silently dropped when the user started another question while the
+command ran (`send` ignores a message during a stream): the card's Run is now disabled while the assistant
+is answering (`busy`), and a follow-up that finishes during a stream is held and sent when the stream ends
+(dropped if the conversation is cleared). (2) The signed token now includes the address shown on the card;
+confirm refuses with `device_changed` if the inventory moved the device since. (3) A device type chosen in the
+confirm body is ignored when the inventory already maps a driver; it only applies when the card asked. (4)
+Config dumps (`show running-config`, `show startup-config`, `show configuration`, `show tech-support`) use the
+120 s config read timeout; the whole run has a 300 s wall-clock cap (reported as a failed run, nothing stored);
+one user may have 2 runs open at once (429 `too_many_runs`; counted per process, the per-minute rate limit is
+the cross-process bound). (5) `general_prompt(device_commands=True)` replaces the "cannot run commands on
+devices" sentence with one that matches the tool. (6) Confirm now checks the content opt-in again (403
+`content_sharing_off`): turning sharing off during the 10-minute token window stops the SSH session and the
+storing, not only the offer. (7) Output is redacted first and cut second (up to 2,000,000 characters are
+redacted, then the shown size of 500,000 is cut on a line boundary), so a secret straddling the cut is gone;
+errors are redacted from a 5,000-character prefix and then cut to 500.
+
+**Device type (found in the first lab run, 2026-11-01).** LAB's Nautobot platform / network driver named no Netmiko driver, so the first click failed with `UnsupportedPlatformError` (a generic 500). Fixed: the runner turns it into `DeviceUnsupportedPlatformError` (409 `device_platform_unsupported`); the proposal carries `driver_known` (via `driver_known(device)`, the same resolver Netmiko uses), the inventory's platform and `driver_choices` (the closed list `DEVICE_DRIVERS`, equal to the app's platform map values, pinned by a test); when the driver is unknown the card shows a "Device type" dropdown and Run stays disabled until one is chosen; the choice travels as the optional `network_driver` in the confirm body (validated against the same list in the request model and again in the executor) and replaces the inventory value for that run only, like a driver override on a workflow step. The model cannot set it. To avoid the question, set the device's platform in Nautobot to one of the known names (for example `cisco_ios`, `cisco_xe`, `arista_eos`, `juniper_junos`).
+
+**Try it (lab).** Set `AI_DEVICE_COMMANDS_ENABLED=true` in `backend/.env` (and `AI_ALLOWED_DATA` must contain `content`), restart the backend, make sure your user has `netmiko:execute`, has the "run and device content" sharing switch on in Settings, and has an `ssh` credential. In Ask the Net: "Get the running config of LAB". Expect a card for LAB with `$ show running-config`, a login dropdown and Run. After Run: the redacted config in the card, then the assistant reads the stored result and answers. Also try "Get the startup config of LAB", a device that does not exist, and Reject.
+
+**Not verified.** Nothing ran against a real device or a real model. Unknown until the lab run: the Nautobot `primary_ip4` / `platform_network_driver` values for LAB, whether the network driver of LAB is accepted by Netmiko, and whether `show startup-config` output survives the redaction cap on a very large config (cut at 500,000 characters with a marker). The follow-up turn is a plain user message, so the saved conversation contains "I ran ... stored as res_..."; the stored handle expires after 4 hours.
+
+Known facts: `NetmikoPreviewService.run_commands` takes `host` and `credential_id` from the caller and runs any
+command (no allow-list); `get_configs` returns a parsed model, not the raw text, so the raw running config needs
+`run_commands`. The chat is stateless and proposals are client-side cards.
+

@@ -216,6 +216,46 @@ class ChatRequest(BaseModel):
     context: AssistantContext | None = None
 
 
+# The device types the user may choose when the inventory names none Netmiko knows. Must equal
+# ``services.ai_assistant.device_access.DEVICE_DRIVERS`` (pinned by a test).
+DeviceDriver = Literal[
+    "arista_eos",
+    "cisco_asa",
+    "cisco_ios",
+    "cisco_nxos",
+    "cisco_xe",
+    "cisco_xr",
+    "hp_comware",
+    "juniper_junos",
+]
+
+
+class DeviceCommandConfirmRequest(BaseModel):
+    """The user's click on a proposed device command: only the signed token and the credential.
+
+    The device and the commands are in the token (signed when the model proposed them), never in
+    the body, so a request cannot ask for anything the user was not shown.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    token: str = Field(min_length=1, max_length=4096)
+    credential_id: int = Field(ge=1)
+    # The user's choice of device type when the inventory's platform is not recognised.
+    network_driver: DeviceDriver | None = None
+
+
+class DeviceCommandResponse(BaseModel):
+    success: bool
+    error: str | None = None
+    device_name: str
+    commands: list[str]
+    # Redacted, capped text. ``handle`` (when set) lets the assistant read it with fetch_slice.
+    output: str
+    truncated: bool
+    handle: str | None = None
+
+
 class AiProxySettingsUpdate(BaseModel):
     """Full replacement of the global AI proxy settings (admin only)."""
 
