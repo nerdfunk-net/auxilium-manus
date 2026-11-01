@@ -169,7 +169,8 @@ Deviation from the first draft: "did you mean" uses stdlib `difflib`, not `rapid
 
 ### Quality gate
 
-126 tests, 100% coverage (CI enforces `--cov-fail-under=100`), `ruff check` clean,
+93 tests here plus 117 in `libs/nautobot_read` (where the query logic lives), 100% coverage on both (CI
+enforces `--cov-fail-under=100`), `ruff check` clean,
 `pip-audit` clean. Verified end to end against the live dev instance: the server was started
 as a subprocess over stdio and driven by an MCP client (instructions, all organization tools,
 a typo suggestion, a path lookup, devices by country including child locations, the "router" miss, prefixes and IPs by namespace/device/network, invalid-input rejection).

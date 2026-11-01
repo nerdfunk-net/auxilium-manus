@@ -481,6 +481,13 @@ All are in the `nautobot` palette category; the first two share
   upper- and a lower-case IPv6 address) share one free list, so one execution never hands an address out twice.
   `start_offset` is counted from the network address; at most 1000 free addresses are read per request, and a
   shortage after that is reported as `free_ip_window_exceeded`, not as an exhausted prefix.
+- **Ask the Net has the same lookup as a tool**, `get_next_free_ip` (`libs/nautobot_read/nautobot_read/queries/free_ip.py`,
+  `doc/AI_TOOL_CHAIN.md` §31). It does not import this step (external code must not import `workflow_steps`), so the
+  rules are written twice: the CIDR reduction of host bits, a bare address meaning its most specific containing prefix,
+  `start_offset` counted from the network address, the 1000-address read window and the `free_ip_window_exceeded`
+  distinction. **A change to those rules here needs the same change there, and the other way round.** The tool
+  differs on purpose: no default namespace (several namespaces is a question), `count` at most 20, and a shortage is
+  an answer, not an error.
 - **Nothing is reserved.** `get-next-free-ip` only reads. Parallel runs and fan-out children can receive the
   same address until it exists in Nautobot (see the concurrency table).
 - **`add-ip-to-nautobot` writes through the shared facade** (`DeviceCommonService` → `IPManager`,

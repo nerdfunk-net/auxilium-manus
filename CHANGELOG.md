@@ -26,6 +26,10 @@ Notes for databases and setups created before this version. A fresh installation
   not-null violation. The automatic schema sync never drops columns. Once, after a `pg_dump`:
   `cd backend && python scripts/database/sync.py --migrate --drop-columns --table workflow_runs`
   (preview first with `python scripts/database/sync.py --table workflow_runs`).
+- **Shared Nautobot library.** The backend imports `nautobot_read` from `libs/nautobot_read/`. Images and CI install it;
+  an existing local venv needs it once: from `backend/`, `pip install -e ../libs/nautobot_read --config-settings
+  editable_mode=compat` (without it the backend fails to import `services/ai_assistant`). The MCP server's venv needs
+  `pip install -e ../../libs/nautobot_read -e .`.
 - **Ports.** The code defaults are now 3000 (frontend) and 8000 (backend). A `backend/.env` without
   `BACKEND_PORT` therefore starts on 8000; set `BACKEND_PORT` (and `BACKEND_URL` in
   `frontend/.env.local`) if you rely on other ports.

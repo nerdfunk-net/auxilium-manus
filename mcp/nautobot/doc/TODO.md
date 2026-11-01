@@ -1,6 +1,6 @@
 # Nautobot MCP server — TODO
 
-Handoff for the next session. State as of **2026-10-27**: the server works and Claude Desktop
+Handoff for the next session. State as of **2026-11-01**: the server works and Claude Desktop
 connects. Read [DESIGN.md](DESIGN.md) (decisions, module table, HTTP design) and
 [NAUTOBOT_FINDINGS.md](NAUTOBOT_FINDINGS.md) (verified Nautobot behavior) first.
 
@@ -8,17 +8,24 @@ connects. Read [DESIGN.md](DESIGN.md) (decisions, module table, HTTP design) and
 
 - `mcp/nautobot/`: standalone project (like `agent/<name>/`), official `mcp` SDK 2.3.0
   (`MCPServer`, not `FastMCP`), Python 3.12, local `venv/` (git-ignored, installed with
-  `pip install -e .`).
+  `pip install -e ../../libs/nautobot_read -e .`).
+- **The query logic is not here any more.** Vocabularies, filter building, paging, item shaping and the
+  13 queries live in the shared library `libs/nautobot_read/` (own tests, 100 % coverage, own README), which
+  the backend's Ask the Net tools use as well (`doc/AI_TOOL_CHAIN.md` §31). This project keeps config, the
+  httpx transport, instructions, the HTTP app and one thin wrapper per tool. A change to a query is a change
+  in the library: the Ask the Net tools get it too, and their prompt/tests may need the same update.
 - 13 read-only tools: organization (6), DCIM (4), IPAM (3). stdio and HTTP transport (static
   per-client bearer tokens), Dockerfile + `docker-compose.example.yml`, `check-image.sh`.
-- Quality gate: 126 tests, 100 % coverage enforced, `ruff` clean, `pip-audit` clean.
+- Quality gate: 93 tests here and 117 in `libs/nautobot_read`, 100 % coverage enforced on both, `ruff` clean,
+  `pip-audit` clean.
 - Verified live against the dev Nautobot (http://127.0.0.1:8080, v3.2.7): stdio, HTTP as a
   separate process, and the Docker container reached from a second container.
-- **Nothing is committed.** `mcp/` and `.github/workflows/mcp-ci.yml` are untracked on `main`.
+- Committed with the Ask the Net branch (`c273bfd`). GraphQL error text no longer reaches the model: the tool
+  error is "Nautobot rejected the query." and Nautobot's wording goes to the server log only.
 - The dev token is a read-only key that lives in the user's Claude Desktop config. Never write
   it into a file in the repo. (Tests and probes pass it through environment variables.)
 
-Run the gate from `mcp/nautobot/`:
+Run the gates from `mcp/nautobot/` (the library's own: `libs/nautobot_read/README.md`):
 
 ```bash
 ./venv/bin/ruff check .
@@ -29,17 +36,10 @@ Run the gate from `mcp/nautobot/`:
 
 ## 1. Do first
 
-- [x] **Remove the silent 5000-row cap** (done: `list_all` now raises `NautobotError` above `max_items` instead of truncating). `NautobotClient.list_all` (`client.py`,
-      `DEFAULT_MAX_ITEMS = 5000`) truncates without telling anyone. Locations beyond the cap
-      vanish from `LocationDirectory`, so lookups of those locations fail with a misleading
-      "No location …". Page without a cap, or raise a clear `NautobotError` when the limit is
-      hit. Test first (the existing `test_list_all_stops_at_max_items` documents today's
-      behavior and must change with it).
-- [ ] **Commit.** Create a branch (e.g. `feature/nautobot-mcp`; we are on `main`) and commit
-      in focused pieces: project scaffold + core, tools, HTTP transport, Docker + CI, docs.
-      Format `<type>: <description>`. Include the attribution line from the session reminder.
-      Do not commit `venv/`, `.env`, `mcp_client_tokens.txt` (all git-ignored); grep for the
-      dev token before committing.
+- [x] **Remove the silent 5000-row cap.** Done: `list_all` raises `TooManyRowsError` above 5000 rows instead
+      of truncating. The queries then fall back where they can (no location tree: a direct lookup by name or
+      id, plain names as labels; `libs/nautobot_read/nautobot_read/queries/locations.py`).
+- [x] **Commit.** Done (see above).
 - [ ] **Run real questions in Claude Desktop** and fix what they show. Suggested set: devices
       of a country, devices by role, IPs of a device, prefixes containing an address, a typo
       in a role name, an ambiguous location name. Note wrong tool choices, slow queries and
@@ -49,7 +49,9 @@ Run the gate from `mcp/nautobot/`:
 
 - [ ] Does the **prefix `location` filter include child locations**? (`devices(location:)`
       does.) Needs a prefix assigned to a location in the dev data; update the `list_prefixes`
-      description either way.
+      description either way. **This also decides a sentence of the Ask the Net prompt**: it says a prefix
+      location filter is not verified to include children (`NAUTOBOT_PROMPT`, `ListPrefixesInput.location`);
+      update both when this is answered.
 - [ ] Does a **multi-value filter** (`role: ["A","B"]`) behave as OR? The dev data is too small.
       Only matters if tools ever accept lists.
 - [ ] Success paths with data: **platform** filter (no device has a platform), **tags**
@@ -90,9 +92,8 @@ Run the gate from `mcp/nautobot/`:
 
 ## 5. Docs elsewhere in the repo
 
-- [ ] Add `mcp/nautobot/` to the repo `CLAUDE.md` (Key File Locations) and
-      `doc/claude/development.md` (next to the `agent/` notes), including the CI workflow and
-      the "read DESIGN.md first" pointer.
+- [x] `CLAUDE.md` (Key File Locations) and `doc/claude/development.md` mention the shared library
+      `libs/nautobot_read`. Still missing there: a pointer to `mcp/nautobot/doc/DESIGN.md` and `mcp-ci.yml`.
 - [ ] Mention the MCP server in `docker/README.md` only if it should be deployed with the app
       stack (it is currently self-contained and not part of `docker/`).
 
@@ -103,6 +104,9 @@ Run the gate from `mcp/nautobot/`:
   everything; `ip_addresses(device:)` matches by exact name only). Validate before querying.
 - In `mcp` 2.x a long-lived in-memory `Client` fixture breaks under pytest-asyncio; the tests
   use `McpHarness` (one connection per call).
-- Claude Desktop starts the server from an unrelated directory: install the package
-  (`pip install -e .`) rather than relying on `PYTHONPATH`.
+- Claude Desktop starts the server from an unrelated directory: install the packages
+  (`pip install -e ../../libs/nautobot_read -e .`) rather than relying on `PYTHONPATH`.
+- A named Docker build context is not covered by the repo-root `.dockerignore`: it reads its own
+  (`libs/nautobot_read/.dockerignore`). A `venv/` or `.env` in that directory would otherwise be copied into
+  an image layer that a later `rm` cannot shrink.
 - Check each new GraphQL query against the live instance before writing the tool.

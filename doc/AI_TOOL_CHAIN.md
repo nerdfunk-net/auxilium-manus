@@ -2492,6 +2492,11 @@ not written). The playbook text was checked against the tool inputs by reading, 
 > branch is about to be merged to `main`. Still open: BGP columns (item 2), the playbook live tries, the
 > remaining items below, and the list "Open" in §30. Test counts: backend unit suite 8193 passed, frontend
 > related suites green (`tsc`, `eslint`, `pyright` clean).
+>
+> **Update (later, 2026-11-01):** the Nautobot DCIM/IPAM tools and `get_next_free_ip` are built, reviewed and
+> committed (§31); the shared library is `libs/nautobot_read/`. Backend suite then 8269 passed. A fresh checkout
+> or venv needs `pip install -e ../libs/nautobot_read --config-settings editable_mode=compat` from `backend/`
+> (`doc/claude/development.md`). Still open for it: a live run with a real model and the dev Nautobot (§31 "Open").
 
 State: phase 1 (§20.3) and the Batfish read tools (§27.0-A) are built, reviewed and live-checked as far as the
 inventory says. Branch `feature/ask-the-net`; the product owner commits (everything described here is meant to be

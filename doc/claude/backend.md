@@ -163,6 +163,11 @@ an `agent_id` and a global `shared_secret` credential (`doc/AGENT_INTEGRATION.md
   `CredentialsService.get_decrypted_*` / `get_ssh_key_path`, so it is registered for run-scoped
   redaction (`services/workflow_context/secret_fields.py`). Never log or return git URLs raw — use
   `services/git/scrub.py::scrub_url_credentials`.
+- **Reading Nautobot for the AI assistant:** use the shared library `libs/nautobot_read` (queries, vocabularies,
+  paging, validation), wrapped in `services/ai_assistant/tools/nautobot_tools.py`; do not write a second set of
+  GraphQL queries or name resolvers for it. A new read is a function in `queries/`, a `Tool` there with its data
+  class (`DataClass`, fail closed) and a test that the gate sends nothing. The library imports neither `mcp` nor
+  `backend`.
 - **Swallowed exceptions:** `except …: pass` is a lint error (S110/S112); log at debug or add a
   `# noqa` with the reason.
 - **Sending data to an external process** (the `route-to-agent` step): never send secrets. Apply the
