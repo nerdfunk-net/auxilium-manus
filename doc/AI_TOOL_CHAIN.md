@@ -2242,3 +2242,13 @@ Read by code, nothing was run.
 **Effect on the plan.** The loader (1) is the first piece of code for §25; it is small and testable (temporary
 directories, mtime reload, size caps, missing paths). The data class decision (2) needs no new settings. The
 start-script change (3) is one line plus the two checks.
+
+## 26. Naming in the UI: "Ask the Net"
+
+The app has a menu on the left side (`components/layout/app-sidebar.tsx`). The entry for this feature is a
+submenu, and its title is **"Ask the Net"**. Use that exact title for the sidebar submenu and for the page
+heading of the feature's pages (Adding a New Frontend Page in `doc/claude/development.md`). The branch for
+the implementation is `feature/ask-the-net`.
+
+This is the user-facing name only. Code, routes, tool names and the other sections of this document keep
+their technical wording ("AI assistant", "general surface").

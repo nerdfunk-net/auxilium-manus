@@ -460,3 +460,49 @@ class BatfishServiceFactsTests(unittest.IsolatedAsyncioTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class BatfishTracerouteTests(unittest.IsolatedAsyncioTestCase):
+    """``traceroute`` wraps pybatfish's ``traceroute`` question (Ask the Net, phase 1)."""
+
+    async def asyncSetUp(self) -> None:
+        import pandas as pd
+
+        self.frame = pd.DataFrame({"Flow": ["f1", "f2"], "Traces": [["t1"], ["t2"]]})
+        self.service = BatfishService()
+        patcher = patch("services.batfish.client.Session")
+        mock_session_cls = patcher.start()
+        self.addCleanup(patcher.stop)
+        self.session = mock_session_cls.return_value
+        self.session.q.traceroute.return_value.answer.return_value.frame.return_value = self.frame
+
+    async def test_traceroute_returns_rows_and_passes_params(self) -> None:
+        rows = await self.service.traceroute(
+            _connection(),
+            batfish_network="n",
+            snapshot="s",
+            startLocation="r1",
+            headers=None,
+            maxTraces=5,
+        )
+
+        self.assertEqual([r["Flow"] for r in rows], ["f1", "f2"])
+        # None params are omitted, the snapshot is passed explicitly.
+        self.session.q.traceroute.assert_called_once_with(startLocation="r1", maxTraces=5)
+        self.session.q.traceroute.return_value.answer.assert_called_once_with(snapshot="s")
+
+    async def test_traceroute_failed_answer_raises_answer_failed(self) -> None:
+        self.session.q.traceroute.return_value.answer.return_value = {"status": "FAILED"}
+
+        with self.assertRaises(BatfishAnswerFailedError):
+            await self.service.traceroute(
+                _connection(), batfish_network="n", snapshot="s", startLocation="nope"
+            )
+
+    async def test_traceroute_maps_batfish_exception(self) -> None:
+        self.session.q.traceroute.side_effect = BatfishException("boom")
+
+        with self.assertRaises(BatfishAPIError):
+            await self.service.traceroute(
+                _connection(), batfish_network="n", snapshot="s", startLocation="r1"
+            )

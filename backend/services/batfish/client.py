@@ -185,6 +185,16 @@ class BatfishService:
     ) -> list[dict[str, Any]]:
         return await self._answer(connection, batfish_network, snapshot, "reachability", params)
 
+    async def traceroute(
+        self, connection: BatfishConnection, *, batfish_network: str, snapshot: str, **params: Any
+    ) -> list[dict[str, Any]]:
+        # Simulated forwarding path (pybatfish "traceroute" question): one row per flow, with the
+        # hop-by-hop "Traces" column. Pure model read -- no device is contacted. The caller (the
+        # Ask the Net tool, doc/AI_TOOL_CHAIN.md section 10a) bounds startLocation/headers and
+        # condenses the traces; this method only runs the question. Not yet confirmed against a
+        # live coordinator: the shape of "Traces" is checked when the tool is built.
+        return await self._answer(connection, batfish_network, snapshot, "traceroute", params)
+
     async def test_filters(
         self, connection: BatfishConnection, *, batfish_network: str, snapshot: str, **params: Any
     ) -> list[dict[str, Any]]:
