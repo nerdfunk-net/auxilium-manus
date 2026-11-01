@@ -1,0 +1,280 @@
+"""DbBatfishReader: permission, rate limit, source lookup, error mapping, row cap.
+
+Database, RBAC, the rate limiter and Batfish are mocked; nothing talks to a real service.
+"""
+
+from __future__ import annotations
+
+import unittest
+import unittest.mock
+from contextlib import ExitStack
+from unittest.mock import AsyncMock, MagicMock, patch
+
+from models.batfish import BatfishQueryResponse
+from services.ai_assistant.batfish_reader import DbBatfishReader
+from services.ai_assistant.tools.batfish_tools import (
+    BatfishAccessError,
+    BatfishInputError,
+    BatfishUnavailableError,
+)
+from services.auth.login_rate_limiter import RateLimitExceededError
+from services.batfish.client import PREVIEW_ROW_LIMIT
+from services.batfish.common.exceptions import BatfishAnswerFailedError, BatfishAPIError
+from services.batfish.credentials import BatfishConnection
+from services.batfish.source_config_service import BatfishSourceNotFoundError
+
+MOD = "services.ai_assistant.batfish_reader"
+
+
+def _response(question: str = "routes", rows=None, snapshot: str = "run-2", truncated=False):
+    return BatfishQueryResponse(
+        success=True,
+        question=question,
+        network="net1",
+        snapshot=snapshot,
+        rows=rows or [],
+        truncated=truncated,
+    )
+
+
+class ReaderTests(unittest.IsolatedAsyncioTestCase):
+    def setUp(self) -> None:
+        stack = ExitStack()
+        self.addCleanup(stack.close)
+        self.rbac = MagicMock()
+        self.rbac.return_value.has_permission.return_value = True
+        stack.enter_context(patch(f"{MOD}.RBACService", self.rbac))
+        stack.enter_context(patch(f"{MOD}.SessionLocal", MagicMock()))
+        self.sources = MagicMock()
+        self.sources.return_value.list_sources.return_value = [
+            {"source_id": "lab"},
+            {"source_id": "b"},
+        ]
+        self.sources.return_value.resolve_connection.return_value = BatfishConnection(
+            host="bf", port=1
+        )
+        stack.enter_context(patch(f"{MOD}.BatfishSourceConfigService", self.sources))
+        self.limiter = MagicMock()
+        self.factory = stack.enter_context(patch(f"{MOD}.service_factory"))
+        self.factory.build_user_rate_limiter.return_value = self.limiter
+        self.batfish = MagicMock()
+        self.batfish.list_networks = AsyncMock(return_value=["net1"])
+        self.batfish.list_snapshots_with_metadata = AsyncMock(
+            return_value=[
+                {"name": "run-1", "metadata": {"creationTimestamp": "2026-10-01T00:00:00Z"}},
+                {"name": "run-2", "metadata": {"creationTimestamp": "2026-11-01T00:00:00Z"}},
+            ]
+        )
+        self.factory.get_batfish_app_service.return_value = self.batfish
+        self.preview = MagicMock()
+        for name in ("run_routes", "run_traceroute", "run_generic", "run_interface_rows"):
+            setattr(self.preview, name, AsyncMock(return_value=_response()))
+        stack.enter_context(
+            patch(f"{MOD}.BatfishPreviewService", MagicMock(return_value=self.preview))
+        )
+        self.reader = DbBatfishReader(user_id=7)
+
+    # -- permission / limits -----------------------------------------------------------------
+
+    async def test_needs_the_batfish_query_permission(self) -> None:
+        self.rbac.return_value.has_permission.return_value = False
+
+        for call in (
+            self.reader.list_sources(),
+            self.reader.list_networks("lab"),
+            self.reader.list_snapshots("lab", "net1"),
+            self.reader.query("routes", "lab", "net1", None, {}),
+        ):
+            with self.subTest(call.__qualname__):
+                with self.assertRaises(BatfishAccessError):
+                    await call
+        self.rbac.return_value.has_permission.assert_called_with(7, "sources.batfish", "query")
+        self.preview.run_routes.assert_not_called()
+
+    async def test_uses_the_same_rate_limit_bucket_as_the_query_router(self) -> None:
+        await self.reader.list_networks("lab")
+
+        self.factory.build_user_rate_limiter.assert_called_with("batfish-query", 30, 60)
+        self.limiter.check.assert_called_with("batfish-query:7")
+
+    async def test_rate_limit_is_a_clear_input_error(self) -> None:
+        self.limiter.check.side_effect = RateLimitExceededError("k")
+
+        with self.assertRaises(BatfishInputError) as ctx:
+            await self.reader.query("routes", "lab", "net1", None, {})
+        self.assertIn("Too many", str(ctx.exception))
+        self.preview.run_routes.assert_not_called()
+
+    # -- discovery ---------------------------------------------------------------------------
+
+    async def test_list_sources_returns_ids(self) -> None:
+        self.assertEqual(await self.reader.list_sources(), ["lab", "b"])
+
+    async def test_list_networks(self) -> None:
+        self.assertEqual(await self.reader.list_networks("lab"), ["net1"])
+
+    async def test_list_snapshots_returns_name_and_created(self) -> None:
+        snapshots = await self.reader.list_snapshots("lab", "net1")
+
+        self.assertEqual(
+            snapshots,
+            [
+                {"name": "run-1", "created": "2026-10-01T00:00:00Z"},
+                {"name": "run-2", "created": "2026-11-01T00:00:00Z"},
+            ],
+        )
+
+    async def test_list_snapshots_of_a_missing_network_never_creates_it(self) -> None:
+        self.batfish.list_networks = AsyncMock(return_value=["other"])
+
+        with self.assertRaises(BatfishInputError):
+            await self.reader.list_snapshots("lab", "net1")
+        self.batfish.list_snapshots_with_metadata.assert_not_called()
+
+    async def test_unknown_source_is_an_input_error(self) -> None:
+        self.sources.return_value.resolve_connection.side_effect = BatfishSourceNotFoundError("zzz")
+
+        with self.assertRaises(BatfishInputError) as ctx:
+            await self.reader.list_networks("zzz")
+        self.assertIn("zzz", str(ctx.exception))
+
+    # -- queries -----------------------------------------------------------------------------
+
+    async def test_routes_query_builds_the_request_and_reports_the_snapshot_age(self) -> None:
+        self.preview.run_routes.return_value = _response(rows=[{"Node": "r1"}])
+
+        answer = await self.reader.query(
+            "routes",
+            "lab",
+            "net1",
+            None,
+            {
+                "nodes": "r1",
+                "network_prefix": "10.1.2.3/32",
+                "prefix_match_type": "LONGEST_PREFIX_MATCH",
+                "protocols": None,
+                "vrfs": None,
+            },
+        )
+
+        self.assertEqual(answer.rows, [{"Node": "r1"}])
+        self.assertEqual(answer.snapshot, "run-2")
+        self.assertEqual(answer.snapshot_created, "2026-11-01T00:00:00Z")
+        source, request = self.preview.run_routes.await_args.args
+        self.assertEqual(source, "lab")
+        self.assertEqual(
+            (request.network, request.nodes, request.network_prefix), ("net1", "r1", "10.1.2.3/32")
+        )
+
+    async def test_each_kind_goes_to_its_preview_method(self) -> None:
+        await self.reader.query(
+            "traceroute",
+            "lab",
+            "net1",
+            "run-2",
+            {
+                "start_node": "r1",
+                "dst_ips": "10.0.0.1",
+                "src_ips": None,
+                "applications": None,
+                "ip_protocols": None,
+                "max_traces": 5,
+            },
+        )
+        await self.reader.query("bgp_sessions", "lab", "net1", None, {"nodes": "r1"})
+        await self.reader.query(
+            "interfaces", "lab", "net1", None, {"nodes": "r1", "interfaces": "Gi0/1"}
+        )
+
+        self.assertEqual(self.preview.run_traceroute.await_args.args[1].start_node, "r1")
+        generic = self.preview.run_generic.await_args.args[1]
+        self.assertEqual((generic.question, generic.params), ("bgpSessionStatus", {"nodes": "r1"}))
+        self.assertEqual(self.preview.run_interface_rows.await_args.args[1].interfaces, "Gi0/1")
+
+    async def test_the_preview_row_cap_is_set_during_the_query_and_reset_after(self) -> None:
+        seen: list[int | None] = []
+
+        async def run_routes(*_a, **_k):
+            seen.append(PREVIEW_ROW_LIMIT.get())
+            return _response()
+
+        self.preview.run_routes = run_routes
+
+        await self.reader.query("routes", "lab", "net1", None, {})
+
+        self.assertEqual(seen, [5000])
+        self.assertIsNone(PREVIEW_ROW_LIMIT.get())
+
+    async def test_cut_tables_are_flagged(self) -> None:
+        self.preview.run_routes.return_value = _response(rows=[{"i": 1}], truncated=True)
+
+        answer = await self.reader.query("routes", "lab", "net1", None, {})
+
+        self.assertTrue(answer.truncated)
+
+    async def test_snapshot_age_lookup_failure_does_not_fail_the_query(self) -> None:
+        self.batfish.list_snapshots_with_metadata = AsyncMock(side_effect=BatfishAPIError("x"))
+
+        answer = await self.reader.query("routes", "lab", "net1", None, {})
+
+        self.assertIsNone(answer.snapshot_created)
+
+    # -- error mapping -----------------------------------------------------------------------
+
+    async def test_errors_are_mapped_without_internal_text(self) -> None:
+        cases = (
+            (ValueError("Batfish network 'x' does not exist on this source"), BatfishInputError),
+            (BatfishAnswerFailedError("routes", {"secret": "internal"}), BatfishInputError),
+            (BatfishAPIError("connection refused to 10.9.9.9:9996"), BatfishUnavailableError),
+            (RuntimeError("boom"), BatfishUnavailableError),
+        )
+        for error, expected in cases:
+            with self.subTest(type(error).__name__):
+                self.preview.run_routes.side_effect = error
+                with self.assertRaises(expected) as ctx:
+                    await self.reader.query("routes", "lab", "net1", None, {})
+                self.assertNotIn("10.9.9.9", str(ctx.exception))
+                self.assertNotIn("internal", str(ctx.exception))
+
+    async def test_unknown_kind_is_rejected(self) -> None:
+        with self.assertRaises(BatfishInputError):
+            await self.reader.query("shell", "lab", "net1", None, {})  # type: ignore[arg-type]
+
+    # -- review round 2 ----------------------------------------------------------------------
+
+    async def test_the_source_lookup_is_not_charged_to_the_coordinator_budget(self) -> None:
+        await self.reader.list_sources()
+
+        self.limiter.check.assert_not_called()
+
+    async def test_one_tool_call_spends_exactly_one_slot(self) -> None:
+        # What the tools do for a normal call: find the source, then ask the coordinator.
+        await self.reader.list_sources()
+        await self.reader.query("routes", "lab", "net1", None, {})
+
+        self.assertEqual(self.limiter.check.call_count, 1)
+
+    async def test_discovery_calls_to_the_coordinator_are_charged_once_each(self) -> None:
+        await self.reader.list_networks("lab")
+        await self.reader.list_snapshots("lab", "net1")
+
+        self.assertEqual(self.limiter.check.call_count, 2)
+
+    async def test_padded_names_are_stripped_for_the_guard_and_the_call(self) -> None:
+        await self.reader.query("routes", "lab", "  net1 ", " run-2 ", {})
+
+        request = self.preview.run_routes.await_args.args[1]
+        self.assertEqual((request.network, request.snapshot), ("net1", "run-2"))
+        await self.reader.list_snapshots("lab", " net1 ")
+        self.batfish.list_snapshots_with_metadata.assert_awaited_with(
+            unittest.mock.ANY, batfish_network="net1"
+        )
+
+    async def test_a_blank_snapshot_means_the_newest(self) -> None:
+        await self.reader.query("routes", "lab", "net1", "   ", {})
+
+        self.assertIsNone(self.preview.run_routes.await_args.args[1].snapshot)
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -616,3 +616,54 @@ def test_proxy_rejects_unknown_fields(client: TestClient, monkeypatch: pytest.Mo
     monkeypatch.setattr(RBACService, "has_role", lambda self, *_a, **_k: True)
     response = client.put("/api/ai/proxy", json={"enabled": True, "password": "x"})
     assert response.status_code == 422
+
+
+def test_general_context_gets_the_batfish_and_result_tools(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _configure(client)
+    seen = _capture_chat(monkeypatch)
+
+    body = {
+        "messages": [{"role": "user", "content": "which route does 10.1.2.3 use on r1?"}],
+        "context": {"surface": "general"},
+    }
+    response = client.post("/api/ai/chat", json=body)
+
+    assert response.status_code == 200
+    assert {"get_routes", "get_traceroute", "query_result", "fetch_slice"} <= set(seen["tools"])
+    assert "propose_workflow" not in seen["tools"]
+    assert "Data the user shares with you" in str(seen["system"])
+
+
+@pytest.mark.parametrize("may_query", [True, False])
+def test_general_batfish_tools_need_the_batfish_query_permission(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch, may_query: bool
+) -> None:
+    _configure(client)
+    seen = _capture_chat(monkeypatch)
+    monkeypatch.setattr(
+        RBACService,
+        "has_permission",
+        lambda self, _uid, resource, action: (
+            (resource, action) != ("sources.batfish", "query") or may_query
+        ),
+    )
+
+    response = client.post(
+        "/api/ai/chat",
+        json={"messages": [{"role": "user", "content": "hi"}], "context": {"surface": "general"}},
+    )
+
+    assert response.status_code == 200
+    assert ("get_routes" in seen["tools"]) is may_query
+
+
+def test_general_context_rejects_extra_fields(client: TestClient) -> None:
+    _configure(client)
+    body = {
+        "messages": [{"role": "user", "content": "hi"}],
+        "context": {"surface": "general", "network": "x"},
+    }
+
+    assert client.post("/api/ai/chat", json=body).status_code == 422

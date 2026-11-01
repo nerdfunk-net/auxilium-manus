@@ -28,6 +28,7 @@ from models.ai_assistant import (
     AiProxySettingsUpdate,
     AiStatusResponse,
     ChatRequest,
+    GeneralContext,
     InventoryContext,
     ReportsContext,
     RunViewerContext,
@@ -37,6 +38,7 @@ from models.ai_assistant import (
     WorkflowCanvasContext,
 )
 from services.ai_assistant.audit import AuditContext
+from services.ai_assistant.batfish_reader import DbBatfishReader
 from services.ai_assistant.chat_service import ChatEvent, check_connection, stream_chat
 from services.ai_assistant.exceptions import (
     AiAssistantDisabledError,
@@ -52,10 +54,12 @@ from services.ai_assistant.providers.base import ChatMessage
 from services.ai_assistant.proxy_settings_service import AiProxySettingsService
 from services.ai_assistant.redaction import RedactionBudgetExceeded
 from services.ai_assistant.report_reader import DbReportReader
+from services.ai_assistant.results.factory import get_result_store
 from services.ai_assistant.run_reader import DbRunReader
 from services.ai_assistant.settings_service import AiRuntimeConfig, AiSettingsService
 from services.ai_assistant.surfaces import (
     AssistantSession,
+    build_general_session,
     build_inventory_session,
     build_reports_session,
     build_run_viewer_session,
@@ -110,17 +114,28 @@ def _session_for(
     | WorkflowCanvasContext
     | RunViewerContext
     | InventoryContext
-    | ReportsContext,
+    | ReportsContext
+    | GeneralContext,
     user: User,
     request: Request,
     config: AiRuntimeConfig,
     *,
     can_write_workflows: bool = False,
     can_save_inventories: bool = False,
+    can_query_batfish: bool = False,
 ) -> AssistantSession:
     sharing = config.sharing
     # S5-04: with run / device content shared, scrub the exact secrets the user can resolve.
     known = load_visible_secret_values(user.id) if sharing.content else ()
+    if isinstance(context, GeneralContext):
+        return build_general_session(
+            user_id=user.id,
+            reader=DbBatfishReader(user.id),
+            store=get_result_store(),
+            sharing=sharing,
+            may_query_batfish=can_query_batfish,
+            known_secrets=known,
+        )
     if isinstance(context, ReportsContext):
         return build_reports_session(
             user_id=user.id,
@@ -276,12 +291,19 @@ def chat(
 ) -> StreamingResponse:
     can_write_workflows = False
     can_save_inventories = False
+    can_query_batfish = False
     try:
         config: AiRuntimeConfig = service.require_runtime_config(current_user.id)
         if isinstance(body.context, InventoryContext):
             # An inventory proposal is only useful to someone who can save it.
             can_save_inventories = RBACService(db).has_permission(
                 current_user.id, "sources.nautobot", "write"
+            )
+        if isinstance(body.context, GeneralContext):
+            # The Batfish tools show the same data as the query endpoints, so they need the same
+            # permission; the reader checks it again on every call.
+            can_query_batfish = RBACService(db).has_permission(
+                current_user.id, "sources.batfish", "query"
             )
         if isinstance(body.context, WorkflowCanvasContext):
             # S5-08: the editor tools list real credentials / sources / inventories, so they
@@ -314,6 +336,7 @@ def chat(
                 config,
                 can_write_workflows=can_write_workflows,
                 can_save_inventories=can_save_inventories,
+                can_query_batfish=can_query_batfish,
             )
         except RedactionBudgetExceeded as exc:
             raise HTTPException(

@@ -269,6 +269,25 @@ tools, so every value of those classes passes the opt-in of §4.2:
 | `get_report_results` | Stored results of one snapshot, 50 rows per section. `not_shared` without the opt-in |
 | `propose_query` | Validates a query against the catalog (never runs it) and emits a `query` proposal |
 
+**Built (Ask the Net, surface `general`)** - see `doc/AI_TOOL_CHAIN.md` §10a and §27. All read-only
+reads of the Batfish *model* (no device is contacted). They need `sources.batfish:query` (the same
+permission and the same `batfish-query` rate-limit bucket as the `/sources/batfish` query endpoints) and
+the opt-in of the class shown:
+
+| Tool | Data class | Purpose |
+|------|-----------|---------|
+| `list_batfish_networks` / `list_batfish_snapshots` | inventory (B) | Networks on the coordinator; snapshots newest first with creation time |
+| `get_routes` | addresses (B) | Routes; a bare IP as `prefix` means longest-prefix match ("which route does this IP use") |
+| `get_traceroute` | addresses (B) | Simulated hop-by-hop path and disposition; identical paths grouped with a count |
+| `get_bgp_session_status` | addresses (B) | BGP sessions with counts per status; `only_problems` hides ESTABLISHED |
+| `get_interface_properties` | addresses (B); content (C) for the whole table when `Description` is included | One flat record per interface. `Description` is free text from the config, so it is included only with the content opt-in (and then the handle needs it too) |
+| `query_result` | class of the stored result | Filter / project / page (`offset`) a stored table by handle; at most 20 rows |
+| `fetch_slice` | class of the stored result | Page a stored table (rows) or text (characters, `next_offset`) by handle |
+
+Results above the preview size (20 rows) are stored in Redis behind a handle (4 hours, per user, 2 MB;
+`results/store.py`). The class is checked again on every read, and values are redacted as data before they
+are JSON-encoded (JSON turns newlines into `\n`, which hides line-anchored secrets from the patterns).
+
 **Planned (not started):** a way to read a saved workflow other than the open one.
 
 Rule for new tools: it is either a pure read or a proposal. A proposal never performs its
@@ -1348,3 +1367,15 @@ Companies that control outbound traffic with an HTTP/HTTPS proxy can route every
   the assistant: it carries prompts and API keys, so the answer to a certificate error is installing the CA.
 - **Not supported.** SOCKS, NTLM/Kerberos proxy auth, PAC files, per-user proxies, a CA bundle per provider.
 - **Audit.** `ai_proxy_changed actor_user_id=… enabled=… credential_set=… bypass_count=…`; the URL is not logged.
+
+## 23. Ask the Net (surface `general`)
+
+**Surface.** `context = {surface: "general"}` (`GeneralContext`, no client state); `AiSurface` gained
+`general`. In the UI the feature is the left-menu submenu **"Ask the Net"** (`doc/AI_TOOL_CHAIN.md` §26).
+`surfaces.py::build_general_session` offers the Batfish tools only to a user with `sources.batfish:query`
+(checked in the chat route and again on every call by `batfish_reader.py::DbBatfishReader`) and the handle
+tools only when a result store exists. No tool on this surface writes, proposes or executes; the naming rule
+and that fact are pinned by `tests/unit/test_ai_hardening.py`.
+
+**No new setting.** Results are gated by the existing opt-ins (inventory for discovery, addresses for the
+query tools) ANDed with the operator's `AI_ALLOWED_DATA`, as for the other surfaces.

@@ -7,7 +7,9 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-AiSurface = Literal["template_editor", "workflow_editor", "run_viewer", "inventory", "reports"]
+AiSurface = Literal[
+    "template_editor", "workflow_editor", "run_viewer", "inventory", "reports", "general"
+]
 
 MAX_STORED_MESSAGES = 50
 MAX_MESSAGE_CHARS = 20000

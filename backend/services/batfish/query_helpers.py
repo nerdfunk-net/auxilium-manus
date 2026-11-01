@@ -244,6 +244,39 @@ async def query_reachability(
     return rows, len(rows) > 0
 
 
+async def query_traceroute(
+    batfish: BatfishService,
+    connection: BatfishConnection,
+    *,
+    batfish_network: str,
+    snapshot: str,
+    start_node: str,
+    dst_ips: str,
+    src_ips: Any = None,
+    applications: Any = None,
+    ip_protocols: Any = None,
+    max_traces: Any = None,
+) -> list[dict[str, Any]]:
+    """Run the ``traceroute`` question: the simulated hop-by-hop path of a flow from
+    ``start_node`` to ``dst_ips``. Used by ``BatfishPreviewService.run_traceroute``.
+
+    Both ``start_node`` and ``dst_ips`` are assumed validated non-blank by the caller (via
+    ``require_field``), for the same reason as ``query_reachability``. Pure model read: no
+    device is contacted.
+    """
+    headers = build_batfish_headers(
+        dst_ips=dst_ips, src_ips=src_ips, applications=applications, ip_protocols=ip_protocols
+    )
+    return await batfish.traceroute(
+        connection,
+        batfish_network=batfish_network,
+        snapshot=snapshot,
+        startLocation=start_node,
+        headers=headers,
+        maxTraces=max_traces,
+    )
+
+
 async def query_test_filters(
     batfish: BatfishService,
     connection: BatfishConnection,

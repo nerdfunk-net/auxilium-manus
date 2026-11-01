@@ -47,9 +47,15 @@ class ResultEnvelope:
     # ``total_rows`` only says "at least this many".
     total_rows_exact: bool = True
     handle: str | None = None
+    # A sentence for the model about how the result was produced or cut.
+    note: str | None = None
 
     def with_handle(self, handle: str) -> ResultEnvelope:
         return replace(self, handle=handle)
+
+    def with_note(self, note: str) -> ResultEnvelope:
+        """A copy with ``note`` added after any existing note."""
+        return replace(self, note=f"{self.note} {note}" if self.note else note)
 
 
 def build_envelope(
@@ -107,7 +113,8 @@ def envelope_output(
         rows = rows[:-1]
     if len(rows) < len(envelope.rows):
         payload["truncated"] = True
-        payload["note"] = _shortened_note(len(rows), len(envelope.rows), extra)
+        shrunk = _shortened_note(len(rows), len(envelope.rows), extra)
+        payload["note"] = f"{envelope.note} {shrunk}" if envelope.note else shrunk
         text = _dumps(payload)
     return ToolOutput(content=text, truncated=bool(payload["truncated"]))
 
@@ -123,6 +130,8 @@ def _payload(
     }
     if envelope.handle is not None:
         payload["handle"] = envelope.handle
+    if envelope.note:
+        payload["note"] = envelope.note
     if extra:
         payload.update(extra)
     return payload

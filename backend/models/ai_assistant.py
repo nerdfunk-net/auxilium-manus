@@ -185,12 +185,24 @@ class ReportsContext(BaseModel):
     source_id: str = Field(default="report_data", min_length=1, max_length=64)
 
 
+class GeneralContext(BaseModel):
+    """The Ask the Net page: free questions about the network, answered with read-only tools.
+
+    No client state is sent: the server decides what the model may read.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    surface: Literal["general"]
+
+
 AssistantContext = Annotated[
     TemplateEditorContext
     | WorkflowCanvasContext
     | RunViewerContext
     | InventoryContext
-    | ReportsContext,
+    | ReportsContext
+    | GeneralContext,
     Field(discriminator="surface"),
 ]
 

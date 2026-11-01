@@ -496,3 +496,101 @@ class BatfishPreviewServiceInterfacePropertiesTests(unittest.IsolatedAsyncioTest
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class BatfishPreviewServiceTracerouteTests(unittest.IsolatedAsyncioTestCase):
+    """``run_traceroute`` backs the Ask the Net ``get_traceroute`` tool (a pure model read)."""
+
+    async def test_builds_headers_and_passes_start_location(self) -> None:
+        from models.batfish import BatfishTracerouteQueryRequest
+
+        service, _, batfish = _make_service()
+        batfish.traceroute = AsyncMock(return_value=[{"Flow": "f"}])
+
+        result = await service.run_traceroute(
+            "lab",
+            BatfishTracerouteQueryRequest(
+                network="net",
+                snapshot="run-7",
+                start_node="r1",
+                dst_ips="10.1.2.3",
+                src_ips="192.0.2.1",
+                applications=["tcp/443"],
+                max_traces=3,
+            ),
+        )
+
+        self.assertEqual(result.question, "traceroute")
+        self.assertEqual(result.snapshot, "run-7")
+        self.assertEqual(result.rows, [{"Flow": "f"}])
+        _, kwargs = batfish.traceroute.await_args
+        self.assertEqual(kwargs["startLocation"], "r1")
+        self.assertEqual(
+            kwargs["headers"],
+            {"dstIps": "10.1.2.3", "srcIps": "192.0.2.1", "applications": ["tcp/443"]},
+        )
+        self.assertEqual(kwargs["maxTraces"], 3)
+
+    async def test_start_node_and_destination_are_required(self) -> None:
+        from models.batfish import BatfishTracerouteQueryRequest
+
+        service, _, batfish = _make_service()
+        batfish.traceroute = AsyncMock()
+
+        for bad in ({"start_node": " ", "dst_ips": "10.0.0.1"}, {"start_node": "r1", "dst_ips": ""}):
+            with self.subTest(bad):
+                with self.assertRaises(ValueError):
+                    await service.run_traceroute(
+                        "lab", BatfishTracerouteQueryRequest(network="net", **bad)
+                    )
+        batfish.traceroute.assert_not_called()
+
+    async def test_nonexistent_network_never_reaches_the_coordinator_session(self) -> None:
+        from models.batfish import BatfishTracerouteQueryRequest
+
+        service, _, batfish = _make_service()
+        batfish.list_networks = AsyncMock(return_value=["other"])
+        batfish.traceroute = AsyncMock()
+
+        with self.assertRaises(ValueError):
+            await service.run_traceroute(
+                "lab",
+                BatfishTracerouteQueryRequest(network="net", start_node="r1", dst_ips="10.0.0.1"),
+            )
+        batfish.traceroute.assert_not_called()
+
+
+class BatfishPreviewServiceInterfaceRowsTests(unittest.IsolatedAsyncioTestCase):
+    """``run_interface_rows``: the flat per-interface table (no per-node grouping)."""
+
+    async def test_returns_flat_rows_and_forwards_filters(self) -> None:
+        service, _, batfish = _make_service()
+        batfish.interface_properties = AsyncMock(
+            return_value=[{"Interface": {"hostname": "r1", "interface": "Gi0/1"}, "Active": True}]
+        )
+
+        result = await service.run_interface_rows(
+            "lab",
+            BatfishInterfacePropertiesQueryRequest(
+                network="net", snapshot="run-7", nodes="r1", interfaces="Gi0/1"
+            ),
+        )
+
+        self.assertEqual(result.question, "interfaceProperties")
+        self.assertEqual(result.snapshot, "run-7")
+        self.assertEqual(len(result.rows), 1)
+        self.assertIsNone(result.facts_by_node)
+        _, kwargs = batfish.interface_properties.await_args
+        self.assertEqual(kwargs["nodes"], "r1")
+        self.assertEqual(kwargs["interfaces"], "Gi0/1")
+
+    async def test_nonexistent_network_never_reaches_the_coordinator_session(self) -> None:
+        service, _, batfish = _make_service()
+        batfish.list_networks = AsyncMock(return_value=["other"])
+        batfish.interface_properties = AsyncMock()
+
+        with self.assertRaises(ValueError):
+            await service.run_interface_rows(
+                "lab", BatfishInterfacePropertiesQueryRequest(network="net")
+            )
+        batfish.interface_properties.assert_not_called()

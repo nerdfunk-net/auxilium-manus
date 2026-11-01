@@ -90,6 +90,19 @@ class BatfishReachabilityQueryRequest(BaseModel):
     ignore_filters: bool = False
 
 
+class BatfishTracerouteQueryRequest(BaseModel):
+    """Simulated forwarding path from a node (pybatfish ``traceroute``). A pure model read."""
+
+    network: str = Field(..., min_length=1)
+    snapshot: str | None = None
+    start_node: str = Field(..., min_length=1)
+    dst_ips: str = Field(..., min_length=1)
+    src_ips: str | None = None
+    applications: list[str] | None = None
+    ip_protocols: str | None = None
+    max_traces: int | None = Field(default=None, ge=1)
+
+
 class BatfishTestFiltersQueryRequest(BaseModel):
     """Ad-hoc counterpart of the batfish-acl-check step's config fields."""
 

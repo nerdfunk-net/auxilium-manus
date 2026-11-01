@@ -2252,3 +2252,40 @@ the implementation is `feature/ask-the-net`.
 
 This is the user-facing name only. Code, routes, tool names and the other sections of this document keep
 their technical wording ("AI assistant", "general surface").
+
+## 27. Implementation status, 2026-11-01
+
+Phase 1 (§20.3) on branch `feature/ask-the-net`. Built, each with tests that run without a model:
+
+| Step | What | Where |
+|---|---|---|
+| 1 | `BatfishService.traceroute`, `query_traceroute`, `BatfishPreviewService.run_traceroute`, `run_interface_rows` | `services/batfish/` |
+| 2 | Result envelope `{rows, total_rows, total_rows_exact, truncated, handle, note}`; shrinks to fit the output cap | `tools/envelope.py` |
+| 3 | Handle store (Redis, 4 h, per user, 2 MB, class re-checked on read); `query_result`, `fetch_slice` | `results/store.py`, `tools/result_tools.py` |
+| 4 | Six Batfish tools, shaping, `publish_table`, DB-backed reader | `tools/batfish_tools.py`, `tools/batfish_shaping.py`, `tools/result_publish.py`, `batfish_reader.py` |
+| 5 | `general` surface: `GeneralContext`, prompt, `build_general_session`, router dispatch, result store factory | `surfaces.py`, `routers/ai_assistant.py`, `results/factory.py` |
+
+Decisions taken while building (2026-11-01, answered by the product owner): the model chooses network and
+snapshot from the discovery tools (default newest); data classes per tool (inventory for discovery,
+addresses for queries; `analyze_acl` / `check_reachability` will need content when added).
+
+Review fixes (`doc/analysis/REVIEW.md`): values are redacted before JSON encoding, text slices are sent
+outside the JSON, output is shrunk by whole rows to stay valid JSON, `query_result` pages with `offset`,
+equality is strict.
+
+Second review round (`doc/analysis/REVIEW.md`, 2026-11-01): interface `Description` (free text) is returned
+only with the content opt-in and then the stored table is content-class; BGP counts carry
+`status_counts_complete` and a note when the coordinator answer was cut at the preview cap (so `only_problems`
+can never read as "healthy" from a prefix); the source lookup is no longer charged to the `batfish-query`
+rate-limit bucket (one tool call spends one slot); network and snapshot names are stripped before the
+existence guard and the call see them.
+
+**Not done / not verified.**
+
+- No frontend: the "Ask the Net" menu entry and page (`frontend/.../ai-assistant/`, `AssistantContext`
+  type in `types/ai-assistant.ts`) are still to build; until then the surface can only be reached by API.
+- Nothing was run against a real Batfish coordinator or Redis. The `Traces` shape and the column names
+  in `tools/batfish_shaping.py` are unverified; an unrecognised trace shape is reported, not guessed.
+- Step 7 acceptance (§10a: "which route does 10.1.2.3 use on r1, and where does a packet to it go?" in at
+  most 3 calls, with the smallest supported model) is not run.
+- Per-surface step budget (§6.4) is not done: the loop still stops at 8 tool steps for every surface.

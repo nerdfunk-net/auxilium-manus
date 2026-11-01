@@ -23,6 +23,7 @@ from services.ai_assistant.data_sharing import DeviceLabeler, SharingPolicy
 from services.ai_assistant.inventory_filter import describe_condition_tree, field_data_class
 from services.ai_assistant.prompts import (
     BASE_SYSTEM_PROMPT,
+    GENERAL_PROMPT,
     INVENTORY_PROMPT,
     REPORT_TEMPLATE_PROMPT,
     REPORTS_PROMPT,
@@ -31,7 +32,13 @@ from services.ai_assistant.prompts import (
     WORKFLOW_EDITOR_PROMPT,
 )
 from services.ai_assistant.redaction import MAX_REDACT_CHARS_PER_REQUEST, Redactor
+from services.ai_assistant.results.store import ResultStore
 from services.ai_assistant.tools.base import Toolbox, ToolContext
+from services.ai_assistant.tools.batfish_tools import (
+    BATFISH_READER_KEY,
+    BatfishReader,
+    build_batfish_tools,
+)
 from services.ai_assistant.tools.glossary_tools import (
     GLOSSARY_TOOLS,
     STEP_ALIAS_TOOLS,
@@ -44,6 +51,7 @@ from services.ai_assistant.tools.inventory_tools import (
     InventoryState,
 )
 from services.ai_assistant.tools.report_tools import REPORT_TOOLS, ReportReader, ReportsState
+from services.ai_assistant.tools.result_tools import RESULT_STORE_KEY, build_result_tools
 from services.ai_assistant.tools.run_tools import RUN_VIEWER_TOOLS, RunReader, RunViewerState
 from services.ai_assistant.tools.template_tools import (
     TEMPLATE_EDITOR_TOOLS,
@@ -260,3 +268,41 @@ def build_reports_session(
         [BASE_SYSTEM_PROMPT, REPORTS_PROMPT, f"Data the user shares with you: {shared}."]
     )
     return AssistantSession(system=system, toolbox=Toolbox(REPORT_TOOLS, tool_context))
+
+
+def build_general_session(
+    *,
+    user_id: int,
+    reader: BatfishReader,
+    store: ResultStore | None,
+    sharing: SharingPolicy,
+    may_query_batfish: bool,
+    known_secrets: Iterable[str] = (),
+) -> AssistantSession:
+    """Ask the Net: read-only questions about the network (doc/AI_TOOL_CHAIN.md §10a, §20.3).
+
+    The Batfish tools are offered only to a user who may query Batfish (the same permission the
+    query endpoints need); the handle tools only when a result store exists. No tool here writes,
+    proposes or executes: pinned by ``test_ai_hardening``.
+    """
+    redactor = Redactor()
+    redactor.add_known_secrets(known_secrets)
+    extras: dict[str, Any] = {BATFISH_READER_KEY: reader}
+    tools = []
+    if may_query_batfish:
+        tools.extend(build_batfish_tools())
+        if store is not None:
+            extras[RESULT_STORE_KEY] = store
+            tools.extend(build_result_tools())
+    tool_context = ToolContext(user_id=user_id, redactor=redactor, extras=extras, sharing=sharing)
+    parts = [
+        BASE_SYSTEM_PROMPT,
+        GENERAL_PROMPT,
+        f"Data the user shares with you: {sharing.describe()}.",
+    ]
+    if not may_query_batfish:
+        parts.append(
+            "The user is not allowed to query Batfish, so you have no tools. Say so and answer "
+            "only from general knowledge, without claiming anything about their network."
+        )
+    return AssistantSession(system="\n\n".join(parts), toolbox=Toolbox(tools, tool_context))

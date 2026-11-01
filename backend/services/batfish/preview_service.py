@@ -39,6 +39,7 @@ from models.batfish import (
     BatfishReachabilityQueryRequest,
     BatfishRoutesQueryRequest,
     BatfishTestFiltersQueryRequest,
+    BatfishTracerouteQueryRequest,
 )
 from services.batfish.bgp_facts import BGP_QUESTION_SPECS
 from services.batfish.client import BatfishService
@@ -68,6 +69,7 @@ from services.batfish.query_helpers import (
     query_reachability,
     query_routes,
     query_test_filters,
+    query_traceroute,
     require_field,
     resolve_latest_snapshot_name,
 )
@@ -168,6 +170,32 @@ class BatfishPreviewService:
             snapshot=snapshot,
             rows=rows,
             reachable=reachable,
+        )
+
+    async def run_traceroute(
+        self, source_id: str, request: BatfishTracerouteQueryRequest
+    ) -> BatfishQueryResponse:
+        start_node = require_field(request.start_node, "start_node")
+        dst_ips = require_field(request.dst_ips, "dst_ips")
+        connection, snapshot = await self._resolve(source_id, request.network, request.snapshot)
+        rows = await query_traceroute(
+            self._batfish,
+            connection,
+            batfish_network=request.network,
+            snapshot=snapshot,
+            start_node=start_node,
+            dst_ips=dst_ips,
+            src_ips=request.src_ips,
+            applications=request.applications,
+            ip_protocols=request.ip_protocols,
+            max_traces=request.max_traces,
+        )
+        return BatfishQueryResponse(
+            success=True,
+            question="traceroute",
+            network=request.network,
+            snapshot=snapshot,
+            rows=rows,
         )
 
     async def run_test_filters(
@@ -349,6 +377,29 @@ class BatfishPreviewService:
             snapshot=snapshot,
             rows=[],
             facts_by_node=facts_by_node,
+        )
+
+    async def run_interface_rows(
+        self, source_id: str, request: BatfishInterfacePropertiesQueryRequest
+    ) -> BatfishQueryResponse:
+        """Like ``run_interface_properties`` but the flat answer table, one row per interface,
+        without the per-node grouping (for callers that filter and page rows themselves)."""
+        connection, snapshot = await self._resolve(source_id, request.network, request.snapshot)
+        rows = await query_interface_properties(
+            self._batfish,
+            connection,
+            batfish_network=request.network,
+            snapshot=snapshot,
+            nodes=request.nodes,
+            interfaces=request.interfaces,
+            properties=request.properties,
+        )
+        return BatfishQueryResponse(
+            success=True,
+            question=INTERFACE_PROPERTIES_SPEC.question_label,
+            network=request.network,
+            snapshot=snapshot,
+            rows=rows,
         )
 
     async def run_interface_properties(
