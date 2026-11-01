@@ -31,6 +31,15 @@ def _validate_transport(url: str, verify_ssl: bool) -> None:
         raise ValueError(str(exc)) from exc
 
 
+def _check_config_paths(category: Any, data: dict[str, Any]) -> None:
+    """Config path templates belong to ``device_configs`` repositories only."""
+    value = getattr(category, "value", category)
+    if value != "device_configs" and (
+        data.get("config_path_running") or data.get("config_path_startup")
+    ):
+        raise ValueError("config path templates are only allowed for device_configs repositories")
+
+
 class GitRepositoryService:
     """CRUD service for Git repositories in PostgreSQL.
 
@@ -53,6 +62,7 @@ class GitRepositoryService:
                 raise ValueError(f"Repository with name '{repo_data['name']}' already exists")
 
             _validate_transport(repo_data["url"], repo_data.get("verify_ssl", True))
+            _check_config_paths(repo_data["category"], repo_data)
 
             webhook_secret = repo_data.get("webhook_secret")
             new_repo = self._repo.create(
@@ -68,6 +78,8 @@ class GitRepositoryService:
                 git_author_name=repo_data.get("git_author_name"),
                 git_author_email=repo_data.get("git_author_email"),
                 description=repo_data.get("description"),
+                config_path_running=repo_data.get("config_path_running"),
+                config_path_startup=repo_data.get("config_path_startup"),
                 is_active=repo_data.get("is_active", True),
                 webhook_secret_encrypted=(
                     self._encryption.encrypt(webhook_secret) if webhook_secret else None
@@ -123,6 +135,8 @@ class GitRepositoryService:
                 "git_author_name",
                 "git_author_email",
                 "description",
+                "config_path_running",
+                "config_path_startup",
                 "is_active",
                 "webhook_auto_deploy",
             ]
@@ -144,6 +158,8 @@ class GitRepositoryService:
                     update_kwargs.get("verify_ssl", stored.get("verify_ssl", True)),
                 )
 
+            self._apply_config_path_rules(repo_id, update_kwargs)
+
             if "name" in update_kwargs:
                 existing = self._repo.get_by_name(update_kwargs["name"], db=self._db)
                 if existing and existing.id != repo_id:
@@ -160,6 +176,27 @@ class GitRepositoryService:
         except Exception as e:
             logger.error("Error updating git repository %s: %s", repo_id, e)
             raise
+
+    def _apply_config_path_rules(self, repo_id: int, update_kwargs: dict[str, Any]) -> None:
+        """Keep "config path templates only on device_configs" true after the update.
+
+        The rule is checked on the merged result (stored row plus patch). A category other than
+        ``device_configs`` clears both templates in the same update; an explicit non-empty
+        template there is refused. ``""`` clears one template on a ``device_configs`` repository.
+        """
+        keys = ("config_path_running", "config_path_startup")
+        if "category" not in update_kwargs and not any(k in update_kwargs for k in keys):
+            return
+        stored = self.get_repository(repo_id) or {}
+        category = update_kwargs.get("category", stored.get("category"))
+        _check_config_paths(category, update_kwargs)
+        if getattr(category, "value", category) != "device_configs":
+            if any(stored.get(k) for k in keys) or any(k in update_kwargs for k in keys):
+                update_kwargs.update(dict.fromkeys(keys))
+            return
+        for key in keys:
+            if key in update_kwargs:
+                update_kwargs[key] = update_kwargs[key] or None
 
     def delete_repository(self, repo_id: int, hard_delete: bool = True) -> bool:
         """Delete a git repository."""
@@ -245,6 +282,8 @@ class GitRepositoryService:
             "git_author_name": repo.git_author_name,
             "git_author_email": repo.git_author_email,
             "description": repo.description,
+            "config_path_running": repo.config_path_running,
+            "config_path_startup": repo.config_path_startup,
             "is_active": repo.is_active,
             "last_sync": repo.last_sync.isoformat() if repo.last_sync else None,
             "sync_status": repo.sync_status,

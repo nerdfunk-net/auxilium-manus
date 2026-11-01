@@ -6,6 +6,7 @@ from enum import StrEnum
 
 from pydantic import BaseModel, Field, field_validator
 
+from services.git.config_path_template import validate_config_path_template
 from services.git.refs import validate_branch_name
 
 WEBHOOK_SECRET_MIN_LENGTH = 16
@@ -50,11 +51,25 @@ class GitRepositoryRequest(BaseModel):
     git_author_name: str | None = Field(None, description="Git author name for commits")
     git_author_email: str | None = Field(None, description="Git author email for commits")
     description: str | None = Field(None, description="Repository description")
+    config_path_running: str | None = Field(
+        None,
+        description="device_configs only: path template of a device's running-config backup, "
+        "for example {nautobot.location.name}/{device.name}.running.cfg",
+    )
+    config_path_startup: str | None = Field(
+        None, description="device_configs only: path template of the startup-config backup"
+    )
 
     @field_validator("branch")
     @classmethod
     def _branch(cls, value: str) -> str:
         return validate_branch_name(value)
+
+    @field_validator("config_path_running", "config_path_startup")
+    @classmethod
+    def _config_path(cls, value: str | None) -> str | None:
+        return validate_config_path_template(value)
+
     is_active: bool = Field(default=True, description="Repository is active")
     webhook_secret: str | None = Field(
         None,
@@ -86,6 +101,8 @@ class GitRepositoryResponse(BaseModel):
     git_author_name: str | None = None
     git_author_email: str | None = None
     description: str | None = None
+    config_path_running: str | None = None
+    config_path_startup: str | None = None
     is_active: bool
     created_at: str
     updated_at: str
@@ -112,6 +129,9 @@ class GitRepositoryUpdateRequest(BaseModel):
     git_author_name: str | None = None
     git_author_email: str | None = None
     description: str | None = None
+    # An empty string clears a template; omitting the field keeps it.
+    config_path_running: str | None = None
+    config_path_startup: str | None = None
     is_active: bool | None = None
     # An empty string clears the stored secret; omitting the field keeps it.
     webhook_secret: str | None = None
@@ -125,6 +145,15 @@ class GitRepositoryUpdateRequest(BaseModel):
     @classmethod
     def _webhook_secret_min_length(cls, value: str | None) -> str | None:
         return validate_webhook_secret(value)
+
+    @field_validator("config_path_running", "config_path_startup")
+    @classmethod
+    def _config_path(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        # "" is kept so the router (which drops None) can pass "clear this" to the service.
+        return validate_config_path_template(value) or ""
+
     webhook_auto_deploy: bool | None = None
 
 

@@ -161,8 +161,9 @@ sent only with the user's opt-in): `backend/services/ai_assistant/`,
 persist or execute.
 
 Ask the Net (`/ask-the-net`, surface `general`: free questions about the network, answered from a Batfish
-snapshot with read-only tools; frontend `components/features/ask-the-net/`): read
-`doc/AI_TOOL_CHAIN.md` first (status in §27, next steps in §28). A new assistant surface touches
+snapshot with read-only tools, plus device configs from the git backup (§30) and user-confirmed read-only
+device commands (§29); frontend `components/features/ask-the-net/`): read
+`doc/AI_TOOL_CHAIN.md` first (status in §27, device commands §29, config backups §30, next steps in §28). A new assistant surface touches
 `models/ai_assistant.py`, `models/ai_conversations.py`, `routers/ai_assistant.py`, `services/ai_assistant/surfaces.py`
 and the frontend `AssistantContext` types. Tool results above 20 rows are stored in Redis behind a handle
 (`services/ai_assistant/results/`).

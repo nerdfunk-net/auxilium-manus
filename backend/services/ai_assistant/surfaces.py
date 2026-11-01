@@ -20,11 +20,13 @@ from models.ai_assistant import (
     WorkflowCanvasContext,
 )
 from services.ai_assistant.agent_loop import DEFAULT_BUDGET, RunBudget
+from services.ai_assistant.config_backup import ConfigBackupReader
 from services.ai_assistant.data_sharing import DeviceLabeler, SharingPolicy
 from services.ai_assistant.device_access import DeviceResolver
 from services.ai_assistant.inventory_filter import describe_condition_tree, field_data_class
 from services.ai_assistant.prompts import (
     BASE_SYSTEM_PROMPT,
+    CONFIG_BACKUP_PROMPT,
     DEVICE_COMMANDS_PROMPT,
     INVENTORY_PROMPT,
     REPORT_TEMPLATE_PROMPT,
@@ -41,6 +43,10 @@ from services.ai_assistant.tools.batfish_tools import (
     BATFISH_READER_KEY,
     BatfishReader,
     build_batfish_tools,
+)
+from services.ai_assistant.tools.config_backup_tools import (
+    CONFIG_READER_KEY,
+    build_config_backup_tools,
 )
 from services.ai_assistant.tools.device_tools import (
     DEVICE_RESOLVER_KEY,
@@ -292,6 +298,7 @@ def build_general_session(
     may_query_batfish: bool,
     known_secrets: Iterable[str] = (),
     device_resolver: DeviceResolver | None = None,
+    config_reader: ConfigBackupReader | None = None,
 ) -> AssistantSession:
     """Ask the Net: read-only questions about the network (doc/AI_TOOL_CHAIN.md §10a, §20.3).
 
@@ -317,6 +324,11 @@ def build_general_session(
         if device_resolver is not None:
             extras[DEVICE_RESOLVER_KEY] = device_resolver
             tools.extend(build_device_tools())
+        # Backed-up configs from git (plan AI_CONFIG_FROM_GIT): content, so the router passes the
+        # reader only with the opt-in and the repository read permission.
+        if config_reader is not None:
+            extras[CONFIG_READER_KEY] = config_reader
+            tools.extend(build_config_backup_tools())
         # Lets list_playbooks tell the model which of a playbook's tools this user lacks.
         extras[AVAILABLE_TOOLS_KEY] = frozenset(t.name for t in tools)
     tool_context = ToolContext(user_id=user_id, redactor=redactor, extras=extras, sharing=sharing)
@@ -327,6 +339,8 @@ def build_general_session(
     ]
     if device_resolver is not None and may_query_batfish:
         parts.append(DEVICE_COMMANDS_PROMPT)
+    if config_reader is not None and may_query_batfish:
+        parts.append(CONFIG_BACKUP_PROMPT)
     if not may_query_batfish:
         parts.append(
             "The user is not allowed to query Batfish, so you have no tools. Say so and answer "

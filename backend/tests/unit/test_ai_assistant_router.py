@@ -956,6 +956,37 @@ def test_the_chat_offers_the_device_tool_only_when_all_three_gates_hold(
     assert ("propose_device_command" in seen["tools"]) is expected
 
 
+@pytest.mark.parametrize(
+    ("may_read", "content", "expected"),
+    [(True, True, True), (False, True, False), (True, False, False)],
+)
+def test_the_chat_offers_config_backups_only_with_permission_and_content_opt_in(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+    may_read: bool,
+    content: bool,
+    expected: bool,
+) -> None:
+    _configure(client)
+    client.patch("/api/ai/settings", json={"share_content_data": content})
+    monkeypatch.setattr(ai_router_module, "try_load_visible_secret_values", lambda _uid: [])
+    monkeypatch.setattr(
+        RBACService,
+        "has_permission",
+        lambda self, _uid, resource, action: (resource, action) != ("git.files", "read")
+        or may_read,
+    )
+    seen = _capture_chat(monkeypatch)
+
+    client.post(
+        "/api/ai/chat",
+        json={"messages": [{"role": "user", "content": "hi"}], "context": {"surface": "general"}},
+    )
+
+    assert ("get_config_backup" in seen["tools"]) is expected
+    assert ("list_config_backups" in seen["tools"]) is expected
+
+
 def test_other_surfaces_never_get_the_device_tool(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:

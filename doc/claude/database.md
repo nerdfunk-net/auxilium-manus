@@ -12,6 +12,9 @@ events), `change_requests`, `workflow_schedules`, `workflow_background_tier`,
 
 **RBAC tables (5):** `roles`, `permissions`, `role_permissions`, `user_roles`, `user_permissions`
 
+**`git_repositories.config_path_running` / `config_path_startup`** (nullable, `device_configs` only) are
+placeholder path templates for a device's config backup (`services/git/config_path_template.py`).
+
 **`workflow_runs.parent_run_id`** (nullable self FK, `ON DELETE SET NULL`, indexed) links a run to the
 run whose `start-workflow` step started it; `trigger_type` is then `workflow`.
 **`workflow_runs.ancestor_workflow_ids`** (nullable JSON list) holds the workflow ids of every run above

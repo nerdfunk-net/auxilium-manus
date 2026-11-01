@@ -131,6 +131,8 @@ const TOOL_LABELS: Record<string, string> = {
   propose_report_outline: "Drafting a report",
   propose_section_text: "Drafting section text",
   propose_device_command: "Preparing a device command",
+  list_config_backups: "Looking for config backups",
+  get_config_backup: "Reading a config backup",
   list_playbooks: "Looking for a matching playbook",
   get_playbook: "Reading a playbook",
   list_batfish_networks: "Listing Batfish networks",
@@ -192,7 +194,9 @@ export function AssistantPanel({
   );
   const [savedOpen, setSavedOpen] = useState(false);
   const isStreamingRef = useRef(false);
-  const pendingFollowUpRef = useRef<string | null>(null);
+  // Follow-ups that finished while an answer was streaming; all are sent as one turn afterwards.
+  const pendingFollowUpsRef = useRef<string[]>([]);
+  const messageIdsRef = useRef<ReadonlySet<string>>(new Set());
   const scrollRef = useRef<HTMLDivElement>(null);
   // Follow the newest text like a console, unless the user scrolled up to read.
   const followRef = useRef(true);
@@ -218,6 +222,11 @@ export function AssistantPanel({
   // fetch_slice, which applies the content opt-in and the redaction again.
   const handleDeviceResult = useCallback(
     (messageId: string, result: DeviceCommandResult) => {
+      // The conversation was cleared while the command ran: the card is gone, so a follow-up
+      // would start a turn about something the user no longer sees.
+      if (!messageIdsRef.current.has(messageId)) {
+        return;
+      }
       completeDeviceCommand(messageId, result);
       if (
         result.success &&
@@ -230,7 +239,10 @@ export function AssistantPanel({
         // `send` ignores a message while an answer is streaming, which would lose this one: the
         // user can start another question while the command runs. Hold it until the stream ends.
         if (isStreamingRef.current) {
-          pendingFollowUpRef.current = followUp;
+          pendingFollowUpsRef.current = [
+            ...pendingFollowUpsRef.current,
+            followUp,
+          ];
         } else {
           void send(followUp);
         }
@@ -241,19 +253,20 @@ export function AssistantPanel({
 
   useEffect(() => {
     isStreamingRef.current = isStreaming;
-    if (!isStreaming && pendingFollowUpRef.current) {
-      const followUp = pendingFollowUpRef.current;
-      pendingFollowUpRef.current = null;
+    if (!isStreaming && pendingFollowUpsRef.current.length > 0) {
+      const followUp = pendingFollowUpsRef.current.join("\n");
+      pendingFollowUpsRef.current = [];
       void send(followUp);
     }
   }, [isStreaming, send]);
 
   // A cleared conversation has nothing for the follow-up to refer to.
   useEffect(() => {
+    messageIdsRef.current = new Set(messages.map((message) => message.id));
     if (messages.length === 0) {
-      pendingFollowUpRef.current = null;
+      pendingFollowUpsRef.current = [];
     }
-  }, [messages.length]);
+  }, [messages]);
 
   const handleSave = useCallback(() => {
     if (!conversationScope) {

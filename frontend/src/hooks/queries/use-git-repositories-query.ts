@@ -20,6 +20,8 @@ export interface GitRepositoryRecord {
   git_author_name: string | null;
   git_author_email: string | null;
   description?: string | null;
+  config_path_running?: string | null;
+  config_path_startup?: string | null;
   is_active: boolean;
   created_at: string;
   updated_at: string;

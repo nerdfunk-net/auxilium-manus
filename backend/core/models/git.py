@@ -32,6 +32,10 @@ class GitRepository(Base):
     git_author_name: Mapped[str | None] = mapped_column(String(255))
     git_author_email: Mapped[str | None] = mapped_column(String(255))
     description: Mapped[str | None] = mapped_column(Text)
+    # Where a device's backed-up config lives in a ``device_configs`` repository, as a
+    # read-config style path template (doc/plans/AI_CONFIG_FROM_GIT.md). Used by Ask the Net.
+    config_path_running: Mapped[str | None] = mapped_column(String(500))
+    config_path_startup: Mapped[str | None] = mapped_column(String(500))
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     last_sync: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     sync_status: Mapped[str | None] = mapped_column(String(255))

@@ -224,6 +224,8 @@ describe("AssistantPanel tool activity labels (Ask the Net)", () => {
 
   it.each([
     ["propose_device_command", /device command/i],
+    ["list_config_backups", /config backups/i],
+    ["get_config_backup", /config backup/i],
     ["list_playbooks", /playbook/i],
     ["get_playbook", /playbook/i],
     ["list_batfish_networks", /networks/i],
@@ -539,6 +541,26 @@ describe("AssistantPanel device command proposals", () => {
     await new Promise((resolve) => setTimeout(resolve, 20));
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("sends no follow-up when the conversation was cleared while the command ran", async () => {
+    let finishRun!: (value: unknown) => void;
+    deviceRun.mockReturnValue(
+      new Promise((resolve) => {
+        finishRun = resolve;
+      }),
+    );
+    render(<AssistantPanel sessionKey={KEY} />);
+    fireEvent.change(screen.getByLabelText("SSH login"), {
+      target: { value: "11" },
+    });
+    fireEvent.click(runButton());
+
+    state().clearSession(KEY);
+    finishRun(resultFor());
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it.each([

@@ -46,6 +46,8 @@ const repositorySchema = z.object({
   credentialName: z.string().optional(),
   verifySsl: z.boolean(),
   description: z.string().max(1000).optional(),
+  configPathRunning: z.string().max(500).optional(),
+  configPathStartup: z.string().max(500).optional(),
   webhookSecret: z.string().optional(),
   webhookAutoDeploy: z.boolean(),
 });
@@ -61,6 +63,8 @@ const EMPTY_DEFAULTS: RepositoryFormValues = {
   credentialName: "",
   verifySsl: true,
   description: "",
+  configPathRunning: "",
+  configPathStartup: "",
   webhookSecret: "",
   webhookAutoDeploy: false,
 };
@@ -98,6 +102,7 @@ export function GitRepositoryDialog({
   });
 
   const authType = useWatch({ control, name: "authType" });
+  const category = useWatch({ control, name: "category" });
 
   useEffect(() => {
     if (!open) return;
@@ -110,6 +115,8 @@ export function GitRepositoryDialog({
       credentialName: repository?.credential_name ?? "",
       verifySsl: repository?.verify_ssl ?? true,
       description: repository?.description ?? "",
+      configPathRunning: repository?.config_path_running ?? "",
+      configPathStartup: repository?.config_path_startup ?? "",
       webhookSecret: "",
       webhookAutoDeploy: repository?.webhook_auto_deploy ?? false,
     });
@@ -134,6 +141,16 @@ export function GitRepositoryDialog({
         credential_name: values.credentialName || null,
         verify_ssl: values.verifySsl,
         description: values.description?.trim() || null,
+        // An empty string clears a stored template on update (omitting would keep it); only
+        // device_configs repositories may carry one, so other categories always send "".
+        config_path_running:
+          values.category === "device_configs"
+            ? (values.configPathRunning?.trim() ?? "")
+            : "",
+        config_path_startup:
+          values.category === "device_configs"
+            ? (values.configPathStartup?.trim() ?? "")
+            : "",
         webhook_auto_deploy: values.webhookAutoDeploy,
         // On edit, an empty field means "keep the stored secret" — only send it
         // when the user typed something. On create, send it (or empty).
@@ -336,6 +353,44 @@ export function GitRepositoryDialog({
                 {...register("description")}
               />
             </div>
+
+            {category === "device_configs" ? (
+              <div className="space-y-3 rounded-lg border px-4 py-3">
+                <div>
+                  <p className="text-sm font-medium">Config backup paths</p>
+                  <p className="text-xs text-muted-foreground">
+                    Where a device&apos;s backed-up configuration lives in this
+                    repository. Ask the Net reads it from here without opening an
+                    SSH session. Placeholders: {"{device.name}"},{" "}
+                    {"{nautobot.location.name}"}, {"{nautobot.role.name}"}.
+                    Example:{" "}
+                    {"{nautobot.location.name}/{device.name}.running.cfg"}
+                  </p>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="git-repo-config-path-running">
+                    Running config path (optional)
+                  </Label>
+                  <Input
+                    id="git-repo-config-path-running"
+                    className="font-mono text-xs"
+                    placeholder="{nautobot.location.name}/{device.name}.running.cfg"
+                    {...register("configPathRunning")}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="git-repo-config-path-startup">
+                    Startup config path (optional)
+                  </Label>
+                  <Input
+                    id="git-repo-config-path-startup"
+                    className="font-mono text-xs"
+                    placeholder="{nautobot.location.name}/{device.name}.startup.cfg"
+                    {...register("configPathStartup")}
+                  />
+                </div>
+              </div>
+            ) : null}
 
             <div className="flex items-center justify-between rounded-lg border px-4 py-3">
               <div>

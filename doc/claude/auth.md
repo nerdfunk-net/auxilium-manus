@@ -99,6 +99,12 @@ page-side query (`use-settings-mutations.ts`).
 rate limited. The shared secret is a global `shared_secret` credential referenced by id; no response or query
 carries it (`doc/AGENT_INTEGRATION.md`).
 
+**Ask the Net config backups.** `list_config_backups` / `get_config_backup` read a device's config from a
+`device_configs` git repository. They need `git.files:read` (checked on every call, which the seeded `viewer` role
+holds) and the user's content opt-in; no operator switch. The path comes from the repository's
+`config_path_running` / `config_path_startup` template, which only an admin can set (P3), never from the model
+(`doc/AI_TOOL_CHAIN.md` §30).
+
 **Assistant glossary** (inventory terms and workflow step aliases). `ai_glossary_terms` is global
 and its words steer the model, so every `/ai/glossary` route, for both kinds, needs the `admin` role (P3 style); the seeded `viewer` and other roles have no
 access. The assistant reads entries through the `get_glossary` tool as the calling user.

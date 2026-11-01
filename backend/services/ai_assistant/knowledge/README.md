@@ -171,6 +171,11 @@ turns that gate off**: the text is offered to every user and sent to the provide
 follow it (`check_playbooks.py` prints a note for each such file). A knowledge overlay has no data class at
 all and is always shown, so keep both free of anything that should not reach every user.
 
+Operator facts, such as which git repository holds the production config backups or that backups run
+nightly, belong in a local playbook (or a `.local.md` addition), not in a built-in one. Built-in playbooks
+never contain repository names or paths; where a config backup lives is the repository's config path
+template (Settings -> Git Repositories).
+
 Playbook format (`playbooks/target-unreachable.md` is the model to copy; files starting with `_` are ignored):
 
 ```

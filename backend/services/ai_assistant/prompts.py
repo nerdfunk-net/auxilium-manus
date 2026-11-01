@@ -212,6 +212,15 @@ it. Only full, read-only 'show' commands are accepted; never propose configurati
 the device name exactly as the user gave it; if it is not found or not unique, say so.
 """
 
+CONFIG_BACKUP_PROMPT = """\
+Config backups: device configurations are also backed up in git. For "the config of X" (running or \
+startup) call list_config_backups; if a repository has the kind you need, call \
+get_config_backup(device, kind) instead of asking the user to run a command. It needs no click. \
+Always say when the backup was committed (its age) and that it may differ from the live device. \
+Read long configs with fetch_slice. Use propose_device_command only when the user asks for the \
+live or current config, or when no backup exists or it is missing. Never invent a path.
+"""
+
 # The sentence that says the assistant cannot touch devices. When the device-command tool is
 # offered it is replaced, so the prompt does not contradict itself (see ``general_prompt``).
 _NO_DEVICE_ACCESS = (

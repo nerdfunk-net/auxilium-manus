@@ -143,11 +143,23 @@ def _host_of(primary_ip4: str | None) -> str:
         raise DeviceNoAddressError from exc
 
 
-def select_device(name: str, found: list[tuple[str, DeviceInfo]]) -> ResolvedDevice:
+def _host_or_empty(primary_ip4: str | None) -> str:
+    """The management host, or ``""`` when the inventory has none (a read that never connects)."""
+    try:
+        return _host_of(primary_ip4)
+    except DeviceNoAddressError:
+        return ""
+
+
+def select_device(
+    name: str, found: list[tuple[str, DeviceInfo]], *, require_address: bool = True
+) -> ResolvedDevice:
     """The one device called exactly ``name`` among ``(source_id, device)`` search results.
 
     An exact (case-sensitive) name wins; otherwise a single case-insensitive match is accepted.
-    Substring matches never count. Anything else is not found or ambiguous.
+    Substring matches never count. Anything else is not found or ambiguous. With
+    ``require_address=False`` a device without a usable address is returned with ``host=""``
+    (for reads that never open a session, such as the config backup).
     """
     exact = [(s, d) for s, d in found if d.name == name]
     matches = exact or [(s, d) for s, d in found if (d.name or "").casefold() == name.casefold()]
@@ -160,7 +172,7 @@ def select_device(name: str, found: list[tuple[str, DeviceInfo]]) -> ResolvedDev
         source_id=source_id,
         device_id=device.id,
         name=device.name or name,
-        host=_host_of(device.primary_ip4),
+        host=(_host_of if require_address else _host_or_empty)(device.primary_ip4),
         platform=device.platform,
         network_driver=device.platform_network_driver,
     )
@@ -195,12 +207,19 @@ class DbDeviceResolver:
         service = service_factory.build_nautobot_source_service(credentials)
         return await service.search_devices_by_name(name, MAX_CANDIDATES)
 
-    async def resolve(self, name: str) -> ResolvedDevice:
+    async def _find(self, name: str) -> list[tuple[str, DeviceInfo]]:
         sources = await asyncio.to_thread(self._load_sources)
         found: list[tuple[str, DeviceInfo]] = []
         for source_id, credentials in sources:
             found.extend((source_id, d) for d in await self._search(credentials, name))
-        return select_device(name, found)
+        return found
+
+    async def resolve(self, name: str) -> ResolvedDevice:
+        return select_device(name, await self._find(name))
+
+    async def resolve_without_address(self, name: str) -> ResolvedDevice:
+        """Like ``resolve`` but a device with no management address is accepted (``host=""``)."""
+        return select_device(name, await self._find(name), require_address=False)
 
 
 class DbDeviceCommandRunner:

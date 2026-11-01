@@ -48,6 +48,7 @@ from services.ai_assistant.audit import AuditContext
 from services.ai_assistant.batfish_reader import DbBatfishReader
 from services.ai_assistant.chat_service import ChatEvent, check_connection, stream_chat
 from services.ai_assistant.command_policy import CommandNotAllowedError
+from services.ai_assistant.config_backup import DbConfigBackupReader
 from services.ai_assistant.device_access import (
     DbDeviceCommandRunner,
     DbDeviceResolver,
@@ -151,6 +152,7 @@ def _session_for(
     can_save_inventories: bool = False,
     can_query_batfish: bool = False,
     can_run_device_commands: bool = False,
+    can_read_config_backups: bool = False,
 ) -> AssistantSession:
     sharing = config.sharing
     # S5-04: with run / device content shared, scrub the exact secrets the user can resolve.
@@ -176,6 +178,12 @@ def _session_for(
             # be useless, so it is not offered.
             device_resolver=(
                 DbDeviceResolver(user.id) if can_run_device_commands and sharing.content else None
+            ),
+            # Backed-up configs are content too, and need the repository file read permission.
+            config_reader=(
+                DbConfigBackupReader(user.id, DbDeviceResolver(user.id))
+                if can_read_config_backups and sharing.content
+                else None
             ),
         )
     if isinstance(context, ReportsContext):
@@ -335,6 +343,7 @@ def chat(
     can_save_inventories = False
     can_query_batfish = False
     can_run_device_commands = False
+    can_read_config_backups = False
     try:
         config: AiRuntimeConfig = service.require_runtime_config(current_user.id)
         if isinstance(body.context, InventoryContext):
@@ -351,6 +360,7 @@ def chat(
             can_run_device_commands = settings.ai_device_commands_enabled and rbac.has_permission(
                 current_user.id, "netmiko", "execute"
             )
+            can_read_config_backups = rbac.has_permission(current_user.id, "git.files", "read")
         if isinstance(body.context, WorkflowCanvasContext):
             # S5-08: the editor tools list real credentials / sources / inventories, so they
             # need the same permission the workflow list does; proposing needs write.
@@ -385,6 +395,7 @@ def chat(
                 can_save_inventories=can_save_inventories,
                 can_query_batfish=can_query_batfish,
                 can_run_device_commands=can_run_device_commands,
+                can_read_config_backups=can_read_config_backups,
             )
         except RedactionBudgetExceeded as exc:
             raise HTTPException(

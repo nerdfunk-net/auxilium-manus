@@ -54,11 +54,18 @@ class GetPlaybookInput(BaseModel):
 def known_general_tool_names() -> frozenset[str]:
     """Every tool name the ``general`` surface can offer; playbooks are validated against it."""
     from services.ai_assistant.tools.batfish_tools import build_batfish_tools
+    from services.ai_assistant.tools.config_backup_tools import build_config_backup_tools
     from services.ai_assistant.tools.device_tools import build_device_tools
     from services.ai_assistant.tools.result_tools import build_result_tools
 
     names = {
-        t.name for t in (*build_batfish_tools(), *build_result_tools(), *build_device_tools())
+        t.name
+        for t in (
+            *build_batfish_tools(),
+            *build_result_tools(),
+            *build_device_tools(),
+            *build_config_backup_tools(),
+        )
     }
     return frozenset(names | {t.name for t in build_playbook_tools()})
 

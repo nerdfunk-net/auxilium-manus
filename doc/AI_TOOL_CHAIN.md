@@ -2486,6 +2486,13 @@ not written). The playbook text was checked against the tool inputs by reading, 
 
 ## 28. Handover for the next session (2026-11-01, end of day)
 
+> **Update (end of session, 2026-11-01):** this list was written before §29 and §30. Since then: playbooks are
+> built (item 1, §27.2, still not tried with a model), device commands from Ask the Net are built (§29, item 7
+> phase 3), and device configs from the git backup are built and live-checked by the product owner (§30). The
+> branch is about to be merged to `main`. Still open: BGP columns (item 2), the playbook live tries, the
+> remaining items below, and the list "Open" in §30. Test counts: backend unit suite 8193 passed, frontend
+> related suites green (`tsc`, `eslint`, `pyright` clean).
+
 State: phase 1 (§20.3) and the Batfish read tools (§27.0-A) are built, reviewed and live-checked as far as the
 inventory says. Branch `feature/ask-the-net`; the product owner commits (everything described here is meant to be
 committed before the next session starts). Checks at the end of the session: backend
@@ -2555,7 +2562,7 @@ the output only with the content opt-in. Gates follow §13.2 and D1 to D4.
 | 4 | `tools/device_tools.py` `propose_device_command(device, commands)`; `device_token.py` (HMAC over user, source, device, commands, expiry; 10 minutes; constant-time compare; user-bound). Offered by `build_general_session(device_resolver=...)`, which the router passes only if the switch is on, the user has `netmiko:execute` **and** the content opt-in holds (content is switched off when the exact secrets cannot be loaded). The prompt (`DEVICE_COMMANDS_PROMPT`) uses your two examples. Pinned: without a resolver the surface has no `propose` tool; with one, exactly `propose_device_command` | done |
 | 5 | `device_exec_service.py` and `POST /ai/exec/device-command` in `routers/ai_assistant.py` (see `AI_ASSISTANT.md` §23). Failures map to `invalid_confirmation` 400, `command_not_allowed` 400, `device_not_found` 404, `device_ambiguous` / `device_no_address` / `device_changed` 409, `device_access_denied` 403, `secrets_unavailable` 503; anything else is a generic 500 with an error id. `StoredProposal` accepts the kind `device_command` for saved conversations | done |
 | 6 | Frontend: `DeviceCommandProposalCard` (device and host, the exact commands as plain text, an SSH-login dropdown of the user's own `ssh` credentials, Run / Reject, expiry checked on render and again at the click, the redacted output afterwards), `useDeviceCommandMutation`, `parseDeviceCommand` + `completeDeviceCommand` in `useAssistantChat`, and the panel's follow-up turn (handle only, validated against `res_[0-9a-f]{12}`) | done |
-| 7 | Live check in the lab (below) | **open: needs you** |
+| 7 | Live check in the lab (below) | config path checked by the product owner 2026-11-01 (§30); the card/Run click path to be confirmed |
 
 **Review fixes (`doc/analysis/REVIEW.md`, 2026-11-01).** All seven findings checked against the code and fixed.
 (1, High) The follow-up turn was silently dropped when the user started another question while the
@@ -2584,3 +2591,45 @@ Known facts: `NetmikoPreviewService.run_commands` takes `host` and `credential_i
 command (no allow-list); `get_configs` returns a parsed model, not the raw text, so the raw running config needs
 `run_commands`. The chat is stateless and proposals are client-side cards.
 
+
+## 30. Device configs from the git backup (2026-11-01)
+
+Plan and decisions: `doc/plans/AI_CONFIG_FROM_GIT.md`. "Get the running/startup config of LAB" is answered from
+the config backup in a `device_configs` git repository, with the backup's age, no SSH and no click. A live
+`show` command (§29) stays the way to get the config now.
+
+* **Data.** `git_repositories.config_path_running` / `config_path_startup` (nullable `String(500)`), a
+  `read-config` style path template such as `{nautobot.location.name}/{device.name}.running.cfg`. Validated
+  by `services/git/config_path_template.py` (relative, no `..`/`:`/backslash, known namespaces
+  `device nautobot run` (`git`/`custom` are refused: the reader does not fill them), at least one `{device.*}` or `{nautobot.*}`); only for category
+  `device_configs`; an empty string on update clears. Admin-only like all repository writes. UI: two fields
+  in the git repository dialog, shown for `device_configs`.
+* **Reader** `services/ai_assistant/config_backup.py` (`DbConfigBackupReader`): checks `git.files:read` per
+  call, rate limit bucket `ai-config-backup` (20/min), resolves the device by name (`DbDeviceResolver`),
+  fetches the Nautobot attribute bag (verbatim GraphQL, so `location.name` is `{nautobot.location.name}`),
+  renders the template (strict; an empty placeholder is reported by name only), checks the repository out
+  with `agit_checkout` (strict pull, lease held while reading), contains the path (`resolve` +
+  `relative_to`, no `.git`), refuses symlinks and non-regular files (`read_cached`: O_NOFOLLOW, 2M chars,
+  strict UTF-8) and reads the last commit time with GitPython. It does not import `workflow_steps`
+  (`test_ai_device_guard`).
+* **Tools** `tools/config_backup_tools.py`: `list_config_backups` (names, branch, kinds, last sync; inventory
+  class) and `get_config_backup(device, kind, repository?)` (content class). The text is redacted with the
+  user's exact secrets, stored as a `config_backup` handle, and the answer carries a 3,000 character preview,
+  `committed_at`, `age` and the handle for `fetch_slice`. The model supplies no path, ref or repository
+  location.
+* **Gating.** Offered on the general surface when the user may query Batfish (as all tools), holds
+  `git.files:read` and has the content opt-in (the router passes `config_reader`). No operator switch.
+* **Prompt/playbook.** `CONFIG_BACKUP_PROMPT`; built-in playbook `config-backup-or-live` (no paths or repo
+  names; operator facts go in a local playbook, see `knowledge/README.md`).
+* **Tests.** `test_git_config_path_template.py`, `test_ai_config_backup.py`, router gate test in
+  `test_ai_assistant_router.py`. Mutation checks of the new tests were not done.
+* **Review fixes** (`doc/analysis/REVIEW.md`, 2026-11-01): `contain()` now refuses any symlink component with
+  `lstat` (also one that points inside the checkout); the file is read by `read_backup_text` (no shared
+  cache, cut on a line boundary at 2M characters and flagged `truncated`); the whole text is redacted first
+  and the preview cut second; `git`/`custom` placeholders are no longer accepted; a category change clears both
+  templates in the same update (merged-result check, `_apply_config_path_rules`); the device is resolved with
+  `DbDeviceResolver.resolve_without_address`, so a device without a management IP still has a backup. Two panel
+  bugs from the device-command work are fixed too: no follow-up after the chat was cleared, and several waiting
+  follow-ups are queued and sent as one turn.
+* **Open.** The optional "test with device" endpoint for the admin UI. `{nautobot.custom_fields.<name>}` does
+  not work (the reader requests no attribute groups); add the group if a site needs it.

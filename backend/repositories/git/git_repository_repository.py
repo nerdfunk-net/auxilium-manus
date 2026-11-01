@@ -26,6 +26,8 @@ class GitRepositoryRepository(BaseRepository[GitRepository]):
             "git_author_name",
             "git_author_email",
             "description",
+            "config_path_running",
+            "config_path_startup",
             "is_active",
             "webhook_auto_deploy",
             "webhook_secret_encrypted",
