@@ -92,8 +92,9 @@ Run the gates from `mcp/nautobot/` (the library's own: `libs/nautobot_read/READM
 
 ## 5. Docs elsewhere in the repo
 
-- [x] `CLAUDE.md` (Key File Locations) and `doc/claude/development.md` mention the shared library
-      `libs/nautobot_read`. Still missing there: a pointer to `mcp/nautobot/doc/DESIGN.md` and `mcp-ci.yml`.
+- [x] `CLAUDE.md` (Key File Locations, Integrations) and `doc/claude/development.md` (next to the `agent/`
+      notes) mention the shared library `libs/nautobot_read`, the MCP server, `mcp-ci.yml` and the "read
+      DESIGN.md first" pointer.
 - [ ] Mention the MCP server in `docker/README.md` only if it should be deployed with the app
       stack (it is currently self-contained and not part of `docker/`).
 

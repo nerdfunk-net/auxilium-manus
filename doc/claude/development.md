@@ -112,6 +112,11 @@ cd agent/<name> && pip install -r requirements-dev.txt && ruff check . && python
 # agent/<name>/manus_agent/envelope.py is a generated copy of backend/services/agents/envelope.py:
 # change the backend file, regenerate the copy, never run ruff --fix on it (test_agent_envelope_sync.py)
 
+# Nautobot MCP server (mcp/nautobot/ is standalone, Python 3.12, its own venv; the CI is .github/workflows/mcp-ci.yml:
+# the library job, the server tests, the image smoke test and pip-audit). Read mcp/nautobot/doc/DESIGN.md first.
+cd mcp/nautobot && pip install -r requirements-dev.txt && ruff check . && python -m pytest -q --cov=nautobot_mcp --cov-fail-under=100
+# ./check-image.sh builds the image (named build context for libs/nautobot_read) and smoke-tests it; needs Docker
+
 # Regression guards (run from backend/):
 python scripts/check_asyncio_run.py
 python scripts/check_http_500_leaks.py

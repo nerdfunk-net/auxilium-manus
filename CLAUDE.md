@@ -21,7 +21,9 @@ Netmiko, GitPython
 **Integrations:** Nautobot API, Cisco Catalyst Center (REST Intent API) — read
 `doc/CISCO_CATALYST_INTEGRATION.md` before changing it or adding Catalyst Center features/steps;
 external **agents** (Route to Agent step, `/agent` reference agent) — read `doc/AGENT_INTEGRATION.md`
-before changing `backend/services/agents/`, `route_to_agent`, `agent/` (every agent below it) or `docker/redis/`
+before changing `backend/services/agents/`, `route_to_agent`, `agent/` (every agent below it) or `docker/redis/`;
+the **Nautobot MCP server** (`mcp/nautobot/`) and the Nautobot reads of Ask the Net share `libs/nautobot_read/` — read
+`mcp/nautobot/doc/DESIGN.md` (MCP server) and `doc/AI_TOOL_CHAIN.md` §31 (Ask the Net tools) before changing either
 
 ## Architecture
 
