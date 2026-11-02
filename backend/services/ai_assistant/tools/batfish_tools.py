@@ -26,7 +26,7 @@ from __future__ import annotations
 import ipaddress
 import json
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Annotated, Any, Literal, Protocol, get_args
 
 from pydantic import (
@@ -43,16 +43,21 @@ from services.ai_assistant.tools.base import Tool, ToolContext, ToolOutput
 from services.ai_assistant.tools.batfish_shaping import (
     DEFAULT_FACT_KEYS,
     FactKey,
+    InterfaceStatus,
+    ParseSection,
     fact_keys_seen,
+    filter_interfaces,
     shape_bgp_sessions,
     shape_facts,
     shape_filter_comparison,
     shape_filter_results,
     shape_interfaces,
+    shape_parse_issues,
     shape_routes,
     summarize_bgp_sessions,
     summarize_differential_traces,
     summarize_facts,
+    summarize_interfaces,
     summarize_traces,
 )
 from services.ai_assistant.tools.result_publish import publish_table
@@ -100,6 +105,34 @@ class BatfishAnswer:
     reference_created: str | None = None
     # The source cut the table at its preview cap, so ``rows`` is a prefix.
     truncated: bool = False
+    # Device names the reader rewrote to Batfish node names (asked -> used), for example
+    # ``LAB.local.zz`` -> ``lab``. Empty when every name already was a node name.
+    nodes_resolved: dict[str, str] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class SnapshotDiagnostics:
+    """What Batfish reported while reading a snapshot's configs (three answers, raw rows)."""
+
+    snapshot: str
+    snapshot_created: str | None
+    file_status: list[dict[str, Any]]
+    warnings: list[dict[str, Any]]
+    issues: list[dict[str, Any]]
+    # Section name -> why it has no rows (the question failed); the other sections still answer.
+    unavailable: dict[str, str] = field(default_factory=dict)
+    truncated: bool = False
+    # Sections whose rows were cut at the preview cap: their counts are lower bounds.
+    truncated_sections: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class NodeListing:
+    """The node (device) names of one snapshot, as Batfish spells them."""
+
+    snapshot: str
+    snapshot_created: str | None
+    names: tuple[str, ...]
 
 
 class BatfishReader(Protocol):
@@ -118,14 +151,23 @@ class BatfishReader(Protocol):
         params: dict[str, Any],
     ) -> BatfishAnswer: ...
 
+    async def snapshot_diagnostics(
+        self, source_id: str, network: str, snapshot: str | None
+    ) -> SnapshotDiagnostics: ...
+
+    async def node_names(
+        self, source_id: str, network: str, snapshot: str | None
+    ) -> NodeListing: ...
+
 
 # -- inputs -----------------------------------------------------------------------------------
 
 NodeName = Annotated[
     str,
     StringConstraints(
+        # Not lower-cased here: the reader matches the name against the snapshot's nodes and
+        # reports the rewrite (``nodes_resolved``) with the user's own spelling.
         strip_whitespace=True,
-        to_lower=True,
         min_length=1,
         max_length=100,
         pattern=r"(?i)^[a-z0-9][a-z0-9_.:/\-]*$",
@@ -268,6 +310,14 @@ class InterfacesInput(Target):
     interface: InterfaceName | None = Field(
         default=None, description="Interface name, e.g. 'GigabitEthernet0/1'"
     )
+    status: InterfaceStatus = Field(
+        default="all",
+        description=(
+            "Only interfaces in this state: active, inactive, admin_down (shut down), or "
+            "inactive_but_admin_up (configured up, yet Batfish treats it as inactive, usually a "
+            "missing dependency such as a parent interface or port-channel member)"
+        ),
+    )
 
 
 FilterName = Annotated[
@@ -383,6 +433,19 @@ class FactsInput(Target):
     )
 
 
+class ParseIssuesInput(Target):
+    section: ParseSection = Field(
+        default="all",
+        description=(
+            "files = config files that did not parse cleanly, warnings = lines the parser did "
+            "not understand, issues = problems found while building the model; all = the three"
+        ),
+    )
+    include_passed: bool = Field(
+        default=False, description="Also list the files that parsed without a problem"
+    )
+
+
 # -- helpers ----------------------------------------------------------------------------------
 
 
@@ -491,12 +554,16 @@ async def _run(
 
 def _context(source: str, args: Target, answer: BatfishAnswer) -> dict[str, Any]:
     """What the answer rests on. The model must say which snapshot it used and how old it is."""
-    return {
+    context: dict[str, Any] = {
         "source_id": source,
         "network": args.network,
         "snapshot": answer.snapshot,
         "snapshot_created": answer.snapshot_created,
     }
+    if answer.nodes_resolved:
+        # The rows use the Batfish names; this says which device the user's name meant.
+        context["nodes_resolved"] = dict(answer.nodes_resolved)
+    return context
 
 
 def _differential_context(source: str, args: Target, answer: BatfishAnswer) -> dict[str, Any]:
@@ -603,16 +670,29 @@ async def _get_interfaces(ctx: ToolContext, args: InterfacesInput) -> ToolOutput
     if isinstance(ran, ToolOutput):
         return ran
     source, answer = ran
+    # The summary counts every interface; the status filter only narrows the rows listed. A
+    # device with hundreds of ports is answered from the summary and the filter, not by paging.
+    selected = filter_interfaces(answer.rows, args.status)
+    note = (
+        None
+        if args.status == "all"
+        else f"Only '{args.status}' interfaces: {len(selected)} of {len(answer.rows)}."
+    )
     # Descriptions are free text from the config: only with the content opt-in, and then the whole
     # table (and its handle) is content-class, so switching the opt-in off closes the handle too.
     with_description = ctx.sharing.allows(DataClass.CONTENT)
     return await publish_table(
         ctx,
-        shape_interfaces(answer.rows, include_description=with_description),
+        shape_interfaces(selected, include_description=with_description),
         kind="interfaces",
         data_class=DataClass.CONTENT if with_description else DataClass.ADDRESSES,
         source_truncated=answer.truncated,
-        extra=_context(source, args, answer),
+        note=note,
+        extra={
+            **_context(source, args, answer),
+            "summary": summarize_interfaces(answer.rows),
+            "summary_complete": not answer.truncated,
+        },
     )
 
 
@@ -824,6 +904,85 @@ async def _get_device_facts(ctx: ToolContext, args: FactsInput) -> ToolOutput:
     )
 
 
+_NO_PARSE_PROBLEMS = (
+    "No parse problems reported: every file parsed and Batfish raised no warnings or issues. "
+    "This does not explain why an interface is inactive; check Active and the VLAN / "
+    "port-channel settings with get_interface_properties."
+)
+_TEXT_HIDDEN = (
+    "Config lines and issue details are not shown: the user has not allowed config content to "
+    "be shared. File names, statuses, line numbers and counts are."
+)
+
+
+def _parse_issues_note(
+    diagnostics: SnapshotDiagnostics, rows: list[dict[str, Any]], *, with_text: bool
+) -> str | None:
+    parts = []
+    if diagnostics.truncated_sections:
+        cut = ", ".join(diagnostics.truncated_sections)
+        parts.append(
+            f"The answer for {cut} was cut at the preview row cap: its counts and groups are at "
+            "least these values, and messages that only occur later are missing."
+        )
+    if not rows and not diagnostics.unavailable:
+        parts.append(_NO_PARSE_PROBLEMS)
+    if diagnostics.unavailable:
+        names = ", ".join(sorted(diagnostics.unavailable))
+        parts.append(
+            f"Batfish could not answer for: {names}. Those sections are missing, not empty."
+        )
+    if not with_text:
+        parts.append(_TEXT_HIDDEN)
+    return " ".join(parts) or None
+
+
+async def _get_snapshot_parse_issues(ctx: ToolContext, args: ParseIssuesInput) -> ToolOutput:
+    if (blocked := _gate(ctx, DataClass.ADDRESSES)) is not None:
+        return blocked
+    source = await _source(ctx, args.source_id)
+    if isinstance(source, ToolOutput):
+        return source
+    ctx.audit_refs.add(f"batfish:{source}/{args.network}")
+    try:
+        diagnostics = await _reader(ctx).snapshot_diagnostics(source, args.network, args.snapshot)
+    except _READER_ERRORS as exc:
+        return _error(exc)
+    # Warning lines and issue details quote the config: only with the content opt-in, and then
+    # the whole table (and its handle) is content-class, like interface descriptions.
+    with_text = ctx.sharing.allows(DataClass.CONTENT)
+    rows, summary = shape_parse_issues(
+        file_status=diagnostics.file_status,
+        warnings=diagnostics.warnings,
+        issues=diagnostics.issues,
+        section=args.section,
+        include_passed=args.include_passed,
+        include_text=with_text,
+    )
+    extra: dict[str, Any] = {
+        "source_id": source,
+        "network": args.network,
+        "snapshot": diagnostics.snapshot,
+        "snapshot_created": diagnostics.snapshot_created,
+        "summary": summary,
+        # The counts and warning groups are taken from rows cut at the preview cap.
+        "summary_complete": not diagnostics.truncated_sections,
+    }
+    if diagnostics.truncated_sections:
+        extra["summary_cut_sections"] = list(diagnostics.truncated_sections)
+    if diagnostics.unavailable:
+        extra["unavailable_sections"] = sorted(diagnostics.unavailable)
+    return await publish_table(
+        ctx,
+        rows,
+        kind="parse_issues",
+        data_class=DataClass.CONTENT if with_text else DataClass.ADDRESSES,
+        source_truncated=diagnostics.truncated,
+        note=_parse_issues_note(diagnostics, rows, with_text=with_text),
+        extra=extra,
+    )
+
+
 # -- registration -----------------------------------------------------------------------------
 
 _SNAPSHOT_HINT = (
@@ -874,8 +1033,11 @@ _TOOLS: tuple[tuple[str, str, type[BaseModel], Callable[..., Awaitable[ToolOutpu
     (
         "get_interface_properties",
         "Interface settings from the configs (address, VLAN, MTU, filters, active state), one "
-        "record per interface. Restrict with nodes and interface to keep it small."
-        + _SNAPSHOT_HINT,
+        "record per interface, plus a summary over every interface (total, active, inactive, "
+        "shut down, inactive although configured up, switchport modes). Only 20 records are "
+        "shown at once: for a device with many interfaces answer from the summary, narrow with "
+        "status (for example inactive_but_admin_up to find interfaces Batfish deactivated), "
+        "nodes or interface, and page the rest with query_result." + _SNAPSHOT_HINT,
         InterfacesInput,
         _get_interfaces,
     ),
@@ -929,6 +1091,18 @@ _TOOLS: tuple[tuple[str, str, type[BaseModel], Callable[..., Awaitable[ToolOutpu
         "with check_reachability." + _SNAPSHOT_HINT,
         DifferentialReachabilityInput,
         _differential_reachability,
+    ),
+    (
+        "get_snapshot_parse_issues",
+        "What Batfish reported while reading the snapshot's configs: files that failed to parse "
+        "or parsed only partly, lines the parser did not recognise (grouped, with line numbers) "
+        "and problems found while building the model. Use it for 'show me the parsing errors / "
+        "parser output of snapshot X', and as a first lead when many interfaces are inactive "
+        "or devices are missing. Batfish does not always report the reason an interface is "
+        "inactive here: if nothing relevant shows, say so and check get_interface_properties "
+        "(Active)." + _SNAPSHOT_HINT,
+        ParseIssuesInput,
+        _get_snapshot_parse_issues,
     ),
 )
 

@@ -111,6 +111,7 @@ class BatfishToolsTests(unittest.IsolatedAsyncioTestCase):
                 "check_reachability",
                 "compare_filters",
                 "differential_reachability",
+                "get_snapshot_parse_issues",
             },
         )
         for name in names:
@@ -119,6 +120,25 @@ class BatfishToolsTests(unittest.IsolatedAsyncioTestCase):
     def test_every_input_forbids_unknown_fields(self) -> None:
         for tool in build_batfish_tools():
             self.assertIs(tool.input_model.model_config.get("extra"), "forbid", tool.name)
+
+    # -- device names ------------------------------------------------------------------------
+
+    async def test_a_rewritten_device_name_is_reported_to_the_model(self) -> None:
+        self.reader.answer = BatfishAnswer(
+            rows=[],
+            snapshot="run-2",
+            snapshot_created="2026-11-01T10:00:00Z",
+            nodes_resolved={"LAB.local.zz": "lab"},
+        )
+
+        _, data = await self._call("get_routes", network="net1", nodes=["LAB.local.zz"])
+
+        self.assertEqual(data["nodes_resolved"], {"LAB.local.zz": "lab"})
+
+    async def test_no_nodes_resolved_key_when_nothing_was_rewritten(self) -> None:
+        _, data = await self._call("get_routes", network="net1", nodes=["lab"])
+
+        self.assertNotIn("nodes_resolved", data)
 
     # -- opt-in ------------------------------------------------------------------------------
 
@@ -239,7 +259,7 @@ class BatfishToolsTests(unittest.IsolatedAsyncioTestCase):
 
         _, kind, source, network, snapshot, params = self.reader.calls[-1]
         self.assertEqual((kind, source, network, snapshot), ("routes", "lab", "net1", None))
-        self.assertEqual(params["nodes"], "r1,r2")
+        self.assertEqual(params["nodes"], "R1,r2")
         self.assertEqual(params["network_prefix"], "10.1.2.3/32")
         self.assertEqual(params["prefix_match_type"], "LONGEST_PREFIX_MATCH")
         self.assertEqual(params["vrfs"], "mgmt")
@@ -342,7 +362,7 @@ class BatfishToolsTests(unittest.IsolatedAsyncioTestCase):
 
         _, kind, _, _, _, params = self.reader.calls[-1]
         self.assertEqual(kind, "traceroute")
-        self.assertEqual(params["start_node"], "r1")
+        self.assertEqual(params["start_node"], "R1")
         self.assertEqual(params["dst_ips"], "10.1.2.3")
         self.assertEqual(params["src_ips"], "192.0.2.1")
         self.assertEqual(params["applications"], ["tcp/443"])
@@ -487,7 +507,7 @@ class BatfishToolsTests(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertEqual(self.reader.calls[-1][1], "facts")
-        self.assertEqual(self.reader.calls[-1][5], {"nodes": "r1,r2"})
+        self.assertEqual(self.reader.calls[-1][5], {"nodes": "R1,r2"})
         self.assertEqual(
             data["rows"],
             [
@@ -681,7 +701,7 @@ class BatfishToolsTests(unittest.IsolatedAsyncioTestCase):
 
         params = self.reader.calls[-1][5]
         self.assertEqual(self.reader.calls[-1][1], "acl")
-        self.assertEqual(params["node"], "r1")
+        self.assertEqual(params["node"], "R1")
         self.assertEqual(params["filter_name"], "MGMT_in")
         self.assertEqual(params["dst_ips"], "10.0.0.1")
         self.assertEqual(params["applications"], ["tcp/22"])
@@ -758,7 +778,7 @@ class BatfishToolsTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.reader.calls[-1][1], "reachability")
         self.assertEqual(
             (params["start_node"], params["end_node"], params["dst_ips"], params["ignore_filters"]),
-            ("r1", "r2", "10.0.0.1", True),
+            ("r1", "R2", "10.0.0.1", True),
         )
         self.assertTrue(data["reachable"])
         self.assertEqual(data["rows"][0]["path"], "r1 -> r2")
@@ -836,7 +856,7 @@ class BatfishToolsTests(unittest.IsolatedAsyncioTestCase):
         call = self.reader.calls[-1]
         self.assertEqual(call[1], "compare_filters")
         self.assertEqual(
-            call[5], {"reference_snapshot": "run-1", "nodes": "r1", "filters": "MGMT_in"}
+            call[5], {"reference_snapshot": "run-1", "nodes": "R1", "filters": "MGMT_in"}
         )
         self.assertEqual(data["snapshot"], "run-2")
         self.assertEqual(data["reference_snapshot"], "run-1")

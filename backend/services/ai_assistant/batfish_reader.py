@@ -40,12 +40,15 @@ from models.batfish import (
     BatfishTestFiltersQueryRequest,
     BatfishTracerouteQueryRequest,
 )
+from services.ai_assistant.node_names import NodeNameCache, resolve_node_names
 from services.ai_assistant.tools.batfish_tools import (
     BatfishAccessError,
     BatfishAnswer,
     BatfishInputError,
     BatfishUnavailableError,
+    NodeListing,
     QueryKind,
+    SnapshotDiagnostics,
 )
 from services.auth.login_rate_limiter import RateLimitExceededError
 from services.auth.rbac_service import RBACService
@@ -57,7 +60,11 @@ from services.batfish.common.exceptions import (
 )
 from services.batfish.credentials import BatfishConnection
 from services.batfish.preview_service import BatfishPreviewService
-from services.batfish.query_helpers import assert_batfish_network_exists
+from services.batfish.query_helpers import (
+    assert_batfish_network_exists,
+    query_node_properties,
+    resolve_latest_snapshot_name,
+)
 from services.batfish.source_config_service import (
     BatfishSourceConfigService,
     BatfishSourceNotFoundError,
@@ -71,6 +78,13 @@ RATE_LIMIT_ATTEMPTS = 30
 RATE_LIMIT_WINDOW_SECONDS = 60
 
 Kind = QueryKind
+
+# Query parameters that carry device names: a comma-separated list, or one name each.
+_NODE_LIST_PARAMS = ("nodes",)
+_NODE_SINGLE_PARAMS = ("node", "start_node", "end_node")
+# Node names per snapshot, so the lookup is not repeated for every tool call of a question.
+NODE_CACHE = NodeNameCache()
+MAX_LISTED_NODES = 10
 
 
 class _ResolvedSource:
@@ -144,6 +158,11 @@ class DbBatfishReader:
         preview = BatfishPreviewService(
             source_config_service=cast(Any, _ResolvedSource(connection)), batfish_service=batfish
         )
+        # Names the user or Nautobot wrote (``LAB.local.zz``) become the Batfish node names
+        # (``lab``) before anything reaches the coordinator.
+        snapshot, params, nodes_resolved = await self._resolve_device_names(
+            batfish, connection, network, snapshot, params
+        )
         token = PREVIEW_ROW_LIMIT.set(MAX_PREVIEW_ROWS)
         try:
             response = await self._run(preview, kind, source_id, network, snapshot, params)
@@ -182,6 +201,113 @@ class DbBatfishReader:
             reference_snapshot=response.reference_snapshot,
             reference_created=reference_created,
             truncated=response.truncated,
+            nodes_resolved=nodes_resolved,
+        )
+
+    async def node_names(self, source_id: str, network: str, snapshot: str | None) -> NodeListing:
+        """The device names of a snapshot, for matching a name from Nautobot or the user."""
+        network = network.strip()
+        snapshot = (snapshot or "").strip() or None
+        await self._authorize()
+        connection = await self._connection(source_id)
+        batfish = service_factory.get_batfish_app_service()
+        try:
+            resolved, names = await self._node_names(batfish, connection, network, snapshot)
+        except (ValueError, BatfishValidationError) as exc:
+            raise BatfishInputError(client_error_message(exc)) from exc
+        except Exception as exc:
+            raise self._unavailable("list nodes", exc) from exc
+        return NodeListing(
+            snapshot=resolved,
+            snapshot_created=await self._snapshot_created(connection, network, resolved),
+            names=names,
+        )
+
+    async def _resolve_device_names(
+        self,
+        batfish: Any,
+        connection: BatfishConnection,
+        network: str,
+        snapshot: str | None,
+        params: dict[str, Any],
+    ) -> tuple[str | None, dict[str, Any], dict[str, str]]:
+        """Rewrite the device names in ``params`` to the node names of the snapshot.
+
+        Returns ``(snapshot, params, rewritten)``. Nothing is looked up when no name is given.
+        When the node list cannot be read the query goes ahead unchanged (it reports the real
+        problem itself). A name that matches no node, or several, is an input error naming the
+        candidates: it is never guessed.
+        """
+        requested = _requested_names(params)
+        if not requested:
+            return snapshot, params, {}
+        try:
+            resolved_snapshot, nodes = await self._node_names(
+                batfish, connection, network, snapshot
+            )
+        except Exception as exc:
+            logger.info("Could not list the nodes of %s/%s: %s", network, snapshot, exc)
+            return snapshot, _lowered(params, requested), {}
+        if not nodes:
+            return resolved_snapshot, _lowered(params, requested), {}
+        outcome = resolve_node_names(requested, nodes)
+        if outcome.ambiguous or outcome.unknown:
+            raise BatfishInputError(_name_problem(outcome, nodes, resolved_snapshot))
+        return resolved_snapshot, _with_node_names(params, outcome.resolved), outcome.changed
+
+    async def _node_names(
+        self, batfish: Any, connection: BatfishConnection, network: str, snapshot: str | None
+    ) -> tuple[str, tuple[str, ...]]:
+        # A typo must not create a network, and the snapshot must be the one the query will use.
+        await assert_batfish_network_exists(batfish, connection, network)
+        resolved = snapshot or await resolve_latest_snapshot_name(batfish, connection, network)
+        key = (connection.host, connection.port, network, resolved)
+        cached = NODE_CACHE.get(key)
+        if cached is not None:
+            return resolved, cached
+        rows = await query_node_properties(
+            batfish,
+            connection,
+            batfish_network=network,
+            snapshot=resolved,
+            properties="Hostname",
+        )
+        names = tuple(sorted({str(row["Node"]) for row in rows if row.get("Node")}))
+        NODE_CACHE.put(key, names)
+        return resolved, names
+
+    async def snapshot_diagnostics(
+        self, source_id: str, network: str, snapshot: str | None
+    ) -> SnapshotDiagnostics:
+        """What Batfish reported while reading a snapshot: one permission check and one
+        rate-limit charge for the three parse questions."""
+        # The existence guard and the calls must see the same string.
+        network = network.strip()
+        snapshot = (snapshot or "").strip() or None
+        await self._authorize()
+        connection = await self._connection(source_id)
+        batfish = service_factory.get_batfish_app_service()
+        preview = BatfishPreviewService(
+            source_config_service=cast(Any, _ResolvedSource(connection)), batfish_service=batfish
+        )
+        token = PREVIEW_ROW_LIMIT.set(MAX_PREVIEW_ROWS)
+        try:
+            result = await preview.run_parse_diagnostics(source_id, network, snapshot)
+        except (ValueError, BatfishValidationError) as exc:
+            raise BatfishInputError(client_error_message(exc)) from exc
+        except Exception as exc:
+            raise self._unavailable("parse diagnostics", exc) from exc
+        finally:
+            PREVIEW_ROW_LIMIT.reset(token)
+        return SnapshotDiagnostics(
+            snapshot=result.snapshot,
+            snapshot_created=await self._snapshot_created(connection, network, result.snapshot),
+            file_status=result.file_status,
+            warnings=result.warnings,
+            issues=result.issues,
+            unavailable=result.unavailable,
+            truncated=result.truncated,
+            truncated_sections=result.truncated_sections,
         )
 
     async def _run(
@@ -314,3 +440,51 @@ class DbBatfishReader:
     def _unavailable(action: str, exc: Exception) -> BatfishUnavailableError:
         logger.error("Batfish %s failed: %s", action, exc)
         return BatfishUnavailableError()
+
+
+def _split(value: Any) -> list[str]:
+    return [part.strip() for part in str(value).split(",") if part.strip()] if value else []
+
+
+def _requested_names(params: dict[str, Any]) -> list[str]:
+    names = [n for key in _NODE_LIST_PARAMS for n in _split(params.get(key))]
+    names += [n for key in _NODE_SINGLE_PARAMS for n in _split(params.get(key))]
+    return list(dict.fromkeys(names))
+
+
+def _with_node_names(params: dict[str, Any], resolved: dict[str, str]) -> dict[str, Any]:
+    """A copy of ``params`` with every device name replaced by its node name."""
+    updated = dict(params)
+    for key in (*_NODE_LIST_PARAMS, *_NODE_SINGLE_PARAMS):
+        names = _split(params.get(key))
+        if names:
+            updated[key] = ",".join(resolved.get(name, name) for name in names)
+    return updated
+
+
+def _lowered(params: dict[str, Any], requested: list[str]) -> dict[str, Any]:
+    """Without a node list the best guess is how Batfish spells hostnames: lower case."""
+    return _with_node_names(params, {name: name.lower() for name in requested})
+
+
+def _name_problem(outcome: Any, nodes: tuple[str, ...], snapshot: str) -> str:
+    parts = []
+    for name, candidates in outcome.ambiguous.items():
+        parts.append(
+            f"'{name}' matches several devices in snapshot '{snapshot}': "
+            f"{', '.join(candidates)}. Ask the user which one, then use the full name."
+        )
+    for name, close in outcome.unknown.items():
+        hint = (
+            f"Close names, not necessarily the same device (ask the user before using one): "
+            f"{', '.join(close)}."
+            if close
+            else f"Devices in this snapshot: {', '.join(nodes[:MAX_LISTED_NODES])}"
+            f"{' ...' if len(nodes) > MAX_LISTED_NODES else ''}."
+        )
+        parts.append(f"No device '{name}' in snapshot '{snapshot}'. {hint}")
+    parts.append(
+        "Batfish names a device after the hostname in its config (lower case, usually without "
+        "the domain)."
+    )
+    return " ".join(parts)

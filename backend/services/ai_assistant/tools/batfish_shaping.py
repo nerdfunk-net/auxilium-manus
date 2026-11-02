@@ -106,6 +106,53 @@ def shape_interfaces(
     return shaped
 
 
+InterfaceStatus = Literal["all", "active", "inactive", "admin_down", "inactive_but_admin_up"]
+
+
+def _is(row: Mapping[str, Any], column: str, value: bool) -> bool:
+    return row.get(column) is value
+
+
+_STATUS_TESTS: dict[str, Any] = {
+    "all": lambda row: True,
+    "active": lambda row: _is(row, "Active", True),
+    "inactive": lambda row: _is(row, "Active", False),
+    "admin_down": lambda row: _is(row, "Admin_Up", False),
+    # Configured up, yet Batfish treats it as inactive: a missing parent interface, port-channel
+    # member or other dependency (the "no dependencies" case), not a shutdown.
+    "inactive_but_admin_up": lambda row: _is(row, "Active", False) and _is(row, "Admin_Up", True),
+}
+
+
+def filter_interfaces(
+    rows: Iterable[Mapping[str, Any]], status: InterfaceStatus
+) -> list[Mapping[str, Any]]:
+    """The ``interfaceProperties`` rows in one state. A row without the column never matches a
+    state that needs it."""
+    wanted = _STATUS_TESTS[status]
+    return [row for row in rows if wanted(row)]
+
+
+def summarize_interfaces(rows: Iterable[Mapping[str, Any]]) -> dict[str, Any]:
+    """Counts over *every* interface, so a device with hundreds of them can be described without
+    reading them all: totals, how many are active / inactive / shut down, how many Batfish
+    deactivated although they are configured up, and the switchport modes."""
+    listed = list(rows)
+    return {
+        "total": len(listed),
+        "active": len(filter_interfaces(listed, "active")),
+        "inactive": len(filter_interfaces(listed, "inactive")),
+        "admin_down": len(filter_interfaces(listed, "admin_down")),
+        "inactive_but_admin_up": len(filter_interfaces(listed, "inactive_but_admin_up")),
+        # Rows the answer gave no yes/no for: they are in ``total`` but in neither bucket above.
+        "active_unknown": sum(1 for row in listed if not isinstance(row.get("Active"), bool)),
+        "admin_up_unknown": sum(1 for row in listed if not isinstance(row.get("Admin_Up"), bool)),
+        "by_switchport_mode": dict(
+            Counter(str(row["Switchport_Mode"]) for row in listed if row.get("Switchport_Mode"))
+        ),
+    }
+
+
 def summarize_bgp_sessions(rows: Iterable[Mapping[str, Any]]) -> dict[str, int]:
     """Number of sessions per ``Established_Status``."""
     return dict(Counter(str(row.get("Established_Status")) for row in rows))
@@ -384,3 +431,113 @@ def summarize_differential_traces(
             }
         )
     return shaped, True
+
+
+# -- parse diagnostics -------------------------------------------------------------------------
+
+ParseSection = Literal["all", "files", "warnings", "issues"]
+MAX_LINES_PER_GROUP = 10
+_PARSE_OK = "PASSED"
+
+
+def _lines_of(value: Any) -> list[int]:
+    return sorted(n for n in value if isinstance(n, int)) if isinstance(value, list) else []
+
+
+def _file_row(row: Mapping[str, Any]) -> dict[str, Any]:
+    shaped = {
+        "Section": "file",
+        "File_Name": row.get("File_Name"),
+        "Nodes": row.get("Nodes") or [],
+        "Status": row.get("Status"),
+        "Format": row.get("File_Format"),
+    }
+    return {k: v for k, v in shaped.items() if v is not None}
+
+
+def _warning_rows(
+    warnings: Iterable[Mapping[str, Any]],
+    nodes_by_file: Mapping[Any, Any],
+    *,
+    include_text: bool,
+) -> list[dict[str, Any]]:
+    """One row per (file, message): parseWarning repeats the same complaint once per line."""
+    groups: dict[tuple[Any, Any], list[Mapping[str, Any]]] = {}
+    for warning in warnings:
+        groups.setdefault((warning.get("Filename"), warning.get("Comment")), []).append(warning)
+    shaped = []
+    for (filename, message), members in groups.items():
+        lines = sorted({n for r in members if isinstance(n := r.get("Line"), int)})
+        row: dict[str, Any] = {
+            "Section": "warning",
+            "File_Name": filename,
+            "Nodes": nodes_by_file.get(filename) or [],
+            "Message": message,
+            "Line": lines[:MAX_LINES_PER_GROUP],
+            "Count": len(members),
+        }
+        if include_text and members[0].get("Text") is not None:
+            row["Text"] = members[0]["Text"]
+        shaped.append({k: v for k, v in row.items() if v is not None})
+    return shaped
+
+
+def _issue_rows(
+    issues: Iterable[Mapping[str, Any]],
+    nodes_by_file: Mapping[Any, Any],
+    *,
+    include_text: bool,
+) -> list[dict[str, Any]]:
+    shaped = []
+    for issue in issues:
+        source = issue.get("Source_Lines")
+        filename = source.get("filename") if isinstance(source, Mapping) else None
+        row: dict[str, Any] = {
+            "Section": "issue",
+            "File_Name": filename,
+            "Nodes": nodes_by_file.get(filename) or [],
+            "Status": issue.get("Type"),
+            "Line": _lines_of(source.get("lines") if isinstance(source, Mapping) else None)[
+                :MAX_LINES_PER_GROUP
+            ],
+        }
+        # ``Details`` can quote names from the config, so it follows the content opt-in.
+        if include_text and issue.get("Details") is not None:
+            row["Message"] = issue["Details"]
+        shaped.append({k: v for k, v in row.items() if v is not None})
+    return shaped
+
+
+def shape_parse_issues(
+    *,
+    file_status: Iterable[Mapping[str, Any]],
+    warnings: Iterable[Mapping[str, Any]],
+    issues: Iterable[Mapping[str, Any]],
+    section: ParseSection,
+    include_passed: bool,
+    include_text: bool,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Problem rows of a snapshot's parse diagnostics plus a summary that covers all three answers
+    (so ``section`` narrows the rows, never the counts). The summary counts the rows it is given:
+    when an answer was cut at the preview cap the caller must say the counts are lower bounds.
+
+    Files that parsed fine are left out unless ``include_passed``; repeated warnings collapse to
+    one row with a count; config text (warning lines, issue details) only with ``include_text``.
+    """
+    files, warns, found = list(file_status), list(warnings), list(issues)
+    nodes_by_file = {r.get("File_Name"): r.get("Nodes") for r in files}
+    statuses = Counter(str(r.get("Status")) for r in files)
+    summary = {
+        "files_total": len(files),
+        "files_by_status": dict(statuses),
+        "warnings_total": len(warns),
+        "issues_total": len(found),
+    }
+    rows: list[dict[str, Any]] = []
+    if section in ("all", "files"):
+        rows += [_file_row(r) for r in files if include_passed or r.get("Status") != _PARSE_OK]
+    if section in ("all", "warnings"):
+        rows += _warning_rows(warns, nodes_by_file, include_text=include_text)
+    if section in ("all", "issues"):
+        rows += _issue_rows(found, nodes_by_file, include_text=include_text)
+    return rows, summary

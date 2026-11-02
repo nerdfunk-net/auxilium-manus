@@ -637,6 +637,30 @@ async def query_file_parse_status(
     )
 
 
+async def query_parse_warnings(
+    batfish: BatfishService,
+    connection: BatfishConnection,
+    *,
+    batfish_network: str,
+    snapshot: str,
+) -> list[dict[str, Any]]:
+    """Run the ``parseWarning`` question (no parameters): every line the parser complained about."""
+    return await batfish.parse_warning(
+        connection, batfish_network=batfish_network, snapshot=snapshot
+    )
+
+
+async def query_init_issues(
+    batfish: BatfishService,
+    connection: BatfishConnection,
+    *,
+    batfish_network: str,
+    snapshot: str,
+) -> list[dict[str, Any]]:
+    """Run the ``initIssues`` question (no parameters): problems found while building the model."""
+    return await batfish.init_issues(connection, batfish_network=batfish_network, snapshot=snapshot)
+
+
 async def query_undefined_references(
     batfish: BatfishService,
     connection: BatfishConnection,

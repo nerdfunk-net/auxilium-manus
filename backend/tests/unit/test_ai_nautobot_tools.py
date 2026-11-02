@@ -171,6 +171,7 @@ def test_the_tool_set_is_reads_only_with_the_names_the_library_errors_point_to()
         "list_locations", "get_location", "list_location_types", "list_roles", "list_statuses",
         "list_tags", "list_devices", "get_device", "list_device_types", "list_platforms",
         "list_ip_addresses", "list_prefixes", "list_namespaces", "get_next_free_ip",
+        "list_interfaces",
     }
     assert all(n.startswith(("get_", "list_")) for n in names)
 
@@ -239,7 +240,11 @@ def test_get_device_with_addresses_includes_interfaces_but_still_not_comments() 
 
     assert data["interfaces"][0]["ip_addresses"] == ["10.0.0.1/24"]
     assert data["asset_tag"] == "AT-1"
-    assert data["withheld_fields"] == {"comments": "never"}
+    # The interface text is free text: withheld without the content opt-in, like comments.
+    assert data["withheld_fields"] == {
+        "comments": "never", "interface_descriptions": "content_data",
+    }
+    assert "description" not in data["interfaces"][0]
 
 
 def test_a_field_no_rule_names_is_never_sent() -> None:
@@ -291,6 +296,75 @@ def test_ipam_with_the_addresses_switch_returns_the_rows() -> None:
     assert data["items"][0]["assigned_to"] == [{"device": "sw-1", "interface": "Gi1"}]
     ip_call = next(c for c in nautobot.page_calls if c["root"] == "ip_addresses")
     assert ip_call["filters"]["prefix"] == ["10.0.0.0/24"]
+
+
+# -- interfaces of a device with many of them ---------------------------------------------------
+
+
+def test_list_interfaces_needs_the_addresses_switch_and_sends_nothing_without_it() -> None:
+    for sharing in (SharingPolicy(), BASIC):
+        box, nautobot = _toolbox(sharing=sharing)
+
+        out = _data(_call(box, "list_interfaces", device="sw-1"))
+
+        assert out["not_shared"] == "device_addresses"
+        assert nautobot.requests == 0
+
+
+def test_list_interfaces_pages_and_filters_the_device_interfaces() -> None:
+    box, nautobot = _toolbox(sharing=FULL)
+
+    data = _data(
+        _call(box, "list_interfaces", device=UUID_DEV, name_contains="Gi", limit=30, offset=60)
+    )
+
+    call = next(c for c in nautobot.page_calls if c["root"] == "interfaces")
+    assert call["filters"] == {"device_id": [UUID_DEV], "name__ic": ["Gi"]}
+    assert call["limit"] == 30
+    assert data["items"][0]["name"] == "Gi1"
+    assert data["offset"] == 60 and data["has_more"] is False
+
+
+def test_list_interfaces_inputs_are_bounded() -> None:
+    box, nautobot = _toolbox(sharing=FULL)
+
+    for bad in (
+        {"device": "sw-1", "limit": 51},
+        {"device": "sw-1", "limit": 0},
+        {"device": "sw-1", "offset": -1},
+        {"device": ""},
+        {"device": "sw-1", "other": 1},
+        {},
+    ):
+        out = _call(box, "list_interfaces", **bad)
+        assert out.is_error and "Invalid input for list_interfaces" in out.content
+    assert nautobot.requests == 0
+
+
+CONTENT_TOO = SharingPolicy(inventory=True, addresses=True, content=True)
+
+
+def test_interface_descriptions_need_the_content_opt_in_in_both_tools() -> None:
+    without, _ = _toolbox(sharing=FULL)
+    with_content, _ = _toolbox(sharing=CONTENT_TOO)
+
+    listed = _data(_call(without, "list_interfaces", device=UUID_DEV))
+    assert "description" not in listed["items"][0]
+    assert listed["withheld_fields"] == {"interface_descriptions": "content_data"}
+    assert listed["items"][0]["name"] == "Gi1"
+
+    shown = _data(_call(with_content, "list_interfaces", device=UUID_DEV))
+    assert shown["items"][0]["description"] == "uplink"
+    assert "withheld_fields" not in shown
+
+    device = _data(_call(with_content, "get_device", device=UUID_DEV))
+    assert device["interfaces"][0]["description"] == "uplink"
+
+
+def test_get_device_points_to_list_interfaces_for_the_rest() -> None:
+    spec = next(t for t in build_nautobot_tools() if t.name == "get_device")
+
+    assert "list_interfaces" in spec.description
 
 
 @pytest.mark.parametrize(
@@ -707,6 +781,15 @@ def test_the_surface_offers_the_nautobot_tools_next_to_the_batfish_ones() -> Non
 
     assert {"list_devices", "get_device", "list_prefixes", "get_routes"} <= names
     assert "Nautobot:" in _session().system
+
+
+def test_the_name_matching_tool_needs_both_batfish_and_nautobot() -> None:
+    both = {s.name for s in _session().toolbox.specs()}
+    only_batfish = {s.name for s in _session(nautobot_reader=None).toolbox.specs()}
+    only_nautobot = {s.name for s in _session(may_query_batfish=False).toolbox.specs()}
+
+    assert "get_device_name_matches" in both
+    assert "get_device_name_matches" not in only_batfish | only_nautobot
 
 
 def test_the_surface_without_a_reader_has_no_nautobot_tools_or_prompt() -> None:

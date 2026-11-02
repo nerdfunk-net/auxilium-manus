@@ -75,6 +75,7 @@ def test_session_offers_batfish_and_result_tools() -> None:
         "check_reachability",
         "compare_filters",
         "differential_reachability",
+        "get_snapshot_parse_issues",
         "query_result",
         "fetch_slice",
         "diff_results",

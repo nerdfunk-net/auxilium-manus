@@ -11,7 +11,7 @@ from contextlib import ExitStack
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from models.batfish import BatfishQueryResponse
-from services.ai_assistant.batfish_reader import DbBatfishReader
+from services.ai_assistant.batfish_reader import NODE_CACHE, DbBatfishReader
 from services.ai_assistant.tools.batfish_tools import (
     BatfishAccessError,
     BatfishInputError,
@@ -25,6 +25,7 @@ from services.batfish.common.exceptions import (
     FilterNotFoundError,
 )
 from services.batfish.credentials import BatfishConnection
+from services.batfish.preview_service import ParseDiagnostics
 from services.batfish.source_config_service import BatfishSourceNotFoundError
 
 MOD = "services.ai_assistant.batfish_reader"
@@ -69,6 +70,11 @@ class ReaderTests(unittest.IsolatedAsyncioTestCase):
                 {"name": "run-2", "metadata": {"creationTimestamp": "2026-11-01T00:00:00Z"}},
             ]
         )
+        self.batfish.node_properties = AsyncMock(
+            return_value=[{"Node": "lab"}, {"Node": "r1"}, {"Node": "r2"}, {"Node": "sw.corp.zz"}]
+        )
+        NODE_CACHE.clear()
+        self.addCleanup(NODE_CACHE.clear)
         self.factory.get_batfish_app_service.return_value = self.batfish
         self.preview = MagicMock()
         for name in ("run_routes", "run_traceroute", "run_generic", "run_interface_rows"):
@@ -80,6 +86,17 @@ class ReaderTests(unittest.IsolatedAsyncioTestCase):
             diff = _response(question)
             diff.reference_snapshot = "run-1"
             setattr(self.preview, name, AsyncMock(return_value=diff))
+        self.preview.run_parse_diagnostics = AsyncMock(
+            return_value=ParseDiagnostics(
+                snapshot="run-2",
+                file_status=[{"File_Name": "r1.cfg", "Status": "FAILED"}],
+                warnings=[],
+                issues=[],
+                unavailable={"issues": "BatfishAPIError"},
+                truncated=True,
+                truncated_sections=("files",),
+            )
+        )
         self.preview.run_reachability = AsyncMock(return_value=_response("reachability"))
         self.preview.run_test_filters = AsyncMock(return_value=_response("testFilters"))
         self.preview.run_extract_facts = AsyncMock(
@@ -396,6 +413,196 @@ class ReaderTests(unittest.IsolatedAsyncioTestCase):
         await self.reader.query("routes", "lab", "net1", "   ", {})
 
         self.assertIsNone(self.preview.run_routes.await_args.args[1].snapshot)
+
+
+    # -- snapshot diagnostics ----------------------------------------------------------------
+    async def test_returns_the_rows_with_snapshot_age(self) -> None:
+        result = await self.reader.snapshot_diagnostics("lab", " net1 ", " run-2 ")
+
+        self.preview.run_parse_diagnostics.assert_awaited_once_with("lab", "net1", "run-2")
+        self.assertEqual(result.snapshot, "run-2")
+        self.assertEqual(result.snapshot_created, "2026-11-01T00:00:00Z")
+        self.assertEqual(result.file_status, [{"File_Name": "r1.cfg", "Status": "FAILED"}])
+        self.assertEqual(result.unavailable, {"issues": "BatfishAPIError"})
+        self.assertTrue(result.truncated)
+        self.assertEqual(result.truncated_sections, ("files",))
+
+    async def test_blank_snapshot_means_the_newest(self) -> None:
+        await self.reader.snapshot_diagnostics("lab", "net1", "  ")
+
+        self.assertIsNone(self.preview.run_parse_diagnostics.await_args.args[2])
+
+    async def test_one_permission_check_and_one_rate_limit_charge(self) -> None:
+        await self.reader.snapshot_diagnostics("lab", "net1", None)
+
+        self.assertEqual(self.limiter.check.call_count, 1)
+
+    async def test_permission_is_required_and_nothing_is_asked(self) -> None:
+        self.rbac.return_value.has_permission.return_value = False
+
+        with self.assertRaises(BatfishAccessError):
+            await self.reader.snapshot_diagnostics("lab", "net1", None)
+        self.preview.run_parse_diagnostics.assert_not_awaited()
+
+    async def test_row_cap_is_applied_to_the_questions(self) -> None:
+        seen: list[int | None] = []
+
+        async def capture(*_: object) -> ParseDiagnostics:
+            seen.append(PREVIEW_ROW_LIMIT.get())
+            return ParseDiagnostics("run-2", [], [], [])
+
+        self.preview.run_parse_diagnostics = AsyncMock(side_effect=capture)
+        await self.reader.snapshot_diagnostics("lab", "net1", None)
+
+        self.assertIsNotNone(seen[0])
+        self.assertIsNone(PREVIEW_ROW_LIMIT.get())
+
+    async def test_errors_are_reduced_to_the_tool_types(self) -> None:
+        for raised, expected in (
+            (ValueError("Unknown network 'x'"), BatfishInputError),
+            (BatfishAPIError("host:9996 down"), BatfishUnavailableError),
+        ):
+            self.preview.run_parse_diagnostics = AsyncMock(side_effect=raised)
+            with self.assertRaises(expected) as ctx:
+                await self.reader.snapshot_diagnostics("lab", "net1", None)
+            self.assertNotIn("9996", str(ctx.exception))
+
+    # -- device names ------------------------------------------------------------------------
+
+    async def test_an_fqdn_is_rewritten_to_the_batfish_node_name(self) -> None:
+        answer = await self.reader.query(
+            "routes", "lab", "net1", None, {"nodes": "LAB.local.zz,r1", "vrfs": "default"}
+        )
+
+        request = self.preview.run_routes.await_args.args[1]
+        self.assertEqual(request.nodes, "lab,r1")
+        self.assertEqual(request.vrfs, "default")
+        self.assertEqual(answer.nodes_resolved, {"LAB.local.zz": "lab"})
+
+    async def test_single_node_parameters_are_rewritten_too(self) -> None:
+        await self.reader.query(
+            "traceroute", "lab", "net1", None, {"start_node": "R1.x.zz", "dst_ips": "10.0.0.1"}
+        )
+
+        self.assertEqual(self.preview.run_traceroute.await_args.args[1].start_node, "r1")
+
+    async def test_a_short_name_finds_a_node_that_carries_a_domain(self) -> None:
+        await self.reader.query("bgp_sessions", "lab", "net1", None, {"nodes": "sw"})
+
+        generic = self.preview.run_generic.await_args.args[1]
+        self.assertEqual(generic.params, {"nodes": "sw.corp.zz"})
+
+    async def test_no_node_parameter_means_no_node_lookup(self) -> None:
+        await self.reader.query("routes", "lab", "net1", None, {"nodes": None})
+
+        self.batfish.node_properties.assert_not_awaited()
+
+    async def test_an_unknown_device_is_an_input_error_with_suggestions(self) -> None:
+        with self.assertRaises(BatfishInputError) as ctx:
+            await self.reader.query("routes", "lab", "net1", None, {"nodes": "r"})
+
+        message = str(ctx.exception)
+        self.assertIn("'r'", message)
+        self.assertIn("r1", message)
+        self.preview.run_routes.assert_not_awaited()
+
+    async def test_an_ambiguous_device_is_never_guessed(self) -> None:
+        self.batfish.node_properties = AsyncMock(
+            return_value=[{"Node": "x.a.zz"}, {"Node": "x.b.zz"}]
+        )
+
+        with self.assertRaises(BatfishInputError) as ctx:
+            await self.reader.query("routes", "lab", "net1", None, {"nodes": "x"})
+
+        self.assertIn("x.a.zz", str(ctx.exception))
+        self.assertIn("x.b.zz", str(ctx.exception))
+        self.preview.run_routes.assert_not_awaited()
+
+    async def test_the_query_runs_on_the_snapshot_the_names_were_checked_against(self) -> None:
+        await self.reader.query("routes", "lab", "net1", None, {"nodes": "r1"})
+
+        self.assertEqual(self.batfish.node_properties.await_args.kwargs["snapshot"], "run-2")
+        self.assertEqual(self.preview.run_routes.await_args.args[1].snapshot, "run-2")
+
+    async def test_node_names_are_listed_once_per_snapshot(self) -> None:
+        await self.reader.query("routes", "lab", "net1", "run-2", {"nodes": "r1"})
+        await self.reader.query("bgp_sessions", "lab", "net1", "run-2", {"nodes": "r2"})
+
+        self.assertEqual(self.batfish.node_properties.await_count, 1)
+
+    async def test_the_node_listing_only_asks_for_the_node_column(self) -> None:
+        await self.reader.query("routes", "lab", "net1", None, {"nodes": "r1"})
+
+        kwargs = self.batfish.node_properties.await_args.kwargs
+        self.assertEqual(kwargs["properties"], "Hostname")
+        self.assertIsNone(kwargs["nodes"])
+
+    async def test_when_the_node_list_cannot_be_read_the_query_goes_ahead(self) -> None:
+        self.batfish.node_properties = AsyncMock(side_effect=BatfishAPIError("down"))
+
+        await self.reader.query("routes", "lab", "net1", None, {"nodes": "LAB.local.zz"})
+
+        # Not rejected and not rewritten to another device: only spelled the way Batfish does.
+        self.assertEqual(self.preview.run_routes.await_args.args[1].nodes, "lab.local.zz")
+
+    async def test_an_empty_node_list_does_not_reject_names(self) -> None:
+        self.batfish.node_properties = AsyncMock(return_value=[])
+
+        await self.reader.query("routes", "lab", "net1", None, {"nodes": "r1"})
+
+        self.assertEqual(self.preview.run_routes.await_args.args[1].nodes, "r1")
+
+    # -- node listing ------------------------------------------------------------------------
+
+    async def test_node_names_lists_the_nodes_with_the_snapshot_and_its_age(self) -> None:
+        listing = await self.reader.node_names("lab", " net1 ", None)
+
+        self.assertEqual(listing.names, ("lab", "r1", "r2", "sw.corp.zz"))
+        self.assertEqual(listing.snapshot, "run-2")
+        self.assertEqual(listing.snapshot_created, "2026-11-01T00:00:00Z")
+
+    async def test_node_names_needs_the_permission_and_maps_errors(self) -> None:
+        self.rbac.return_value.has_permission.return_value = False
+        with self.assertRaises(BatfishAccessError):
+            await self.reader.node_names("lab", "net1", None)
+
+        self.rbac.return_value.has_permission.return_value = True
+        self.batfish.node_properties = AsyncMock(side_effect=BatfishAPIError("host:9996"))
+        with self.assertRaises(BatfishUnavailableError) as ctx:
+            await self.reader.node_names("lab", "net1", None)
+        self.assertNotIn("9996", str(ctx.exception))
+
+    async def test_node_names_for_an_unknown_network_is_an_input_error(self) -> None:
+        with self.assertRaises(BatfishInputError):
+            await self.reader.node_names("lab", "typo", None)
+
+    # -- review: spelling and case ------------------------------------------------------------
+
+    async def test_a_case_only_rewrite_is_reported_with_the_users_spelling(self) -> None:
+        answer = await self.reader.query("routes", "lab", "net1", None, {"nodes": "LAB,r1"})
+
+        self.assertEqual(self.preview.run_routes.await_args.args[1].nodes, "lab,r1")
+        self.assertEqual(answer.nodes_resolved, {"LAB": "lab"})
+
+    async def test_without_a_node_list_names_are_lowercased_as_batfish_spells_them(self) -> None:
+        self.batfish.node_properties = AsyncMock(side_effect=BatfishAPIError("down"))
+        answer = await self.reader.query("routes", "lab", "net1", None, {"nodes": "LAB,R1"})
+
+        self.assertEqual(self.preview.run_routes.await_args.args[1].nodes, "lab,r1")
+        self.assertEqual(answer.nodes_resolved, {})
+
+        self.batfish.node_properties = AsyncMock(return_value=[])
+        NODE_CACHE.clear()
+        await self.reader.query(
+            "traceroute", "lab", "net1", None, {"start_node": "LAB", "dst_ips": "10.0.0.1"}
+        )
+        self.assertEqual(self.preview.run_traceroute.await_args.args[1].start_node, "lab")
+
+    async def test_the_unknown_name_message_asks_the_user_instead_of_retrying(self) -> None:
+        with self.assertRaises(BatfishInputError) as ctx:
+            await self.reader.query("routes", "lab", "net1", None, {"nodes": "r"})
+
+        self.assertIn("not necessarily the same device", str(ctx.exception))
 
 
 if __name__ == "__main__":

@@ -2331,12 +2331,13 @@ existence guard and the call see them.
 | `get_device_facts` | done | confirmed after the section-nesting fix (§27.0) |
 | `check_reachability`, `analyze_acl` | done | confirmed (§27.0a) |
 | `compare_filters`, `differential_reachability` | done | confirmed by the answers; the `Snapshot_*` / `Reference_*` side mapping was not checked against raw rows (§27.0c) |
+| `get_device_name_matches` | done (§33) | not tried live |
+| `get_snapshot_parse_issues` | done (§32) | not tried live; column names **unverified** |
 | `get_bgp_session_status` | done | empty case only; columns **unverified** until the production BGP setup is asked |
 | `query_result`, `fetch_slice` | done | handles above 20 rows not exercised with a large real table |
 | `diff_results` | done | not tried live |
 
-**Not built (candidates, none needed for the first playbook):** diagnostics (`get_parse_warnings`,
-`get_undefined_references`, init issues), `compare_routes`, BGP RIB / peer configuration / OSPF details,
+**Not built (candidates, none needed for the first playbook):** diagnostics (`get_undefined_references`; parse warnings and init issues are built, §32), `compare_routes`, BGP RIB / peer configuration / OSPF details,
 `detect_loops`, `search_filters`, a bidirectional traceroute, `get_ip_owners` / `get_edges` (see §24), and an
 allow-listed question catalog (§15.5). Diagnostics are the first to add if wrong answers turn out to come from
 configs Batfish did not parse.
@@ -2670,7 +2671,7 @@ live question.
   upstream text. A source whose credentials do not load is skipped and logged with its
   error type (not the message); all sources failing is logged apart from having none configured. The name vocabularies are cached per instance and token for the process (`vocabularies_for`,
   5 minutes, at most 8 instances), not per chat request.
-* **Tools** `tools/nautobot_tools.py`, 14 reads (13 with the MCP tool names, plus `get_next_free_ip`) (`list_devices`, `get_device`,
+* **Tools** `tools/nautobot_tools.py`, 15 reads (13 with the MCP tool names, plus `get_next_free_ip` and `list_interfaces`, §34) (`list_devices`, `get_device`,
   `list_locations`, `get_location`, `list_location_types`, `list_roles`, `list_statuses`, `list_tags`,
   `list_device_types`, `list_platforms`, `list_ip_addresses`, `list_prefixes`, `list_namespaces`); the
   names are shared on purpose, the library's errors say "use list_devices". A page is 20 rows by default, 100 at
@@ -2719,3 +2720,124 @@ live question.
   and a fake Nautobot only); several Nautobot sources (the first usable one is used, no `source` argument);
   counts ("how many devices in Germany") are paged, there is no count tool; whether the prompt should mention
   `get_device_attributes` (inventory surface only) is undecided.
+
+## 32. Snapshot parse diagnostics: `get_snapshot_parse_issues` (2026-11-02)
+
+**Why.** Batfish marks interfaces inactive ("no dependencies") and the user had no way to see what it had
+reported while reading the configs. The tool answers "show me the parsing errors / the parser output of the
+last snapshot" with the three questions of the pybatfish script: `fileParseStatus`, `parseWarning`, `initIssues`.
+
+**Layers.** `BatfishService.parse_warning` / `init_issues` (new, no parameters, like `file_parse_status`) →
+`query_parse_warnings` / `query_init_issues` (`query_helpers.py`; the generic allow-list is unchanged) →
+`BatfishPreviewService.run_parse_diagnostics` (returns `ParseDiagnostics`; the questions run one after the
+other; one that fails is listed in `unavailable`, all failing raises) → `DbBatfishReader.snapshot_diagnostics`
+(one `sources.batfish:query` check and one `batfish-query` rate-limit charge; the same row cap) →
+`get_snapshot_parse_issues` in `tools/batfish_tools.py`, shaped by `shape_parse_issues`
+(`tools/batfish_shaping.py`).
+
+**Input.** `network`, `snapshot` (default newest), `source_id` as for the other Batfish tools, plus
+`section` (`all` | `files` | `warnings` | `issues`) and `include_passed` (also list files that parsed fine).
+
+**Result.** One table of problem rows (`Section`, `File_Name`, `Nodes`, `Status`, `Format`, `Line`, `Message`,
+`Count`, `Text`) with the usual preview and handle, and a `summary` that always covers all three answers
+(files by status, warning count, issue count). Repeated warnings collapse to one row per (file, message) with
+the first lines (at most 10) and a count. File names are mapped to device names through `fileParseStatus`.
+
+**Data classes.** Addresses (B) to use the tool at all. The offending config line (`Text`) and the issue
+`Details` quote the config, so they need the content opt-in; then the whole table (and its handle) is
+content-class, as for interface descriptions. Without it the model is told what is withheld.
+
+**What it does not promise.** A clean answer does not explain an inactive interface: "no dependencies" usually
+means a missing parent interface or port-channel member, which Batfish does not always report as a warning. The
+prompt and the empty-result note send the model on to `get_interface_properties` (`Active`).
+
+**Not verified live.** Column names (`File_Name`/`Status`/`File_Format`/`Nodes`; `Filename`/`Line`/`Text`/
+`Parser_Context`/`Comment`; `Source_Lines`/`Type`/`Details`) come from the question definitions, not from a
+real answer; the shaping leaves out what is absent. Check against the lab snapshot with the inactive
+interfaces and compare with the output of the pasted script.
+
+## 33. Device names: Batfish hostname vs Nautobot full name (2026-11-02)
+
+**Problem.** Batfish names a node after the hostname in the config (lower case, usually without a domain:
+`lab`); Nautobot names the device by its full name (`LAB.local.zz`). A name from the user or from a Nautobot answer
+was therefore not found in Batfish, and a Batfish name was not found by `get_device` (exact match only).
+
+**Rule (`services/ai_assistant/node_names.py`, pure).** Two names are the same device when they are equal ignoring
+case, or when one is the other followed by a domain (`lab` / `lab.local.zz`). Different domains
+(`lab.a.zz` / `lab.b.zz`) are different devices. An exact match wins over a domain match. A name that fits several
+nodes is **ambiguous and is never guessed**; a name that fits none comes back with close names.
+
+**Batfish side (first).** `DbBatfishReader.query` rewrites the device names in `nodes`, `node`, `start_node` and
+`end_node` to the node names of the snapshot before anything reaches the coordinator. The node list is a
+`nodeProperties` question asking for the node column only, cached per (host, port, network, snapshot) for 5 minutes
+(`NODE_CACHE`; snapshots can be re-created under a name). The query then runs on the snapshot the names were checked
+against. The rewrites are returned as `nodes_resolved` (asked -> used) in every Batfish tool result that has one.
+Unknown or ambiguous names are an input error listing the candidates. If the node list cannot be read the query goes
+ahead unchanged (it reports the real problem); an empty node list rejects nothing.
+
+**Nautobot side.** `libs/nautobot_read` `_device_by_name` (used by `get_device`, `device_name` and the IP lookups,
+so the MCP server gets it too) tries the exact name, then the name ignoring case (`name__ie`), then as the start of a
+full name (`name__isw` with a trailing dot). A short name in two domains is `AmbiguousNameError` with the ids. A miss
+says what was tried. `list_devices` was already substring based (`name__ic`).
+
+**Prompt.** One paragraph in `GENERAL_PROMPT` (pass the name as the user wrote it; `nodes_resolved`; ask when
+ambiguous) and one sentence in `NAUTOBOT_PROMPT`.
+
+**`get_device_name_matches`** (`tools/device_name_tools.py`; inventory (B); offered only with both Batfish and
+Nautobot access; named with the `get_` prefix because the read-tool rule pins prefixes). Input `name` plus optional
+`network`, `snapshot`, `source_id`. It returns both spellings with a status per side. The Nautobot lookup uses the name
+as given only: the short Batfish node `lab` carries no domain, so it matches `LAB.other.zz`, but Nautobot must not
+answer with `LAB.local.zz` for that.
+
+**Not covered.** Names that do not follow `hostname.domain` (config says `sw-lab1`, Nautobot `lab1-sw...`). Nothing
+automatic can match them; that needs an explicit mapping, for example a Nautobot custom field with the Batfish node
+name. **Not verified live:** the `name__ie` / `name__isw` GraphQL filters (the lib already uses `name__ic`), the
+`nodeProperties` call with `properties="Hostname"`, and the model's use of `nodes_resolved`.
+
+## 34. Devices with hundreds of interfaces (2026-11-02)
+
+**Finding.** The Batfish side has no pagination: `BatfishService._answer` takes the whole answer (cut at
+`MAX_PREVIEW_ROWS` = 5000). What the model saw as "truncated" was our own preview: `publish_table` shows
+`PREVIEW_ROWS` = 20 rows with `truncated: true` and keeps the table behind a handle, and `query_result` /
+`fetch_slice` return at most 20 rows per call, so 300 interfaces meant about 15 calls. Checked by feeding a synthetic
+answer through the real tool code (15, 300 and 6000 interfaces). The Nautobot side had a separate hard cap:
+`get_device` returned at most `MAX_INTERFACES` = 100 interfaces with no way to see the rest.
+
+**Batfish: summary and status filter.** `get_interface_properties` now returns, next to the rows, a `summary` over
+every interface (`total`, `active`, `inactive`, `admin_down`, `inactive_but_admin_up`, `by_switchport_mode`) and
+`summary_complete` (false when the Batfish row cap cut the answer, so the counts are a lower bound). The new `status`
+input (`all` | `active` | `inactive` | `admin_down` | `inactive_but_admin_up`) narrows the rows (and the handle) while
+the summary still describes the whole device; a filter note says "n of total". `inactive_but_admin_up` (Active false,
+Admin_Up true) is the "no dependencies" case from §32: configured up, deactivated by Batfish. Pure functions
+`summarize_interfaces` / `filter_interfaces` in `tools/batfish_shaping.py`; a row without the `Active` column never
+matches a state that needs it. The prompt tells the model to answer counts from the summary and never from the 20 rows.
+
+**Nautobot: `list_interfaces`.** New lib query `dcim.list_interfaces(device, name_contains, limit, offset)` (device by
+name or id, with the name matching of §33; interfaces fetched as a bounded top-level page, filter `name__ic`), and an
+assistant tool of the same name (addresses-class like the interfaces in `get_device`, so it answers with the
+not-shared marker before anything is sent; `limit` at most 50 so a page fits the output cap). `get_device` now says
+"use list_interfaces" when `interfaces_truncated` is true. Not yet exposed through the MCP server.
+
+**Not verified live.** The Batfish `Active` / `Admin_Up` / `Switchport_Mode` columns on a real answer (the shaping
+tolerates absent ones), the Nautobot interface filter `name__ic`, and stable ordering across pages (Nautobot's default
+interface ordering is assumed). A real device with hundreds of interfaces, or a generated config with a few hundred
+interface stanzas loaded as a snapshot, would settle them.
+
+## 35. Review fixes, 2026-11-02 (`doc/analysis/REVIEW.md`)
+
+* **`get_device_name_matches`**: a Nautobot name that matches several devices is `status: "ambiguous"` (message lists
+  the candidates with ids), no longer `not_found`.
+* **`list_interfaces`**: `applied_filters.device` is the device actually queried (resolved name, looked up from the
+  id when one was given), not the text asked. Interface descriptions (here and in the interfaces nested in
+  `get_device`) are free text: withheld without the content opt-in, `withheld_fields.interface_descriptions` says so.
+* **`get_snapshot_parse_issues`**: sections cut at the preview row cap are named (`ParseDiagnostics.truncated_sections`);
+  the result carries `summary_complete` and `summary_cut_sections` and a note that counts and groups are lower bounds.
+* **Name suggestions** (`node_names._suggestions`) are completions or near misses of the first label (prefix, or
+  `difflib` ratio >= 0.8), no longer a substring search, and the error says they are only candidates to put to the
+  user. The prompt says not to retry with one silently.
+* **Spelling**: `NodeName` no longer lower-cases, so `nodes_resolved` keeps the user's spelling and a case-only rewrite
+  (`LAB` -> `lab`) is reported. Without a node list (listing failed, or empty) names are lower-cased, as Batfish
+  spells hostnames, but not rewritten to another device.
+* **Playbooks** accept `get_device_name_matches` (`known_general_tool_names`).
+* **Interface summary** adds `active_unknown` / `admin_up_unknown`, so `active + inactive + active_unknown == total`.
+

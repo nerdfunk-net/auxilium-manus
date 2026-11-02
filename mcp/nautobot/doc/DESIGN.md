@@ -180,9 +180,12 @@ a typo suggestion, a path lookup, devices by country including child locations, 
 - `list_devices(location=...)` sends the location **id**; Nautobot includes child locations
   (live: `Country A` returns the devices in `City A`).
 - `device_type` filters by **model name**, `platform` by name (both verified live).
-- `get_device(name)` looks the id up first. Device names are unique only per location, so a
-  repeated name returns the candidates with location and id. At most 100 interfaces are
-  returned (`interface_count`, `interfaces_truncated` say when it was cut).
+- `get_device(name)` looks the id up first: the exact name, then ignoring case, then as the start of a
+  full name (`lab` finds `LAB.local.zz`; `name__ie` / `name__isw`, not yet checked live). Device names
+  are unique only per location, so a repeated name (or a short name in two domains) returns the
+  candidates with location and id. At most 100 interfaces are
+  returned (`interfaces_truncated` says when it was cut; the assistant's `list_interfaces`, built on
+  the lib query `dcim.list_interfaces`, pages the rest; not yet an MCP tool).
 - Known gap: two manufacturers can share a device type model name; the model filter would
   then be ambiguous. Not handled yet (no such data to test against).
 

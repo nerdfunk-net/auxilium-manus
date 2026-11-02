@@ -89,6 +89,10 @@ def test_known_general_tool_names_cover_the_batfish_result_and_playbook_tools() 
     assert {n for n in names if n.startswith("propose")} == {"propose_device_command"}
 
 
+def test_known_general_tool_names_cover_the_device_name_bridge() -> None:
+    assert "get_device_name_matches" in pt.known_general_tool_names()
+
+
 def test_known_general_tool_names_cover_every_nautobot_tool() -> None:
     from services.ai_assistant.tools.nautobot_tools import build_nautobot_tools
 

@@ -354,6 +354,21 @@ class BatfishService:
         # keeps the same shape as its siblings, callers should pass none.
         return await self._answer(connection, batfish_network, snapshot, "fileParseStatus", params)
 
+    async def parse_warning(
+        self, connection: BatfishConnection, *, batfish_network: str, snapshot: str, **params: Any
+    ) -> list[dict[str, Any]]:
+        # One row per line the parser warned about: Filename, Line, Text (the config line),
+        # Parser_Context, Comment (the parser's message). Takes no parameters, like
+        # fileParseStatus. Column names are from the question definition, not yet checked live.
+        return await self._answer(connection, batfish_network, snapshot, "parseWarning", params)
+
+    async def init_issues(
+        self, connection: BatfishConnection, *, batfish_network: str, snapshot: str, **params: Any
+    ) -> list[dict[str, Any]]:
+        # Problems found while building the model (not the parse): Source_Lines (a FileLines
+        # object, serialised to {"filename", "lines"}), Type, Details. Takes no parameters.
+        return await self._answer(connection, batfish_network, snapshot, "initIssues", params)
+
     async def undefined_references(
         self, connection: BatfishConnection, *, batfish_network: str, snapshot: str, **params: Any
     ) -> list[dict[str, Any]]:

@@ -49,6 +49,7 @@ from services.ai_assistant.tools.config_backup_tools import (
     CONFIG_READER_KEY,
     build_config_backup_tools,
 )
+from services.ai_assistant.tools.device_name_tools import build_device_name_tools
 from services.ai_assistant.tools.device_tools import (
     DEVICE_RESOLVER_KEY,
     build_device_tools,
@@ -343,6 +344,10 @@ def build_general_session(
     if nautobot_reader is not None:
         extras[NAUTOBOT_READER_KEY] = nautobot_reader
         tools.extend(build_nautobot_tools())
+    if may_query_batfish and nautobot_reader is not None:
+        # The two systems name a device differently (config hostname vs full name); this is the
+        # explicit lookup between them (doc/AI_TOOL_CHAIN.md §33). Only useful with both.
+        tools.extend(build_device_name_tools())
     if may_query_batfish:
         # Lets list_playbooks tell the model which of a playbook's tools this user lacks.
         extras[AVAILABLE_TOOLS_KEY] = frozenset(t.name for t in tools)

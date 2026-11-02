@@ -26,9 +26,12 @@ writeup):
 
 from __future__ import annotations
 
+import logging
+from dataclasses import dataclass, field
 from typing import Any
 
 from models.batfish import (
+    MAX_PREVIEW_ROWS,
     BatfishBgpFactsQueryRequest,
     BatfishCompareFiltersQueryRequest,
     BatfishDifferentialReachabilityQueryRequest,
@@ -64,13 +67,16 @@ from services.batfish.query_helpers import (
     query_bgp_session_status,
     query_compare_filters,
     query_differential_reachability,
+    query_file_parse_status,
     query_generic,
+    query_init_issues,
     query_interface_properties,
     query_node_properties,
     query_ospf_area_configuration,
     query_ospf_edges,
     query_ospf_interface_configuration,
     query_ospf_process_configuration,
+    query_parse_warnings,
     query_reachability,
     query_routes,
     query_test_filters,
@@ -79,6 +85,25 @@ from services.batfish.query_helpers import (
     resolve_latest_snapshot_name,
 )
 from services.batfish.source_config_service import BatfishSourceConfigService
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class ParseDiagnostics:
+    """The three parse-time answers of one snapshot (``fileParseStatus``, ``parseWarning``,
+    ``initIssues``). A question that failed has no rows and an entry in ``unavailable``."""
+
+    snapshot: str
+    file_status: list[dict[str, Any]]
+    warnings: list[dict[str, Any]]
+    issues: list[dict[str, Any]]
+    unavailable: dict[str, str] = field(default_factory=dict)
+    truncated: bool = False
+    # The sections (files / warnings / issues) whose answer had more rows than the preview cap, so
+    # their counts and groups cover only a prefix.
+    truncated_sections: tuple[str, ...] = ()
+
 
 # key -> (query_helpers function, CombinedQuestionSpec) for each OSPF/BGP
 # sub-question, keyed the same way as their `include_<key>` request fields.
@@ -499,4 +524,44 @@ class BatfishPreviewService:
             snapshot=snapshot,
             rows=[],
             facts_by_node=facts_by_node,
+        )
+
+    async def run_parse_diagnostics(
+        self, source_id: str, network: str, snapshot: str | None
+    ) -> ParseDiagnostics:
+        """Why a snapshot looks the way it does: which files failed to parse, which lines the
+        parser did not understand, and what the model build complained about.
+
+        The questions run one after the other (they share one pybatfish session). One that
+        fails is reported in ``unavailable`` so the others still answer; if all fail the first
+        error is raised, so a dead coordinator is not mistaken for a clean snapshot.
+        """
+        connection, resolved = await self._resolve(source_id, network, snapshot)
+        clean_network = network.strip()
+        questions = (
+            ("files", query_file_parse_status),
+            ("warnings", query_parse_warnings),
+            ("issues", query_init_issues),
+        )
+        rows: dict[str, list[dict[str, Any]]] = {}
+        failed: dict[str, Exception] = {}
+        for key, query in questions:
+            try:
+                rows[key] = await query(
+                    self._batfish, connection, batfish_network=clean_network, snapshot=resolved
+                )
+            except Exception as exc:
+                logger.warning("Batfish parse diagnostics question %s failed: %s", key, exc)
+                failed[key] = exc
+        if len(failed) == len(questions):
+            raise next(iter(failed.values()))
+        cut = tuple(key for key, found in rows.items() if len(found) > MAX_PREVIEW_ROWS)
+        return ParseDiagnostics(
+            snapshot=resolved,
+            file_status=rows.get("files", [])[:MAX_PREVIEW_ROWS],
+            warnings=rows.get("warnings", [])[:MAX_PREVIEW_ROWS],
+            issues=rows.get("issues", [])[:MAX_PREVIEW_ROWS],
+            unavailable={key: type(exc).__name__ for key, exc in failed.items()},
+            truncated=bool(cut),
+            truncated_sections=cut,
         )

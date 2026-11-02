@@ -58,8 +58,13 @@ class NautobotQueryReader(Protocol):
     async def context(self) -> QueryContext: ...
 
 
+# Interface records are small, so a page can be larger than for devices and still fit the cap.
+DEFAULT_INTERFACE_PAGE = 50
+MAX_INTERFACE_PAGE = 50
+
 Name = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]
 Page = Annotated[int, Field(ge=1, le=MAX_PAGE)]
+InterfacePage = Annotated[int, Field(ge=1, le=MAX_INTERFACE_PAGE)]
 Skip = Annotated[int, Field(ge=0, le=100_000)]
 
 
@@ -109,7 +114,16 @@ class ListDevicesInput(_Input):
 
 
 class GetDeviceInput(_Input):
-    device: Name = Field(description="Exact device name, or id.")
+    device: Name = Field(
+        description="Device name (the full name or the short hostname, any case), or id."
+    )
+
+
+class ListInterfacesInput(_Input):
+    device: Name = Field(description="Device name (full name or short hostname) or id.")
+    name_contains: Name | None = Field(None, description="Part of the interface name.")
+    limit: InterfacePage = DEFAULT_INTERFACE_PAGE
+    offset: Skip = 0
 
 
 class ListIpAddressesInput(_Input):
@@ -234,6 +248,42 @@ def _shape_one(rules: Mapping[str, Rule]) -> Callable[[SharingPolicy, dict[str, 
     return shape
 
 
+# An interface description is free text someone typed (it can hold a password or an instruction),
+# the same kind of field the Batfish interface table withholds without the content opt-in.
+INTERFACE_DESCRIPTIONS = "interface_descriptions"
+_DESCRIPTIONS_WITHHELD = {INTERFACE_DESCRIPTIONS: DataClass.CONTENT.value}
+
+
+def _bare(interfaces: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [{k: v for k, v in item.items() if k != "description"} for item in interfaces]
+
+
+def _withhold_interface_descriptions(
+    policy: SharingPolicy, result: dict[str, Any]
+) -> dict[str, Any]:
+    """``list_interfaces``: descriptions only with the content opt-in, and say what is left out."""
+    if policy.allows(DataClass.CONTENT):
+        return result
+    withheld = {**result.get("withheld_fields", {}), **_DESCRIPTIONS_WITHHELD}
+    return {**result, "items": _bare(result["items"]), "withheld_fields": withheld}
+
+
+def _device_with_private_interfaces(
+    rules: Mapping[str, Rule],
+) -> Callable[[SharingPolicy, dict[str, Any]], dict]:
+    """``get_device``: the field rules, then the same description rule for its nested interfaces."""
+    shape_one = _shape_one(rules)
+
+    def shape(policy: SharingPolicy, result: dict[str, Any]) -> dict[str, Any]:
+        shaped = shape_one(policy, result)
+        if "interfaces" not in shaped or policy.allows(DataClass.CONTENT):
+            return shaped
+        withheld = {**shaped.get("withheld_fields", {}), **_DESCRIPTIONS_WITHHELD}
+        return {**shaped, "interfaces": _bare(shaped["interfaces"]), "withheld_fields": withheld}
+
+    return shape
+
+
 def _unchanged(_policy: SharingPolicy, result: dict[str, Any]) -> dict[str, Any]:
     return result
 
@@ -340,13 +390,28 @@ def build_nautobot_tools() -> tuple[Tool, ...]:
         ),
         _tool(
             "get_device",
-            "One Nautobot device by exact name or id, with rack, tenant and (if the user shares "
-            "addresses) its interfaces and their IP addresses. If a name matches several "
-            "devices the error lists them with their ids. Needs the inventory data switch.",
+            "One Nautobot device by name or id, with rack, tenant and (if the user shares "
+            "addresses) its interfaces and their IP addresses. The name may be the full name "
+            "('LAB.local.zz') or the short hostname Batfish uses ('lab'), in any case. If a name "
+            "matches several devices (a short name in two domains) the error lists them with "
+            "their ids. At most 100 interfaces are included: when interfaces_truncated is true "
+            "use list_interfaces for the rest. Needs the inventory data switch.",
             GetDeviceInput,
             dcim.get_device,
             gate=DataClass.INVENTORY,
-            shape=_shape_one(_DEVICE_RULES),
+            shape=_device_with_private_interfaces(_DEVICE_RULES),
+        ),
+        _tool(
+            "list_interfaces",
+            "The interfaces of one Nautobot device with their IP addresses, paged: the way to "
+            "the interfaces of a device that has more than get_device shows. Narrow with "
+            "name_contains (for example 'Gi1/0/'), page with offset while has_more is true. "
+            "Documented, not live state. Needs the addresses data switch; interface descriptions "
+            "also need the content switch.",
+            ListInterfacesInput,
+            dcim.list_interfaces,
+            gate=DataClass.ADDRESSES,
+            shape=_withhold_interface_descriptions,
         ),
         _tool(
             "list_device_types",

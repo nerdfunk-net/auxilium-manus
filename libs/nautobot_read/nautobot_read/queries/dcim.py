@@ -145,6 +145,34 @@ async def get_device(ctx: QueryContext, *, device: str) -> dict[str, Any]:
     return item
 
 
+async def list_interfaces(
+    ctx: QueryContext,
+    *,
+    device: str,
+    name_contains: str | None = None,
+    limit: int = DEFAULT_LIMIT,
+    offset: int = 0,
+) -> dict[str, Any]:
+    """The interfaces of one device, paged.
+
+    ``get_device`` shows at most ``MAX_INTERFACES`` of them; this is the way to the rest of a
+    device with hundreds, optionally narrowed by part of the name.
+    """
+    check_paging(limit, offset)
+    device_id, resolved_name = await _device_ref(ctx, device.strip())
+    filters = {"device_id": [device_id]}
+    # The device actually queried: a short or differently cased name may have matched another
+    # spelling, and interface rows carry no device of their own.
+    applied: dict[str, Any] = {"device": resolved_name}
+    if name_contains:
+        filters["name__ic"], applied["name_contains"] = [name_contains], name_contains
+    page = await ctx.client.list_page(
+        "interfaces", INTERFACE_SELECTION, filters, limit=limit, offset=offset
+    )
+    items = [_interface_item(row) for row in page.items]
+    return envelope(items, page, offset=offset, applied_filters=applied)
+
+
 async def list_device_types(ctx: QueryContext) -> dict[str, Any]:
     """Device type models with their manufacturer (valid values for device_type)."""
     rows = await ctx.client.list_all("device_types", DEVICE_TYPE_SELECTION)
@@ -176,6 +204,14 @@ async def _device_id(ctx: QueryContext, device: str) -> str:
     return (await _device_by_name(ctx, device))["id"]
 
 
+async def _device_ref(ctx: QueryContext, device: str) -> tuple[str, str]:
+    """The id and the exact name of a device given by name or id."""
+    if UUID_PATTERN.match(device):
+        return device.lower(), await device_name(ctx, device)
+    row = await _device_by_name(ctx, device)
+    return row["id"], row["name"]
+
+
 async def device_name(ctx: QueryContext, device: str) -> str:
     """The exact name of a device given by name or id.
 
@@ -191,24 +227,32 @@ async def device_name(ctx: QueryContext, device: str) -> str:
     return (await _device_by_name(ctx, device))["name"]
 
 
+# How a device name is looked up, in order, until one finds something: exactly, ignoring case,
+# then as the start of a full name (``lab`` finds ``LAB.local.zz``). A name that is exact for one
+# device never also matches another, and a short name in two domains stays ambiguous.
+_NAME_LOOKUPS = (("name", ""), ("name__ie", ""), ("name__isw", "."))
+
+
 async def _device_by_name(ctx: QueryContext, device: str) -> dict[str, Any]:
-    page = await ctx.client.list_page(
-        "devices", "id name location { id name }", {"name": [device]},
-        limit=MAX_NAME_MATCHES, offset=0,
+    for filter_name, suffix in _NAME_LOOKUPS:
+        page = await ctx.client.list_page(
+            "devices", "id name location { id name }", {filter_name: [device + suffix]},
+            limit=MAX_NAME_MATCHES, offset=0,
+        )
+        if len(page.items) == 1:
+            return page.items[0]
+        if page.items:
+            total = f"at least {len(page.items)}" if page.has_more else str(len(page.items))
+            listing = "; ".join(
+                f"{r['name']} ({(r.get('location') or {}).get('name')}, id {r['id']})"
+                for r in page.items
+            )
+            raise AmbiguousNameError(
+                f"'{device}' matches {total} devices: {listing}"
+                f"{' (list truncated)' if page.has_more else ''}. Retry with the id."
+            )
+    raise UnknownNameError(
+        f"No device '{device}' (tried the exact name, the name ignoring case, and as the "
+        f"start of a full name such as '{device}.example.com'). Use list_devices with "
+        "name_contains to search."
     )
-    if not page.items:
-        raise UnknownNameError(
-            f"No device '{device}'. Names must match exactly; use list_devices with "
-            "name_contains to search."
-        )
-    if len(page.items) > 1:
-        total = f"at least {len(page.items)}" if page.has_more else str(len(page.items))
-        listing = "; ".join(
-            f"{r['name']} ({(r.get('location') or {}).get('name')}, id {r['id']})"
-            for r in page.items
-        )
-        raise AmbiguousNameError(
-            f"'{device}' matches {total} devices: {listing}"
-            f"{' (list truncated)' if page.has_more else ''}. Retry with the id."
-        )
-    return page.items[0]
