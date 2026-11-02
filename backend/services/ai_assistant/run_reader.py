@@ -36,6 +36,11 @@ class DbRunReader:
     async def get_workflow(self, run_id: int) -> dict[str, Any] | None:
         return await asyncio.to_thread(self._get_workflow, run_id)
 
+    async def list_runs(
+        self, workflow_id: int | None, statuses: list[str] | None, limit: int
+    ) -> list[dict[str, Any]]:
+        return await asyncio.to_thread(self._list_runs, workflow_id, statuses, limit)
+
     def _require_runs(self, db: Any) -> None:
         if not RBACService(db).has_permission(self._user_id, "workflow_runs", "read"):
             raise RunAccessError
@@ -91,3 +96,12 @@ class DbRunReader:
                 "canvas_edges": workflow.canvas_edges or [],
                 "static_attributes": workflow.static_attributes or [],
             }
+
+    def _list_runs(
+        self, workflow_id: int | None, statuses: list[str] | None, limit: int
+    ) -> list[dict[str, Any]]:
+        with SessionLocal() as db:
+            self._require_runs(db)
+            return RunService(db).list_recent_runs(
+                self._user_id, workflow_id=workflow_id, statuses=statuses, limit=limit
+            )

@@ -156,6 +156,7 @@ def _session_for(
     can_run_device_commands: bool = False,
     can_read_config_backups: bool = False,
     can_read_nautobot: bool = False,
+    can_read_runs: bool = False,
 ) -> AssistantSession:
     sharing = config.sharing
     # S5-04: with run / device content shared, scrub the exact secrets the user can resolve.
@@ -191,6 +192,8 @@ def _session_for(
             # Documented inventory (DCIM / IPAM); what it may show is gated per field by the
             # sharing policy inside the tools.
             nautobot_reader=DbNautobotQueryReader(user.id) if can_read_nautobot else None,
+            # Run explanations reuse the runs-page reader; it checks workflow_runs:read per call.
+            run_reader=DbRunReader(user.id) if can_read_runs else None,
         )
     if isinstance(context, ReportsContext):
         return build_reports_session(
@@ -351,6 +354,7 @@ def chat(
     can_run_device_commands = False
     can_read_config_backups = False
     can_read_nautobot = False
+    can_read_runs = False
     try:
         config: AiRuntimeConfig = service.require_runtime_config(current_user.id)
         if isinstance(body.context, InventoryContext):
@@ -372,6 +376,7 @@ def chat(
             can_read_nautobot = rbac.has_permission(
                 current_user.id, "sources.nautobot", "read"
             ) and bool(SettingsService(db).list_nautobot_source_summaries().sources)
+            can_read_runs = rbac.has_permission(current_user.id, "workflow_runs", "read")
         if isinstance(body.context, WorkflowCanvasContext):
             # S5-08: the editor tools list real credentials / sources / inventories, so they
             # need the same permission the workflow list does; proposing needs write.
@@ -408,6 +413,7 @@ def chat(
                 can_run_device_commands=can_run_device_commands,
                 can_read_config_backups=can_read_config_backups,
                 can_read_nautobot=can_read_nautobot,
+                can_read_runs=can_read_runs,
             )
         except RedactionBudgetExceeded as exc:
             raise HTTPException(

@@ -2984,3 +2984,29 @@ A question that cannot be answered because a device does not exist (`BatfishAnsw
 timing log (§36): `tools=` should drop. If the log shows `nodeProperties for device facts failed ... falling back`, the
 column names or the `properties` format need a fix; the answer is still correct but slow.
 
+## 40. Run explanations in Ask the Net (2026-11-02)
+
+**Why.** The runs page assistant (`run_viewer`, `doc/ai_integration/AI_ASSISTANT.md` §14) explains why a run failed
+and what a step did. Ask the Net could not see runs. It now can, with the same tools and no second copy of the logic.
+
+**What is shared.** `build_general_session(run_reader=...)` adds `RUN_VIEWER_TOOLS` (`get_run`, `get_step_result`,
+`get_artifact`, `list_run_events`, `get_run_workflow`) from `tools/run_tools.py` and the same `DbRunReader`
+(`run_reader.py`). `run_viewer_extras()` builds the per-request state for both surfaces; `RUN_ANALYSIS_RULES` in
+`prompts.py` (failure vocabulary, `not_shared` handling) is one text used by `RUN_VIEWER_PROMPT` and `RUN_EXPLAIN_PROMPT`.
+The gates are unchanged and need no new `DataClass` or operator token: device names need the inventory opt-in
+(otherwise `device-N`); error text, run inputs, command output, parsed values, events and artifacts need the content
+opt-in; failure records and statuses are metadata.
+
+**What is new.** No run is open in Ask the Net, so the model needs a way to find one: `list_runs` (`workflow_id?`,
+`status?`, `limit` 1..20, default 10). It returns metadata only (run id, workflow id and name, status, trigger, error
+category, timings), newest first, through `RunService.list_recent_runs` -> `RunRepository.list_recent_runs` (which
+already limits to public or own workflows; it gained the optional `workflow_id` / `statuses` filters).
+
+**Access.** The router passes the reader when the user holds `workflow_runs:read`; the reader checks it again on every
+call, and run visibility follows `RunService`. A missing and a forbidden run give the same fixed message.
+
+**Tests.** `tests/unit/test_ai_general_runs.py`, plus the existing `test_ai_run_tools.py` (unchanged) and
+`test_dashboard_service.py` (repository filters).
+
+**Not verified.** No real model has answered a run question through Ask the Net, and the panel was not checked in a
+browser. As for the runs page, that is still open.

@@ -21,7 +21,7 @@ from models.ai_assistant import (
 )
 from services.ai_assistant.agent_loop import DEFAULT_BUDGET, RunBudget
 from services.ai_assistant.config_backup import ConfigBackupReader
-from services.ai_assistant.data_sharing import DeviceLabeler, SharingPolicy
+from services.ai_assistant.data_sharing import SharingPolicy
 from services.ai_assistant.device_access import DeviceResolver
 from services.ai_assistant.inventory_filter import describe_condition_tree, field_data_class
 from services.ai_assistant.prompts import (
@@ -32,6 +32,7 @@ from services.ai_assistant.prompts import (
     NAUTOBOT_PROMPT,
     REPORT_TEMPLATE_PROMPT,
     REPORTS_PROMPT,
+    RUN_EXPLAIN_PROMPT,
     RUN_VIEWER_PROMPT,
     TEMPLATE_EDITOR_PROMPT,
     WORKFLOW_EDITOR_PROMPT,
@@ -73,7 +74,12 @@ from services.ai_assistant.tools.nautobot_tools import (
 from services.ai_assistant.tools.playbook_tools import AVAILABLE_TOOLS_KEY, build_playbook_tools
 from services.ai_assistant.tools.report_tools import REPORT_TOOLS, ReportReader, ReportsState
 from services.ai_assistant.tools.result_tools import RESULT_STORE_KEY, build_result_tools
-from services.ai_assistant.tools.run_tools import RUN_VIEWER_TOOLS, RunReader, RunViewerState
+from services.ai_assistant.tools.run_tools import (
+    RUN_LOOKUP_TOOLS,
+    RUN_VIEWER_TOOLS,
+    RunReader,
+    run_viewer_extras,
+)
 from services.ai_assistant.tools.template_tools import (
     TEMPLATE_EDITOR_TOOLS,
     TemplateEditorState,
@@ -200,11 +206,13 @@ def build_run_viewer_session(
     sharing: SharingPolicy,
     known_secrets: Iterable[str] = (),
 ) -> AssistantSession:
-    state = RunViewerState(run_id=context.run_id, reader=reader, labeler=DeviceLabeler(sharing))
     redactor = Redactor()
     redactor.add_known_secrets(known_secrets)
     tool_context = ToolContext(
-        user_id=user_id, redactor=redactor, extras={"run_viewer": state}, sharing=sharing
+        user_id=user_id,
+        redactor=redactor,
+        extras=run_viewer_extras(reader, sharing, context.run_id),
+        sharing=sharing,
     )
     opened = (
         f"The user has run {context.run_id} open."
@@ -309,6 +317,7 @@ def build_general_session(
     device_resolver: DeviceResolver | None = None,
     config_reader: ConfigBackupReader | None = None,
     nautobot_reader: NautobotQueryReader | None = None,
+    run_reader: RunReader | None = None,
 ) -> AssistantSession:
     """Ask the Net: read-only questions about the network (doc/AI_TOOL_CHAIN.md §10a, §20.3).
 
@@ -346,6 +355,11 @@ def build_general_session(
     if nautobot_reader is not None:
         extras[NAUTOBOT_READER_KEY] = nautobot_reader
         tools.extend(build_nautobot_tools())
+    # Run explanations (plan: runs in Ask the Net): the run-viewer tools plus list_runs, shared
+    # with the runs-page assistant. No run is open here, so every tool takes a run_id.
+    if run_reader is not None:
+        extras.update(run_viewer_extras(run_reader, sharing, can_list_runs=True))
+        tools.extend((*RUN_VIEWER_TOOLS, *RUN_LOOKUP_TOOLS))
     if may_query_batfish and nautobot_reader is not None:
         # The two systems name a device differently (config hostname vs full name); this is the
         # explicit lookup between them (doc/AI_TOOL_CHAIN.md §33). Only useful with both.
@@ -365,16 +379,30 @@ def build_general_session(
         parts.append(CONFIG_BACKUP_PROMPT)
     if nautobot_reader is not None:
         parts.append(NAUTOBOT_PROMPT)
-    if not may_query_batfish and nautobot_reader is None:
-        parts.append(
-            "The user is not allowed to query Batfish, so you have no tools. Say so and answer "
-            "only from general knowledge, without claiming anything about their network."
-        )
-    elif not may_query_batfish:
-        parts.append(
-            "The user is not allowed to query Batfish, so you have only the Nautobot tools. Say "
-            "so where it matters: Nautobot shows what is documented, not how the network behaves."
-        )
+    if run_reader is not None:
+        parts.append(RUN_EXPLAIN_PROMPT)
+    if not may_query_batfish:
+        offered = [
+            name
+            for name, reader_ in (("Nautobot", nautobot_reader), ("run", run_reader))
+            if reader_ is not None
+        ]
+        if not offered:
+            parts.append(
+                "The user is not allowed to query Batfish, so you have no tools. Say so and "
+                "answer only from general knowledge, without claiming anything about their "
+                "network."
+            )
+        else:
+            parts.append(
+                "The user is not allowed to query Batfish, so you have only the "
+                f"{' and '.join(offered)} tools. Say so where it matters."
+                + (
+                    " Nautobot shows what is documented, not how the network behaves."
+                    if nautobot_reader is not None
+                    else ""
+                )
+            )
     return AssistantSession(
         system="\n\n".join(parts),
         toolbox=Toolbox(tools, tool_context),

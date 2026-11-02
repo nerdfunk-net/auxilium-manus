@@ -186,6 +186,75 @@ class DashboardServiceVisibilityTests(unittest.TestCase):
         self.assertIn(public_wf.id, workflow_ids)
         self.assertNotIn(others_private_wf.id, workflow_ids)
 
+    def test_repository_recent_runs_filters_by_workflow_and_status(self) -> None:
+        from repositories.run_repository import RunRepository
+
+        wf_a = _make_workflow(self.db, name="a", creator_id=self.owner.id, visibility="public")
+        wf_b = _make_workflow(self.db, name="b", creator_id=self.owner.id, visibility="public")
+        for uuid, wf, status in (
+            ("r1", wf_a, "failed"),
+            ("r2", wf_a, "success"),
+            ("r3", wf_b, "failed"),
+        ):
+            self.db.add(
+                WorkflowRun(
+                    uuid=uuid,
+                    workflow_id=wf.id,
+                    triggered_by_id=self.owner.id,
+                    status=status,
+                    trigger_type="manual",
+                )
+            )
+        self.db.commit()
+        repo = RunRepository(self.db)
+
+        failed = repo.list_recent_runs(self.owner.id, limit=10, statuses=["failed"])
+        in_a = repo.list_recent_runs(self.owner.id, limit=10, workflow_id=wf_a.id)
+        one = repo.list_recent_runs(self.owner.id, limit=1)
+
+        self.assertEqual({r.uuid for r, _u, _n in failed}, {"r1", "r3"})
+        self.assertEqual({r.uuid for r, _u, _n in in_a}, {"r1", "r2"})
+        self.assertEqual(len(one), 1)
+
+    def test_recent_runs_filters_keep_the_private_workflow_exclusion(self) -> None:
+        from repositories.run_repository import RunRepository
+
+        private_wf = _make_workflow(self.db, name="p", creator_id=self.owner.id)
+        self.db.add(
+            WorkflowRun(
+                uuid="priv",
+                workflow_id=private_wf.id,
+                triggered_by_id=self.owner.id,
+                status="failed",
+                trigger_type="manual",
+            )
+        )
+        self.db.commit()
+
+        rows = RunRepository(self.db).list_recent_runs(
+            self.other.id, limit=10, workflow_id=private_wf.id, statuses=["failed"]
+        )
+
+        self.assertEqual(rows, [])
+
+    def test_service_rejects_skipped_and_caps_the_limit(self) -> None:
+        from core.domain_exceptions import ValidationFailedError
+        from services.execution.run_service import MAX_RECENT_RUNS, RunService
+
+        service = RunService(self.db)
+        with self.assertRaises(ValidationFailedError):
+            service.list_recent_runs(self.owner.id, statuses=["skipped"])
+        seen: dict[str, int] = {}
+        original = service.run_repo.list_recent_runs
+
+        def spy(user_id, *, limit, **kw):
+            seen["limit"] = limit
+            return original(user_id, limit=limit, **kw)
+
+        service.run_repo.list_recent_runs = spy  # type: ignore[method-assign]
+        service.list_recent_runs(self.owner.id, limit=10_000)
+        self.assertEqual(seen["limit"], MAX_RECENT_RUNS)
+
 
 if __name__ == "__main__":
     unittest.main()

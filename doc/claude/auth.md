@@ -105,6 +105,10 @@ holds) and the user's content opt-in; no operator switch. The path comes from th
 `config_path_running` / `config_path_startup` template, which only an admin can set (P3), never from the model
 (`doc/AI_TOOL_CHAIN.md` §30).
 
+**Ask the Net run tools** (`list_runs`, `get_run`, `get_step_result`, ...). The same tools as the runs-page assistant. They
+need `workflow_runs:read` (checked on every call) and follow run visibility; the user's inventory and content opt-ins gate
+device names and run content (`doc/AI_TOOL_CHAIN.md` §40).
+
 **Ask the Net Nautobot tools** (`list_devices`, `list_ip_addresses`, `list_locations`, ...). They need `sources.nautobot:read`
 (checked on every call, which the seeded `viewer` role holds) and a configured Nautobot source; the user's data opt-ins
 gate the fields (inventory for devices, addresses for IPAM and addresses/serials). They run on the source's shared

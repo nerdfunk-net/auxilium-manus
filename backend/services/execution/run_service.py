@@ -27,6 +27,7 @@ from models.attribute_path import (
 )
 from models.runs import (
     RUN_LIST_STATUS_FILTERS,
+    RUN_STATUS_FILTERS,
     TERMINAL_RUN_STATUSES,
     DeviceGroupProgress,
     ErrorCategory,
@@ -70,6 +71,8 @@ _ACTIVE_RUN_STATUSES = ("pending", "running", "paused")
 
 # A run started by a step of another run (start-workflow) may itself start runs, to this depth.
 MAX_CHILD_RUN_DEPTH = 3
+# Ceiling for ``RunService.list_recent_runs`` (the assistant tool caps itself lower).
+MAX_RECENT_RUNS = 50
 # Worst-first ranking of step statuses, for judging a finished child run.
 _STEP_STATUS_SEVERITY = {"failed": 4, "partial": 3, "skipped": 2, "success": 1}
 
@@ -509,6 +512,43 @@ class RunService:
         )
         summaries = [_run_to_summary(run, username) for run, username in rows]
         return WorkflowRunListResponse(runs=summaries, total=total, limit=limit, offset=offset)
+
+    def list_recent_runs(
+        self,
+        user_id: int,
+        *,
+        workflow_id: int | None = None,
+        statuses: list[str] | None = None,
+        limit: int = 10,
+    ) -> list[dict[str, Any]]:
+        """Newest runs across the workflows the user may see, as plain metadata rows.
+
+        ``statuses`` compare the run's own status (``RUN_STATUS_FILTERS``: no ``skipped``, which
+        ``list_runs`` reads as "a step was skipped"); ``limit`` is capped at ``MAX_RECENT_RUNS``.
+        """
+        if statuses:
+            invalid = [s for s in statuses if s not in RUN_STATUS_FILTERS]
+            if invalid:
+                raise ValidationFailedError(f"Invalid status filter(s): {', '.join(invalid)}")
+        rows = self.run_repo.list_recent_runs(
+            user_id,
+            limit=max(1, min(limit, MAX_RECENT_RUNS)),
+            workflow_id=workflow_id,
+            statuses=statuses,
+        )
+        return [
+            {
+                "run_id": run.id,
+                "workflow_id": run.workflow_id,
+                "workflow_name": workflow_name,
+                "status": run.status,
+                "trigger_type": run.trigger_type,
+                "error_category": run.error_category,
+                "started_at": run.started_at.isoformat() if run.started_at else None,
+                "finished_at": run.finished_at.isoformat() if run.finished_at else None,
+            }
+            for run, _username, workflow_name in rows
+        ]
 
     def _response(self, run: WorkflowRun, username: str | None) -> WorkflowRunResponse:
         """Full run detail: step results plus live fan-out device-group progress."""

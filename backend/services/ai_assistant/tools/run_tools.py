@@ -11,13 +11,14 @@ import asyncio
 import json
 from collections import Counter
 from dataclasses import dataclass, field
-from typing import Any, Protocol
+from typing import Any, Literal, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from services.ai_assistant.data_sharing import (
     DataClass,
     DeviceLabeler,
+    SharingPolicy,
     gated,
     mask_run_attributes,
     not_shared_marker,
@@ -25,6 +26,10 @@ from services.ai_assistant.data_sharing import (
 from services.ai_assistant.tools.base import Tool, ToolContext, ToolOutput
 from services.ai_assistant.workflow_expand import build_compact_view
 
+# ``ToolContext.extras`` slot holding the RunViewerState; shared by the run-viewer and Ask the Net.
+RUN_VIEWER_KEY = "run_viewer"
+MAX_RUNS_LISTED = 20
+DEFAULT_RUNS_LISTED = 10
 MAX_DEVICES_LISTED = 20
 MAX_EVENTS_LISTED = 100
 MAX_ARTIFACT_CHARS = 8000
@@ -47,18 +52,41 @@ class RunReader(Protocol):
 
     async def get_workflow(self, run_id: int) -> dict[str, Any] | None: ...
 
+    async def list_runs(
+        self, workflow_id: int | None, statuses: list[str] | None, limit: int
+    ) -> list[dict[str, Any]]: ...
+
 
 @dataclass(frozen=True)
 class RunViewerState:
     run_id: int | None
     reader: RunReader
-    labeler: DeviceLabeler
+    sharing: SharingPolicy
+    can_list_runs: bool = False  # True where list_runs is in the toolbox (Ask the Net)
+    # One labeler per run, seeded from that run's devices only: ``device-N`` then names the same
+    # device on every turn, whatever other runs were loaded first (Ask the Net loads several).
+    labelers: dict[int, DeviceLabeler] = field(default_factory=dict)
     # Runs already loaded this request (labels are seeded from them; see _load_run).
     loaded: dict[int, dict[str, Any]] = field(default_factory=dict)
 
 
 def _state(ctx: ToolContext) -> RunViewerState:
-    return ctx.extras["run_viewer"]
+    return ctx.extras[RUN_VIEWER_KEY]
+
+
+def run_viewer_extras(
+    reader: RunReader,
+    sharing: SharingPolicy,
+    run_id: int | None = None,
+    *,
+    can_list_runs: bool = False,
+) -> dict[str, RunViewerState]:
+    """The ``ToolContext.extras`` entry the run tools need (one place for both surfaces)."""
+    return {
+        RUN_VIEWER_KEY: RunViewerState(
+            run_id=run_id, reader=reader, sharing=sharing, can_list_runs=can_list_runs
+        )
+    }
 
 
 # -- inputs -----------------------------------------------------------------------------------
@@ -86,6 +114,16 @@ class ArtifactInput(RunRef):
     artifact_id: str = Field(min_length=1, max_length=255, description="From get_step_result")
 
 
+class ListRunsInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    workflow_id: int | None = Field(default=None, ge=1, description="Only this workflow's runs")
+    status: Literal["pending", "running", "paused", "success", "failed", "cancelled"] | None = (
+        Field(default=None, description="Only runs in this status")
+    )
+    limit: int = Field(default=DEFAULT_RUNS_LISTED, ge=1, le=MAX_RUNS_LISTED)
+
+
 class EventsInput(RunRef):
     node_id: str | None = Field(default=None, max_length=255)
     limit: int = Field(default=50, ge=1, le=MAX_EVENTS_LISTED)
@@ -102,7 +140,17 @@ def _resolve_run_id(ctx: ToolContext, run_id: int | None) -> int | None:
 
 
 _NO_RUN = ToolOutput("No run is open. Ask the user which run (id) to look at.", is_error=True)
+# Ask the Net has no open run but offers list_runs; the runs page does not, so it must not be named
+# there (the model would call a tool that is not in its toolbox).
+_NO_RUN_FIND = ToolOutput(
+    "No run is open. Pass a run_id (find one with list_runs) or ask the user which run to look at.",
+    is_error=True,
+)
 _NO_ACCESS = ToolOutput("That run does not exist or you cannot access it.", is_error=True)
+
+
+def _no_run(ctx: ToolContext) -> ToolOutput:
+    return _NO_RUN_FIND if _state(ctx).can_list_runs else _NO_RUN
 
 
 def _cap_strings(value: Any) -> Any:
@@ -139,7 +187,9 @@ async def _load_run(ctx: ToolContext, run_id: int) -> dict[str, Any]:
     state = _state(ctx)
     if run_id not in state.loaded:
         run = await state.reader.get_run(run_id)
-        state.labeler.seed(_device_names(run))
+        labeler = DeviceLabeler(state.sharing)
+        labeler.seed(_device_names(run))
+        state.labelers[run_id] = labeler
         state.loaded[run_id] = run
     return state.loaded[run_id]
 
@@ -188,8 +238,9 @@ def _step_summary(ctx: ToolContext, step: dict[str, Any]) -> dict[str, Any]:
     return summary
 
 
-def _group_summary(ctx: ToolContext, group: dict[str, Any]) -> dict[str, Any]:
-    labeler = _state(ctx).labeler
+def _group_summary(
+    ctx: ToolContext, labeler: DeviceLabeler, group: dict[str, Any]
+) -> dict[str, Any]:
     summary: dict[str, Any] = {
         "child_index": group["child_index"],
         "status": group["status"],
@@ -201,8 +252,9 @@ def _group_summary(ctx: ToolContext, group: dict[str, Any]) -> dict[str, Any]:
     return summary
 
 
-def _device_summary(ctx: ToolContext, device: dict[str, Any], include: set[str]) -> dict[str, Any]:
-    labeler = _state(ctx).labeler
+def _device_summary(
+    ctx: ToolContext, labeler: DeviceLabeler, device: dict[str, Any], include: set[str]
+) -> dict[str, Any]:
     commands = [
         {
             "command": gated(ctx.sharing, DataClass.CONTENT, c.get("command")),
@@ -250,7 +302,7 @@ def _device_summary(ctx: ToolContext, device: dict[str, Any], include: set[str])
 async def _get_run(ctx: ToolContext, args: RunRef) -> ToolOutput:
     run_id = _resolve_run_id(ctx, args.run_id)
     if run_id is None:
-        return _NO_RUN
+        return _no_run(ctx)
     try:
         run = await _load_run(ctx, run_id)
     except RunAccessError:
@@ -268,7 +320,10 @@ async def _get_run(ctx: ToolContext, args: RunRef) -> ToolOutput:
         "error_id": run.get("error_id"),
         "run_inputs": gated(ctx.sharing, DataClass.CONTENT, run.get("run_inputs")),
         "steps": [_step_summary(ctx, s) for s in run.get("step_results", [])],
-        "fan_out_groups": [_group_summary(ctx, g) for g in run.get("device_groups", [])],
+        "fan_out_groups": [
+            _group_summary(ctx, _state(ctx).labelers[run_id], g)
+            for g in run.get("device_groups", [])
+        ],
     }
     if run.get("error_message"):
         summary["error_message"] = gated(ctx.sharing, DataClass.CONTENT, run["error_message"])
@@ -278,12 +333,12 @@ async def _get_run(ctx: ToolContext, args: RunRef) -> ToolOutput:
 async def _get_step_result(ctx: ToolContext, args: StepResultInput) -> ToolOutput:
     run_id = _resolve_run_id(ctx, args.run_id)
     if run_id is None:
-        return _NO_RUN
-    state = _state(ctx)
+        return _no_run(ctx)
     try:
         run = await _load_run(ctx, run_id)
     except RunAccessError:
         return _NO_ACCESS
+    labeler = _state(ctx).labelers[run_id]
     step = next(
         (s for s in run.get("step_results", []) if s.get("step_node_id") == args.node_id), None
     )
@@ -297,10 +352,12 @@ async def _get_step_result(ctx: ToolContext, args: StepResultInput) -> ToolOutpu
             d
             for d in (envelope.get("devices") or {}).values()
             if args.device is None
-            or state.labeler.matches(d.get("name") or d.get("id") or "", args.device)
+            or labeler.matches(d.get("name") or d.get("id") or "", args.device)
         ]
         omitted += max(0, len(devices) - MAX_DEVICES_LISTED)
-        outcomes[outcome] = [_device_summary(ctx, d, include) for d in devices[:MAX_DEVICES_LISTED]]
+        outcomes[outcome] = [
+            _device_summary(ctx, labeler, d, include) for d in devices[:MAX_DEVICES_LISTED]
+        ]
     result: dict[str, Any] = {"step": _step_summary(ctx, step), "outcomes": outcomes}
     if omitted:
         result["note"] = (
@@ -312,7 +369,7 @@ async def _get_step_result(ctx: ToolContext, args: StepResultInput) -> ToolOutpu
 async def _get_artifact(ctx: ToolContext, args: ArtifactInput) -> ToolOutput:
     run_id = _resolve_run_id(ctx, args.run_id)
     if run_id is None:
-        return _NO_RUN
+        return _no_run(ctx)
     if not ctx.sharing.allows(DataClass.CONTENT):
         return ToolOutput(_json(not_shared_marker(DataClass.CONTENT)))
     try:
@@ -346,17 +403,18 @@ async def _get_artifact(ctx: ToolContext, args: ArtifactInput) -> ToolOutput:
 async def _list_events(ctx: ToolContext, args: EventsInput) -> ToolOutput:
     run_id = _resolve_run_id(ctx, args.run_id)
     if run_id is None:
-        return _NO_RUN
+        return _no_run(ctx)
     state = _state(ctx)
     try:
-        await _load_run(ctx, run_id)  # seeds the device labels
+        await _load_run(ctx, run_id)  # seeds this run's device labels
         events = await state.reader.list_events(run_id, args.limit, args.node_id)
     except RunAccessError:
         return _NO_ACCESS
+    labeler = state.labelers[run_id]
     rows = [
         {
             "step_node_id": e.get("step_node_id"),
-            "device": state.labeler.label(e["device_name"]) if e.get("device_name") else None,
+            "device": labeler.label(e["device_name"]) if e.get("device_name") else None,
             "level": e.get("level"),
             "kind": e.get("kind"),
             "message": gated(ctx.sharing, DataClass.CONTENT, e.get("message")),
@@ -371,7 +429,7 @@ async def _list_events(ctx: ToolContext, args: EventsInput) -> ToolOutput:
 async def _get_run_workflow(ctx: ToolContext, args: RunRef) -> ToolOutput:
     run_id = _resolve_run_id(ctx, args.run_id)
     if run_id is None:
-        return _NO_RUN
+        return _no_run(ctx)
     try:
         workflow = await _state(ctx).reader.get_workflow(run_id)
     except RunAccessError:
@@ -394,6 +452,29 @@ async def _get_run_workflow(ctx: ToolContext, args: RunRef) -> ToolOutput:
         )
     )
 
+
+async def _list_runs(ctx: ToolContext, args: ListRunsInput) -> ToolOutput:
+    """Newest runs the user may see. Metadata only (ids, status, timings): no gate needed."""
+    statuses = [args.status] if args.status else None
+    try:
+        rows = await _state(ctx).reader.list_runs(args.workflow_id, statuses, args.limit)
+    except RunAccessError:
+        return _NO_ACCESS
+    for row in rows:
+        ctx.audit_refs.add(f"run:{row['run_id']}")
+    return ToolOutput(_json(ctx.redactor.redact_data({"runs": rows})))
+
+
+RUN_LOOKUP_TOOLS: tuple[Tool, ...] = (
+    Tool(
+        "list_runs",
+        "Find workflow runs: newest first, optionally for one workflow and/or one status "
+        "(e.g. status='failed' for 'what failed last night'). Returns run ids to pass to "
+        "get_run. Metadata only.",
+        ListRunsInput,
+        _list_runs,
+    ),
+)
 
 RUN_VIEWER_TOOLS: tuple[Tool, ...] = (
     Tool(

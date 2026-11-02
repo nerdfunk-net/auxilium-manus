@@ -112,6 +112,7 @@ const TOOL_LABELS: Record<string, string> = {
   get_step_result: "Reading a step's result",
   get_artifact: "Reading stored output",
   list_run_events: "Reading run events",
+  list_runs: "Looking up runs",
   get_run_workflow: "Reading the workflow definition",
   list_inventories: "Looking through inventories",
   resolve_inventory: "Resolving an inventory",

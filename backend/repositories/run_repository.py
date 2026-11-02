@@ -133,7 +133,12 @@ class RunRepository:
         return rows, int(total)
 
     def list_recent_runs(
-        self, user_id: int, *, limit: int
+        self,
+        user_id: int,
+        *,
+        limit: int,
+        workflow_id: int | None = None,
+        statuses: Collection[str] | None = None,
     ) -> list[tuple[WorkflowRun, str | None, str]]:
         stmt = (
             select(
@@ -144,9 +149,12 @@ class RunRepository:
             .join(Workflow, WorkflowRun.workflow_id == Workflow.id)
             .outerjoin(User, WorkflowRun.triggered_by_id == User.id)
             .where(or_(Workflow.visibility == "public", Workflow.creator_id == user_id))
-            .order_by(WorkflowRun.created_at.desc())
-            .limit(limit)
         )
+        if workflow_id is not None:
+            stmt = stmt.where(WorkflowRun.workflow_id == workflow_id)
+        if statuses:
+            stmt = stmt.where(WorkflowRun.status.in_(tuple(statuses)))
+        stmt = stmt.order_by(WorkflowRun.created_at.desc(), WorkflowRun.id.desc()).limit(limit)
         return [
             (row.WorkflowRun, row.triggered_by_username, row.workflow_name)
             for row in self.db.execute(stmt)
