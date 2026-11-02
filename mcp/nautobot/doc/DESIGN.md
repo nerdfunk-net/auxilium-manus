@@ -98,6 +98,8 @@ vocabulary **before** the GraphQL call, and a miss returns the guiding error fro
 | `list_devices` | `location`, `role`, `status`, `tag`, `device_type`, `platform`, `name_contains`, `limit`, `offset` |
 | `get_device` | `device` (name or id) — includes interfaces and IPs |
 | `list_device_types`, `list_platforms` | — (vocabulary) |
+| `list_virtual_chassis` | `name_contains`, `limit`, `offset` |
+| `get_virtual_chassis` | `virtual_chassis` (name or id) — every member with position, priority, type, address, master flag; the lib query is shared with the `get-virtual-chassis` workflow step |
 | `list_prefixes` | `prefix`, `location`, `status`, `role`, `namespace`, `tag`, `limit`, `offset` |
 | `list_ip_addresses` | `address`, `parent_prefix`, `status`, `role`, `namespace`, `tag`, `device`, `limit`, `offset` |
 | `search` (maybe later) | `text` — across the above |
@@ -144,7 +146,7 @@ Python 3.12. Package `nautobot_mcp/`:
 | `__main__.py` | `python -m nautobot_mcp`, stdio, logs to stderr, exit 2 on bad config | done |
 | `tools/common.py` | `@guarded` (`EXPECTED_ERRORS` to `ToolError`), `Limit`/`Offset` (`envelope()` is in the lib) | done |
 | `tools/organization.py` | wrappers; logic in the lib: `list_locations`, `get_location`, `list_location_types`, `list_roles`, `list_statuses`, `list_tags` | done |
-| `tools/dcim.py` | wrappers; logic in the lib: `list_devices`, `get_device`, `list_device_types`, `list_platforms` | done |
+| `tools/dcim.py` | wrappers; logic in the lib: `list_devices`, `get_device`, `list_device_types`, `list_platforms`, `list_virtual_chassis`, `get_virtual_chassis` | done |
 | `networks.py` (lib) | validates addresses/prefixes before any query (`InvalidInputError`) | done |
 | `tools/ipam.py` | wrappers; logic in the lib: `list_ip_addresses`, `list_prefixes`, `list_namespaces` | done |
 

@@ -7,7 +7,7 @@ import pytest
 from nautobot_read.client import NautobotError, Page, TooManyRowsError
 from nautobot_read.context import QueryContext
 from nautobot_read.errors import EXPECTED_ERRORS
-from nautobot_read.queries import dcim, free_ip, ipam, organization
+from nautobot_read.queries import dcim, free_ip, ipam, organization, virtual_chassis
 from nautobot_read.vocabularies import VocabularyCache
 
 UUID_DE = "11111111-1111-1111-1111-111111111111"
@@ -60,7 +60,22 @@ PREFIX_ROW = {
 UUID_PFX = "dddddddd-dddd-dddd-dddd-dddddddddddd"
 UUID_PFX_BLACK = "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee"
 UUID_PFX_WIDE = "ffffffff-ffff-ffff-ffff-ffffffffffff"
+UUID_VC = "99999999-9999-9999-9999-999999999999"
+VC_ROW = {
+    "id": UUID_VC, "name": "LAB.local.zz",
+    "members": [
+        {"id": UUID_DEV2, "name": "LAB:2.local.zz", "serial": "SN2", "vc_position": 2,
+         "vc_priority": 1, "device_type": {"model": "C9300-24P"}, "platform": None,
+         "primary_ip4": None, "vc_master_for": None},
+        {"id": UUID_DEV1, "name": "LAB.local.zz", "serial": "SN1", "vc_position": 1,
+         "vc_priority": 15, "device_type": {"model": "C9300-48P"},
+         "platform": {"name": "Cisco IOS-XE", "network_driver": "cisco_xe"},
+         "primary_ip4": {"address": "10.0.0.1/24"},
+         "vc_master_for": {"id": UUID_VC, "name": "LAB.local.zz"}},
+    ],
+}
 VOCAB_ROWS = {
+    "virtual_chassis": [{"name": "LAB.local.zz"}, {"name": "OTHER"}],
     "namespaces": [{"name": "Global"}, {"name": "black"}],
     "device_types": [
         {"model": "networkA", "manufacturer": {"name": "NetworkInc"}},
@@ -96,6 +111,8 @@ class FakeNautobot:
         self.fail_with: NautobotError | None = None
         self.rest_calls: list[str] = []
         self.too_many_locations = False
+        self.graphql_override: dict[str, Any] | None = None
+        self.vc_names: list[dict[str, Any]] | None = None
         self.location_lookup: list[dict[str, Any]] = []
         self.available: Any = [{"address": f"10.0.0.{n}/24"} for n in range(0, 12)]
 
@@ -106,6 +123,8 @@ class FakeNautobot:
             raise TooManyRowsError("Nautobot has more than 5000 locations; too many to load.")
         if root == "locations":
             return LOCATION_ROWS
+        if root == "virtual_chassis" and self.vc_names is not None:
+            return self.vc_names
         return VOCAB_ROWS[root]
 
     async def list_page(self, root, selection, filters, *, limit, offset):
@@ -124,6 +143,8 @@ class FakeNautobot:
 
     async def graphql(self, query, variables=None):
         self.graphql_calls.append((query, variables))
+        if self.graphql_override is not None:
+            return self.graphql_override
         return {"location": LOCATION_ROWS[1], "device": self.device_detail}
 
 
@@ -138,7 +159,7 @@ def ctx(nautobot):
 
 
 def _query(name: str):
-    for module in (organization, dcim, ipam, free_ip):
+    for module in (organization, dcim, ipam, free_ip, virtual_chassis):
         if hasattr(module, name):
             return getattr(module, name)
     raise AttributeError(name)

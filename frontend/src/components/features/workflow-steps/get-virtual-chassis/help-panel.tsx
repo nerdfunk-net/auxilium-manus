@@ -41,8 +41,8 @@ export function GetVirtualChassisHelpPanel() {
         <p>Selects which virtual chassis to read. Empty reads all of them.</p>
         <ul className="list-disc space-y-1.5 pl-4">
           <li>
-            <span className="font-medium text-foreground">Exact name</span> — sent to
-            Nautobot as a filter.
+            <span className="font-medium text-foreground">Exact name</span> — the whole
+            name, case-insensitive.
           </li>
           <li>
             <span className="font-medium text-foreground">Contains</span> —

@@ -7,6 +7,7 @@ from typing import Annotated, Any
 from mcp.server.mcpserver import MCPServer
 from nautobot_read.context import QueryContext
 from nautobot_read.queries import dcim
+from nautobot_read.queries import virtual_chassis as stacks
 from nautobot_read.queries.common import DEFAULT_LIMIT
 from pydantic import Field
 
@@ -76,3 +77,27 @@ def register(server: MCPServer, app: QueryContext) -> None:
     async def list_platforms() -> dict[str, Any]:
         """List platforms (for example 'Cisco IOS') with manufacturer and network driver."""
         return await dcim.list_platforms(app)
+
+    @server.tool(annotations=READ_ONLY)
+    @guarded
+    async def list_virtual_chassis(
+        name_contains: Annotated[
+            str | None, Field(description="Case-insensitive part of the virtual chassis name.")
+        ] = None,
+        limit: Limit = DEFAULT_LIMIT,
+        offset: Offset = 0,
+    ) -> dict[str, Any]:
+        """List virtual chassis (Cisco stacks): master, member names in stack order, count."""
+        return await stacks.list_virtual_chassis(
+            app, name_contains=name_contains, limit=limit, offset=offset
+        )
+
+    @server.tool(annotations=READ_ONLY)
+    @guarded
+    async def get_virtual_chassis(
+        virtual_chassis: Annotated[
+            str, Field(description="Virtual chassis name (any case) or id.")
+        ],
+    ) -> dict[str, Any]:
+        """Get one virtual chassis (stack) with every member device and which one is master."""
+        return await stacks.get_virtual_chassis(app, virtual_chassis=virtual_chassis)

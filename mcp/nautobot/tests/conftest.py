@@ -55,7 +55,18 @@ PREFIX_ROW = {
     "description": "Auto-created", "tenant": None, "vlan": {"vid": 10, "name": "mgmt"},
     "locations": [{"name": "Berlin"}], "tags": [], "parent": {"prefix": "10.0.0.0/16"},
 }
+UUID_VC = "99999999-9999-9999-9999-999999999999"
+VC_ROW = {
+    "id": UUID_VC, "name": "LAB.local.zz",
+    "members": [
+        {"id": UUID_DEV1, "name": "LAB.local.zz", "serial": "SN1", "vc_position": 1,
+         "vc_priority": 15, "device_type": {"model": "C9300"}, "platform": None,
+         "primary_ip4": {"address": "10.0.0.1/24"},
+         "vc_master_for": {"id": UUID_VC, "name": "LAB.local.zz"}},
+    ],
+}
 VOCAB_ROWS = {
+    "virtual_chassis": [{"name": "LAB.local.zz"}],
     "namespaces": [{"name": "Global"}, {"name": "black"}],
     "device_types": [
         {"model": "networkA", "manufacturer": {"name": "NetworkInc"}},

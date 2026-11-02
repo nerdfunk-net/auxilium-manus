@@ -33,6 +33,7 @@ into tool arguments. The server makes that reliable:
 | DCIM | `list_devices` | Filter by location (incl. children), role, status, tag, device type, platform, name |
 | | `get_device` | One device with interfaces and their IPs (by name or id) |
 | | `list_device_types`, `list_platforms` | Vocabulary for the device filters |
+| | `list_virtual_chassis`, `get_virtual_chassis` | Cisco stacks: one row per stack, or one stack with all members (shared with the `get-virtual-chassis` workflow step) |
 | IPAM | `list_ip_addresses` | Filter by address, prefix, device, namespace, role, status, tag, DNS name |
 | | `list_prefixes` | Filter by prefix, `within`, `contains`, location, namespace, role, status, tag |
 | | `list_namespaces` | Vocabulary for the namespace filters |

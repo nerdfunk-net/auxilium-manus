@@ -2328,17 +2328,19 @@ existence guard and the call see them.
 | `get_routes` | done | confirmed (connected, OSPF, longest-prefix match) |
 | `get_traceroute` | done | confirmed (`Traces` shape recognised) |
 | `get_interface_properties` | done | confirmed |
-| `get_device_facts` | done | confirmed after the section-nesting fix (§27.0) |
+| `get_device_facts` | done | confirmed after the section-nesting fix (§27.0); on one `nodeProperties` question since 2026-11-02 (§39), faster live (product owner) |
 | `check_reachability`, `analyze_acl` | done | confirmed (§27.0a) |
 | `compare_filters`, `differential_reachability` | done | confirmed by the answers; the `Snapshot_*` / `Reference_*` side mapping was not checked against raw rows (§27.0c) |
 | `get_device_name_matches` | done (§33) | not tried live |
+| `list_snapshot_devices`, `get_ip_owners` | done (§37, §38) | not confirmed live; `ipOwners` columns **unverified** |
+| Nautobot `list_interfaces` | done (§34) | not tried live |
 | `get_snapshot_parse_issues` | done (§32) | not tried live; column names **unverified** |
 | `get_bgp_session_status` | done | empty case only; columns **unverified** until the production BGP setup is asked |
 | `query_result`, `fetch_slice` | done | handles above 20 rows not exercised with a large real table |
 | `diff_results` | done | not tried live |
 
 **Not built (candidates, none needed for the first playbook):** diagnostics (`get_undefined_references`; parse warnings and init issues are built, §32), `compare_routes`, BGP RIB / peer configuration / OSPF details,
-`detect_loops`, `search_filters`, a bidirectional traceroute, `get_ip_owners` / `get_edges` (see §24), and an
+`detect_loops`, `search_filters`, a bidirectional traceroute, `get_edges` (see §24; `get_ip_owners` is built, §37), and an
 allow-listed question catalog (§15.5). Diagnostics are the first to add if wrong answers turn out to come from
 configs Batfish did not parse.
 
@@ -2486,6 +2488,13 @@ words `write` / `copy`, which would reject ordinary prose.
 not written). The playbook text was checked against the tool inputs by reading, not by a live run.
 
 ## 28. Handover for the next session (2026-11-01, end of day)
+
+> **Update (2026-11-02):** later sections cover what was added after this list: snapshot parse diagnostics (§32), device
+> names Batfish vs Nautobot (§33), interface summary / status filter and Nautobot `list_interfaces` (§34), review fixes
+> (§35, §38), the 300 s budget and the timing log (§36), `list_snapshot_devices` / `get_ip_owners` (§37) and
+> `get_device_facts` on `nodeProperties` (§39). Open there, all "not verified live": the `ipOwners` / `nodeProperties`
+> columns, the Nautobot `name__ie` / `name__isw` / interface `name__ic` filters, the interface `Active` / `Admin_Up`
+> columns, the parse diagnostics columns. Test count after §39: backend unit suite 8440 passed.
 
 > **Update (end of session, 2026-11-01):** this list was written before §29 and §30. Since then: playbooks are
 > built (item 1, §27.2, still not tried with a model), device commands from Ask the Net are built (§29, item 7
@@ -2671,7 +2680,7 @@ live question.
   upstream text. A source whose credentials do not load is skipped and logged with its
   error type (not the message); all sources failing is logged apart from having none configured. The name vocabularies are cached per instance and token for the process (`vocabularies_for`,
   5 minutes, at most 8 instances), not per chat request.
-* **Tools** `tools/nautobot_tools.py`, 15 reads (13 with the MCP tool names, plus `get_next_free_ip` and `list_interfaces`, §34) (`list_devices`, `get_device`,
+* **Tools** `tools/nautobot_tools.py`, 17 reads (15 with the MCP tool names, plus `get_next_free_ip` and `list_interfaces`, §34; `list_virtual_chassis` and `get_virtual_chassis` are MCP tools too, see "Virtual chassis" below) (`list_devices`, `get_device`,
   `list_locations`, `get_location`, `list_location_types`, `list_roles`, `list_statuses`, `list_tags`,
   `list_device_types`, `list_platforms`, `list_ip_addresses`, `list_prefixes`, `list_namespaces`); the
   names are shared on purpose, the library's errors say "use list_devices". A page is 20 rows by default, 100 at
@@ -2690,6 +2699,22 @@ live question.
   A field no rule names is never sent (fail closed); `withheld_fields` says which setting releases a field.
   Values are redacted before JSON encoding (a known secret with a quote or backslash would not match after
   `json.dumps`), long text is cut at 500 characters.
+* **Virtual chassis** (Cisco stacks; `list_virtual_chassis`, `get_virtual_chassis`, `queries/virtual_chassis.py`): "list
+  all stacks" and "which devices belong to the virtual chassis xyz". **One implementation shared with the workflow step
+  `get-virtual-chassis`**: the library owns the GraphQL selection, `fetch_virtual_chassis`, `pick_master` and
+  `member_record` (the flat member record); the step imports them (`workflow_steps/get_virtual_chassis/stack.py`,
+  `executor.py`) and adds only what is workflow-specific (name match modes, `index_regex` / `stack_index`, `DeviceContext`,
+  `FAILED` devices for a stack without a master IP). The step reaches Nautobot through `NautobotServiceClient`
+  (`services/nautobot/graphql_client.py`, moved out of the assistant reader so a step does not import the assistant).
+  A change to what a member record holds is made once, in the library. `list_virtual_chassis` returns one compact row
+  per stack (name, master, `member_count`, member names in stack order; `name_contains` uses `name__ic`);
+  `get_virtual_chassis` takes a name (resolved against the `virtual_chassis` vocabulary, so a miss lists the closest
+  and available names) or an id and returns every member (position, priority, device type, `is_master`, and with the
+  addresses switch `primary_ip4` and `serial`). A stack without a master address is data (`master_primary_ip4: null`),
+  not an error. **Gating:** both tools need inventory (checked before any request); the master address and the
+  members' address and serial need addresses; the member records are an allow-list (`_STACK_MEMBER_PLAIN`), so a
+  field added to the library is not shown until a rule names it. **Not verified live:** that Nautobot's `virtual_chassis`
+  GraphQL root accepts `name__ic` and the `id` filter (the step only used `name`).
 * **Next free IP** (`get_next_free_ip`, `queries/free_ip.py`): the question "Get the next IP address in the
   prefix xyz", the same lookup as the workflow step `get-next-free-ip` (`workflow_steps/get_next_free_ip/`),
   whose code is not imported (the library depends on neither `backend` nor `workflow_steps`); the step and the

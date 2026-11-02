@@ -118,9 +118,28 @@ class ExecuteTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual({d.primary_ip4 for d in by_name.values()}, {"10.0.0.1/24"})
 
-    async def test_exact_filter_is_sent_to_graphql(self) -> None:
-        _, query = await _run_execute({"name_filter": "LAB.local.zz"})
-        self.assertEqual(query.await_args.args[1], {"name": ["LAB.local.zz"]})
+    async def test_exact_filter_is_applied_locally_and_ignores_case(self) -> None:
+        outcomes, query = await _run_execute({"name_filter": "lab.LOCAL.zz"})
+        self.assertEqual(query.await_args.args[1], {})  # nothing is pushed down
+        self.assertEqual(outcomes[0].summary, "found 1 virtual chassis, 1 device(s)")
+
+    async def test_exact_filter_without_a_match_finds_nothing(self) -> None:
+        outcomes, _ = await _run_execute({"name_filter": "other"})
+        self.assertEqual(outcomes[0].summary, "found 0 virtual chassis, 0 device(s)")
+
+    async def test_a_list_next_to_a_graphql_error_is_still_used(self) -> None:
+        payload = {**_PAYLOAD, "errors": [{"message": "no permission for a nested field"}]}
+        outcomes, query = await _run_execute({}, payload)
+        self.assertFalse(query.await_args.kwargs["strict"])
+        self.assertEqual(outcomes[0].summary, "found 1 virtual chassis, 1 device(s)")
+
+    async def test_a_missing_list_fails_without_upstream_error_text(self) -> None:
+        with self.assertRaises(RuntimeError) as raised:
+            await _run_execute(
+                {},
+                {"data": {"virtual_chassis": None}, "errors": [{"message": "SECRET-DETAIL"}]},
+            )
+        self.assertNotIn("SECRET-DETAIL", str(raised.exception))
 
     async def test_no_filter_sends_no_name_variable(self) -> None:
         _, query = await _run_execute({})

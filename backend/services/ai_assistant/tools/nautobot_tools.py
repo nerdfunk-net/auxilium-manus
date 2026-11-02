@@ -28,7 +28,7 @@ from typing import Annotated, Any, Protocol
 
 from nautobot_read.context import QueryContext
 from nautobot_read.errors import EXPECTED_ERRORS
-from nautobot_read.queries import dcim, free_ip, ipam, organization
+from nautobot_read.queries import dcim, free_ip, ipam, organization, virtual_chassis
 from nautobot_read.queries.common import ContentType
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
@@ -126,6 +126,18 @@ class ListInterfacesInput(_Input):
     offset: Skip = 0
 
 
+class ListVirtualChassisInput(_Input):
+    name_contains: Name | None = Field(None, description="Part of the virtual chassis name.")
+    limit: Page = DEFAULT_PAGE
+    offset: Skip = 0
+
+
+class GetVirtualChassisInput(_Input):
+    virtual_chassis: Name = Field(
+        description="Virtual chassis (stack) name, any case, or id. See list_virtual_chassis."
+    )
+
+
 class ListIpAddressesInput(_Input):
     address: Name | None = Field(None, description="Exact address, e.g. '10.0.0.2/24'.")
     prefix: Name | None = Field(None, description="Only addresses inside this network.")
@@ -206,6 +218,43 @@ _DEVICE_RULES: Mapping[str, Rule] = {
     # Free text of unknown content: not shared at any setting.
     "comments": NEVER,
 }
+
+
+# A virtual chassis is a group of devices, so it needs the inventory switch like a device does;
+# the master's address and each member's address and serial need the addresses switch too.
+_STACK_RULES: Mapping[str, Rule] = {
+    **dict.fromkeys(("id", "name", "member_count", "master", "members"), DataClass.INVENTORY),
+    "master_primary_ip4": DataClass.ADDRESSES,
+}
+# Fields of a member record in ``get_virtual_chassis`` (a nested dict, so ``_project`` cannot
+# see them). Any field not named here is dropped.
+_STACK_MEMBER_PLAIN = ("id", "name", "position", "priority", "device_type", "is_master")
+_STACK_MEMBER_ADDRESSES = ("primary_ip4", "serial")
+
+
+def _shape_stack(policy: SharingPolicy, item: dict[str, Any]) -> dict[str, Any]:
+    """One stack: the field rules, then the same rules for the member records inside it."""
+    kept, withheld = _project(policy, item, _STACK_RULES)
+    members = kept.get("members")
+    if members and isinstance(members[0], dict):
+        allowed = _STACK_MEMBER_PLAIN + (
+            _STACK_MEMBER_ADDRESSES if policy.allows(DataClass.ADDRESSES) else ()
+        )
+        kept["members"] = [{k: v for k, v in m.items() if k in allowed} for m in members]
+        if not policy.allows(DataClass.ADDRESSES):
+            marker = not_shared_marker(DataClass.ADDRESSES)["not_shared"]
+            withheld.update(dict.fromkeys(_STACK_MEMBER_ADDRESSES, marker))
+    return {**kept, **({"withheld_fields": withheld} if withheld else {})}
+
+
+def _shape_stacks(policy: SharingPolicy, result: dict[str, Any]) -> dict[str, Any]:
+    withheld: dict[str, str] = {}
+    items = []
+    for item in result["items"]:
+        shaped = _shape_stack(policy, item)
+        withheld.update(shaped.pop("withheld_fields", {}))
+        items.append(shaped)
+    return {**result, "items": items, **({"withheld_fields": withheld} if withheld else {})}
 
 
 def _project(
@@ -425,6 +474,29 @@ def build_nautobot_tools() -> tuple[Tool, ...]:
             "Nautobot platforms (for example 'Cisco IOS') with manufacturer and network driver.",
             NoInput,
             dcim.list_platforms,
+        ),
+        _tool(
+            "list_virtual_chassis",
+            "Nautobot virtual chassis (Cisco stacks, documented not live), one row per stack with "
+            "its master, member names in stack order and member count. Use it for 'list all "
+            "stacks'. Filter with name_contains, page with offset while has_more is true. Needs "
+            "the inventory data switch; the master address also needs the addresses switch.",
+            ListVirtualChassisInput,
+            virtual_chassis.list_virtual_chassis,
+            gate=DataClass.INVENTORY,
+            shape=_shape_stacks,
+        ),
+        _tool(
+            "get_virtual_chassis",
+            "One Nautobot virtual chassis (Cisco stack) by name or id with every member device: "
+            "position, priority, device type, master flag and, with the addresses switch, "
+            "primary IPv4 and serial. Use it for 'which devices belong to stack xyz'; use "
+            "get_device for one member's interfaces. An unknown name returns the closest and "
+            "the available names. Needs the inventory data switch.",
+            GetVirtualChassisInput,
+            virtual_chassis.get_virtual_chassis,
+            gate=DataClass.INVENTORY,
+            shape=_shape_stack,
         ),
         _tool(
             "list_ip_addresses",

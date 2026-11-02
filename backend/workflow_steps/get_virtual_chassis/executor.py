@@ -5,6 +5,8 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
+from nautobot_read.client import NautobotError
+from nautobot_read.queries.virtual_chassis import fetch_virtual_chassis
 from sqlalchemy.orm import object_session
 
 import service_factory
@@ -16,11 +18,11 @@ from models.workflow_context import (
     WorkflowContext,
 )
 from services.artifacts import ArtifactService
+from services.nautobot.graphql_client import NautobotServiceClient
 from workflow_steps.common.fan_out import build_fan_out_metadata
 from workflow_steps.common.nautobot_source import resolve_nautobot_credentials
 from workflow_steps.get_virtual_chassis.stack import (
     STEP_ID,
-    StackSettings,
     build_stack_devices,
     matches_name,
     parse_settings,
@@ -31,65 +33,17 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-_MEMBER_FIELDS = """
-      id
-      name
-      serial
-      vc_position
-      vc_priority
-      device_type {
-        model
-      }
-      platform {
-        name
-        network_driver
-      }
-      primary_ip4 {
-        address
-      }
-      vc_master_for {
-        id
-        name
-      }
-"""
+async def _fetch_virtual_chassis(nautobot_service: Any, credentials: Any) -> list[dict[str, Any]]:
+    """Fetch every virtual chassis; the name filter is applied locally (``matches_name``).
 
-_ALL_QUERY = f"""
-query VirtualChassis {{
-  virtual_chassis {{
-    id
-    name
-    members {{{_MEMBER_FIELDS}    }}
-  }}
-}}
-"""
-
-# ``name`` is a list filter in Nautobot's GraphQL schema.
-_BY_NAME_QUERY = f"""
-query VirtualChassisByName($name: [String]) {{
-  virtual_chassis(name: $name) {{
-    id
-    name
-    members {{{_MEMBER_FIELDS}    }}
-  }}
-}}
-"""
-
-
-async def _fetch_virtual_chassis(
-    nautobot_service: Any, credentials: Any, settings: StackSettings
-) -> list[dict[str, Any]]:
-    """Fetch virtual chassis; an exact name filter is pushed down, the rest filter locally."""
-    exact = settings.name_match == "exact" and settings.name_filter
-    query, variables = (
-        (_BY_NAME_QUERY, {"name": [settings.name_filter]}) if exact else (_ALL_QUERY, {})
-    )
-    response = await nautobot_service.graphql_query(query, variables, credentials)
-    data = response.get("data") or {}
-    chassis = data.get("virtual_chassis")
-    if chassis is None:
-        errors = response.get("errors")
-        raise RuntimeError(f"{STEP_ID}: Nautobot GraphQL query failed: {errors}")
-    return [vc for vc in chassis if isinstance(vc, dict)]
+    Not strict: as before the move into the library, a list that arrives next to a non-fatal
+    GraphQL error is used (the error count is logged by the client).
+    """
+    client = NautobotServiceClient(nautobot_service, credentials, strict=False)
+    try:
+        return await fetch_virtual_chassis(client)
+    except NautobotError as exc:
+        raise RuntimeError(f"{STEP_ID}: Nautobot GraphQL query failed: {exc}") from exc
 
 
 def _build_outcomes(
@@ -164,7 +118,7 @@ async def execute(
         settings.split_members,
     )
 
-    fetched = await _fetch_virtual_chassis(nautobot_service, credentials, settings)
+    fetched = await _fetch_virtual_chassis(nautobot_service, credentials)
     chassis = [vc for vc in fetched if matches_name(str(vc.get("name") or ""), settings)]
     devices = [
         device

@@ -137,6 +137,7 @@ LOCATION_TYPES_SPEC = VocabSpec("location type", "location_types")
 DEVICE_TYPES_SPEC = VocabSpec("device type", "device_types", field="model")
 PLATFORMS_SPEC = VocabSpec("platform", "platforms")
 NAMESPACES_SPEC = VocabSpec("namespace", "namespaces")
+VIRTUAL_CHASSIS_SPEC = VocabSpec("virtual chassis", "virtual_chassis")
 
 
 class VocabularyCache:

@@ -12,6 +12,13 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
+from nautobot_read.queries.virtual_chassis import (
+    address_of,
+    member_record,
+    ordered_members,
+    pick_master,
+)
+
 from models.workflow_context import (
     Capability,
     DeviceContext,
@@ -105,7 +112,9 @@ def matches_name(name: str, settings: StackSettings) -> bool:
         return settings.name_filter.lower() in name.lower()
     if settings.name_filter_regex is not None:
         return settings.name_filter_regex.search(name) is not None
-    return name == settings.name_filter
+    # Exact ignores case, like the assistant's get_virtual_chassis: "lab.local.zz" finds the
+    # stack Nautobot stores as "LAB.local.zz" (an exact match is no longer sent to Nautobot).
+    return name.casefold() == settings.name_filter.casefold()
 
 
 def member_index(name: str, settings: StackSettings) -> int:
@@ -124,38 +133,6 @@ def member_index(name: str, settings: StackSettings) -> int:
         return settings.index_default
 
 
-def _position_key(member: dict[str, Any]) -> tuple[bool, int, str]:
-    position = member.get("vc_position")
-    return (
-        not isinstance(position, int),
-        position if isinstance(position, int) else 0,
-        str(member.get("name") or ""),
-    )
-
-
-def pick_master(members: list[dict[str, Any]]) -> dict[str, Any] | None:
-    """The member flagged ``vc_master_for``; else the one with the lowest position."""
-    for member in members:
-        if member.get("vc_master_for"):
-            return member
-    ordered = sorted(members, key=_position_key)
-    return ordered[0] if ordered else None
-
-
-def _address(member: dict[str, Any] | None) -> str | None:
-    if member is None:
-        return None
-    ip = member.get("primary_ip4")
-    address = ip.get("address") if isinstance(ip, dict) else None
-    return str(address) if address else None
-
-
-def _device_type_model(member: dict[str, Any]) -> str | None:
-    device_type = member.get("device_type")
-    model = device_type.get("model") if isinstance(device_type, dict) else None
-    return str(model) if model else None
-
-
 def _platform(member: dict[str, Any] | None) -> tuple[str | None, str | None]:
     platform = member.get("platform") if member else None
     if not isinstance(platform, dict):
@@ -166,18 +143,9 @@ def _platform(member: dict[str, Any] | None) -> tuple[str | None, str | None]:
 def _member_record(
     member: dict[str, Any], *, settings: StackSettings, master: dict[str, Any] | None
 ) -> dict[str, Any]:
-    name = str(member.get("name") or "")
-    return {
-        "id": member.get("id"),
-        "name": name,
-        "position": member.get("vc_position"),
-        "priority": member.get("vc_priority"),
-        "serial": member.get("serial") or None,
-        "device_type": _device_type_model(member),
-        "primary_ip4": _address(member),
-        "is_master": member is master,
-        settings.index_key: member_index(name, settings),
-    }
+    """The shared member record plus this step's stack index."""
+    record = member_record(member, master=master)
+    return {**record, settings.index_key: member_index(record["name"], settings)}
 
 
 def _failed_device(
@@ -207,13 +175,9 @@ def build_stack_devices(
     """
     vc_id = str(vc.get("id") or "")
     vc_name = str(vc.get("name") or vc_id)
-    raw_members = vc.get("members")
-    members = sorted(
-        (m for m in raw_members if isinstance(m, dict)) if isinstance(raw_members, list) else [],
-        key=_position_key,
-    )
+    members = ordered_members(vc)
     master = pick_master(members)
-    master_ip = _address(master)
+    master_ip = address_of(master)
 
     if master is None or master_ip is None:
         reason = "has no members" if master is None else "master member has no primary IPv4"

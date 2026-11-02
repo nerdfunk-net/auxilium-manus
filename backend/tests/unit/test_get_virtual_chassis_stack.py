@@ -139,6 +139,11 @@ class MatchesNameTests(unittest.TestCase):
         self.assertTrue(matches_name("LAB.local.zz", s))
         self.assertFalse(matches_name("LAB.local.zz2", s))
 
+    def test_exact_ignores_case_like_the_assistant_tool(self) -> None:
+        s = parse_settings({"name_filter": "lab.LOCAL.zz"})
+        self.assertTrue(matches_name("LAB.local.zz", s))
+        self.assertFalse(matches_name("xLAB.local.zz", s))
+
     def test_contains_is_case_insensitive(self) -> None:
         s = parse_settings({"name_match": "contains", "name_filter": "lab"})
         self.assertTrue(matches_name("LAB.local.zz", s))

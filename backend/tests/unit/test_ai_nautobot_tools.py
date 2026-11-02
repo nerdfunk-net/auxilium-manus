@@ -18,8 +18,6 @@ from services.ai_assistant.data_sharing import SharingPolicy
 from services.ai_assistant.nautobot_query_reader import (
     DbNautobotQueryReader,
     NautobotAccessError,
-    NautobotServiceClient,
-    failure_message,
     vocabularies_for,
 )
 from services.ai_assistant.providers.base import ToolCall
@@ -36,6 +34,7 @@ from services.nautobot.common.exceptions import (
     NautobotValidationError,
 )
 from services.nautobot.credentials import NautobotCredentials
+from services.nautobot.graphql_client import NautobotServiceClient, failure_message
 from tests.unit.test_ai_batfish_tools import FakeReader
 
 UUID_DE = "11111111-1111-1111-1111-111111111111"
@@ -74,7 +73,21 @@ IP_ROW = {
 }
 UUID_PFX = "dddddddd-dddd-dddd-dddd-dddddddddddd"
 PREFIX_ROW = {"id": UUID_PFX, "prefix": "10.0.0.0/24", "namespace": {"name": "Global"}}
+UUID_VC = "99999999-9999-9999-9999-999999999999"
+STACK = {
+    "id": UUID_VC, "name": "LAB.local.zz",
+    "members": [
+        {"id": UUID_DEV, "name": "LAB.local.zz", "serial": "SN-1", "vc_position": 1,
+         "vc_priority": 15, "device_type": {"model": "C9300"}, "platform": None,
+         "primary_ip4": {"address": "10.0.0.1/24"},
+         "vc_master_for": {"id": UUID_VC, "name": "LAB.local.zz"}},
+        {"id": "bb", "name": "LAB:2.local.zz", "serial": "SN-2", "vc_position": 2,
+         "vc_priority": 1, "device_type": {"model": "C9300"}, "platform": None,
+         "primary_ip4": None, "vc_master_for": None},
+    ],
+}
 VOCAB = {
+    "virtual_chassis": [{"name": "LAB.local.zz"}],
     "roles": [{"name": "Network"}, {"name": "Server"}],
     "statuses": [{"name": "Active"}],
     "tags": [],
@@ -95,7 +108,7 @@ class FakeNautobot:
         self.available: Any = [{"address": f"10.0.0.{n}/24"} for n in range(0, 12)]
         self.rows: dict[str, list[dict[str, Any]]] = {
             "devices": [DEVICE], "interfaces": INTERFACES, "ip_addresses": [IP_ROW],
-            "prefixes": [PREFIX_ROW], "locations": LOCATIONS,
+            "prefixes": [PREFIX_ROW], "locations": LOCATIONS, "virtual_chassis": [STACK],
         }
 
     @property
@@ -171,7 +184,7 @@ def test_the_tool_set_is_reads_only_with_the_names_the_library_errors_point_to()
         "list_locations", "get_location", "list_location_types", "list_roles", "list_statuses",
         "list_tags", "list_devices", "get_device", "list_device_types", "list_platforms",
         "list_ip_addresses", "list_prefixes", "list_namespaces", "get_next_free_ip",
-        "list_interfaces",
+        "list_interfaces", "list_virtual_chassis", "get_virtual_chassis",
     }
     assert all(n.startswith(("get_", "list_")) for n in names)
 
@@ -567,6 +580,18 @@ def test_the_transport_asks_strictly_and_unwraps_data() -> None:
     assert service.calls == [("{x}", {"a": 1}, CREDENTIALS, True)]
 
 
+def test_a_caller_may_use_data_next_to_a_graphql_error_and_only_the_count_is_logged(caplog) -> None:
+    service = _Service({"data": {"x": 1}, "errors": [{"message": "token=hunter2-from-nautobot"}]})
+
+    with caplog.at_level("WARNING"):
+        data = asyncio.run(
+            NautobotServiceClient(service, CREDENTIALS, strict=False).graphql("{x}")
+        )
+
+    assert data == {"x": 1} and service.calls[0][3] is False
+    assert "1 error(s)" in caplog.text and "hunter2" not in caplog.text
+
+
 @pytest.mark.parametrize("result", [None, {}, {"data": None}, {"data": []}, "text"])
 def test_an_unexpected_response_is_an_error(result) -> None:
     with pytest.raises(QueryError, match="unexpected response"):
@@ -822,3 +847,70 @@ def test_the_playbook_tool_list_includes_the_nautobot_tools() -> None:
     available = session.toolbox._context.extras["available_tools"]
 
     assert {"list_devices", "get_routes"} <= available
+
+
+# -- virtual chassis (stacks) ----------------------------------------------------------------
+
+
+def test_stacks_without_the_inventory_switch_answer_with_the_marker_and_send_nothing() -> None:
+    box, nautobot = _toolbox(sharing=SharingPolicy())
+
+    for name, args in (
+        ("list_virtual_chassis", {}), ("get_virtual_chassis", {"virtual_chassis": "LAB.local.zz"}),
+    ):
+        assert _data(_call(box, name, **args))["not_shared"] == "inventory_data"
+    assert nautobot.requests == 0
+
+
+def test_list_stacks_with_only_the_inventory_switch_leaves_out_the_master_address() -> None:
+    box, _ = _toolbox(sharing=BASIC)
+
+    data = _data(_call(box, "list_virtual_chassis"))
+
+    item = data["items"][0]
+    assert item["name"] == "LAB.local.zz" and item["master"] == "LAB.local.zz"
+    assert item["members"] == ["LAB.local.zz", "LAB:2.local.zz"] and item["member_count"] == 2
+    assert "master_primary_ip4" not in item
+    assert data["withheld_fields"] == {"master_primary_ip4": "device_addresses"}
+    assert "10.0.0.1" not in json.dumps(data)
+
+
+def test_list_stacks_with_addresses_includes_the_master_address() -> None:
+    box, _ = _toolbox(sharing=FULL)
+
+    data = _data(_call(box, "list_virtual_chassis", name_contains="lab"))
+
+    assert data["items"][0]["master_primary_ip4"] == "10.0.0.1/24"
+    assert "withheld_fields" not in data
+
+
+def test_get_stack_without_addresses_drops_member_addresses_and_serials() -> None:
+    box, _ = _toolbox(sharing=BASIC)
+
+    data = _data(_call(box, "get_virtual_chassis", virtual_chassis="lab.local.zz"))
+
+    assert [m["name"] for m in data["members"]] == ["LAB.local.zz", "LAB:2.local.zz"]
+    assert data["members"][0]["is_master"] is True and data["members"][0]["position"] == 1
+    assert all("primary_ip4" not in m and "serial" not in m for m in data["members"])
+    assert data["withheld_fields"]["primary_ip4"] == "device_addresses"
+    assert data["withheld_fields"]["serial"] == "device_addresses"
+    assert "SN-1" not in json.dumps(data) and "10.0.0.1" not in json.dumps(data)
+
+
+def test_get_stack_with_addresses_includes_member_addresses_and_serials() -> None:
+    box, _ = _toolbox(sharing=FULL)
+
+    data = _data(_call(box, "get_virtual_chassis", virtual_chassis="LAB.local.zz"))
+
+    assert data["members"][0]["primary_ip4"] == "10.0.0.1/24"
+    assert data["members"][1]["serial"] == "SN-2"
+    assert "withheld_fields" not in data
+
+
+def test_get_stack_with_an_unknown_name_names_the_stacks_that_exist() -> None:
+    box, _ = _toolbox(sharing=FULL)
+
+    out = _call(box, "get_virtual_chassis", virtual_chassis="nope")
+
+    assert out.is_error and "No virtual chassis 'nope'" in out.content
+    assert "Available: LAB.local.zz" in out.content
