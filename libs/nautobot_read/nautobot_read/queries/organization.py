@@ -5,7 +5,13 @@ from __future__ import annotations
 from typing import Any
 
 from nautobot_read.context import QueryContext
-from nautobot_read.queries.common import DEFAULT_LIMIT, check_paging, envelope, names
+from nautobot_read.queries.common import (
+    DEFAULT_LIMIT,
+    check_paging,
+    envelope,
+    list_with_total,
+    names,
+)
 from nautobot_read.queries.locations import directory_or_none, path_or_name, resolve_location
 from nautobot_read.vocabularies import (
     LOCATION_TYPES_SPEC,
@@ -76,11 +82,10 @@ async def list_locations(
         filters["tags"], applied["tag"] = [canonical], canonical
     if name_contains:
         filters["name__ic"], applied["name_contains"] = [name_contains], name_contains
-    page = await ctx.client.list_page(
-        "locations", LOCATION_SELECTION, filters, limit=limit, offset=offset
+    return await list_with_total(
+        ctx, "locations", LOCATION_SELECTION, filters, limit=limit, offset=offset,
+        to_item=lambda row: location_item(row, directory), applied=applied,
     )
-    items = [location_item(row, directory) for row in page.items]
-    return envelope(items, page, offset=offset, applied_filters=applied)
 
 
 def _child_item(

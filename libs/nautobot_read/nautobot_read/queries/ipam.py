@@ -6,7 +6,13 @@ from typing import Any
 
 from nautobot_read import networks
 from nautobot_read.context import QueryContext
-from nautobot_read.queries.common import DEFAULT_LIMIT, check_paging, envelope, names
+from nautobot_read.queries.common import (
+    DEFAULT_LIMIT,
+    check_paging,
+    envelope,
+    list_with_total,
+    names,
+)
 from nautobot_read.queries.dcim import device_name
 from nautobot_read.queries.locations import directory_or_none, resolve_location
 from nautobot_read.vocabularies import NAMESPACES_SPEC, roles_spec, statuses_spec, tags_spec
@@ -114,11 +120,9 @@ async def list_ip_addresses(
     if dns_name_contains:
         filters["dns_name__ic"] = [dns_name_contains]
         applied["dns_name_contains"] = dns_name_contains
-    page = await ctx.client.list_page(
-        "ip_addresses", IP_SELECTION, filters, limit=limit, offset=offset
-    )
-    return envelope(
-        [ip_item(row) for row in page.items], page, offset=offset, applied_filters=applied
+    return await list_with_total(
+        ctx, "ip_addresses", IP_SELECTION, filters, limit=limit, offset=offset,
+        to_item=ip_item, applied=applied,
     )
 
 
@@ -153,11 +157,9 @@ async def list_prefixes(
             ctx, location, await directory_or_none(ctx)
         )
         filters["location"], applied["location"] = [location_id], location_label
-    page = await ctx.client.list_page(
-        "prefixes", PREFIX_SELECTION, filters, limit=limit, offset=offset
-    )
-    return envelope(
-        [prefix_item(row) for row in page.items], page, offset=offset, applied_filters=applied
+    return await list_with_total(
+        ctx, "prefixes", PREFIX_SELECTION, filters, limit=limit, offset=offset,
+        to_item=prefix_item, applied=applied,
     )
 
 

@@ -38,6 +38,8 @@ into tool arguments. The server makes that reliable:
 | | `list_prefixes` | Filter by prefix, `within`, `contains`, location, namespace, role, status, tag |
 | | `list_namespaces` | Vocabulary for the namespace filters |
 
+Every list tool returns `total` (all matching rows, from the REST `count` of the same filters; `total_exact: false` is a lower bound), so "how many" needs one call with `limit` 1.
+
 All tools are annotated read-only. Writes are out of scope for now.
 
 ## Install

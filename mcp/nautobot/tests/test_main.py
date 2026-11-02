@@ -119,3 +119,18 @@ async def test_serve_http_builds_the_app_and_hands_it_to_uvicorn(monkeypatch):
     assert seen["served"] is True
     assert (seen["config"].host, seen["config"].port) == ("127.0.0.1", 8000)
     assert seen["config"].server_header is False
+
+
+def test_main_keeps_request_urls_out_of_the_log(monkeypatch):
+    # httpx logs full URLs at INFO and a count request carries filter values in its query.
+    import logging
+
+    monkeypatch.delenv("NAUTOBOT_URL", raising=False)
+    monkeypatch.delenv("NAUTOBOT_TOKEN", raising=False)
+    httpx_logger = logging.getLogger("httpx")
+    before = httpx_logger.level
+    try:
+        assert entry.main() == 2  # no config: exits after logging is set up
+        assert httpx_logger.level == logging.WARNING
+    finally:
+        httpx_logger.setLevel(before)

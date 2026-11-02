@@ -237,8 +237,14 @@ list_virtual_chassis, for "which devices belong to stack X" call get_virtual_cha
 list_devices). Location names are not unique: use the 'Parent → Name' path or the id. A device \
 location filter includes child locations; a prefix location filter is not verified to, so for \
 prefixes of a region say that sites below it may be missing. Results are paged: while has_more \
-is true, repeat the call with a larger offset, and for "how many" say the count is a lower bound \
-if you stopped paging. Fields \
+is true, repeat the call with a larger offset. list_devices, list_locations, list_interfaces, \
+list_ip_addresses, list_prefixes and list_virtual_chassis carry total, the number of rows that \
+match in all: for "how many" call one of them with the filters and limit 1 and answer from \
+total, not from the shown rows. If total_exact is false, total is a lower bound (say "at \
+least"); if total_error is set, say the count is unavailable and do not guess. The name lists \
+(list_roles, list_statuses, list_tags, list_device_types, list_platforms, list_namespaces, \
+list_location_types) have no total and no limit: they return everything, so count the items. \
+Fields \
 listed in withheld_fields are not shared by the user's settings. For "the next free IP in prefix \
 X" call get_next_free_ip: it only reads, so always tell the user that nothing is reserved in \
 Nautobot and the address may be taken by someone else before it is used. Do not claim an address \

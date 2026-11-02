@@ -2,7 +2,14 @@ from typing import Any
 
 import pytest
 
-from nautobot_read.client import GraphQLClient, NautobotError
+from nautobot_read.client import (
+    COUNT_FALLBACK_CAP,
+    REST_LIST_ENDPOINTS,
+    Count,
+    GraphQLClient,
+    NautobotError,
+    RestNotSupported,
+)
 
 
 class ScriptedClient(GraphQLClient):
@@ -95,3 +102,104 @@ async def test_list_all_accepts_exactly_max_items():
 async def test_graphql_is_abstract():
     with pytest.raises(TypeError):
         GraphQLClient()  # type: ignore[abstract]
+
+
+class RestClient(ScriptedClient):
+    """A client that can do REST: records the endpoints and answers with ``reply``."""
+
+    def __init__(self, reply: Any, *responses: list[dict[str, Any]]) -> None:
+        super().__init__(*responses)
+        self.reply = reply
+        self.endpoints: list[str] = []
+
+    async def rest_get(self, endpoint):
+        self.endpoints.append(endpoint)
+        return self.reply
+
+
+async def test_the_default_rest_get_says_it_is_not_supported():
+    with pytest.raises(RestNotSupported, match="cannot call the REST API"):
+        await ScriptedClient(rows("a")).rest_get("dcim/devices/")
+
+
+async def test_count_asks_rest_for_one_row_and_reads_the_total():
+    client = RestClient({"count": 137, "results": []})
+    count = await client.count("devices", {"tags": ["lab"], "role": None})
+    assert count == Count(137, exact=True)
+    assert client.endpoints == ["dcim/devices/?tags=lab&limit=1&brief=true"]
+    assert client.calls == []  # GraphQL was not used
+
+
+async def test_count_repeats_a_key_for_several_values_and_encodes_the_values():
+    client = RestClient({"count": 2})
+    await client.count("prefixes", {"within_include": ["10.0.0.0/8", "a b&c=d"]})
+    assert client.endpoints == [
+        "ipam/prefixes/?within_include=10.0.0.0%2F8&within_include=a+b%26c%3Dd&limit=1&brief=true"
+    ]
+
+
+@pytest.mark.parametrize("reply", [None, [], {"count": "7"}, {"count": True}, {"count": -1}])
+async def test_count_rejects_an_unexpected_rest_answer(reply):
+    with pytest.raises(NautobotError, match="unexpected response"):
+        await RestClient(reply).count("devices", {})
+
+
+@pytest.mark.parametrize("reply", [{"count": None, "results": []}, {"results": []}, {}])
+async def test_count_falls_back_to_graphql_when_rest_has_no_usable_count(reply):
+    # Nautobot answers ``count: null`` when its count query times out: still answerable.
+    client = RestClient(reply, rows(*"a" * 30))
+    assert await client.count("devices", {}) == Count(30, exact=True)
+    assert len(client.endpoints) == 1 and len(client.calls) == 1
+
+
+async def test_count_lets_a_rest_failure_reach_the_caller():
+    class Failing(ScriptedClient):
+        async def rest_get(self, endpoint):
+            raise NautobotError("Nautobot returned an error (HTTP 500).")
+
+    with pytest.raises(NautobotError, match="HTTP 500"):
+        await Failing(rows("a")).count("devices", {})
+
+
+@pytest.mark.parametrize("root", ["devices; drop", "1devices"])
+async def test_count_rejects_a_root_that_is_not_a_plain_identifier(root):
+    with pytest.raises(ValueError, match="plain identifier"):
+        await RestClient({"count": 1}).count(root, {})
+
+
+async def test_count_rejects_a_filter_name_that_is_not_a_plain_identifier():
+    with pytest.raises(ValueError, match="plain identifier"):
+        await RestClient({"count": 1}).count("devices", {"a&limit=9": ["x"]})
+
+
+async def test_count_without_rest_pages_ids_and_is_exact_below_the_cap():
+    client = ScriptedClient(rows(*"a" * 201), rows(*"b" * 30))
+    count = await client.count("devices", {"role": ["Network"]})
+    assert count == Count(230, exact=True)
+    assert [v["offset"] for _, v in client.calls] == [0, 200]
+    assert all("id" in q and v["limit"] == 201 for q, v in client.calls)
+
+
+async def test_count_without_rest_stops_at_the_cap_and_says_it_is_a_lower_bound():
+    client = ScriptedClient(rows(*"a" * 201))  # every page has more
+    count = await client.count("devices", {})
+    assert count == Count(COUNT_FALLBACK_CAP, exact=False)
+    assert len(client.calls) == COUNT_FALLBACK_CAP // 200
+
+
+async def test_count_of_a_root_without_a_rest_endpoint_pages_graphql():
+    class Namespaces(RestClient):
+        async def graphql(self, query, variables=None):
+            return {"namespaces": rows("a")}
+
+    client = Namespaces({"count": 999})
+    count = await client.count("namespaces", {})
+    assert count == Count(1, exact=True)
+    assert client.endpoints == []
+
+
+def test_every_endpoint_in_the_map_is_a_plain_rest_path():
+    assert set(REST_LIST_ENDPOINTS) == {
+        "devices", "interfaces", "locations", "ip_addresses", "prefixes", "virtual_chassis",
+    }
+    assert all(p.count("/") == 1 and not p.startswith("/") for p in REST_LIST_ENDPOINTS.values())

@@ -12,10 +12,23 @@ from abc import ABC, abstractmethod
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
+from urllib.parse import urlencode
 
 DEFAULT_PAGE_SIZE = 200
 DEFAULT_MAX_ITEMS = 5000
+COUNT_FALLBACK_CAP = 5000
 _IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+# GraphQL root -> REST list endpoint, for the roots whose REST filters are known to match the
+# GraphQL ones (both come from Nautobot's FilterSets). A root missing here is counted by paging
+# GraphQL instead; remove a root from this map if its REST count ever differs from its list.
+REST_LIST_ENDPOINTS = {
+    "devices": "dcim/devices",
+    "interfaces": "dcim/interfaces",
+    "locations": "dcim/locations",
+    "ip_addresses": "ipam/ip-addresses",
+    "prefixes": "ipam/prefixes",
+    "virtual_chassis": "dcim/virtual-chassis",
+}
 
 
 class NautobotError(RuntimeError):
@@ -25,6 +38,18 @@ class NautobotError(RuntimeError):
 class TooManyRowsError(NautobotError):
     """A list is too long to collect whole (``list_all``); a caller that can do without the
     full list falls back, any other caller shows the message."""
+
+
+class RestNotSupported(NautobotError):
+    """The client has no REST transport (callers that can do without fall back to GraphQL)."""
+
+
+@dataclass(frozen=True)
+class Count:
+    """How many rows match a filter; ``exact`` is false when counting stopped at the cap."""
+
+    total: int
+    exact: bool
 
 
 @dataclass(frozen=True)
@@ -48,7 +73,7 @@ class GraphQLClient(ABC):
         Only for clients that can; the default says so. ``endpoint`` is built by a query from
         constants and validated ids, never from model text.
         """
-        raise NautobotError("This Nautobot client cannot call the REST API.")
+        raise RestNotSupported("This Nautobot client cannot call the REST API.")
 
     async def list_page(
         self,
@@ -79,6 +104,53 @@ class GraphQLClient(ABC):
         variables.update({f"f_{name}": values for name, values in active.items()})
         rows = (await self.graphql(query, variables)).get(root) or []
         return Page(items=tuple(rows[:limit]), has_more=len(rows) > limit)
+
+    async def count(self, root: str, filters: Mapping[str, Sequence[str] | None]) -> Count:
+        """How many rows of ``root`` match ``filters``.
+
+        One REST request (``?limit=1`` and read ``count``) when the root has an endpoint in
+        ``REST_LIST_ENDPOINTS`` and the client can do REST; otherwise GraphQL pages of ``id`` up
+        to ``COUNT_FALLBACK_CAP`` rows, after which the count is a lower bound. Root and filter
+        names are code constants (checked to be plain identifiers); values are URL-encoded.
+
+        The REST request carries ``brief=true`` so the one row Nautobot sends back is its short
+        form (no comments or custom fields; only ``count`` is read). A 200 without a usable
+        count (``count: null`` after Nautobot's count timeout) is not an error: the capped
+        GraphQL count answers instead. Anything else that is not a count is.
+        """
+        active = {name: list(values) for name, values in filters.items() if values}
+        for name in (root, *active):
+            if not _IDENTIFIER.match(name):
+                raise ValueError(f"not a plain identifier: {name!r}")
+        endpoint = REST_LIST_ENDPOINTS.get(root)
+        if endpoint is not None:
+            pairs = [(name, value) for name, values in active.items() for value in values]
+            try:
+                query = urlencode([*pairs, ("limit", 1), ("brief", "true")])
+                data = await self.rest_get(f"{endpoint}/?{query}")
+            except RestNotSupported:
+                pass
+            else:
+                if not isinstance(data, dict):
+                    raise NautobotError("Nautobot sent an unexpected response.")
+                total = data.get("count")
+                if total is not None:
+                    if not isinstance(total, int) or isinstance(total, bool) or total < 0:
+                        raise NautobotError("Nautobot sent an unexpected response.")
+                    return Count(total, exact=True)
+        return await self._count_by_paging(root, active)
+
+    async def _count_by_paging(self, root: str, filters: Mapping[str, Sequence[str]]) -> Count:
+        counted = 0
+        while True:
+            page = await self.list_page(
+                root, "id", filters, limit=DEFAULT_PAGE_SIZE, offset=counted
+            )
+            counted += len(page.items)
+            if not page.has_more:
+                return Count(counted, exact=True)
+            if counted >= COUNT_FALLBACK_CAP:
+                return Count(COUNT_FALLBACK_CAP, exact=False)
 
     async def list_all(
         self,

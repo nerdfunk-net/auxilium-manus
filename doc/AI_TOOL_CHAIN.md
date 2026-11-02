@@ -2715,6 +2715,28 @@ live question.
   members' address and serial need addresses; the member records are an allow-list (`_STACK_MEMBER_PLAIN`), so a
   field added to the library is not shown until a rule names it. **Not verified live:** that Nautobot's `virtual_chassis`
   GraphQL root accepts `name__ic` and the `id` filter (the step only used `name`).
+* **Totals ("how many").** Every list tool (`list_devices`, `list_locations`, `list_interfaces`, `list_ip_addresses`,
+  `list_prefixes`, `list_virtual_chassis`) returns `total`, the number of rows matching the filters in all, so "how many
+  devices are tagged Production" is one call with the filters and `limit=1`; there is no separate count tool. One
+  implementation: `queries/common.py::list_with_total` (every list query calls it) and `GraphQLClient.count`
+  (`client.py`). On the last page `total = offset + returned` costs nothing; otherwise one count request is made.
+  `count` asks the REST list endpoint for `?limit=1&brief=true` (`brief` so the one row sent back is the short form,
+  without comments or custom fields) and reads `count` (`REST_LIST_ENDPOINTS`, one entry per root; Nautobot's
+  GraphQL has no total); a client without REST (`RestNotSupported`), or a 200 whose `count` is null (Nautobot's count
+  timeout), pages `id` over GraphQL up to 5000 rows and then reports `total_exact: false` (a lower bound). A count
+  that is smaller than the page proves (`has_more` means a row exists beyond `offset + returned`) is a filter applied
+  differently and becomes `total_error`; a count that is too *large* (for example `STRICT_FILTERING=false` dropping an
+  unknown parameter, which makes the REST count the size of the whole table) cannot be detected, so on such a Nautobot
+  remove the roots from `REST_LIST_ENDPOINTS`. Filter values are in the REST URL (a GraphQL POST body does not carry
+  them there): the backend adapter drops the exception chain (the service's message holds the endpoint) and the MCP
+  server sets the `httpx` logger to WARNING (it logs URLs at INFO). A Nautobot access log or proxy still records them.
+  The name lists (`list_roles`, `list_statuses`, `list_tags`, `list_device_types`, `list_platforms`, `list_namespaces`,
+  `list_location_types`) return everything and have no `total`; the prompt says so. A failing count never hides the rows: the page comes back with
+  `total_error` (a short sentence) and no `total`. The count runs inside the already gated tool, so counting IP
+  addresses still needs the addresses switch. Transports: the backend's `NautobotServiceClient.rest_get`, and the MCP
+  client's new `rest_get` (GET only, same fixed-sentence errors). **Not verified live:** that each root's REST filters
+  match the GraphQL filters the library sends; compare a REST count with a paged count for every filter name before
+  relying on it, and delete a root from `REST_LIST_ENDPOINTS` if it differs (it then uses the GraphQL count).
 * **Next free IP** (`get_next_free_ip`, `queries/free_ip.py`): the question "Get the next IP address in the
   prefix xyz", the same lookup as the workflow step `get-next-free-ip` (`workflow_steps/get_next_free_ip/`),
   whose code is not imported (the library depends on neither `backend` nor `workflow_steps`); the step and the
@@ -2743,7 +2765,7 @@ live question.
   --config-settings editable_mode=compat` (Pyright does not follow the default editable hook).
 * **Open.** Live check with a real model and the dev Nautobot (the library is verified against the MCP tests
   and a fake Nautobot only); several Nautobot sources (the first usable one is used, no `source` argument);
-  counts ("how many devices in Germany") are paged, there is no count tool; whether the prompt should mention
+  whether the prompt should mention
   `get_device_attributes` (inventory surface only) is undecided.
 
 ## 32. Snapshot parse diagnostics: `get_snapshot_parse_issues` (2026-11-02)

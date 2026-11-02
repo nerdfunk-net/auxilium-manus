@@ -72,3 +72,11 @@ async def test_virtual_chassis_tools_list_and_get_a_stack(mcp_client, nautobot):
     assert one["members"][0]["is_master"] is True
     missing = await mcp_client.call_tool("get_virtual_chassis", {"virtual_chassis": "nope"})
     assert missing.is_error and "No virtual chassis 'nope'" in missing.content[0].text
+
+
+async def test_a_list_with_more_pages_reports_the_total(mcp_client, nautobot):
+    nautobot.list_rows["devices"] = [DEVICE_ROW]
+    nautobot.has_more = True
+    data = payload(await mcp_client.call_tool("list_devices", {"tag": "LAB", "limit": 1}))
+    assert (data["total"], data["total_exact"]) == (42, True)
+    assert nautobot.count_calls == [("devices", {"tags": ["lab"]})]

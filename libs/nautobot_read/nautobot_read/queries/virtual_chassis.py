@@ -11,7 +11,7 @@ from typing import Any
 
 from nautobot_read.client import GraphQLClient, NautobotError
 from nautobot_read.context import QueryContext
-from nautobot_read.queries.common import DEFAULT_LIMIT, check_paging, envelope
+from nautobot_read.queries.common import DEFAULT_LIMIT, check_paging, list_with_total
 from nautobot_read.vocabularies import VIRTUAL_CHASSIS_SPEC, AmbiguousNameError
 from nautobot_read.vocabulary import UUID_PATTERN, UnknownNameError, Vocabulary
 
@@ -143,11 +143,10 @@ async def list_virtual_chassis(
     applied: dict[str, Any] = {}
     if name_contains:
         filters["name__ic"], applied["name_contains"] = [name_contains], name_contains
-    page = await ctx.client.list_page(
-        "virtual_chassis", VC_SELECTION, filters, limit=limit, offset=offset
+    return await list_with_total(
+        ctx, "virtual_chassis", VC_SELECTION, filters, limit=limit, offset=offset,
+        to_item=stack_item, applied=applied,
     )
-    items = [stack_item(row) for row in page.items]
-    return envelope(items, page, offset=offset, applied_filters=applied)
 
 
 def _stack_name(vocabulary: Vocabulary, text: str) -> str:

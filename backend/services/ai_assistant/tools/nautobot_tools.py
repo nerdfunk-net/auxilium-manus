@@ -431,7 +431,8 @@ def build_nautobot_tools() -> tuple[Tool, ...]:
             "Nautobot devices (the documented inventory, not live state), filtered. Filters "
             "combine with AND; a location includes its child locations. Names are matched "
             "case-insensitively and an unknown name returns the closest and the available ones. "
-            "Page with offset while has_more is true. Needs the inventory data switch.",
+            "Page with offset while has_more is true; total is the number of matches in all "
+            "(use it, with limit 1, for 'how many'). Needs the inventory data switch.",
             ListDevicesInput,
             dcim.list_devices,
             gate=DataClass.INVENTORY,

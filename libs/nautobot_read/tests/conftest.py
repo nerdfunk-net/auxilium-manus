@@ -4,7 +4,7 @@ from typing import Any
 
 import pytest
 
-from nautobot_read.client import NautobotError, Page, TooManyRowsError
+from nautobot_read.client import Count, NautobotError, Page, TooManyRowsError
 from nautobot_read.context import QueryContext
 from nautobot_read.errors import EXPECTED_ERRORS
 from nautobot_read.queries import dcim, free_ip, ipam, organization, virtual_chassis
@@ -113,6 +113,8 @@ class FakeNautobot:
         self.too_many_locations = False
         self.graphql_override: dict[str, Any] | None = None
         self.vc_names: list[dict[str, Any]] | None = None
+        self.count_calls: list[tuple[str, dict[str, Any]]] = []
+        self.count_result: Count | NautobotError = Count(137, exact=True)
         self.location_lookup: list[dict[str, Any]] = []
         self.available: Any = [{"address": f"10.0.0.{n}/24"} for n in range(0, 12)]
 
@@ -134,6 +136,12 @@ class FakeNautobot:
             {"root": root, "filters": dict(filters), "limit": limit, "offset": offset}
         )
         return Page(items=tuple(self.list_rows.get(root, [])), has_more=self.has_more)
+
+    async def count(self, root, filters):
+        self.count_calls.append((root, dict(filters)))
+        if isinstance(self.count_result, NautobotError):
+            raise self.count_result
+        return self.count_result
 
     async def rest_get(self, endpoint):
         self.rest_calls.append(endpoint)

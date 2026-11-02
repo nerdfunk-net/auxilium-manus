@@ -2,7 +2,7 @@ from typing import Any
 
 import pytest
 from mcp.client import Client
-from nautobot_read.client import NautobotError, Page
+from nautobot_read.client import Count, NautobotError, Page
 from nautobot_read.context import QueryContext
 from nautobot_read.vocabularies import VocabularyCache
 
@@ -100,6 +100,7 @@ class FakeNautobot:
         self.has_more = False
         self.device_detail: dict[str, Any] | None = dict(DEVICE_DETAIL)
         self.fail_with: NautobotError | None = None
+        self.count_calls: list[tuple[str, dict[str, Any]]] = []
 
     async def list_all(self, root, selection, filters=None, **_):
         if self.fail_with:
@@ -115,6 +116,10 @@ class FakeNautobot:
             {"root": root, "filters": dict(filters), "limit": limit, "offset": offset}
         )
         return Page(items=tuple(self.list_rows.get(root, [])), has_more=self.has_more)
+
+    async def count(self, root, filters):
+        self.count_calls.append((root, dict(filters)))
+        return Count(42, exact=True)
 
     async def graphql(self, query, variables=None):
         self.graphql_calls.append((query, variables))

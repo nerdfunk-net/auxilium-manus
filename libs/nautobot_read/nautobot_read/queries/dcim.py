@@ -5,7 +5,13 @@ from __future__ import annotations
 from typing import Any
 
 from nautobot_read.context import QueryContext
-from nautobot_read.queries.common import DEFAULT_LIMIT, check_paging, envelope, names
+from nautobot_read.queries.common import (
+    DEFAULT_LIMIT,
+    check_paging,
+    envelope,
+    list_with_total,
+    names,
+)
 from nautobot_read.queries.locations import directory_or_none, path_or_name, resolve_location
 from nautobot_read.vocabularies import (
     DEVICE_TYPES_SPEC,
@@ -109,11 +115,10 @@ async def list_devices(
             filters[filter_name], applied[param] = [canonical], canonical
     if name_contains:
         filters["name__ic"], applied["name_contains"] = [name_contains], name_contains
-    page = await ctx.client.list_page(
-        "devices", DEVICE_SELECTION, filters, limit=limit, offset=offset
+    return await list_with_total(
+        ctx, "devices", DEVICE_SELECTION, filters, limit=limit, offset=offset,
+        to_item=lambda row: device_item(row, directory), applied=applied,
     )
-    items = [device_item(row, directory) for row in page.items]
-    return envelope(items, page, offset=offset, applied_filters=applied)
 
 
 async def get_device(ctx: QueryContext, *, device: str) -> dict[str, Any]:
@@ -166,11 +171,10 @@ async def list_interfaces(
     applied: dict[str, Any] = {"device": resolved_name}
     if name_contains:
         filters["name__ic"], applied["name_contains"] = [name_contains], name_contains
-    page = await ctx.client.list_page(
-        "interfaces", INTERFACE_SELECTION, filters, limit=limit, offset=offset
+    return await list_with_total(
+        ctx, "interfaces", INTERFACE_SELECTION, filters, limit=limit, offset=offset,
+        to_item=_interface_item, applied=applied,
     )
-    items = [_interface_item(row) for row in page.items]
-    return envelope(items, page, offset=offset, applied_filters=applied)
 
 
 async def list_device_types(ctx: QueryContext) -> dict[str, Any]:

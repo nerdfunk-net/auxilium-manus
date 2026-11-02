@@ -140,7 +140,7 @@ Python 3.12. Package `nautobot_mcp/`:
 | `config.py` | env to frozen `Config`, fail fast, token hidden from `repr` | done |
 | `vocabulary.py` (now `libs/nautobot_read`) | `Vocabulary.resolve()`: case-insensitive, "Closest/Available" errors | done |
 | `vocabularies.py` (lib) | `LocationDirectory` (name / `A → B` path / id, ambiguity), TTL `VocabularyCache`, specs | done |
-| `client.py` | httpx transport: token auth, safe errors. `list_page` (limit+1 for `has_more`) and `list_all` (raises above 5000 rows instead of truncating) are `GraphQLClient` in the lib | done |
+| `client.py` | httpx transport: token auth, safe errors; `graphql` and a GET-only `rest_get` (used for list totals). `list_page` (limit+1 for `has_more`), `list_all` (raises above 5000 rows instead of truncating) and `count` (REST `count`, GraphQL fallback capped at 5000) are `GraphQLClient` in the lib | done |
 | `server.py` | `build_server()` registers the tool groups against a `QueryContext` (lib) | done |
 | `instructions.py` | live-vocabulary instructions, static fallback if Nautobot is down | done |
 | `__main__.py` | `python -m nautobot_mcp`, stdio, logs to stderr, exit 2 on bad config | done |

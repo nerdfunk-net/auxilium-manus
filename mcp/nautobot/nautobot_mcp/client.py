@@ -6,6 +6,7 @@ Paging and list helpers come from ``nautobot_read.client.GraphQLClient``.
 from __future__ import annotations
 
 import logging
+from collections.abc import Awaitable
 from types import TracebackType
 from typing import Any
 
@@ -46,14 +47,9 @@ class NautobotClient(GraphQLClient):
 
     async def graphql(self, query: str, variables: dict[str, Any] | None = None) -> dict[str, Any]:
         """Run a query and return its ``data``; raise ``NautobotError`` on any failure."""
-        try:
-            response = await self._http.post(
-                "/api/graphql/", json={"query": query, "variables": variables or {}}
-            )
-        except httpx.HTTPError as exc:
-            logger.warning("Nautobot request failed: %s", type(exc).__name__)
-            raise NautobotError("Could not reach Nautobot. Check that it is running.") from exc
-
+        response = await self._send(
+            self._http.post("/api/graphql/", json={"query": query, "variables": variables or {}})
+        )
         payload = _json_or_none(response)
         if response.status_code in _STATUS_HINTS:
             raise NautobotError(_STATUS_HINTS[response.status_code])
@@ -69,6 +65,28 @@ class NautobotClient(GraphQLClient):
         if not isinstance(payload, dict) or not isinstance(payload.get("data"), dict):
             raise NautobotError("Nautobot sent an unexpected response.")
         return payload["data"]
+
+
+    async def rest_get(self, endpoint: str) -> Any:
+        """GET ``/api/<endpoint>`` (a path and query built by the library from constants and
+        URL-encoded values) and return the JSON body. Used for list counts only."""
+        response = await self._send(self._http.get(f"/api/{endpoint.lstrip('/')}"))
+        if response.status_code in _STATUS_HINTS:
+            raise NautobotError(_STATUS_HINTS[response.status_code])
+        if response.status_code >= 400:
+            raise NautobotError(f"Nautobot returned an error (HTTP {response.status_code}).")
+        payload = _json_or_none(response)
+        if payload is None:
+            raise NautobotError("Nautobot sent an unexpected response.")
+        return payload
+
+    @staticmethod
+    async def _send(request: Awaitable[httpx.Response]) -> httpx.Response:
+        try:
+            return await request
+        except httpx.HTTPError as exc:
+            logger.warning("Nautobot request failed: %s", type(exc).__name__)
+            raise NautobotError("Could not reach Nautobot. Check that it is running.") from exc
 
 
 def _json_or_none(response: httpx.Response) -> Any:

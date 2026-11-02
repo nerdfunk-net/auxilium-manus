@@ -112,3 +112,43 @@ async def test_list_page_asks_for_one_extra_row_to_detect_more(client):
     assert '"limit":3' in body.replace(" ", "")  # limit + 1
     assert "$f_role" in body
     assert '"f_role":["Network"]' in body.replace(" ", "")
+
+
+REST_COUNT = "http://nb.test/api/dcim/devices/?tags=lab&limit=1"
+
+
+@respx.mock
+async def test_rest_get_sends_the_token_and_returns_the_body(client):
+    route = respx.get(REST_COUNT).mock(return_value=httpx.Response(200, json={"count": 7}))
+    assert await client.rest_get("dcim/devices/?tags=lab&limit=1") == {"count": 7}
+    assert route.calls.last.request.headers["Authorization"] == "Token s3cret-token"
+
+
+@respx.mock
+async def test_rest_get_tolerates_a_leading_slash(client):
+    respx.get(REST_COUNT).mock(return_value=httpx.Response(200, json={"count": 1}))
+    assert await client.rest_get("/dcim/devices/?tags=lab&limit=1") == {"count": 1}
+
+
+@pytest.mark.parametrize(("status", "hint"), [(401, "token"), (403, "permission"), (500, "500")])
+@respx.mock
+async def test_rest_get_failures_are_short_sentences_never_the_body(client, status, hint):
+    respx.get(REST_COUNT).mock(return_value=httpx.Response(status, text="<html>boom</html>"))
+    with pytest.raises(NautobotError) as exc:
+        await client.rest_get("dcim/devices/?tags=lab&limit=1")
+    assert hint in str(exc.value) and "boom" not in str(exc.value)
+
+
+@respx.mock
+async def test_rest_get_of_a_non_json_body_is_an_unexpected_response(client):
+    respx.get(REST_COUNT).mock(return_value=httpx.Response(200, text="<html>login</html>"))
+    with pytest.raises(NautobotError, match="unexpected response"):
+        await client.rest_get("dcim/devices/?tags=lab&limit=1")
+
+
+@respx.mock
+async def test_rest_get_transport_failure_is_a_fixed_sentence(client):
+    respx.get(REST_COUNT).mock(side_effect=httpx.ConnectError("10.1.2.3 refused"))
+    with pytest.raises(NautobotError) as exc:
+        await client.rest_get("dcim/devices/?tags=lab&limit=1")
+    assert "Could not reach Nautobot" in str(exc.value) and "10.1.2.3" not in str(exc.value)

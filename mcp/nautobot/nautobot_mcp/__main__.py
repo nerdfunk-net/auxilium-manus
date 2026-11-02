@@ -51,6 +51,9 @@ async def _serve_http(config: Config, http_config: HttpConfig) -> None:
 def main() -> int:
     # stdout carries the MCP protocol in stdio mode; all logging goes to stderr.
     logging.basicConfig(level=logging.INFO, stream=sys.stderr)
+    # httpx logs every request URL at INFO; a count request carries the filter values (device
+    # names, addresses, search text) in its query string.
+    logging.getLogger("httpx").setLevel(logging.WARNING)
     try:
         config = Config.from_env(os.environ)
         transport = os.environ.get("MCP_TRANSPORT", "stdio").strip().lower()

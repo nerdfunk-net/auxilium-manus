@@ -8,8 +8,8 @@ from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
+from nautobot_read.client import Count, Page
 from nautobot_read.client import NautobotError as QueryError
-from nautobot_read.client import Page
 from nautobot_read.context import QueryContext
 from nautobot_read.vocabularies import VocabularyCache
 
@@ -105,6 +105,8 @@ class FakeNautobot:
         self.page_calls: list[dict[str, Any]] = []
         self.graphql_calls = 0
         self.rest_calls: list[str] = []
+        self.has_more = False
+        self.count_calls: list[tuple[str, dict[str, Any]]] = []
         self.available: Any = [{"address": f"10.0.0.{n}/24"} for n in range(0, 12)]
         self.rows: dict[str, list[dict[str, Any]]] = {
             "devices": [DEVICE], "interfaces": INTERFACES, "ip_addresses": [IP_ROW],
@@ -113,14 +115,20 @@ class FakeNautobot:
 
     @property
     def requests(self) -> int:
-        return len(self.page_calls) + self.graphql_calls + len(self.rest_calls)
+        return (
+            len(self.page_calls) + self.graphql_calls + len(self.rest_calls) + len(self.count_calls)
+        )
 
     async def list_all(self, root, selection, filters=None, **_):
         return LOCATIONS if root == "locations" else VOCAB[root]
 
     async def list_page(self, root, selection, filters, *, limit, offset):
         self.page_calls.append({"root": root, "filters": dict(filters), "limit": limit})
-        return Page(items=tuple(self.rows.get(root, [])), has_more=False)
+        return Page(items=tuple(self.rows.get(root, [])), has_more=self.has_more)
+
+    async def count(self, root, filters):
+        self.count_calls.append((root, dict(filters)))
+        return Count(137, exact=True)
 
     async def rest_get(self, endpoint):
         self.rest_calls.append(endpoint)
@@ -914,3 +922,61 @@ def test_get_stack_with_an_unknown_name_names_the_stacks_that_exist() -> None:
 
     assert out.is_error and "No virtual chassis 'nope'" in out.content
     assert "Available: LAB.local.zz" in out.content
+
+
+# -- totals ("how many") ---------------------------------------------------------------------
+
+
+def test_a_list_with_more_pages_gives_the_model_the_total() -> None:
+    nautobot = FakeNautobot()
+    nautobot.has_more = True
+    box, _ = _toolbox(nautobot, sharing=FULL)
+
+    data = _data(_call(box, "list_devices", role="network", limit=1))
+
+    assert (data["total"], data["total_exact"]) == (137, True)
+    assert nautobot.count_calls == [("devices", {"role": ["Network"]})]
+
+
+def test_the_total_of_ip_addresses_is_not_counted_without_the_addresses_switch() -> None:
+    nautobot = FakeNautobot()
+    nautobot.has_more = True
+    box, _ = _toolbox(nautobot, sharing=BASIC)
+
+    data = _data(_call(box, "list_ip_addresses"))
+
+    assert data["not_shared"] == "device_addresses" and "total" not in data
+    assert nautobot.requests == 0  # not even a count request
+
+
+def test_a_stack_list_reports_its_total_too() -> None:
+    nautobot = FakeNautobot()
+    nautobot.has_more = True
+    box, _ = _toolbox(nautobot, sharing=FULL)
+
+    assert _data(_call(box, "list_virtual_chassis"))["total"] == 137
+
+
+def test_the_service_client_counts_through_rest_with_the_filters_in_the_query_string() -> None:
+    service = _RestService({"count": 12, "results": []})
+
+    client = NautobotServiceClient(service, CREDENTIALS)
+    count = asyncio.run(client.count("devices", {"tags": ["lab"]}))
+
+    assert (count.total, count.exact) == (12, True)
+    endpoint = "dcim/devices/?tags=lab&limit=1&brief=true"
+    assert service.calls == [(endpoint, "GET", None, CREDENTIALS)]
+
+
+def test_a_failed_rest_get_does_not_chain_the_endpoint_with_its_filter_values() -> None:
+    # The service's error message holds the whole endpoint (device names, addresses, search
+    # text); the chain would carry it into logs and error trackers.
+    url = "dcim/devices/?name__ic=secret-host"
+    error = NautobotAPIError(f"Resource not found: {url}", http_status=404)
+    client = NautobotServiceClient(_RestService(error=error), CREDENTIALS)
+
+    with pytest.raises(QueryError) as raised:
+        asyncio.run(client.rest_get("dcim/devices/?name__ic=secret-host&limit=1&brief=true"))
+
+    assert raised.value.__cause__ is None and raised.value.__suppress_context__
+    assert "secret-host" not in str(raised.value)

@@ -80,15 +80,20 @@ class NautobotServiceClient(GraphQLClient):
     async def rest_get(self, endpoint: str) -> Any:
         """GET below ``/api/`` (the free addresses of a prefix have no GraphQL equivalent).
 
-        Only ever GET, and the endpoint is built by the library from constants and a validated
-        UUID; the service adds the base URL, token and SSRF policy.
+        Only ever GET. The endpoint is built by the library from constants (a list endpoint, or
+        the available-ips path of a validated UUID) plus URL-encoded filter values for a count;
+        the service adds the base URL, token and SSRF policy.
         """
         try:
             return await self._service.rest_request(
                 endpoint=endpoint, credentials=self._credentials, method="GET"
             )
         except BackendNautobotError as exc:
-            raise _query_error(exc) from exc
+            # ``from None``: the service puts the whole endpoint, with its filter values (device
+            # names, addresses, search text), into the exception message. ``_query_error`` logs
+            # the code and status, which is all an operator needs; the chain would carry the URL
+            # into logs and error trackers.
+            raise _query_error(exc) from None
 
 
 def _query_error(exc: BackendNautobotError) -> QueryError:
