@@ -8,9 +8,11 @@ blocks, only neutral ``tool`` status events and ``proposal`` events. Bounded by
 from __future__ import annotations
 
 import asyncio
+import logging
+import re
 import time
 from collections.abc import AsyncIterator, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from services.ai_assistant.events import ChatEvent
 from services.ai_assistant.providers.base import (
@@ -22,6 +24,8 @@ from services.ai_assistant.providers.base import (
     ToolResult,
 )
 from services.ai_assistant.tools.base import Toolbox
+
+logger = logging.getLogger(__name__)
 
 MAX_TOOL_STEPS = 8
 # No surface may ask for more than this, whatever its budget says (doc/AI_TOOL_CHAIN.md §6.4).
@@ -50,6 +54,36 @@ DEFAULT_BUDGET = RunBudget()
 
 _TOO_LONG = "The assistant took too long for one question; please narrow the request"
 
+# A tool name comes from the model: only these characters reach a log line.
+_UNSAFE_LABEL = re.compile(r"[^A-Za-z0-9_.-]")
+_MAX_LABEL = 40
+
+
+@dataclass
+class _Timings:
+    """Where the seconds of one turn went, for the log (never sent to the client).
+
+    One entry per model call (``model``) and per tool call (``tool:<name>``). Only names and
+    durations are kept: no tool input and no tool output, which may hold device data.
+    """
+
+    steps: list[tuple[str, float]] = field(default_factory=list)
+
+    def add(self, label: str, seconds: float) -> None:
+        self.steps.append((label, seconds))
+
+    def tool_label(self, name: str) -> str:
+        return "tool:" + _UNSAFE_LABEL.sub("?", name)[:_MAX_LABEL]
+
+    def describe(self, elapsed: float, tokens: int) -> str:
+        model = sum(s for label, s in self.steps if label == "model")
+        tools = sum(s for label, s in self.steps if label != "model")
+        listing = " ".join(f"{label}={seconds:.1f}s" for label, seconds in self.steps)
+        return (
+            f"elapsed={elapsed:.1f}s model={model:.1f}s tools={tools:.1f}s tokens={tokens} "
+            f"steps=[{listing}]"
+        )
+
 
 async def run_agent(
     *,
@@ -70,6 +104,15 @@ async def run_agent(
     wrote_text = False
     started = clock()
     max_steps = budget.max_tool_steps
+    timings = _Timings()
+
+    def summary() -> str:
+        return timings.describe(clock() - started, input_tokens + output_tokens)
+
+    def stop(reason: str, message: str) -> ProviderRequestError:
+        """The error for a spent budget, after logging which step ate it."""
+        logger.warning("Ask the Net turn stopped, %s: %s", reason, summary())
+        return ProviderRequestError(message)
 
     def time_left() -> float | None:
         """Seconds left in the budget, ``None`` without a time limit; raises once it is used up
@@ -79,7 +122,7 @@ async def run_agent(
             return None
         left = budget.max_seconds - (clock() - started)
         if left <= 0:
-            raise ProviderRequestError(_TOO_LONG)
+            raise stop(f"time budget used up (limit={budget.max_seconds:.0f}s)", _TOO_LONG)
         return left
 
     for step in range(max_steps + 1):
@@ -87,6 +130,7 @@ async def run_agent(
         turn: StreamEvent | None = None
         step_text: list[str] = []
         separate = wrote_text
+        model_started = clock()
         async for event in provider.stream(
             model=model,
             system=system,
@@ -104,6 +148,7 @@ async def run_agent(
             else:
                 turn = event
 
+        timings.add("model", clock() - model_started)
         if turn is None:
             raise ProviderUnavailableError("The provider returned no response")
         input_tokens += turn.input_tokens
@@ -117,14 +162,16 @@ async def run_agent(
         if not turn.tool_calls or toolbox is None:
             break
         if step == max_steps:
-            raise ProviderRequestError(
-                "The assistant used too many tool steps; please narrow the request"
+            raise stop(
+                f"tool step limit reached ({max_steps})",
+                "The assistant used too many tool steps; please narrow the request",
             )
         if budget.max_total_tokens is not None and (
             input_tokens + output_tokens > budget.max_total_tokens
         ):
-            raise ProviderRequestError(
-                "The assistant used too many tokens for one question; please narrow the request"
+            raise stop(
+                f"token budget used up (limit={budget.max_total_tokens})",
+                "The assistant used too many tokens for one question; please narrow the request",
             )
 
         conversation.append(
@@ -139,10 +186,13 @@ async def run_agent(
         for call in turn.tool_calls:
             remaining = time_left()
             yield ChatEvent("tool", {"id": call.id, "name": call.name, "status": "running"})
+            tool_started = clock()
             try:
                 output = await asyncio.wait_for(toolbox.execute(call), timeout=remaining)
             except TimeoutError as exc:
-                raise ProviderRequestError(_TOO_LONG) from exc
+                timings.add(timings.tool_label(call.name), clock() - tool_started)
+                raise stop("time budget used up inside a tool", _TOO_LONG) from exc
+            timings.add(timings.tool_label(call.name), clock() - tool_started)
             yield ChatEvent(
                 "tool",
                 {
@@ -157,3 +207,4 @@ async def run_agent(
                 yield ChatEvent("proposal", output.proposal)
             results.append(ToolResult(call.id, output.content, output.is_error))
         conversation.append(ChatMessage(role="user", tool_results=tuple(results)))
+    logger.info("Ask the Net turn finished: %s", summary())

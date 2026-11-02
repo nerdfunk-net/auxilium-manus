@@ -92,7 +92,9 @@ MAX_VARIABLE_VALUE_CHARS = 1000
 
 # Ask the Net chains discovery, query and result tools, so it gets more steps than the editors.
 # The token figure counts input re-sent on every step; the time figure is wall clock per question.
-GENERAL_BUDGET = RunBudget(max_tool_steps=16, max_total_tokens=400_000, max_seconds=180)
+# 300 s: a local model is much slower than a hosted one, and every step re-sends the conversation.
+# Where the time goes is logged per question (``agent_loop``: model vs tool seconds).
+GENERAL_BUDGET = RunBudget(max_tool_steps=16, max_total_tokens=400_000, max_seconds=300)
 
 
 @dataclass(frozen=True)

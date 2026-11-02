@@ -2318,7 +2318,7 @@ existence guard and the call see them.
 - Per-surface step budget (§6.4) is **done** (2026-11-01): `agent_loop.RunBudget` (steps, total tokens, wall
   clock; steps clamped to `HARD_MAX_TOOL_STEPS = 24`), carried by `AssistantSession.budget` and passed through
   `stream_chat`. Other surfaces keep the default (8 steps, no token/time limit); `general` uses
-  `surfaces.GENERAL_BUDGET` (16 steps, 400k tokens, 180 s). The numbers are first guesses, to be tuned from use.
+  `surfaces.GENERAL_BUDGET` (16 steps, 400k tokens, 300 s). The numbers are first guesses, to be tuned from use.
 
 ### 27.0-A Batfish tool inventory (end of 2026-11-01)
 
@@ -2538,7 +2538,7 @@ the guard scripts, `ruff`, `pyright`, `tsc` and `eslint` were clean.
 - Content sharing **fails closed**: if the user's credential values cannot be loaded for exact-match redaction
   (`known_secrets.try_load_visible_secret_values` returns `None`), `_session_for` turns the content opt-in off for
   that request (ACL lines, descriptions and run content are then withheld).
-- Every surface has a `RunBudget` (`agent_loop.py`); `general` gets 16 steps, 400k tokens and 180 s
+- Every surface has a `RunBudget` (`agent_loop.py`); `general` gets 16 steps, 400k tokens and 300 s
   (`surfaces.GENERAL_BUDGET`), the others keep 8 steps. The time limit is checked before every model call and
   tool and cancels a tool that outlives it.
 - Tool names: reads start with `get_`, `list_`, `query_`, `fetch_`, `analyze_`, `check_`, `diff_`, `compare_` or
@@ -2840,4 +2840,25 @@ interface stanzas loaded as a snapshot, would settle them.
   spells hostnames, but not rewritten to another device.
 * **Playbooks** accept `get_device_name_matches` (`known_general_tool_names`).
 * **Interface summary** adds `active_unknown` / `admin_up_unknown`, so `active + inactive + active_unknown == total`.
+
+## 36. Time budget and the timing log (2026-11-02)
+
+**The message.** "The assistant took too long for one question; please narrow the request" is raised by our own tool
+loop (`agent_loop.py`, `_TOO_LONG`), not written by the model. `RunBudget.max_seconds` is wall-clock time for the whole
+question, checked before every model call and every tool; a tool still running when it runs out is cancelled. The other
+two budget messages say "too many tool steps" and "too many tokens".
+
+**Limit.** `surfaces.GENERAL_BUDGET.max_seconds` is now 300 (was 180) because a local model is much slower than a hosted
+one and each step re-sends the conversation. Steps (16) and tokens (400k) are unchanged.
+
+**Timing log.** Every question logs, from `services.ai_assistant.agent_loop`:
+
+* INFO `Ask the Net turn finished: elapsed=... model=...s tools=...s tokens=... steps=[model=12.3s tool:get_routes=4.1s ...]`
+* WARNING `Ask the Net turn stopped, <reason>: <same summary>` for the time budget (also when a tool was cancelled at the
+  deadline), the tool-step limit and the token budget.
+
+`steps` has one entry per model call and per tool call in order, so the log shows whether the model or a tool ate the
+time (and how many output tokens a slow model produced: `tokens`). Only tool *names* and durations are logged (a name
+from the model is reduced to `[A-Za-z0-9_.-]`, 40 characters), never tool input or output, which may hold device data.
+Not logged: provider errors and a client that disconnects mid-turn. Durations are not sent to the browser.
 

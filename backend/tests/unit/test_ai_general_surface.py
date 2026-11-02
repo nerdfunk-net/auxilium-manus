@@ -57,6 +57,14 @@ def test_conversations_can_be_saved_for_the_general_surface() -> None:
     assert "general" in AiSurface.__args__  # type: ignore[attr-defined]
 
 
+def test_the_general_budget_allows_a_slow_local_model_five_minutes() -> None:
+    from services.ai_assistant.surfaces import GENERAL_BUDGET
+
+    assert GENERAL_BUDGET.max_seconds == 300
+    assert GENERAL_BUDGET.max_tool_steps == 16
+    assert GENERAL_BUDGET.max_total_tokens == 400_000
+
+
 # -- session ----------------------------------------------------------------------------------
 
 

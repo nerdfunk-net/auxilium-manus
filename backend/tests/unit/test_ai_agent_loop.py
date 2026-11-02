@@ -493,3 +493,160 @@ def test_time_budget_is_reached_at_exactly_max_seconds() -> None:
 
     with pytest.raises(ProviderRequestError, match="too long"):
         asyncio.run(go())
+
+
+# -- timing log: where the time of a turn went ----------------------------------------------------
+
+LOGGER = "services.ai_assistant.agent_loop"
+
+
+class _TickingProvider(ScriptedProvider):
+    """A model that takes ``seconds`` of the fake clock for every call."""
+
+    def __init__(self, responses, clock: _Clock, seconds: float) -> None:
+        super().__init__(responses)
+        self.clock = clock
+        self.seconds = seconds
+
+    async def stream(self, **kwargs):
+        self.clock.now += self.seconds
+        async for event in super().stream(**kwargs):
+            yield event
+
+
+def _run_timed(provider, clock, handler=None, budget=None, toolbox=True):
+    from services.ai_assistant.agent_loop import DEFAULT_BUDGET
+
+    async def go() -> list[ChatEvent]:
+        return [
+            e
+            async for e in run_agent(
+                provider=provider,
+                model="m",
+                system="s",
+                messages=[ChatMessage(role="user", content="hi")],
+                toolbox=_toolbox(handler) if toolbox else None,
+                budget=budget or DEFAULT_BUDGET,
+                clock=clock,
+            )
+        ]
+
+    return asyncio.run(go())
+
+
+def test_a_finished_turn_logs_where_the_time_went(caplog) -> None:
+    clock = _Clock()
+
+    async def tool(ctx: ToolContext, args: Echo) -> ToolOutput:
+        clock.now += 4
+        return ToolOutput("SECRET-RESULT")
+
+    provider = _TickingProvider(
+        [[_turn(_call("t1"), stop="tool_use", i=10, o=5)], [_text("done"), _turn(i=20, o=7)]],
+        clock,
+        seconds=10,
+    )
+    with caplog.at_level("INFO", logger=LOGGER):
+        _run_timed(provider, clock, tool)
+
+    (record,) = [r for r in caplog.records if r.name == LOGGER]
+    text = record.getMessage()
+    assert record.levelname == "INFO"
+    assert "elapsed=24.0s" in text and "model=20.0s" in text and "tools=4.0s" in text
+    assert "model=10.0s" in text and "tool:echo=4.0s" in text
+    assert "tokens=42" in text  # 10 + 5 + 20 + 7: what the question cost
+    assert "SECRET-RESULT" not in text and "hi" not in text.split("steps=")[1]
+
+
+def test_running_out_of_time_logs_a_warning_with_the_slow_step(caplog) -> None:
+    from services.ai_assistant.agent_loop import RunBudget
+
+    clock = _Clock()
+
+    async def slow(ctx: ToolContext, args: Echo) -> ToolOutput:
+        clock.now += 100
+        return ToolOutput("late")
+
+    provider = _TickingProvider([[_turn(_call("t0"), stop="tool_use")], [_text("x")]], clock, 5)
+    with caplog.at_level("INFO", logger=LOGGER):
+        with pytest.raises(ProviderRequestError, match="too long"):
+            _run_timed(provider, clock, slow, RunBudget(max_tool_steps=5, max_seconds=50))
+
+    (record,) = [r for r in caplog.records if r.name == LOGGER]
+    text = record.getMessage()
+    assert record.levelname == "WARNING"
+    assert "time budget" in text and "limit=50s" in text
+    assert "tool:echo=100.0s" in text and "model=5.0s" in text
+
+
+def test_a_tool_cancelled_at_the_deadline_is_named_in_the_log(caplog) -> None:
+    from services.ai_assistant.agent_loop import RunBudget
+
+    async def never(ctx: ToolContext, args: Echo) -> ToolOutput:
+        await asyncio.sleep(10)
+        return ToolOutput("unreachable")
+
+    provider = ScriptedProvider([[_turn(_call("t0"), stop="tool_use")]])
+    with caplog.at_level("INFO", logger=LOGGER):
+        with pytest.raises(ProviderRequestError, match="too long"):
+            _run_budget_with_handler(provider, never, RunBudget(max_tool_steps=5, max_seconds=0.05))
+
+    text = [r for r in caplog.records if r.name == LOGGER][0].getMessage()
+    assert "time budget" in text and "tool:echo=" in text
+
+
+def _run_budget_with_handler(provider, handler, budget) -> list[ChatEvent]:
+    async def go() -> list[ChatEvent]:
+        return [
+            e
+            async for e in run_agent(
+                provider=provider,
+                model="m",
+                system="s",
+                messages=[ChatMessage(role="user", content="hi")],
+                toolbox=_toolbox(handler),
+                budget=budget,
+            )
+        ]
+
+    return asyncio.run(go())
+
+
+def test_the_step_and_token_limits_log_their_reason(caplog) -> None:
+    from services.ai_assistant.agent_loop import RunBudget
+
+    with caplog.at_level("INFO", logger=LOGGER), pytest.raises(ProviderRequestError):
+        _run_budget(_looping(5), RunBudget(max_tool_steps=2))
+    with caplog.at_level("INFO", logger=LOGGER), pytest.raises(ProviderRequestError):
+        _run_budget(_looping(5, i=500, o=500), RunBudget(max_tool_steps=9, max_total_tokens=1000))
+
+    reasons = [r.getMessage() for r in caplog.records if r.name == LOGGER]
+    assert any("tool step limit" in m for m in reasons)
+    assert any("token budget" in m for m in reasons)
+    assert all(r.levelname == "WARNING" for r in caplog.records if r.name == LOGGER)
+
+
+def test_a_tool_name_from_the_model_cannot_break_the_log_line(caplog) -> None:
+    clock = _Clock()
+    provider = _TickingProvider(
+        [[_turn(ToolCall(id="t", name="bad\nname FAKE entry=1", input={}), stop="tool_use")],
+         [_text("ok"), _turn()]],
+        clock,
+        seconds=1,
+    )
+    with caplog.at_level("INFO", logger=LOGGER):
+        _run_timed(provider, clock)
+
+    text = [r for r in caplog.records if r.name == LOGGER][0].getMessage()
+    assert "\n" not in text
+    assert "tool:bad?name?FAKE?entry?1=" in text
+
+
+def test_a_turn_without_tools_still_logs_its_model_time(caplog) -> None:
+    clock = _Clock()
+    provider = _TickingProvider([[_text("hello"), _turn(i=3, o=4)]], clock, seconds=7)
+    with caplog.at_level("INFO", logger=LOGGER):
+        _run_timed(provider, clock, toolbox=False)
+
+    text = [r for r in caplog.records if r.name == LOGGER][0].getMessage()
+    assert "model=7.0s" in text and "tools=0.0s" in text and "tokens=7" in text
