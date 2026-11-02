@@ -42,6 +42,7 @@ from services.ai_assistant.data_sharing import DataClass, not_shared_marker
 from services.ai_assistant.tools.base import Tool, ToolContext, ToolOutput
 from services.ai_assistant.tools.batfish_shaping import (
     DEFAULT_FACT_KEYS,
+    MAX_IPS_PER_DEVICE,
     FactKey,
     InterfaceStatus,
     ParseSection,
@@ -52,8 +53,10 @@ from services.ai_assistant.tools.batfish_shaping import (
     shape_filter_comparison,
     shape_filter_results,
     shape_interfaces,
+    shape_ip_owners,
     shape_parse_issues,
     shape_routes,
+    shape_snapshot_devices,
     summarize_bgp_sessions,
     summarize_differential_traces,
     summarize_facts,
@@ -92,6 +95,7 @@ QueryKind = Literal[
     "reachability",
     "compare_filters",
     "differential_reachability",
+    "ip_owners",
 ]
 
 
@@ -127,6 +131,20 @@ class SnapshotDiagnostics:
 
 
 @dataclass(frozen=True)
+class DeviceListing:
+    """The devices of a snapshot (``nodeProperties`` rows) and their IPs (``ipOwners`` rows)."""
+
+    snapshot: str
+    snapshot_created: str | None
+    node_rows: list[dict[str, Any]]
+    ip_rows: list[dict[str, Any]]
+    unavailable: dict[str, str] = field(default_factory=dict)
+    # Sections (devices / ips) whose rows were cut at the preview cap: counts are lower bounds.
+    truncated_sections: tuple[str, ...] = ()
+    nodes_resolved: dict[str, str] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
 class NodeListing:
     """The node (device) names of one snapshot, as Batfish spells them."""
 
@@ -158,6 +176,15 @@ class BatfishReader(Protocol):
     async def node_names(
         self, source_id: str, network: str, snapshot: str | None
     ) -> NodeListing: ...
+
+    async def snapshot_devices(
+        self,
+        source_id: str,
+        network: str,
+        snapshot: str | None,
+        nodes: list[str],
+        with_ips: bool,
+    ) -> DeviceListing: ...
 
 
 # -- inputs -----------------------------------------------------------------------------------
@@ -431,6 +458,44 @@ class FactsInput(Target):
             "DNS_Servers, TACACS_Servers, SNMP_Trap_Servers"
         ),
     )
+
+
+class DevicesInput(Target):
+    nodes: list[NodeName] = Field(
+        default_factory=list,
+        max_length=MAX_NODES,
+        description="Only these devices (full name or hostname); empty means every device",
+    )
+    include_ips: bool = Field(
+        default=True, description="Also count each device's IP addresses and show a sample"
+    )
+
+
+class IpOwnersInput(Target):
+    nodes: list[NodeName] = Field(
+        default_factory=list,
+        max_length=MAX_NODES,
+        description="Only addresses owned by these devices; empty means every device",
+    )
+    ip: str | None = Field(
+        default=None,
+        max_length=64,
+        description="One address ('10.0.0.1') or a prefix ('10.0.0.0/24'): who owns it",
+    )
+    duplicates_only: bool = Field(
+        default=False, description="Only addresses that more than one interface owns"
+    )
+
+    @field_validator("ip")
+    @classmethod
+    def _check_ip(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        text = value.strip()
+        # Parsed, never passed on as typed: no specifier syntax reaches Batfish.
+        return str(ipaddress.ip_address(text)) if "/" not in text else str(
+            ipaddress.ip_network(text, strict=False)
+        )
 
 
 class ParseIssuesInput(Target):
@@ -904,6 +969,124 @@ async def _get_device_facts(ctx: ToolContext, args: FactsInput) -> ToolOutput:
     )
 
 
+_IPS_HIDDEN = (
+    "IP addresses are not shown: the user has not allowed addresses to be shared. Device names, "
+    "formats and domains are."
+)
+
+
+def _devices_note(
+    listing: DeviceListing, rows: list[dict[str, Any]], *, asked_ips: bool, with_ips: bool
+) -> str | None:
+    parts = []
+    if asked_ips and not with_ips and not listing.unavailable:
+        parts.append(_IPS_HIDDEN)
+    if listing.unavailable:
+        names = ", ".join(sorted(listing.unavailable))
+        parts.append(
+            f"Batfish could not answer for: {names}. Those columns are missing, not empty."
+        )
+    if listing.truncated_sections:
+        cut = ", ".join(listing.truncated_sections)
+        parts.append(
+            f"The answer for {cut} was cut at the preview row cap: counts are at least these "
+            "values and some devices or addresses are missing."
+        )
+    if with_ips and any(r.get("IP_Count", 0) > len(r.get("IPs", ())) for r in rows):
+        parts.append(
+            f"IPs shows the first {MAX_IPS_PER_DEVICE} addresses of a device; IP_Count is the "
+            "total. Use get_ip_owners for every address."
+        )
+    return " ".join(parts) or None
+
+
+async def _list_snapshot_devices(ctx: ToolContext, args: DevicesInput) -> ToolOutput:
+    if (blocked := _gate(ctx, DataClass.INVENTORY)) is not None:
+        return blocked
+    asked_ips = args.include_ips
+    wants_ips = asked_ips and ctx.sharing.allows(DataClass.ADDRESSES)
+    source = await _source(ctx, args.source_id)
+    if isinstance(source, ToolOutput):
+        return source
+    ctx.audit_refs.add(f"batfish:{source}/{args.network}")
+    try:
+        listing = await _reader(ctx).snapshot_devices(
+            source, args.network, args.snapshot, list(args.nodes), wants_ips
+        )
+    except _READER_ERRORS as exc:
+        return _error(exc)
+    if args.nodes and not listing.node_rows:
+        # The name check could not run (or the devices vanished): an empty list for names the
+        # user gave must not read as "this snapshot has no such devices".
+        names = ", ".join(args.nodes)
+        return ToolOutput(
+            f"Batfish returned no device for: {names}. They may not exist in this snapshot, or "
+            "the names could not be checked. Call list_snapshot_devices without nodes to see "
+            "the devices.",
+            is_error=True,
+        )
+    with_ips = wants_ips and "ips" not in listing.unavailable
+    rows, summary = shape_snapshot_devices(
+        listing.node_rows, listing.ip_rows, with_ips=with_ips, max_ips=MAX_IPS_PER_DEVICE
+    )
+    extra: dict[str, Any] = {
+        "source_id": source,
+        "network": args.network,
+        "snapshot": listing.snapshot,
+        "snapshot_created": listing.snapshot_created,
+        "summary": summary,
+        "summary_complete": not listing.truncated_sections,
+    }
+    if listing.nodes_resolved:
+        extra["nodes_resolved"] = dict(listing.nodes_resolved)
+    if listing.unavailable:
+        extra["unavailable_sections"] = sorted(listing.unavailable)
+    return await publish_table(
+        ctx,
+        rows,
+        kind="devices",
+        data_class=DataClass.ADDRESSES if with_ips else DataClass.INVENTORY,
+        # Any cut section makes the counts lower bounds: one flag, the one the model trusts.
+        source_truncated=bool(listing.truncated_sections),
+        note=_devices_note(listing, rows, asked_ips=asked_ips, with_ips=with_ips),
+        extra=extra,
+    )
+
+
+def _ip_owners_note(args: IpOwnersInput, answer: BatfishAnswer) -> str | None:
+    """Say what an empty table does and does not mean."""
+    if answer.rows:
+        return None
+    if answer.truncated:
+        return (
+            "No rows, but the snapshot has more addresses than were read: the answer was cut, so "
+            "the device(s) may own addresses that are not shown."
+        )
+    if args.nodes:
+        return (
+            "No addresses for those devices. Check the names with list_snapshot_devices: a name "
+            "that is not in the snapshot also gives an empty table."
+        )
+    return None
+
+
+async def _get_ip_owners(ctx: ToolContext, args: IpOwnersInput) -> ToolOutput:
+    params = {"nodes": _csv(args.nodes), "ips": args.ip, "duplicates_only": args.duplicates_only}
+    ran = await _run(ctx, args, "ip_owners", params)
+    if isinstance(ran, ToolOutput):
+        return ran
+    source, answer = ran
+    return await publish_table(
+        ctx,
+        shape_ip_owners(answer.rows),
+        kind="ip_owners",
+        data_class=DataClass.ADDRESSES,
+        source_truncated=answer.truncated,
+        note=_ip_owners_note(args, answer),
+        extra=_context(source, args, answer),
+    )
+
+
 _NO_PARSE_PROBLEMS = (
     "No parse problems reported: every file parsed and Batfish raised no warnings or issues. "
     "This does not explain why an interface is inactive; check Active and the VLAN / "
@@ -1091,6 +1274,29 @@ _TOOLS: tuple[tuple[str, str, type[BaseModel], Callable[..., Awaitable[ToolOutpu
         "with check_reachability." + _SNAPSHOT_HINT,
         DifferentialReachabilityInput,
         _differential_reachability,
+    ),
+    (
+        "list_snapshot_devices",
+        "List the devices of a snapshot: one record per device with its configuration format and "
+        "domain, and (with the addresses opt-in) how many IP addresses it owns, how many sit on "
+        "inactive interfaces and a sample of them. Use it first for 'which devices / IPs are in "
+        "the snapshot': it is much faster than get_device_facts or paging "
+        "get_interface_properties. "
+        "A summary covers every device. For every address use get_ip_owners." + _SNAPSHOT_HINT,
+        DevicesInput,
+        _list_snapshot_devices,
+    ),
+    (
+        "get_ip_owners",
+        "Which device and interface owns each IP address of the snapshot (flat table: Node, VRF, "
+        "Interface, IP, Mask, Active). Pass ip (an address or a prefix) to answer 'who owns "
+        "10.1.2.3', nodes to limit it to some devices, duplicates_only to find address conflicts "
+        "(with nodes it shows every owner of an address one of those devices owns, so the other "
+        "side of the conflict stays visible). "
+        "Large results return a preview and a handle for query_result / fetch_slice."
+        + _SNAPSHOT_HINT,
+        IpOwnersInput,
+        _get_ip_owners,
     ),
     (
         "get_snapshot_parse_issues",

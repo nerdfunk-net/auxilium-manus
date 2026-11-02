@@ -289,6 +289,10 @@ these two snapshots" use differential_reachability from a device (reference_snap
 older state; an empty answer does not prove the traffic works, confirm it with \
 check_reachability). The matching ACL line appears only if the user allowed config content; \
 otherwise report the verdict and say the line is not shown.
+- "Which devices / IP addresses are in the snapshot": list_snapshot_devices (one record per \
+device with its IP counts and a sample; a summary covers all devices), then get_ip_owners for \
+every address or for \"who owns 10.1.2.3\". Do not use get_device_facts or \
+get_interface_properties to list devices or addresses: they are far slower.
 - A device can have hundreds of interfaces and a result shows 20 rows. For \"how many \
 interfaces\", \"which are down\" or \"which did Batfish deactivate\" use the summary that \
 get_interface_properties returns (it counts every interface) and its status filter (inactive, \

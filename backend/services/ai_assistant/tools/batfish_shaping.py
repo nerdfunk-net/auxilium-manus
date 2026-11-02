@@ -11,6 +11,7 @@ simply left out, nothing here fails on an unexpected shape.
 
 from __future__ import annotations
 
+import ipaddress
 from collections import Counter
 from collections.abc import Iterable, Mapping
 from typing import Any, Literal, get_args
@@ -541,3 +542,80 @@ def shape_parse_issues(
     if section in ("all", "issues"):
         rows += _issue_rows(found, nodes_by_file, include_text=include_text)
     return rows, summary
+
+
+# -- devices and IP owners ---------------------------------------------------------------------
+
+IP_OWNER_COLUMNS = ("Node", "VRF", "Interface", "IP", "Mask", "Active")
+MAX_IPS_PER_DEVICE = 10
+
+
+def shape_ip_owners(rows: Iterable[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    """``ipOwners`` rows (one per IP and owning interface) without internal columns."""
+    return _keep(rows, IP_OWNER_COLUMNS)
+
+
+def _address(row: Mapping[str, Any]) -> str | None:
+    ip = row.get("IP")
+    if ip is None:
+        return None
+    mask = row.get("Mask")
+    return f"{ip}/{mask}" if mask is not None else str(ip)
+
+
+def _address_key(address: str) -> tuple[int, int, str]:
+    """Numeric order for IPv4 / IPv6, anything else after them, by text."""
+    try:
+        parsed = ipaddress.ip_address(address.split("/", 1)[0])
+    except ValueError:
+        return (2, 0, address)
+    return (0 if parsed.version == 4 else 1, int(parsed), address)
+
+
+def shape_snapshot_devices(
+    node_rows: Iterable[Mapping[str, Any]],
+    ip_rows: Iterable[Mapping[str, Any]],
+    *,
+    with_ips: bool,
+    max_ips: int,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """One record per device (``nodeProperties`` rows) with, when ``with_ips``, how many IPs it
+    owns (``ipOwners``), how many sit on inactive interfaces, and a bounded sample of them.
+
+    A device with hundreds of interfaces is still one record. ``IP_Count`` counts distinct
+    addresses (what ``IPs`` samples). IP rows of a device that is not listed are ignored; absent
+    or null columns are left out. Returns ``(records, summary)``; the summary covers every record.
+    """
+    by_node: dict[Any, list[Mapping[str, Any]]] = {}
+    for row in ip_rows if with_ips else ():
+        by_node.setdefault(row.get("Node"), []).append(row)
+    nodes = sorted(node_rows, key=lambda r: str(r.get("Node")))
+    records: list[dict[str, Any]] = []
+    for node in nodes:
+        record: dict[str, Any] = {"Node": node.get("Node")}
+        for column in ("Configuration_Format", "Domain_Name"):
+            if node.get(column) is not None:
+                record[column] = node[column]
+        if with_ips:
+            owned = by_node.get(node.get("Node"), [])
+            # Distinct addresses, the same unit as the ``IPs`` sample: one address on two
+            # interfaces counts once, a row without an IP not at all.
+            addresses = sorted({a for a in map(_address, owned) if a}, key=_address_key)
+            inactive = {_address(r) for r in owned if r.get("Active") is False}
+            record["IP_Count"] = len(addresses)
+            record["IP_Count_Inactive"] = len(inactive - {None})
+            record["Interfaces_With_IP"] = len(
+                {r.get("Interface") for r in owned if r.get("Interface") and _address(r)}
+            )
+            record["IPs"] = addresses[:max_ips]
+        records.append(record)
+    summary: dict[str, Any] = {
+        "devices": len(records),
+        "by_configuration_format": dict(
+            Counter(str(r["Configuration_Format"]) for r in records if "Configuration_Format" in r)
+        ),
+    }
+    if with_ips:
+        summary["devices_with_ips"] = sum(1 for r in records if r["IP_Count"])
+        summary["ips"] = sum(r["IP_Count"] for r in records)
+    return records, summary

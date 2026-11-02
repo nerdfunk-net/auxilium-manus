@@ -152,6 +152,8 @@ const TOOL_LABELS: Record<string, string> = {
   get_snapshot_parse_issues: "Reading the snapshot parse issues",
   get_device_name_matches: "Matching a device name",
   list_interfaces: "Listing the interfaces of a Nautobot device",
+  list_snapshot_devices: "Listing the devices of the snapshot",
+  get_ip_owners: "Looking up IP address owners",
   list_locations: "Looking through Nautobot locations",
   get_location: "Reading a Nautobot location",
   list_location_types: "Reading Nautobot location types",

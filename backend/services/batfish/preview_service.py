@@ -47,7 +47,7 @@ from models.batfish import (
     BatfishTracerouteQueryRequest,
 )
 from services.batfish.bgp_facts import BGP_QUESTION_SPECS
-from services.batfish.client import BatfishService
+from services.batfish.client import PREVIEW_ROW_LIMIT, BatfishService
 from services.batfish.common.exceptions import BatfishValidationError
 from services.batfish.credentials import BatfishConnection
 from services.batfish.facts_specs import (
@@ -88,6 +88,11 @@ from services.batfish.source_config_service import BatfishSourceConfigService
 
 logger = logging.getLogger(__name__)
 
+# ``ipOwners`` rows are aggregated or filtered here, not shown, so the 5000-row preview cap would
+# cut the counts of a device whose rows sit later in the snapshot-wide answer (the question has no
+# node parameter). Rows are small; past this cap the answer is flagged as cut.
+MAX_IP_OWNER_ROWS = 50_000
+
 
 @dataclass(frozen=True)
 class ParseDiagnostics:
@@ -102,6 +107,17 @@ class ParseDiagnostics:
     truncated: bool = False
     # The sections (files / warnings / issues) whose answer had more rows than the preview cap, so
     # their counts and groups cover only a prefix.
+    truncated_sections: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class SnapshotDevices:
+    """The devices of a snapshot (``nodeProperties``) and their IPs (``ipOwners``)."""
+
+    snapshot: str
+    node_rows: list[dict[str, Any]]
+    ip_rows: list[dict[str, Any]]
+    unavailable: dict[str, str] = field(default_factory=dict)
     truncated_sections: tuple[str, ...] = ()
 
 
@@ -565,3 +581,136 @@ class BatfishPreviewService:
             truncated=bool(cut),
             truncated_sections=cut,
         )
+
+    async def run_snapshot_devices(
+        self,
+        source_id: str,
+        network: str,
+        snapshot: str | None,
+        nodes: str | None,
+        *,
+        with_ips: bool,
+    ) -> SnapshotDevices:
+        """The devices of a snapshot with their IPs, from two light questions.
+
+        ``nodeProperties`` is asked for two columns only (not every property, which is what
+        ``extractFacts`` costs) and ``ipOwners`` once for the whole snapshot. ``nodes`` limits the
+        devices; ``ipOwners`` has no node parameter, so its rows are filtered here. Without
+        devices there is no answer (the error is raised); a failing IP question is reported in
+        ``unavailable`` and the devices still answer.
+        """
+        connection, resolved = await self._resolve(source_id, network, snapshot)
+        clean_network = network.strip()
+        node_filter = (nodes or "").strip() or None
+        node_rows = await query_node_properties(
+            self._batfish,
+            connection,
+            batfish_network=clean_network,
+            snapshot=resolved,
+            nodes=node_filter,
+            properties="Configuration_Format, Domain_Name",
+        )
+        ip_rows: list[dict[str, Any]] = []
+        unavailable: dict[str, str] = {}
+        ips_cut = False
+        if with_ips:
+            try:
+                ip_rows, ips_cut = await self._ip_owner_rows(
+                    connection, clean_network, resolved, params={}
+                )
+            except Exception as exc:
+                logger.warning("Batfish ipOwners question failed: %s", exc)
+                unavailable["ips"] = type(exc).__name__
+        wanted = _node_set(node_filter)
+        if wanted:
+            ip_rows = [r for r in ip_rows if str(r.get("Node", "")).casefold() in wanted]
+        cut = tuple(
+            key
+            for key, is_cut in (
+                ("devices", len(node_rows) > MAX_PREVIEW_ROWS),
+                ("ips", ips_cut),
+            )
+            if is_cut
+        )
+        return SnapshotDevices(
+            snapshot=resolved,
+            node_rows=node_rows[:MAX_PREVIEW_ROWS],
+            ip_rows=ip_rows,
+            unavailable=unavailable,
+            truncated_sections=cut,
+        )
+
+    async def run_ip_owners(
+        self,
+        source_id: str,
+        network: str,
+        snapshot: str | None,
+        ips: str | None,
+        duplicates_only: bool,
+        nodes: str | None,
+    ) -> BatfishQueryResponse:
+        """Who owns which IP address. ``ipOwners`` has no node parameter, so ``nodes`` is applied
+        to the rows here, *before* the response cap, so a device whose rows sit late in the
+        snapshot-wide answer is still found.
+
+        With ``duplicates_only`` a node filter keeps every owner of an address one of those nodes
+        owns (the conflict, both sides), not just the filtered nodes' own rows.
+        """
+        connection, resolved = await self._resolve(source_id, network, snapshot)
+        clean_network = network.strip()
+        params: dict[str, Any] = {}
+        if ips:
+            params["ips"] = ips
+        if duplicates_only:
+            params["duplicatesOnly"] = True
+        rows, cut = await self._ip_owner_rows(connection, clean_network, resolved, params)
+        wanted = _node_set(nodes)
+        if wanted:
+            rows = _owned_by(rows, wanted, with_co_owners=duplicates_only)
+        return BatfishQueryResponse(
+            success=True,
+            question="ipOwners",
+            network=clean_network,
+            snapshot=resolved,
+            rows=rows,
+            truncated=cut,
+        )
+
+    async def _ip_owner_rows(
+        self,
+        connection: BatfishConnection,
+        network: str,
+        snapshot: str,
+        params: dict[str, Any],
+    ) -> tuple[list[dict[str, Any]], bool]:
+        """The ``ipOwners`` rows up to ``MAX_IP_OWNER_ROWS`` and whether the answer was cut."""
+        token = PREVIEW_ROW_LIMIT.set(MAX_IP_OWNER_ROWS)
+        try:
+            rows = await query_generic(
+                self._batfish,
+                connection,
+                batfish_network=network,
+                snapshot=snapshot,
+                question_name="ipOwners",
+                params=params,
+            )
+        finally:
+            PREVIEW_ROW_LIMIT.reset(token)
+        return rows[:MAX_IP_OWNER_ROWS], len(rows) > MAX_IP_OWNER_ROWS
+
+
+def _node_set(nodes: str | None) -> set[str]:
+    return {n.strip().casefold() for n in (nodes or "").split(",") if n.strip()}
+
+
+def _owned_by(
+    rows: list[dict[str, Any]], wanted: set[str], *, with_co_owners: bool
+) -> list[dict[str, Any]]:
+    """The rows of the wanted nodes; with ``with_co_owners`` also every other owner of an address
+    one of them owns."""
+    own = [r for r in rows if str(r.get("Node", "")).casefold() in wanted]
+    if not with_co_owners:
+        return own
+    shared = {r.get("IP") for r in own if r.get("IP") is not None}
+    return [r for r in rows if r.get("IP") in shared]
+

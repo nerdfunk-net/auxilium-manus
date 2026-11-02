@@ -112,6 +112,8 @@ class BatfishToolsTests(unittest.IsolatedAsyncioTestCase):
                 "compare_filters",
                 "differential_reachability",
                 "get_snapshot_parse_issues",
+                "list_snapshot_devices",
+                "get_ip_owners",
             },
         )
         for name in names:

@@ -84,6 +84,8 @@ def test_session_offers_batfish_and_result_tools() -> None:
         "compare_filters",
         "differential_reachability",
         "get_snapshot_parse_issues",
+        "list_snapshot_devices",
+        "get_ip_owners",
         "query_result",
         "fetch_slice",
         "diff_results",

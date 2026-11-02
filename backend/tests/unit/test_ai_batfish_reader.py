@@ -25,7 +25,7 @@ from services.batfish.common.exceptions import (
     FilterNotFoundError,
 )
 from services.batfish.credentials import BatfishConnection
-from services.batfish.preview_service import ParseDiagnostics
+from services.batfish.preview_service import ParseDiagnostics, SnapshotDevices
 from services.batfish.source_config_service import BatfishSourceNotFoundError
 
 MOD = "services.ai_assistant.batfish_reader"
@@ -95,6 +95,15 @@ class ReaderTests(unittest.IsolatedAsyncioTestCase):
                 unavailable={"issues": "BatfishAPIError"},
                 truncated=True,
                 truncated_sections=("files",),
+            )
+        )
+        self.preview.run_snapshot_devices = AsyncMock(
+            return_value=SnapshotDevices(
+                snapshot="run-2",
+                node_rows=[{"Node": "lab"}],
+                ip_rows=[{"Node": "lab", "IP": "1.1.1.1"}],
+                unavailable={},
+                truncated_sections=("ips",),
             )
         )
         self.preview.run_reachability = AsyncMock(return_value=_response("reachability"))
@@ -603,6 +612,71 @@ class ReaderTests(unittest.IsolatedAsyncioTestCase):
             await self.reader.query("routes", "lab", "net1", None, {"nodes": "r"})
 
         self.assertIn("not necessarily the same device", str(ctx.exception))
+
+    # -- snapshot devices and ip owners --------------------------------------------------------
+
+    async def test_snapshot_devices_returns_rows_with_the_snapshot_age(self) -> None:
+        listing = await self.reader.snapshot_devices("lab", " net1 ", None, [], True)
+
+        self.preview.run_snapshot_devices.assert_awaited_once_with(
+            "lab", "net1", None, None, with_ips=True
+        )
+        self.assertEqual(listing.snapshot, "run-2")
+        self.assertEqual(listing.snapshot_created, "2026-11-01T00:00:00Z")
+        self.assertEqual(listing.truncated_sections, ("ips",))
+
+    async def test_snapshot_devices_rewrites_device_names_and_pins_the_snapshot(self) -> None:
+        listing = await self.reader.snapshot_devices("lab", "net1", None, ["LAB.local.zz"], False)
+
+        args = self.preview.run_snapshot_devices.await_args
+        self.assertEqual(args.args[3], "lab")  # the node filter, now the Batfish name
+        self.assertEqual(args.args[2], "run-2")  # the snapshot the names were checked against
+        self.assertEqual(args.kwargs, {"with_ips": False})
+        self.assertEqual(listing.nodes_resolved, {"LAB.local.zz": "lab"})
+
+    async def test_snapshot_devices_needs_the_permission_and_one_charge(self) -> None:
+        await self.reader.snapshot_devices("lab", "net1", None, [], True)
+        self.assertEqual(self.limiter.check.call_count, 1)
+
+        self.rbac.return_value.has_permission.return_value = False
+        with self.assertRaises(BatfishAccessError):
+            await self.reader.snapshot_devices("lab", "net1", None, [], True)
+
+    async def test_snapshot_devices_maps_errors(self) -> None:
+        for raised, expected in (
+            (ValueError("Unknown network"), BatfishInputError),
+            (BatfishAPIError("host:9996"), BatfishUnavailableError),
+        ):
+            self.preview.run_snapshot_devices = AsyncMock(side_effect=raised)
+            with self.assertRaises(expected) as ctx:
+                await self.reader.snapshot_devices("lab", "net1", None, [], True)
+            self.assertNotIn("9996", str(ctx.exception))
+
+    async def test_ip_owners_goes_through_the_preview_service_with_the_resolved_names(self) -> None:
+        self.preview.run_ip_owners = AsyncMock(
+            return_value=_response("ipOwners", rows=[{"Node": "lab", "IP": "1.1.1.1"}])
+        )
+
+        answer = await self.reader.query(
+            "ip_owners",
+            "lab",
+            "net1",
+            None,
+            {"nodes": "LAB", "ips": "1.1.1.0/24", "duplicates_only": True},
+        )
+
+        self.preview.run_ip_owners.assert_awaited_once_with(
+            "lab", "net1", "run-2", "1.1.1.0/24", True, "lab"
+        )
+        self.assertEqual([r["Node"] for r in answer.rows], ["lab"])
+        self.assertEqual(answer.nodes_resolved, {"LAB": "lab"})
+
+    async def test_ip_owners_without_filters_passes_none(self) -> None:
+        self.preview.run_ip_owners = AsyncMock(return_value=_response("ipOwners", rows=[]))
+
+        await self.reader.query("ip_owners", "lab", "net1", None, {})
+
+        self.preview.run_ip_owners.assert_awaited_once_with("lab", "net1", None, None, False, None)
 
 
 if __name__ == "__main__":

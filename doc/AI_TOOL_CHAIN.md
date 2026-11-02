@@ -2862,3 +2862,55 @@ time (and how many output tokens a slow model produced: `tokens`). Only tool *na
 from the model is reduced to `[A-Za-z0-9_.-]`, 40 characters), never tool input or output, which may hold device data.
 Not logged: provider errors and a client that disconnects mid-turn. Durations are not sent to the browser.
 
+## 37. Listing the devices and IPs of a snapshot (2026-11-02)
+
+**Problem.** No tool listed the devices or the IP addresses of a snapshot. The nearest ones were slow:
+`get_device_facts` calls pybatfish `extract_facts`, which runs seven questions (`nodeProperties`, `interfaceProperties`,
+two BGP, three OSPF) with every property for every node, and still returns no IPs; `get_interface_properties` has one
+row per interface (hundreds per device), shows 20 at a time and only `Primary_Address`, so the model paged a stored
+table with many tool steps.
+
+**`list_snapshot_devices`.** `BatfishPreviewService.run_snapshot_devices` asks `nodeProperties` for two columns
+(`Configuration_Format, Domain_Name`) and `ipOwners` once, and `shape_snapshot_devices` folds them into one record per
+device (distinct-address counts, inactive count, interfaces with an IP, a sample of at most `MAX_IPS_PER_DEVICE` = 10
+addresses, numeric order; `IP_Count` and `IPs` use the same unit, so `IP_Count > len(IPs)` really means more
+addresses). A device with hundreds of interfaces is still one row. `DbBatfishReader.snapshot_devices` makes one permission
+check and one charge, rewrites device names like the other tools (§33) and pins the snapshot. The tool needs the
+inventory opt-in; the IP question is only asked, and the IP columns only shown, with the addresses opt-in (the table is
+addresses-class then). A failing `ipOwners` question is named (`unavailable_sections`), no devices means no answer.
+
+**`get_ip_owners`.** `ipOwners` was already on the generic allow-list; it is now a typed kind (`ip_owners`) with a
+validated `ip` (address or prefix, normalised with `ipaddress`), `duplicates_only` and a node filter applied to the rows
+(the question has no node parameter). See §38 for how the filter and the row cap interact.
+
+**Prompt.** Lists devices/IPs with these two tools and says not to use `get_device_facts` or `get_interface_properties`
+for that.
+
+**Not done (step 3).** Make `get_device_facts` use `nodeProperties` instead of `extractFacts` (seven questions to one).
+Its shaping expects pybatfish's section grouping, so it needs a check against a live coordinator first.
+
+**Not verified live.** The `ipOwners` columns (`Node`, `VRF`, `Interface`, `IP`, `Mask`, `Active`; `Mask` as a prefix
+length), the `nodeProperties` call with `properties="Configuration_Format, Domain_Name"`, and the speed gain itself.
+The timing log (§36) shows the real durations: compare one question before and after.
+
+## 38. Review fixes for §37, 2026-11-02 (`doc/analysis/REVIEW.md`)
+
+* **Row cap.** `ipOwners` has no node parameter, so a node filter was applied after the 5000-row preview cap
+  (`frame.head(limit + 1)` in `_answer`, then the response validator): a device whose rows sit late in the
+  snapshot-wide answer showed `IP_Count: 0` or an empty table. The rows are aggregated or filtered, not shown, so
+  `BatfishPreviewService._ip_owner_rows` now reads up to `MAX_IP_OWNER_ROWS` = 50,000 (the context variable is set
+  for that question only and restored) and filters *before* the response cap. Past 50,000 the answer is flagged cut.
+  Tested through the real `BatfishService._answer` with a 6000-row frame (`RealAnswerCapTests`).
+* **One truncation flag.** In `list_snapshot_devices` any cut section (devices or ips) sets `truncated: true` and
+  `total_rows_exact: false`, the flag the prompt tells the model to trust, next to `summary_complete: false` and the
+  note. (Conservative: the device rows themselves may be exact.)
+* **Empty tables.** `get_ip_owners` with `nodes` and no rows says to check the names with `list_snapshot_devices`; with
+  a cut answer it says the device may own addresses that were not read. `list_snapshot_devices` with `nodes` that
+  returns no device is a tool error, not an empty snapshot (the name check fails open when the node list cannot be
+  read; this tool no longer reports that as success).
+* **Counts.** `IP_Count` and `IP_Count_Inactive` count distinct addresses (one address on two interfaces counts once, a
+  row without an IP not at all), so the "first 10" note only appears when addresses are really missing;
+  `Interfaces_With_IP` counts only interfaces that carry an address; `summary.ips` sums the per-device distinct counts.
+* **`duplicates_only` with `nodes`.** Keeps every owner of an address one of those nodes owns (both sides of the
+  conflict), not just the filtered nodes' rows; the tool text says so.
+

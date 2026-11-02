@@ -46,6 +46,7 @@ from services.ai_assistant.tools.batfish_tools import (
     BatfishAnswer,
     BatfishInputError,
     BatfishUnavailableError,
+    DeviceListing,
     NodeListing,
     QueryKind,
     SnapshotDiagnostics,
@@ -204,6 +205,48 @@ class DbBatfishReader:
             nodes_resolved=nodes_resolved,
         )
 
+    async def snapshot_devices(
+        self,
+        source_id: str,
+        network: str,
+        snapshot: str | None,
+        nodes: list[str],
+        with_ips: bool,
+    ) -> DeviceListing:
+        """The devices of a snapshot with their IPs: one permission check and one rate-limit
+        charge for the two questions."""
+        network = network.strip()
+        snapshot = (snapshot or "").strip() or None
+        await self._authorize()
+        connection = await self._connection(source_id)
+        batfish = service_factory.get_batfish_app_service()
+        preview = BatfishPreviewService(
+            source_config_service=cast(Any, _ResolvedSource(connection)), batfish_service=batfish
+        )
+        snapshot, params, nodes_resolved = await self._resolve_device_names(
+            batfish, connection, network, snapshot, {"nodes": ",".join(nodes) or None}
+        )
+        token = PREVIEW_ROW_LIMIT.set(MAX_PREVIEW_ROWS)
+        try:
+            result = await preview.run_snapshot_devices(
+                source_id, network, snapshot, params.get("nodes"), with_ips=with_ips
+            )
+        except (ValueError, BatfishValidationError) as exc:
+            raise BatfishInputError(client_error_message(exc)) from exc
+        except Exception as exc:
+            raise self._unavailable("list devices", exc) from exc
+        finally:
+            PREVIEW_ROW_LIMIT.reset(token)
+        return DeviceListing(
+            snapshot=result.snapshot,
+            snapshot_created=await self._snapshot_created(connection, network, result.snapshot),
+            node_rows=result.node_rows,
+            ip_rows=result.ip_rows,
+            unavailable=result.unavailable,
+            truncated_sections=result.truncated_sections,
+            nodes_resolved=nodes_resolved,
+        )
+
     async def node_names(self, source_id: str, network: str, snapshot: str | None) -> NodeListing:
         """The device names of a snapshot, for matching a name from Nautobot or the user."""
         network = network.strip()
@@ -353,6 +396,8 @@ class DbBatfishReader:
             return await preview.run_differential_reachability(source_id, diff_request)
         if kind == "acl":
             return await self._run_acl(preview, source_id, network, snapshot, params)
+        if kind == "ip_owners":
+            return await self._run_ip_owners(preview, source_id, network, snapshot, params)
         if kind == "facts":
             nodes_filter = (params.get("nodes") or "").strip() or "/.*/"
             facts = BatfishExtractFactsQueryRequest(
@@ -360,6 +405,25 @@ class DbBatfishReader:
             )
             return await preview.run_extract_facts(source_id, facts)
         raise BatfishInputError(f"Unknown Batfish query '{kind}'.")
+
+    @staticmethod
+    async def _run_ip_owners(
+        preview: BatfishPreviewService,
+        source_id: str,
+        network: str,
+        snapshot: str | None,
+        params: dict[str, Any],
+    ) -> BatfishQueryResponse:
+        """``ipOwners`` has no node parameter: the preview service applies the node filter to the
+        rows before the response cap."""
+        return await preview.run_ip_owners(
+            source_id,
+            network,
+            snapshot,
+            params.get("ips") or None,
+            bool(params.get("duplicates_only")),
+            params.get("nodes") or None,
+        )
 
     @staticmethod
     async def _run_acl(
