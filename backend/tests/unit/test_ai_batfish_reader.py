@@ -108,6 +108,19 @@ class ReaderTests(unittest.IsolatedAsyncioTestCase):
         )
         self.preview.run_reachability = AsyncMock(return_value=_response("reachability"))
         self.preview.run_test_filters = AsyncMock(return_value=_response("testFilters"))
+        self.preview.run_node_properties = AsyncMock(
+            return_value=BatfishQueryResponse(
+                success=True,
+                question="nodeProperties",
+                network="net1",
+                snapshot="run-2",
+                rows=[],
+                facts_by_node={
+                    "r1": {"Hostname": "r1", "Interfaces": ["Gi0"], "VRFs": ["default", "~tmp"]},
+                    "r2": {"Hostname": "r2"},
+                },
+            )
+        )
         self.preview.run_extract_facts = AsyncMock(
             return_value=BatfishQueryResponse(
                 success=True,
@@ -240,23 +253,73 @@ class ReaderTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((generic.question, generic.params), ("bgpSessionStatus", {"nodes": "r1"}))
         self.assertEqual(self.preview.run_interface_rows.await_args.args[1].interfaces, "Gi0/1")
 
-    async def test_facts_become_one_row_per_node_and_the_filter_is_forwarded(self) -> None:
-        answer = await self.reader.query("facts", "lab", "net1", None, {"nodes": "r1,r2"})
-
-        request = self.preview.run_extract_facts.await_args.args[1]
-        self.assertEqual(request.nodes_filter, "r1,r2")
-        self.assertEqual(
-            answer.rows,
-            [
-                {"Node": "r1", "Facts": {"Hostname": "r1"}},
-                {"Node": "r2", "Facts": {"Hostname": "r2"}},
-            ],
+    async def test_facts_ask_node_properties_for_only_the_requested_columns(self) -> None:
+        answer = await self.reader.query(
+            "facts", "lab", "net1", None, {"nodes": "r1,r2", "facts": "Hostname,VRFs"}
         )
+
+        request = self.preview.run_node_properties.await_args.args[1]
+        self.assertEqual((request.nodes, request.properties), ("r1,r2", "Hostname, VRFs"))
+        self.preview.run_extract_facts.assert_not_awaited()  # the seven-question path
+        self.assertEqual([r["Node"] for r in answer.rows], ["r1", "r2"])
+
+    async def test_facts_drop_the_interfaces_column_and_constructed_names(self) -> None:
+        answer = await self.reader.query("facts", "lab", "net1", None, {"facts": "Hostname,VRFs"})
+
+        self.assertEqual(
+            answer.rows[0]["Facts"], {"Hostname": "r1", "VRFs": ["default"]}
+        )  # no Interfaces, no ~tmp
 
     async def test_facts_without_a_node_list_ask_for_every_node(self) -> None:
         await self.reader.query("facts", "lab", "net1", None, {"nodes": None})
 
-        self.assertEqual(self.preview.run_extract_facts.await_args.args[1].nodes_filter, "/.*/")
+        request = self.preview.run_node_properties.await_args.args[1]
+        self.assertIsNone(request.nodes)
+
+    async def test_facts_without_a_fact_list_ask_for_the_offered_facts_only(self) -> None:
+        from services.ai_assistant.tools.batfish_shaping import FACT_KEYS
+
+        await self.reader.query("facts", "lab", "net1", None, {})
+
+        properties = self.preview.run_node_properties.await_args.args[1].properties
+        self.assertEqual(properties.split(", "), list(FACT_KEYS))
+        self.assertNotIn("IPsec", properties)  # key material is never requested
+
+    async def test_an_unoffered_fact_is_refused_before_anything_is_asked(self) -> None:
+        for bad in ("IKE_Phase1_Keys", "Hostname,Authentication_Key_Chains", "Hostname,;x"):
+            with self.assertRaises(BatfishInputError):
+                await self.reader.query("facts", "lab", "net1", None, {"facts": bad})
+        self.preview.run_node_properties.assert_not_awaited()
+
+    async def test_facts_fall_back_to_extract_facts_when_node_properties_fails(self) -> None:
+        self.preview.run_node_properties = AsyncMock(side_effect=BatfishAPIError("bad property"))
+
+        with self.assertLogs(MOD, level="WARNING") as logs:
+            answer = await self.reader.query(
+                "facts", "lab", "net1", None, {"nodes": "r1,r2", "facts": "Hostname"}
+            )
+
+        self.assertEqual(self.preview.run_extract_facts.await_args.args[1].nodes_filter, "r1,r2")
+        self.assertEqual([r["Node"] for r in answer.rows], ["r1", "r2"])
+        self.assertIn("falling back", logs.output[0])
+
+    async def test_an_unknown_device_is_not_retried_through_the_slow_path(self) -> None:
+        self.preview.run_node_properties = AsyncMock(
+            side_effect=BatfishAnswerFailedError("nodeProperties", {})
+        )
+
+        with self.assertRaises(BatfishInputError):
+            await self.reader.query("facts", "lab", "net1", None, {"nodes": "r1"})
+
+        self.preview.run_extract_facts.assert_not_awaited()
+
+    async def test_a_bad_request_is_not_retried_through_the_slow_path(self) -> None:
+        self.preview.run_node_properties = AsyncMock(side_effect=ValueError("bad"))
+
+        with self.assertRaises(BatfishInputError):
+            await self.reader.query("facts", "lab", "net1", None, {"nodes": "r1"})
+
+        self.preview.run_extract_facts.assert_not_awaited()
 
     async def test_acl_and_reachability_are_forwarded(self) -> None:
         await self.reader.query(

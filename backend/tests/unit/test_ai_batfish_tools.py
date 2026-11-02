@@ -509,7 +509,9 @@ class BatfishToolsTests(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertEqual(self.reader.calls[-1][1], "facts")
-        self.assertEqual(self.reader.calls[-1][5], {"nodes": "R1,r2"})
+        self.assertEqual(
+            self.reader.calls[-1][5], {"nodes": "R1,r2", "facts": "Logging_Servers"}
+        )
         self.assertEqual(
             data["rows"],
             [

@@ -34,6 +34,7 @@ from models.batfish import (
     BatfishExtractFactsQueryRequest,
     BatfishGenericQueryRequest,
     BatfishInterfacePropertiesQueryRequest,
+    BatfishNodePropertiesQueryRequest,
     BatfishQueryResponse,
     BatfishReachabilityQueryRequest,
     BatfishRoutesQueryRequest,
@@ -41,6 +42,7 @@ from models.batfish import (
     BatfishTracerouteQueryRequest,
 )
 from services.ai_assistant.node_names import NodeNameCache, resolve_node_names
+from services.ai_assistant.tools.batfish_shaping import FACT_KEYS, facts_from_node_properties
 from services.ai_assistant.tools.batfish_tools import (
     BatfishAccessError,
     BatfishAnswer,
@@ -56,6 +58,7 @@ from services.auth.rbac_service import RBACService
 from services.batfish.client import PREVIEW_ROW_LIMIT
 from services.batfish.common.exceptions import (
     BatfishAnswerFailedError,
+    BatfishAPIError,
     BatfishValidationError,
     FilterNotFoundError,
 )
@@ -399,12 +402,45 @@ class DbBatfishReader:
         if kind == "ip_owners":
             return await self._run_ip_owners(preview, source_id, network, snapshot, params)
         if kind == "facts":
-            nodes_filter = (params.get("nodes") or "").strip() or "/.*/"
-            facts = BatfishExtractFactsQueryRequest(
-                network=network, snapshot=snapshot, nodes_filter=nodes_filter
-            )
-            return await preview.run_extract_facts(source_id, facts)
+            return await self._run_facts(preview, source_id, network, snapshot, params)
         raise BatfishInputError(f"Unknown Batfish query '{kind}'.")
+
+    @staticmethod
+    async def _run_facts(
+        preview: BatfishPreviewService,
+        source_id: str,
+        network: str,
+        snapshot: str | None,
+        params: dict[str, Any],
+    ) -> BatfishQueryResponse:
+        """Device facts from one ``nodeProperties`` question restricted to the requested columns.
+
+        ``extractFacts`` runs seven questions with every property for every node; every fact the
+        tool offers is a plain ``nodeProperties`` column. If this question is rejected (the column
+        names were not checked against a live coordinator) the slow, known path answers instead.
+        """
+        keys = _fact_keys(params.get("facts"))
+        request = BatfishNodePropertiesQueryRequest(
+            network=network,
+            snapshot=snapshot,
+            nodes=(params.get("nodes") or "").strip() or None,
+            properties=", ".join(keys),
+        )
+        try:
+            response = await preview.run_node_properties(source_id, request)
+        except BatfishAnswerFailedError:
+            raise  # a device that is not there: the slow path would say the same
+        except BatfishAPIError as exc:
+            logger.warning("nodeProperties for device facts failed (%s); falling back", exc)
+            fallback = BatfishExtractFactsQueryRequest(
+                network=network,
+                snapshot=snapshot,
+                nodes_filter=(params.get("nodes") or "").strip() or "/.*/",
+            )
+            return await preview.run_extract_facts(source_id, fallback)
+        return response.model_copy(
+            update={"facts_by_node": facts_from_node_properties(response.facts_by_node or {})}
+        )
 
     @staticmethod
     async def _run_ip_owners(
@@ -504,6 +540,15 @@ class DbBatfishReader:
     def _unavailable(action: str, exc: Exception) -> BatfishUnavailableError:
         logger.error("Batfish %s failed: %s", action, exc)
         return BatfishUnavailableError()
+
+
+def _fact_keys(value: Any) -> list[str]:
+    """The facts to fetch: only names the tool offers (never key material), default all of them."""
+    requested = _split(value)
+    unknown = [key for key in requested if key not in FACT_KEYS]
+    if unknown:
+        raise BatfishInputError(f"Unknown fact: {', '.join(unknown)}.")
+    return requested or list(FACT_KEYS)
 
 
 def _split(value: Any) -> list[str]:

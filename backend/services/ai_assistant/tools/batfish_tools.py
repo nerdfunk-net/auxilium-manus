@@ -940,11 +940,11 @@ async def _differential_reachability(
 
 
 async def _get_device_facts(ctx: ToolContext, args: FactsInput) -> ToolOutput:
-    ran = await _run(ctx, args, "facts", {"nodes": _csv(args.nodes)})
+    keys = list(dict.fromkeys(args.facts))
+    ran = await _run(ctx, args, "facts", {"nodes": _csv(args.nodes), "facts": ",".join(keys)})
     if isinstance(ran, ToolOutput):
         return ran
     source, answer = ran
-    keys = list(dict.fromkeys(args.facts))
     summary = summarize_facts(answer.rows, keys)
     extra: dict[str, Any] = {**_context(source, args, answer), "fact_summary": summary}
     note = (

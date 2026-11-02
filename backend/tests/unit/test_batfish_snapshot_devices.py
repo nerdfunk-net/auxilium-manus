@@ -269,3 +269,59 @@ class RealAnswerCapTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual([r["IP"] for r in result.rows], ["9.9.9.9"])
         self.assertFalse(result.truncated)
+
+
+class RealNodePropertiesFactsTests(unittest.IsolatedAsyncioTestCase):
+    """Device facts from a raw ``nodeProperties`` pandas frame, through the real
+    ``BatfishService._answer`` and the preview service, to the tool's shaping."""
+
+    async def test_a_raw_frame_becomes_the_same_facts_the_tool_shapes_today(self) -> None:
+        import types
+
+        import pandas as pd
+
+        from services.ai_assistant.batfish_reader import DbBatfishReader
+        from services.ai_assistant.tools.batfish_shaping import shape_facts
+        from services.batfish.client import BatfishService
+
+        frame = pd.DataFrame(
+            [
+                {
+                    "Node": "lab",
+                    "Hostname": "lab",
+                    "Logging_Servers": ["10.9.9.9"],
+                    "NTP_Servers": [],
+                    "VRFs": ["default", "~internal"],
+                    "Interfaces": ["Gi0/1"],
+                }
+            ]
+        )
+        asked: list[dict[str, object]] = []
+
+        def node_properties(**kwargs: object):
+            asked.append(kwargs)
+            return types.SimpleNamespace(
+                answer=lambda **_: types.SimpleNamespace(frame=lambda: frame)
+            )
+
+        session = types.SimpleNamespace(q=types.SimpleNamespace(nodeProperties=node_properties))
+        batfish = BatfishService()
+        batfish._get_session = AsyncMock(return_value=session)  # type: ignore[method-assign]
+        batfish.list_networks = AsyncMock(return_value=["net"])  # type: ignore[method-assign]
+        sources = MagicMock()
+        sources.resolve_connection.return_value = BatfishConnection(host="batfish", port=9996)
+        preview = BatfishPreviewService(sources, batfish)
+
+        response = await DbBatfishReader._run_facts(
+            preview,
+            "lab",
+            "net",
+            "run-7",
+            {"nodes": "lab", "facts": "Hostname,Logging_Servers,VRFs"},
+        )
+
+        assert asked == [{"nodes": "lab", "properties": "Hostname, Logging_Servers, VRFs"}]
+        rows = [{"Node": n, "Facts": f} for n, f in (response.facts_by_node or {}).items()]
+        assert shape_facts(rows, ["Hostname", "Logging_Servers", "VRFs"]) == [
+            {"Node": "lab", "Hostname": "lab", "Logging_Servers": ["10.9.9.9"], "VRFs": ["default"]}
+        ]

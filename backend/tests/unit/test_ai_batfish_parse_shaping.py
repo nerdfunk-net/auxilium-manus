@@ -4,7 +4,12 @@ from __future__ import annotations
 
 from typing import Any
 
-from services.ai_assistant.tools.batfish_shaping import shape_parse_issues
+from services.ai_assistant.tools.batfish_shaping import (
+    facts_from_node_properties,
+    shape_facts,
+    shape_parse_issues,
+    summarize_facts,
+)
 
 FILES: list[dict[str, Any]] = [
     {
@@ -143,3 +148,67 @@ def test_input_is_not_mutated() -> None:
     _shape()
 
     assert WARNINGS == before
+
+
+def test_node_properties_become_facts_like_extract_facts_does() -> None:
+    raw = {
+        "r1": {
+            "Hostname": "r1",
+            "Interfaces": ["Gi0"],
+            "Zones": ["inside", "~DEFAULT"],
+            "NTP_Servers": [],
+            "Domain_Name": None,
+        }
+    }
+
+    facts = facts_from_node_properties(raw)
+
+    assert facts == {
+        "r1": {"Hostname": "r1", "Zones": ["inside"], "NTP_Servers": [], "Domain_Name": None}
+    }
+
+
+def test_cleaning_node_properties_keeps_non_text_list_items_and_never_mutates() -> None:
+    raw = {"r1": {"Weird": [1, "~x", "y"]}}
+    before = {"r1": {"Weird": [1, "~x", "y"]}}
+
+    facts = facts_from_node_properties(raw)
+
+    assert facts == {"r1": {"Weird": [1, "y"]}}
+    assert raw == before
+
+
+def test_flat_node_properties_work_with_the_fact_shaping() -> None:
+    """The shaping folds sections away; a flat record (no sections) must give the same answer."""
+    rows = [{"Node": "r1", "Facts": {"Hostname": "r1", "Logging_Servers": ["10.9.9.9"]}}]
+
+    assert shape_facts(rows, ["Logging_Servers", "Hostname"]) == [
+        {"Node": "r1", "Logging_Servers": ["10.9.9.9"], "Hostname": "r1"}
+    ]
+
+
+def test_flat_and_sectioned_facts_shape_and_summarise_identically() -> None:
+    """``extract_facts`` files a fact under a section; a ``nodeProperties`` row is flat. The tool
+    must answer the same for both."""
+    flat = {
+        "Hostname": "r1",
+        "Logging_Servers": ["1.1.1.1"],
+        "NTP_Servers": ["2.2.2.2"],
+        "DNS_Servers": [],
+        "VRFs": ["default"],
+    }
+    sectioned = {
+        "Hostname": "r1",
+        "Syslog": {"Logging_Servers": ["1.1.1.1"]},
+        "NTP": {"NTP_Servers": ["2.2.2.2"]},
+        "DNS": {"DNS_Servers": []},
+        "VRFs": ["default"],
+    }
+    keys = ["Hostname", "Logging_Servers", "NTP_Servers", "DNS_Servers", "VRFs", "TACACS_Servers"]
+
+    flat_rows = [{"Node": "r1", "Facts": flat}]
+    sectioned_rows = [{"Node": "r1", "Facts": sectioned}]
+
+    assert shape_facts(flat_rows, keys) == shape_facts(sectioned_rows, keys)
+    assert summarize_facts(flat_rows, keys) == summarize_facts(sectioned_rows, keys)
+

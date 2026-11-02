@@ -2345,8 +2345,8 @@ configs Batfish did not parse.
 ### 27.0 `get_device_facts` (2026-11-01)
 
 Added after the product owner asked "are any syslog servers configured?" and the assistant had no tool for
-Batfish facts. It wraps `BatfishPreviewService.run_extract_facts` (the same call as the `batfish-extract-facts`
-step), data class addresses. The reader (`kind="facts"`) turns the per-node answer into one `{Node, Facts}` row
+Batfish facts. It wrapped `BatfishPreviewService.run_extract_facts` (the call of the `batfish-extract-facts`
+step; now `nodeProperties`, §39), data class addresses. The reader (`kind="facts"`) turns the per-node answer into one `{Node, Facts}` row
 per node; `shape_facts` keeps only the requested keys. The keys are a closed list (`FactKey`): servers, hostname,
 domain, format, VRFs, zones. Key material and large structures are excluded by design (see `AI_ASSISTANT.md`).
 **Nesting (found live, 2026-11-01):** Batfish files the server facts under a section, not at the top level:
@@ -2886,8 +2886,7 @@ validated `ip` (address or prefix, normalised with `ipaddress`), `duplicates_onl
 **Prompt.** Lists devices/IPs with these two tools and says not to use `get_device_facts` or `get_interface_properties`
 for that.
 
-**Not done (step 3).** Make `get_device_facts` use `nodeProperties` instead of `extractFacts` (seven questions to one).
-Its shaping expects pybatfish's section grouping, so it needs a check against a live coordinator first.
+**Step 3** (`get_device_facts` on `nodeProperties`) is done: see §39.
 
 **Not verified live.** The `ipOwners` columns (`Node`, `VRF`, `Interface`, `IP`, `Mask`, `Active`; `Mask` as a prefix
 length), the `nodeProperties` call with `properties="Configuration_Format, Domain_Name"`, and the speed gain itself.
@@ -2913,4 +2912,28 @@ The timing log (§36) shows the real durations: compare one question before and 
   `Interfaces_With_IP` counts only interfaces that carry an address; `summary.ips` sums the per-device distinct counts.
 * **`duplicates_only` with `nodes`.** Keeps every owner of an address one of those nodes owns (both sides of the
   conflict), not just the filtered nodes' rows; the tool text says so.
+
+## 39. `get_device_facts` on one `nodeProperties` question (2026-11-02)
+
+**Why.** `extract_facts` (pybatfish `get_facts`) asks seven questions (`nodeProperties`, `interfaceProperties`, two BGP,
+three OSPF) with every property for every node and then builds a dict. Every fact the tool offers (`FactKey`) is a plain
+`nodeProperties` column, and the other six answers were thrown away by the shaping.
+
+**What changed.** `DbBatfishReader._run_facts` asks `BatfishPreviewService.run_node_properties` once, restricted to the
+requested columns (`properties="Hostname, Logging_Servers, ..."`; the tool passes its `facts` list, the reader refuses
+any name that is not in `FACT_KEYS`, so key material such as `IKE_*` / `IPsec_*` is never requested, not just never
+shown; no list means all offered facts). `facts_from_node_properties` (pure, `batfish_shaping.py`) applies the cleanup
+`extract_facts` does after the same question: drop the `Interfaces` column, remove Batfish-constructed names (strings
+starting with `~`) from list values. Raw rows are flat, while `extract_facts` files servers under a section
+(`Syslog`, `NTP`, ...); `_node_facts` already reads both, and a parity test pins that a flat and a sectioned record
+shape and summarise identically. A test through the real `BatfishService._answer` with a pandas frame covers the path.
+
+**Safety net.** If the `nodeProperties` question fails with a Batfish API error (the column names were not checked
+against a live coordinator), the reader logs a warning (`falling back`) and answers with the old `extract_facts` path.
+A question that cannot be answered because a device does not exist (`BatfishAnswerFailedError`) and a bad request
+(`ValueError`) are not retried through the slow path.
+
+**Check live.** Ask the same facts question twice (before the change is deployed it is `extract_facts`) and compare the
+timing log (§36): `tools=` should drop. If the log shows `nodeProperties for device facts failed ... falling back`, the
+column names or the `properties` format need a fix; the answer is still correct but slow.
 

@@ -302,6 +302,29 @@ def _node_facts(row: Mapping[str, Any]) -> Mapping[str, Any]:
     return flat
 
 
+def facts_from_node_properties(
+    facts_by_node: Mapping[str, Mapping[str, Any]],
+) -> dict[str, dict[str, Any]]:
+    """Raw ``nodeProperties`` records as the facts ``extract_facts`` would report for them.
+
+    ``extract_facts`` runs this question too, then drops the ``Interfaces`` column and removes the
+    names Batfish constructs itself (strings starting with ``~``) from list values. The same
+    cleanup here, so a fact reads the same whichever way it was fetched. Returns new data.
+    """
+    return {
+        node: {
+            column: (
+                [item for item in value if not (isinstance(item, str) and item.startswith("~"))]
+                if isinstance(value, list)
+                else value
+            )
+            for column, value in record.items()
+            if column != "Interfaces"
+        }
+        for node, record in facts_by_node.items()
+    }
+
+
 def _has_value(value: Any) -> bool:
     return value not in (None, "", [], {}, ())
 
