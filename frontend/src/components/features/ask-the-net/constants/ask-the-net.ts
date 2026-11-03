@@ -11,11 +11,3 @@ export const ASK_THE_NET_SCOPE: ConversationScope = {
 
 export const ASK_THE_NET_PLACEHOLDER =
   "Ask about routes, paths, BGP sessions or interfaces…";
-
-/** Starting points that match what the tools can answer. Clicking one fills the message box. */
-export const EXAMPLE_QUESTIONS: readonly string[] = [
-  "Which route does 10.1.2.3 use on r1, and where does a packet to it go?",
-  "Are all BGP sessions established?",
-  "What are the interface settings of r1?",
-  "How old is the data you are using?",
-];

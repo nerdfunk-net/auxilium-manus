@@ -10,7 +10,7 @@ import { useAuthStore } from "@/lib/auth-store";
 import { hasPermission } from "@/lib/permissions";
 
 import { AssistantUnavailable } from "./components/assistant-unavailable";
-import { ExampleQuestions } from "./components/example-questions";
+import { HelpDialog } from "./components/help-dialog";
 import {
   ASK_THE_NET_PLACEHOLDER,
   ASK_THE_NET_SCOPE,
@@ -36,10 +36,13 @@ export function AskTheNetPage() {
   return (
     <div className="flex h-full min-h-0 flex-col gap-4 p-4 lg:p-6">
       <div className="mx-auto w-full max-w-3xl space-y-1">
-        <h1 className="flex items-center gap-2 text-xl font-semibold">
-          <MessageCircleQuestion className="size-5" aria-hidden />
-          Ask the Net
-        </h1>
+        <div className="flex items-center justify-between gap-2">
+          <h1 className="flex items-center gap-2 text-xl font-semibold">
+            <MessageCircleQuestion className="size-5" aria-hidden />
+            Ask the Net
+          </h1>
+          {available ? <HelpDialog /> : null}
+        </div>
         {canQueryBatfish ? (
           <p className="text-sm text-muted-foreground">
             Ask questions about your network. Answers come from a Batfish
@@ -52,7 +55,6 @@ export function AskTheNetPage() {
         {available ? (
           <>
             <DataSharingNotice />
-            <ExampleQuestions />
             <div className="min-h-0 flex-1">
               <AssistantPanel
                 sessionKey={ASK_THE_NET_SESSION_KEY}

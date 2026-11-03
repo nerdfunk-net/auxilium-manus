@@ -3092,15 +3092,17 @@ backed-up config of a `device_configs` repository and lists the devices; the mod
   hostname parsing (unlike the `get-from-config` step) and no Nautobot call per device. A template without
   `{device.name}` cannot be searched (fixed error). Hidden directories (`.git`) are never entered.
 * **Input.** `query` (1..200), `mode` `text` (substring, default) or `regex` (per line), `case_sensitive`
-  (default off), `kind` (default running), `repository?`, `limit` (default 50, max 200). No path from the model.
+  (default off), `kind` (default running), `repository?`, `limit` (default 50, max 200 files). No path from the model.
 * **Regex** runs only in the killable child (`core/regex_isolated.py`, new op `search_lines` in
-  `core/regex_worker.py`: first 3 matching lines per file, 0.25 s per file, 1.5 s per job), in jobs of at most 100
-  files / 2 MB. Text mode runs in process.
+  `core/regex_worker.py`: first matching lines per file, 0.25 s per file, 1.5 s per job), in jobs of at most 100
+  files / 2 MB. Text mode runs in a thread, with the same chunks.
 * **Limits, never silent.** Same caps as the step: 5,000 files, 1 MiB per file. A file that is a link, too large, not
   UTF-8 or whose regex was stopped is counted in `skipped`; any of these or the file cap sets `partial`, and the
   answer carries a note the prompt tells the model to repeat. More devices than `limit` set `truncated`.
-* **Answer.** Device names with up to 3 matching lines each (line number + text, redacted with the user's exact
-  secrets), `total_devices`, `files_scanned`, `source: git backup, not the live devices`. Audit ref `config-search:<repo>`.
+* **Answer.** One entry per matching file (`device`, `path`, up to 3 matching lines as line number + text), so two sites
+  with a device of the same name stay apart; plus `total_files`, `total_devices`, `files_scanned`, `source: git backup,
+  not the live devices`. The lines are taken from the whole file after redaction with the user's exact secrets, and the
+  JSON is shrunk to 15,000 characters before it is sent (`output_cut`). Audit ref `config-search:<repo>`.
 * **Gating.** As `get_config_backup`: offered with the content opt-in and `git.files:read`, checked on every call.
   Own rate limit bucket `ai-config-search` (6/min) because a search checks out and scans the whole repository.
 * **Prompt/playbook.** `CONFIG_BACKUP_PROMPT` and step 5 of `config-backup-or-live`.

@@ -81,12 +81,15 @@ describe("AskTheNetPage", () => {
     expect(screen.getByText(/not the live network/i)).toBeTruthy();
   });
 
-  it("puts an example question into the message box without sending it", () => {
+  it("puts a question from the help window into the message box without sending it", () => {
     render(<AskTheNetPage />);
 
+    fireEvent.click(screen.getByRole("button", { name: /help/i }));
+    expect(screen.getByText("Nautobot (documented inventory)")).toBeTruthy();
     fireEvent.click(
       screen.getByRole("button", { name: /which route does/i }),
     );
+    expect(screen.queryByText("What can I ask?")).toBeNull();
 
     const session =
       useAssistantSessionStore.getState().sessions[ASK_THE_NET_SESSION_KEY];
@@ -131,6 +134,13 @@ describe("AskTheNetPage", () => {
 
     expect(screen.queryByTestId("assistant-panel")).toBeNull();
     expect(screen.getByText(/could not check/i)).toBeTruthy();
+  });
+
+  it("offers no help button while the assistant is unavailable", () => {
+    status = { data: { available: false, reason: "disabled" }, isLoading: false };
+    render(<AskTheNetPage />);
+
+    expect(screen.queryByRole("button", { name: /help/i })).toBeNull();
   });
 
   it("does not offer the chat to a user who may not query Batfish", () => {
