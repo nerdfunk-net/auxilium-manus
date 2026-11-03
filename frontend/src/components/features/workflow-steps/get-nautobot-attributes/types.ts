@@ -6,6 +6,7 @@ export const ATTRIBUTE_GROUPS = [
   { key: "secret_groups", label: "Poll Secret Groups" },
   { key: "console_ports", label: "Poll Console Ports and Console Server Ports" },
   { key: "power_ports", label: "Poll Power Ports and Power Outlets" },
+  { key: "cables", label: "Poll Cables" },
 ] as const;
 
 export type AttributeGroupKey = (typeof ATTRIBUTE_GROUPS)[number]["key"];

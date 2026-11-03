@@ -17,7 +17,8 @@ export function GetNautobotAttributesHelpPanel() {
       <HelpSection title="What this step does">
         <p>
           Enriches each workflow device with data from Nautobot — interfaces,
-          custom fields, tags, config context, secret groups, and hardware ports.
+          custom fields, tags, config context, secret groups, hardware ports, and
+          cables.
           Use after an inventory step so devices already have a Nautobot identity
           (name or ID) to query against.
         </p>
@@ -111,6 +112,14 @@ export function GetNautobotAttributesHelpPanel() {
           </li>
           <li>
             <HelpCode>power_ports</HelpCode> — power ports and power outlets.
+          </li>
+          <li>
+            <HelpCode>cables</HelpCode> — the cable on each interface (ID, type,
+            label, tags) and the interfaces and devices at both ends, so the far
+            end is the entry whose device differs from this one. Works on its
+            own (each interface then carries only ID, name and cable) or
+            together with <HelpCode>interfaces</HelpCode>; both land under{" "}
+            <HelpCode>nautobot.interfaces</HelpCode>.
           </li>
         </ul>
 

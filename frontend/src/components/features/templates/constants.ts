@@ -35,6 +35,7 @@ export const NAUTOBOT_ATTRIBUTE_GROUPS: { key: string; label: string }[] = [
   { key: "secret_groups", label: "Poll Secret Groups" },
   { key: "console_ports", label: "Poll Console Ports and Console Server Ports" },
   { key: "power_ports", label: "Poll Power Ports and Power Outlets" },
+  { key: "cables", label: "Poll Cables" },
 ];
 
 /**

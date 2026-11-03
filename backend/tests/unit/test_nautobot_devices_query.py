@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 from services.nautobot.credentials import NautobotCredentials
 from services.nautobot.devices.attribute_bag import (
+    DEVICE_ATTRIBUTES_QUERY,
     attributes_from_detail,
     build_attribute_variables,
     normalize_attribute_groups,
@@ -32,6 +33,19 @@ class AttributeBagTests(unittest.TestCase):
         self.assertTrue(variables["get_primary_ipv4"])
         self.assertTrue(variables["get_interfaces"])
         self.assertTrue(variables["get_tags"])
+
+    def test_cables_group_is_recognised_and_toggles_variable(self) -> None:
+        self.assertEqual(normalize_attribute_groups(["cables", "bogus"]), ["cables"])
+        self.assertTrue(build_attribute_variables(["cables"])["get_cables"])
+        self.assertNotIn("get_cables", build_attribute_variables(["interfaces"]))
+
+    def test_query_declares_cables_selection(self) -> None:
+        self.assertIn("$get_cables: Boolean = false", DEVICE_ATTRIBUTES_QUERY)
+        marker = "interfaces @include(if: $get_cables)"
+        self.assertIn(marker, DEVICE_ATTRIBUTES_QUERY)
+        selection = DEVICE_ATTRIBUTES_QUERY.split(marker, 1)[1]
+        for field in ("label", "type", "tags", "device"):
+            self.assertIn(field, selection)
 
     def test_attributes_from_detail_renames_custom_field_data(self) -> None:
         bag = attributes_from_detail({"name": "r1", "_custom_field_data": {"site": "NYC"}})

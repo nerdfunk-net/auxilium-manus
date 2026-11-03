@@ -36,7 +36,7 @@ nautobot.location.name / .parent.name  nautobot.device_type.model / .manufacture
 ```
 Optional groups appear only when selected in the editor's Attributes dialog:
 `interfaces`, `custom_fields`, `tags`, `config_context`, `secret_groups`, `console_ports`,
-`power_ports` (e.g. `nautobot.config_context`, `nautobot.custom_fields.<name>`).
+`power_ports`, `cables` (per-interface cable: `nautobot.interfaces[].cable.{type,label,tags,interfaces[].device.name}`) (e.g. `nautobot.config_context`, `nautobot.custom_fields.<name>`).
 
 Example:
 ```

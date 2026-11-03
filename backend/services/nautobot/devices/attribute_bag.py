@@ -19,6 +19,7 @@ ATTR_TO_VAR: dict[str, str] = {
     "secret_groups": "get_secret_groups",
     "console_ports": "get_console_port",
     "power_ports": "get_power_port",
+    "cables": "get_cables",
 }
 
 # Valid attribute group keys (order matches the frontend selector).
@@ -30,6 +31,7 @@ ATTRIBUTE_GROUP_KEYS: tuple[str, ...] = (
     "secret_groups",
     "console_ports",
     "power_ports",
+    "cables",
 )
 
 _DEVICE_FIELDS = """
@@ -141,6 +143,30 @@ _DEVICE_FIELDS = """
         vid
       }
     }
+    # Second ``interfaces`` selection for the ``cables`` group. GraphQL merges
+    # same-named fields, so with both groups selected ``interfaces[].cable``
+    # carries the union of both selections.
+    interfaces @include(if: $get_cables) {
+      id
+      name
+      cable {
+        id
+        type
+        label
+        tags {
+          id
+          name
+        }
+        interfaces {
+          id
+          name
+          device {
+            id
+            name
+          }
+        }
+      }
+    }
     console_ports @include(if: $get_console_port) {
       id
       name
@@ -184,7 +210,8 @@ _QUERY_VARIABLES = """
   $get_tags: Boolean = false,
   $get_secret_groups: Boolean = false,
   $get_console_port: Boolean = false,
-  $get_power_port: Boolean = false
+  $get_power_port: Boolean = false,
+  $get_cables: Boolean = false
 """
 
 DEVICE_ATTRIBUTES_QUERY = (
