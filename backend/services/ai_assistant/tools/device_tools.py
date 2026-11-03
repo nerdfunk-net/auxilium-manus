@@ -9,7 +9,7 @@ receives the host or the token.
 
 from __future__ import annotations
 
-from typing import Annotated
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
@@ -30,6 +30,9 @@ from services.ai_assistant.tools.base import Tool, ToolContext, ToolOutput
 
 # Key of the ``DeviceResolver`` in ``ToolContext.extras``; the surface builder puts it there.
 DEVICE_RESOLVER_KEY = "device_resolver"
+# Key of the ``GenieParser`` in ``ToolContext.extras``; present only when exactly one pyATS source
+# is configured and the user may read it (doc/AI_TOOL_CHAIN.md §43).
+GENIE_PARSER_KEY = "genie_parser"
 
 DeviceName = Annotated[
     str, StringConstraints(strip_whitespace=True, pattern=r"^[A-Za-z0-9._-]{1,100}$")
@@ -45,6 +48,14 @@ class ProposeDeviceCommandInput(BaseModel):
         max_length=MAX_COMMANDS,
         description="Read-only show commands: ['show running-config'] or ['show startup-config']",
     )
+    parser: Literal["none", "textfsm", "genie"] = Field(
+        default="none",
+        description=(
+            "How to turn the raw output into structured data after the run: 'textfsm' or 'genie'. "
+            "Use it for questions about values (version, interfaces, neighbours); leave it 'none' "
+            "for a config dump. The raw output is always kept."
+        ),
+    )
 
 
 async def _propose_device_command(ctx: ToolContext, args: ProposeDeviceCommandInput) -> ToolOutput:
@@ -53,6 +64,12 @@ async def _propose_device_command(ctx: ToolContext, args: ProposeDeviceCommandIn
     except CommandNotAllowedError as exc:
         return ToolOutput(
             f"Command refused: {exc}. Only full, read-only 'show' commands are allowed.",
+            is_error=True,
+        )
+    if args.parser == "genie" and GENIE_PARSER_KEY not in ctx.extras:
+        return ToolOutput(
+            "Genie is not available (no single pyATS source the user may use). Propose again "
+            "with parser 'textfsm' or 'none'.",
             is_error=True,
         )
     resolver: DeviceResolver = ctx.extras[DEVICE_RESOLVER_KEY]
@@ -67,6 +84,7 @@ async def _propose_device_command(ctx: ToolContext, args: ProposeDeviceCommandIn
         device_name=device.name,
         host=device.host,
         commands=commands,
+        parser=args.parser,
     )
     ctx.audit_refs.add(f"device:{device.device_id}")
     known_driver = driver_known(device)
@@ -81,6 +99,7 @@ async def _propose_device_command(ctx: ToolContext, args: ProposeDeviceCommandIn
             "platform": device.platform,
         },
         "commands": commands,
+        "parser": args.parser,
         # When the inventory's platform names no Netmiko driver, the card asks the user for the
         # device type (from this closed list); the model has no say in it.
         "driver_known": known_driver,
@@ -92,6 +111,12 @@ async def _propose_device_command(ctx: ToolContext, args: ProposeDeviceCommandIn
         "credential and confirms. When they run it, the output is stored and you get its handle in "
         "their next message: read it with fetch_slice. Briefly say what you asked to run and why."
     )
+    if args.parser != "none":
+        label = "TextFSM" if args.parser == "textfsm" else "Genie"
+        message += (
+            f" After the run the output is also parsed with {label}; you get the handle of the "
+            "parsed data (and the raw handle) in the user's next message."
+        )
     if not known_driver:
         message += (
             " The inventory does not say which device type this is, so the card also asks the user "

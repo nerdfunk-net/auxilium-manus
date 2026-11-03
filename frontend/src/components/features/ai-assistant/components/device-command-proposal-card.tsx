@@ -1,6 +1,6 @@
 "use client";
 
-import { Loader2, Play, X } from "lucide-react";
+import { Download, Loader2, Play, X } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { useCredentialsQuery } from "@/components/features/settings/credentials/hooks/use-credentials-query";
@@ -16,9 +16,14 @@ import {
 } from "@/components/ui/select";
 
 import { useDeviceCommandMutation } from "../hooks/use-device-command";
-import type {
-  DeviceCommandProposal,
-  DeviceCommandResult,
+import {
+  useParsedRowsDownload,
+  type ParsedRowsFormat,
+} from "../hooks/use-parsed-rows-download";
+import {
+  COMMAND_PARSER_LABELS,
+  type DeviceCommandProposal,
+  type DeviceCommandResult,
 } from "../types/ai-assistant";
 
 interface DeviceCommandProposalCardProps {
@@ -51,6 +56,7 @@ export function DeviceCommandProposalCard({
   const [credentialId, setCredentialId] = useState("");
   const [networkDriver, setNetworkDriver] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const download = useParsedRowsDownload();
 
   // A confirmed run uses the signed-in user's own login, so private credentials are fine here.
   const sshLogins = useMemo(
@@ -90,6 +96,17 @@ export function DeviceCommandProposalCard({
     }
   };
 
+  const handleDownload = (format: ParsedRowsFormat) => {
+    const parsedHandle = proposal.result?.parsedHandle;
+    if (parsedHandle) {
+      download.mutate({
+        handle: parsedHandle,
+        format,
+        deviceName: proposal.device.name,
+      });
+    }
+  };
+
   return (
     <div
       className="space-y-2 rounded-md border bg-card p-3"
@@ -109,6 +126,19 @@ export function DeviceCommandProposalCard({
       >
         {proposal.commands.map((command) => `$ ${command}`).join("\n")}
       </pre>
+
+      {proposal.parser !== "none" && (
+        <p className="text-xs" data-testid="device-command-parser">
+          Parse the output with{" "}
+          <span className="font-semibold">
+            {COMMAND_PARSER_LABELS[proposal.parser]}
+          </span>
+          {proposal.parser === "genie"
+            ? " (the redacted output is sent to the pyATS service)"
+            : ""}
+          . The raw output is kept.
+        </p>
+      )}
 
       {pending && (
         <>
@@ -238,6 +268,65 @@ export function DeviceCommandProposalCard({
             >
               {proposal.result.output}
             </pre>
+          )}
+          {proposal.result.parseErrors.length > 0 && (
+            <Alert data-testid="device-command-parse-errors">
+              <AlertDescription>
+                {proposal.result.parseErrors.map((parseError) => (
+                  <span key={parseError.command} className="block">
+                    Not parsed: {parseError.command} — {parseError.error}
+                  </span>
+                ))}
+              </AlertDescription>
+            </Alert>
+          )}
+          {proposal.result.parsedText && (
+            <details>
+              <summary className="cursor-pointer text-xs text-muted-foreground">
+                Parsed with {COMMAND_PARSER_LABELS[proposal.result.parser]}
+              </summary>
+              <pre
+                className="mt-1 max-h-72 overflow-auto rounded border bg-muted/30 p-2 font-mono text-xs whitespace-pre"
+                data-testid="device-command-parsed"
+              >
+                {proposal.result.parsedText}
+              </pre>
+            </details>
+          )}
+          {proposal.result.parsedHandle && (
+            <div className="space-y-1" data-testid="device-command-download">
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => handleDownload("json")}
+                  disabled={download.isPending}
+                >
+                  <Download className="size-4" />
+                  Download JSON
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => handleDownload("csv")}
+                  disabled={download.isPending}
+                >
+                  <Download className="size-4" />
+                  Download CSV
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                The parsed data is kept for a few hours only. Download it to
+                keep it.
+              </p>
+              {download.error && (
+                <Alert variant="destructive">
+                  <AlertDescription>{download.error.message}</AlertDescription>
+                </Alert>
+              )}
+            </div>
           )}
           {proposal.result.truncated && (
             <p className="text-xs text-muted-foreground">

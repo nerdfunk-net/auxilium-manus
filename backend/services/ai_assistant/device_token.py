@@ -23,6 +23,8 @@ from dataclasses import dataclass
 
 from core.config import settings
 
+# What may be signed as the parser of a proposal (``none`` keeps the raw output only).
+TOKEN_PARSERS = ("none", "textfsm", "genie")
 TOKEN_TTL_SECONDS = 600
 MAX_TOKEN_CHARS = 4096
 _KEY_CONTEXT = b"manus-ai-device-command-token-v1"
@@ -41,6 +43,8 @@ class DeviceCommandGrant:
     host: str
     commands: tuple[str, ...]
     expires_at: float
+    # Which parser the user was shown on the card (§43); the raw output is kept in every case.
+    parser: str = "none"
 
 
 def _sign(body: bytes) -> bytes:
@@ -56,9 +60,12 @@ def issue_token(
     device_name: str,
     host: str,
     commands: list[str],
+    parser: str = "none",
     now: float | None = None,
 ) -> tuple[str, float]:
     """The token and its expiry (Unix seconds)."""
+    if parser not in TOKEN_PARSERS:
+        raise ValueError(f"unknown parser: {parser!r}")
     expires_at = (time.time() if now is None else now) + TOKEN_TTL_SECONDS
     payload = {
         "u": user_id,
@@ -67,6 +74,7 @@ def issue_token(
         "n": device_name,
         "h": host,
         "c": list(commands),
+        "p": parser,
         "x": expires_at,
     }
     body = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
@@ -96,7 +104,10 @@ def verify_token(token: object, *, user_id: int, now: float | None = None) -> De
             host=str(payload["h"]),
             commands=tuple(str(c) for c in payload["c"]),
             expires_at=float(payload["x"]),
+            parser=str(payload.get("p", "none")),
         )
+        if grant.parser not in TOKEN_PARSERS:
+            raise ValueError("unknown parser")
     except (binascii.Error, ValueError, KeyError, TypeError) as exc:
         raise InvalidTokenError from exc
     if grant.user_id != user_id or (time.time() if now is None else now) >= grant.expires_at:

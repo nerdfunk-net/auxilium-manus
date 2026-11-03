@@ -493,8 +493,10 @@ class IpOwnersInput(Target):
             return None
         text = value.strip()
         # Parsed, never passed on as typed: no specifier syntax reaches Batfish.
-        return str(ipaddress.ip_address(text)) if "/" not in text else str(
-            ipaddress.ip_network(text, strict=False)
+        return (
+            str(ipaddress.ip_address(text))
+            if "/" not in text
+            else str(ipaddress.ip_network(text, strict=False))
         )
 
 

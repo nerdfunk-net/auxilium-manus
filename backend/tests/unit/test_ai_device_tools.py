@@ -39,18 +39,23 @@ class FakeResolver:
         return self.device
 
 
-def _ctx(resolver=None, user_id=7):
+def _ctx(resolver=None, user_id=7, genie=False):
+    extras = {dtools.DEVICE_RESOLVER_KEY: resolver or FakeResolver()}
+    if genie:
+        extras[dtools.GENIE_PARSER_KEY] = object()
     return ToolContext(
         user_id=user_id,
         redactor=Redactor(),
-        extras={dtools.DEVICE_RESOLVER_KEY: resolver or FakeResolver()},
+        extras=extras,
         sharing=SharingPolicy(content=True),
     )
 
 
-def _propose(ctx, device="LAB", commands=("show running-config",)):
+def _propose(ctx, device="LAB", commands=("show running-config",), **extra):
     (tool,) = dtools.build_device_tools()
-    return asyncio.run(tool.handler(ctx, tool.input_model(device=device, commands=list(commands))))
+    return asyncio.run(
+        tool.handler(ctx, tool.input_model(device=device, commands=list(commands), **extra))
+    )
 
 
 def test_there_is_exactly_one_tool_and_it_is_a_proposal() -> None:
@@ -198,3 +203,44 @@ def test_the_model_is_told_the_user_will_be_asked_for_the_device_type() -> None:
 
     assert "device type" in out.content
     assert "device type" not in _propose(_ctx()).content
+
+
+# -- the parser of a proposal (doc/AI_TOOL_CHAIN.md §43) ---------------------------------------
+
+
+def test_a_proposal_without_a_parser_says_none_and_signs_none() -> None:
+    out = _propose(_ctx())
+
+    assert out.proposal is not None and out.proposal["parser"] == "none"
+    assert device_token.verify_token(out.proposal["token"], user_id=7).parser == "none"
+
+
+def test_textfsm_is_shown_and_signed() -> None:
+    out = _propose(_ctx(), commands=["show version"], parser="textfsm")
+
+    assert not out.is_error and out.proposal is not None
+    assert out.proposal["parser"] == "textfsm"
+    assert device_token.verify_token(out.proposal["token"], user_id=7).parser == "textfsm"
+    assert "TextFSM" in out.content
+
+
+def test_genie_is_signed_when_a_genie_parser_is_available() -> None:
+    out = _propose(_ctx(genie=True), commands=["show version"], parser="genie")
+
+    assert out.proposal is not None and out.proposal["parser"] == "genie"
+    assert device_token.verify_token(out.proposal["token"], user_id=7).parser == "genie"
+
+
+def test_genie_without_a_pyats_source_makes_no_proposal() -> None:
+    resolver = FakeResolver()
+
+    out = _propose(_ctx(resolver), commands=["show version"], parser="genie")
+
+    assert out.is_error and out.proposal is None
+    assert "textfsm" in out.content.lower()  # the model is pointed at the other parser
+    assert resolver.names == []
+
+
+def test_an_unknown_parser_is_refused_by_the_input_model() -> None:
+    with pytest.raises(ValueError):
+        _propose(_ctx(), parser="regex")

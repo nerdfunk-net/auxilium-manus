@@ -24,6 +24,7 @@ from services.ai_assistant.config_backup import ConfigBackupReader
 from services.ai_assistant.data_sharing import SharingPolicy
 from services.ai_assistant.device_access import DeviceResolver
 from services.ai_assistant.inventory_filter import describe_condition_tree, field_data_class
+from services.ai_assistant.output_parser import GenieParser
 from services.ai_assistant.prompts import (
     BASE_SYSTEM_PROMPT,
     CATALYST_PROMPT,
@@ -61,6 +62,7 @@ from services.ai_assistant.tools.config_backup_tools import (
 from services.ai_assistant.tools.device_name_tools import build_device_name_tools
 from services.ai_assistant.tools.device_tools import (
     DEVICE_RESOLVER_KEY,
+    GENIE_PARSER_KEY,
     build_device_tools,
 )
 from services.ai_assistant.tools.glossary_tools import (
@@ -79,6 +81,7 @@ from services.ai_assistant.tools.nautobot_tools import (
     NautobotQueryReader,
     build_nautobot_tools,
 )
+from services.ai_assistant.tools.output_parse_tools import build_output_parse_tools
 from services.ai_assistant.tools.playbook_tools import AVAILABLE_TOOLS_KEY, build_playbook_tools
 from services.ai_assistant.tools.released_workflow_tools import (
     RELEASED_WORKFLOWS_KEY,
@@ -332,6 +335,7 @@ def build_general_session(
     catalyst_reader: CatalystReader | None = None,
     run_reader: RunReader | None = None,
     released_reader: ReleasedWorkflowReader | None = None,
+    genie_parser: GenieParser | None = None,
 ) -> AssistantSession:
     """Ask the Net: read-only questions about the network (doc/AI_TOOL_CHAIN.md §10a, §20.3).
 
@@ -359,6 +363,13 @@ def build_general_session(
         if device_resolver is not None:
             extras[DEVICE_RESOLVER_KEY] = device_resolver
             tools.extend(build_device_tools())
+            # Parsing (doc/AI_TOOL_CHAIN.md §43): the parse tool reads stored outputs, so it needs
+            # the store; Genie is offered only when the router found exactly one usable pyATS
+            # source for this user.
+            if store is not None:
+                tools.extend(build_output_parse_tools())
+            if genie_parser is not None:
+                extras[GENIE_PARSER_KEY] = genie_parser
         # Backed-up configs from git (plan AI_CONFIG_FROM_GIT): content, so the router passes the
         # reader only with the opt-in and the repository read permission.
         if config_reader is not None:

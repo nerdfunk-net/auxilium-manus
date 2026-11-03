@@ -14,7 +14,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import logging
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
 from services.ai_assistant.audit import log_device_command
@@ -32,7 +32,10 @@ from services.ai_assistant.device_token import (
     InvalidTokenError,
     verify_token,
 )
+from services.ai_assistant.genie_parser import DbGenieParser
 from services.ai_assistant.known_secrets import try_load_visible_secret_values
+from services.ai_assistant.output_parser import GenieParser
+from services.ai_assistant.parse_service import ParseOutcome, parse_stored_text
 from services.ai_assistant.redaction import Redactor
 from services.ai_assistant.results.store import (
     ResultStore,
@@ -87,10 +90,12 @@ class DeviceCommandResult:
     output: str
     truncated: bool
     handle: str | None
-
-
-def _join(outputs: Iterable[tuple[str, str]]) -> str:
-    return "\n\n".join(f"$ {command}\n{raw.rstrip()}" for command, raw in outputs)
+    # The parser the user was shown (§43). The raw output above is kept in every case.
+    parser: str = "none"
+    parsed_handle: str | None = None
+    parsed_text: str = ""
+    # (command, why it was not parsed) for each command that failed to parse
+    parse_errors: tuple[tuple[str, str], ...] = ()
 
 
 def _cut(text: str, limit: int) -> str:
@@ -100,24 +105,47 @@ def _cut(text: str, limit: int) -> str:
     return head[:newline] if newline > limit // 2 else head
 
 
-def _shape(raw_text: str, redact: Callable[[str], str]) -> tuple[str, bool]:
-    """Redact first, cut second: a secret that straddles the cut is already gone.
+def _shape_blocks(
+    outputs: Sequence[tuple[str, str]], redact: Callable[[str], str]
+) -> tuple[str, bool, list[list[int]]]:
+    """The stored text (``$ command`` blocks joined by a blank line), whether it was cut, and the
+    ``[start, end]`` offsets of each command's output in that text.
 
-    Output beyond ``MAX_RAW_CHARS`` is cut before redaction (the redactor has a budget) on a line
-    boundary, so a one-line secret is never split; the result is then cut to the shown size.
+    Redact first, cut second: a secret that straddles the cut is already gone. Every output is
+    redacted on its own, so its offsets are known exactly in the final text; later parsing cuts
+    at those offsets and never searches the device's text for a boundary (review finding 4).
+    Output beyond ``MAX_RAW_CHARS`` (all commands together) is cut before redaction on a line
+    boundary (the redactor has a budget); the text is then cut to the shown size.
     """
-    truncated = len(raw_text) > MAX_RAW_CHARS
-    if truncated:
-        raw_text = _cut(raw_text, MAX_RAW_CHARS)
-    text = redact(raw_text) if raw_text else ""
+    parts: list[str] = []
+    spans: list[list[int]] = []
+    position = 0
+    truncated = False
+    budget = MAX_RAW_CHARS
+    for command, raw in outputs:
+        body = raw.rstrip()
+        if len(body) > budget:
+            body = _cut(body, budget)
+            truncated = True
+        budget -= len(body)
+        redacted = redact(body) if body else ""
+        header = f"$ {command}\n"
+        if parts:
+            position += 2  # the blank line between blocks
+        start = position + len(header)
+        spans.append([start, start + len(redacted)])
+        parts.append(f"{header}{redacted}")
+        position = start + len(redacted)
+    text = "\n\n".join(parts)
     if len(text) > MAX_OUTPUT_CHARS:
         shown = _cut(text, MAX_OUTPUT_CHARS)
+        spans = [[min(start, len(shown)), min(end, len(shown))] for start, end in spans]
         text = (
             f"{shown}\n…[output truncated: showed {len(shown)} of {len(text)} characters; "
             "the rest was left out]"
         )
         truncated = True
-    return text, truncated
+    return text, truncated, spans
 
 
 class DeviceCommandExecutor:
@@ -128,11 +156,13 @@ class DeviceCommandExecutor:
         store: ResultStore | None,
         *,
         secret_loader: Callable[[int], list[str] | None] = try_load_visible_secret_values,
+        genie_factory: Callable[[int], GenieParser | None] = DbGenieParser,
     ) -> None:
         self._resolver = resolver
         self._runner = runner
         self._store = store
         self._secret_loader = secret_loader
+        self._genie_factory = genie_factory
 
     async def execute(
         self,
@@ -204,7 +234,9 @@ class DeviceCommandExecutor:
             )
         redactor = Redactor(max_chars=MAX_RAW_CHARS + _REDACT_SLACK)
         redactor.add_known_secrets(secrets)
-        output, truncated = await asyncio.to_thread(_shape, _join(raw.outputs), redactor.redact)
+        output, truncated, spans = await asyncio.to_thread(
+            _shape_blocks, list(raw.outputs), redactor.redact
+        )
         # Redact a generous prefix, then show the first MAX_ERROR_CHARS of it: a cut at the prefix
         # boundary is far beyond the part that is shown.
         error = (
@@ -213,8 +245,27 @@ class DeviceCommandExecutor:
             else None
         )
         handle = None
+        meta = {
+            # What a later parse needs, from the capture itself (not from the device's text).
+            "commands": [command for command, _ in raw.outputs],
+            "spans": spans,
+            "parser": grant.parser,
+            "network_driver": chosen_driver or device.network_driver,
+            "platform": device.platform,
+        }
         if raw.success and output:
-            handle = await self._store_output(user_id, output)
+            handle = await self._store_output(user_id, output, meta, truncated)
+        parsed = await self._parse(
+            user_id,
+            grant.parser,
+            raw.success and bool(output),
+            output,
+            raw.outputs,
+            spans,
+            meta,
+            handle,
+            truncated,
+        )
         log_device_command(
             user_id=user_id,
             device_id=device.device_id,
@@ -230,14 +281,68 @@ class DeviceCommandExecutor:
             output=output,
             truncated=truncated,
             handle=handle,
+            parser=grant.parser,
+            parsed_handle=parsed.handle if parsed else None,
+            parsed_text=parsed.text if parsed else "",
+            parse_errors=tuple((e.command, e.error) for e in parsed.entries if e.error)
+            if parsed
+            else (),
         )
 
-    async def _store_output(self, user_id: int, output: str) -> str | None:
+    async def _parse(
+        self,
+        user_id: int,
+        parser: str,
+        has_output: bool,
+        output: str,
+        outputs: Sequence[tuple[str, str]],
+        spans: list[list[int]],
+        meta: dict[str, object],
+        source_handle: str | None,
+        truncated: bool,
+    ) -> ParseOutcome | None:
+        """Parse the *redacted* output the user is shown, never the raw text (Genie is external)."""
+        if parser == "none" or not has_output:
+            return None
+        genie = self._build_genie(user_id) if parser == "genie" else None
+        return await parse_stored_text(
+            user_id=user_id,
+            store=self._store,
+            parser=parser,
+            text=output,
+            commands=[command for command, _ in outputs],
+            spans=spans,
+            network_driver=str(meta["network_driver"]) if meta["network_driver"] else None,
+            platform=str(meta["platform"]) if meta["platform"] else None,
+            genie=genie,
+            source_handle=source_handle,
+            partial=truncated,
+        )
+
+    def _build_genie(self, user_id: int) -> GenieParser | None:
+        """The Genie client, or ``None`` (reported as "not available") if it cannot be built:
+        a parse problem must never turn a device run that succeeded into a failure."""
+        try:
+            return self._genie_factory(user_id)
+        except Exception:
+            logger.warning("Could not build the Genie parser", exc_info=True)
+            return None
+
+    async def _store_output(
+        self, user_id: int, output: str, meta: dict[str, object], truncated: bool
+    ) -> str | None:
         if self._store is None:
             return None
         try:
             return await self._store.put(
-                user_id, StoredResult(kind=HANDLE_KIND, data_class=DataClass.CONTENT, text=output)
+                user_id,
+                StoredResult(
+                    kind=HANDLE_KIND,
+                    data_class=DataClass.CONTENT,
+                    text=output,
+                    partial=truncated,
+                    meta=meta,
+                ),
             )
         except ResultStoreUnavailableError:
             logger.warning("Result store unavailable; device output returned without a handle")

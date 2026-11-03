@@ -32,10 +32,12 @@ from models.ai_assistant import (
     AiProxySettingsUpdate,
     AiStatusResponse,
     ChatRequest,
+    CommandParseError,
     DeviceCommandConfirmRequest,
     DeviceCommandResponse,
     GeneralContext,
     InventoryContext,
+    ParsedRowsResponse,
     ReportsContext,
     RunViewerContext,
     TemplateEditorContext,
@@ -75,10 +77,12 @@ from services.ai_assistant.exceptions import (
     AiAssistantNotConfiguredError,
     AiSettingsValidationError,
 )
+from services.ai_assistant.genie_parser import DbGenieParser, has_pyats_source
 from services.ai_assistant.glossary_reader import DbGlossaryReader
 from services.ai_assistant.inventory_reader import DbInventoryReader
 from services.ai_assistant.known_secrets import try_load_visible_secret_values
 from services.ai_assistant.nautobot_query_reader import DbNautobotQueryReader
+from services.ai_assistant.parse_service import PARSED_KIND
 from services.ai_assistant.prompts import BASE_SYSTEM_PROMPT
 from services.ai_assistant.providers.base import ChatMessage
 from services.ai_assistant.proxy_settings_service import AiProxySettingsService
@@ -90,6 +94,7 @@ from services.ai_assistant.released_workflow_reader import (
 )
 from services.ai_assistant.report_reader import DbReportReader
 from services.ai_assistant.results.factory import get_result_store
+from services.ai_assistant.results.store import ResultStore, ResultStoreUnavailableError
 from services.ai_assistant.run_reader import DbRunReader
 from services.ai_assistant.settings_service import AiRuntimeConfig, AiSettingsService
 from services.ai_assistant.surfaces import (
@@ -195,6 +200,12 @@ def _session_for(
             # be useless, so it is not offered.
             device_resolver=(
                 DbDeviceResolver(user.id) if can_run_device_commands and sharing.content else None
+            ),
+            # Genie (doc/AI_TOOL_CHAIN.md §43) only when the user may read exactly one pyATS source.
+            genie_parser=(
+                DbGenieParser(user.id)
+                if can_run_device_commands and sharing.content and has_pyats_source(user.id)
+                else None
             ),
             # Backed-up configs are content too, and need the repository file read permission.
             config_reader=(
@@ -538,6 +549,57 @@ def _device_http_error(exc: Exception) -> HTTPException | None:
     return None
 
 
+_RESULT_ROWS_BUDGET = rate_limited("ai-result-rows", attempts=30, window_seconds=60)
+
+
+@router.get(
+    "/results/{handle}/rows",
+    response_model=ParsedRowsResponse,
+    dependencies=[_OPERATOR, _USE, Depends(_RESULT_ROWS_BUDGET)],
+)
+async def get_parsed_rows(
+    handle: str,
+    current_user: User = Depends(get_current_user),
+    store: ResultStore = Depends(get_result_store),
+    service: AiSettingsService = Depends(get_ai_settings_service),
+) -> ParsedRowsResponse:
+    """The full rows of a parsed device output, for a download (doc/AI_TOOL_CHAIN.md §43).
+
+    Only the caller's own ``parsed_output`` handles resolve (a raw output, another user's handle
+    and an expired one are all the same 404). The content opt-in is checked on every call, like the
+    assistant's own reads, so switching sharing off stops the download too.
+    """
+    try:
+        config = await asyncio.to_thread(service.require_runtime_config, current_user.id)
+    except AiAssistantError as exc:
+        _raise_http(exc)
+    if not config.sharing.content:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "code": "content_sharing_off",
+                "message": "Sharing run and device content with the assistant is switched off.",
+            },
+        )
+    try:
+        stored = await store.get(current_user.id, handle)
+    except ResultStoreUnavailableError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "code": "result_store_unavailable",
+                "message": "Stored results are unavailable",
+            },
+        ) from exc
+    if stored is None or stored.kind != PARSED_KIND or stored.rows is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"code": "result_not_found", "message": "Unknown or expired result"},
+        )
+    meta = stored.meta or {}
+    return ParsedRowsResponse(parser=str(meta.get("parser", "")), rows=stored.rows)
+
+
 @router.post(
     "/exec/device-command",
     response_model=DeviceCommandResponse,
@@ -596,6 +658,13 @@ async def confirm_device_command(
         output=result.output,
         truncated=result.truncated,
         handle=result.handle,
+        parser=result.parser,
+        parsed_handle=result.parsed_handle,
+        parsed_text=result.parsed_text,
+        parse_errors=[
+            CommandParseError(command=command, error=error)
+            for command, error in result.parse_errors
+        ],
     )
 
 

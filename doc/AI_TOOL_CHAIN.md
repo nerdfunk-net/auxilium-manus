@@ -2636,7 +2636,7 @@ the guard scripts, `ruff`, `pyright`, `tsc` and `eslint` were clean.
 Target examples (product owner): **"Get the running config of LAB"** and **"Get the startup config of LAB"**
 (`show running-config`, `show startup-config` on the device named LAB). Decisions: allow-listed read-only `show`
 commands through one propose tool; the user picks the SSH credential in the confirm card (the model never names
-or sees a credential); one device per proposal, at most 5 commands; no auto-run (D2); no TextFSM; the model sees
+or sees a credential); one device per proposal, at most 5 commands; no auto-run (D2); TextFSM/Genie parsing was added later (§43); the model sees
 the output only with the content opt-in. Gates follow §13.2 and D1 to D4.
 
 | Step | What | Status |
@@ -3187,3 +3187,81 @@ Nautobot says what is documented, the controller says what it collected. Two pur
   `serialNumber` / `managementIpAddress` filters match as the unit fakes assume; a live model run of "Show the
   Catalyst Center details of LAB". At most 10 confirmed matches are shown (`has_more` says more exist). No `source` argument: all sources are
   searched. Health and topology (`get-catalyst-center-health` / `-topology`) are not offered as tools yet.
+
+
+## 43. Parsing device output: TextFSM and Genie (2026-11-03)
+
+"Run `show version` on LAB.local.zz and parse it with TextFSM" (or Genie). Two additions to §29, both built 2026-11-03
+and **not run live** (unit tests only; see "Open").
+
+* **Parser on the proposal.** `propose_device_command` takes `parser: none | textfsm | genie` (default `none`). The
+  parser is shown on the card and **signed in the token** (`device_token`, field `p`, closed set `TOKEN_PARSERS`; a
+  token without it means `none`). The confirm body cannot choose it (`extra="forbid"`, pinned by a test). `genie` is
+  refused at proposal time (tool error pointing at `textfsm`) unless the session has a Genie parser.
+* **After the run** (`device_exec_service`). Each command's output is redacted on its own and the stored text is
+  the `$ command` blocks joined by a blank line, cut to 500,000 characters (`_shape_blocks`). The offsets of every
+  command's output in that final text are recorded at capture time, and the raw handle carries them in `meta`
+  (`commands`, `spans`, `parser` = the parser the user confirmed, `network_driver`, `platform`; `StoredResult.meta`
+  is optional and ignored if damaged). `partial` is set on the raw handle when the text was cut. Parsing then slices
+  the text **at those offsets** (`output_parser.valid_spans` / `slice_outputs`, malformed spans parse nothing), so a
+  line in a device's output that looks like the next command's marker is only text inside that output; it never
+  moves a boundary. This runs only when the run succeeded and produced output, on the **redacted** text; the rows are
+  stored behind a second handle (`kind="parsed_output"`, content class) with the same `partial` flag. Genie gets the
+  redacted text only, never the raw read, because the shim is an external process. The response gains `parser`,
+  `parsed_handle`, `parsed_text` (indented JSON, cut at 100,000 characters, for the card) and `parse_errors`
+  (`[{command, error}]`). **A parse problem never fails the run**: the Genie client factory, the call, a malformed
+  answer, a timeout and anything unexpected all end as a fixed-text error on each command
+  (`parse_service.parse_stored_text`, `output_parser.parse_outputs`).
+* **TextFSM** is `ntc_templates` (the template set Netmiko uses), run **in a killable child process**
+  (`core/textfsm_isolated.py` + `textfsm_worker.py`, the shape of `regex_isolated`: `python -I`, empty environment,
+  CPU and memory limits, 8 s per command by `SIGALRM`, 30 s for the job, killed on timeout, 2 jobs at once). TextFSM
+  matches with `re`, which holds the GIL, so an in-process thread could stall the API and could not be stopped. The
+  device type is the inventory's (or the one picked on the card); `cisco_xe` is retried with the `cisco_ios`
+  templates, as Netmiko does (`ntc_templates` has none for `cisco_xe`, but IOS-XE devices are stored under that name).
+  No template, a template that matches no row, an unknown device type, a timeout and a stopped child are errors on
+  that command with fixed texts, never device text. `hp_comware` has templates only for `display ...` commands, which
+  the command policy never allows, so TextFSM finds nothing there. **Genie** goes through
+  `genie_parser.DbGenieParser`: the Genie `os` comes from `resolve_pyats_os` (an unknown platform is an error, never a
+  guess), and the call is `PyATSShimService.parse_batch` with a 60 s timeout on the **one** configured pyATS source.
+  It needs `sources.pyats:read`, checked on every call (the seeded `viewer` role has none). The shim's reply is
+  validated (a body that is not the documented shape, or not JSON, is "unavailable"), and the shim's per-command
+  `error` text, which is `str(exception)` and can quote CLI output, is **not passed on**: it becomes "Genie could not
+  parse this output". The shim runs each `device.parse` in a worker thread and abandons it after 30 s
+  (`PARSE_COMMAND_TIMEOUT_SECONDS`), so one slow parse no longer blocks its event loop. With no source or several,
+  Genie is not offered (`has_pyats_source`; the router passes `genie_parser` only then) and the message says so.
+* **Stored rows are flat.** A TextFSM row is one row with the command in `_command`; a Genie result is one row
+  `{_command, parsed}` per command; a command that did not parse is `{_command, _error}` (`output_parser.to_rows`).
+  So `query_result` and `fetch_slice` filter and page them like any table.
+* **`parse_command_output(handle, parser, command?, network_driver?)`** (`tools/output_parse_tools.py`). A pure read
+  of an output the user already ran: it cannot reach a device. It reads the handle as the calling user, checks the
+  content opt-in on every call (`not_shared` otherwise, nothing parsed), accepts only `device_command` handles that
+  carry `meta.commands` and `meta.spans` (older ones: "run it again"), parses with the stored device type (the argument is used only
+  when none was stored), and returns the standard envelope (20 rows, `handle`, `parser`, `errors`; a note that the
+  rows may be incomplete when the stored output was cut). **Genie only for an output the user approved for it:** the
+  tool refuses `genie` unless `meta.parser == "genie"` (the proposal the user confirmed named Genie and the card
+  warned that the output goes to the pyATS service); otherwise the model must propose the command again with
+  `parser: genie`. TextFSM needs no such approval, it never leaves the process tree. Offered with the
+  device tool (resolver and result store present). Playbooks may name it (`known_general_tool_names`).
+* **Frontend.** The card shows "Parse the output with TextFSM/Genie" (with a note that Genie sends the redacted
+  output to the pyATS service), then the parsed JSON (collapsed) and the commands that did not parse. The follow-up
+  message names the parsed handle only if it matches `res_[0-9a-f]{12}`, and says when the output was cut so the
+  parsed rows may be incomplete.
+* **Download.** `GET /ai/results/{handle}/rows` (`ai_assistant:use`, rate limit `ai-result-rows` 30/min) returns
+  `{parser, rows}`: the **full** rows behind a `parsed_handle` (the card text is cut at 100,000 characters). Only the
+  caller's own `parsed_output` handles resolve; a raw output, another user's handle, a malformed or an expired one are
+  the same 404, and the content opt-in is checked on every call (403 `content_sharing_off`; 503 when the store is
+  down). The card has "Download JSON" and "Download CSV"; the files are built in the browser from those rows
+  (`utils/parsed-rows-export.ts`: CSV with RFC 4180 quoting, nested values as JSON, cells that start with `= + - @`
+  and are not numbers get a leading `'` against formula injection). The data is still only kept 4 hours: the
+  download is how to keep it. Nothing is saved on the server.
+* **Open.** Not run live: TextFSM against a real `show version` from LAB, and Genie through a real shim. Whether the
+  Netmiko `device_type` of every platform has `ntc_templates` entries (`cisco_xe` and `hp_comware` not checked). The
+  parse tool does not take pasted text on purpose (only a stored, redacted device output).
+* **Review fixes** (`doc/analysis/REVIEW.md`, 2026-11-03), all six checked against the code. (1, High) TextFSM runs in
+  a killable child process and Genie has a client timeout and a thread-and-abandon limit in the shim. (2, High)
+  `cisco_xe` is parsed with the `cisco_ios` templates. (3) `partial` is set on the raw and the parsed handle when the
+  output was cut, the parse tool adds a note, and the follow-up message says so. The rows themselves are never cut,
+  only the card text, so `partial` is not set for that. (4) Boundaries come from offsets recorded at capture time,
+  not from markers found in the text. (5) Every Genie failure ends as a fixed-text error and cannot fail the run; the
+  shim's own error text is not passed on. (6) `parse_command_output` refuses Genie unless the confirmed proposal named
+  Genie. Not run live; the new child process is covered by tests that start it, kill it and check its environment.

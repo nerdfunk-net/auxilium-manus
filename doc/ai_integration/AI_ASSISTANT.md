@@ -1403,6 +1403,8 @@ to `list_playbooks` first. A local playbook with no `data_class` is class B; a b
 knowledge files (`${DATA_DIRECTORY}/ai/knowledge/<name>.local.md`) are placed first in the four reference tools'
 answers under "Local additions" (regular files only, no symlinks) (`knowledge_loader.py`). See `doc/AI_TOOL_CHAIN.md` §27.2.
 
+**Parsing (`doc/AI_TOOL_CHAIN.md` §43).** The signed token also carries `parser` (`none`/`textfsm`/`genie`); the response of `POST /ai/exec/device-command` adds `parser`, `parsed_handle`, `parsed_text` and `parse_errors`. Genie needs `sources.pyats:read` and exactly one pyATS source.
+
 **Device commands (phase 3 start).** `POST /ai/exec/device-command` `{token, credential_id, network_driver?}` is the only way
 anything reaches a device from Ask the Net. It exists only while `AI_DEVICE_COMMANDS_ENABLED=true` (404
 otherwise), needs `ai_assistant:use` and `netmiko:execute`, is rate limited (`ai-device-command`, 10 per

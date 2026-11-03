@@ -475,10 +475,33 @@ describe("useAssistantChat", () => {
           platform: "cisco_ios",
         },
         commands: ["show running-config"],
+        parser: "none",
         driverKnown: true,
         driverChoices: ["cisco_ios", "cisco_xe"],
         state: "pending",
       });
+    });
+
+    it("keeps a known parser and shows anything else as none", async () => {
+      const parserOf = async (parser: unknown) => {
+        fetchMock.mockResolvedValue(
+          sseResponse([
+            frame("proposal", { ...payload, parser }),
+            frame("done", {}),
+          ]),
+        );
+        const { result } = renderHook(() =>
+          useAssistantChat({ sessionKey: `${KEY}-${String(parser)}` }),
+        );
+        await send(result, "parse it");
+        return (result.current.messages[1].proposal as { parser: string })
+          .parser;
+      };
+
+      expect(await parserOf("textfsm")).toBe("textfsm");
+      expect(await parserOf("genie")).toBe("genie");
+      expect(await parserOf("regex")).toBe("none");
+      expect(await parserOf(undefined)).toBe("none");
     });
 
     it("keeps an unknown driver, a missing platform and the choices the server offers", async () => {
@@ -589,6 +612,10 @@ describe("useAssistantChat", () => {
         output: "$ show running-config\nhostname LAB",
         truncated: false,
         handle: "res_0123456789ab",
+        parser: "none" as const,
+        parsedHandle: null,
+        parsedText: "",
+        parseErrors: [],
       };
 
       act(() => {
@@ -623,6 +650,10 @@ describe("useAssistantChat", () => {
           output: "",
           truncated: false,
           handle: null,
+          parser: "none",
+          parsedHandle: null,
+          parsedText: "",
+          parseErrors: [],
         });
       });
 

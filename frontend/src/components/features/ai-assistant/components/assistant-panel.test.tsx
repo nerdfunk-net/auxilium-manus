@@ -41,6 +41,13 @@ vi.mock("../hooks/use-device-command", () => ({
     isPending: false,
   }),
 }));
+vi.mock("../hooks/use-parsed-rows-download", () => ({
+  useParsedRowsDownload: () => ({
+    mutate: vi.fn(),
+    isPending: false,
+    error: null,
+  }),
+}));
 vi.mock(
   "@/components/features/settings/credentials/hooks/use-credentials-query",
   () => ({
@@ -297,7 +304,7 @@ describe("AssistantPanel message formatting", () => {
 
   it("does not render HTML, images or script from the model's text", () => {
     seedMessages(
-      '<script>alert(1)</script><img src=x onerror=alert(1)>\n\n![p](https://evil.example/p.png)\n\nfine',
+      "<script>alert(1)</script><img src=x onerror=alert(1)>\n\n![p](https://evil.example/p.png)\n\nfine",
     );
     const { container } = render(<AssistantPanel sessionKey={KEY_MD} />);
 
@@ -341,6 +348,10 @@ describe("AssistantPanel device command proposals", () => {
     output: "$ show running-config\nhostname LAB",
     truncated: false,
     handle: "res_0123456789ab",
+    parser: "none",
+    parsedHandle: null,
+    parsedText: "",
+    parseErrors: [],
     ...overrides,
   });
 
@@ -363,6 +374,7 @@ describe("AssistantPanel device command proposals", () => {
         proposal: {
           kind: "device_command",
           summary: "show running-config on LAB",
+          parser: "none",
           token: "signed.token",
           expiresAt: 4_102_444_800,
           device: {
@@ -414,6 +426,77 @@ describe("AssistantPanel device command proposals", () => {
 
     expect(proposalOf().state).toBe("rejected");
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("names the parsed handle in the follow-up only when it is a real handle", async () => {
+    deviceRun.mockResolvedValue(
+      resultFor({
+        parser: "textfsm",
+        parsedHandle: "res_aaaaaaaaaaaa",
+        parsedText: "[]",
+      }),
+    );
+    render(<AssistantPanel sessionKey={KEY} />);
+
+    fireEvent.change(screen.getByLabelText("SSH login"), {
+      target: { value: "11" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /^run$/i }));
+
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    const content = sentMessages().at(-1)?.content ?? "";
+    expect(content).toContain("stored as res_0123456789ab");
+    expect(content).toContain("TextFSM");
+    expect(content).toContain("parsed rows are stored as res_aaaaaaaaaaaa");
+  });
+
+  it("tells the assistant when a cut output may have left rows out", async () => {
+    deviceRun.mockResolvedValue(
+      resultFor({
+        truncated: true,
+        parser: "textfsm",
+        parsedHandle: "res_aaaaaaaaaaaa",
+      }),
+    );
+    render(<AssistantPanel sessionKey={KEY} />);
+
+    fireEvent.change(screen.getByLabelText("SSH login"), {
+      target: { value: "11" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /^run$/i }));
+
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    expect(sentMessages().at(-1)?.content).toContain("may be incomplete");
+  });
+
+  it("does not claim the rows may be incomplete when the output was whole", async () => {
+    deviceRun.mockResolvedValue(
+      resultFor({ parser: "textfsm", parsedHandle: "res_aaaaaaaaaaaa" }),
+    );
+    render(<AssistantPanel sessionKey={KEY} />);
+
+    fireEvent.change(screen.getByLabelText("SSH login"), {
+      target: { value: "11" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /^run$/i }));
+
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    expect(sentMessages().at(-1)?.content).not.toContain("incomplete");
+  });
+
+  it("ignores a parsed handle that is not shaped like one", async () => {
+    deviceRun.mockResolvedValue(
+      resultFor({ parser: "textfsm", parsedHandle: "../etc/passwd" }),
+    );
+    render(<AssistantPanel sessionKey={KEY} />);
+
+    fireEvent.change(screen.getByLabelText("SSH login"), {
+      target: { value: "11" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /^run$/i }));
+
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    expect(sentMessages().at(-1)?.content).not.toContain("passwd");
   });
 
   it("after a successful run it records the result and tells the assistant the handle, not the output", async () => {

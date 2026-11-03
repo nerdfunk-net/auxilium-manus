@@ -203,14 +203,27 @@ _LOCATION_RULES: Mapping[str, Rule] = {
 _DEVICE_RULES: Mapping[str, Rule] = {
     **dict.fromkeys(
         (
-            "id", "name", "role", "status", "device_type", "manufacturer", "platform",
-            "location", "tags", "rack", "tenant",
+            "id",
+            "name",
+            "role",
+            "status",
+            "device_type",
+            "manufacturer",
+            "platform",
+            "location",
+            "tags",
+            "rack",
+            "tenant",
         ),
         DataClass.INVENTORY,
     ),
     **dict.fromkeys(
         (
-            "primary_ip4", "primary_ip6", "serial", "asset_tag", "interfaces",
+            "primary_ip4",
+            "primary_ip6",
+            "serial",
+            "asset_tag",
+            "interfaces",
             "interfaces_truncated",
         ),
         DataClass.ADDRESSES,

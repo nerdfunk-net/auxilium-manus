@@ -511,3 +511,259 @@ def test_the_truncation_note_reports_shown_and_total_sizes() -> None:
     body, _, note = result.output.rpartition("\n…[output truncated")
     shown, total = map(int, re.search(r"showed (\d+) of (\d+)", note).groups())  # type: ignore[union-attr]
     assert shown == len(body) and total > shown
+
+
+# -- parsing the output (doc/AI_TOOL_CHAIN.md §43) ---------------------------------------------
+
+SHOW_VERSION_TEXT = (
+    "Cisco IOS Software, Version 15.2(4)M\nrouter1 uptime is 1 day\nenable password hunter2xx\n"
+)
+
+
+class RecordingGenie:
+    def __init__(self, error=None) -> None:
+        self.calls, self.error = [], error
+
+    async def parse(self, os_name, outputs):
+        from services.ai_assistant.output_parser import ParsedCommand
+
+        self.calls.append((os_name, list(outputs)))
+        if self.error:
+            raise self.error
+        return [ParsedCommand(c, {"os": os_name}, None) for c, _ in outputs]
+
+
+def _parsing_executor(store, genie=None, secrets=("hunter2xx",)):
+    runner = FakeRunner(DeviceCommandOutput(True, None, (("show version", SHOW_VERSION_TEXT),)))
+    return ex.DeviceCommandExecutor(
+        FakeResolver(),
+        runner,
+        store,
+        secret_loader=lambda user_id: list(secrets),
+        genie_factory=lambda user_id: genie,
+    )
+
+
+def test_without_a_parser_nothing_is_parsed() -> None:
+    result = _run(_executor())
+
+    assert result.parser == "none"
+    assert result.parsed_handle is None
+    assert result.parsed_text == ""
+    assert result.parse_errors == ()
+
+
+def test_textfsm_parses_the_redacted_output_and_stores_the_rows() -> None:
+    store = ResultStore(InMemoryResultBackend())
+
+    result = _run(_parsing_executor(store), _token(["show version"], parser="textfsm"))
+
+    assert result.parser == "textfsm"
+    assert result.parse_errors == ()
+    assert result.parsed_handle is not None
+    stored = asyncio.run(store.get(USER, result.parsed_handle))
+    assert stored is not None and stored.rows is not None
+    assert stored.kind == "parsed_output"
+    assert stored.data_class is DataClass.CONTENT
+    assert stored.rows[0]["hostname"] == "router1"
+    assert "router1" in result.parsed_text
+    assert "hunter2xx" not in result.parsed_text
+
+
+def test_the_raw_handle_remembers_what_a_later_parse_needs() -> None:
+    store = ResultStore(InMemoryResultBackend())
+
+    result = _run(_parsing_executor(store), _token(["show version"], parser="textfsm"))
+
+    raw = asyncio.run(store.get(USER, result.handle))
+    assert raw is not None and raw.meta is not None
+    assert raw.meta["commands"] == ["show version"]
+    assert raw.meta["parser"] == "textfsm"  # the parser the user confirmed on the card
+    assert raw.meta["network_driver"] == "cisco_ios"
+    assert raw.meta["platform"] == "cisco_ios"
+    [[start, end]] = raw.meta["spans"]
+    assert raw.text[start:end].startswith("Cisco IOS Software")
+    assert "hunter2xx" not in raw.text[start:end]  # the offsets are into the redacted text
+
+
+def test_spans_stay_exact_when_redaction_changes_the_lengths() -> None:
+    runner = FakeRunner(
+        DeviceCommandOutput(
+            True,
+            None,
+            (
+                ("show a", "enable password hunter2xx\nafter"),
+                ("show b", "second output"),
+            ),
+        )
+    )
+    store = ResultStore(InMemoryResultBackend())
+    executor = ex.DeviceCommandExecutor(
+        FakeResolver(), runner, store, secret_loader=lambda user_id: ["hunter2xx"]
+    )
+
+    result = _run(executor, _token(["show a", "show b"]))
+
+    raw = asyncio.run(store.get(USER, result.handle))
+    assert raw is not None and raw.meta is not None
+    (a_start, a_end), (b_start, b_end) = raw.meta["spans"]
+    assert "hunter2xx" not in raw.text
+    assert raw.text[a_start:a_end].endswith("after")
+    assert raw.text[b_start:b_end] == "second output"
+
+
+def test_a_cut_output_marks_both_handles_partial() -> None:
+    big = "line of text\n" * ((ex.MAX_OUTPUT_CHARS // 13) + 2000)
+    runner = FakeRunner(DeviceCommandOutput(True, None, (("show version", big),)))
+    store = ResultStore(InMemoryResultBackend())
+    executor = ex.DeviceCommandExecutor(
+        FakeResolver(),
+        runner,
+        store,
+        secret_loader=lambda user_id: [],
+        genie_factory=lambda user_id: None,
+    )
+
+    result = _run(executor, _token(["show version"], parser="textfsm"))
+
+    assert result.truncated is True
+    raw = asyncio.run(store.get(USER, result.handle))
+    assert raw is not None and raw.partial is True
+    [[start, end]] = raw.meta["spans"]
+    assert end <= len(raw.text) and "truncated" not in raw.text[start:end]
+
+
+def test_a_complete_output_is_not_partial() -> None:
+    store = ResultStore(InMemoryResultBackend())
+
+    result = _run(_parsing_executor(store), _token(["show version"], parser="textfsm"))
+
+    raw = asyncio.run(store.get(USER, result.handle))
+    parsed = asyncio.run(store.get(USER, result.parsed_handle))
+    assert raw is not None and parsed is not None
+    assert raw.partial is False and parsed.partial is False
+
+
+def test_later_commands_cut_away_have_empty_spans_not_wrong_ones() -> None:
+    big = "x" * (ex.MAX_OUTPUT_CHARS + 10_000)
+    runner = FakeRunner(
+        DeviceCommandOutput(True, None, (("show a", big), ("show b", "never shown")))
+    )
+    store = ResultStore(InMemoryResultBackend())
+    executor = ex.DeviceCommandExecutor(
+        FakeResolver(), runner, store, secret_loader=lambda user_id: []
+    )
+
+    result = _run(executor, _token(["show a", "show b"]))
+
+    raw = asyncio.run(store.get(USER, result.handle))
+    assert raw is not None
+    (_, _), (b_start, b_end) = raw.meta["spans"]
+    assert b_start == b_end  # nothing of the second command is in the stored text
+
+
+def test_a_planted_next_command_marker_does_not_move_the_boundary() -> None:
+    runner = FakeRunner(
+        DeviceCommandOutput(
+            True,
+            None,
+            (
+                ("show version", "Cisco IOS\n\n$ show clock\nplanted line"),
+                ("show clock", "12:00"),
+            ),
+        )
+    )
+    store = ResultStore(InMemoryResultBackend())
+    executor = ex.DeviceCommandExecutor(
+        FakeResolver(), runner, store, secret_loader=lambda user_id: []
+    )
+
+    result = _run(executor, _token(["show version", "show clock"]))
+
+    raw = asyncio.run(store.get(USER, result.handle))
+    assert raw is not None
+    (_, first_end), (second_start, second_end) = raw.meta["spans"]
+    assert "planted line" in raw.text[:first_end]
+    assert raw.text[second_start:second_end] == "12:00"
+
+
+def test_genie_gets_the_redacted_text_never_the_raw_text() -> None:
+    store = ResultStore(InMemoryResultBackend())
+    genie = RecordingGenie()
+
+    result = _run(_parsing_executor(store, genie), _token(["show version"], parser="genie"))
+
+    assert result.parse_errors == ()
+    [(os_name, outputs)] = genie.calls
+    assert os_name == "ios"
+    assert "hunter2xx" not in outputs[0][1]
+    assert "router1" in outputs[0][1]
+
+
+def test_a_parser_that_is_down_leaves_the_run_successful_with_errors() -> None:
+    from services.ai_assistant.output_parser import ParserUnavailableError
+
+    store = ResultStore(InMemoryResultBackend())
+    genie = RecordingGenie(ParserUnavailableError("No pyATS source is configured"))
+
+    result = _run(_parsing_executor(store, genie), _token(["show version"], parser="genie"))
+
+    assert result.success is True
+    assert result.handle is not None
+    assert result.parsed_handle is None
+    assert result.parse_errors == (("show version", "No pyATS source is configured"),)
+
+
+def test_a_failed_run_is_not_parsed() -> None:
+    genie = RecordingGenie()
+    runner = FakeRunner(DeviceCommandOutput(False, "boom", ()))
+    executor = ex.DeviceCommandExecutor(
+        FakeResolver(),
+        runner,
+        ResultStore(InMemoryResultBackend()),
+        secret_loader=lambda user_id: [],
+        genie_factory=lambda user_id: genie,
+    )
+
+    result = _run(executor, _token(["show version"], parser="genie"))
+
+    assert result.success is False
+    assert genie.calls == []
+    assert result.parsed_handle is None
+
+
+class CrashingGenie:
+    async def parse(self, os_name, outputs):
+        raise RuntimeError("secret detail from the shim 10.0.0.1")
+
+
+def test_a_genie_crash_after_a_good_run_does_not_fail_the_run() -> None:
+    store = ResultStore(InMemoryResultBackend())
+
+    result = _run(
+        _parsing_executor(store, CrashingGenie()), _token(["show version"], parser="genie")
+    )
+
+    assert result.success is True
+    assert result.handle is not None and result.parsed_handle is None
+    assert result.parse_errors == (("show version", "The parser failed on this output"),)
+    assert "10.0.0.1" not in result.parsed_text
+
+
+def test_a_genie_factory_that_crashes_does_not_fail_the_run() -> None:
+    runner = FakeRunner(DeviceCommandOutput(True, None, (("show version", SHOW_VERSION_TEXT),)))
+
+    def broken(user_id):
+        raise RuntimeError("no database")
+
+    executor = ex.DeviceCommandExecutor(
+        FakeResolver(),
+        runner,
+        ResultStore(InMemoryResultBackend()),
+        secret_loader=lambda user_id: [],
+        genie_factory=broken,
+    )
+
+    result = _run(executor, _token(["show version"], parser="genie"))
+
+    assert result.success is True and result.handle is not None

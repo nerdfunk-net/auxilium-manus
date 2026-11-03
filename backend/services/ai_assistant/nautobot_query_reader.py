@@ -36,6 +36,7 @@ logger = logging.getLogger(__name__)
 # only pile up when sources are edited; the oldest is dropped past this bound.
 MAX_CACHED_INSTANCES = 8
 
+
 class NautobotAccessError(Exception):
     """The user may not read Nautobot data, or no usable Nautobot source is configured."""
 

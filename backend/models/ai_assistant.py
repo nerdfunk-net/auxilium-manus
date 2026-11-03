@@ -267,6 +267,13 @@ class WorkflowRunConfirmResponse(BaseModel):
     workflow_id: int
 
 
+class CommandParseError(BaseModel):
+    """One command whose output could not be parsed; the text is fixed, never device output."""
+
+    command: str
+    error: str
+
+
 class DeviceCommandResponse(BaseModel):
     success: bool
     error: str | None = None
@@ -276,6 +283,19 @@ class DeviceCommandResponse(BaseModel):
     output: str
     truncated: bool
     handle: str | None = None
+    # The parser the user saw on the card (signed in the token), the rows behind ``parsed_handle``
+    # and the same data as indented JSON (cut) for the card; doc/AI_TOOL_CHAIN.md §43.
+    parser: str = "none"
+    parsed_handle: str | None = None
+    parsed_text: str = ""
+    parse_errors: list[CommandParseError] = Field(default_factory=list)
+
+
+class ParsedRowsResponse(BaseModel):
+    """The full rows behind a ``parsed_handle`` (for a download; the card text is cut)."""
+
+    parser: str
+    rows: list[dict[str, Any]]
 
 
 class AiProxySettingsUpdate(BaseModel):

@@ -12,6 +12,7 @@ import { useAuthStore } from "@/lib/auth-store";
 import type {
   AssistantContext,
   ChatMessage,
+  CommandParser,
   DeviceCommandResult,
   WorkflowRunDevice,
   WorkflowRunResult,
@@ -53,6 +54,7 @@ interface ToolPayload {
 }
 interface ProposalPayload {
   kind?: string;
+  parser?: string;
   content?: string;
   summary?: string;
   warnings?: unknown[];
@@ -107,6 +109,7 @@ interface ParsedDeviceCommand {
   expiresAt: number;
   device: { id: string; name: string; host: string; platform: string | null };
   commands: string[];
+  parser: CommandParser;
   driverKnown: boolean;
   driverChoices: string[];
 }
@@ -233,6 +236,11 @@ function parseDeviceCommand(
       platform: typeof platform === "string" ? platform : null,
     },
     commands,
+    // Anything but a known parser is shown as "none": the card never invents a parser.
+    parser:
+      payload.parser === "textfsm" || payload.parser === "genie"
+        ? payload.parser
+        : "none",
     // Unknown unless the server says it is known: the card then asks the user, never guesses.
     driverKnown: payload.driver_known === true,
     driverChoices:

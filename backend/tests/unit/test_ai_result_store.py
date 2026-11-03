@@ -179,3 +179,42 @@ class PartialFlagTests(unittest.IsolatedAsyncioTestCase):
 
         assert stored is not None
         self.assertFalse(stored.partial)
+
+
+class MetaTests(unittest.IsolatedAsyncioTestCase):
+    async def test_meta_round_trips_and_defaults_to_none(self) -> None:
+        store = ResultStore(InMemoryResultBackend())
+        with_meta = await store.put(
+            1,
+            StoredResult(
+                kind="device_command",
+                data_class=DataClass.CONTENT,
+                text="$ show version\nx",
+                meta={"commands": ["show version"], "network_driver": "cisco_ios"},
+            ),
+        )
+        without = await store.put(
+            1, StoredResult(kind="t", data_class=DataClass.CONTENT, text="plain")
+        )
+
+        first = await store.get(1, with_meta)
+        second = await store.get(1, without)
+
+        assert first is not None and second is not None
+        self.assertEqual(first.meta, {"commands": ["show version"], "network_driver": "cisco_ios"})
+        self.assertIsNone(second.meta)
+
+    async def test_a_damaged_meta_reads_as_missing_meta(self) -> None:
+        backend = InMemoryResultBackend()
+        store = ResultStore(backend)
+        handle = await store.put(
+            1, StoredResult(kind="t", data_class=DataClass.CONTENT, text="plain", meta={"a": 1})
+        )
+        key = next(iter(backend._data))
+        expiry, raw = backend._data[key]
+        backend._data[key] = (expiry, json.dumps({**json.loads(raw), "meta": "not a dict"}))
+
+        stored = await store.get(1, handle)
+
+        assert stored is not None
+        self.assertIsNone(stored.meta)

@@ -135,6 +135,8 @@ device names and run content (`doc/AI_TOOL_CHAIN.md` §40).
 gate the fields (inventory for devices, addresses for IPAM and addresses/serials). They run on the source's shared
 Nautobot token, so what the token may read is what a user with the permission can ask for (`doc/AI_TOOL_CHAIN.md` §31).
 
+**Ask the Net output parsing** (`parse_command_output`, the `parser` of a device command, `doc/AI_TOOL_CHAIN.md` §43). TextFSM needs nothing beyond the content opt-in. Genie also needs `sources.pyats:read` (checked on every call; the seeded `viewer` role does not hold it) and exactly one configured pyATS source; it sends the redacted output to that source's shim.
+
 **Ask the Net Catalyst Center tools** (`find_catalyst_center_device`, `get_catalyst_center_device_details`). They need
 `sources.catalyst_center:read` (checked on every call; the seeded `viewer` role does not hold it, so it has no such tools)
 and report a missing source to the user. The user's inventory switch gates both tools, the addresses switch the

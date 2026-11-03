@@ -206,6 +206,43 @@ def test_with_a_resolver_the_session_offers_exactly_one_proposal_tool() -> None:
     assert "propose_device_command" in session.toolbox._context.extras["available_tools"]
 
 
+# -- parsing device output (doc/AI_TOOL_CHAIN.md §43) -----------------------------------------
+
+
+def test_the_parse_tool_comes_with_the_device_tool_and_a_store() -> None:
+    session = _session(device_resolver=_Resolver())
+
+    names = {s.name for s in session.toolbox.specs()}
+
+    assert "parse_command_output" in names
+    assert "parse_command_output" in session.system
+    assert "genie_parser" not in session.toolbox._context.extras
+
+
+def test_without_a_store_or_a_resolver_there_is_no_parse_tool() -> None:
+    no_store = {s.name for s in _session(device_resolver=_Resolver(), store=None).toolbox.specs()}
+    no_resolver = {s.name for s in _session().toolbox.specs()}
+
+    assert "parse_command_output" not in no_store
+    assert "parse_command_output" not in no_resolver
+
+
+def test_a_genie_parser_is_put_in_the_session_only_when_given() -> None:
+    genie = object()
+
+    session = _session(device_resolver=_Resolver(), genie_parser=genie)
+    ignored = _session(genie_parser=genie)
+
+    assert session.toolbox._context.extras["genie_parser"] is genie
+    assert "genie_parser" not in ignored.toolbox._context.extras
+
+
+def test_playbooks_may_name_the_parse_tool() -> None:
+    from services.ai_assistant.tools.playbook_tools import known_general_tool_names
+
+    assert "parse_command_output" in known_general_tool_names()
+
+
 def test_the_prompt_says_the_command_is_not_run_by_the_model() -> None:
     system = _session(device_resolver=_Resolver()).system
 

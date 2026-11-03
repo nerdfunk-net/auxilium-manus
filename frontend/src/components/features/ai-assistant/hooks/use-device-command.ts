@@ -4,7 +4,11 @@ import { useMutation } from "@tanstack/react-query";
 
 import { useApi } from "@/hooks/use-api";
 
-import type { DeviceCommandResult } from "../types/ai-assistant";
+import type {
+  CommandParser,
+  CommandParseError,
+  DeviceCommandResult,
+} from "../types/ai-assistant";
 
 interface DeviceCommandResponse {
   success: boolean;
@@ -14,6 +18,10 @@ interface DeviceCommandResponse {
   output: string;
   truncated: boolean;
   handle: string | null;
+  parser?: CommandParser;
+  parsed_handle?: string | null;
+  parsed_text?: string;
+  parse_errors?: CommandParseError[];
 }
 
 export interface DeviceCommandRequest {
@@ -57,6 +65,10 @@ export function useDeviceCommandMutation() {
         output: response.output,
         truncated: response.truncated,
         handle: response.handle,
+        parser: response.parser ?? "none",
+        parsedHandle: response.parsed_handle ?? null,
+        parsedText: response.parsed_text ?? "",
+        parseErrors: response.parse_errors ?? [],
       };
     },
   });

@@ -14,6 +14,7 @@ Genie-parsed without a second live device connection.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 
 from fastapi import APIRouter, Depends
@@ -24,6 +25,12 @@ from app.auth import require_bearer_token
 logger = logging.getLogger(__name__)
 
 router = APIRouter(dependencies=[Depends(require_bearer_token)])
+
+# One command may take this long. Genie parsing is CPU-bound Python that cannot be interrupted, so
+# a slow parse runs in a worker thread and is *abandoned* at the limit: the event loop stays free
+# for the shim's other requests and the caller gets an answer. (The thread finishes on its own.)
+PARSE_COMMAND_TIMEOUT_SECONDS = 30.0
+PARSE_TIMED_OUT = "Parsing took too long"
 
 
 class ParseCommandInput(BaseModel):
@@ -54,7 +61,9 @@ class ParseResponse(BaseModel):
 
 
 def _parse_one(*, os_name: str, command: str, output: str) -> ParseCommandResult:
-    from genie.conf.base import Device  # lazy import -- genie only exists inside the container
+    from genie.conf.base import (
+        Device,
+    )  # lazy import -- genie only exists inside the container
 
     try:
         device = Device("shim-parse", os=os_name)
@@ -62,6 +71,21 @@ def _parse_one(*, os_name: str, command: str, output: str) -> ParseCommandResult
     except Exception as exc:  # noqa: BLE001 - unknown command/no parser, not a server bug
         return ParseCommandResult(error=str(exc))
     return ParseCommandResult(parsed=parsed)
+
+
+async def _parse_one_bounded(
+    *, os_name: str, command: str, output: str
+) -> ParseCommandResult:
+    try:
+        return await asyncio.wait_for(
+            asyncio.to_thread(
+                _parse_one, os_name=os_name, command=command, output=output
+            ),
+            timeout=PARSE_COMMAND_TIMEOUT_SECONDS,
+        )
+    except TimeoutError:
+        logger.warning("parse timed out os=%s", os_name)
+        return ParseCommandResult(error=PARSE_TIMED_OUT)
 
 
 @router.post("/v1/parse", response_model=ParseResponse)
@@ -76,7 +100,7 @@ async def parse_output(body: ParseRequest) -> ParseResponse:
     for device_id, device_input in body.devices.items():
         commands: dict[str, ParseCommandResult] = {}
         for command_input in device_input.commands:
-            commands[command_input.command] = _parse_one(
+            commands[command_input.command] = await _parse_one_bounded(
                 os_name=device_input.os,
                 command=command_input.command,
                 output=command_input.output,

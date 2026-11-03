@@ -56,7 +56,36 @@ describe("useDeviceCommandMutation", () => {
       output: "$ show running-config\nhostname LAB",
       truncated: false,
       handle: "res_0123456789ab",
+      parser: "none",
+      parsedHandle: null,
+      parsedText: "",
+      parseErrors: [],
     });
+  });
+
+  it("maps the parser fields of a parsed run", async () => {
+    apiCall.mockResolvedValue({
+      ...response,
+      parser: "genie",
+      parsed_handle: "res_aaaaaaaaaaaa",
+      parsed_text: "[1]",
+      parse_errors: [{ command: "show clock", error: "no parser" }],
+    });
+    const { result } = renderHook(() => useDeviceCommandMutation(), {
+      wrapper,
+    });
+
+    const mapped = await result.current.mutateAsync({
+      token: "signed.token",
+      credentialId: 11,
+    });
+
+    expect(mapped.parser).toBe("genie");
+    expect(mapped.parsedHandle).toBe("res_aaaaaaaaaaaa");
+    expect(mapped.parsedText).toBe("[1]");
+    expect(mapped.parseErrors).toEqual([
+      { command: "show clock", error: "no parser" },
+    ]);
   });
 
   it("adds the device type only when the user chose one", async () => {

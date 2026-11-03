@@ -273,6 +273,21 @@ export interface InventoryProposal {
   state: ProposalState;
 }
 
+/** How the output of a proposed device command is turned into structured data after the run. */
+export type CommandParser = "none" | "textfsm" | "genie";
+
+export const COMMAND_PARSER_LABELS: Record<CommandParser, string> = {
+  none: "none",
+  textfsm: "TextFSM",
+  genie: "Genie",
+};
+
+/** A command whose output could not be parsed; the text is fixed by the server. */
+export interface CommandParseError {
+  command: string;
+  error: string;
+}
+
 /** What a confirmed device command returned (redacted, capped). */
 export interface DeviceCommandResult {
   success: boolean;
@@ -283,6 +298,13 @@ export interface DeviceCommandResult {
   truncated: boolean;
   /** Lets the assistant read the output (fetch_slice); null when it could not be stored. */
   handle: string | null;
+  /** The parser the card showed (signed in the token). The raw output is kept either way. */
+  parser: CommandParser;
+  /** Handle of the parsed rows (query_result / fetch_slice); null when nothing parsed. */
+  parsedHandle: string | null;
+  /** The parsed data as indented JSON (cut), for the card. */
+  parsedText: string;
+  parseErrors: CommandParseError[];
 }
 
 /**
@@ -298,6 +320,8 @@ export interface DeviceCommandProposal {
   expiresAt: number;
   device: { id: string; name: string; host: string; platform: string | null };
   commands: string[];
+  /** Parser to run on the output after the command; signed in the token, so fixed here. */
+  parser: CommandParser;
   /** False when the inventory's platform names no SSH driver: the user must choose one. */
   driverKnown: boolean;
   /** The device types the user may choose from (a closed list from the server). */

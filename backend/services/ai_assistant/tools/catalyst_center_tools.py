@@ -141,8 +141,17 @@ class DeviceDetailsInput(FindDeviceInput):
 _MATCH_RULES: Mapping[str, Rule] = {
     **dict.fromkeys(
         (
-            "source_id", "id", "hostname", "role", "family", "device_type", "platform_id",
-            "software_type", "software_version", "reachability_status", "collection_status",
+            "source_id",
+            "id",
+            "hostname",
+            "role",
+            "family",
+            "device_type",
+            "platform_id",
+            "software_type",
+            "software_version",
+            "reachability_status",
+            "collection_status",
         ),
         DataClass.INVENTORY,
     ),
@@ -151,9 +160,20 @@ _MATCH_RULES: Mapping[str, Rule] = {
 _DEVICE_RULES: Mapping[str, Rule] = {
     **dict.fromkeys(
         (
-            "id", "hostname", "platform_id", "family", "device_type", "role",
-            "reachability_status", "reachability_failure_reason", "collection_status",
-            "management_state", "support_level", "up_time", "boot_time", "last_updated",
+            "id",
+            "hostname",
+            "platform_id",
+            "family",
+            "device_type",
+            "role",
+            "reachability_status",
+            "reachability_failure_reason",
+            "collection_status",
+            "management_state",
+            "support_level",
+            "up_time",
+            "boot_time",
+            "last_updated",
             "location_name",
         ),
         DataClass.INVENTORY,
@@ -170,8 +190,19 @@ _SOFTWARE_RULES: Mapping[str, Rule] = {
 _INTERFACE_RULES: Mapping[str, Rule] = {
     **dict.fromkeys(
         (
-            "name", "status", "admin_status", "interface_type", "port_mode", "port_type",
-            "media_type", "speed", "duplex", "mtu", "vlan_id", "native_vlan_id", "voice_vlan",
+            "name",
+            "status",
+            "admin_status",
+            "interface_type",
+            "port_mode",
+            "port_type",
+            "media_type",
+            "speed",
+            "duplex",
+            "mtu",
+            "vlan_id",
+            "native_vlan_id",
+            "voice_vlan",
         ),
         DataClass.INVENTORY,
     ),
@@ -190,7 +221,11 @@ _COMPLIANCE_RULES: Mapping[str, Rule] = dict.fromkeys(
 )
 _COMPLIANCE_ITEM_RULES: Mapping[str, Rule] = dict.fromkeys(
     (
-        "compliance_type", "status", "state", "last_sync_time", "remediation_supported",
+        "compliance_type",
+        "status",
+        "state",
+        "last_sync_time",
+        "remediation_supported",
         "ack_status",
     ),
     DataClass.INVENTORY,
@@ -336,9 +371,7 @@ async def _search_key(sources: tuple[CatalystSource, ...], kind: str, value: str
             if filters is None:
                 devices = await _name_matches(source, value)
             else:
-                devices = list(
-                    await source.devices.search_devices(filters, max_devices=SEARCH_CAP)
-                )
+                devices = list(await source.devices.search_devices(filters, max_devices=SEARCH_CAP))
         except _SOURCE_ERRORS as exc:
             found.errors.append({"source_id": source.source_id, "error": _failure_sentence(exc)})
             return

@@ -412,6 +412,7 @@ def _capture_chat(monkeypatch: pytest.MonkeyPatch) -> dict[str, object]:
 
     async def fake_stream(config, messages, **kwargs):
         seen["tools"] = [spec.name for spec in kwargs["toolbox"].specs()]
+        seen["extras"] = kwargs["toolbox"]._context.extras
         seen["system"] = kwargs["system"]
         yield ChatEvent("done", {})
 
@@ -742,7 +743,40 @@ def test_confirming_runs_the_executor_as_the_calling_user(device_client) -> None
         "output": "$ show running-config\nhostname LAB",
         "truncated": False,
         "handle": "res_0123456789ab",
+        "parser": "none",
+        "parsed_handle": None,
+        "parsed_text": "",
+        "parse_errors": [],
     }
+
+
+def test_a_parsed_result_is_returned_with_its_handle_and_errors(device_client) -> None:
+    client, holder = device_client
+    holder["executor"] = _FakeExecutor(
+        _device_result(
+            parser="textfsm",
+            parsed_handle="res_aaaaaaaaaaaa",
+            parsed_text='[{"command": "show version"}]',
+            parse_errors=(("show clock", "No TextFSM template exists"),),
+        )
+    )
+
+    body = client.post("/api/ai/exec/device-command", json=_CONFIRM).json()
+
+    assert body["parser"] == "textfsm"
+    assert body["parsed_handle"] == "res_aaaaaaaaaaaa"
+    assert body["parsed_text"] == '[{"command": "show version"}]'
+    assert body["parse_errors"] == [
+        {"command": "show clock", "error": "No TextFSM template exists"}
+    ]
+
+
+def test_the_confirm_body_cannot_choose_the_parser(device_client) -> None:
+    client, _ = device_client
+
+    response = client.post("/api/ai/exec/device-command", json={**_CONFIRM, "parser": "genie"})
+
+    assert response.status_code == 422
 
 
 def test_the_users_device_type_choice_reaches_the_executor(device_client) -> None:
@@ -1006,6 +1040,115 @@ def test_other_surfaces_never_get_the_device_tool(
     )
 
     assert "propose_device_command" not in seen["tools"]
+
+
+@pytest.mark.parametrize(("has_source", "expected"), [(True, True), (False, False)])
+def test_genie_is_offered_only_when_exactly_one_pyats_source_is_usable(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch, has_source: bool, expected: bool
+) -> None:
+    _configure(client)
+    client.patch("/api/ai/settings", json={"share_content_data": True})
+    monkeypatch.setattr(settings, "ai_device_commands_enabled", True)
+    monkeypatch.setattr(ai_router_module, "try_load_visible_secret_values", lambda _uid: [])
+    monkeypatch.setattr(ai_router_module, "has_pyats_source", lambda _uid: has_source)
+    monkeypatch.setattr(RBACService, "has_permission", lambda self, _uid, resource, action: True)
+    seen = _capture_chat(monkeypatch)
+
+    client.post(
+        "/api/ai/chat",
+        json={"messages": [{"role": "user", "content": "hi"}], "context": {"surface": "general"}},
+    )
+
+    assert "parse_command_output" in seen["tools"]
+    assert ("genie_parser" in seen["extras"]) is expected
+
+
+# -- download of parsed rows (doc/AI_TOOL_CHAIN.md §43) ----------------------------------------
+
+
+@pytest.fixture
+def rows_client(device_client):
+    """The device client with an in-memory result store holding a parsed handle of user 1."""
+    import asyncio
+
+    from services.ai_assistant.data_sharing import DataClass
+    from services.ai_assistant.results.store import (
+        InMemoryResultBackend,
+        ResultStore,
+        StoredResult,
+    )
+
+    client, _ = device_client
+    store = ResultStore(InMemoryResultBackend())
+    client.app.dependency_overrides[ai_router_module.get_result_store] = lambda: store
+
+    def put(user_id=1, **kw):
+        base = {
+            "kind": "parsed_output",
+            "data_class": DataClass.CONTENT,
+            "rows": [{"_command": "show version", "hostname": "r1"}],
+            "meta": {"parser": "textfsm", "source_handle": "res_aaaaaaaaaaaa"},
+        }
+        base.update(kw)
+        return asyncio.run(store.put(user_id, StoredResult(**base)))
+
+    return client, put, store
+
+
+def test_the_full_parsed_rows_can_be_fetched_by_their_owner(rows_client) -> None:
+    client, put, _ = rows_client
+
+    response = client.get(f"/api/ai/results/{put()}/rows")
+
+    assert response.status_code == 200, response.text
+    assert response.json() == {
+        "parser": "textfsm",
+        "rows": [{"_command": "show version", "hostname": "r1"}],
+    }
+
+
+@pytest.mark.parametrize("handle", ["res_000000000000", "not-a-handle", "res_ZZZZ"])
+def test_an_unknown_or_malformed_handle_is_404(rows_client, handle) -> None:
+    client, _, _ = rows_client
+
+    assert client.get(f"/api/ai/results/{handle}/rows").status_code == 404
+
+
+def test_another_users_handle_is_404(rows_client) -> None:
+    client, put, _ = rows_client
+
+    assert client.get(f"/api/ai/results/{put(user_id=2)}/rows").status_code == 404
+
+
+def test_only_parsed_rows_are_downloadable_not_raw_output(rows_client) -> None:
+    client, put, _ = rows_client
+    raw = put(kind="device_command", rows=None, text="hostname LAB")
+
+    assert client.get(f"/api/ai/results/{raw}/rows").status_code == 404
+
+
+def test_turning_content_sharing_off_stops_the_download(rows_client) -> None:
+    client, put, _ = rows_client
+    handle = put()
+    client.patch("/api/ai/settings", json={"share_content_data": False})
+
+    response = client.get(f"/api/ai/results/{handle}/rows")
+
+    assert response.status_code == 403
+    assert response.json()["detail"]["code"] == "content_sharing_off"
+
+
+def test_an_unavailable_store_is_503(rows_client) -> None:
+    from services.ai_assistant.results.store import ResultStoreUnavailableError
+
+    client, _, store = rows_client
+
+    async def down(*_args):
+        raise ResultStoreUnavailableError
+
+    store.get = down  # type: ignore[method-assign]
+
+    assert client.get("/api/ai/results/res_000000000000/rows").status_code == 503
 
 
 def test_the_device_type_choices_in_the_request_model_match_the_resolver_list() -> None:

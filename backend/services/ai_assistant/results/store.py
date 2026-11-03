@@ -62,6 +62,9 @@ class StoredResult:
     # True when ``rows`` is only a prefix of the full answer (cut at the source's preview cap or
     # to fit the store). A comparison of two stored tables must say so.
     partial: bool = False
+    # Small facts about where the data came from (for example the commands and device type of a
+    # device output), so a later tool can use the data without asking the model to repeat them.
+    meta: dict[str, Any] | None = None
 
     def __post_init__(self) -> None:
         if (self.rows is None) == (self.text is None):
@@ -146,6 +149,7 @@ class ResultStore:
                 "rows": result.rows,
                 "text": result.text,
                 "partial": result.partial,
+                "meta": result.meta,
             },
             default=_json_default,
             ensure_ascii=False,
@@ -172,6 +176,7 @@ class ResultStore:
                 rows=data["rows"],
                 text=data["text"],
                 partial=bool(data.get("partial", False)),
+                meta=data["meta"] if isinstance(data.get("meta"), dict) else None,
             )
         except ValueError, KeyError, TypeError:
             logger.warning("Dropping a damaged AI result entry")

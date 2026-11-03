@@ -22,18 +22,19 @@ import {
   EMPTY_SESSION,
   useAssistantSessionStore,
 } from "../store/assistant-session-store";
-import type {
-  AssistantContext,
-  ConversationScope,
-  DeviceCommandResult,
-  WorkflowRunResult,
-  DisplayMessage,
-  InventoryProposal,
-  QueryProposal,
-  ReportOutlineProposal,
-  SectionTextProposal,
-  SavedConversation,
-  WorkflowProposal,
+import {
+  COMMAND_PARSER_LABELS,
+  type AssistantContext,
+  type ConversationScope,
+  type DeviceCommandResult,
+  type WorkflowRunResult,
+  type DisplayMessage,
+  type InventoryProposal,
+  type QueryProposal,
+  type ReportOutlineProposal,
+  type SectionTextProposal,
+  type SavedConversation,
+  type WorkflowProposal,
 } from "../types/ai-assistant";
 import {
   fromSavedMessages,
@@ -263,9 +264,18 @@ export function AssistantPanel({
         result.handle &&
         STORED_HANDLE.test(result.handle)
       ) {
+        // The parsed rows have their own handle; the raw one is kept for what no template covers.
+        const parsedPart =
+          result.parsedHandle && STORED_HANDLE.test(result.parsedHandle)
+            ? ` I also parsed it with ${COMMAND_PARSER_LABELS[result.parser]}; the parsed rows are stored as ${result.parsedHandle}.`
+            : "";
+        // A cut output leaves later lines (or whole commands) out of the parsed rows too.
+        const cutPart = result.truncated
+          ? " The output was cut for size, so the parsed rows may be incomplete."
+          : "";
         const followUp =
           `I ran ${result.commands.join(", ")} on ${result.deviceName}. ` +
-          `The output is stored as ${result.handle}. Please read it and answer my request.`;
+          `The output is stored as ${result.handle}.${parsedPart}${cutPart} Please read it and answer my request.`;
         // `send` ignores a message while an answer is streaming, which would lose this one: the
         // user can start another question while the command runs. Hold it until the stream ends.
         if (isStreamingRef.current) {

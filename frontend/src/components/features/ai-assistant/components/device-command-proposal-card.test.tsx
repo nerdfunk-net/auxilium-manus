@@ -18,6 +18,12 @@ vi.mock("../hooks/use-device-command", () => ({
   useDeviceCommandMutation: () => ({ mutateAsync, ...mutationState }),
 }));
 
+const downloadMutate = vi.fn();
+const downloadState = { isPending: false, error: null as Error | null };
+vi.mock("../hooks/use-parsed-rows-download", () => ({
+  useParsedRowsDownload: () => ({ mutate: downloadMutate, ...downloadState }),
+}));
+
 const credentials = { data: undefined as unknown };
 vi.mock(
   "@/components/features/settings/credentials/hooks/use-credentials-query",
@@ -87,6 +93,7 @@ function proposal(
       platform: "cisco_ios",
     },
     commands: ["show running-config"],
+    parser: "none",
     driverKnown: true,
     driverChoices: ["cisco_ios", "cisco_xe"],
     state: "pending",
@@ -105,6 +112,10 @@ function result(
     output: "$ show running-config\nhostname LAB",
     truncated: false,
     handle: "res_0123456789ab",
+    parser: "none",
+    parsedHandle: null,
+    parsedText: "",
+    parseErrors: [],
     ...overrides,
   };
 }
@@ -126,6 +137,9 @@ beforeEach(() => {
   vi.useFakeTimers({ toFake: ["Date"] });
   vi.setSystemTime(NOW * 1000);
   mutateAsync.mockReset();
+  downloadMutate.mockReset();
+  downloadState.isPending = false;
+  downloadState.error = null;
   mutationState.isPending = false;
   credentials.data = {
     credentials: [
@@ -307,6 +321,113 @@ describe("DeviceCommandProposalCard", () => {
     );
     expect(screen.getByText(/cut/i)).toBeTruthy();
     expect(screen.queryByRole("button", { name: /run/i })).toBeNull();
+  });
+
+  it("says which parser will run, and warns that Genie sends the output out", () => {
+    renderCard(proposal({ parser: "textfsm" }));
+    expect(screen.getByTestId("device-command-parser").textContent).toContain(
+      "TextFSM",
+    );
+    cleanup();
+
+    renderCard(proposal({ parser: "genie" }));
+    expect(screen.getByTestId("device-command-parser").textContent).toContain(
+      "pyATS",
+    );
+  });
+
+  it("shows no parser line when there is no parser", () => {
+    renderCard(proposal());
+
+    expect(screen.queryByTestId("device-command-parser")).toBeNull();
+  });
+
+  it("shows the parsed data and the commands that did not parse", () => {
+    renderCard(
+      proposal({
+        parser: "textfsm",
+        state: "applied",
+        result: result({
+          parser: "textfsm",
+          parsedHandle: "res_aaaaaaaaaaaa",
+          parsedText: '[{"command": "show version"}]',
+          parseErrors: [{ command: "show clock", error: "No template" }],
+        }),
+      }),
+    );
+
+    expect(screen.getByTestId("device-command-parsed").textContent).toContain(
+      "show version",
+    );
+    expect(
+      screen.getByTestId("device-command-parse-errors").textContent,
+    ).toContain("show clock — No template");
+  });
+
+  describe("downloading the parsed data", () => {
+    const parsed = () =>
+      proposal({
+        parser: "textfsm",
+        state: "applied",
+        result: result({
+          parser: "textfsm",
+          parsedHandle: "res_aaaaaaaaaaaa",
+          parsedText: "[]",
+        }),
+      });
+
+    it("downloads the full data as JSON or CSV by its handle", () => {
+      renderCard(parsed());
+
+      fireEvent.click(screen.getByRole("button", { name: /download json/i }));
+      fireEvent.click(screen.getByRole("button", { name: /download csv/i }));
+
+      expect(downloadMutate).toHaveBeenNthCalledWith(1, {
+        handle: "res_aaaaaaaaaaaa",
+        format: "json",
+        deviceName: "LAB",
+      });
+      expect(downloadMutate).toHaveBeenNthCalledWith(2, {
+        handle: "res_aaaaaaaaaaaa",
+        format: "csv",
+        deviceName: "LAB",
+      });
+    });
+
+    it("says the data is only kept for a few hours", () => {
+      renderCard(parsed());
+
+      expect(screen.getByTestId("device-command-download").textContent).toMatch(
+        /few hours/i,
+      );
+    });
+
+    it("offers no download when nothing was stored", () => {
+      renderCard(
+        proposal({
+          parser: "textfsm",
+          state: "applied",
+          result: result({ parser: "textfsm", parsedHandle: null }),
+        }),
+      );
+
+      expect(screen.queryByTestId("device-command-download")).toBeNull();
+    });
+
+    it("shows why a download failed and disables the buttons while it runs", () => {
+      downloadState.error = new Error("Unknown or expired result");
+      downloadState.isPending = true;
+      renderCard(parsed());
+
+      expect(screen.getByText("Unknown or expired result")).toBeTruthy();
+      expect(
+        (
+          screen.getByRole("button", {
+            name: /download json/i,
+          }) as HTMLButtonElement
+        ).disabled,
+      ).toBe(true);
+    });
   });
 
   it("shows a failed run's error and any partial output", () => {

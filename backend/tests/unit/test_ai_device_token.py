@@ -81,6 +81,7 @@ def _resign(payload: dict) -> str:
         ("u", 8),
         ("c", ["show running-config", "show version"]),
         ("c", ["reload"]),
+        ("p", "genie"),
         ("x", 10**12),
     ],
 )
@@ -146,3 +147,26 @@ def test_the_token_does_not_contain_the_secret_or_a_credential() -> None:
 
     assert "k" * 40 not in token
     assert "credential" not in base64.urlsafe_b64decode(token.split(".")[0]).decode()
+
+
+def test_the_parser_round_trips_and_defaults_to_none() -> None:
+    plain, _ = _issue()
+    parsed, _ = _issue(parser="textfsm")
+
+    assert dt.verify_token(plain, user_id=7, now=1001.0).parser == "none"
+    assert dt.verify_token(parsed, user_id=7, now=1001.0).parser == "textfsm"
+
+
+def test_a_signed_token_with_an_unknown_parser_is_refused(monkeypatch) -> None:
+    with pytest.raises(ValueError):
+        _issue(parser="regex")
+    token, _ = _issue()
+    payload = json.loads(base64.urlsafe_b64decode(token.split(".")[0]))
+    payload["p"] = "regex"
+    body = base64.urlsafe_b64encode(
+        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+    ).decode()
+    forged = f"{body}.{base64.urlsafe_b64encode(dt._sign(body.encode())).decode()}"
+
+    with pytest.raises(dt.InvalidTokenError):
+        dt.verify_token(forged, user_id=7, now=1001.0)

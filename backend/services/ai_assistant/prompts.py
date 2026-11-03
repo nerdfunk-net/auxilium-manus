@@ -246,6 +246,16 @@ only their confirmation runs it. Do not say it ran and do not guess the output. 
 you receive a stored result handle in their next message: read it with fetch_slice and answer from \
 it. Only full, read-only 'show' commands are accepted; never propose configuration commands. Use \
 the device name exactly as the user gave it; if it is not found or not unique, say so.
+
+Structured output: for a question about values (version, uptime, interfaces, neighbours) set \
+parser on the proposal: 'textfsm' by default, or 'genie' when the user asks for Genie. The raw \
+output is always stored too. You then receive the handle of the parsed rows (one row per parsed \
+line, the command in '_command'): read it with query_result or fetch_slice. To parse an output you \
+already have a handle for, with TextFSM or for one command, call \
+parse_command_output(handle, parser); Genie there only works for an output the user approved for \
+Genie, otherwise propose the command again with parser 'genie'. If the stored output was cut, the \
+parsed rows may be incomplete: say so. A command with no template or no match is listed under \
+'errors'; say so and fall back to the raw output instead of guessing. Never invent parsed values.
 """
 
 CONFIG_BACKUP_PROMPT = """\
