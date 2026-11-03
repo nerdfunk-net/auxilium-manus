@@ -366,6 +366,15 @@ async def _get_step_result(ctx: ToolContext, args: StepResultInput) -> ToolOutpu
     return ToolOutput(_json(ctx.redactor.redact_data(result)))
 
 
+async def read_step_result(
+    ctx: ToolContext, run_id: int, node_id: str, include: list[str]
+) -> ToolOutput:
+    """``get_step_result`` for another tool (``get_run_result``): same access, gates and limits."""
+    return await _get_step_result(
+        ctx, StepResultInput(run_id=run_id, node_id=node_id, include=include)
+    )
+
+
 async def _get_artifact(ctx: ToolContext, args: ArtifactInput) -> ToolOutput:
     run_id = _resolve_run_id(ctx, args.run_id)
     if run_id is None:

@@ -30,6 +30,7 @@ from services.ai_assistant.prompts import (
     DEVICE_COMMANDS_PROMPT,
     INVENTORY_PROMPT,
     NAUTOBOT_PROMPT,
+    RELEASED_WORKFLOWS_PROMPT,
     REPORT_TEMPLATE_PROMPT,
     REPORTS_PROMPT,
     RUN_EXPLAIN_PROMPT,
@@ -39,6 +40,7 @@ from services.ai_assistant.prompts import (
     general_prompt,
 )
 from services.ai_assistant.redaction import MAX_REDACT_CHARS_PER_REQUEST, Redactor
+from services.ai_assistant.released_workflow_reader import ReleasedWorkflowReader
 from services.ai_assistant.results.store import ResultStore
 from services.ai_assistant.tools.base import Toolbox, ToolContext
 from services.ai_assistant.tools.batfish_tools import (
@@ -72,6 +74,10 @@ from services.ai_assistant.tools.nautobot_tools import (
     build_nautobot_tools,
 )
 from services.ai_assistant.tools.playbook_tools import AVAILABLE_TOOLS_KEY, build_playbook_tools
+from services.ai_assistant.tools.released_workflow_tools import (
+    RELEASED_WORKFLOWS_KEY,
+    build_released_workflow_tools,
+)
 from services.ai_assistant.tools.report_tools import REPORT_TOOLS, ReportReader, ReportsState
 from services.ai_assistant.tools.result_tools import RESULT_STORE_KEY, build_result_tools
 from services.ai_assistant.tools.run_tools import (
@@ -318,6 +324,7 @@ def build_general_session(
     config_reader: ConfigBackupReader | None = None,
     nautobot_reader: NautobotQueryReader | None = None,
     run_reader: RunReader | None = None,
+    released_reader: ReleasedWorkflowReader | None = None,
 ) -> AssistantSession:
     """Ask the Net: read-only questions about the network (doc/AI_TOOL_CHAIN.md §10a, §20.3).
 
@@ -360,6 +367,11 @@ def build_general_session(
     if run_reader is not None:
         extras.update(run_viewer_extras(run_reader, sharing, can_list_runs=True))
         tools.extend((*RUN_VIEWER_TOOLS, *RUN_LOOKUP_TOOLS))
+    # Released workflows (doc/AI_TOOL_CHAIN.md section 16): list/describe, one proposal, and the
+    # result read. The result and status come from the run tools, so they need the run reader.
+    if released_reader is not None and run_reader is not None:
+        extras[RELEASED_WORKFLOWS_KEY] = released_reader
+        tools.extend(build_released_workflow_tools())
     if may_query_batfish and nautobot_reader is not None:
         # The two systems name a device differently (config hostname vs full name); this is the
         # explicit lookup between them (doc/AI_TOOL_CHAIN.md §33). Only useful with both.
@@ -381,6 +393,8 @@ def build_general_session(
         parts.append(NAUTOBOT_PROMPT)
     if run_reader is not None:
         parts.append(RUN_EXPLAIN_PROMPT)
+    if released_reader is not None and run_reader is not None:
+        parts.append(RELEASED_WORKFLOWS_PROMPT)
     if not may_query_batfish:
         offered = [
             name

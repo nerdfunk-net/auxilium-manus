@@ -264,6 +264,57 @@ describe("useAssistantChat", () => {
     expect(proposal.state).toBe("pending");
   });
 
+  it("keeps a workflow-run proposal with the workflow, inputs and devices it will start", async () => {
+    fetchMock.mockResolvedValue(
+      sseResponse([
+        frame("proposal", {
+          kind: "workflow_run",
+          token: "signed.token",
+          expires_at: 1_800_000_600,
+          workflow: { id: 5, name: "PyATS Compare" },
+          inputs: { features: "ospf" },
+          devices: [{ id: "d1", name: "sw1" }],
+        }),
+        frame("done", {}),
+      ]),
+    );
+    const { result } = renderHook(() => useAssistantChat({ sessionKey: KEY }));
+
+    await send(result, "compare sw1");
+
+    expect(result.current.messages[1].proposal).toEqual({
+      kind: "workflow_run",
+      summary: "Run PyATS Compare",
+      token: "signed.token",
+      expiresAt: 1_800_000_600,
+      workflow: { id: 5, name: "PyATS Compare" },
+      inputs: { features: "ospf" },
+      devices: [{ id: "d1", name: "sw1" }],
+      state: "pending",
+    });
+  });
+
+  it("drops a workflow-run proposal whose payload is malformed", async () => {
+    fetchMock.mockResolvedValue(
+      sseResponse([
+        frame("proposal", {
+          kind: "workflow_run",
+          token: "signed.token",
+          expires_at: 1_800_000_600,
+          workflow: { id: "5", name: "x" },
+          inputs: {},
+          devices: [],
+        }),
+        frame("done", {}),
+      ]),
+    );
+    const { result } = renderHook(() => useAssistantChat({ sessionKey: KEY }));
+
+    await send(result, "compare");
+
+    expect(result.current.messages[1].proposal).toBeUndefined();
+  });
+
   it("keeps a query proposal with its query, pending", async () => {
     const query = { source: "report_data", dataset: "inventory", scope: { kind: "latest" } };
     fetchMock.mockResolvedValue(

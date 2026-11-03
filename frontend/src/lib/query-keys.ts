@@ -31,6 +31,8 @@ export const queryKeys = {
     // would flow straight into the open canvas and clobber in-progress edits.
     // This key is only ever polled, never used to hydrate canvas state.
     aiSession: (id: number) => [...queryKeys.workflows.all, "ai-session", id] as const,
+    // Release for Ask the Net; separate from `detail` for the same reason as `aiSession`.
+    aiRelease: (id: number) => [...queryKeys.workflows.all, "ai-release", id] as const,
     changes: (id: number) => [...queryKeys.workflows.all, "changes", id] as const,
     gallery: () => [...queryKeys.workflows.all, "gallery"] as const,
   },

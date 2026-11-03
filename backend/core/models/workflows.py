@@ -33,6 +33,17 @@ class Workflow(Base):
     is_version_controlled: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false"
     )
+    # Release for the Ask the Net assistant (doc/AI_TOOL_CHAIN.md section 16). Cleared by any
+    # edit of the definition (D7), so a release always refers to the reviewed version.
+    ai_released: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    ai_released_by_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    ai_released_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # What the workflow does, when to use it, what each input means, what the result holds.
+    ai_description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # The one step node whose output the assistant may read as the result.
+    ai_result_node_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,

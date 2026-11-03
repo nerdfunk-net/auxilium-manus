@@ -1014,3 +1014,108 @@ def test_the_device_type_choices_in_the_request_model_match_the_resolver_list() 
     from services.ai_assistant.device_access import DEVICE_DRIVERS
 
     assert set(get_args(DeviceDriver)) == set(DEVICE_DRIVERS)
+
+
+# -- confirmed workflow runs (doc/AI_TOOL_CHAIN.md section 16) ---------------------------------
+
+
+class _FakeRunExecutor:
+    def __init__(self, error: Exception | None = None) -> None:
+        self.error, self.calls = error, []
+
+    async def execute(self, *, user_id, token):
+        self.calls.append((user_id, token))
+        if self.error:
+            raise self.error
+        from services.ai_assistant.workflow_run_exec import StartedRun
+
+        return StartedRun(run_id=42, workflow_id=5)
+
+
+def _run_client(client: TestClient, error: Exception | None = None):
+    _register_domain_error_handler(client)
+    _configure(client)
+    executor = _FakeRunExecutor(error)
+    client.app.dependency_overrides[ai_router_module.get_workflow_run_executor] = lambda: executor
+    return executor
+
+
+_RUN_CONFIRM = {"token": "signed.token"}
+
+
+def test_confirming_a_workflow_run_starts_it_as_the_calling_user(client: TestClient) -> None:
+    executor = _run_client(client)
+
+    response = client.post("/api/ai/exec/workflow-run", json=_RUN_CONFIRM)
+
+    assert response.status_code == 200, response.text
+    assert response.json() == {"run_id": 42, "workflow_id": 5}
+    assert executor.calls == [(1, "signed.token")]
+
+
+def test_a_bad_workflow_run_token_is_a_400(client: TestClient) -> None:
+    from services.ai_assistant.workflow_run_token import InvalidRunTokenError
+
+    _run_client(client, InvalidRunTokenError())
+
+    response = client.post("/api/ai/exec/workflow-run", json=_RUN_CONFIRM)
+
+    assert response.status_code == 400
+    assert response.json()["detail"]["code"] == "invalid_confirmation"
+
+
+def test_an_unreleased_workflow_is_a_403(client: TestClient) -> None:
+    from services.ai_assistant.released_workflow_reader import ReleasedWorkflowAccessError
+
+    _run_client(client, ReleasedWorkflowAccessError())
+
+    response = client.post("/api/ai/exec/workflow-run", json=_RUN_CONFIRM)
+
+    assert response.status_code == 403
+    assert response.json()["detail"]["code"] == "workflow_not_released"
+
+
+def test_a_domain_error_reaches_the_client(client: TestClient) -> None:
+    from core.domain_exceptions import ValidationFailedError
+
+    _run_client(client, ValidationFailedError("This workflow is no longer released"))
+
+    response = client.post("/api/ai/exec/workflow-run", json=_RUN_CONFIRM)
+
+    assert response.status_code in (400, 422)
+    assert "no longer released" in str(response.json())
+
+
+@pytest.mark.parametrize("missing", [("ai_assistant", "use"), ("workflows", "execute")])
+def test_a_workflow_run_needs_both_permissions(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch, missing: tuple[str, str]
+) -> None:
+    executor = _run_client(client)
+    monkeypatch.setattr(
+        RBACService,
+        "has_permission",
+        lambda self, _uid, resource, action: (resource, action) != missing,
+    )
+
+    assert client.post("/api/ai/exec/workflow-run", json=_RUN_CONFIRM).status_code == 403
+    assert executor.calls == []
+
+
+@pytest.mark.parametrize(
+    "body", [{}, {"token": ""}, {"token": "t", "workflow_id": 9}, {"token": "t", "run_inputs": {}}]
+)
+def test_the_workflow_run_body_carries_only_the_token(client: TestClient, body: dict) -> None:
+    executor = _run_client(client)
+
+    assert client.post("/api/ai/exec/workflow-run", json=body).status_code == 422
+    assert executor.calls == []
+
+
+def test_the_workflow_run_endpoint_is_absent_while_the_assistant_is_off(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    executor = _run_client(client)
+    monkeypatch.setattr(settings, "ai_assistant_enabled", False)
+
+    assert client.post("/api/ai/exec/workflow-run", json=_RUN_CONFIRM).status_code == 404
+    assert executor.calls == []

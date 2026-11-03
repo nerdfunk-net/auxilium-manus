@@ -486,6 +486,36 @@ class RunService:
         )
         return _run_to_response(run, None, [])
 
+    def trigger_ai_run(
+        self,
+        workflow_id: int,
+        user_id: int,
+        *,
+        run_inputs: dict[str, Any],
+        device_ids: list[str],
+    ) -> WorkflowRunResponse:
+        """Start a workflow the Ask the Net assistant proposed and the user confirmed.
+
+        Runs as the confirming user with ``trigger_type="ai_assistant"`` (a value the public run
+        endpoint cannot set). The workflow must still be released: a proposal can be older than an
+        edit or an un-release.
+        """
+        workflow = self._assert_workflow_access(workflow_id, user_id)
+        if not workflow.ai_released:
+            raise ValidationFailedError("This workflow is no longer released for the assistant")
+        try:
+            resolved = resolve_run_inputs(workflow.static_attributes, run_inputs)
+        except RunInputValidationError as exc:
+            raise ValidationFailedError(str(exc)) from exc
+        run = self._create_and_dispatch_run(
+            workflow,
+            triggered_by_id=user_id,
+            trigger_type="ai_assistant",
+            device_ids=device_ids,
+            run_inputs=resolved,
+        )
+        return _run_to_response(run, None, [])
+
     def list_runs(
         self,
         workflow_id: int,

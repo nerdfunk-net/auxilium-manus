@@ -662,6 +662,18 @@ configs) and goes through the opt-in.
 
 ## 16. Starting released workflows
 
+> **Status (2026-11-03): built, not yet run against a real workflow.** Differences from the text below:
+> release needs the new permission `workflows:release_ai` (P3, admin-granted), not the `admin` role;
+> the result is **one designated step** (`ai_result_node_id`) read from the stored step result, no
+> "return to assistant" step; audit is a log line plus `ai_released_by_id`/`ai_released_at` (no
+> `WorkflowChange` row); tools are `list_released_workflows`, `describe_workflow`,
+> `propose_workflow_run`, `get_run_result` (status = `get_run`); confirm endpoint
+> `POST /ai/exec/workflow-run`; frontend: "Release to be used by Ask the Net" in the workflow
+> properties panel and `WorkflowRunProposalCard`. Code: `services/ai_assistant/tools/released_workflow_tools.py`,
+> `released_workflow_reader.py`, `workflow_run_token.py`, `workflow_run_exec.py`,
+> `WorkflowService.release_for_ai`, `RunService.trigger_ai_run`. Not built: concurrent-run cap per user,
+> device cap beyond 20 per start, waiting for a run inside one chat turn (the user asks for the result).
+
 ### 16.1 Idea
 
 An administrator marks selected workflows as **released for the assistant**. The assistant can list

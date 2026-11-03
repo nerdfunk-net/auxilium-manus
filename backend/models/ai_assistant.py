@@ -245,6 +245,23 @@ class DeviceCommandConfirmRequest(BaseModel):
     network_driver: DeviceDriver | None = None
 
 
+class WorkflowRunConfirmRequest(BaseModel):
+    """The user's click on a proposed workflow run: only the signed token.
+
+    The workflow, inputs and devices are in the token (signed when the model proposed them), never
+    in the body, so a request cannot start anything the user was not shown.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    token: str = Field(min_length=1, max_length=16384)
+
+
+class WorkflowRunConfirmResponse(BaseModel):
+    run_id: int
+    workflow_id: int
+
+
 class DeviceCommandResponse(BaseModel):
     success: bool
     error: str | None = None

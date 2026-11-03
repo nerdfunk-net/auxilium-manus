@@ -18,6 +18,7 @@ from core.models.workflows import Workflow
 from models.workflow_changes import WorkflowChangeListResponse
 from models.workflows import (
     StaticAttributeDef,
+    WorkflowAiReleaseRequest,
     WorkflowCreate,
     WorkflowGitDiffResponse,
     WorkflowGitHistoryResponse,
@@ -163,6 +164,31 @@ def _repair_orphan_groups(canvas_nodes: list[dict], canvas_groups: list[dict]) -
     return repaired
 
 
+# Fields whose change alters what a released workflow does (D7). Notes, name and folder do not.
+_AI_RELEASE_DEFINITION_FIELDS = (
+    "canvas_nodes",
+    "canvas_edges",
+    "canvas_groups",
+    "static_attributes",
+)
+_AI_RELEASE_CLEARED: dict[str, Any] = {
+    "ai_released": False,
+    "ai_released_by_id": None,
+    "ai_released_at": None,
+    "ai_description": None,
+    "ai_result_node_id": None,
+}
+
+
+def _invalidates_ai_release(workflow: Workflow, fields: dict[str, Any]) -> bool:
+    if fields.get("visibility") == "private":
+        return True
+    for name in _AI_RELEASE_DEFINITION_FIELDS:
+        if name in fields and fields[name] != getattr(workflow, name):
+            return True
+    return False
+
+
 def _to_summary(workflow: Workflow, creator_username: str | None) -> WorkflowSummary:
     return WorkflowSummary(
         id=workflow.id,
@@ -175,6 +201,10 @@ def _to_summary(workflow: Workflow, creator_username: str | None) -> WorkflowSum
         visibility=workflow.visibility,
         is_version_controlled=workflow.is_version_controlled,
         notes=workflow.notes,
+        ai_released=bool(workflow.ai_released),
+        ai_description=workflow.ai_description,
+        ai_result_node_id=workflow.ai_result_node_id,
+        ai_released_at=workflow.ai_released_at,
         created_at=workflow.created_at,
         updated_at=workflow.updated_at,
     )
@@ -226,6 +256,10 @@ def _to_response(
         canvas_edges=workflow.canvas_edges,
         canvas_groups=workflow.canvas_groups,
         static_attributes=workflow.static_attributes,
+        ai_released=bool(workflow.ai_released),
+        ai_description=workflow.ai_description,
+        ai_result_node_id=workflow.ai_result_node_id,
+        ai_released_at=workflow.ai_released_at,
         created_at=workflow.created_at,
         updated_at=workflow.updated_at,
         git_sync=_to_git_sync_status(git_sync),
@@ -452,6 +486,12 @@ class WorkflowService:
                 updated_fields.get("canvas_nodes", workflow.canvas_nodes),
                 updated_fields.get("canvas_groups", workflow.canvas_groups),
             )
+        if workflow.ai_released and _invalidates_ai_release(workflow, updated_fields):
+            # D7: a release is bound to the reviewed version; any change to it ends the release.
+            updated_fields.update(_AI_RELEASE_CLEARED)
+            logger.info(
+                "AI release cleared by edit workflow_id=%s actor_id=%s", workflow.id, actor_id
+            )
         workflow = self.repo.update(workflow, updated_fields)
         logger.info("Workflow updated id=%s actor_id=%s", workflow.id, actor_id)
         git_result = self.git.sync_workflow_to_git(
@@ -511,6 +551,52 @@ class WorkflowService:
     def get_workflow_changes(self, workflow_id: int, user_id: int) -> WorkflowChangeListResponse:
         self._get_readable_workflow(workflow_id, user_id)
         return self.changes.list_changes(workflow_id)
+
+    def release_for_ai(
+        self,
+        workflow_id: int,
+        user_id: int,
+        data: WorkflowAiReleaseRequest,
+    ) -> WorkflowResponse:
+        """Release a workflow for Ask the Net (the router checks ``workflows:release_ai``).
+
+        Only a non-private workflow can be released (D9), and the optional result node must be
+        a step on its canvas.
+        """
+        result = self.repo.get_by_id(workflow_id)
+        if result is None:
+            raise NotFoundError("Workflow not found")
+        workflow, creator_username = result
+        if not self._may_manage(workflow, user_id):
+            raise AccessDeniedError("Access denied")
+        if workflow.visibility == "private":
+            raise ValidationFailedError("A private workflow cannot be released; share it first")
+        node_ids = {n.get("id") for n in (workflow.canvas_nodes or [])}
+        if data.result_node_id is not None and data.result_node_id not in node_ids:
+            raise ValidationFailedError("The result step is not on the workflow canvas")
+        workflow = self.repo.update(
+            workflow,
+            {
+                "ai_released": True,
+                "ai_released_by_id": user_id,
+                "ai_released_at": datetime.now(UTC),
+                "ai_description": data.description.strip(),
+                "ai_result_node_id": data.result_node_id,
+            },
+        )
+        logger.info("AI release set workflow_id=%s actor_id=%s", workflow_id, user_id)
+        return _to_response(workflow, creator_username)
+
+    def unrelease_for_ai(self, workflow_id: int, user_id: int) -> WorkflowResponse:
+        result = self.repo.get_by_id(workflow_id)
+        if result is None:
+            raise NotFoundError("Workflow not found")
+        workflow, creator_username = result
+        if not self._may_manage(workflow, user_id):
+            raise AccessDeniedError("Access denied")
+        workflow = self.repo.update(workflow, dict(_AI_RELEASE_CLEARED))
+        logger.info("AI release removed workflow_id=%s actor_id=%s", workflow_id, user_id)
+        return _to_response(workflow, creator_username)
 
     def update_notes(
         self, workflow_id: int, user_id: int, notes: str | None

@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 WorkflowVisibility = Literal["public", "private"]
 StaticAttributeType = Literal["string", "number", "boolean", "reference", "secret"]
@@ -87,8 +87,21 @@ class WorkflowSummary(BaseModel):
     visibility: str
     is_version_controlled: bool
     notes: str | None = None
+    ai_released: bool = False
+    ai_description: str | None = None
+    ai_result_node_id: str | None = None
+    ai_released_at: datetime | None = None
     created_at: datetime
     updated_at: datetime
+
+
+class WorkflowAiReleaseRequest(BaseModel):
+    """Release a workflow for Ask the Net: the assistant description and the one result step."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    description: str = Field(..., min_length=1, max_length=4000)
+    result_node_id: str | None = Field(None, min_length=1, max_length=255)
 
 
 class WorkflowGitSyncStatus(BaseModel):

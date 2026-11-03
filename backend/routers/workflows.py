@@ -14,6 +14,7 @@ from core.safe_http_errors import raise_internal_server_error
 from models.workflow_changes import WorkflowChangeListResponse
 from models.workflow_validation import WorkflowValidateRequest, WorkflowValidationResult
 from models.workflows import (
+    WorkflowAiReleaseRequest,
     WorkflowCreate,
     WorkflowGalleryListResponse,
     WorkflowGitDiffRequest,
@@ -162,6 +163,44 @@ def update_workflow(
         raise
     except Exception as exc:
         raise_internal_server_error(logger, "Failed to update workflow", exc)
+
+
+@router.put(
+    "/{workflow_id}/ai-release",
+    response_model=WorkflowResponse,
+    dependencies=[Depends(require_permission("workflows", "release_ai"))],
+)
+def release_workflow_for_ai(
+    workflow_id: int,
+    body: WorkflowAiReleaseRequest,
+    current_user: User = Depends(get_current_user),
+    service: WorkflowService = Depends(_service),
+) -> WorkflowResponse:
+    """Release a workflow for the Ask the Net assistant (doc/AI_TOOL_CHAIN.md section 16)."""
+    try:
+        return service.release_for_ai(workflow_id, current_user.id, body)
+    except DomainError:
+        raise
+    except Exception as exc:
+        raise_internal_server_error(logger, "Failed to release workflow", exc)
+
+
+@router.delete(
+    "/{workflow_id}/ai-release",
+    response_model=WorkflowResponse,
+    dependencies=[Depends(require_permission("workflows", "release_ai"))],
+)
+def unrelease_workflow_for_ai(
+    workflow_id: int,
+    current_user: User = Depends(get_current_user),
+    service: WorkflowService = Depends(_service),
+) -> WorkflowResponse:
+    try:
+        return service.unrelease_for_ai(workflow_id, current_user.id)
+    except DomainError:
+        raise
+    except Exception as exc:
+        raise_internal_server_error(logger, "Failed to remove the workflow release", exc)
 
 
 @router.get(

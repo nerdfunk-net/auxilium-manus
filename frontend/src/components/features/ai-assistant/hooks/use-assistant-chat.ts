@@ -13,6 +13,7 @@ import type {
   AssistantContext,
   ChatMessage,
   DeviceCommandResult,
+  WorkflowRunResult,
   DisplayMessage,
   ProposalState,
   ToolActivity,
@@ -75,6 +76,9 @@ interface ProposalPayload {
   commands?: unknown;
   driver_known?: unknown;
   driver_choices?: unknown;
+  workflow?: unknown;
+  inputs?: unknown;
+  devices?: unknown;
 }
 
 export interface UseAssistantChatOptions {
@@ -103,6 +107,61 @@ interface ParsedDeviceCommand {
   commands: string[];
   driverKnown: boolean;
   driverChoices: string[];
+}
+
+interface ParsedWorkflowRun {
+  token: string;
+  expiresAt: number;
+  workflow: { id: number; name: string };
+  inputs: Record<string, string | number | boolean>;
+  devices: { id: string; name: string }[];
+}
+
+/** The workflow-run payload, or null when anything the card needs is missing or mistyped. */
+function parseWorkflowRun(payload: ProposalPayload): ParsedWorkflowRun | null {
+  const { token, expires_at: expiresAt, workflow, inputs, devices } = payload;
+  if (typeof token !== "string" || !token || typeof expiresAt !== "number") {
+    return null;
+  }
+  if (typeof workflow !== "object" || workflow === null) {
+    return null;
+  }
+  const { id, name } = workflow as Record<string, unknown>;
+  if (typeof id !== "number" || typeof name !== "string") {
+    return null;
+  }
+  if (typeof inputs !== "object" || inputs === null || Array.isArray(inputs)) {
+    return null;
+  }
+  const parsedInputs: Record<string, string | number | boolean> = {};
+  for (const [key, value] of Object.entries(inputs)) {
+    if (
+      typeof value !== "string" &&
+      typeof value !== "number" &&
+      typeof value !== "boolean"
+    ) {
+      return null;
+    }
+    parsedInputs[key] = value;
+  }
+  if (!Array.isArray(devices)) {
+    return null;
+  }
+  const parsedDevices: { id: string; name: string }[] = [];
+  for (const device of devices) {
+    const entry = device as Record<string, unknown> | null;
+    if (!entry || typeof entry.id !== "string" || typeof entry.name !== "string") {
+      return null;
+    }
+    parsedDevices.push({ id: entry.id, name: entry.name });
+  }
+  return {
+    token,
+    expiresAt,
+    workflow: { id, name },
+    inputs: parsedInputs,
+    devices: parsedDevices,
+  };
 }
 
 /** The device-command payload, or null when anything the card needs is missing or mistyped. */
@@ -320,6 +379,19 @@ export function useAssistantChat({
                     },
                   }));
                 }
+              } else if (proposal.kind === "workflow_run") {
+                const parsed = parseWorkflowRun(proposal);
+                if (parsed) {
+                  patchAssistant(assistantId, (m) => ({
+                    ...m,
+                    proposal: {
+                      kind: "workflow_run",
+                      summary: `Run ${parsed.workflow.name}`,
+                      ...parsed,
+                      state: "pending",
+                    },
+                  }));
+                }
               } else if (proposal.kind === "inventory") {
                 const tree = parseProposedConditionTree(proposal.tree);
                 if (!tree) {
@@ -482,6 +554,21 @@ export function useAssistantChat({
     [sessionKey],
   );
 
+  const completeWorkflowRun = useCallback(
+    (messageId: string, result: WorkflowRunResult) => {
+      useAssistantSessionStore
+        .getState()
+        .updateMessages(sessionKey, (prev) =>
+          prev.map((m) =>
+            m.id === messageId && m.proposal?.kind === "workflow_run"
+              ? { ...m, proposal: { ...m.proposal, state: "applied", result } }
+              : m,
+          ),
+        );
+    },
+    [sessionKey],
+  );
+
   // Null the ref synchronously so a send right after stop/clear is not dropped while the
   // aborted request's `finally` has not run yet.
   const stop = useCallback(() => {
@@ -504,6 +591,7 @@ export function useAssistantChat({
       clear,
       setProposalState,
       completeDeviceCommand,
+      completeWorkflowRun,
     }),
     [
       messages,
@@ -513,6 +601,7 @@ export function useAssistantChat({
       clear,
       setProposalState,
       completeDeviceCommand,
+      completeWorkflowRun,
     ],
   );
 }

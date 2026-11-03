@@ -55,6 +55,10 @@ export interface WorkflowSummary {
   visibility: WorkflowVisibility;
   is_version_controlled: boolean;
   notes?: string | null;
+  ai_released?: boolean;
+  ai_description?: string | null;
+  ai_result_node_id?: string | null;
+  ai_released_at?: string | null;
   created_at: string;
   updated_at: string;
 }

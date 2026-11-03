@@ -19,9 +19,14 @@ PROTECTED_SOURCE_ACTIONS: frozenset[str] = frozenset({"write", "delete"})
 # Write/delete on a git repository binds a global credential to a URL the holder chooses and
 # sends it there on the first clone/pull/test (S2-01); only admins may grant or revoke these (P3).
 PROTECTED_GIT_ACTIONS: frozenset[str] = frozenset({"write", "delete"})
+# Releasing a workflow lets the AI assistant propose running it (doc/AI_TOOL_CHAIN.md section 16),
+# so the right to release is admin-granted only (P3).
+PROTECTED_WORKFLOW_ACTIONS: frozenset[str] = frozenset({"release_ai"})
 
 
 def _is_protected(permission: Permission) -> bool:
+    if permission.resource == "workflows" and permission.action in PROTECTED_WORKFLOW_ACTIONS:
+        return True
     if permission.resource.startswith("sources.") and permission.action in PROTECTED_SOURCE_ACTIONS:
         return True
     if permission.resource == "git.repositories" and permission.action in PROTECTED_GIT_ACTIONS:

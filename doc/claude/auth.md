@@ -63,7 +63,7 @@ See `backend/services/auth/rbac_service.py::RBACService.has_permission`.
 |---|---|
 | P1 | An actor may never change their own roles/overrides, or delete/deactivate themselves. |
 | P2 | An actor may grant only permissions they currently hold. `admin` bypasses. |
-| P3 | Any change touching `rbac.*`, `users`, `system.*`, `secret_manager.*`, or `sources.*:write` / `sources.*:delete`, or `git.repositories:write` / `git.repositories:delete` requires `admin`. |
+| P3 | Any change touching `rbac.*`, `users`, `system.*`, `secret_manager.*`, or `sources.*:write` / `sources.*:delete`, or `git.repositories:write` / `git.repositories:delete`, or `workflows:release_ai` requires `admin`. |
 | P4 | Any change to a user who currently holds `admin` requires `admin`. |
 | P5 | System roles (`is_system=True`) cannot be renamed, deleted, or have `is_system` changed. |
 | P6 | The last **active** user holding `admin` cannot lose it (role removal, deactivation, deletion). Deactivated admins do not count. |
@@ -104,6 +104,17 @@ carries it (`doc/AGENT_INTEGRATION.md`).
 holds) and the user's content opt-in; no operator switch. The path comes from the repository's
 `config_path_running` / `config_path_startup` template, which only an admin can set (P3), never from the model
 (`doc/AI_TOOL_CHAIN.md` §30).
+
+**Released workflows** (`workflows:release_ai`, protected by P3: only an admin grants it, no seeded role holds it).
+A holder may release a non-private workflow they manage (creator or admin) for Ask the Net, with a description
+and one designated result step; `PUT/DELETE /workflows/{id}/ai-release`. Any change to the saved canvas, edges,
+groups or inputs, or making the workflow private, clears the release (notes, name and folder do not). The
+assistant lists/describes only released workflows the user may see **and** may run (`workflows:execute`),
+proposes a run (signed token, 10 minutes, bound to the user) and the user's click calls
+`POST /ai/exec/workflow-run`, which starts it **as that user** through `RunService.trigger_ai_run`
+(`trigger_type="ai_assistant"`, which the public run API cannot set) and re-checks the release. Secret and
+credential-reference inputs are never settable by the model. `get_run_result` reads only the designated step,
+through the `get_step_result` gates (content opt-in, redaction, truncation). `doc/AI_TOOL_CHAIN.md` §16.
 
 **Ask the Net run tools** (`list_runs`, `get_run`, `get_step_result`, ...). The same tools as the runs-page assistant. They
 need `workflow_runs:read` (checked on every call) and follow run visibility; the user's inventory and content opt-ins gate

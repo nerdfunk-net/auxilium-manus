@@ -15,6 +15,11 @@ events), `change_requests`, `workflow_schedules`, `workflow_background_tier`,
 **`git_repositories.config_path_running` / `config_path_startup`** (nullable, `device_configs` only) are
 placeholder path templates for a device's config backup (`services/git/config_path_template.py`).
 
+**`workflows.ai_released`** (bool NOT NULL, default false), `ai_released_by_id` (FK users, SET NULL),
+`ai_released_at`, `ai_description` (text) and `ai_result_node_id` hold the release for Ask the Net
+(`doc/AI_TOOL_CHAIN.md` §16); the workflow service clears all five when the definition changes.
+`workflow_runs.trigger_type` also takes `ai_assistant`.
+
 **`workflow_runs.parent_run_id`** (nullable self FK, `ON DELETE SET NULL`, indexed) links a run to the
 run whose `start-workflow` step started it; `trigger_type` is then `workflow`.
 **`workflow_runs.ancestor_workflow_ids`** (nullable JSON list) holds the workflow ids of every run above

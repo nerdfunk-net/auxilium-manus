@@ -26,6 +26,7 @@ import type {
   AssistantContext,
   ConversationScope,
   DeviceCommandResult,
+  WorkflowRunResult,
   DisplayMessage,
   InventoryProposal,
   QueryProposal,
@@ -41,6 +42,7 @@ import {
 import { AssistantMessageText } from "./assistant-message-text";
 import { SavedConversationsDialog } from "./saved-conversations-dialog";
 import { DeviceCommandProposalCard } from "./device-command-proposal-card";
+import { WorkflowRunProposalCard } from "./workflow-run-proposal-card";
 import { InventoryProposalCard } from "./inventory-proposal-card";
 import { QueryProposalCard } from "./query-proposal-card";
 import { ReportOutlineCard, SectionTextCard } from "./report-proposal-cards";
@@ -132,6 +134,10 @@ const TOOL_LABELS: Record<string, string> = {
   propose_report_outline: "Drafting a report",
   propose_section_text: "Drafting section text",
   propose_device_command: "Preparing a device command",
+  list_released_workflows: "Looking for released workflows",
+  describe_workflow: "Reading a released workflow",
+  propose_workflow_run: "Preparing a workflow run",
+  get_run_result: "Reading the run result",
   list_config_backups: "Looking for config backups",
   get_config_backup: "Reading a config backup",
   list_playbooks: "Looking for a matching playbook",
@@ -202,6 +208,7 @@ export function AssistantPanel({
     clear,
     setProposalState,
     completeDeviceCommand,
+    completeWorkflowRun,
   } = useAssistantChat({
     sessionKey,
     getContext,
@@ -269,6 +276,27 @@ export function AssistantPanel({
       }
     },
     [completeDeviceCommand, send],
+  );
+
+  // The run is asynchronous: the user decides when to ask for the result, and the message carries
+  // the run id so the assistant can read it (get_run_result applies the opt-ins and redaction).
+  const handleWorkflowRunStarted = useCallback(
+    (messageId: string, result: WorkflowRunResult) => {
+      if (!messageIdsRef.current.has(messageId)) {
+        return;
+      }
+      completeWorkflowRun(messageId, result);
+    },
+    [completeWorkflowRun],
+  );
+  const handleAskRunResult = useCallback(
+    (result: WorkflowRunResult, workflowName: string) => {
+      void send(
+        `I started the workflow "${workflowName}" as run ${result.runId} and it has finished. ` +
+          "Please read its result and answer my request.",
+      );
+    },
+    [send],
   );
 
   useEffect(() => {
@@ -412,6 +440,15 @@ export function AssistantPanel({
           proposal={message.proposal}
           busy={isStreaming}
           onResult={(result) => handleDeviceResult(message.id, result)}
+          onReject={() => setProposalState(message.id, "rejected")}
+        />
+      )}
+      {message.proposal?.kind === "workflow_run" && (
+        <WorkflowRunProposalCard
+          proposal={message.proposal}
+          busy={isStreaming}
+          onResult={(result) => handleWorkflowRunStarted(message.id, result)}
+          onAskResult={handleAskRunResult}
           onReject={() => setProposalState(message.id, "rejected")}
         />
       )}

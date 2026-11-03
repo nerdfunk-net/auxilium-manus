@@ -22,6 +22,11 @@ _UPDATABLE_FIELDS = frozenset(
         "static_attributes",
         "is_version_controlled",
         "notes",
+        "ai_released",
+        "ai_released_by_id",
+        "ai_released_at",
+        "ai_description",
+        "ai_result_node_id",
     }
 )
 

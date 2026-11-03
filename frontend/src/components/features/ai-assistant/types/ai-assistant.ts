@@ -306,6 +306,30 @@ export interface DeviceCommandProposal {
   state: ProposalState;
 }
 
+/** The run a confirmed workflow proposal started. */
+export interface WorkflowRunResult {
+  runId: number;
+  workflowId: number;
+}
+
+/**
+ * A released workflow the assistant wants run, with the inputs and devices it chose. Nothing starts
+ * until the user clicks Run; the token (signed by the server) carries all of it, so what starts is
+ * what the card shows.
+ */
+export interface WorkflowRunProposal {
+  kind: "workflow_run";
+  summary: string;
+  token: string;
+  /** Unix seconds; the server refuses the token after this. */
+  expiresAt: number;
+  workflow: { id: number; name: string };
+  inputs: Record<string, string | number | boolean>;
+  devices: { id: string; name: string }[];
+  result?: WorkflowRunResult;
+  state: ProposalState;
+}
+
 export type AssistantProposal =
   | TemplateProposal
   | WorkflowProposal
@@ -313,7 +337,8 @@ export type AssistantProposal =
   | ReportOutlineProposal
   | SectionTextProposal
   | InventoryProposal
-  | DeviceCommandProposal;
+  | DeviceCommandProposal
+  | WorkflowRunProposal;
 
 /** A message in the panel; `error` is set on an assistant turn that failed. */
 export interface DisplayMessage extends ChatMessage {
@@ -347,7 +372,8 @@ export interface SavedProposal {
     | "report_outline"
     | "section_text"
     | "inventory"
-    | "device_command";
+    | "device_command"
+    | "workflow_run";
   summary: string;
 }
 

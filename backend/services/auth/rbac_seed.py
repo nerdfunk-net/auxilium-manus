@@ -68,6 +68,11 @@ DEFAULT_PERMISSIONS: list[tuple[str, str, str]] = [
     ("workflows", "delete", "Delete workflow definitions"),
     ("workflows", "execute", "Trigger, cancel, or step a workflow run"),
     ("workflows", "publish", "Publish or unpublish a workflow to the background execution tier"),
+    (
+        "workflows",
+        "release_ai",
+        "Release a workflow so the Ask the Net assistant can propose running it",
+    ),
     ("workflow_runs", "read", "View workflow run history, logs, and artifacts"),
     ("workflow_runs", "delete", "Delete workflow run history"),
     ("change_requests", "read", "View change requests and rendered-config diffs"),

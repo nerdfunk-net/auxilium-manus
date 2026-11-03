@@ -42,6 +42,8 @@ from models.ai_assistant import (
     UserAiSettingsResponse,
     UserAiSettingsUpdate,
     WorkflowCanvasContext,
+    WorkflowRunConfirmRequest,
+    WorkflowRunConfirmResponse,
 )
 from services.ai_assistant.agent_loop import DEFAULT_BUDGET
 from services.ai_assistant.audit import AuditContext
@@ -80,6 +82,10 @@ from services.ai_assistant.prompts import BASE_SYSTEM_PROMPT
 from services.ai_assistant.providers.base import ChatMessage
 from services.ai_assistant.proxy_settings_service import AiProxySettingsService
 from services.ai_assistant.redaction import RedactionBudgetExceeded
+from services.ai_assistant.released_workflow_reader import (
+    DbReleasedWorkflowReader,
+    ReleasedWorkflowAccessError,
+)
 from services.ai_assistant.report_reader import DbReportReader
 from services.ai_assistant.results.factory import get_result_store
 from services.ai_assistant.run_reader import DbRunReader
@@ -96,6 +102,8 @@ from services.ai_assistant.surfaces import (
 from services.ai_assistant.template_reader import DbTemplateReader
 from services.ai_assistant.tools.base import Toolbox
 from services.ai_assistant.workflow_reader import DbReferenceReader, DbWorkflowValidator
+from services.ai_assistant.workflow_run_exec import WorkflowRunExecutor
+from services.ai_assistant.workflow_run_token import InvalidRunTokenError
 from services.auth.rbac_service import RBACService
 from services.settings.settings_service import SettingsService
 
@@ -157,6 +165,7 @@ def _session_for(
     can_read_config_backups: bool = False,
     can_read_nautobot: bool = False,
     can_read_runs: bool = False,
+    can_start_released: bool = False,
 ) -> AssistantSession:
     sharing = config.sharing
     # S5-04: with run / device content shared, scrub the exact secrets the user can resolve.
@@ -194,6 +203,8 @@ def _session_for(
             nautobot_reader=DbNautobotQueryReader(user.id) if can_read_nautobot else None,
             # Run explanations reuse the runs-page reader; it checks workflow_runs:read per call.
             run_reader=DbRunReader(user.id) if can_read_runs else None,
+            # Released workflows: the reader checks workflows:execute and visibility per call.
+            released_reader=DbReleasedWorkflowReader(user.id) if can_start_released else None,
         )
     if isinstance(context, ReportsContext):
         return build_reports_session(
@@ -355,6 +366,7 @@ def chat(
     can_read_config_backups = False
     can_read_nautobot = False
     can_read_runs = False
+    can_start_released = False
     try:
         config: AiRuntimeConfig = service.require_runtime_config(current_user.id)
         if isinstance(body.context, InventoryContext):
@@ -377,6 +389,7 @@ def chat(
                 current_user.id, "sources.nautobot", "read"
             ) and bool(SettingsService(db).list_nautobot_source_summaries().sources)
             can_read_runs = rbac.has_permission(current_user.id, "workflow_runs", "read")
+            can_start_released = rbac.has_permission(current_user.id, "workflows", "execute")
         if isinstance(body.context, WorkflowCanvasContext):
             # S5-08: the editor tools list real credentials / sources / inventories, so they
             # need the same permission the workflow list does; proposing needs write.
@@ -414,6 +427,7 @@ def chat(
                 can_read_config_backups=can_read_config_backups,
                 can_read_nautobot=can_read_nautobot,
                 can_read_runs=can_read_runs,
+                can_start_released=can_start_released,
             )
         except RedactionBudgetExceeded as exc:
             raise HTTPException(
@@ -571,3 +585,57 @@ async def confirm_device_command(
         truncated=result.truncated,
         handle=result.handle,
     )
+
+
+# -- confirmed workflow runs (doc/AI_TOOL_CHAIN.md §16) ----------------------------------------
+
+# Each confirmed start creates a run; the budget bounds a loop of proposals and clicks.
+_WORKFLOW_START_BUDGET = rate_limited("ai-workflow-start", attempts=10, window_seconds=60)
+
+
+def get_workflow_run_executor(
+    current_user: User = Depends(get_current_user),
+) -> WorkflowRunExecutor:
+    return WorkflowRunExecutor(DbReleasedWorkflowReader(current_user.id))
+
+
+@router.post(
+    "/exec/workflow-run",
+    response_model=WorkflowRunConfirmResponse,
+    dependencies=[
+        _OPERATOR,
+        _USE,
+        Depends(require_permission("workflows", "execute")),
+        Depends(_WORKFLOW_START_BUDGET),
+    ],
+)
+async def confirm_workflow_run(
+    body: WorkflowRunConfirmRequest,
+    current_user: User = Depends(get_current_user),
+    executor: WorkflowRunExecutor = Depends(get_workflow_run_executor),
+) -> WorkflowRunConfirmResponse:
+    """The user clicked Run on a proposed workflow run.
+
+    Workflow, inputs and devices come from the signed token. The run starts as the user, and only
+    while the workflow is still released.
+    """
+    try:
+        started = await executor.execute(user_id=current_user.id, token=body.token)
+    except InvalidRunTokenError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "code": "invalid_confirmation",
+                "message": "This confirmation expired or is not valid. Ask the assistant again.",
+            },
+        ) from exc
+    except ReleasedWorkflowAccessError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={"code": "workflow_not_released", "message": str(exc)},
+        ) from exc
+    except DomainError:
+        raise
+    except Exception as exc:
+        raise_internal_server_error(logger, "Failed to start the workflow run", exc)
+    return WorkflowRunConfirmResponse(run_id=started.run_id, workflow_id=started.workflow_id)

@@ -12,6 +12,7 @@ import { SelectedEdgePanel } from "./selected-edge-panel";
 import type { MoveTargetGroup } from "./move-to-group-control";
 import { SelectedStepPanel } from "./selected-step-panel";
 import { WorkflowAiSessionPanel } from "./workflow-ai-session-panel";
+import { WorkflowAiReleaseSection } from "./workflow-ai-release-section";
 import { WorkflowBackgroundTierPanel } from "./workflow-background-tier-panel";
 import { WorkflowStaticAttributesPanel } from "./workflow-static-attributes-panel";
 import { useWorkflowBuilderStore } from "../hooks/use-workflow-builder-store";
@@ -224,6 +225,7 @@ export function WorkflowPropertiesPanel({
             />
             <WorkflowBackgroundTierPanel />
             <WorkflowAiSessionPanel />
+            <WorkflowAiReleaseSection />
           </div>
         )}
       </div>
