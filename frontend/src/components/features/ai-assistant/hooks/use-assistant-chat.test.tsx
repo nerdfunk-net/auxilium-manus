@@ -273,7 +273,9 @@ describe("useAssistantChat", () => {
           expires_at: 1_800_000_600,
           workflow: { id: 5, name: "PyATS Compare" },
           inputs: { features: "ospf" },
-          devices: [{ id: "d1", name: "sw1" }],
+          devices: [{ name: "sw1", ip: "10.0.0.1", in_inventory: true }],
+          credential_inputs: ["cred"],
+          driver_choices: [],
         }),
         frame("done", {}),
       ]),
@@ -289,12 +291,14 @@ describe("useAssistantChat", () => {
       expiresAt: 1_800_000_600,
       workflow: { id: 5, name: "PyATS Compare" },
       inputs: { features: "ospf" },
-      devices: [{ id: "d1", name: "sw1" }],
+      devices: [{ name: "sw1", ip: "10.0.0.1", inInventory: true }],
+      credentialInputs: ["cred"],
+      driverChoices: [],
       state: "pending",
     });
   });
 
-  it("drops a workflow-run proposal whose payload is malformed", async () => {
+  it("shows an error for a workflow-run proposal whose payload is malformed", async () => {
     fetchMock.mockResolvedValue(
       sseResponse([
         frame("proposal", {
@@ -304,6 +308,8 @@ describe("useAssistantChat", () => {
           workflow: { id: "5", name: "x" },
           inputs: {},
           devices: [],
+          credential_inputs: [],
+          driver_choices: [],
         }),
         frame("done", {}),
       ]),
@@ -313,13 +319,46 @@ describe("useAssistantChat", () => {
     await send(result, "compare");
 
     expect(result.current.messages[1].proposal).toBeUndefined();
+    expect(result.current.messages[1].error).toMatch(/could not be read/);
+  });
+
+  it("shows an error for a workflow-run input that is not a string, number or boolean", async () => {
+    fetchMock.mockResolvedValue(
+      sseResponse([
+        frame("proposal", {
+          kind: "workflow_run",
+          token: "signed.token",
+          expires_at: 1_800_000_600,
+          workflow: { id: 5, name: "x" },
+          inputs: { features: ["ospf"] },
+          devices: [],
+          credential_inputs: [],
+          driver_choices: [],
+        }),
+        frame("done", {}),
+      ]),
+    );
+    const { result } = renderHook(() => useAssistantChat({ sessionKey: KEY }));
+
+    await send(result, "compare");
+
+    expect(result.current.messages[1].proposal).toBeUndefined();
+    expect(result.current.messages[1].error).toMatch(/workflow run/);
   });
 
   it("keeps a query proposal with its query, pending", async () => {
-    const query = { source: "report_data", dataset: "inventory", scope: { kind: "latest" } };
+    const query = {
+      source: "report_data",
+      dataset: "inventory",
+      scope: { kind: "latest" },
+    };
     fetchMock.mockResolvedValue(
       sseResponse([
-        frame("proposal", { kind: "query", query, summary: "Devices per site" }),
+        frame("proposal", {
+          kind: "query",
+          query,
+          summary: "Devices per site",
+        }),
         frame("done", {}),
       ]),
     );
@@ -379,7 +418,12 @@ describe("useAssistantChat", () => {
     const tree = { type: "root", internalLogic: "AND", items: [] };
     fetchMock.mockResolvedValue(
       sseResponse([
-        frame("proposal", { kind: "inventory", tree, total_count: null, summary: "x" }),
+        frame("proposal", {
+          kind: "inventory",
+          tree,
+          total_count: null,
+          summary: "x",
+        }),
         frame("done", {}),
       ]),
     );
@@ -387,7 +431,10 @@ describe("useAssistantChat", () => {
 
     await send(result, "go");
 
-    expect(result.current.messages[1].proposal).toMatchObject({ kind: "inventory", totalCount: null });
+    expect(result.current.messages[1].proposal).toMatchObject({
+      kind: "inventory",
+      totalCount: null,
+    });
   });
 
   describe("device command proposals", () => {
@@ -410,7 +457,9 @@ describe("useAssistantChat", () => {
       fetchMock.mockResolvedValue(
         sseResponse([frame("proposal", payload), frame("done", {})]),
       );
-      const { result } = renderHook(() => useAssistantChat({ sessionKey: KEY }));
+      const { result } = renderHook(() =>
+        useAssistantChat({ sessionKey: KEY }),
+      );
 
       await send(result, "Get the running config of LAB");
 
@@ -443,7 +492,9 @@ describe("useAssistantChat", () => {
           frame("done", {}),
         ]),
       );
-      const { result } = renderHook(() => useAssistantChat({ sessionKey: KEY }));
+      const { result } = renderHook(() =>
+        useAssistantChat({ sessionKey: KEY }),
+      );
 
       await send(result, "go");
 
@@ -459,7 +510,9 @@ describe("useAssistantChat", () => {
       fetchMock.mockResolvedValue(
         sseResponse([frame("proposal", without), frame("done", {})]),
       );
-      const { result } = renderHook(() => useAssistantChat({ sessionKey: KEY }));
+      const { result } = renderHook(() =>
+        useAssistantChat({ sessionKey: KEY }),
+      );
 
       await send(result, "go");
 
@@ -475,7 +528,9 @@ describe("useAssistantChat", () => {
           frame("done", {}),
         ]),
       );
-      const { result } = renderHook(() => useAssistantChat({ sessionKey: KEY }));
+      const { result } = renderHook(() =>
+        useAssistantChat({ sessionKey: KEY }),
+      );
 
       await send(result, "go");
 
@@ -489,9 +544,18 @@ describe("useAssistantChat", () => {
       ["a token that is not text", { ...payload, token: 5 }],
       ["no device", { ...payload, device: undefined }],
       ["a null device", { ...payload, device: null }],
-      ["a device without an id", { ...payload, device: { name: "LAB", host: "h" } }],
-      ["a device without a host", { ...payload, device: { id: "x", name: "LAB" } }],
-      ["a device without a name", { ...payload, device: { id: "x", host: "h" } }],
+      [
+        "a device without an id",
+        { ...payload, device: { name: "LAB", host: "h" } },
+      ],
+      [
+        "a device without a host",
+        { ...payload, device: { id: "x", name: "LAB" } },
+      ],
+      [
+        "a device without a name",
+        { ...payload, device: { id: "x", host: "h" } },
+      ],
       ["no commands", { ...payload, commands: [] }],
       ["commands that are not text", { ...payload, commands: [1] }],
       ["no expiry", { ...payload, expires_at: undefined }],
@@ -499,7 +563,9 @@ describe("useAssistantChat", () => {
       fetchMock.mockResolvedValue(
         sseResponse([frame("proposal", bad), frame("done", {})]),
       );
-      const { result } = renderHook(() => useAssistantChat({ sessionKey: KEY }));
+      const { result } = renderHook(() =>
+        useAssistantChat({ sessionKey: KEY }),
+      );
 
       await send(result, "go");
 
@@ -511,7 +577,9 @@ describe("useAssistantChat", () => {
       fetchMock.mockResolvedValue(
         sseResponse([frame("proposal", payload), frame("done", {})]),
       );
-      const { result } = renderHook(() => useAssistantChat({ sessionKey: KEY }));
+      const { result } = renderHook(() =>
+        useAssistantChat({ sessionKey: KEY }),
+      );
       await send(result, "go");
       const outcome = {
         success: true,
@@ -524,7 +592,10 @@ describe("useAssistantChat", () => {
       };
 
       act(() => {
-        result.current.completeDeviceCommand(result.current.messages[1].id, outcome);
+        result.current.completeDeviceCommand(
+          result.current.messages[1].id,
+          outcome,
+        );
       });
 
       expect(result.current.messages[1].proposal).toMatchObject({
@@ -538,7 +609,9 @@ describe("useAssistantChat", () => {
       fetchMock.mockResolvedValue(
         sseResponse([frame("proposal", payload), frame("done", {})]),
       );
-      const { result } = renderHook(() => useAssistantChat({ sessionKey: KEY }));
+      const { result } = renderHook(() =>
+        useAssistantChat({ sessionKey: KEY }),
+      );
       await send(result, "go");
 
       act(() => {
@@ -553,14 +626,20 @@ describe("useAssistantChat", () => {
         });
       });
 
-      expect(result.current.messages[1].proposal).toMatchObject({ state: "pending" });
+      expect(result.current.messages[1].proposal).toMatchObject({
+        state: "pending",
+      });
     });
   });
 
   it("rejects an inventory proposal whose tree is malformed, with an error", async () => {
     fetchMock.mockResolvedValue(
       sseResponse([
-        frame("proposal", { kind: "inventory", tree: { items: "nope" }, summary: "x" }),
+        frame("proposal", {
+          kind: "inventory",
+          tree: { items: "nope" },
+          summary: "x",
+        }),
         frame("done", {}),
       ]),
     );
@@ -573,10 +652,24 @@ describe("useAssistantChat", () => {
   });
 
   it("keeps report outline and section text proposals, pending", async () => {
-    const sections = [{ id: "s1", title: "Per site", presentation: "table", text: null, query: {} }];
+    const sections = [
+      {
+        id: "s1",
+        title: "Per site",
+        presentation: "table",
+        text: null,
+        query: {},
+      },
+    ];
     fetchMock.mockResolvedValue(
       sseResponse([
-        frame("proposal", { kind: "report_outline", name: "Fleet", description: null, sections, summary: "Outline" }),
+        frame("proposal", {
+          kind: "report_outline",
+          name: "Fleet",
+          description: null,
+          sections,
+          summary: "Outline",
+        }),
         frame("done", {}),
       ]),
     );
@@ -593,7 +686,14 @@ describe("useAssistantChat", () => {
 
     fetchMock.mockResolvedValue(
       sseResponse([
-        frame("proposal", { kind: "section_text", report_id: 1, section_id: "s1", section_title: "Per site", text: "New", summary: "Text" }),
+        frame("proposal", {
+          kind: "section_text",
+          report_id: 1,
+          section_id: "s1",
+          section_title: "Per site",
+          text: "New",
+          summary: "Text",
+        }),
         frame("done", {}),
       ]),
     );

@@ -460,6 +460,17 @@ class NautobotSourceQueryService(NautobotLiveQueryMixin):
         )
         return result
 
+    async def _query_devices_by_primary_ip(self, ip: str) -> list[DeviceInfo]:
+        """Devices whose primary IPv4 address (mask ignored) is ``ip``, from the bulk cache."""
+        if not ip or not ip.strip():
+            return []
+        wanted = ip.strip()
+        return [
+            d
+            for d in await self._get_all_devices_cached()
+            if (d.primary_ip4 or "").split("/")[0].strip() == wanted
+        ]
+
     async def _query_devices_by_role(
         self, role_filter: str, use_negation: bool = False
     ) -> list[DeviceInfo]:

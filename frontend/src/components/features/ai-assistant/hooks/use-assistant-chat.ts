@@ -13,6 +13,7 @@ import type {
   AssistantContext,
   ChatMessage,
   DeviceCommandResult,
+  WorkflowRunDevice,
   WorkflowRunResult,
   DisplayMessage,
   ProposalState,
@@ -79,6 +80,7 @@ interface ProposalPayload {
   workflow?: unknown;
   inputs?: unknown;
   devices?: unknown;
+  credential_inputs?: unknown;
 }
 
 export interface UseAssistantChatOptions {
@@ -114,12 +116,28 @@ interface ParsedWorkflowRun {
   expiresAt: number;
   workflow: { id: number; name: string };
   inputs: Record<string, string | number | boolean>;
-  devices: { id: string; name: string }[];
+  devices: WorkflowRunDevice[];
+  credentialInputs: string[];
+  driverChoices: string[];
+}
+
+function isStringList(value: unknown): value is string[] {
+  return (
+    Array.isArray(value) && value.every((item) => typeof item === "string")
+  );
 }
 
 /** The workflow-run payload, or null when anything the card needs is missing or mistyped. */
 function parseWorkflowRun(payload: ProposalPayload): ParsedWorkflowRun | null {
-  const { token, expires_at: expiresAt, workflow, inputs, devices } = payload;
+  const {
+    token,
+    expires_at: expiresAt,
+    workflow,
+    inputs,
+    devices,
+    credential_inputs: credentialInputs,
+    driver_choices: driverChoices,
+  } = payload;
   if (typeof token !== "string" || !token || typeof expiresAt !== "number") {
     return null;
   }
@@ -147,13 +165,25 @@ function parseWorkflowRun(payload: ProposalPayload): ParsedWorkflowRun | null {
   if (!Array.isArray(devices)) {
     return null;
   }
-  const parsedDevices: { id: string; name: string }[] = [];
+  const parsedDevices: WorkflowRunDevice[] = [];
   for (const device of devices) {
     const entry = device as Record<string, unknown> | null;
-    if (!entry || typeof entry.id !== "string" || typeof entry.name !== "string") {
+    if (
+      !entry ||
+      typeof entry.name !== "string" ||
+      typeof entry.ip !== "string" ||
+      typeof entry.in_inventory !== "boolean"
+    ) {
       return null;
     }
-    parsedDevices.push({ id: entry.id, name: entry.name });
+    parsedDevices.push({
+      name: entry.name,
+      ip: entry.ip,
+      inInventory: entry.in_inventory,
+    });
+  }
+  if (!isStringList(credentialInputs) || !isStringList(driverChoices)) {
+    return null;
   }
   return {
     token,
@@ -161,6 +191,8 @@ function parseWorkflowRun(payload: ProposalPayload): ParsedWorkflowRun | null {
     workflow: { id, name },
     inputs: parsedInputs,
     devices: parsedDevices,
+    credentialInputs,
+    driverChoices,
   };
 }
 
@@ -381,21 +413,27 @@ export function useAssistantChat({
                 }
               } else if (proposal.kind === "workflow_run") {
                 const parsed = parseWorkflowRun(proposal);
-                if (parsed) {
-                  patchAssistant(assistantId, (m) => ({
-                    ...m,
-                    proposal: {
-                      kind: "workflow_run",
-                      summary: `Run ${parsed.workflow.name}`,
-                      ...parsed,
-                      state: "pending",
-                    },
-                  }));
+                if (!parsed) {
+                  fail(
+                    "The assistant sent a workflow run that could not be read.",
+                  );
+                  continue;
                 }
+                patchAssistant(assistantId, (m) => ({
+                  ...m,
+                  proposal: {
+                    kind: "workflow_run",
+                    summary: `Run ${parsed.workflow.name}`,
+                    ...parsed,
+                    state: "pending",
+                  },
+                }));
               } else if (proposal.kind === "inventory") {
                 const tree = parseProposedConditionTree(proposal.tree);
                 if (!tree) {
-                  fail("The assistant sent an inventory filter that could not be read.");
+                  fail(
+                    "The assistant sent an inventory filter that could not be read.",
+                  );
                   continue;
                 }
                 const baseFingerprint =
@@ -409,7 +447,9 @@ export function useAssistantChat({
                     summary: proposal.summary ?? "",
                     tree,
                     totalCount:
-                      typeof proposal.total_count === "number" ? proposal.total_count : null,
+                      typeof proposal.total_count === "number"
+                        ? proposal.total_count
+                        : null,
                     warnings: (proposal.warnings ?? []) as string[],
                     baseFingerprint,
                     state: "pending",

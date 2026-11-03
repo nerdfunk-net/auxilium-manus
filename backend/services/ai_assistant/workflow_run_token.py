@@ -14,11 +14,13 @@ import binascii
 import hashlib
 import hmac
 import json
+import secrets
 import time
 from dataclasses import dataclass
 from typing import Any
 
 from core.config import settings
+from services.ai_assistant.released_run_builder import ProposedDevice
 
 TOKEN_TTL_SECONDS = 600
 MAX_TOKEN_CHARS = 16384
@@ -34,8 +36,36 @@ class WorkflowRunGrant:
     user_id: int
     workflow_id: int
     run_inputs: dict[str, Any]
-    device_ids: tuple[str, ...]
+    devices: tuple[ProposedDevice, ...]
+    # The release this proposal was made against; the start refuses any other (or a changed) one.
+    stamp: str
+    # Random id so a confirmation can be used once.
+    token_id: str
     expires_at: float
+
+
+def _text(value: Any) -> str:
+    if not isinstance(value, str) or not value:
+        raise TypeError
+    return value
+
+
+def _device(raw: Any) -> ProposedDevice:
+    if not isinstance(raw, dict):
+        raise TypeError
+    name, driver, platform = raw["n"], raw["r"], raw["p"]
+    for value in (name, driver, platform):
+        if value is not None and not isinstance(value, str):
+            raise TypeError
+    if not isinstance(raw["v"], bool):
+        raise TypeError
+    return ProposedDevice(
+        ip=str(raw["i"]),
+        name=name,
+        in_inventory=raw["v"],
+        network_driver=driver,
+        platform=platform,
+    )
 
 
 def _sign(body: bytes) -> bytes:
@@ -48,7 +78,8 @@ def issue_run_token(
     user_id: int,
     workflow_id: int,
     run_inputs: dict[str, Any],
-    device_ids: list[str],
+    devices: list[ProposedDevice],
+    stamp: str,
     now: float | None = None,
 ) -> tuple[str, float]:
     """The token and its expiry (Unix seconds)."""
@@ -57,7 +88,18 @@ def issue_run_token(
         "u": user_id,
         "w": workflow_id,
         "i": run_inputs,
-        "d": list(device_ids),
+        "d": [
+            {
+                "i": d.ip,
+                "n": d.name,
+                "v": d.in_inventory,
+                "r": d.network_driver,
+                "p": d.platform,
+            }
+            for d in devices
+        ],
+        "s": stamp,
+        "j": secrets.token_hex(16),
         "x": expires_at,
     }
     body = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
@@ -86,7 +128,9 @@ def verify_run_token(token: object, *, user_id: int, now: float | None = None) -
             user_id=int(payload["u"]),
             workflow_id=int(payload["w"]),
             run_inputs=inputs,
-            device_ids=tuple(str(d) for d in payload["d"]),
+            devices=tuple(_device(d) for d in payload["d"]),
+            stamp=_text(payload["s"]),
+            token_id=_text(payload["j"]),
             expires_at=float(payload["x"]),
         )
     except (binascii.Error, ValueError, KeyError, TypeError) as exc:

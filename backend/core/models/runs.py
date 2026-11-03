@@ -76,6 +76,9 @@ class WorkflowRun(Base):
     # is started. ``parent_run_id`` is cleared when a finished ancestor is deleted or purged, so
     # the recursion guard (no workflow twice in a chain, limited depth) reads this list instead.
     ancestor_workflow_ids: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    # The step whose output Ask the Net may read as this run's result: what the release designated
+    # when the run was started (a later re-release must not change what an older run answers).
+    ai_result_node_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     # configuration | execution | internal — see step_runner.classify_step_exception
     error_category: Mapped[str | None] = mapped_column(String(20), nullable=True)

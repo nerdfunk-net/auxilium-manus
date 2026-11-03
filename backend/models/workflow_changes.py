@@ -5,7 +5,13 @@ from typing import Literal
 
 from pydantic import BaseModel
 
-WorkflowChangeAction = Literal["created", "updated"]
+WorkflowChangeAction = Literal[
+    "created",
+    "updated",
+    "ai_released",
+    "ai_unreleased",
+    "ai_release_cleared",
+]
 
 
 class WorkflowChangeResponse(BaseModel):

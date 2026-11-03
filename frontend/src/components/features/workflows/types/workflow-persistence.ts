@@ -112,7 +112,12 @@ export interface WorkflowListResponse {
   total: number;
 }
 
-export type WorkflowChangeAction = "created" | "updated";
+export type WorkflowChangeAction =
+  | "created"
+  | "updated"
+  | "ai_released"
+  | "ai_unreleased"
+  | "ai_release_cleared";
 
 /** One row of the "Changes" tab's audit trail — see WorkflowChangeResponse in
  * backend/models/workflow_changes.py. `has_diff` gates the diff-viewer icon:

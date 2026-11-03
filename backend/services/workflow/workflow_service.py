@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from datetime import UTC, datetime
+from types import SimpleNamespace
 from typing import Any
 
 from sqlalchemy.orm import Session
@@ -46,6 +47,13 @@ from services.execution.schedule_service import ScheduleService
 from services.workflow.ai_write_gate import AiWriteGate
 from services.workflow.child_run_inputs import validate_start_workflow_secret_inputs
 from services.workflow.config_normalisation import normalise_canvas_nodes
+from services.workflow.device_lines import enabled_device_input_readers
+from services.workflow.release_stamp import (
+    ReleaseTooLargeError,
+    compute_stamp,
+    release_is_current,
+    release_settings,
+)
 from services.workflow.workflow_change_service import WorkflowChangeService
 from services.workflow.workflow_git_service import WorkflowGitService, WorkflowGitSyncResult
 
@@ -177,7 +185,44 @@ _AI_RELEASE_CLEARED: dict[str, Any] = {
     "ai_released_at": None,
     "ai_description": None,
     "ai_result_node_id": None,
+    "ai_devices_input": None,
+    "ai_credential_inputs": None,
+    "ai_allow_free_ip": False,
+    "ai_release_stamp": None,
 }
+
+
+def _validated_release_inputs(workflow: Workflow, data: WorkflowAiReleaseRequest) -> list[str]:
+    """Check the devices input and the credential inputs against the workflow; the credentials.
+
+    The devices input must be a declared text input read by an enabled Get from User step (else
+    the devices would never arrive). Each credential input must be a declared credential
+    reference. A free IPv4 address is only meaningful with a devices input.
+    """
+    declared = {a.get("name"): a for a in (workflow.static_attributes or []) if isinstance(a, dict)}
+    if data.devices_input is not None:
+        attr = declared.get(data.devices_input)
+        if attr is None or attr.get("type") != "string":
+            raise ValidationFailedError(
+                f"The devices input {data.devices_input!r} is not a text run input of this workflow"
+            )
+        if not enabled_device_input_readers(workflow.canvas_nodes or [], data.devices_input):
+            raise ValidationFailedError(
+                f"No enabled 'Get from User' step reads {data.devices_input!r}, so the devices "
+                "would not reach the workflow"
+            )
+    elif data.allow_free_ip:
+        raise ValidationFailedError(
+            "Allowing addresses outside the inventory needs a devices input"
+        )
+    credentials = list(dict.fromkeys(data.credential_inputs))
+    for name in credentials:
+        attr = declared.get(name)
+        if attr is None or attr.get("type") != "reference" or attr.get("ref_kind") != "credential":
+            raise ValidationFailedError(f"{name!r} is not a credential run input of this workflow")
+        if name == data.devices_input:
+            raise ValidationFailedError("The devices input cannot also be a credential input")
+    return credentials
 
 
 def _invalidates_ai_release(workflow: Workflow, fields: dict[str, Any]) -> bool:
@@ -204,6 +249,9 @@ def _to_summary(workflow: Workflow, creator_username: str | None) -> WorkflowSum
         ai_released=bool(workflow.ai_released),
         ai_description=workflow.ai_description,
         ai_result_node_id=workflow.ai_result_node_id,
+        ai_devices_input=workflow.ai_devices_input,
+        ai_credential_inputs=list(workflow.ai_credential_inputs or []),
+        ai_allow_free_ip=bool(workflow.ai_allow_free_ip),
         ai_released_at=workflow.ai_released_at,
         created_at=workflow.created_at,
         updated_at=workflow.updated_at,
@@ -259,6 +307,9 @@ def _to_response(
         ai_released=bool(workflow.ai_released),
         ai_description=workflow.ai_description,
         ai_result_node_id=workflow.ai_result_node_id,
+        ai_devices_input=workflow.ai_devices_input,
+        ai_credential_inputs=list(workflow.ai_credential_inputs or []),
+        ai_allow_free_ip=bool(workflow.ai_allow_free_ip),
         ai_released_at=workflow.ai_released_at,
         created_at=workflow.created_at,
         updated_at=workflow.updated_at,
@@ -324,7 +375,10 @@ class WorkflowService:
         workflow, creator_username = result
         if workflow.visibility == "private" and workflow.creator_id != user_id:
             raise AccessDeniedError("Access denied")
-        return _to_response(workflow, creator_username)
+        response = _to_response(workflow, creator_username)
+        if workflow.ai_released:
+            response.ai_release_current = release_is_current(workflow, self._load_for_stamp)
+        return response
 
     def create_workflow(
         self, data: WorkflowCreate, user_id: int, actor_username: str | None = None
@@ -486,9 +540,11 @@ class WorkflowService:
                 updated_fields.get("canvas_nodes", workflow.canvas_nodes),
                 updated_fields.get("canvas_groups", workflow.canvas_groups),
             )
+        cleared_release = False
         if workflow.ai_released and _invalidates_ai_release(workflow, updated_fields):
             # D7: a release is bound to the reviewed version; any change to it ends the release.
             updated_fields.update(_AI_RELEASE_CLEARED)
+            cleared_release = True
             logger.info(
                 "AI release cleared by edit workflow_id=%s actor_id=%s", workflow.id, actor_id
             )
@@ -504,6 +560,15 @@ class WorkflowService:
             actor_username=actor_username,
             git_result=git_result,
         )
+        if cleared_release:
+            # Keep who ended the release: the columns that said who made it are gone.
+            self.changes.record_change(
+                workflow.id,
+                action="ai_release_cleared",
+                actor_id=actor_id,
+                actor_username=actor_username,
+                git_result=None,
+            )
         return _to_response(workflow, creator_username, git_result)
 
     def restore_workflow_version(
@@ -552,11 +617,16 @@ class WorkflowService:
         self._get_readable_workflow(workflow_id, user_id)
         return self.changes.list_changes(workflow_id)
 
+    def _load_for_stamp(self, workflow_id: int) -> Workflow | None:
+        found = self.repo.get_by_id(workflow_id)
+        return None if found is None else found[0]
+
     def release_for_ai(
         self,
         workflow_id: int,
         user_id: int,
         data: WorkflowAiReleaseRequest,
+        actor_username: str | None = None,
     ) -> WorkflowResponse:
         """Release a workflow for Ask the Net (the router checks ``workflows:release_ai``).
 
@@ -574,27 +644,64 @@ class WorkflowService:
         node_ids = {n.get("id") for n in (workflow.canvas_nodes or [])}
         if data.result_node_id is not None and data.result_node_id not in node_ids:
             raise ValidationFailedError("The result step is not on the workflow canvas")
+        credential_inputs = _validated_release_inputs(workflow, data)
+        settings = SimpleNamespace(
+            ai_description=data.description,
+            ai_result_node_id=data.result_node_id,
+            ai_devices_input=data.devices_input,
+            ai_credential_inputs=credential_inputs,
+            ai_allow_free_ip=data.allow_free_ip,
+        )
+        try:
+            stamp = compute_stamp(workflow, release_settings(settings), self._load_for_stamp)
+        except ReleaseTooLargeError as exc:
+            raise ValidationFailedError(
+                f"{exc}; a release can only pin a workflow that starts fewer workflows"
+            ) from exc
         workflow = self.repo.update(
             workflow,
             {
                 "ai_released": True,
                 "ai_released_by_id": user_id,
                 "ai_released_at": datetime.now(UTC),
-                "ai_description": data.description.strip(),
+                "ai_description": data.description,
                 "ai_result_node_id": data.result_node_id,
+                "ai_devices_input": data.devices_input,
+                "ai_credential_inputs": credential_inputs,
+                "ai_allow_free_ip": data.allow_free_ip,
+                # Pins the release to this definition, the workflows it starts and these settings.
+                "ai_release_stamp": stamp,
             },
+        )
+        self.changes.record_change(
+            workflow.id,
+            action="ai_released",
+            actor_id=user_id,
+            actor_username=actor_username,
+            git_result=None,
         )
         logger.info("AI release set workflow_id=%s actor_id=%s", workflow_id, user_id)
         return _to_response(workflow, creator_username)
 
-    def unrelease_for_ai(self, workflow_id: int, user_id: int) -> WorkflowResponse:
+    def unrelease_for_ai(
+        self, workflow_id: int, user_id: int, actor_username: str | None = None
+    ) -> WorkflowResponse:
         result = self.repo.get_by_id(workflow_id)
         if result is None:
             raise NotFoundError("Workflow not found")
         workflow, creator_username = result
         if not self._may_manage(workflow, user_id):
             raise AccessDeniedError("Access denied")
+        was_released = bool(workflow.ai_released)
         workflow = self.repo.update(workflow, dict(_AI_RELEASE_CLEARED))
+        if was_released:
+            self.changes.record_change(
+                workflow.id,
+                action="ai_unreleased",
+                actor_id=user_id,
+                actor_username=actor_username,
+                git_result=None,
+            )
         logger.info("AI release removed workflow_id=%s actor_id=%s", workflow_id, user_id)
         return _to_response(workflow, creator_username)
 

@@ -108,12 +108,22 @@ holds) and the user's content opt-in; no operator switch. The path comes from th
 **Released workflows** (`workflows:release_ai`, protected by P3: only an admin grants it, no seeded role holds it).
 A holder may release a non-private workflow they manage (creator or admin) for Ask the Net, with a description
 and one designated result step; `PUT/DELETE /workflows/{id}/ai-release`. Any change to the saved canvas, edges,
-groups or inputs, or making the workflow private, clears the release (notes, name and folder do not). The
+groups or inputs, or making the workflow private, clears the release (notes, name and folder do not). The release is also
+**hash-pinned** (`ai_release_stamp`, over the workflow, the release settings and every workflow it starts with
+`start-workflow`): it counts only while the stamp still matches, so editing a child, a save that raced the release or a
+confirmation made before a re-release cannot run a version nobody reviewed. A proposal is used once (random token id, recorded in Redis; if Redis is down the confirm is refused with 503, never started unrecorded). A release pins at most 50 workflows. The
 assistant lists/describes only released workflows the user may see **and** may run (`workflows:execute`),
 proposes a run (signed token, 10 minutes, bound to the user) and the user's click calls
 `POST /ai/exec/workflow-run`, which starts it **as that user** through `RunService.trigger_ai_run`
 (`trigger_type="ai_assistant"`, which the public run API cannot set) and re-checks the release. Secret and
-credential-reference inputs are never settable by the model. `get_run_result` reads only the designated step,
+credential-reference inputs are never settable by the model. **Devices and credentials** (`doc/AI_TOOL_CHAIN.md` §16.10):
+the release names the text input a Get from User step reads (`ai_devices_input`); the assistant passes device *names*
+or, only if the releaser switched on `ai_allow_free_ip`, a single IPv4 literal (`parse_ipv4_literal`, then
+`validate_netmiko_preview_host` incl. the `allow_netmiko_arbitrary_hosts` switch outside development). The server
+builds the `name,ip[,driver]` lines (`services/workflow/device_lines.py`, shared with `start-workflow`); the model never
+writes that input. Credential run inputs the releaser marks (`ai_credential_inputs`) are filled by the **confirming
+user** on the card with one of their own SSH credentials: `credentials` in `POST /ai/exec/workflow-run`, checked by the
+reference resolver as that user (`RunService.trigger_ai_run`). `get_run_result` reads only the designated step,
 through the `get_step_result` gates (content opt-in, redaction, truncation). `doc/AI_TOOL_CHAIN.md` §16.
 
 **Ask the Net run tools** (`list_runs`, `get_run`, `get_step_result`, ...). The same tools as the runs-page assistant. They

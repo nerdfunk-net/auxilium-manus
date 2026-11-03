@@ -16,9 +16,10 @@ events), `change_requests`, `workflow_schedules`, `workflow_background_tier`,
 placeholder path templates for a device's config backup (`services/git/config_path_template.py`).
 
 **`workflows.ai_released`** (bool NOT NULL, default false), `ai_released_by_id` (FK users, SET NULL),
-`ai_released_at`, `ai_description` (text) and `ai_result_node_id` hold the release for Ask the Net
-(`doc/AI_TOOL_CHAIN.md` §16); the workflow service clears all five when the definition changes.
-`workflow_runs.trigger_type` also takes `ai_assistant`.
+`ai_released_at`, `ai_description` (text), `ai_result_node_id`, `ai_devices_input`, `ai_credential_inputs` (JSON list)
+`ai_allow_free_ip` (bool NOT NULL, default false) and `ai_release_stamp` (hash that pins it) hold the release for Ask the Net
+(`doc/AI_TOOL_CHAIN.md` §16); the workflow service clears all of them when the definition changes.
+`workflow_runs.trigger_type` also takes `ai_assistant`; `workflow_runs.ai_result_node_id` is the result step the release designated when that run started. `workflow_changes.action` also takes `ai_released`, `ai_unreleased`, `ai_release_cleared`.
 
 **`workflow_runs.parent_run_id`** (nullable self FK, `ON DELETE SET NULL`, indexed) links a run to the
 run whose `start-workflow` step started it; `trigger_type` is then `workflow`.

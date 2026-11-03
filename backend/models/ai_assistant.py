@@ -255,6 +255,11 @@ class WorkflowRunConfirmRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     token: str = Field(min_length=1, max_length=16384)
+    # Credential run input name -> credential name, chosen by the user on the card. Only the inputs
+    # the release declared are accepted, and each must be usable by the user (checked on start).
+    credentials: dict[str, str] = Field(default_factory=dict, max_length=10)
+    # The user's device type for addresses outside the inventory (a closed list).
+    free_ip_driver: DeviceDriver | None = None
 
 
 class WorkflowRunConfirmResponse(BaseModel):

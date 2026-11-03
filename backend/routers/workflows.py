@@ -178,7 +178,9 @@ def release_workflow_for_ai(
 ) -> WorkflowResponse:
     """Release a workflow for the Ask the Net assistant (doc/AI_TOOL_CHAIN.md section 16)."""
     try:
-        return service.release_for_ai(workflow_id, current_user.id, body)
+        return service.release_for_ai(
+            workflow_id, current_user.id, body, actor_username=current_user.username
+        )
     except DomainError:
         raise
     except Exception as exc:
@@ -196,7 +198,9 @@ def unrelease_workflow_for_ai(
     service: WorkflowService = Depends(_service),
 ) -> WorkflowResponse:
     try:
-        return service.unrelease_for_ai(workflow_id, current_user.id)
+        return service.unrelease_for_ai(
+            workflow_id, current_user.id, actor_username=current_user.username
+        )
     except DomainError:
         raise
     except Exception as exc:

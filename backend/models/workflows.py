@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 WorkflowVisibility = Literal["public", "private"]
 StaticAttributeType = Literal["string", "number", "boolean", "reference", "secret"]
@@ -90,6 +90,9 @@ class WorkflowSummary(BaseModel):
     ai_released: bool = False
     ai_description: str | None = None
     ai_result_node_id: str | None = None
+    ai_devices_input: str | None = None
+    ai_credential_inputs: list[str] = Field(default_factory=list)
+    ai_allow_free_ip: bool = False
     ai_released_at: datetime | None = None
     created_at: datetime
     updated_at: datetime
@@ -101,7 +104,23 @@ class WorkflowAiReleaseRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     description: str = Field(..., min_length=1, max_length=4000)
+
+    @field_validator("description")
+    @classmethod
+    def _description_not_blank(cls, value: str) -> str:
+        """The assistant reads this as the tool documentation: spaces alone are no description."""
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("a description is required")
+        return stripped
+
     result_node_id: str | None = Field(None, min_length=1, max_length=255)
+    # Text run input a Get from User step reads; devices the assistant names are put into it.
+    devices_input: str | None = Field(None, min_length=1, max_length=255)
+    # Credential run inputs the confirming user fills in on the card (never the model).
+    credential_inputs: list[str] = Field(default_factory=list, max_length=10)
+    # May the assistant pass an IPv4 address that is not in the inventory (onboarding)?
+    allow_free_ip: bool = False
 
 
 class WorkflowGitSyncStatus(BaseModel):
@@ -122,6 +141,9 @@ class WorkflowResponse(WorkflowSummary):
     canvas_edges: list[dict[str, Any]] | None
     canvas_groups: list[dict[str, Any]] | None
     static_attributes: list[StaticAttributeDef] | None
+    # False when the workflow is released but the pin broke (a workflow it starts changed). Only
+    # the single-workflow read computes it; everywhere else it keeps the default.
+    ai_release_current: bool = True
     git_sync: WorkflowGitSyncStatus | None = None
 
 

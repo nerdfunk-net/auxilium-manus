@@ -973,8 +973,9 @@ def test_the_chat_offers_config_backups_only_with_permission_and_content_opt_in(
     monkeypatch.setattr(
         RBACService,
         "has_permission",
-        lambda self, _uid, resource, action: (resource, action) != ("git.files", "read")
-        or may_read,
+        lambda self, _uid, resource, action: (
+            (resource, action) != ("git.files", "read") or may_read
+        ),
     )
     seen = _capture_chat(monkeypatch)
 
@@ -1023,8 +1024,9 @@ class _FakeRunExecutor:
     def __init__(self, error: Exception | None = None) -> None:
         self.error, self.calls = error, []
 
-    async def execute(self, *, user_id, token):
+    async def execute(self, *, user_id, token, credentials=None, free_ip_driver=None):
         self.calls.append((user_id, token))
+        self.extra = (credentials, free_ip_driver)
         if self.error:
             raise self.error
         from services.ai_assistant.workflow_run_exec import StartedRun
@@ -1053,6 +1055,32 @@ def test_confirming_a_workflow_run_starts_it_as_the_calling_user(client: TestCli
     assert executor.calls == [(1, "signed.token")]
 
 
+def test_the_users_credential_and_device_type_reach_the_executor(client: TestClient) -> None:
+    executor = _run_client(client)
+
+    response = client.post(
+        "/api/ai/exec/workflow-run",
+        json={**_RUN_CONFIRM, "credentials": {"cred": "lab-ssh"}, "free_ip_driver": "cisco_xe"},
+    )
+
+    assert response.status_code == 200, response.text
+    assert executor.extra == ({"cred": "lab-ssh"}, "cisco_xe")
+
+
+def test_an_invalid_start_is_a_400_with_our_message(client: TestClient) -> None:
+    from services.ai_assistant.released_run_builder import ReleasedRunError
+
+    _run_client(client, ReleasedRunError("Choose a credential for: cred"))
+
+    response = client.post("/api/ai/exec/workflow-run", json=_RUN_CONFIRM)
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == {
+        "code": "invalid_workflow_start",
+        "message": "Choose a credential for: cred",
+    }
+
+
 def test_a_bad_workflow_run_token_is_a_400(client: TestClient) -> None:
     from services.ai_assistant.workflow_run_token import InvalidRunTokenError
 
@@ -1062,6 +1090,17 @@ def test_a_bad_workflow_run_token_is_a_400(client: TestClient) -> None:
 
     assert response.status_code == 400
     assert response.json()["detail"]["code"] == "invalid_confirmation"
+
+
+def test_a_confirmation_store_outage_is_a_503_and_starts_nothing(client: TestClient) -> None:
+    from services.ai_assistant.token_once import ConfirmationStoreUnavailableError
+
+    _run_client(client, ConfirmationStoreUnavailableError())
+
+    response = client.post("/api/ai/exec/workflow-run", json=_RUN_CONFIRM)
+
+    assert response.status_code == 503
+    assert response.json()["detail"]["code"] == "confirmation_unavailable"
 
 
 def test_an_unreleased_workflow_is_a_403(client: TestClient) -> None:
@@ -1102,7 +1141,17 @@ def test_a_workflow_run_needs_both_permissions(
 
 
 @pytest.mark.parametrize(
-    "body", [{}, {"token": ""}, {"token": "t", "workflow_id": 9}, {"token": "t", "run_inputs": {}}]
+    "body",
+    [
+        {},
+        {"token": ""},
+        {"token": "t", "workflow_id": 9},
+        {"token": "t", "run_inputs": {}},
+        {"token": "t", "devices": ["10.0.0.1"]},
+        {"token": "t", "free_ip_driver": "rm -rf"},
+        {"token": "t", "credentials": {"a": 1}},
+        {"token": "t", "credentials": ["a"]},
+    ],
 )
 def test_the_workflow_run_body_carries_only_the_token(client: TestClient, body: dict) -> None:
     executor = _run_client(client)
@@ -1119,3 +1168,17 @@ def test_the_workflow_run_endpoint_is_absent_while_the_assistant_is_off(
 
     assert client.post("/api/ai/exec/workflow-run", json=_RUN_CONFIRM).status_code == 404
     assert executor.calls == []
+
+
+def test_a_changed_release_says_so_under_the_same_code(client: TestClient) -> None:
+    from services.ai_assistant.released_workflow_reader import ReleasedWorkflowAccessError
+
+    _run_client(client, ReleasedWorkflowAccessError("changed or released again. Ask again."))
+
+    response = client.post("/api/ai/exec/workflow-run", json=_RUN_CONFIRM)
+
+    assert response.status_code == 403
+    assert response.json()["detail"] == {
+        "code": "workflow_not_released",
+        "message": "changed or released again. Ask again.",
+    }

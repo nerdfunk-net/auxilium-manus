@@ -44,6 +44,15 @@ class Workflow(Base):
     ai_description: Mapped[str | None] = mapped_column(Text, nullable=True)
     # The one step node whose output the assistant may read as the result.
     ai_result_node_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # The text run input that receives the device lines (read by a Get from User step), the
+    # credential run inputs the confirming user fills in, and whether the assistant may pass an
+    # IPv4 address that is not in the inventory. Released with, and cleared with, the rest.
+    ai_devices_input: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    ai_credential_inputs: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    ai_allow_free_ip: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    # Hash of the released definition, its release settings and every workflow it starts
+    # (services/workflow/release_stamp.py). A release counts only while it still matches.
+    ai_release_stamp: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,

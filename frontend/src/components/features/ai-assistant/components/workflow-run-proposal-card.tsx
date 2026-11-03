@@ -1,10 +1,18 @@
 "use client";
 
-import { Loader2, Play, X } from "lucide-react";
-import { useState } from "react";
+import { Loader2, Play, TriangleAlert, X } from "lucide-react";
+import { useMemo, useState } from "react";
 
+import { useCredentialsQuery } from "@/components/features/settings/credentials/hooks/use-credentials-query";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 import { useWorkflowRunConfirmMutation } from "../hooks/use-workflow-run-confirm";
 import type {
@@ -40,21 +48,50 @@ export function WorkflowRunProposalCard({
   onAskResult,
   busy = false,
 }: WorkflowRunProposalCardProps) {
+  const credentialsQuery = useCredentialsQuery();
   const { mutateAsync, isPending } = useWorkflowRunConfirmMutation();
   const [error, setError] = useState<string | null>(null);
+  const [credentials, setCredentials] = useState<Record<string, string>>({});
+  const [freeIpDriver, setFreeIpDriver] = useState("");
+
+  // A confirmed run uses the signed-in user's own credentials, so private ones are fine here.
+  const sshLogins = useMemo(
+    () =>
+      (credentialsQuery.data?.credentials ?? []).filter(
+        (credential) => credential.type === "ssh",
+      ),
+    [credentialsQuery.data?.credentials],
+  );
 
   const pending = proposal.state === "pending";
   const expired = pending && isExpired(proposal.expiresAt);
   const inputs = Object.entries(proposal.inputs);
+  const outsideDevices = proposal.devices.filter(
+    (device) => !device.inInventory,
+  );
+  const hasOutside = outsideDevices.length > 0;
+  const credentialsChosen = proposal.credentialInputs.every(
+    (name) => credentials[name],
+  );
 
   const handleRun = async () => {
     if (isExpired(proposal.expiresAt)) {
       setError("This proposal expired. Ask the assistant again.");
       return;
     }
+    if (!credentialsChosen) {
+      setError("Choose a credential for every input listed.");
+      return;
+    }
     setError(null);
     try {
-      onResult(await mutateAsync(proposal.token));
+      onResult(
+        await mutateAsync({
+          token: proposal.token,
+          credentials,
+          freeIpDriver: hasOutside && freeIpDriver ? freeIpDriver : undefined,
+        }),
+      );
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : GENERIC_ERROR);
     }
@@ -85,18 +122,102 @@ export function WorkflowRunProposalCard({
       )}
 
       {proposal.devices.length > 0 && (
-        <p className="text-xs" data-testid="workflow-run-devices">
-          <span className="text-muted-foreground">Devices: </span>
-          {proposal.devices.map((device) => device.name).join(", ")}
-        </p>
+        <ul
+          className="space-y-0.5 text-xs"
+          data-testid="workflow-run-devices"
+          aria-label="Devices"
+        >
+          {proposal.devices.map((device) => (
+            <li key={device.ip} className="flex flex-wrap items-center gap-2">
+              <span className="font-medium">{device.name}</span>
+              <span className="font-mono text-muted-foreground">
+                {device.ip}
+              </span>
+              {!device.inInventory && (
+                <span className="rounded border border-destructive px-1 text-[10px] text-destructive">
+                  not in the inventory
+                </span>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {pending && hasOutside && (
+        <Alert variant="destructive" data-testid="workflow-run-outside-warning">
+          <TriangleAlert className="size-4" />
+          <AlertDescription>
+            {outsideDevices.map((device) => device.ip).join(", ")}{" "}
+            {outsideDevices.length === 1 ? "is" : "are"} not in the inventory.
+            The workflow will log in to{" "}
+            {outsideDevices.length === 1 ? "it" : "them"} with your credential.
+            Run only if you know this address.
+          </AlertDescription>
+        </Alert>
       )}
 
       {pending && (
         <>
           <p className="text-xs text-muted-foreground">
-            It runs as you, with your permissions, and the workflow may log in to the devices
-            it lists. When it has finished, tell the assistant to read the result.
+            It runs as you, with your permissions, and the workflow may log in
+            to the devices it lists using the credential you choose. When it has
+            finished, tell the assistant to read the result.
           </p>
+          {proposal.credentialInputs.map((name) => (
+            <div key={name} className="space-y-1">
+              <p className="text-xs text-muted-foreground">
+                Your credential for <span className="font-mono">{name}</span>
+              </p>
+              <Select
+                value={credentials[name] ?? ""}
+                onValueChange={(value) =>
+                  setCredentials((previous) => ({ ...previous, [name]: value }))
+                }
+                disabled={isPending}
+              >
+                <SelectTrigger aria-label={`Credential for ${name}`}>
+                  <SelectValue placeholder="Choose a credential" />
+                </SelectTrigger>
+                <SelectContent>
+                  {sshLogins.length === 0 ? (
+                    <div className="px-2 py-1.5 text-xs text-muted-foreground">
+                      No SSH logins found. Add one in Settings → Credentials.
+                    </div>
+                  ) : (
+                    sshLogins.map((credential) => (
+                      <SelectItem key={credential.id} value={credential.name}>
+                        {credential.name} ({credential.username})
+                      </SelectItem>
+                    ))
+                  )}
+                </SelectContent>
+              </Select>
+            </div>
+          ))}
+          {hasOutside && (
+            <div className="space-y-1">
+              <p className="text-xs text-muted-foreground">
+                Device type for the address outside the inventory (optional; the
+                workflow&apos;s default applies without it)
+              </p>
+              <Select
+                value={freeIpDriver}
+                onValueChange={setFreeIpDriver}
+                disabled={isPending}
+              >
+                <SelectTrigger aria-label="Device type">
+                  <SelectValue placeholder="Use the workflow's default" />
+                </SelectTrigger>
+                <SelectContent>
+                  {proposal.driverChoices.map((choice) => (
+                    <SelectItem key={choice} value={choice}>
+                      {choice}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
           {expired && (
             <Alert>
               <AlertDescription>
@@ -119,7 +240,7 @@ export function WorkflowRunProposalCard({
               type="button"
               size="sm"
               onClick={handleRun}
-              disabled={expired || busy || isPending}
+              disabled={expired || busy || isPending || !credentialsChosen}
             >
               {isPending ? (
                 <Loader2 className="size-4 animate-spin" />

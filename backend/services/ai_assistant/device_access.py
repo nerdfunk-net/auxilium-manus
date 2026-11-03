@@ -178,6 +178,29 @@ def select_device(
     )
 
 
+def select_device_by_ip(
+    found: list[tuple[str, DeviceInfo]],
+) -> ResolvedDevice | None:
+    """The one device that has the address, ``None`` when none does.
+
+    Raises ``DeviceAmbiguousError`` when two different devices share the address, so an address
+    never silently picks one of them.
+    """
+    if not found:
+        return None
+    if len({(source_id, device.id) for source_id, device in found}) > 1:
+        raise DeviceAmbiguousError
+    source_id, device = found[0]
+    return ResolvedDevice(
+        source_id=source_id,
+        device_id=device.id,
+        name=device.name or "",
+        host=_host_of(device.primary_ip4),
+        platform=device.platform,
+        network_driver=device.platform_network_driver,
+    )
+
+
 class DbDeviceResolver:
     """Finds a device by name in the Nautobot sources, as the calling user."""
 
@@ -216,6 +239,19 @@ class DbDeviceResolver:
 
     async def resolve(self, name: str) -> ResolvedDevice:
         return select_device(name, await self._find(name))
+
+    async def resolve_by_ip(self, ip: str) -> ResolvedDevice | None:
+        """The inventory device whose management address is ``ip``, or ``None`` if there is none.
+
+        Needs the same permission as a lookup by name, so an address cannot be used to reach the
+        inventory (or to skip it) without ``sources.nautobot:read``.
+        """
+        sources = await asyncio.to_thread(self._load_sources)
+        found: list[tuple[str, DeviceInfo]] = []
+        for source_id, credentials in sources:
+            service = service_factory.build_nautobot_source_service(credentials)
+            found.extend((source_id, d) for d in await service.find_devices_by_primary_ip(ip))
+        return select_device_by_ip(found)
 
     async def resolve_without_address(self, name: str) -> ResolvedDevice:
         """Like ``resolve`` but a device with no management address is accepted (``host=""``)."""

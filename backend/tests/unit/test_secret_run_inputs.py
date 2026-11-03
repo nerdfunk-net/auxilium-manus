@@ -66,6 +66,7 @@ def _run(run_inputs: dict) -> SimpleNamespace:
         run_inputs=run_inputs,
         hatchet_run_id=None,
         parent_run_id=None,
+        ai_result_node_id=None,
         error_message=None,
         error_category=None,
         error_id=None,

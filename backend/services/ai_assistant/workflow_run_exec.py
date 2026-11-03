@@ -9,6 +9,7 @@ still released and visible and validates the inputs.
 from __future__ import annotations
 
 import logging
+from collections.abc import Mapping
 from dataclasses import dataclass
 
 from services.ai_assistant.released_workflow_reader import ReleasedWorkflowReader
@@ -27,11 +28,24 @@ class WorkflowRunExecutor:
     def __init__(self, reader: ReleasedWorkflowReader) -> None:
         self._reader = reader
 
-    async def execute(self, *, user_id: int, token: str) -> StartedRun:
+    async def execute(
+        self,
+        *,
+        user_id: int,
+        token: str,
+        credentials: Mapping[str, str] | None = None,
+        free_ip_driver: str | None = None,
+    ) -> StartedRun:
         """Raises ``InvalidRunTokenError`` for a bad token; domain errors pass through."""
         grant = verify_run_token(token, user_id=user_id)
         run_id = await self._reader.start(
-            grant.workflow_id, run_inputs=dict(grant.run_inputs), device_ids=list(grant.device_ids)
+            grant.workflow_id,
+            model_inputs=dict(grant.run_inputs),
+            devices=list(grant.devices),
+            credentials=dict(credentials or {}),
+            free_ip_driver=free_ip_driver,
+            release_stamp=grant.stamp,
+            token_id=grant.token_id,
         )
         # Ids and input names only: values may be sensitive.
         logger.info(

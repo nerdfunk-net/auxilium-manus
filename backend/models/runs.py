@@ -109,6 +109,8 @@ class WorkflowRunSummary(BaseModel):
     run_inputs: dict[str, Any] | None = None
     # The run whose start-workflow step started this one, if any.
     parent_run_id: int | None = None
+    # Set on runs the assistant started: the step it may read as the result (see WorkflowRun).
+    ai_result_node_id: str | None = None
     started_at: datetime | None
     finished_at: datetime | None
     created_at: datetime

@@ -347,3 +347,37 @@ def test_config_dumps_get_the_long_read_timeout_and_other_commands_the_default(
 
     expected = DEFAULT_CONFIG_READ_TIMEOUT if long else None
     assert service.run_commands.call_args.kwargs["read_timeout"] == expected
+
+
+def test_select_device_by_ip_finds_the_one_device() -> None:
+    from models.sources_nautobot import DeviceInfo
+    from services.ai_assistant.device_access import select_device_by_ip
+
+    device = DeviceInfo(
+        id="d1",
+        name="core-sw",
+        platform="ios",
+        platform_network_driver="cisco_ios",
+        primary_ip4="10.0.0.5/24",
+    )
+    found = select_device_by_ip([("src", device)])
+    assert found is not None
+    assert (found.name, found.host, found.network_driver) == ("core-sw", "10.0.0.5", "cisco_ios")
+
+
+def test_select_device_by_ip_is_none_without_a_match() -> None:
+    from services.ai_assistant.device_access import select_device_by_ip
+
+    assert select_device_by_ip([]) is None
+
+
+def test_select_device_by_ip_refuses_two_devices_on_one_address() -> None:
+    import pytest
+
+    from models.sources_nautobot import DeviceInfo
+    from services.ai_assistant.device_access import DeviceAmbiguousError, select_device_by_ip
+
+    a = DeviceInfo(id="a", name="a", primary_ip4="10.0.0.5/24")
+    b = DeviceInfo(id="b", name="b", primary_ip4="10.0.0.5/24")
+    with pytest.raises(DeviceAmbiguousError):
+        select_device_by_ip([("src", a), ("src", b)])

@@ -27,6 +27,10 @@ _UPDATABLE_FIELDS = frozenset(
         "ai_released_at",
         "ai_description",
         "ai_result_node_id",
+        "ai_devices_input",
+        "ai_credential_inputs",
+        "ai_allow_free_ip",
+        "ai_release_stamp",
     }
 )
 

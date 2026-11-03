@@ -157,6 +157,10 @@ class NautobotSourceService:
         devices = await self.query_service._query_devices_by_name(name_filter, use_contains=True)
         return devices[:limit]
 
+    async def find_devices_by_primary_ip(self, ip: str) -> list[DeviceInfo]:
+        """Return devices whose primary IPv4 address is exactly ``ip``."""
+        return await self.query_service._query_devices_by_primary_ip(ip)
+
     async def get_device_details(self, device_id: str) -> dict[str, Any]:
         """Return full Nautobot device details for a single device."""
         return await self.device_query_service.get_device_details(device_id, use_cache=True)

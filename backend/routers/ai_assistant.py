@@ -82,6 +82,7 @@ from services.ai_assistant.prompts import BASE_SYSTEM_PROMPT
 from services.ai_assistant.providers.base import ChatMessage
 from services.ai_assistant.proxy_settings_service import AiProxySettingsService
 from services.ai_assistant.redaction import RedactionBudgetExceeded
+from services.ai_assistant.released_run_builder import ReleasedRunError
 from services.ai_assistant.released_workflow_reader import (
     DbReleasedWorkflowReader,
     ReleasedWorkflowAccessError,
@@ -100,6 +101,7 @@ from services.ai_assistant.surfaces import (
     build_workflow_editor_session,
 )
 from services.ai_assistant.template_reader import DbTemplateReader
+from services.ai_assistant.token_once import ConfirmationStoreUnavailableError
 from services.ai_assistant.tools.base import Toolbox
 from services.ai_assistant.workflow_reader import DbReferenceReader, DbWorkflowValidator
 from services.ai_assistant.workflow_run_exec import WorkflowRunExecutor
@@ -620,7 +622,12 @@ async def confirm_workflow_run(
     while the workflow is still released.
     """
     try:
-        started = await executor.execute(user_id=current_user.id, token=body.token)
+        started = await executor.execute(
+            user_id=current_user.id,
+            token=body.token,
+            credentials=body.credentials,
+            free_ip_driver=body.free_ip_driver,
+        )
     except InvalidRunTokenError as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -633,6 +640,21 @@ async def confirm_workflow_run(
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail={"code": "workflow_not_released", "message": str(exc)},
+        ) from exc
+    except ConfirmationStoreUnavailableError as exc:
+        # Fail closed: a start that cannot be recorded as used is not started.
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "code": "confirmation_unavailable",
+                "message": "The workflow could not be confirmed right now. Try again shortly.",
+            },
+        ) from exc
+    except ReleasedRunError as exc:
+        # The message is written by us (no exception text from a deeper layer).
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"code": "invalid_workflow_start", "message": str(exc)},
         ) from exc
     except DomainError:
         raise

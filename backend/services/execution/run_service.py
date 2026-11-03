@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hmac
 import logging
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -54,9 +55,14 @@ from services.execution.dispatch_breaker import (
     dispatch_breaker,
 )
 from services.execution.log_attribute_files import delete_run_dir
+from services.execution.reference_resolver import (
+    ReferenceValidationError,
+    validate_reference_inputs,
+)
 from services.execution.run_input_validation import RunInputValidationError, resolve_run_inputs
 from services.hatchet.hatchet_settings_service import dashboard_run_url
 from services.plugin_registry.plugin_registry_service import PluginRegistryService
+from services.workflow.release_stamp import release_is_current
 from services.workflow.workflow_validation_service import WorkflowValidationService
 from services.workflow_context.attribute_path import resolve_device_attribute_state
 from services.workflow_context.attribute_path_discovery import (
@@ -128,6 +134,7 @@ def _run_to_summary(run: WorkflowRun, username: str | None) -> WorkflowRunSummar
         device_ids=run.device_ids,
         run_inputs=redact_secrets_in_data(run.run_inputs),
         parent_run_id=run.parent_run_id,
+        ai_result_node_id=run.ai_result_node_id,
         started_at=run.started_at,
         finished_at=run.finished_at,
         created_at=run.created_at,
@@ -155,6 +162,7 @@ def _run_to_response(
         device_ids=run.device_ids,
         run_inputs=redact_secrets_in_data(run.run_inputs),
         parent_run_id=run.parent_run_id,
+        ai_result_node_id=run.ai_result_node_id,
         hatchet_run_id=run.hatchet_run_id,
         error_message=run.error_message,
         error_category=cast("ErrorCategory | None", run.error_category),
@@ -168,6 +176,10 @@ def _run_to_response(
             WorkflowRunDeviceGroupResponse.model_validate(g) for g in (device_groups or [])
         ],
     )
+
+
+class AiReleaseNotCurrentError(ValidationFailedError):
+    """The release an assistant start relies on is gone, changed or was replaced."""
 
 
 class RunService:
@@ -266,6 +278,7 @@ class RunService:
         change_request_id: int | None = None,
         parent_run_id: int | None = None,
         ancestor_workflow_ids: list[int] | None = None,
+        ai_result_node_id: str | None = None,
     ) -> WorkflowRun:
         """Create a WorkflowRun and dispatch it into the Hatchet engine.
 
@@ -295,8 +308,9 @@ class RunService:
             parent_run_id=parent_run_id,
             ancestor_workflow_ids=ancestor_workflow_ids,
         )
-        if change_request_id is not None:
+        if change_request_id is not None or ai_result_node_id is not None:
             run.change_request_id = change_request_id
+            run.ai_result_node_id = ai_result_node_id
             self.db.commit()
         logger.info(
             "Created run id=%s workflow_id=%s triggered_by=%s trigger_type=%s",
@@ -492,29 +506,47 @@ class RunService:
         user_id: int,
         *,
         run_inputs: dict[str, Any],
-        device_ids: list[str],
+        expected_stamp: str,
     ) -> WorkflowRunResponse:
         """Start a workflow the Ask the Net assistant proposed and the user confirmed.
 
         Runs as the confirming user with ``trigger_type="ai_assistant"`` (a value the public run
-        endpoint cannot set). The workflow must still be released: a proposal can be older than an
-        edit or an un-release.
+        endpoint cannot set). The release must still be current: released, and unchanged since
+        (the workflow, the workflows it starts, the release settings) -- and it must be the very
+        release the proposal was made against (``expected_stamp``).
         """
         workflow = self._assert_workflow_access(workflow_id, user_id)
-        if not workflow.ai_released:
-            raise ValidationFailedError("This workflow is no longer released for the assistant")
+        if not release_is_current(workflow, self._load_workflow):
+            raise AiReleaseNotCurrentError("This workflow is no longer released for the assistant")
+        if not hmac.compare_digest(expected_stamp, workflow.ai_release_stamp or ""):
+            raise AiReleaseNotCurrentError(
+                "This workflow was changed or released again after it was proposed. "
+                "Ask the assistant again."
+            )
         try:
             resolved = resolve_run_inputs(workflow.static_attributes, run_inputs)
         except RunInputValidationError as exc:
+            raise ValidationFailedError(str(exc)) from exc
+        try:
+            # A credential or inventory reference must be one the confirming user can use.
+            validate_reference_inputs(
+                workflow.static_attributes, resolved, db=self.db, acting_user_id=user_id
+            )
+        except ReferenceValidationError as exc:
             raise ValidationFailedError(str(exc)) from exc
         run = self._create_and_dispatch_run(
             workflow,
             triggered_by_id=user_id,
             trigger_type="ai_assistant",
-            device_ids=device_ids,
+            device_ids=[],
             run_inputs=resolved,
+            ai_result_node_id=workflow.ai_result_node_id,
         )
         return _run_to_response(run, None, [])
+
+    def _load_workflow(self, workflow_id: int) -> Workflow | None:
+        found = self.wf_repo.get_by_id(workflow_id)
+        return None if found is None else found[0]
 
     def list_runs(
         self,

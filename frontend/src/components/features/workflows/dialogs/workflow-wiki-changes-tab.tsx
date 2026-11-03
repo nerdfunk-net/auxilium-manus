@@ -27,8 +27,16 @@ function reconstructContent(lines: { content: string }[]): string {
   return lines.map((line) => line.content).join("\n");
 }
 
+const ACTION_LABELS: Record<WorkflowChangeEntry["action"], string> = {
+  created: "Created",
+  updated: "Updated",
+  ai_released: "Released for Ask the Net",
+  ai_unreleased: "Release for Ask the Net removed",
+  ai_release_cleared: "Release for Ask the Net ended by an edit",
+};
+
 function actionLabel(action: WorkflowChangeEntry["action"]): string {
-  return action === "created" ? "Created" : "Updated";
+  return ACTION_LABELS[action] ?? "Updated";
 }
 
 export function WorkflowWikiChangesTab({ workflowId, open }: WorkflowWikiChangesTabProps) {

@@ -42,9 +42,12 @@ from models.workflow_context import (
     bare_hostname,
 )
 from services.artifacts import ArtifactService
-from services.nautobot.common.validators import validate_ip_address
-from services.network.netmiko.platform import UnsupportedPlatformError, resolve_netmiko_device_type
 from services.workflow.child_run_inputs import secret_input_message, secret_inputs_given
+from services.workflow.device_lines import (
+    device_line,
+    enabled_device_input_readers,
+    forwardable_driver,
+)
 from workflow_steps.common.partial_outcomes import mark_device_failed
 from workflow_steps.common.step_flags import parse_bool_flag, parse_int_flag
 from workflow_steps.start_workflow.config import get_config
@@ -61,7 +64,6 @@ _MIN_WAIT_SECONDS = 5
 _MAX_POLL_SECONDS = 60
 _MAX_RUNS_CEILING = 200
 _RUN_MODES = ("all_devices", "per_device")
-_DEVICE_INPUT_STEP_KIND = "get-from-user"
 
 
 @dataclass(frozen=True)
@@ -150,42 +152,18 @@ def _parse_config(config: dict[str, Any]) -> _ParsedConfig:
 
 
 def _forwardable_driver(device: DeviceContext) -> str:
-    """The canonical Netmiko type the parent's SSH steps would use, or "" when it has none.
-
-    Resolved from ``network_driver`` and ``platform`` the way the parent connects, so a Nautobot
-    device with only a platform name keeps its driver. A value Netmiko rejects is not forwarded:
-    it would make Get from User refuse every device of the started run.
-    """
-    try:
-        return resolve_netmiko_device_type(
-            network_driver=(device.network_driver or "").strip() or None,
-            platform=(device.platform or "").strip() or None,
-        )
-    except UnsupportedPlatformError:
-        return ""
+    """The canonical Netmiko type the parent's SSH steps would use, or "" when it has none."""
+    return forwardable_driver(device.network_driver, device.platform)
 
 
 def _device_line(device: DeviceContext) -> str | None:
-    """One ``name,ip[,driver]`` line for Get from User, or None without a usable identity.
-
-    A name that would break the line format (a comma or a line break) is left out; the bare
-    primary IP stands in for it. The device's Netmiko driver rides along so the started workflow
-    connects the same way; without a resolvable one the child's default applies.
-    """
-    name = (device.name or "").strip()
-    if not name or "," in name or len(name.splitlines()) != 1:
-        name = ""
-    ip = bare_hostname(device.primary_ip4, "").strip()
-    if ip and not validate_ip_address(ip):
-        ip = ""
-    if not name and not ip:
-        return None
-    driver = _forwardable_driver(device)
-    if driver:
-        return f"{name},{ip},{driver}"
-    if name and ip:
-        return f"{name},{ip}"
-    return name or ip
+    """One ``name,ip[,driver]`` line for Get from User, or None without a usable identity."""
+    return device_line(
+        name=device.name,
+        ip=bare_hostname(device.primary_ip4, "").strip(),
+        network_driver=device.network_driver,
+        platform=device.platform,
+    )
 
 
 # ── the started workflow, inspected ─────────────────────────────────────────────────────────────
@@ -228,16 +206,7 @@ def _inspect_target(
             f"{_STEP_ID}: {devices_input!r} receives this workflow's devices; "
             "remove it from run_inputs"
         )
-    readers = [
-        str(node["id"])
-        for node in nodes
-        if isinstance(node, dict)
-        and node.get("id") is not None
-        and (node.get("data") or {}).get("disabled") is not True
-        and (node.get("data") or {}).get("kind") == _DEVICE_INPUT_STEP_KIND
-        and ((node.get("data") or {}).get("pluginConfig") or {}).get("device_param")
-        == devices_input
-    ]
+    readers = enabled_device_input_readers(nodes, devices_input)
     if not readers:
         raise ValueError(
             f"{_STEP_ID}: workflow {workflow_name!r} has no enabled 'Get from User' step that "

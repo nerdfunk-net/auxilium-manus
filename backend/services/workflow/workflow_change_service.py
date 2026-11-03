@@ -9,7 +9,7 @@ existing git diff endpoint/viewer — no separate diff computation here.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Literal, cast
+from typing import TYPE_CHECKING, cast
 
 from models.workflow_changes import (
     WorkflowChangeAction,
@@ -46,7 +46,7 @@ class WorkflowChangeService:
         self,
         workflow_id: int,
         *,
-        action: Literal["created", "updated"],
+        action: WorkflowChangeAction,
         actor_id: int | None,
         actor_username: str | None,
         git_result: WorkflowGitSyncResult | None,

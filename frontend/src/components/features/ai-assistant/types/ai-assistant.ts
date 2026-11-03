@@ -312,6 +312,13 @@ export interface WorkflowRunResult {
   workflowId: number;
 }
 
+/** A device the run will act on: an inventory device, or an address the user typed in the chat. */
+export interface WorkflowRunDevice {
+  name: string;
+  ip: string;
+  inInventory: boolean;
+}
+
 /**
  * A released workflow the assistant wants run, with the inputs and devices it chose. Nothing starts
  * until the user clicks Run; the token (signed by the server) carries all of it, so what starts is
@@ -325,7 +332,11 @@ export interface WorkflowRunProposal {
   expiresAt: number;
   workflow: { id: number; name: string };
   inputs: Record<string, string | number | boolean>;
-  devices: { id: string; name: string }[];
+  devices: WorkflowRunDevice[];
+  /** Credential inputs the user fills in on the card (their own credential); never the model. */
+  credentialInputs: string[];
+  /** Device types the user may choose for an address outside the inventory (closed list). */
+  driverChoices: string[];
   result?: WorkflowRunResult;
   state: ProposalState;
 }

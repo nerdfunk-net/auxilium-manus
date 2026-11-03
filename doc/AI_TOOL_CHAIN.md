@@ -674,6 +674,64 @@ configs) and goes through the opt-in.
 > `WorkflowService.release_for_ai`, `RunService.trigger_ai_run`. Not built: concurrent-run cap per user,
 > device cap beyond 20 per start, waiting for a run inside one chat turn (the user asks for the result).
 
+### 16.10 Devices, credentials and addresses outside the inventory (built 2026-11-03)
+
+- **Devices.** The release names `ai_devices_input` (a text run input read by an enabled Get from User step; checked on
+  release). `propose_workflow_run(devices=[...])` takes inventory device names, resolved by `DbDeviceResolver`
+  (exact name, management address). The server builds the `name,ip[,driver]` lines
+  (`services/workflow/device_lines.py`, also used by `start-workflow`) at start; the devices input is never in the
+  model's `inputs` and `build_run_inputs` refuses a clash. `run.device_ids` is no longer set (no step reads it).
+- **Credentials.** The workflow declares a credential run input (the step uses `credential_source: param`). The release
+  marks it in `ai_credential_inputs`; the card shows a picker of the confirming user's own SSH credentials and the
+  confirm body carries `credentials: {input: credential name}`. `trigger_ai_run` validates it with
+  `validate_reference_inputs` as that user (private wins over global), the run's `triggered_by_id` is that user, so the
+  worker resolves it the same way. Secret inputs stay unavailable to the model; a required credential input the
+  release did not mark makes the workflow unstartable by the assistant.
+- **Free IPv4 (onboarding).** Only with `ai_allow_free_ip`, which needs a devices input. Strict literal parse (no
+  host names, CIDR, lists, whitespace, non-ASCII digits), `validate_device_host` (no loopback, link-local, unspecified,
+  multicast) and, outside development, `allow_netmiko_arbitrary_hosts`. The token carries the device as "not in the
+  inventory"; the card shows a warning and an optional device type from the closed `DEVICE_DRIVERS` list; without it the
+  Get from User step's default driver applies. Such a device has no name (the address stands in).
+- Git repositories stay a step setting of the workflow: nothing here selects one.
+
+### 16.11 The release is pinned to what was reviewed (2026-11-03, after `doc/analysis/REVIEW.md`)
+
+D7 said "clear on edit, no hash". Clear-on-edit alone left holes (a child workflow edited, a save racing a release,
+a card made before a re-release), so a release is now also **hash-pinned**; the clear stays as the visible, audited
+way a release ends.
+
+- `workflows.ai_release_stamp` = SHA-256 over the workflow's nodes, edges, groups and inputs, the release settings
+  (description, result step, devices input, credential inputs, free-address switch) **and the same for every workflow
+  it starts** with a `start-workflow` step, transitively (`services/workflow/release_stamp.py`). Stored at release.
+- A release counts (`release_is_current`) only while the stored stamp equals the recomputed one. List, describe,
+  propose, confirm and `trigger_ai_run` all use it, so editing a child ends the parents' releases without finding them.
+- The signed proposal carries the stamp; confirm refuses a different one ("changed or released again after it was
+  proposed"), which closes the re-release window. Unreleased, changed and stale all answer 403 `workflow_not_released`.
+- The token also carries a random id, recorded in Redis with `SET NX` (`token_once.py`) so a double click or replay
+  starts one run. The store **fails closed**: if Redis cannot record the id the confirm answers 503
+  `confirmation_unavailable` and nothing starts (no in-process fallback, which would let a replay or a second
+  worker start another run). The id is *claimed* (60 s) before the start, *kept* once the run exists and was
+  dispatched, and *released* when the start is refused (credential the user cannot use, engine down), so the same card
+  can be corrected and tried again until it expires.
+- A release pins at most 50 workflows (itself plus everything it starts). A wider graph is refused at release time
+  (400) and is never "current", because a partial pin would let a workflow past the cap change under it.
+- The properties panel reads `ai_release_current` from `GET /workflows/{id}`: when a workflow it starts changed, it
+  says the assistant no longer offers the workflow and the releaser can release again.
+- An IPv4 literal is first looked up as the management address of an inventory device (needs
+  `sources.nautobot:read`, exactly one match); such a device keeps its name, platform and driver. Only an address
+  the inventory does not know is a free address.
+- Confirm re-resolves the devices as the user: an inventory device must still have the same address and platform,
+  a free address must still pass the host policy and the operator switch.
+- The card and the token carry the **resolved** inputs (defaults included, user-filled inputs and secrets left
+  out). `workflow_runs.ai_result_node_id` stores the designated result step when the run starts; `get_run_result`
+  reads that, so a later re-release cannot change what an older run answers.
+- `get_run_result` answers only for runs the assistant started (they carry the stored step). A manual or scheduled run
+  of a released workflow, and assistant runs from before 2026-11-03, have none: the model reads those with `get_run`
+  plus `get_step_result`. Open choice: store the designated step on every run of a released workflow.
+- Release, removal and an edit that ends a release each write a `workflow_changes` row
+  (`ai_released`, `ai_unreleased`, `ai_release_cleared`) with the actor.
+- A moved node counts as an edit (the stamp covers the whole canvas); that is deliberate and errs on the safe side.
+
 ### 16.1 Idea
 
 An administrator marks selected workflows as **released for the assistant**. The assistant can list

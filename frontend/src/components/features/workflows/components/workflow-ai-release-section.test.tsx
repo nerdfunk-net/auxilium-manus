@@ -1,4 +1,10 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  within,
+} from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const storeState = {
@@ -43,6 +49,8 @@ vi.mock("@/hooks/queries/use-workflow-ai-release-mutations", () => ({
 // Radix Select is awkward in jsdom; a native select keeps the test about our logic.
 vi.mock("@/components/ui/select", async () => {
   const React = await import("react");
+  const SelectTrigger = (props: { "aria-label"?: string }) =>
+    props ? null : null;
   return {
     Select: ({
       value,
@@ -52,16 +60,21 @@ vi.mock("@/components/ui/select", async () => {
       value: string;
       onValueChange: (v: string) => void;
       children: React.ReactNode;
-    }) => (
-      <select
-        aria-label="Result step"
-        value={value}
-        onChange={(e) => onValueChange(e.target.value)}
-      >
-        {children}
-      </select>
-    ),
-    SelectTrigger: () => null,
+    }) => {
+      const trigger = React.Children.toArray(children).find(
+        (child) => React.isValidElement(child) && child.type === SelectTrigger,
+      ) as React.ReactElement<{ "aria-label"?: string }> | undefined;
+      return (
+        <select
+          aria-label={trigger?.props["aria-label"]}
+          value={value}
+          onChange={(e) => onValueChange(e.target.value)}
+        >
+          {children}
+        </select>
+      );
+    },
+    SelectTrigger,
     SelectValue: () => null,
     SelectContent: ({ children }: { children: React.ReactNode }) => (
       <>{children}</>
@@ -143,6 +156,9 @@ describe("WorkflowAiReleaseSection", () => {
         data: {
           description: "Compare with the baseline.",
           result_node_id: "n2",
+          devices_input: null,
+          credential_inputs: [],
+          allow_free_ip: false,
         },
       },
       expect.any(Object),
@@ -176,6 +192,34 @@ describe("WorkflowAiReleaseSection", () => {
     ).toBe(true);
   });
 
+  it("warns when the release is broken by a change to a workflow it starts", () => {
+    query.data = {
+      ai_released: true,
+      ai_release_current: false,
+      ai_description: "Compare.",
+      ai_result_node_id: "n2",
+      ai_released_at: "2026-11-03T10:00:00Z",
+      canvas_nodes: NODES,
+    };
+    render(<WorkflowAiReleaseSection />);
+
+    expect(screen.getByTestId("ai-release-broken")).toBeTruthy();
+  });
+
+  it("shows no warning while the release is current", () => {
+    query.data = {
+      ai_released: true,
+      ai_release_current: true,
+      ai_description: "Compare.",
+      ai_result_node_id: "n2",
+      ai_released_at: "2026-11-03T10:00:00Z",
+      canvas_nodes: NODES,
+    };
+    render(<WorkflowAiReleaseSection />);
+
+    expect(screen.queryByTestId("ai-release-broken")).toBeNull();
+  });
+
   it("shows the saved release and can remove it", () => {
     query.data = {
       ai_released: true,
@@ -199,6 +243,120 @@ describe("WorkflowAiReleaseSection", () => {
     fireEvent.click(screen.getByRole("button", { name: "Remove release" }));
     expect(unrelease.mutate).toHaveBeenCalledWith(7, expect.any(Object));
     expect(screen.getByRole("button", { name: "Update release" })).toBeTruthy();
+  });
+
+  describe("devices, credentials and addresses outside the inventory", () => {
+    const INPUTS = [
+      { name: "devs", type: "string" },
+      { name: "note", type: "string" },
+      { name: "cred", type: "reference", ref_kind: "credential" },
+      { name: "inv", type: "reference", ref_kind: "inventory" },
+    ];
+    const READER = {
+      id: "g",
+      type: "workflowNode",
+      data: {
+        title: "Get devices",
+        kind: "get-from-user",
+        pluginConfig: { device_param: "devs" },
+      },
+    };
+
+    beforeEach(() => {
+      query.data = {
+        ai_released: false,
+        ai_description: null,
+        ai_result_node_id: null,
+        ai_devices_input: null,
+        ai_credential_inputs: [],
+        ai_allow_free_ip: false,
+        canvas_nodes: [...NODES, READER],
+        static_attributes: INPUTS,
+      };
+    });
+
+    function describeIt() {
+      fireEvent.change(
+        screen.getByLabelText(/Description for the assistant/i),
+        {
+          target: { value: "Onboard." },
+        },
+      );
+    }
+
+    it("pre-selects the one input a Get from User step reads", () => {
+      render(<WorkflowAiReleaseSection />);
+      expect(
+        (screen.getByLabelText("Devices input") as HTMLSelectElement).value,
+      ).toBe("devs");
+    });
+
+    it("offers only text inputs as the devices input and only credential references as credentials", () => {
+      render(<WorkflowAiReleaseSection />);
+      const options = within(screen.getByLabelText("Devices input"))
+        .getAllByRole("option")
+        .map((o) => o.textContent);
+      expect(options).toEqual(["None (takes no devices)", "devs", "note"]);
+      expect(screen.getByLabelText("cred")).toBeTruthy();
+      expect(screen.queryByLabelText("inv")).toBeNull();
+    });
+
+    it("sends the devices input, the chosen credentials and the address switch", () => {
+      render(<WorkflowAiReleaseSection />);
+      describeIt();
+      fireEvent.click(screen.getByLabelText("cred"));
+      fireEvent.click(
+        screen.getByRole("switch", {
+          name: /IPv4 addresses outside the inventory/i,
+        }),
+      );
+      expect(screen.getByText(/log in to an address/i)).toBeTruthy();
+
+      fireEvent.click(screen.getByRole("button", { name: "Release" }));
+
+      expect(release.mutate.mock.calls[0][0].data).toMatchObject({
+        devices_input: "devs",
+        credential_inputs: ["cred"],
+        allow_free_ip: true,
+      });
+    });
+
+    it("cannot allow outside addresses without a devices input", () => {
+      render(<WorkflowAiReleaseSection />);
+      fireEvent.change(screen.getByLabelText("Devices input"), {
+        target: { value: "__none__" },
+      });
+      const toggle = screen.getByRole("switch", {
+        name: /IPv4 addresses outside the inventory/i,
+      }) as HTMLButtonElement;
+      expect(toggle.disabled).toBe(true);
+      describeIt();
+      fireEvent.click(screen.getByRole("button", { name: "Release" }));
+      expect(release.mutate.mock.calls[0][0].data).toMatchObject({
+        devices_input: null,
+        allow_free_ip: false,
+      });
+    });
+
+    it("shows a saved release instead of the suggestion", () => {
+      query.data = {
+        ...(query.data as object),
+        ai_released: true,
+        ai_description: "d",
+        ai_devices_input: "note",
+        ai_credential_inputs: ["cred"],
+        ai_allow_free_ip: true,
+      };
+      render(<WorkflowAiReleaseSection />);
+      expect(
+        (screen.getByLabelText("Devices input") as HTMLSelectElement).value,
+      ).toBe("note");
+      expect(
+        screen
+          .getByRole("checkbox", { name: "cred" })
+          .getAttribute("aria-checked"),
+      ).toBe("true");
+    });
   });
 
   it("looks again after the canvas is saved, because a save clears the release", () => {
