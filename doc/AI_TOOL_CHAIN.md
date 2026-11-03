@@ -3080,3 +3080,39 @@ call, and run visibility follows `RunService`. A missing and a forbidden run giv
 
 **Not verified.** No real model has answered a run question through Ask the Net, and the panel was not checked in a
 browser. As for the runs page, that is still open.
+
+## 41. Searching the config backups: `search_config_backups` (2026-11-03)
+
+"Which devices have `xyz` in their config?" / "all devices with syslog 1.2.3.4". One tool call searches every
+backed-up config of a `device_configs` repository and lists the devices; the model does not loop `get_config_backup`.
+
+* **Device from the path.** The repository's `config_path_running` / `config_path_startup` template (§30) is
+  turned into an anchored regex (`config_backup.template_to_regex`): `{device.name}` is captured, every other
+  placeholder matches one path segment, literals are escaped. The captured name is the device; there is no
+  hostname parsing (unlike the `get-from-config` step) and no Nautobot call per device. A template without
+  `{device.name}` cannot be searched (fixed error). Hidden directories (`.git`) are never entered.
+* **Input.** `query` (1..200), `mode` `text` (substring, default) or `regex` (per line), `case_sensitive`
+  (default off), `kind` (default running), `repository?`, `limit` (default 50, max 200). No path from the model.
+* **Regex** runs only in the killable child (`core/regex_isolated.py`, new op `search_lines` in
+  `core/regex_worker.py`: first 3 matching lines per file, 0.25 s per file, 1.5 s per job), in jobs of at most 100
+  files / 2 MB. Text mode runs in process.
+* **Limits, never silent.** Same caps as the step: 5,000 files, 1 MiB per file. A file that is a link, too large, not
+  UTF-8 or whose regex was stopped is counted in `skipped`; any of these or the file cap sets `partial`, and the
+  answer carries a note the prompt tells the model to repeat. More devices than `limit` set `truncated`.
+* **Answer.** Device names with up to 3 matching lines each (line number + text, redacted with the user's exact
+  secrets), `total_devices`, `files_scanned`, `source: git backup, not the live devices`. Audit ref `config-search:<repo>`.
+* **Gating.** As `get_config_backup`: offered with the content opt-in and `git.files:read`, checked on every call.
+  Own rate limit bucket `ai-config-search` (6/min) because a search checks out and scans the whole repository.
+* **Prompt/playbook.** `CONFIG_BACKUP_PROMPT` and step 5 of `config-backup-or-live`.
+* **Tests.** `tests/unit/test_ai_config_search.py`; label test in `assistant-panel.test.tsx`.
+* **Review fixes** (`doc/analysis/REVIEW.md`, 2026-11-03): a hit is per file with its `path` (two sites may have the
+  same device name; `total_files`, `total_devices`, `limit` counts files); the matching lines are taken from the
+  WHOLE file after redaction (as `get_config_backup`), only for the files shown, then cut to 200 characters; the file
+  cap counts only readable files (links and oversize files are passed over and reported, not counted) and the walk
+  stops at the template depth; the scan has a 30 s budget (the lease can be waited for 90 s) and at most 2 searches
+  run at once (`partial` when time ran out); text mode runs in a thread, chunks are bounded by 100 files / 2 MB; the
+  answer is shrunk to 15,000 characters before it is serialised (`output_cut`); invalid regex gives fixed text; a
+  blank query is refused. Still true: the search holds the repository lease for its scan (up to 30 s), and the rate
+  limiter is fail-open like the other assistant buckets.
+* **Open.** No live check against the lab repository yet (compare with `grep -rl` in the checkout). Mutation checks of
+  the new tests were not done. Only the current tree is searched (no history, unlike the step's `include_history`).

@@ -26,7 +26,7 @@ def _limit_resources() -> None:
         import resource
 
         resource.setrlimit(resource.RLIMIT_CPU, (CPU_SECONDS, CPU_SECONDS + 1))
-    except (ImportError, ValueError, OSError):
+    except ImportError, ValueError, OSError:
         _log.warning("could not set the CPU limit for the regex worker")
     with contextlib.suppress(ImportError, ValueError, OSError):
         import resource
@@ -91,7 +91,7 @@ def _match_many(items: list[dict]) -> list[bool | str]:
             if entry is None:
                 try:
                     entry = re.compile(pattern)
-                except (re.error, RecursionError, OverflowError):
+                except re.error, RecursionError, OverflowError:
                     entry = "invalid"
                 compiled[pattern] = entry
             if isinstance(entry, str):
@@ -99,8 +99,46 @@ def _match_many(items: list[dict]) -> list[bool | str]:
             else:
                 match = entry.fullmatch if item["mode"] == "full" else entry.search
                 results.append(match(item["text"]) is not None)
-        except (_ItemTimeout, MemoryError):
+        except _ItemTimeout, MemoryError:
             results.append("stopped")
+        finally:
+            if timed:
+                signal.setitimer(signal.ITIMER_REAL, 0)
+    return results
+
+
+def _search_lines(regex, request: dict) -> list[dict]:
+    """For each ``{id, text}``: the first ``max_lines`` lines (1-based number, line cut to 200
+    characters) where the pattern is found. An item that takes too long gets ``stopped: true``
+    and no lines; the rest of the batch is still answered. Answers never echo the pattern."""
+    import signal
+    import time
+
+    flags = regex.RegexFlagsConfig.from_mapping(request.get("flags") or {})
+    compiled = regex.compile_pattern(request["pattern"], flags)  # ValueError: invalid pattern
+    max_lines = int(request.get("max_lines", 3))
+    timed = hasattr(signal, "setitimer")
+    if timed:
+        signal.signal(signal.SIGALRM, _on_alarm)
+    deadline = time.monotonic() + BATCH_SECONDS
+    results: list[dict] = []
+    for item in request["items"]:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            results.append({"id": item["id"], "lines": [], "stopped": True})
+            continue
+        if timed:
+            signal.setitimer(signal.ITIMER_REAL, min(ITEM_SECONDS, remaining))
+        try:
+            lines: list[list] = []
+            for number, line in enumerate(item["text"].splitlines(), start=1):
+                if compiled.search(line):
+                    lines.append([number, line[:200]])
+                    if len(lines) >= max_lines:
+                        break
+            results.append({"id": item["id"], "lines": lines})
+        except _ItemTimeout, MemoryError:
+            results.append({"id": item["id"], "lines": [], "stopped": True})
         finally:
             if timed:
                 signal.setitimer(signal.ITIMER_REAL, 0)
@@ -129,6 +167,8 @@ def main() -> None:
                 destination_template=request["destination_template"],
                 flags=flags,
             )
+        elif request["op"] == "search_lines":
+            result = _search_lines(regex, request)
         elif request["op"] == "match_many":
             result = _match_many(request["items"])
         else:

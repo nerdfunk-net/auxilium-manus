@@ -42,7 +42,8 @@ async def run_regex(
     timeout: float = DEFAULT_TIMEOUT_SECONDS,
     wait_seconds: float = 1.0,
 ) -> RegexOutcome:
-    """``request`` is ``{"op": "replace" | "probe" | "match_many", ...}``; see ``regex_worker``."""
+    """``request`` is ``{"op": <op>, ...}`` with op one of replace, probe, match_many or
+    search_lines; see ``regex_worker``."""
     global _active
     loop = asyncio.get_running_loop()
     deadline = loop.time() + wait_seconds

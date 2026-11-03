@@ -2,7 +2,7 @@
 name: config-backup-or-live
 title: Get a device configuration from the git backup or from the device
 when: "get, show or read the running or startup config of a device; 'config of X'; what is configured on X"
-tools: [list_config_backups, get_config_backup, propose_device_command, fetch_slice]
+tools: [list_config_backups, get_config_backup, search_config_backups, propose_device_command, fetch_slice]
 scope: read-only
 ---
 # Get a device configuration: backup first, live on request
@@ -27,6 +27,11 @@ needs no click; a live command shows the device now. This playbook only reads an
 4. Live requested, or the user accepts the offer: call `propose_device_command` with
    `show running-config` or `show startup-config`. Nothing runs until the user confirms the card; do not
    claim it ran. After they run it, read the stored result with `fetch_slice`.
+
+5. Which devices have a string or setting configured ("all devices with syslog 1.2.3.4"): call
+   `search_config_backups` once (text mode; the kind defaults to running). List the devices with the
+   matching line, say it searched the backup and not the live devices, and report `partial` or
+   `truncated` results. Do not call `get_config_backup` for each device.
 
 ## Decision points
 - Backup older than the user expects: say so and offer the live command; do not decide for them.

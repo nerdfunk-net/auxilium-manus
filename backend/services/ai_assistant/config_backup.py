@@ -17,6 +17,7 @@ import logging
 import os
 import re
 import stat
+import time
 from collections.abc import Awaitable, Callable
 from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass
@@ -26,6 +27,7 @@ from typing import Any, Literal, Protocol
 
 import service_factory
 from core.database import SessionLocal
+from core.regex_isolated import run_regex
 from dependencies import nautobot_credentials_from_source_id
 from models.workflow_context import DeviceContext
 from services.ai_assistant.device_access import DeviceAccessError, ResolvedDevice
@@ -47,6 +49,22 @@ MAX_CONFIG_CHARS = 2_000_000
 RATE_BUCKET = "ai-config-backup"
 RATE_ATTEMPTS = 20
 RATE_WINDOW_SECONDS = 60
+# A search checks out and scans the whole repository, so it gets its own, tighter budget.
+SEARCH_RATE_BUCKET = "ai-config-search"
+SEARCH_RATE_ATTEMPTS = 6
+# Same caps as the get-from-config step (services/git/content_search_service.py).
+MAX_SEARCH_FILES = 5000
+MAX_SEARCH_FILE_BYTES = 1024 * 1024
+# One regex job gets at most this many files / bytes, so the child's stdin and time stay small.
+REGEX_BATCH_FILES = 100
+REGEX_BATCH_BYTES = 2_000_000
+MAX_LINES_PER_DEVICE = 3
+MAX_LINE_CHARS = 200
+# Below the 90 s the repository lease can be waited for (services/git/repo_lock.py): a search must
+# not keep a change-request checkout or a backup read of the same repository waiting longer.
+SEARCH_DEADLINE_SECONDS = 30.0
+MAX_CONCURRENT_SEARCHES = 2
+_active_searches = 0
 _KEY_IN_MESSAGE = re.compile(r"\{([a-zA-Z0-9_.]+)\}")
 
 
@@ -76,6 +94,30 @@ class ConfigBackup:
     truncated: bool = False  # the file is longer than MAX_CONFIG_CHARS; ``text`` is a prefix
 
 
+@dataclass(frozen=True)
+class ConfigSearchHit:
+    """One backup file with matches. Two sites can have a device of the same name, so the hit is
+    per file: ``path`` tells them apart. ``lines`` are ``(line_number, text)``, already redacted."""
+
+    device: str
+    path: str
+    lines: tuple[tuple[int, str], ...]
+
+
+@dataclass(frozen=True)
+class ConfigSearchResult:
+    repository: str
+    branch: str
+    kind: ConfigKind
+    hits: tuple[ConfigSearchHit, ...]  # at most ``limit`` files, sorted by path
+    total_files: int  # files with a match, also those beyond ``limit``
+    total_devices: int  # distinct device names among them
+    files_scanned: int
+    skipped: int  # files not searched (too large, not text, a link, or a stopped regex)
+    partial: bool  # the list may be incomplete (skips, a cap, the time budget)
+    truncated: bool  # more matching files than ``limit``
+
+
 class BackupDeviceResolver(Protocol):
     """Finds a device by name; a missing management address is fine (nothing connects)."""
 
@@ -88,6 +130,17 @@ class ConfigBackupReader(Protocol):
     async def read(
         self, device_name: str, kind: ConfigKind, repository: str | None
     ) -> ConfigBackup: ...
+
+    async def search(
+        self,
+        query: str,
+        mode: Literal["text", "regex"],
+        kind: ConfigKind,
+        case_sensitive: bool,
+        repository: str | None,
+        limit: int,
+        redact: Callable[[str], str],
+    ) -> ConfigSearchResult: ...
 
 
 def build_device_context(device: ResolvedDevice, nautobot_bag: dict[str, Any]) -> DeviceContext:
@@ -210,6 +263,144 @@ def last_commit_time(root: Path, relative: str) -> str | None:
     return datetime.fromtimestamp(commit.committed_date, UTC).isoformat()
 
 
+_TEMPLATE_PLACEHOLDER = re.compile(r"\{([^{}]*)\}")
+Candidate = tuple[str, str, int]  # (device, relative path, size in bytes)
+
+
+def template_to_regex(template: str) -> re.Pattern[str]:
+    """Anchored regex for the files a path template can produce; group ``device`` is the name.
+
+    ``{device.name}`` is captured, every other placeholder matches one path segment. A template
+    without ``{device.name}`` cannot tell which device a file belongs to and is refused.
+    """
+    parts: list[str] = []
+    seen_device = False
+    position = 0
+    for found in _TEMPLATE_PLACEHOLDER.finditer(template):
+        parts.append(re.escape(template[position : found.start()]))
+        if found.group(1) == "device.name":
+            parts.append("(?P=device)" if seen_device else "(?P<device>[^/]+)")
+            seen_device = True
+        else:
+            parts.append("[^/]+")
+        position = found.end()
+    parts.append(re.escape(template[position:]))
+    if not seen_device:
+        raise ConfigBackupError(
+            "This repository's config path template has no {device.name}, so a search cannot "
+            "tell which device a file belongs to"
+        )
+    return re.compile("".join(parts))
+
+
+def list_backup_files(
+    root: Path, pattern: re.Pattern[str], depth: int
+) -> tuple[list[Candidate], bool, int]:
+    """Readable candidates in walk order, whether the cap stopped the walk, and how many matching
+    entries were passed over (a link, not a regular file, or over the size limit).
+
+    Passed-over entries do not use up the ``MAX_SEARCH_FILES`` slots. Hidden directories are never
+    entered and directories deeper than the template (``depth`` path segments) are not walked.
+    """
+    resolved = root.resolve()
+    found: list[Candidate] = []
+    passed_over = 0
+    for current, dirnames, filenames in os.walk(resolved):
+        here = Path(current).relative_to(resolved)
+        dirnames[:] = (
+            [] if len(here.parts) + 1 >= depth else sorted(d for d in dirnames if d[0] != ".")
+        )
+        for name in sorted(filenames):
+            relative = (here / name).as_posix()
+            match = pattern.fullmatch(relative)
+            if match is None:
+                continue
+            try:
+                info = (resolved / relative).lstat()
+            except OSError:
+                passed_over += 1
+                continue
+            if not stat.S_ISREG(info.st_mode) or info.st_size > MAX_SEARCH_FILE_BYTES:
+                passed_over += 1
+                continue
+            if len(found) >= MAX_SEARCH_FILES:
+                return found, True, passed_over
+            found.append((match.group("device"), relative, info.st_size))
+    return found, False, passed_over
+
+
+def _read_for_search(root: Path, relative: str) -> str | None:
+    """The file text, or ``None`` for a link, an oversize file or one that is not UTF-8 text."""
+    try:
+        target = contain(root, relative)
+        info = target.lstat()
+        if not stat.S_ISREG(info.st_mode) or info.st_size > MAX_SEARCH_FILE_BYTES:
+            return None
+        text, _truncated = read_backup_text(target)
+    except ConfigBackupError, OSError:
+        return None
+    return text
+
+
+def _chunks(files: list[Candidate]):
+    """Group candidates so one read, and one regex job, stays within the file and byte budget."""
+    chunk: list[Candidate] = []
+    size = 0
+    for item in files:
+        if chunk and (len(chunk) >= REGEX_BATCH_FILES or size + item[2] > REGEX_BATCH_BYTES):
+            yield chunk
+            chunk, size = [], 0
+        chunk.append(item)
+        size += item[2]
+    if chunk:
+        yield chunk
+
+
+def _text_lines(
+    text: str, query: str, case_sensitive: bool, max_lines: int
+) -> list[tuple[int, str]]:
+    needle = query if case_sensitive else query.lower()
+    lines: list[tuple[int, str]] = []
+    for number, line in enumerate(text.splitlines(), start=1):
+        if needle in (line if case_sensitive else line.lower()):
+            lines.append((number, line))
+            if len(lines) >= max_lines:
+                break
+    return lines
+
+
+async def _match_lines(
+    items: list[tuple[str, str]], query: str, mode: str, case_sensitive: bool, max_lines: int
+) -> dict[str, list[tuple[int, str]] | None]:
+    """Matching lines per id for ``(id, text)`` items; ``None`` where a regex was stopped.
+
+    Text mode runs in a thread so a large chunk does not hold the event loop; a regex only runs in
+    the killable child."""
+    if mode == "text":
+        return await asyncio.to_thread(
+            lambda: {
+                key: _text_lines(text, query, case_sensitive, max_lines) for key, text in items
+            }
+        )
+    outcome = await run_regex(
+        {
+            "op": "search_lines",
+            "pattern": query,
+            "flags": {"case_insensitive": not case_sensitive},
+            "items": [{"id": key, "text": text} for key, text in items],
+            "max_lines": max_lines,
+        }
+    )
+    if not outcome.ok:
+        if (outcome.error or "").startswith("invalid"):
+            raise ConfigBackupError("The regular expression is not valid")
+        return {key: None for key, _text in items}  # stopped or busy: reported as partial
+    return {
+        row["id"]: None if row.get("stopped") else [(n, t) for n, t in row["lines"]]
+        for row in outcome.result
+    }
+
+
 def _template_for(repository: dict[str, Any], kind: ConfigKind) -> str | None:
     value = repository.get(f"config_path_{kind}")
     return value.strip() if isinstance(value, str) and value.strip() else None
@@ -260,6 +451,7 @@ class DbConfigBackupReader:
         load_repositories: Callable[[], list[dict[str, Any]]] | None = None,
         check_permission: Callable[[], None] | None = None,
         check_rate: Callable[[], None] | None = None,
+        check_search_rate: Callable[[], None] | None = None,
     ) -> None:
         self._user_id = user_id
         self._resolver = resolver
@@ -268,6 +460,7 @@ class DbConfigBackupReader:
         self._load_repositories = load_repositories or self._db_repositories
         self._check_permission = check_permission or self._db_permission
         self._check_rate = check_rate or self._rate_limit
+        self._check_search_rate = check_search_rate or self._search_rate_limit
 
     def _db_permission(self) -> None:
         with SessionLocal() as db:
@@ -282,6 +475,15 @@ class DbConfigBackupReader:
             limiter.check(f"{RATE_BUCKET}:{self._user_id}")
         except RateLimitExceededError as exc:
             raise ConfigBackupError("Too many config backup reads; try again shortly") from exc
+
+    def _search_rate_limit(self) -> None:
+        limiter = service_factory.build_user_rate_limiter(
+            SEARCH_RATE_BUCKET, SEARCH_RATE_ATTEMPTS, RATE_WINDOW_SECONDS
+        )
+        try:
+            limiter.check(f"{SEARCH_RATE_BUCKET}:{self._user_id}")
+        except RateLimitExceededError as exc:
+            raise ConfigBackupError("Too many config searches; try again shortly") from exc
 
     @staticmethod
     def _db_repositories() -> list[dict[str, Any]]:
@@ -350,3 +552,134 @@ class DbConfigBackupReader:
             committed_at=committed,
             truncated=truncated,
         )
+
+    async def search(
+        self,
+        query: str,
+        mode: Literal["text", "regex"],
+        kind: ConfigKind,
+        case_sensitive: bool,
+        repository: str | None,
+        limit: int,
+        redact: Callable[[str], str],
+    ) -> ConfigSearchResult:
+        global _active_searches
+        await asyncio.to_thread(self._check_permission)
+        await asyncio.to_thread(self._check_search_rate)
+        repositories = await asyncio.to_thread(self._load_repositories)
+        chosen = select_repository(repositories, kind, repository)
+        template = _template_for(chosen, kind)
+        if template is None:  # select_repository only returns repositories with one
+            raise ConfigBackupError(f"No {kind} config path is configured")
+        pattern = template_to_regex(template)
+        if _active_searches >= MAX_CONCURRENT_SEARCHES:
+            raise ConfigBackupError("Other config searches are running; try again shortly")
+        _active_searches += 1
+        try:
+            async with self._checkout(chosen) as root:
+                return await self._scan(
+                    root,
+                    pattern,
+                    template,
+                    chosen,
+                    kind,
+                    (query, mode, case_sensitive),
+                    limit,
+                    redact,
+                )
+        except ConfigBackupError:
+            raise
+        except Exception as exc:
+            logger.exception("AI assistant: config backup search failed")
+            raise ConfigBackupError(
+                "The repository could not be updated or read; try again or ask an administrator"
+            ) from exc
+        finally:
+            _active_searches -= 1
+
+    async def _scan(
+        self,
+        root: Path,
+        pattern: re.Pattern[str],
+        template: str,
+        chosen: dict[str, Any],
+        kind: ConfigKind,
+        what: tuple[str, str, bool],
+        limit: int,
+        redact: Callable[[str], str],
+    ) -> ConfigSearchResult:
+        query, mode, case_sensitive = what
+        deadline = time.monotonic() + SEARCH_DEADLINE_SECONDS
+        files, capped, passed_over = await asyncio.to_thread(
+            list_backup_files, root, pattern, template.count("/") + 1
+        )
+        matched: list[tuple[str, str]] = []  # (device, relative path) with a match
+        scanned = 0
+        skipped = passed_over
+        partial = capped or passed_over > 0
+        for chunk in _chunks(files):
+            if time.monotonic() > deadline:
+                partial = True  # out of time: say so rather than hold the repository lease on
+                break
+            texts = await asyncio.to_thread(
+                lambda chunk=chunk: [(d, r, _read_for_search(root, r)) for d, r, _size in chunk]
+            )
+            readable = [(d, r, t) for d, r, t in texts if t is not None]
+            skipped += len(texts) - len(readable)
+            answers = await _match_lines(
+                [(r, t) for _d, r, t in readable], query, mode, case_sensitive, 1
+            )
+            for device, relative, _text in readable:
+                lines = answers.get(relative)
+                if lines is None:
+                    skipped += 1
+                    continue
+                scanned += 1
+                if lines:
+                    matched.append((device, relative))
+        partial = partial or skipped > passed_over
+        matched.sort(key=lambda item: item[1])
+        hits = await self._redacted_hits(
+            root, matched[:limit], (query, mode, case_sensitive), redact
+        )
+        return ConfigSearchResult(
+            repository=str(chosen["name"]),
+            branch=str(chosen.get("branch") or ""),
+            kind=kind,
+            hits=hits,
+            total_files=len(matched),
+            total_devices=len({device for device, _relative in matched}),
+            files_scanned=scanned,
+            skipped=skipped,
+            partial=partial,
+            truncated=len(matched) > limit,
+        )
+
+    @staticmethod
+    async def _redacted_hits(
+        root: Path,
+        matched: list[tuple[str, str]],
+        what: tuple[str, str, bool],
+        redact: Callable[[str], str],
+    ) -> tuple[ConfigSearchHit, ...]:
+        """The lines to show: the WHOLE file is redacted first and the lines are taken from that
+        text, so a secret that straddles a cut, or a private-key block, is already gone (the same
+        order ``get_config_backup`` uses). A line the redaction changed so it no longer matches is
+        not shown."""
+        query, mode, case_sensitive = what
+        hits: list[ConfigSearchHit] = []
+        for device, relative in matched:
+            text = await asyncio.to_thread(_read_for_search, root, relative)
+            lines: list[tuple[int, str]] = []
+            if text is not None:
+                try:
+                    safe = await asyncio.to_thread(redact, text)
+                except ValueError:  # redaction budget exceeded: show no line rather than raw text
+                    safe = None
+                if safe is not None:
+                    answer = await _match_lines(
+                        [(relative, safe)], query, mode, case_sensitive, MAX_LINES_PER_DEVICE
+                    )
+                    lines = [(n, t[:MAX_LINE_CHARS]) for n, t in (answer.get(relative) or [])]
+            hits.append(ConfigSearchHit(device, relative, tuple(lines)))
+        return tuple(hits)

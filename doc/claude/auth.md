@@ -99,7 +99,7 @@ page-side query (`use-settings-mutations.ts`).
 rate limited. The shared secret is a global `shared_secret` credential referenced by id; no response or query
 carries it (`doc/AGENT_INTEGRATION.md`).
 
-**Ask the Net config backups.** `list_config_backups` / `get_config_backup` read a device's config from a
+**Ask the Net config backups.** `list_config_backups` / `get_config_backup` / `search_config_backups` (all devices, `doc/AI_TOOL_CHAIN.md` §41) read a device's config from a
 `device_configs` git repository. They need `git.files:read` (checked on every call, which the seeded `viewer` role
 holds) and the user's content opt-in; no operator switch. The path comes from the repository's
 `config_path_running` / `config_path_startup` template, which only an admin can set (P3), never from the model

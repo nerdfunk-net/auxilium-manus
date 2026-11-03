@@ -226,6 +226,7 @@ describe("AssistantPanel tool activity labels (Ask the Net)", () => {
     ["propose_device_command", /device command/i],
     ["list_config_backups", /config backups/i],
     ["get_config_backup", /config backup/i],
+    ["search_config_backups", /searching config backups/i],
     ["list_playbooks", /playbook/i],
     ["get_playbook", /playbook/i],
     ["list_batfish_networks", /networks/i],

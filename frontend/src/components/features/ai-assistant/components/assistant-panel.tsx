@@ -140,6 +140,7 @@ const TOOL_LABELS: Record<string, string> = {
   get_run_result: "Reading the run result",
   list_config_backups: "Looking for config backups",
   get_config_backup: "Reading a config backup",
+  search_config_backups: "Searching config backups",
   list_playbooks: "Looking for a matching playbook",
   get_playbook: "Reading a playbook",
   list_batfish_networks: "Listing Batfish networks",
