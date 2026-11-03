@@ -30,10 +30,17 @@ class _FakeDevice:
         self._learn_results = learn_results
         self._learn_errors = learn_errors or {}
 
-    def learn(self, feature: str) -> _FakeOps:
+    def learn(self, feature: str):
         if feature in self._learn_errors:
             raise self._learn_errors[feature]
-        return _FakeOps(self._learn_results[feature])
+        result = self._learn_results[feature]
+        if feature == "all" and isinstance(result, dict):
+            # Genie returns feature name -> Ops object for "all".
+            return {
+                name: None if data is None else _FakeOps(data)
+                for name, data in result.items()
+            }
+        return _FakeOps(result)
 
 
 class _FakeTestbed:
@@ -101,3 +108,37 @@ def test_connect_marker_import_still_works():
     # generic_script.py must define CONNECT_MARKER locally, not import it
     # from app.log_markers (unreachable from this file's runtime sys.path).
     assert CONNECT_MARKER == "[pyats-connect]"
+
+
+def test_learn_all_converts_each_ops_in_the_returned_dict():
+    device = _FakeDevice(
+        learn_results={"all": {"bgp": {"info": {}}, "vrf": None, "platform": {"os": "iosxe"}}}
+    )
+    testbed = _FakeTestbed({"dev1": device})
+    results = {"dev1": {"success": True, "error": None, "commands": {}}}
+
+    RunRequestedOperation().run_commands(
+        testbed=testbed, operation="learn", commands=["all"], results=results
+    )
+
+    entry = results["dev1"]["commands"]["all"]
+    assert entry["error"] is None
+    assert entry["parsed"] == {"bgp": {"info": {}}, "platform": {"os": "iosxe"}}
+
+
+def test_json_safe_makes_genie_style_values_encodable():
+    import json
+
+    from app.job_scripts.generic_script import _json_safe
+
+    class _Obj:
+        def __str__(self) -> str:
+            return "obj"
+
+    raw = {("a", 1): {2: {"x", "x"}, "t": (1, 2), "o": _Obj(), "n": None}}
+
+    encoded = json.dumps(_json_safe(raw))
+
+    assert json.loads(encoded) == {
+        "('a', 1)": {"2": ["x"], "t": [1, 2], "o": "obj", "n": None}
+    }

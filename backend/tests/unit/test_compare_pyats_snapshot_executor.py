@@ -17,7 +17,7 @@ from models.workflow_context import (
 )
 from services.artifacts import InMemoryArtifactService
 from services.pyats.common.exceptions import PyATSAPIError, PyATSValidationError
-from workflow_steps.compare_pyats_snapshot.executor import execute
+from workflow_steps.compare_pyats_snapshot.executor import _extract_feature, execute
 
 _SOURCE_STEP_NODE_ID = "get-pyats-snapshot-5"
 _NODE_ID = "compare-pyats-snapshot-1"
@@ -499,3 +499,38 @@ class ComparePyatsSnapshotExecutorTests(unittest.IsolatedAsyncioTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ExtractFeatureFromAllSnapshotTests(unittest.TestCase):
+    def test_reads_feature_nested_in_all_entry(self) -> None:
+        snapshot = {"all": {"success": True, "data": {"interface": {"Gi0": {}}, "bgp": {"a": 1}}}}
+
+        data, error = _extract_feature(snapshot, "interface", side="Reference")
+
+        self.assertIsNone(error)
+        self.assertEqual(data, {"Gi0": {}})
+
+    def test_top_level_entry_wins_over_all(self) -> None:
+        snapshot = {
+            "bgp": {"success": True, "data": {"top": 1}},
+            "all": {"success": True, "data": {"bgp": {"nested": 1}}},
+        }
+
+        data, _ = _extract_feature(snapshot, "bgp", side="Live")
+
+        self.assertEqual(data, {"top": 1})
+
+    def test_feature_missing_from_all_reports_no_data(self) -> None:
+        snapshot = {"all": {"success": True, "data": {"bgp": {}}}}
+
+        data, error = _extract_feature(snapshot, "interface", side="Live")
+
+        self.assertIsNone(data)
+        self.assertEqual(error, "Live snapshot has no data for feature 'interface'")
+
+    def test_failed_all_entry_reports_its_error(self) -> None:
+        snapshot = {"all": {"success": False, "error": "boom"}}
+
+        _, error = _extract_feature(snapshot, "interface", side="Live")
+
+        self.assertEqual(error, "Live snapshot's 'interface' feature failed: boom")

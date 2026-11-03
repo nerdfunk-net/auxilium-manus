@@ -50,7 +50,9 @@ export function ComparePyatsSnapshotHelpPanel() {
           picked from the same grouped checkbox list as Get Snapshot (e.g.{" "}
           <HelpCode>bgp</HelpCode>, <HelpCode>ospf</HelpCode>,{" "}
           <HelpCode>interface</HelpCode>) — there is no <HelpCode>all</HelpCode> option
-          here. Every selected feature is read from the same per-device live and
+          here. A snapshot taken with <HelpCode>all</HelpCode> (live or reference) is
+          still usable: each selected feature is read from inside it, so you can keep a
+          full baseline and compare only a subset. Every selected feature is read from the same per-device live and
           reference snapshot file (no <HelpCode>{"{feature}"}</HelpCode> filename
           placeholder). A device routes to <HelpCode>match</HelpCode> only when every
           selected feature is identical.

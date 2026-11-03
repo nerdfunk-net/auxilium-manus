@@ -106,11 +106,36 @@ def _fail_device(
     return device_id, failed, "failure", None
 
 
+_ALL_FEATURES_KEY = "all"
+
+
+def _feature_entry(snapshot: dict[str, Any], feature: str) -> Any:
+    """Find one feature's ``{success, data|error}`` entry in a snapshot.
+
+    A snapshot taken with the ``all`` feature stores a single ``"all"`` entry whose
+    ``data`` maps feature name -> learned data. When ``feature`` is not a top-level
+    key, it is read from there, so a full "all" baseline can be compared against a
+    live snapshot of a subset (and the other way round). A top-level entry wins.
+    """
+    entry = snapshot.get(feature)
+    if isinstance(entry, dict):
+        return entry
+    all_entry = snapshot.get(_ALL_FEATURES_KEY)
+    if not isinstance(all_entry, dict):
+        return entry
+    if not all_entry.get("success"):
+        return all_entry
+    all_data = all_entry.get("data")
+    if isinstance(all_data, dict) and feature in all_data:
+        return {"success": True, "data": all_data[feature]}
+    return None
+
+
 def _extract_feature(
     snapshot: dict[str, Any], feature: str, *, side: str
 ) -> tuple[Any, str | None]:
     """Return (data, error_message); error_message is None on success."""
-    entry = snapshot.get(feature)
+    entry = _feature_entry(snapshot, feature)
     if not isinstance(entry, dict):
         return None, f"{side} snapshot has no data for feature {feature!r}"
     if not entry.get("success"):

@@ -112,6 +112,44 @@ class CommonSetup(aetest.CommonSetup):
                 )
 
 
+def _json_safe(value, _depth: int = 0):
+    """Recursively convert ``value`` into something ``json`` can always encode.
+
+    Genie ``Ops.to_dict()`` output (``learn("all")`` especially) can hold tuple
+    or int dict keys, sets, and non-primitive objects. ``json.dump`` raises on
+    those *after* it has started writing, which left a truncated results file
+    and made the shim fail with a JSONDecodeError. Keys become strings, sets
+    and tuples become lists, anything else unknown becomes ``str(value)``.
+    """
+    if _depth > 100:
+        return str(value)
+    if value is None or isinstance(value, (bool, int, float, str)):
+        return value
+    if isinstance(value, dict):
+        return {str(k): _json_safe(v, _depth + 1) for k, v in value.items()}
+    if isinstance(value, (list, tuple, set, frozenset)):
+        return [_json_safe(v, _depth + 1) for v in value]
+    return str(value)
+
+
+def _learned_to_dict(learned):
+    """Turn what ``device.learn()`` returned into a JSON-able value.
+
+    A single feature returns one Ops object. ``learn("all")`` returns a dict of
+    feature name -> Ops object (an entry may be ``None`` when the platform does
+    not support the feature), so ``to_dict()`` is applied to each entry.
+    """
+    if learned is None:
+        return None
+    if isinstance(learned, dict):
+        return {
+            str(name): (ops.to_dict() if hasattr(ops, "to_dict") else ops)
+            for name, ops in learned.items()
+            if ops is not None
+        }
+    return learned.to_dict()
+
+
 class RunRequestedOperation(aetest.Testcase):
     @aetest.test
     def run_commands(self, testbed, operation, commands, results):
@@ -126,8 +164,7 @@ class RunRequestedOperation(aetest.Testcase):
                     elif operation == "learn":
                         # `command` is a Genie feature name here (e.g. "bgp", or "all"),
                         # not a CLI string -- see app/jobs.py's JobRequest.commands.
-                        ops = device.learn(command)
-                        entry["parsed"] = ops.to_dict() if ops is not None else None
+                        entry["parsed"] = _learned_to_dict(device.learn(command))
                     else:
                         entry["raw"] = device.execute(command)
                 except Exception as exc:  # noqa: BLE001 - reported per-command, not raised
@@ -147,8 +184,11 @@ class CommonCleanup(aetest.CommonCleanup):
 
     @aetest.subsection
     def write_results(self, result_file, results):
+        # Serialise fully before opening the file so a failure can never leave
+        # a half-written results file behind.
+        payload = json.dumps(_json_safe(results))
         with open(result_file, "w") as handle:
-            json.dump(results, handle)
+            handle.write(payload)
 
 
 if __name__ == "__main__":
