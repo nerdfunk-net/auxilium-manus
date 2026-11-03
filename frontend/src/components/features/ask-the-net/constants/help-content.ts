@@ -200,6 +200,35 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
     ],
   },
   {
+    id: "catalyst-center",
+    title: "Cisco Catalyst Center (controller)",
+    summary:
+      "Looks a device up in Cisco Catalyst Center and reads its facts. For a question about one device the assistant looks at Nautobot first, then checks Catalyst Center with the name, or with the IP address or serial number Nautobot shows. A device Catalyst Center does not know is reported as documented in Nautobot but not managed there. The data is the controller's last collected view, not a live command.",
+    requirement:
+      "Needs permission to read Catalyst Center sources. If no Catalyst Center source is configured, the assistant tells you an administrator must add one. Addresses and serial numbers need the addresses opt-in, interface descriptions the content opt-in.",
+    tools: [
+      {
+        name: "find_catalyst_center_device",
+        description:
+          "Finds a device in Catalyst Center by name, management IP address or serial number and says whether the controller manages it.",
+        questions: [
+          "Is LAB managed by Catalyst Center?",
+          "Which Catalyst Center device has the serial number FOC1234ABCD?",
+        ],
+      },
+      {
+        name: "get_catalyst_center_device_details",
+        description:
+          "Reads facts of one device from Catalyst Center: device record, software version, interfaces, VLANs and compliance. Device and software are the default.",
+        questions: [
+          "Show the Catalyst Center device details of LAB.",
+          "Which software version does LAB run according to Catalyst Center?",
+          "Show the interfaces and compliance status of LAB in Catalyst Center.",
+        ],
+      },
+    ],
+  },
+  {
     id: "config-backups",
     title: "Config backups (git)",
     summary:

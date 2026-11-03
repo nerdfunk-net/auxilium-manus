@@ -176,6 +176,8 @@ const TOOL_LABELS: Record<string, string> = {
   list_prefixes: "Looking through Nautobot prefixes",
   list_namespaces: "Looking up Nautobot namespaces",
   get_next_free_ip: "Looking for the next free IP address",
+  find_catalyst_center_device: "Looking up a device in Catalyst Center",
+  get_catalyst_center_device_details: "Reading Catalyst Center device details",
 };
 
 function toolLabel(name: string): string {

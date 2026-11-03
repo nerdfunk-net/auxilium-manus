@@ -135,6 +135,11 @@ device names and run content (`doc/AI_TOOL_CHAIN.md` §40).
 gate the fields (inventory for devices, addresses for IPAM and addresses/serials). They run on the source's shared
 Nautobot token, so what the token may read is what a user with the permission can ask for (`doc/AI_TOOL_CHAIN.md` §31).
 
+**Ask the Net Catalyst Center tools** (`find_catalyst_center_device`, `get_catalyst_center_device_details`). They need
+`sources.catalyst_center:read` (checked on every call; the seeded `viewer` role does not hold it, so it has no such tools)
+and report a missing source to the user. The user's inventory switch gates both tools, the addresses switch the
+addresses and serials (and lookups by them), the content switch interface descriptions (`doc/AI_TOOL_CHAIN.md` §42).
+
 **Assistant glossary** (inventory terms and workflow step aliases). `ai_glossary_terms` is global
 and its words steer the model, so every `/ai/glossary` route, for both kinds, needs the `admin` role (P3 style); the seeded `viewer` and other roles have no
 access. The assistant reads entries through the `get_glossary` tool as the calling user.

@@ -291,6 +291,20 @@ Nautobot and the address may be taken by someone else before it is used. Do not 
 is free or reserved from any other tool.
 """
 
+CATALYST_PROMPT = """\
+Catalyst Center: you can also read Cisco Catalyst Center, the network controller, with \
+find_catalyst_center_device and get_catalyst_center_device_details. It is a second source next to \
+Nautobot. For a question about one device ("show the Catalyst Center details of LAB"), look at \
+Nautobot first (get_device) when you have the Nautobot tools, then look the device up in Catalyst \
+Center with its name, or with the primary IP or serial number Nautobot shows when the name does \
+not match. A device that Catalyst Center does not know is a finding, not a failure: say it is \
+documented in Nautobot but not managed there. Say which source each statement comes from. \
+Catalyst Center shows the controller's last collected view, not a live command. Read only the \
+facts you need (device and software are the default); page interfaces with interface_offset. If \
+a tool says no Catalyst Center source is configured, tell the user that and stop: do not guess. \
+Fields listed in withheld_fields are not shared by the user's settings.
+"""
+
 # The sentence that says the assistant cannot touch devices. When the device-command tool is
 # offered it is replaced, so the prompt does not contradict itself (see ``general_prompt``).
 _NO_DEVICE_ACCESS = (

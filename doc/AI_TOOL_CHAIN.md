@@ -3118,3 +3118,72 @@ backed-up config of a `device_configs` repository and lists the devices; the mod
   limiter is fail-open like the other assistant buckets.
 * **Open.** No live check against the lab repository yet (compare with `grep -rl` in the checkout). Mutation checks of
   the new tests were not done. Only the current tree is searched (no history, unlike the step's `include_history`).
+
+## 42. Catalyst Center tools: `find_catalyst_center_device`, `get_catalyst_center_device_details` (2026-11-03)
+
+"Show the Catalyst Center device details of LAB." Cisco Catalyst Center is a second source next to Nautobot (§24.11):
+Nautobot says what is documented, the controller says what it collected. Two pure reads, as the calling user.
+
+* **Nautobot first, then Catalyst Center: no new orchestration.** The agent loop already chains tool calls.
+  `CATALYST_PROMPT` and the tool descriptions tell the model: `get_device` (Nautobot), then
+  `find_catalyst_center_device` with the name, or with the primary IP / serial Nautobot shows when the name does not
+  match, then `get_catalyst_center_device_details`. A device Catalyst Center does not know is an answer
+  (`matches: []` / `found: false`, "documented in Nautobot but not managed there"), not an error.
+* **Tools** (`tools/catalyst_center_tools.py`). `find_catalyst_center_device`: `name`, `management_ip` or
+  `serial_number` (at least one). `get_catalyst_center_device_details`: the same lookup plus `facts` (`device`,
+  `software` = default; `interfaces`, `vlans`, `compliance`), `interface_name_contains`, `interface_limit` (25, max
+  50), `interface_offset`. The facts are the ones of the step `get-catalyst-center-details`
+  (`CatalystCenterDetailsService`; `device` and `software` share one request). One failing fact is an `error` entry,
+  the others still return. Several matches are an error that lists the candidates; nothing is read then.
+* **Name matching.** The controller matches hostnames case-sensitively and full-string (`.*` is the only wildcard,
+  `device_filters.py`). The first request carries the name, its lower, upper and capitalised form, the short hostname
+  of a domain name, and `<name>.*`, and reads up to 200 server matches (`SEARCH_CAP`, `search_devices`). `LAB.*`
+  also matches `LAB2.local.zz`, so the result is checked again (equal, the name inside the domain, or the short name
+  of a domain name, any case). **When that finds nothing** (or more than 200 match), the whole inventory is read once
+  (`SCAN_CAP` 5000 devices) and compared case-insensitively, so `lab-sw1` finds `Lab-SW1.Local.zz`. A controller
+  above 5000 devices gives a fixed "look it up by IP or serial" sentence. A miss therefore costs a full inventory read.
+* **Lookup keys are alternatives.** `serial_number`, `management_ip` and `name` are tried in that order and the first
+  key that finds a device is used (the controller ANDs filters, so a stale IP from Nautobot would otherwise hide a
+  device its name finds). All confirmed matches are collected before the cap: at most 10 are shown, sorted by source
+  and hostname, and `has_more` is true when there were more (it no longer depends on the controller's window).
+  Details with more than one confirmed match is the ambiguity error.
+* **No source configured.** The tools are offered to anyone holding `sources.catalyst_center:read` (the router passes
+  the reader on the permission alone, unlike Nautobot where the tools disappear without a source). Without a usable
+  source the tool answers with an error that tells the model to tell the user an administrator must add a source
+  under Settings -> Sources and not to guess. Sources that exist but all fail to load (credentials, settings) are a
+  different error (`CatalystSourcesUnusableError`): "check the sources", not "add one". A user without the permission has no Catalyst tools (the seeded
+  `viewer` role has none).
+* **Reader** `services/ai_assistant/catalyst_center_reader.py`: `DbCatalystCenterReader.sources()` checks the
+  permission on every call, resolves the credentials of every source (a source that fails is skipped and logged by
+  exception type only) and hands the tools ready-built `CatalystSource(source_id, devices, details)` services. All
+  sources are searched; a failing one is a fixed sentence in `source_errors`, never upstream text. If every source
+  fails the call is an error naming the sources.
+* **Gating** (no new data class, a field no rule names is never sent):
+
+  | Data | Needs |
+  |---|---|
+  | either tool at all | inventory (checked before any request) |
+  | lookup by `management_ip` / `serial_number` | addresses (else existence would leak) |
+  | `management_ip`, `serial_number`, `mac_address`, interface `ipv4_address/ipv4_mask/mac_address`, VLAN `ip_address/prefix/network_address` | addresses |
+  | interface `description`, software `description` (the controller's free-text device description) | content (free text) |
+  | the raw controller payload | never |
+
+  `withheld_fields` names what a switch would release. Values are redacted before JSON encoding, text is cut at
+  500 characters.
+* **Wiring.** `surfaces.py::build_general_session(catalyst_reader=...)`, `routers/ai_assistant.py`
+  (`can_read_catalyst`), `playbook_tools.known_general_tool_names`.
+* **Tests.** `backend/tests/unit/test_ai_catalyst_center_tools.py` (51). Mutation-checked: ungating the inventory
+  switch or the address lookup, ungating interface descriptions, dropping the redaction, sharing a field no rule
+  names and dropping the second hostname check each fail a test; so do switching off the inventory scan, the sort,
+  `has_more`, the first-key-wins rule, the software description gate, the unusable/missing split and a debug line
+  with `exc_info`.
+* **Review fixes** (`doc/analysis/REVIEW.md`, 2026-11-03): the name search no longer trusts the controller's window
+  (confirmed matches are counted, then capped; a wildcard neighbour such as `LAB1`..`LAB12` cannot hide `LAB`);
+  mixed-case hostnames are found by the inventory scan; several lookup keys are alternatives, not a conjunction; the
+  software `description` needs the content switch; unusable sources are reported as such and the reader's debug line
+  with `exc_info` is gone (the error text can carry credential material). The fake controller in the tests still uses
+  `re.fullmatch`, looser than the controller for metacharacters other than `.*`.
+* **Open.** Not run live: against the DevNet sandbox, check hostname spelling (domain or not) and that
+  `serialNumber` / `managementIpAddress` filters match as the unit fakes assume; a live model run of "Show the
+  Catalyst Center details of LAB". At most 10 confirmed matches are shown (`has_more` says more exist). No `source` argument: all sources are
+  searched. Health and topology (`get-catalyst-center-health` / `-topology`) are not offered as tools yet.

@@ -26,6 +26,7 @@ from services.ai_assistant.device_access import DeviceResolver
 from services.ai_assistant.inventory_filter import describe_condition_tree, field_data_class
 from services.ai_assistant.prompts import (
     BASE_SYSTEM_PROMPT,
+    CATALYST_PROMPT,
     CONFIG_BACKUP_PROMPT,
     DEVICE_COMMANDS_PROMPT,
     INVENTORY_PROMPT,
@@ -47,6 +48,11 @@ from services.ai_assistant.tools.batfish_tools import (
     BATFISH_READER_KEY,
     BatfishReader,
     build_batfish_tools,
+)
+from services.ai_assistant.tools.catalyst_center_tools import (
+    CATALYST_READER_KEY,
+    CatalystReader,
+    build_catalyst_center_tools,
 )
 from services.ai_assistant.tools.config_backup_tools import (
     CONFIG_READER_KEY,
@@ -323,6 +329,7 @@ def build_general_session(
     device_resolver: DeviceResolver | None = None,
     config_reader: ConfigBackupReader | None = None,
     nautobot_reader: NautobotQueryReader | None = None,
+    catalyst_reader: CatalystReader | None = None,
     run_reader: RunReader | None = None,
     released_reader: ReleasedWorkflowReader | None = None,
 ) -> AssistantSession:
@@ -362,6 +369,10 @@ def build_general_session(
     if nautobot_reader is not None:
         extras[NAUTOBOT_READER_KEY] = nautobot_reader
         tools.extend(build_nautobot_tools())
+    # Cisco Catalyst Center reads (doc/AI_TOOL_CHAIN.md §42); independent of Batfish and Nautobot.
+    if catalyst_reader is not None:
+        extras[CATALYST_READER_KEY] = catalyst_reader
+        tools.extend(build_catalyst_center_tools())
     # Run explanations (plan: runs in Ask the Net): the run-viewer tools plus list_runs, shared
     # with the runs-page assistant. No run is open here, so every tool takes a run_id.
     if run_reader is not None:
@@ -391,6 +402,8 @@ def build_general_session(
         parts.append(CONFIG_BACKUP_PROMPT)
     if nautobot_reader is not None:
         parts.append(NAUTOBOT_PROMPT)
+    if catalyst_reader is not None:
+        parts.append(CATALYST_PROMPT)
     if run_reader is not None:
         parts.append(RUN_EXPLAIN_PROMPT)
     if released_reader is not None and run_reader is not None:
@@ -398,7 +411,11 @@ def build_general_session(
     if not may_query_batfish:
         offered = [
             name
-            for name, reader_ in (("Nautobot", nautobot_reader), ("run", run_reader))
+            for name, reader_ in (
+                ("Nautobot", nautobot_reader),
+                ("Catalyst Center", catalyst_reader),
+                ("run", run_reader),
+            )
             if reader_ is not None
         ]
         if not offered:
