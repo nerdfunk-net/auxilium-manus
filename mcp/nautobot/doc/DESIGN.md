@@ -96,7 +96,7 @@ vocabulary **before** the GraphQL call, and a miss returns the guiding error fro
 | `list_statuses` | `content_type` |
 | `list_tags` | `content_type` |
 | `list_devices` | `location`, `role`, `status`, `tag`, `device_type`, `platform`, `name_contains`, `limit`, `offset` |
-| `get_device` | `device` (name or id) — includes interfaces and IPs |
+| `get_device` | `device` (name or id) — includes interfaces, IPs and the cabling (`cable`, `connected_to`; cable labels are free text and not gated here, `doc/AI_TOOL_CHAIN.md` §44) |
 | `list_device_types`, `list_platforms` | — (vocabulary) |
 | `list_virtual_chassis` | `name_contains`, `limit`, `offset` |
 | `get_virtual_chassis` | `virtual_chassis` (name or id) — every member with position, priority, type, address, master flag; the lib query is shared with the `get-virtual-chassis` workflow step |

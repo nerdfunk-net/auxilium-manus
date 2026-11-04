@@ -6,6 +6,19 @@ pick it up without re-deriving the context.
 
 ---
 
+## Nautobot cabling (`get-nautobot-attributes` cables, Ask the Net `connected_to`)
+
+- **Live checks.** Not run against a server: the filter `has_cable` (`{ interfaces(device_id: ["<id>"],
+  has_cable: true) { name } }`, used by `list_interfaces(cabled_only=true)`), the 3.2 cable selection of the
+  step end to end, a cable through a patch panel, and a breakout cable (3.2 shows one far end only).
+  `doc/AI_TOOL_CHAIN.md` §44, `doc/WORKFLOW-STEPS.md` (Get Nautobot Attributes).
+- **Decision.** The MCP `get_device` returns cable labels (free text) with no content gate, like interface
+  descriptions. Gate or drop them there if MCP output should be treated as untrusted text.
+- **Version support.** Cable layout is chosen by `(major, minor) >= (3, 2)`; Nautobot 2.x is not supported.
+  A later release that changes the cable fields again needs a new layout in `attribute_bag.py`.
+
+---
+
 ## Run Workflow step (`start-workflow`) and child runs
 
 - **Live verification.** Built and covered by unit and render tests, not yet run end to end: a backup

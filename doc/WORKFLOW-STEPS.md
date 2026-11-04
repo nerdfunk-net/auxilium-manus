@@ -346,6 +346,13 @@ become `<key>#2`), `config-to-attributes` (devices without parsed data fail), `g
   that matters.
 - **`get-nautobot-attributes` replaces the whole `nautobot` bag** of a device with what it fetched; a step that
   wrote `nautobot.*` keys earlier must run after it, not before.
+- **`get-nautobot-attributes` cables** (group `cables`, separate from `interfaces`, which carries no cable data):
+  the GraphQL selection depends on the Nautobot version (`GET /api/status/`, checked only when `cables` is
+  selected): before 3.2 `cable { id type label tags status }` and `connected_endpoint`; from 3.2
+  `cable { ... interfaces { device } }`. The option `normalize_cables` (default on) adds `cable.interfaces` (both
+  ends) and `cable.far_end` on both versions and removes nothing. Through a patch panel the far end differs by
+  version (path end before 3.2, only what the cable touches from 3.2). Code: `services/nautobot/devices/`
+  (`attribute_bag.py`, `cable_normalize.py`, `version.py`).
 - **`get-nautobot-attributes` sets `device.platform` and `device.network_driver` from Nautobot** when the
   device's platform has them, replacing values set earlier (for example by Get from List / Get from User);
   a missing Nautobot value keeps the existing one.

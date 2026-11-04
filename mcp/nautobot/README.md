@@ -31,7 +31,7 @@ into tool arguments. The server makes that reliable:
 | Organization | `list_locations`, `get_location` | Location tree; filter by type, parent, status, tag, name |
 | | `list_location_types`, `list_roles`, `list_statuses`, `list_tags` | Vocabulary (roles/statuses/tags take a `content_type`, e.g. `dcim.device`) |
 | DCIM | `list_devices` | Filter by location (incl. children), role, status, tag, device type, platform, name |
-| | `get_device` | One device with interfaces and their IPs (by name or id) |
+| | `get_device` | One device with interfaces, their IPs and cabling (by name or id) |
 | | `list_device_types`, `list_platforms` | Vocabulary for the device filters |
 | | `list_virtual_chassis`, `get_virtual_chassis` | Cisco stacks: one row per stack, or one stack with all members (shared with the `get-virtual-chassis` workflow step) |
 | IPAM | `list_ip_addresses` | Filter by address, prefix, device, namespace, role, status, tag, DNS name |
