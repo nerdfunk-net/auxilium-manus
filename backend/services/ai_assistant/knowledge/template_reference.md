@@ -36,7 +36,7 @@ nautobot.location.name / .parent.name  nautobot.device_type.model / .manufacture
 ```
 Optional groups appear only when selected in the editor's Attributes dialog:
 `interfaces`, `custom_fields`, `tags`, `config_context`, `secret_groups`, `console_ports`,
-`power_ports`, `cables` (per-interface cable: `nautobot.interfaces[].cable.{type,label,tags,interfaces[].device.name}`) (e.g. `nautobot.config_context`, `nautobot.custom_fields.<name>`).
+`power_ports`, `cables` (per-interface cable; Nautobot < 3.2: `nautobot.interfaces[].cable.{type,label,status,tags}` and `.connected_endpoint.device.name`; 3.2+: `nautobot.interfaces[].cable.{type,label,status,tags,interfaces[].device.name}`; the `interfaces` group carries no cable data; with the step option `normalize_cables`, both versions also get `cable.interfaces` and `cable.far_end`) (e.g. `nautobot.config_context`, `nautobot.custom_fields.<name>`).
 
 Example:
 ```

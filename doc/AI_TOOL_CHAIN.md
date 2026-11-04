@@ -1817,7 +1817,7 @@ Names follow the rule in `AI_ASSISTANT.md` §3.5.
 |---|---|---|
 | `get_neighbor_sources(device)` | read, metadata | which evidence exists without touching the device: last snapshot of the model (Batfish) and its age, last backup, whether device-side data could be fetched; configured protocols from the model |
 | `get_modelled_neighbors(device, layer, protocol)` | read, content (B/C) | neighbours from the **Batfish model** (no SSH): L3 edges and routing-protocol edges from existing allow-listed questions (`edges`, `ospfEdges`, `bgpEdges`), BGP session status, OSPF process data; labelled "modelled, may differ from reality" |
-| `get_documented_neighbors(device)` | read, content (B) | neighbours **as documented in Nautobot** (interfaces with `connected_interface` and `cable`); labelled "documented, not necessarily complete or current" (24.11) |
+| `get_documented_neighbors(device)` | read, content (B) | neighbours **as documented in Nautobot** (interfaces with their cable and far end: the `cables` attribute group, normalized to `cable.far_end`); labelled "documented, not necessarily complete or current" (24.11) |
 | `propose_neighbor_discovery(device, layer, protocol, vrf)` | proposal | **live** discovery on the device; produces an execution proposal; the user confirms; runs read-only commands from a reviewed catalogue and returns the neighbours (24.5) |
 | `get_discovery_result(handle)` | read | page through a large live result (the preview is bounded) |
 
@@ -1837,7 +1837,7 @@ The model-or-live choice is the user's, as for baselines (§23.3): the model rep
 | Genie parsing | `workflow_steps/run_command/enrichment.py` works on step types; a service-level equivalent is not there |
 | Batfish edges | allow-list in `services/batfish/query_helpers.py` contains `edges`, `ospfEdges`, `bgpEdges`, `bgpSessionCompatibility`, `ipOwners`; `BatfishService` has `bgp_session_status`, `ospf_*`, `bgp_*` |
 | Map a neighbour to an inventory device | Nautobot resolvers (`DeviceCommonService.resolve_device_by_name`), `bare_hostname` helper; IP to device through Nautobot IPs or Batfish `ipOwners` |
-| Nautobot cabling as a neighbour source | verified: the device attribute query (`services/nautobot/devices/attribute_bag.py`, group `interfaces`) returns for each interface `connected_interface { name, device { name } }` and `cable { id, status }`, reachable through `get_device_attributes`. **VRFs are not part of that query** ([OPEN-C] whether VRF data is needed from Nautobot) |
+| Nautobot cabling as a neighbour source | verified: the device attribute query (`services/nautobot/devices/attribute_bag.py`, group `cables`, version-specific: `connected_endpoint` and `cable { id, type, label, status, tags }` before Nautobot 3.2; `cable { ..., interfaces { device } }` from 3.2; the `interfaces` group no longer carries cable data) returns for each interface the far end and `cable`, reachable through `get_device_attributes`. **VRFs are not part of that query** ([OPEN-C] whether VRF data is needed from Nautobot) |
 | CDP / LLDP / neighbour parsing | **nothing**: `grep` finds no CDP or LLDP code in the backend |
 | Command catalogue per platform | **missing**, must be written (24.5) |
 | Whether TextFSM templates exist for the chosen commands | **CDP: confirmed by the product owner** (a ready template for `show cdp neighbors` exists and will be used). Not yet confirmed: the *detail* variant (`show cdp neighbors detail`, which carries the neighbour's IP, platform and software) and the templates for LLDP, routing and the protocol commands per platform ([OPEN-C]; netmiko 4.8.0 brings its template set, which was not inspected here) |
@@ -1968,7 +1968,7 @@ agree and where they differ.
 |---|---|---|---|---|
 | **Live device** | `propose_neighbor_discovery` | what the device sees now (CDP, LLDP, adjacencies, RIB) | current, authoritative for the present | needs SSH and the user's click; the device may be unreachable; CDP/LLDP can be disabled |
 | **Batfish model** | `get_modelled_neighbors` | what the configs imply | no SSH, whole network | as old as the snapshot; models intent, not the wire (no CDP) |
-| **Nautobot** | `get_documented_neighbors` | documented cabling (`connected_interface`, `cable`) | names, roles, intent | often incomplete or stale; absent data means nothing |
+| **Nautobot** | `get_documented_neighbors` | documented cabling (`cable`, `cable.far_end`) | names, roles, intent | often incomplete or stale; absent data means nothing |
 
 Rules for the answer (the model is told in the tool text and the playbook):
 

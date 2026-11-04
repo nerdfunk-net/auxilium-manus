@@ -7,12 +7,18 @@ from unittest.mock import AsyncMock, MagicMock
 
 from services.nautobot.credentials import NautobotCredentials
 from services.nautobot.devices.attribute_bag import (
+    CABLES_LAYOUT_LEGACY,
+    CABLES_LAYOUT_V32,
     DEVICE_ATTRIBUTES_QUERY,
     attributes_from_detail,
     build_attribute_variables,
+    build_device_attributes_query,
+    cables_layout_for_version,
+    device_query_for_groups,
     normalize_attribute_groups,
 )
 from services.nautobot.devices.query import DeviceQueryService
+from services.nautobot.version import parse_nautobot_version
 
 _CREDS = NautobotCredentials(url="http://nb.test", token="tok")
 
@@ -39,14 +45,69 @@ class AttributeBagTests(unittest.TestCase):
         self.assertTrue(build_attribute_variables(["cables"])["get_cables"])
         self.assertNotIn("get_cables", build_attribute_variables(["interfaces"]))
 
-    def test_query_declares_cables_selection(self) -> None:
-        self.assertIn("$get_cables: Boolean = false", DEVICE_ATTRIBUTES_QUERY)
-        marker = "interfaces @include(if: $get_cables)"
-        self.assertIn(marker, DEVICE_ATTRIBUTES_QUERY)
-        selection = DEVICE_ATTRIBUTES_QUERY.split(marker, 1)[1]
-        for field in ("label", "type", "tags", "device"):
+    def test_base_query_has_no_cable_selection(self) -> None:
+        # GraphQL validates skipped fields too: nothing 3.2-only may be in the base query.
+        self.assertNotIn("get_cables", DEVICE_ATTRIBUTES_QUERY)
+        self.assertNotIn("cable", DEVICE_ATTRIBUTES_QUERY)
+        self.assertNotIn("connected_", DEVICE_ATTRIBUTES_QUERY)
+
+    def test_legacy_cables_query_avoids_cabletype_interfaces(self) -> None:
+        query = build_device_attributes_query(CABLES_LAYOUT_LEGACY)
+        self.assertIn("$get_cables: Boolean = false", query)
+        selection = query.split("interfaces @include(if: $get_cables)", 1)[1]
+        self.assertIn("connected_endpoint", selection)
+        for field in ("type", "tags", "status"):
+            self.assertIn(field, selection)
+        # no ``interfaces`` nested inside ``cable``
+        self.assertNotIn("interfaces", selection)
+
+    def test_v32_cables_query_selects_cable_interfaces(self) -> None:
+        query = build_device_attributes_query(CABLES_LAYOUT_V32)
+        self.assertIn("$get_cables: Boolean = false", query)
+        selection = query.split("interfaces @include(if: $get_cables)", 1)[1]
+        for field in ("label", "type", "tags", "status", "device", "interfaces"):
             self.assertIn(field, selection)
 
+    def test_layout_follows_version(self) -> None:
+        self.assertEqual(cables_layout_for_version((3, 1)), CABLES_LAYOUT_LEGACY)
+        self.assertEqual(cables_layout_for_version((3, 0)), CABLES_LAYOUT_LEGACY)
+        self.assertEqual(cables_layout_for_version(None), CABLES_LAYOUT_LEGACY)
+        self.assertEqual(cables_layout_for_version((3, 2)), CABLES_LAYOUT_V32)
+        self.assertEqual(cables_layout_for_version((4, 0)), CABLES_LAYOUT_V32)
+
+    def test_parse_nautobot_version(self) -> None:
+        self.assertEqual(parse_nautobot_version("3.1.1"), (3, 1))
+        self.assertEqual(parse_nautobot_version("v3.2.0b1"), (3, 2))
+        self.assertIsNone(parse_nautobot_version("garbage"))
+        self.assertIsNone(parse_nautobot_version(None))
+
+
+class DeviceQueryForGroupsTests(unittest.IsolatedAsyncioTestCase):
+    async def test_without_cables_no_version_lookup(self) -> None:
+        service = MagicMock()
+        service.test_connection = AsyncMock()
+        query = await device_query_for_groups(service, MagicMock(), ["interfaces"])
+        self.assertEqual(query, DEVICE_ATTRIBUTES_QUERY)
+        service.test_connection.assert_not_called()
+
+    async def test_cables_picks_layout_from_server_version(self) -> None:
+        for version, layout in (("3.1.1", CABLES_LAYOUT_LEGACY), ("3.2.0", CABLES_LAYOUT_V32)):
+            service = MagicMock()
+            service.test_connection = AsyncMock(return_value={"nautobot-version": version})
+            credentials = MagicMock(url="http://nb.example")
+            query = await device_query_for_groups(service, credentials, ["cables"])
+            self.assertEqual(query, build_device_attributes_query(layout))
+
+    async def test_version_lookup_failure_falls_back_to_legacy(self) -> None:
+        service = MagicMock()
+        service.test_connection = AsyncMock(side_effect=RuntimeError("down"))
+        query = await device_query_for_groups(
+            service, MagicMock(url="http://nb.example"), ["cables"]
+        )
+        self.assertEqual(query, build_device_attributes_query(CABLES_LAYOUT_LEGACY))
+
+
+class AttributeBagMoreTests(unittest.TestCase):
     def test_attributes_from_detail_renames_custom_field_data(self) -> None:
         bag = attributes_from_detail({"name": "r1", "_custom_field_data": {"site": "NYC"}})
         self.assertEqual(bag, {"name": "r1", "custom_fields": {"site": "NYC"}})
@@ -128,3 +189,43 @@ class DeviceQueryServiceTests(unittest.IsolatedAsyncioTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PreviewNormalizationTests(unittest.IsolatedAsyncioTestCase):
+    async def test_preview_normalizes_cables_and_keys_cache_by_layout(self) -> None:
+        legacy_device = {
+            "id": "d1",
+            "name": "lab",
+            "interfaces": [
+                {
+                    "id": "i1",
+                    "name": "e0",
+                    "cable": {"id": "c1"},
+                    "connected_endpoint": {
+                        "__typename": "InterfaceType",
+                        "id": "i2",
+                        "name": "e1",
+                        "device": {"id": "d2", "name": "sw"},
+                    },
+                }
+            ],
+        }
+        nautobot = MagicMock()
+        nautobot.test_connection = AsyncMock(return_value={"nautobot-version": "3.1.1"})
+        nautobot.graphql_query = AsyncMock(return_value={"data": {"device": legacy_device}})
+        cache = MagicMock()
+        cache.get.return_value = None
+        svc = DeviceQueryService(nautobot, _CREDS, cache_service=cache)
+        out = await svc.get_device_attributes("d1", ["cables"])
+        self.assertEqual(out["interfaces"][0]["cable"]["far_end"]["name"], "e1")
+        self.assertTrue(cache.set.call_args.args[0].endswith(":cables:legacy"))
+
+    async def test_without_cables_nothing_is_normalized(self) -> None:
+        device = {"id": "d1", "interfaces": [{"id": "i", "cable": {}}]}
+        nautobot = MagicMock()
+        nautobot.test_connection = AsyncMock()
+        nautobot.graphql_query = AsyncMock(return_value={"data": {"device": device}})
+        svc = DeviceQueryService(nautobot, _CREDS)
+        out = await svc.get_device_attributes("d1", ["interfaces"], use_cache=False)
+        self.assertNotIn("far_end", out["interfaces"][0]["cable"])
+        nautobot.test_connection.assert_not_called()

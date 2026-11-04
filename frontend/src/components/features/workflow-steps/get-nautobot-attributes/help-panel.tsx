@@ -114,12 +114,21 @@ export function GetNautobotAttributesHelpPanel() {
             <HelpCode>power_ports</HelpCode> — power ports and power outlets.
           </li>
           <li>
-            <HelpCode>cables</HelpCode> — the cable on each interface (ID, type,
-            label, tags) and the interfaces and devices at both ends, so the far
-            end is the entry whose device differs from this one. Works on its
-            own (each interface then carries only ID, name and cable) or
-            together with <HelpCode>interfaces</HelpCode>; both land under{" "}
-            <HelpCode>nautobot.interfaces</HelpCode>.
+            <HelpCode>cables</HelpCode> — the cable on each interface. The
+            shape depends on the Nautobot version (detected automatically):
+            before 3.2 each interface carries <HelpCode>cable</HelpCode> (ID,
+            type, label, status, tags) and <HelpCode>connected_endpoint</HelpCode> (the far
+            interface and its device); from 3.2 <HelpCode>cable</HelpCode> has
+            ID, type, label, status, tags and the interfaces at both ends. Not part of{" "}
+            <HelpCode>interfaces</HelpCode>: select it separately; both land
+            under <HelpCode>nautobot.interfaces</HelpCode>. Tick{" "}
+            <HelpCode>Normalize cables</HelpCode> to get the same shape on every
+            version: <HelpCode>cable.interfaces</HelpCode> (both ends) and{" "}
+            <HelpCode>cable.far_end</HelpCode> (the interface at the other end,
+            empty if there is none or several) are added; existing fields stay. For
+            a cable that goes through a patch panel or circuit, before 3.2 the
+            far end is where the path ends, from 3.2 only what the cable touches
+            (so it can be empty).
           </li>
         </ul>
 

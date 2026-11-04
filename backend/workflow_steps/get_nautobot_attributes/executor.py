@@ -24,10 +24,12 @@ from services.artifacts import ArtifactService
 from services.nautobot.client import NautobotService
 from services.nautobot.credentials import NautobotCredentials
 from services.nautobot.devices.attribute_bag import (
-    DEVICE_ATTRIBUTES_QUERY,
     attributes_from_detail,
     build_attribute_variables,
+    device_query_for_groups,
+    normalize_attribute_groups,
 )
+from services.nautobot.devices.cable_normalize import normalize_cables as normalize_cables_in_bag
 from workflow_steps.common.nautobot_resolve import resolve_nautobot_device_id
 from workflow_steps.common.nautobot_source import resolve_nautobot_credentials
 from workflow_steps.common.step_flags import parse_bool_flag
@@ -45,6 +47,7 @@ class _ParsedConfig:
     source_id: str
     list_of_attributes: list[str]
     case_insensitive_lookup: bool
+    normalize_cables: bool
 
 
 async def _fetch_device(
@@ -52,11 +55,10 @@ async def _fetch_device(
     credentials: NautobotCredentials,
     device_id: str,
     variables: dict[str, Any],
+    query: str,
 ) -> dict[str, Any] | None:
     vars_with_id = {"deviceId": device_id, **variables}
-    response = await nautobot_service.graphql_query(
-        DEVICE_ATTRIBUTES_QUERY, vars_with_id, credentials
-    )
+    response = await nautobot_service.graphql_query(query, vars_with_id, credentials)
     device = (response.get("data") or {}).get("device")
     if device is None:
         logger.warning(
@@ -73,10 +75,12 @@ def _parse_config(config: dict[str, Any]) -> _ParsedConfig:
         raise ValueError("get-nautobot-attributes: nautobot_source_id is not configured")
     list_of_attributes: list[str] = config.get("list_of_attributes") or []
     case_insensitive_lookup = parse_bool_flag(config, "case_insensitive_lookup", default=False)
+    normalize_cables = parse_bool_flag(config, "normalize_cables", default=True)
     return _ParsedConfig(
         source_id=source_id,
         list_of_attributes=list_of_attributes,
         case_insensitive_lookup=case_insensitive_lookup,
+        normalize_cables=normalize_cables,
     )
 
 
@@ -127,7 +131,9 @@ async def _enrich_device(
     nautobot_service: NautobotService,
     credentials: NautobotCredentials,
     variables: dict[str, Any],
+    query: str,
     case_insensitive_lookup: bool,
+    normalize_cables: bool = False,
 ) -> tuple[str, DeviceContext, bool]:
     try:
         nautobot_device_id = await resolve_nautobot_device_id(
@@ -149,7 +155,7 @@ async def _enrich_device(
             )
 
         detail = await _fetch_device(
-            nautobot_service, credentials, nautobot_device_id, variables
+            nautobot_service, credentials, nautobot_device_id, variables, query
         )
         if detail is None:
             return _fail_device(
@@ -163,7 +169,8 @@ async def _enrich_device(
         platform_raw = detail.get("platform")
         platform = platform_raw if isinstance(platform_raw, dict) else {}
         attribute_bags = dict(device.attribute_bags)
-        attribute_bags["nautobot"] = attributes_from_detail(detail)
+        bag = attributes_from_detail(detail)
+        attribute_bags["nautobot"] = normalize_cables_in_bag(bag) if normalize_cables else bag
         enriched = device.model_copy(
             update={
                 "attribute_bags": attribute_bags,
@@ -236,6 +243,12 @@ async def execute(
     parsed = _parse_config(config)
     credentials, nautobot_service = _bind_nautobot(run, parsed.source_id)
     variables = build_attribute_variables(parsed.list_of_attributes)
+    # The cable selection differs between Nautobot versions, so the query is built per source.
+    query = await device_query_for_groups(
+        nautobot_service,
+        credentials,
+        normalize_attribute_groups(parsed.list_of_attributes),
+    )
 
     logger.info(
         "get-nautobot-attributes run_id=%s source_id=%s devices=%d attributes=%s",
@@ -254,7 +267,9 @@ async def execute(
                 nautobot_service=nautobot_service,
                 credentials=credentials,
                 variables=variables,
+                query=query,
                 case_insensitive_lookup=parsed.case_insensitive_lookup,
+                normalize_cables=parsed.normalize_cables,
             )
             for device_id, device in context.devices.items()
         ]

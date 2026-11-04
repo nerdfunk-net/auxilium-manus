@@ -40,12 +40,18 @@ class ParseConfigTests(unittest.TestCase):
         self.assertEqual(cfg.source_id, "src-1")
         self.assertEqual(cfg.list_of_attributes, ["tags"])
         self.assertFalse(cfg.case_insensitive_lookup)
+        self.assertTrue(cfg.normalize_cables)
 
     def test_parses_case_insensitive_lookup(self) -> None:
         cfg = _parse_config(
             {"nautobot_source_id": "src-1", "case_insensitive_lookup": True}
         )
         self.assertTrue(cfg.case_insensitive_lookup)
+
+
+    def test_parses_normalize_cables(self) -> None:
+        cfg = _parse_config({"nautobot_source_id": "s", "normalize_cables": False})
+        self.assertFalse(cfg.normalize_cables)
 
 
 class HelperTests(unittest.TestCase):
@@ -103,13 +109,13 @@ class FetchDeviceTests(unittest.IsolatedAsyncioTestCase):
     async def test_returns_device_dict(self) -> None:
         svc = MagicMock()
         svc.graphql_query = AsyncMock(return_value={"data": {"device": {"id": "x"}}})
-        out = await _fetch_device(svc, MagicMock(), "x", {})
+        out = await _fetch_device(svc, MagicMock(), "x", {}, "query")
         self.assertEqual(out, {"id": "x"})
 
     async def test_returns_none_when_device_missing(self) -> None:
         svc = MagicMock()
         svc.graphql_query = AsyncMock(return_value={"data": {"device": None}, "errors": ["e"]})
-        self.assertIsNone(await _fetch_device(svc, MagicMock(), "x", {}))
+        self.assertIsNone(await _fetch_device(svc, MagicMock(), "x", {}, "query"))
 
 
 def _run() -> MagicMock:

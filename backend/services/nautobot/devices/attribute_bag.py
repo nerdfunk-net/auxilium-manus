@@ -8,7 +8,13 @@ editor preview endpoint use this module so a template author sees identical
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+from services.nautobot.version import detect_nautobot_version
+
+if TYPE_CHECKING:
+    from services.nautobot.client import NautobotService
+    from services.nautobot.credentials import NautobotCredentials
 
 # Attribute group config key -> GraphQL boolean variable used by @include.
 ATTR_TO_VAR: dict[str, str] = {
@@ -117,21 +123,6 @@ _DEVICE_FIELDS = """
           name
         }
       }
-      connected_interface {
-        id
-        name
-        device {
-          id
-          name
-        }
-      }
-      cable {
-        id
-        status {
-          id
-          name
-        }
-      }
       tagged_vlans {
         id
         name
@@ -141,30 +132,6 @@ _DEVICE_FIELDS = """
         id
         name
         vid
-      }
-    }
-    # Second ``interfaces`` selection for the ``cables`` group. GraphQL merges
-    # same-named fields, so with both groups selected ``interfaces[].cable``
-    # carries the union of both selections.
-    interfaces @include(if: $get_cables) {
-      id
-      name
-      cable {
-        id
-        type
-        label
-        tags {
-          id
-          name
-        }
-        interfaces {
-          id
-          name
-          device {
-            id
-            name
-          }
-        }
       }
     }
     console_ports @include(if: $get_console_port) {
@@ -210,17 +177,140 @@ _QUERY_VARIABLES = """
   $get_tags: Boolean = false,
   $get_secret_groups: Boolean = false,
   $get_console_port: Boolean = false,
-  $get_power_port: Boolean = false,
-  $get_cables: Boolean = false
+  $get_power_port: Boolean = false
 """
 
-DEVICE_ATTRIBUTES_QUERY = (
-    "query DeviceDetails(\n  $deviceId: ID!,\n"
-    + _QUERY_VARIABLES
-    + ") {\n  device(id: $deviceId) {"
-    + _DEVICE_FIELDS
-    + "  }\n}"
-)
+# Cable selections, one per Nautobot layout. They are NOT part of the static query:
+# GraphQL validates the whole document before ``@include`` is evaluated, so a field the
+# server does not know (``CableType.interfaces`` on 3.1) would fail every query, even
+# with ``get_cables=false``. The matching fragment is appended only when the ``cables``
+# group is requested. GraphQL merges the same-named ``interfaces`` selections, so with
+# both groups selected ``interfaces[]`` carries the union.
+#
+# Nautobot < 3.2: verified against 3.1.1 (cable type, tags and status included).
+_CABLES_FRAGMENT_LEGACY = """
+    interfaces @include(if: $get_cables) {
+      id
+      name
+      cable {
+        id
+        type
+        label
+        tags {
+          id
+          name
+        }
+        status {
+          id
+          name
+        }
+      }
+      connected_endpoint {
+        __typename
+        ... on InterfaceType {
+          id
+          name
+          device {
+            id
+            name
+          }
+        }
+      }
+    }
+"""
+
+# Nautobot >= 3.2 (multi-connector cables): from the maintainer's query, not yet run
+# against a 3.2 server.
+_CABLES_FRAGMENT_V32 = """
+    interfaces @include(if: $get_cables) {
+      id
+      name
+      cable {
+        id
+        type
+        label
+        tags {
+          id
+          name
+        }
+        status {
+          id
+          name
+        }
+        interfaces {
+          id
+          name
+          device {
+            id
+            name
+          }
+        }
+      }
+    }
+"""
+
+CABLES_LAYOUT_LEGACY = "legacy"
+CABLES_LAYOUT_V32 = "v32"
+_CABLES_FRAGMENTS: dict[str, str] = {
+    CABLES_LAYOUT_LEGACY: _CABLES_FRAGMENT_LEGACY,
+    CABLES_LAYOUT_V32: _CABLES_FRAGMENT_V32,
+}
+
+
+def build_device_attributes_query(cables_layout: str | None = None) -> str:
+    """Build the device query; ``cables_layout`` adds that layout's cable selection.
+
+    ``None`` (the default) yields a query that works on every Nautobot version.
+    """
+    fragment = ""
+    variables = _QUERY_VARIABLES
+    if cables_layout is not None:
+        fragment = _CABLES_FRAGMENTS[cables_layout]
+        variables = _QUERY_VARIABLES.rstrip("\n") + ",\n  $get_cables: Boolean = false\n"
+    return (
+        "query DeviceDetails(\n  $deviceId: ID!,\n"
+        + variables
+        + ") {\n  device(id: $deviceId) {"
+        + _DEVICE_FIELDS
+        + fragment
+        + "  }\n}"
+    )
+
+
+# Version-independent query (no cables); used where cables are never requested.
+DEVICE_ATTRIBUTES_QUERY = build_device_attributes_query()
+
+
+def cables_layout_for_version(version: tuple[int, int] | None) -> str:
+    """3.2+ uses the multi-connector cable layout; older or unknown, the legacy one."""
+    if version is not None and version >= (3, 2):
+        return CABLES_LAYOUT_V32
+    return CABLES_LAYOUT_LEGACY
+
+
+async def cables_layout_for_groups(
+    service: NautobotService,
+    credentials: NautobotCredentials,
+    groups: list[str],
+) -> str | None:
+    """The cable layout to query, or ``None`` when ``cables`` is not requested.
+
+    Reads the server version only when ``cables`` is requested.
+    """
+    if "cables" not in groups:
+        return None
+    return cables_layout_for_version(await detect_nautobot_version(service, credentials))
+
+
+async def device_query_for_groups(
+    service: NautobotService,
+    credentials: NautobotCredentials,
+    groups: list[str],
+) -> str:
+    """The device query for ``groups``; reads the server version only for ``cables``."""
+    return build_device_attributes_query(
+        await cables_layout_for_groups(service, credentials, groups)
+    )
 
 
 def normalize_attribute_groups(list_of_attributes: list[str] | None) -> list[str]:

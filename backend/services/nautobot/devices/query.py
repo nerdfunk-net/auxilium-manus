@@ -8,11 +8,13 @@ from services.nautobot.client import NautobotService
 from services.nautobot.common.utils import graphql_errors_summary
 from services.nautobot.credentials import NautobotCredentials
 from services.nautobot.devices.attribute_bag import (
-    DEVICE_ATTRIBUTES_QUERY,
     attributes_from_detail,
     build_attribute_variables,
+    build_device_attributes_query,
+    cables_layout_for_groups,
     normalize_attribute_groups,
 )
+from services.nautobot.devices.cable_normalize import normalize_cables
 
 logger = logging.getLogger(__name__)
 
@@ -79,8 +81,13 @@ class DeviceQueryService:
     def _details_cache_key(self, device_id: str) -> str:
         return f"nautobot:device_details:{self._cache_scope}:{device_id}"
 
-    def _attributes_cache_key(self, device_id: str, groups: list[str]) -> str:
+    def _attributes_cache_key(
+        self, device_id: str, groups: list[str], cables_layout: str | None = None
+    ) -> str:
         suffix = ",".join(sorted(groups)) or "base"
+        if cables_layout is not None:
+            # The cable shape differs per Nautobot version: never mix layouts in one entry.
+            suffix = f"{suffix}:{cables_layout}"
         return f"nautobot:device_attributes:{self._cache_scope}:{device_id}:{suffix}"
 
     async def get_device_attributes(
@@ -94,16 +101,19 @@ class DeviceQueryService:
         Uses the same GraphQL query and post-processing as the
         ``get-nautobot-attributes`` workflow step so the ``nautobot.*`` fields
         are identical in the template editor preview and at workflow runtime.
+        With the ``cables`` group the cables are normalized (the step's default).
         """
         groups = normalize_attribute_groups(list_of_attributes)
-        cache_key = self._attributes_cache_key(device_id, groups)
+        cables_layout = await cables_layout_for_groups(self._nautobot, self._credentials, groups)
+        cache_key = self._attributes_cache_key(device_id, groups, cables_layout)
         if use_cache and self._cache is not None:
             cached = self._cache.get(cache_key)
             if cached is not None:
                 return cached
 
+        query = build_device_attributes_query(cables_layout)
         result = await self._nautobot.graphql_query(
-            DEVICE_ATTRIBUTES_QUERY,
+            query,
             {"deviceId": device_id, **build_attribute_variables(groups)},
             self._credentials,
         )
@@ -115,6 +125,9 @@ class DeviceQueryService:
             raise ValueError(f"Device {device_id} not found in Nautobot")
 
         attributes = attributes_from_detail(device)
+        if cables_layout is not None:
+            # Same default as the workflow step, so the preview shows what a run adds.
+            attributes = normalize_cables(attributes)
         if self._cache is not None:
             self._cache.set(cache_key, attributes, self._device_ttl)
         return attributes

@@ -22,6 +22,7 @@ import { ATTRIBUTE_GROUPS, type AttributeGroupKey } from "./types";
 import { GetNautobotAttributesHelpPanel } from "./help-panel";
 
 const CASE_INSENSITIVE_KEY = "case_insensitive_lookup";
+const NORMALIZE_CABLES_KEY = "normalize_cables";
 
 function parseAttributes(config: Record<string, unknown>): AttributeGroupKey[] {
   const raw = config.list_of_attributes;
@@ -30,6 +31,24 @@ function parseAttributes(config: Record<string, unknown>): AttributeGroupKey[] {
     (item): item is AttributeGroupKey =>
       typeof item === "string" && ATTRIBUTE_GROUPS.some((g) => g.key === item),
   );
+}
+
+// Mirrors the backend's parse_bool_flag: a stored value may be a boolean, a number or
+// a string such as "false"; a missing or unrecognised value means the default.
+function boolWithDefault(
+  config: Record<string, unknown>,
+  key: string,
+  fallback: boolean,
+): boolean {
+  const value = config[key];
+  if (typeof value === "boolean") return value;
+  if (typeof value === "number") return value !== 0;
+  if (typeof value === "string") {
+    const text = value.trim().toLowerCase();
+    if (["1", "true", "yes", "on"].includes(text)) return true;
+    if (["0", "false", "no", "off", ""].includes(text)) return false;
+  }
+  return fallback;
 }
 
 function boolFromConfig(config: Record<string, unknown>, key: string): boolean {
@@ -43,6 +62,9 @@ function GetNautobotAttributesConfigPanel({
   const sourceId = useMemo(() => nautobotSourceIdFromConfig(config), [config]);
   const selected = useMemo(() => parseAttributes(config), [config]);
   const caseInsensitiveLookup = boolFromConfig(config, CASE_INSENSITIVE_KEY);
+  // A missing key means the default, true.
+  const normalizeCables = boolWithDefault(config, NORMALIZE_CABLES_KEY, true);
+  const cablesSelected = selected.includes("cables");
   const credentials = useNautobotSourceCredentials({ sourceId });
 
   const [sourceOpen, setSourceOpen] = useState(false);
@@ -67,6 +89,13 @@ function GetNautobotAttributesConfigPanel({
   const handleCaseInsensitiveChange = useCallback(
     (checked: boolean) => {
       onChange({ ...config, [CASE_INSENSITIVE_KEY]: checked });
+    },
+    [config, onChange],
+  );
+
+  const handleNormalizeCablesChange = useCallback(
+    (checked: boolean) => {
+      onChange({ ...config, [NORMALIZE_CABLES_KEY]: checked });
     },
     [config, onChange],
   );
@@ -156,6 +185,23 @@ function GetNautobotAttributesConfigPanel({
           of case — e.g. a device named <span className="font-mono">lab</span>{" "}
           (as produced by some sources, like Batfish) still matches a Nautobot
           device named <span className="font-mono">LAB</span>.
+        </p>
+      </div>
+
+      <div className="space-y-1.5 border-t pt-3">
+        <label className="flex items-center gap-1.5 text-xs font-medium">
+          <Checkbox
+            checked={normalizeCables}
+            disabled={!cablesSelected}
+            onCheckedChange={(checked) => handleNormalizeCablesChange(checked === true)}
+          />
+          Normalize cables
+        </label>
+        <p className="text-[11px] leading-4 text-muted-foreground">
+          Same cable shape on every Nautobot version: adds{" "}
+          <span className="font-mono">cable.interfaces</span> (both ends) and{" "}
+          <span className="font-mono">cable.far_end</span>. Existing fields stay
+          as they are. Needs &quot;Poll Cables&quot;.
         </p>
       </div>
 

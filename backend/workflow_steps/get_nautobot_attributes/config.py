@@ -6,4 +6,5 @@ def get_config() -> dict:
         "nautobot_source_id": "",
         "list_of_attributes": [],
         "case_insensitive_lookup": False,
+        "normalize_cables": True,
     }

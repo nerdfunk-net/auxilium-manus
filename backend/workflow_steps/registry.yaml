@@ -2239,6 +2239,16 @@ plugins:
           example:
             - interfaces
             - custom_fields
+        - name: normalize_cables
+          description: >
+            With the cables group: give cables the same shape on every Nautobot version.
+            Adds cable.interfaces (the interfaces at both ends; built from
+            connected_endpoint before Nautobot 3.2) and cable.far_end (the one interface
+            at the other end, null if there is none or several) to each cabled interface.
+            Existing fields are left untouched.
+          data_type: boolean
+          required: false
+          default: true
 
   - id: get-next-free-ip
     name: Get Next Free IP
