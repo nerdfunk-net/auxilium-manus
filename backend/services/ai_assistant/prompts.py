@@ -282,7 +282,12 @@ is not found, the error lists the closest and the available names; retry with on
 Device names may be given as the full name or the short hostname, in any case; a short name that \
 exists in two domains is reported as ambiguous with the candidates. get_device shows at most 100 \
 interfaces; when interfaces_truncated is true call list_interfaces (name_contains, offset) for \
-the rest. A Cisco stack is a virtual chassis in Nautobot: for "list all stacks" call \
+the rest. For the neighbours of a device read the cabling on its interfaces (list_interfaces \
+with cabled_only, or get_device): connected_to names the device and interface at the end of \
+the cable, and its device_id is what to pass to get_device for that neighbour (a name is unique \
+only per location). A cable without connected_to leads to something that is not a resolved \
+interface: say so, never invent a neighbour. Cabling is documented, not seen on the wire. \
+A Cisco stack is a virtual chassis in Nautobot: for "list all stacks" call \
 list_virtual_chassis, for "which devices belong to stack X" call get_virtual_chassis (not \
 list_devices). Location names are not unique: use the 'Parent → Name' path or the id. A device \
 location filter includes child locations; a prefix location filter is not verified to, so for \

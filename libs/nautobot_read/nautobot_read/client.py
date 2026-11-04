@@ -60,6 +60,26 @@ class Page:
     has_more: bool
 
 
+# A filter value: a list of strings (most filters), or a bool for a boolean filter such as
+# ``has_cable`` (Nautobot's GraphQL declares those as ``Boolean``, not a list of strings).
+Filters = Mapping[str, Sequence[str] | bool | None]
+
+
+def _active_filters(filters: Filters) -> dict[str, list[str] | bool]:
+    """The filters that carry a value: non-empty lists, and both ``True`` and ``False``."""
+    active: dict[str, list[str] | bool] = {}
+    for name, value in filters.items():
+        if isinstance(value, bool):
+            active[name] = value
+        elif value:
+            active[name] = list(value)
+    return active
+
+
+def _variable_type(value: list[str] | bool) -> str:
+    return "Boolean" if isinstance(value, bool) else "[String]"
+
+
 class GraphQLClient(ABC):
     """Read-only list helpers on top of a single ``graphql`` transport method."""
 
@@ -79,7 +99,7 @@ class GraphQLClient(ABC):
         self,
         root: str,
         selection: str,
-        filters: Mapping[str, Sequence[str] | None],
+        filters: Filters,
         *,
         limit: int,
         offset: int,
@@ -90,11 +110,15 @@ class GraphQLClient(ABC):
         whitelist, never LLM input; they are still checked to be plain identifiers. Filter
         values travel as GraphQL variables, never inside the query text.
         """
-        active = {name: list(values) for name, values in filters.items() if values}
+        active = _active_filters(filters)
         for name in (root, *active):
             if not _IDENTIFIER.match(name):
                 raise ValueError(f"not a plain identifier: {name!r}")
-        declarations = ["$limit: Int", "$offset: Int", *(f"$f_{n}: [String]" for n in active)]
+        declarations = [
+            "$limit: Int",
+            "$offset: Int",
+            *(f"$f_{n}: {_variable_type(v)}" for n, v in active.items()),
+        ]
         arguments = ["limit: $limit", "offset: $offset", *(f"{n}: $f_{n}" for n in active)]
         query = (
             f"query({', '.join(declarations)}) "
@@ -105,7 +129,7 @@ class GraphQLClient(ABC):
         rows = (await self.graphql(query, variables)).get(root) or []
         return Page(items=tuple(rows[:limit]), has_more=len(rows) > limit)
 
-    async def count(self, root: str, filters: Mapping[str, Sequence[str] | None]) -> Count:
+    async def count(self, root: str, filters: Filters) -> Count:
         """How many rows of ``root`` match ``filters``.
 
         One REST request (``?limit=1`` and read ``count``) when the root has an endpoint in
@@ -118,13 +142,17 @@ class GraphQLClient(ABC):
         count (``count: null`` after Nautobot's count timeout) is not an error: the capped
         GraphQL count answers instead. Anything else that is not a count is.
         """
-        active = {name: list(values) for name, values in filters.items() if values}
+        active = _active_filters(filters)
         for name in (root, *active):
             if not _IDENTIFIER.match(name):
                 raise ValueError(f"not a plain identifier: {name!r}")
         endpoint = REST_LIST_ENDPOINTS.get(root)
         if endpoint is not None:
-            pairs = [(name, value) for name, values in active.items() for value in values]
+            pairs = [
+                (name, value)
+                for name, values in active.items()
+                for value in ([str(values).lower()] if isinstance(values, bool) else values)
+            ]
             try:
                 query = urlencode([*pairs, ("limit", 1), ("brief", "true")])
                 data = await self.rest_get(f"{endpoint}/?{query}")
@@ -140,7 +168,7 @@ class GraphQLClient(ABC):
                     return Count(total, exact=True)
         return await self._count_by_paging(root, active)
 
-    async def _count_by_paging(self, root: str, filters: Mapping[str, Sequence[str]]) -> Count:
+    async def _count_by_paging(self, root: str, filters: Filters) -> Count:
         counted = 0
         while True:
             page = await self.list_page(
@@ -156,7 +184,7 @@ class GraphQLClient(ABC):
         self,
         root: str,
         selection: str,
-        filters: Mapping[str, Sequence[str] | None] | None = None,
+        filters: Filters | None = None,
         *,
         page_size: int = DEFAULT_PAGE_SIZE,
         max_items: int = DEFAULT_MAX_ITEMS,

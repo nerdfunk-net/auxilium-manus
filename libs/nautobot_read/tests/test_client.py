@@ -203,3 +203,23 @@ def test_every_endpoint_in_the_map_is_a_plain_rest_path():
         "devices", "interfaces", "locations", "ip_addresses", "prefixes", "virtual_chassis",
     }
     assert all(p.count("/") == 1 and not p.startswith("/") for p in REST_LIST_ENDPOINTS.values())
+
+
+async def test_list_page_declares_a_boolean_filter_as_boolean_and_keeps_false():
+    client = ScriptedClient(rows("a"))
+    await client.list_page(
+        "interfaces", "name", {"has_cable": True, "enabled": False, "role": None},
+        limit=1, offset=0,
+    )
+    query, variables = client.calls[-1]
+    assert "$f_has_cable: Boolean" in query and variables["f_has_cable"] is True
+    assert "$f_enabled: Boolean" in query and variables["f_enabled"] is False
+    assert "$f_role" not in query
+
+
+async def test_count_sends_a_boolean_filter_to_rest_as_true_or_false():
+    client = RestClient({"count": 3})
+    await client.count("interfaces", {"device_id": ["d1"], "has_cable": True, "enabled": False})
+    assert client.endpoints == [
+        "dcim/interfaces/?device_id=d1&has_cable=true&enabled=false&limit=1&brief=true"
+    ]

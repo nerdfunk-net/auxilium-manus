@@ -144,7 +144,8 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
     tools: [
       {
         name: "list_devices / get_device",
-        description: "Searches devices by name, role, location, status, platform or tag, and shows one device.",
+        description:
+          "Searches devices by name, role, location, status, platform or tag, and shows one device. The interfaces of a device also show their documented cable and the device and interface at the other end.",
         questions: [
           "How many devices are in Nautobot?",
           "List the active switches in Berlin.",
@@ -153,8 +154,13 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
       },
       {
         name: "list_interfaces",
-        description: "Interfaces of a device as documented in Nautobot.",
-        questions: ["Which interfaces of r1 are documented in Nautobot?"],
+        description:
+          "Interfaces of a device as documented in Nautobot, page by page. An interface with a documented cable also shows the device and interface at the other end of the cable, so this is how the assistant finds the neighbours of a device. Interfaces without a cable show no cable data; that means no cable is documented, not that nothing is plugged in. Cable labels need the content opt-in.",
+        questions: [
+          "Which interfaces of r1 are documented in Nautobot?",
+          "Which devices are connected to r1 according to Nautobot?",
+          "Show only the cabled interfaces of r1.",
+        ],
       },
       {
         name: "list_ip_addresses / list_prefixes / list_namespaces",

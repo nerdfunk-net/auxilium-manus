@@ -41,8 +41,15 @@ DEVICE_DETAIL_QUERY = (
 )
 # Interfaces are a bounded top-level page, not a nested selection: a nested list is built and
 # parsed whole before it can be truncated.
+#
+# ``cable`` and ``connected_endpoint`` are the cabling: what is documented in Nautobot, and the
+# interface at the other end of the cable path. Both exist on Nautobot 3.1 and 3.2 (read from the
+# 3.1.3 and 3.2.4 source), so one selection serves both; the 3.2-only ``Cable.interfaces`` is not
+# used here (it makes the query invalid on 3.1).
 INTERFACE_SELECTION = (
-    "name type enabled mac_address description status { name } ip_addresses { address }"
+    "name type enabled mac_address description status { name } ip_addresses { address } "
+    "cable { id label status { name } } "
+    "connected_endpoint { __typename ... on InterfaceType { name device { id name } } }"
 )
 DEVICE_NAME_QUERY = "query($id: ID!) { device(id: $id) { name } }"
 DEVICE_TYPE_SELECTION = "model manufacturer { name }"
@@ -68,8 +75,29 @@ def device_item(row: dict[str, Any], directory: LocationDirectory | None) -> dic
     }
 
 
-def _interface_item(row: dict[str, Any]) -> dict[str, Any]:
+def _cable_item(cable: dict[str, Any]) -> dict[str, Any]:
+    status = (cable.get("status") or {}).get("name")
+    item: dict[str, Any] = {"id": cable.get("id"), "status": status}
+    if cable.get("label"):  # free text: the assistant tools withhold it without content opt-in
+        item["label"] = cable["label"]
+    return item
+
+
+def _connected_to(endpoint: dict[str, Any] | None) -> dict[str, Any] | None:
+    """The interface at the end of the cable path; ``None`` for anything else (a circuit, ...)."""
+    if not endpoint or endpoint.get("__typename") != "InterfaceType" or not endpoint.get("name"):
+        return None
+    device = endpoint.get("device") or {}
+    # The id lets the model call get_device on the neighbour: a name is unique only per location.
     return {
+        "device": device.get("name"),
+        "device_id": device.get("id"),
+        "interface": endpoint["name"],
+    }
+
+
+def _interface_item(row: dict[str, Any]) -> dict[str, Any]:
+    item = {
         "name": row["name"],
         "type": row.get("type"),
         "enabled": row.get("enabled"),
@@ -78,6 +106,14 @@ def _interface_item(row: dict[str, Any]) -> dict[str, Any]:
         "status": (row.get("status") or {}).get("name"),
         "ip_addresses": [ip["address"] for ip in row.get("ip_addresses") or []],
     }
+    # Cabling is optional: an interface without a cable has neither key (most of them), which
+    # keeps the answer short.
+    if row.get("cable"):
+        item["cable"] = _cable_item(row["cable"])
+    connected_to = _connected_to(row.get("connected_endpoint"))
+    if connected_to:
+        item["connected_to"] = connected_to
+    return item
 
 
 async def list_devices(
@@ -155,22 +191,28 @@ async def list_interfaces(
     *,
     device: str,
     name_contains: str | None = None,
+    cabled_only: bool = False,
     limit: int = DEFAULT_LIMIT,
     offset: int = 0,
 ) -> dict[str, Any]:
     """The interfaces of one device, paged.
 
     ``get_device`` shows at most ``MAX_INTERFACES`` of them; this is the way to the rest of a
-    device with hundreds, optionally narrowed by part of the name.
+    device with hundreds, optionally narrowed by part of the name. ``cabled_only`` keeps only
+    the interfaces that have a cable (the neighbours of the device).
     """
     check_paging(limit, offset)
     device_id, resolved_name = await _device_ref(ctx, device.strip())
-    filters = {"device_id": [device_id]}
+    filters: dict[str, Any] = {"device_id": [device_id]}
     # The device actually queried: a short or differently cased name may have matched another
     # spelling, and interface rows carry no device of their own.
     applied: dict[str, Any] = {"device": resolved_name}
     if name_contains:
         filters["name__ic"], applied["name_contains"] = [name_contains], name_contains
+    if cabled_only:
+        # ``has_cable`` is a boolean filter (GraphQL type Boolean); read from the 3.1.3 / 3.2.4
+        # source, not yet run against a server.
+        filters["has_cable"], applied["cabled_only"] = True, True
     return await list_with_total(
         ctx, "interfaces", INTERFACE_SELECTION, filters, limit=limit, offset=offset,
         to_item=_interface_item, applied=applied,

@@ -1817,7 +1817,7 @@ Names follow the rule in `AI_ASSISTANT.md` §3.5.
 |---|---|---|
 | `get_neighbor_sources(device)` | read, metadata | which evidence exists without touching the device: last snapshot of the model (Batfish) and its age, last backup, whether device-side data could be fetched; configured protocols from the model |
 | `get_modelled_neighbors(device, layer, protocol)` | read, content (B/C) | neighbours from the **Batfish model** (no SSH): L3 edges and routing-protocol edges from existing allow-listed questions (`edges`, `ospfEdges`, `bgpEdges`), BGP session status, OSPF process data; labelled "modelled, may differ from reality" |
-| `get_documented_neighbors(device)` | read, content (B) | neighbours **as documented in Nautobot** (interfaces with their cable and far end: the `cables` attribute group, normalized to `cable.far_end`); labelled "documented, not necessarily complete or current" (24.11) |
+| `get_documented_neighbors(device)` | read, content (B) | neighbours **as documented in Nautobot** (the cabling on each interface: `cable` and `connected_to`, from `get_device` / `list_interfaces`, §44; no separate tool was built); labelled "documented, not necessarily complete or current" (24.11) |
 | `propose_neighbor_discovery(device, layer, protocol, vrf)` | proposal | **live** discovery on the device; produces an execution proposal; the user confirms; runs read-only commands from a reviewed catalogue and returns the neighbours (24.5) |
 | `get_discovery_result(handle)` | read | page through a large live result (the preview is bounded) |
 
@@ -1968,7 +1968,7 @@ agree and where they differ.
 |---|---|---|---|---|
 | **Live device** | `propose_neighbor_discovery` | what the device sees now (CDP, LLDP, adjacencies, RIB) | current, authoritative for the present | needs SSH and the user's click; the device may be unreachable; CDP/LLDP can be disabled |
 | **Batfish model** | `get_modelled_neighbors` | what the configs imply | no SSH, whole network | as old as the snapshot; models intent, not the wire (no CDP) |
-| **Nautobot** | `get_documented_neighbors` | documented cabling (`cable`, `cable.far_end`) | names, roles, intent | often incomplete or stale; absent data means nothing |
+| **Nautobot** | `get_documented_neighbors` | documented cabling (`cable`, `connected_to`, §44) | names, roles, intent | often incomplete or stale; absent data means nothing |
 
 Rules for the answer (the model is told in the tool text and the playbook):
 
@@ -2015,7 +2015,7 @@ neighbour lists, its output the classes above. It is a pure function and testabl
 
 - N2 (matching service) grows to include name and interface canonicalisation and the reconciliation classes
   (24.11), tested with fixtures.
-- N3 gains `get_documented_neighbors` (Nautobot via `get_device_attributes`, group `interfaces`), read-only and
+- N3 gains `get_documented_neighbors` (built as the cabling fields of `get_device` / `list_interfaces`, §44), read-only and
   without SSH; it can ship with the first increment together with the model tool.
 - N1 starts with the confirmed CDP template; the detail variant and the L3 parsers follow as their templates
   are confirmed.
@@ -3265,3 +3265,40 @@ and **not run live** (unit tests only; see "Open").
   not from markers found in the text. (5) Every Genie failure ends as a fixed-text error and cannot fail the run; the
   shim's own error text is not passed on. (6) `parse_command_output` refuses Genie unless the confirmed proposal named
   Genie. Not run live; the new child process is covered by tests that start it, kill it and check its environment.
+
+## 44. Cabling on Nautobot interfaces (2026-11-04)
+
+**What.** `get_device` (first 100 interfaces) and `list_interfaces` now show the cabling Nautobot documents, so the
+model can see which devices are neighbours. This is what `get_documented_neighbors` (§24.3) was meant to be; no
+separate tool was built. It lives in the shared library (`libs/nautobot_read/queries/dcim.py`), so the MCP server's
+`get_device` gets it too.
+
+* **Selection.** `INTERFACE_SELECTION` adds `cable { id label status { name } }` and
+  `connected_endpoint { __typename ... on InterfaceType { name device { name } } }`. One selection for every
+  Nautobot version: both fields exist on 3.1 and 3.2 (read from the 3.1.3 and 3.2.4 source). It deliberately does
+  **not** use the 3.2-only `Cable.interfaces` (a field unknown to 3.1 fails the whole query, even in a skipped
+  `@include`), so there is no version probe here. This differs from the `get-nautobot-attributes` step, which has
+  a version-specific selection and an optional normalization (`cable.interfaces`, `cable.far_end`); the assistant
+  tools do not use it.
+* **Shape.** An interface with a cable has `cable: {id, status, label?}` and, when the far end is an interface,
+  `connected_to: {device, device_id, interface}` (the id, because a device name is unique only per location; pass it to `get_device`). An interface **without** a cable has neither key (most of them), so the
+  answer stays short; the tool text says that no keys means "no cable documented", not "nothing plugged in".
+* **A cable can have no `connected_to`** (circuit, console or power end, no path destination, or a peer the token may not view: Nautobot nulls it). The tool texts and `NAUTOBOT_PROMPT` say so, so the model does not invent a neighbour.
+* **`connected_to` is the end of the cable path** (`connected_endpoint`), not the direct peer: through a patch panel
+  or circuit it names the interface at the far end, or is absent when the end is not an interface. Multi-lane
+  (breakout) cables show one far end: 3.2's `connected_endpoint` is the first cable path's destination, and
+  `Cable.interfaces` (all lanes) is not usable on 3.1.
+* **`list_interfaces(cabled_only=true)`** keeps only interfaces that have a cable ("the neighbours of this device").
+  The lib client gained boolean filters (`list_page` declares a bool as `Boolean`, not `[String]`; `count` sends
+  `true` / `false` over REST) because the Nautobot filter `has_cable` is a boolean filter (GraphQL type `Boolean`,
+  read from the 3.1.3 and 3.2.4 filter sets). **Not run against a live server**: send
+  `{ interfaces(device_id: ["<id>"], has_cable: true) { name } }` once to confirm.
+* **Gating.** Unchanged for the tools (`list_interfaces` needs addresses, `get_device` inventory and, for its
+  interfaces, addresses). The neighbour (device and interface names) and the cable id and status come with them. A
+  **cable label is free text** (a patch note, a ticket number): it is withheld without the content opt-in, like an
+  interface description, and `withheld_fields` says `cable_labels: content_data` (only when an interface actually
+  had a label).
+* **MCP.** The MCP `get_device` returns the library object, so it includes `cable.label` (free text) with no content gate, like interface descriptions already; anyone who can call MCP holds the Nautobot token, so this is a new field in the LLM context, not a new privilege. Left as is on purpose.
+* **Tests.** `libs/nautobot_read/tests/` (100 % coverage kept), `backend/tests/unit/test_ai_nautobot_tools.py`.
+* **Open.** The live check of `has_cable`; a real device with cabling through a patch panel; whether the
+  prompt should push the model towards `cabled_only` for neighbour questions.

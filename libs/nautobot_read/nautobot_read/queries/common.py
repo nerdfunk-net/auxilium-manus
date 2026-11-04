@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Sequence
 from typing import Any, Literal
 
-from nautobot_read.client import NautobotError, Page
+from nautobot_read.client import Filters, NautobotError, Page
 from nautobot_read.context import QueryContext
 from nautobot_read.networks import InvalidInputError
 
@@ -55,7 +55,7 @@ async def list_with_total(
     ctx: QueryContext,
     root: str,
     selection: str,
-    filters: Mapping[str, Sequence[str] | None],
+    filters: Filters,
     *,
     limit: int,
     offset: int,

@@ -3,6 +3,7 @@ import pytest
 from nautobot_read.networks import InvalidInputError
 from tests.conftest import (
     DEVICE_ROW,
+    INTERFACE_ROWS,
     UUID_BER,
     UUID_DE,
     UUID_DEV1,
@@ -221,3 +222,75 @@ async def test_list_interfaces_unknown_device_and_bad_paging_are_clear_errors(ct
     assert "offset must be between" in await error_text(
         ctx, "list_interfaces", device=UUID_DEV1, offset=-1
     )
+
+
+# -- cabling: optional, so an uncabled interface stays as short as before ------------------------
+
+CABLED = {
+    **INTERFACE_ROWS[0],
+    "name": "eth1",
+    "cable": {"id": "cable-1", "label": "uplink", "status": {"name": "Connected"}},
+    "connected_endpoint": {
+        "__typename": "InterfaceType", "name": "Ethernet0/1",
+        "device": {"id": "dev-sw1", "name": "switch-1"},
+    },
+}
+
+
+async def test_a_cabled_interface_shows_its_cable_and_the_interface_at_the_other_end(ctx, nautobot):
+    nautobot.list_rows["interfaces"] = [CABLED]
+    item = (await run(ctx, "list_interfaces", device=UUID_DEV1))["items"][0]
+    assert item["cable"] == {"id": "cable-1", "status": "Connected", "label": "uplink"}
+    assert item["connected_to"] == {
+        "device": "switch-1", "device_id": "dev-sw1", "interface": "Ethernet0/1",
+    }
+
+
+async def test_an_interface_without_a_cable_has_no_cable_keys(ctx, nautobot):
+    row = {**INTERFACE_ROWS[0], "cable": None, "connected_endpoint": None}
+    nautobot.list_rows["interfaces"] = [row]
+    item = (await run(ctx, "list_interfaces", device=UUID_DEV1))["items"][0]
+    assert "cable" not in item and "connected_to" not in item
+
+
+async def test_an_empty_cable_label_is_left_out(ctx, nautobot):
+    row = {**CABLED, "cable": {"id": "cable-1", "label": "", "status": None}}
+    nautobot.list_rows["interfaces"] = [row]
+    item = (await run(ctx, "list_interfaces", device=UUID_DEV1))["items"][0]
+    assert item["cable"] == {"id": "cable-1", "status": None}
+
+
+@pytest.mark.parametrize(
+    "endpoint",
+    [
+        {"__typename": "CircuitTerminationType"},
+        {"__typename": "InterfaceType"},
+        {"__typename": "InterfaceType", "name": "e1", "device": None},
+    ],
+)
+async def test_only_an_interface_with_a_name_counts_as_the_other_end(ctx, nautobot, endpoint):
+    nautobot.list_rows["interfaces"] = [{**CABLED, "connected_endpoint": endpoint}]
+    item = (await run(ctx, "list_interfaces", device=UUID_DEV1))["items"][0]
+    if endpoint.get("name"):
+        assert item["connected_to"] == {"device": None, "device_id": None, "interface": "e1"}
+    else:
+        assert "connected_to" not in item
+
+
+async def test_the_cabling_is_selected_without_the_3_2_only_cable_interfaces(ctx, nautobot):
+    from nautobot_read.queries.dcim import INTERFACE_SELECTION
+
+    assert "cable {" in INTERFACE_SELECTION and "connected_endpoint" in INTERFACE_SELECTION
+    cable = INTERFACE_SELECTION.split("cable {", 1)[1].split("}", 1)[0]
+    assert "interfaces" not in cable  # CableType.interfaces exists only from Nautobot 3.2
+
+
+async def test_list_interfaces_cabled_only_filters_on_has_cable(ctx, nautobot):
+    data = await run(ctx, "list_interfaces", device=UUID_DEV1, cabled_only=True)
+    assert nautobot.page_calls[0]["filters"] == {"device_id": [UUID_DEV1], "has_cable": True}
+    assert data["applied_filters"] == {"device": "device-1", "cabled_only": True}
+
+
+async def test_list_interfaces_without_cabled_only_sends_no_cable_filter(ctx, nautobot):
+    await run(ctx, "list_interfaces", device=UUID_DEV1)
+    assert "has_cable" not in nautobot.page_calls[0]["filters"]

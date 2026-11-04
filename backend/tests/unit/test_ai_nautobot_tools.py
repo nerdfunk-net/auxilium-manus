@@ -980,3 +980,74 @@ def test_a_failed_rest_get_does_not_chain_the_endpoint_with_its_filter_values() 
 
     assert raised.value.__cause__ is None and raised.value.__suppress_context__
     assert "secret-host" not in str(raised.value)
+
+
+# -- cabling on interfaces: optional, gated like descriptions, and cabled_only -------------------
+
+CABLED_INTERFACE = {
+    **INTERFACES[0],
+    "name": "Gi2",
+    "cable": {"id": "cable-1", "label": "ticket 4711", "status": {"name": "Connected"}},
+    "connected_endpoint": {
+        "__typename": "InterfaceType", "name": "Gi0/1", "device": {"id": "dev-sw2", "name": "sw-2"},
+    },
+}
+
+
+def _cabled_toolbox(sharing):
+    box, nautobot = _toolbox(sharing=sharing)
+    nautobot.rows["interfaces"] = [INTERFACES[0], CABLED_INTERFACE]
+    return box, nautobot
+
+
+def test_a_cabled_interface_shows_the_neighbour_and_an_uncabled_one_has_no_cable_keys() -> None:
+    box, _ = _cabled_toolbox(CONTENT_TOO)
+
+    items = _data(_call(box, "list_interfaces", device=UUID_DEV))["items"]
+
+    assert "cable" not in items[0] and "connected_to" not in items[0]
+    assert items[1]["connected_to"] == {
+        "device": "sw-2", "device_id": "dev-sw2", "interface": "Gi0/1",
+    }
+    assert items[1]["cable"] == {"id": "cable-1", "status": "Connected", "label": "ticket 4711"}
+
+
+def test_cable_labels_need_the_content_opt_in_but_the_neighbour_does_not() -> None:
+    box, _ = _cabled_toolbox(FULL)
+
+    listed = _data(_call(box, "list_interfaces", device=UUID_DEV))
+    device = _data(_call(box, "get_device", device=UUID_DEV))
+
+    for cabled in (listed["items"][1], device["interfaces"][1]):
+        assert cabled["cable"] == {"id": "cable-1", "status": "Connected"}
+        assert cabled["connected_to"] == {
+            "device": "sw-2", "device_id": "dev-sw2", "interface": "Gi0/1",
+        }
+    expected = {"interface_descriptions": "content_data", "cable_labels": "content_data"}
+    assert listed["withheld_fields"] == expected
+    assert device["withheld_fields"]["cable_labels"] == "content_data"
+
+
+def test_withheld_fields_do_not_mention_cable_labels_when_there_are_none() -> None:
+    box, _ = _toolbox(sharing=FULL)
+
+    listed = _data(_call(box, "list_interfaces", device=UUID_DEV))
+
+    assert listed["withheld_fields"] == {"interface_descriptions": "content_data"}
+
+
+def test_cabled_only_asks_nautobot_for_interfaces_with_a_cable() -> None:
+    box, nautobot = _cabled_toolbox(FULL)
+
+    data = _data(_call(box, "list_interfaces", device=UUID_DEV, cabled_only=True))
+
+    call = next(c for c in nautobot.page_calls if c["root"] == "interfaces")
+    assert call["filters"] == {"device_id": [UUID_DEV], "has_cable": True}
+    assert data["applied_filters"]["cabled_only"] is True
+
+
+def test_the_interface_tool_texts_tell_the_model_about_the_cabling() -> None:
+    specs = {spec.name: spec for spec in _toolbox(sharing=FULL)[0].specs()}
+
+    assert "cabled_only" in specs["list_interfaces"].description
+    assert "connected_to" in specs["get_device"].description

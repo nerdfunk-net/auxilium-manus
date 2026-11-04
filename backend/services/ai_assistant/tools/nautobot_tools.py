@@ -122,6 +122,10 @@ class GetDeviceInput(_Input):
 class ListInterfacesInput(_Input):
     device: Name = Field(description="Device name (full name or short hostname) or id.")
     name_contains: Name | None = Field(None, description="Part of the interface name.")
+    cabled_only: bool = Field(
+        False,
+        description="Only interfaces that have a cable: the device's documented neighbours.",
+    )
     limit: InterfacePage = DEFAULT_INTERFACE_PAGE
     offset: Skip = 0
 
@@ -314,20 +318,50 @@ def _shape_one(rules: Mapping[str, Rule]) -> Callable[[SharingPolicy, dict[str, 
 # the same kind of field the Batfish interface table withholds without the content opt-in.
 INTERFACE_DESCRIPTIONS = "interface_descriptions"
 _DESCRIPTIONS_WITHHELD = {INTERFACE_DESCRIPTIONS: DataClass.CONTENT.value}
+# A cable label is free text as well (a patch-panel note, a ticket number). It is reported as
+# withheld only when an interface actually had one, so an answer without cabling stays as short.
+CABLE_LABELS = "cable_labels"
 
 
 def _bare(interfaces: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return [{k: v for k, v in item.items() if k != "description"} for item in interfaces]
 
 
+def _without_cable_labels(
+    interfaces: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], bool]:
+    """The interfaces with every cable label removed, and whether any was there."""
+    removed = False
+    result: list[dict[str, Any]] = []
+    for item in interfaces:
+        cable = item.get("cable")
+        if isinstance(cable, dict) and "label" in cable:
+            removed = True
+            item = {**item, "cable": {k: v for k, v in cable.items() if k != "label"}}
+        result.append(item)
+    return result, removed
+
+
+def _without_private_text(
+    interfaces: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], dict[str, str]]:
+    """Interfaces without descriptions and cable labels, plus which fields were withheld."""
+    shaped, labels_removed = _without_cable_labels(_bare(interfaces))
+    withheld = dict(_DESCRIPTIONS_WITHHELD)
+    if labels_removed:
+        withheld[CABLE_LABELS] = DataClass.CONTENT.value
+    return shaped, withheld
+
+
 def _withhold_interface_descriptions(
     policy: SharingPolicy, result: dict[str, Any]
 ) -> dict[str, Any]:
-    """``list_interfaces``: descriptions only with the content opt-in, and say what is left out."""
+    """``list_interfaces``: free text only with the content opt-in, and say what is left out."""
     if policy.allows(DataClass.CONTENT):
         return result
-    withheld = {**result.get("withheld_fields", {}), **_DESCRIPTIONS_WITHHELD}
-    return {**result, "items": _bare(result["items"]), "withheld_fields": withheld}
+    items, dropped = _without_private_text(result["items"])
+    withheld = {**result.get("withheld_fields", {}), **dropped}
+    return {**result, "items": items, "withheld_fields": withheld}
 
 
 def _device_with_private_interfaces(
@@ -340,8 +374,9 @@ def _device_with_private_interfaces(
         shaped = shape_one(policy, result)
         if "interfaces" not in shaped or policy.allows(DataClass.CONTENT):
             return shaped
-        withheld = {**shaped.get("withheld_fields", {}), **_DESCRIPTIONS_WITHHELD}
-        return {**shaped, "interfaces": _bare(shaped["interfaces"]), "withheld_fields": withheld}
+        interfaces, dropped = _without_private_text(shaped["interfaces"])
+        withheld = {**shaped.get("withheld_fields", {}), **dropped}
+        return {**shaped, "interfaces": interfaces, "withheld_fields": withheld}
 
     return shape
 
@@ -458,7 +493,14 @@ def build_nautobot_tools() -> tuple[Tool, ...]:
             "('LAB.local.zz') or the short hostname Batfish uses ('lab'), in any case. If a name "
             "matches several devices (a short name in two domains) the error lists them with "
             "their ids. At most 100 interfaces are included: when interfaces_truncated is true "
-            "use list_interfaces for the rest. Needs the inventory data switch.",
+            "use list_interfaces for the rest. An interface with a documented cable has a cable "
+            "key. It also has connected_to (device, device_id and interface at the end of the "
+            "cable path) when that end is an interface Nautobot could resolve and the token may "
+            "see: a cable without connected_to leads to something else (circuit, console, "
+            "power) or to an unresolved or hidden end, so do not guess a neighbour. A cable "
+            "with several lanes shows one far end only. Documented, often incomplete or stale. "
+            "An interface without a cable key has no cable in Nautobot. Needs the inventory "
+            "data switch.",
             GetDeviceInput,
             dcim.get_device,
             gate=DataClass.INVENTORY,
@@ -469,8 +511,16 @@ def build_nautobot_tools() -> tuple[Tool, ...]:
             "The interfaces of one Nautobot device with their IP addresses, paged: the way to "
             "the interfaces of a device that has more than get_device shows. Narrow with "
             "name_contains (for example 'Gi1/0/'), page with offset while has_more is true. "
-            "Documented, not live state. Needs the addresses data switch; interface descriptions "
-            "also need the content switch.",
+            "An interface with a documented cable has a cable key and, when the end of the cable "
+            "path is an interface Nautobot could resolve, connected_to (device, device_id, "
+            "interface); a cable without connected_to leads to something else (circuit, "
+            "console, power) or to an unresolved or hidden end, so do not guess a neighbour. A "
+            "cable with several lanes shows one far end only. cabled_only=true lists the "
+            "cabled interfaces, the starting point for 'what are the neighbours of this "
+            "device'. No cable keys means no cable documented, not that nothing is plugged in. "
+            "Documented, not live state. "
+            "Needs the addresses data switch; interface descriptions and cable labels also "
+            "need the content switch.",
             ListInterfacesInput,
             dcim.list_interfaces,
             gate=DataClass.ADDRESSES,
