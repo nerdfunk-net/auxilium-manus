@@ -19,7 +19,7 @@ ENABLE_DEV_TOOLS=true  # development-only; omit in production (OIDC test dashboa
 VAULT_ENABLED=false    # optional OpenBao secret storage; see doc/VAULT_INTEGRATION.md
 AI_ASSISTANT_ENABLED=false     # operator switch for the AI assistant (off by default)
 AI_ALLOWED_PROVIDERS=          # anthropic,gemini,openai_compat (none by default)
-AI_DEVICE_COMMANDS_ENABLED=false  # Ask the Net may propose read-only 'show' commands for a device (user confirms each one; needs netmiko:execute)
+AI_DEVICE_COMMANDS_ENABLED=false  # Ask the Net may propose read-only 'show' commands for a device (user confirms each one; needs netmiko:execute); also gates neighbour discovery
 AI_ALLOWED_DATA=               # inventory,addresses,custom_fields,config_context,content,report (none by default)
 MANUS_PROCESS_ROLE=web         # web | worker: a worker needs no INITIAL_PASSWORD / OpenBao management role
 SESSION_MAX_AGE_HOURS=12        # absolute session lifetime (see doc/claude/auth.md)
@@ -175,8 +175,8 @@ persist or execute.
 
 Ask the Net (`/ask-the-net`, surface `general`: free questions about the network, answered from a Batfish
 snapshot with read-only tools, plus device configs from the git backup (§30) and user-confirmed read-only
-device commands (§29); frontend `components/features/ask-the-net/`): read
-`doc/AI_TOOL_CHAIN.md` first (status in §27, device commands §29, config backups §30, next steps in §28). A new assistant surface touches
+device commands (§29) and neighbour discovery (§45); frontend `components/features/ask-the-net/`): read
+`doc/AI_TOOL_CHAIN.md` first (status in §27, device commands §29, config backups §30, neighbours §45, next steps in §28). A new assistant surface touches
 `models/ai_assistant.py`, `models/ai_conversations.py`, `routers/ai_assistant.py`, `services/ai_assistant/surfaces.py`
 and the frontend `AssistantContext` types. Tool results above 20 rows are stored in Redis behind a handle
 (`services/ai_assistant/results/`).

@@ -3398,15 +3398,65 @@ purpose (`test_ai_general_surface`, `test_ai_hardening` comment, `test_ai_playbo
 `propose_device_command` and `propose_neighbor_discovery`. `batfish_tools` gained the query kind `edges` and two public
 aliases (`run_target_query`, `answer_context`).
 
+**VRF support (state 2026-11-05; read from `neighbors/catalogue.py`).** Layer 3 depends on the VRF, and the feature
+supports it **in part**:
+
+* `propose_neighbor_discovery` takes `vrf`: `default` or a name (`[A-Za-z0-9_.-]{1,32}`). The name is substituted only
+  into the catalogue's command templates (for example `show ip route vrf BLUE`) and the result passes the command
+  policy again. Layer 2 ignores the VRF (CDP/LLDP do not depend on it).
+* Every layer 3 record carries `vrf`; rows that name another VRF are dropped (an empty `vrf` value fits the VRF of the
+  command, a row that names a VRF fits only that one, names compare case-insensitively). Routing-table summaries
+  (routes per protocol, default route) are kept per VRF.
+* VRF names are found with `protocol='discover'` (raw text): `show vrf` (IOS, NX-OS, EOS), `show vrf all detail` (XR),
+  `show route instance` (Junos). The playbook has the model ask the user which VRF to look at.
+* A non-default VRF is catalogued only where a command form with a template exists. Anything else is refused with a fixed
+  message ("... not supported for a VRF on this platform"); nothing is proposed.
+
+| Platform | Routing table | OSPF | BGP | EIGRP | IS-IS |
+|---|---|---|---|---|---|
+| IOS / IOS-XE | yes (`show ip route vrf X`) | no | no | no | no |
+| NX-OS | yes | yes (`show ip ospf neighbors vrf X`) | yes (`show ip bgp summary vrf X`) | no | n/a |
+| IOS-XR | yes (`show route vrf X`) | yes (`show ospf vrf X neighbor`) | no | no | no |
+| EOS | yes | no | yes (`show ip bgp summary vrf X`) | n/a | no |
+| Junos | no (no RIB template) | no | no | n/a | no |
+
+A "no" means "not catalogued", not "the device cannot do it". §24.14 verified a missing per-VRF template only for IOS BGP
+(`show ip bgp vpnv4 vrf X summary`) and IOS EIGRP (`show ip eigrp vrf X neighbors`); for the other "no" cells nobody has
+checked yet whether a command form with a template exists, which is the first step of the improvements below.
+
+**Possible improvements (VRF), not built:**
+
+* **More per-VRF combinations.** IOS OSPF/BGP/EIGRP/IS-IS, XR BGP, EOS OSPF, and the Junos RIB and routing instances are
+  the gaps. Candidates are the per-VRF command forms (for example IOS `show ip ospf vrf X neighbor`,
+  `show ip bgp vpnv4 vrf X summary`, `show ip eigrp vrf X neighbors`), added as `vrf_command` in the catalogue **after**
+  each form is run on a device and shown to parse, or the Genie fallback (`genie_parser.DbGenieParser`, §43) where no
+  template exists. The catalogue test (every parsed command needs an installed template) must keep passing.
+* **`vrf=all`.** One request that runs the command set for every discovered VRF, capped in the number of VRFs and rows,
+  with a note when the cap cut the result (§24.12 had this; it was not built). Needs the VRF list from the device first.
+* **Check the VRF name against the discovered names** before it is used in a command (§24.12). Today only the pattern and
+  the command policy apply and the device rejects an unknown name. IOS names are case-sensitive, so a wrong case fails on
+  the device and the model sees an error text.
+* **VRF discovery in one step.** `discover` returns raw text that the model reads; a parsed VRF list (`show vrf`,
+  `show vrf detail`) would let the tool offer the names directly and make the check above possible. IOS-XR, NX-OS and
+  EOS have `show vrf` templates; Junos has none.
+* **VRFs from the model or from Nautobot** as an alternative to the device (Batfish `routes` has a VRF column, node
+  properties list VRFs; the Nautobot attribute query has no VRF data and §24.14 decided not to extend it for now).
+* **`get_modelled_neighbors` per VRF.** The Batfish `edges` question is not filtered by VRF today.
+
 **Open (not verified):**
 
-* Everything against real devices: sample output per platform, the column names of the NX-OS / XR / EOS / Junos
-  templates (the IOS ones were run for real), VRF forms of the commands, `show ip route vrf X` matching the `show ip
-  route` template by prefix.
+* VRF: every per-VRF command form in the catalogue is from general knowledge of the platforms and has not been run on a
+  device. In particular that `show ip route vrf X` is parsed by the `show ip route` template through the prefix match of the
+  ntc-templates index (the VRF test uses hand-written IOS and NX-OS output), the XR forms `show route vrf X` and
+  `show ospf vrf X neighbor`, the EOS form `show ip bgp summary vrf X`, and whether the `vrf` column of each template is
+  filled for those commands.
+* Everything else against real devices: sample output per platform and the column names of the NX-OS / XR / EOS / Junos
+  templates (only the IOS and the NX-OS routing-table ones were run, on hand-written output).
 * Batfish `edges`: whether `Interface` / `Remote_Interface` come back as `node[interface]` text or a mapping
   (both are read), and that `edgeType` is accepted through the generic question.
 * A neighbour whose CDP name differs from its inventory name (suffixes, serials, fqdn vs short) is only matched by the
   full name, then the host part.
-* `list_interfaces(cabled_only=True, limit=100)`: the library maximum for `limit` was not checked.
+* `list_interfaces(cabled_only=True)`: read in pages of 200 (the library maximum `MAX_LIMIT`, checked in code) up to 1000
+  interfaces; the paging (`offset`, `has_more`) against a real Nautobot was not run.
 * The live path through the card (one click for L2; the result shows as a table, §43 "Table view") and the model's use of the playbook.
 

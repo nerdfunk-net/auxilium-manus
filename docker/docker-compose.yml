@@ -100,7 +100,7 @@ x-manus-common-env: &manus-common-env
   AI_ASSISTANT_ENABLED: "${AI_ASSISTANT_ENABLED:-false}"
   AI_ALLOWED_PROVIDERS: "${AI_ALLOWED_PROVIDERS:-}"
   AI_ALLOWED_DATA: "${AI_ALLOWED_DATA:-}"
-  # Ask the Net may propose read-only show commands for a device; the user confirms each one.
+  # Ask the Net may propose read-only show commands for a device (also neighbour discovery); the user confirms each one.
   AI_DEVICE_COMMANDS_ENABLED: "${AI_DEVICE_COMMANDS_ENABLED:-false}"
 
   # Retention (scripts/purge_retention.py); 0 keeps everything where a day count applies

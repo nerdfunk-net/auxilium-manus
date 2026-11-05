@@ -19,6 +19,25 @@ pick it up without re-deriving the context.
 
 ---
 
+## Neighbour discovery (Ask the Net, L2 / L3)
+
+- **Live checks.** Built and unit-tested only (`doc/AI_TOOL_CHAIN.md` §45). Nothing ran against a device, a Batfish
+  coordinator or a live Nautobot: sample output and column names per platform (only IOS and the NX-OS routing table were
+  run, on hand-written output), the per-VRF command forms, Batfish `edges` (row shape, `edgeType`), Nautobot paging, and the
+  model following the playbook `neighbors-of-a-device`.
+- **VRF coverage (possible improvement).** A non-default VRF works for the routing table (IOS, NX-OS, XR, EOS), OSPF
+  (NX-OS, XR) and BGP (NX-OS, EOS) only. Missing: IOS OSPF/BGP/EIGRP/IS-IS, XR BGP, EOS OSPF, Junos. Candidates are further
+  per-VRF command forms with a template, or the Genie fallback. Also not built: `vrf=all`, checking the VRF name against the
+  discovered names, a parsed VRF list, VRFs from the model or Nautobot, `get_modelled_neighbors` per VRF
+  (`doc/AI_TOOL_CHAIN.md` §45 "VRF support").
+- **Other platforms.** Comware, ASA and anything not in the catalogue are refused; the Junos RIB has no template.
+- **Matching by address.** Neighbours are matched to the inventory by name only (full name, then the host part, flagged
+  `short_name`); a lookup by management address (CDP gives it) would catch naming differences.
+- **Reconciliation with the model.** The Batfish model is a separate tool, not a source in the comparison; `single_source`
+  is not worked out.
+
+---
+
 ## Run Workflow step (`start-workflow`) and child runs
 
 - **Live verification.** Built and covered by unit and render tests, not yet run end to end: a backup
