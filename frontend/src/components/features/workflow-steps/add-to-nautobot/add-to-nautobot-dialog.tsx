@@ -241,7 +241,10 @@ function AddToNautobotDialogForm({
           onAddInterface={addInterface}
           onPatchInterface={patchInterface}
           onRemoveInterface={removeInterface}
-          onSourceChange={setInterfacesSource}
+          // This step never offers "parsed_list", so the shared section cannot emit it.
+          onSourceChange={(source) =>
+            setInterfacesSource(source === "parsed_list" ? "manual" : source)
+          }
         />
 
         <section className="space-y-3 rounded-xl border border-border bg-card p-3 shadow-sm">

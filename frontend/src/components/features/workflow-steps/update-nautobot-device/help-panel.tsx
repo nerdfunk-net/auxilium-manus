@@ -186,7 +186,7 @@ export function UpdateNautobotDeviceHelpPanel() {
 
       <HelpSection title="Interfaces">
         <p>
-          Interfaces have two sources, chosen by the <HelpCode>interfaces_source</HelpCode>{" "}
+          Interfaces have three sources, chosen by the <HelpCode>interfaces_source</HelpCode>{" "}
           dropdown above the rows:
         </p>
         <ul className="list-disc space-y-1 pl-4">
@@ -217,6 +217,15 @@ export function UpdateNautobotDeviceHelpPanel() {
                 <HelpCode>is_primary_ipv4</HelpCode> — when on, marks this IP as the
                 device primary IPv4 in Nautobot
               </li>
+              <li>
+                <HelpCode>mac_address</HelpCode>, <HelpCode>port_type</HelpCode>,{" "}
+                <HelpCode>mode</HelpCode> (access / tagged / tagged-all),{" "}
+                <HelpCode>speed</HelpCode> (Kbps, or text such as <HelpCode>1 Gbit</HelpCode>),{" "}
+                <HelpCode>duplex</HelpCode> (auto / full / half), <HelpCode>mtu</HelpCode> and{" "}
+                <HelpCode>vrf</HelpCode> (must already exist in Nautobot). A MAC in the Cisco form{" "}
+                <HelpCode>aabb.cc00.0100</HelpCode> is converted to{" "}
+                <HelpCode>AA:BB:CC:00:01:00</HelpCode>.
+              </li>
             </ul>
           </li>
           <li>
@@ -231,9 +240,57 @@ export function UpdateNautobotDeviceHelpPanel() {
             IOS <HelpCode>ip address ... secondary</HelpCode> line is carried through as an
             explicit Nautobot IP role of <HelpCode>secondary</HelpCode>. Not available when{" "}
             <HelpCode>device_identifier.mode</HelpCode> is <HelpCode>explicit</HelpCode> — that
-            mode has no upstream device to read a bag from.
+            mode has no upstream device to read a bag from. To change single values (for
+            example a MAC address) put them into the bag first with an{" "}
+            <span className="font-medium text-foreground">Update Attribute</span> step whose{" "}
+            <HelpCode>destination_path</HelpCode> selects the interface by name:{" "}
+            <HelpCode>nautobot.interfaces[name=Ethernet0/0].mac_address</HelpCode>. The item is
+            updated, or appended when the bag has no such interface. The name may be a
+            placeholder, e.g. <HelpCode>{"nautobot.interfaces[name={custom.ifname}].mtu"}</HelpCode>.
+          </li>
+          <li>
+            <span className="font-medium text-foreground">From a parsed list</span> — updates
+            one interface per row of a list on the device, for example the TextFSM output of{" "}
+            <HelpCode>show interfaces</HelpCode>. Pick the list with{" "}
+            <HelpCode>source path</HelpCode> (browse button), then name the column that holds
+            each field (<HelpCode>interface</HelpCode> → name, <HelpCode>mac_address</HelpCode>{" "}
+            → MAC address, …). <span className="font-medium text-foreground">Fixed values</span>{" "}
+            apply to every row, existing interfaces included. Blank cells are skipped, so an
+            existing Nautobot value is never wiped, and an existing interface needs no type.
+            TextFSM output has no Nautobot interface type, so leave Type unmapped and use{" "}
+            <span className="font-medium text-foreground">Type for new interfaces</span>{" "}
+            (<HelpCode>new_interface_type</HelpCode>) instead: <HelpCode>Do not create</HelpCode>{" "}
+            skips interfaces missing in Nautobot with a warning, <HelpCode>guessed from the
+            interface name</HelpCode> creates them (<HelpCode>Ethernet…</HelpCode> →{" "}
+            <HelpCode>1000base-t</HelpCode>, <HelpCode>Loopback…</HelpCode> →{" "}
+            <HelpCode>virtual</HelpCode>, <HelpCode>Port-channel…</HelpCode> →{" "}
+            <HelpCode>lag</HelpCode>, unknown → <HelpCode>other</HelpCode>), and{" "}
+            <HelpCode>always with this type</HelpCode> creates them all with one type. The type
+            is used only for interfaces that do not exist yet; an existing interface keeps its
+            type. Not available when <HelpCode>device_identifier.mode</HelpCode> is{" "}
+            <HelpCode>explicit</HelpCode>, and <HelpCode>sync_interfaces</HelpCode> is switched
+            off for it: that option deletes every Nautobot interface missing from the list, so a
+            list that is short for any reason would delete real interfaces.
           </li>
         </ul>
+        <HelpWarning title="IP addresses are only touched when given">
+          <p>
+            An interface row that carries no IP address (for example a MAC-only update)
+            leaves the interface&apos;s existing IP addresses alone. A row with an IP address
+            still replaces the interface&apos;s IPs with the given ones.
+          </p>
+        </HelpWarning>
+        <HelpExample>
+          interfaces_source: parsed_list
+          <br />
+          parsed_list:
+          <br />
+          {"  "}source_path: parsed.show_interfaces.parsed
+          <br />
+          {"  "}field_map: {"{"} name: interface, mac_address: mac_address, mtu: mtu {"}"}
+          <br />
+          {"  "}new_interface_type: {"{"} mode: infer {"}"}
+        </HelpExample>
         <HelpExample>
           interfaces_source: manual
           <br />

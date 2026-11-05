@@ -343,5 +343,70 @@ class UpdateAttributeExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("sealed secret", str(ctx.exception))
 
 
+class DestinationPlaceholderTests(unittest.IsolatedAsyncioTestCase):
+    """destination_path may hold {placeholders} inside a [...] selector (dynamic interface name)."""
+
+    async def _run(self, device: DeviceContext, attributes: list[dict]) -> DeviceContext:
+        context = WorkflowContext(run_id="r", workflow_id="w", devices={device.id: device})
+        outcomes = await execute(
+            config={"attributes": attributes},
+            context=context,
+            run=MagicMock(),
+            artifact_service=MagicMock(),
+            node_id="n",
+            device_sessions=MagicMock(),
+        )
+        return outcomes[0].context.devices[device.id]
+
+    async def test_interface_name_and_value_come_from_the_device(self) -> None:
+        device = _device(
+            "dev-1", attribute_bags={"custom": {"ifname": "Ethernet0/0", "mac": "aabb.cc00.0100"}}
+        )
+        updated = await self._run(
+            device,
+            [
+                {
+                    "mode": "template",
+                    "destination_path": "nautobot.interfaces[name={custom.ifname}].mac_address",
+                    "template": "{custom.mac}",
+                }
+            ],
+        )
+        self.assertEqual(
+            updated.attribute_bags["nautobot"]["interfaces"],
+            [{"name": "Ethernet0/0", "mac_address": "aabb.cc00.0100"}],
+        )
+
+    async def test_unresolved_placeholder_in_destination_skips_the_device(self) -> None:
+        device = _device("dev-1")
+        updated = await self._run(
+            device,
+            [
+                {
+                    "mode": "fixed",
+                    "destination_path": "nautobot.interfaces[name={custom.missing}].mtu",
+                    "fixed_value": "1500",
+                }
+            ],
+        )
+        self.assertNotIn("nautobot", updated.attribute_bags)
+
+    async def test_two_attributes_for_the_same_interface_share_one_item(self) -> None:
+        device = _device("dev-1")
+        updated = await self._run(
+            device,
+            [
+                {"mode": "fixed", "destination_path": "nautobot.interfaces[name=Gi0/0].mtu",
+                 "fixed_value": "9000"},
+                {"mode": "fixed", "destination_path": "nautobot.interfaces[name=Gi0/0].duplex",
+                 "fixed_value": "full"},
+            ],
+        )
+        self.assertEqual(
+            updated.attribute_bags["nautobot"]["interfaces"],
+            [{"name": "Gi0/0", "mtu": "9000", "duplex": "full"}],
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

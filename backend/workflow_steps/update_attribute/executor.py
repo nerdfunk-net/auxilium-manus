@@ -8,7 +8,10 @@ from typing import TYPE_CHECKING, Any
 from core.models.runs import WorkflowRun
 from models.workflow_context import DeviceContext, StepOutcome, WorkflowContext
 from services.artifacts import ArtifactService
-from services.workflow_context.attribute_path import resolve_device_attribute
+from services.workflow_context.attribute_path import (
+    expand_path_placeholders,
+    resolve_device_attribute,
+)
 from services.workflow_context.attribute_regex import RegexFlagsConfig, apply_regex_transform
 from services.workflow_context.secret_fields import (
     REDACTED_PLACEHOLDER,
@@ -269,7 +272,13 @@ def _apply_attribute_update(
 ) -> tuple[DeviceContext, bool]:
     """Apply one attribute update. Returns (device, wrote)."""
     mode = attribute["mode"]
-    destination_path = attribute["destination_path"]
+    # The destination may hold {placeholders} inside a [...] selector, e.g.
+    # nautobot.interfaces[name={parsed.x.parsed[0].interface}].mac_address; one that cannot be
+    # resolved skips the update for this device, like an unresolved source or template.
+    destination_path = expand_path_placeholders(device, attribute["destination_path"])
+    if destination_path is None:
+        return device, False
+    attribute = {**attribute, "destination_path": destination_path}
 
     if mode == "fixed":
         updated = _apply_fixed_update(

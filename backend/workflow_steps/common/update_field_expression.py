@@ -12,6 +12,7 @@ from services.workflow_context.attribute_path import (
     resolve_device_attribute_state,
     resolve_device_value,
 )
+from services.workflow_context.secret_fields import REDACTED_PLACEHOLDER
 from workflow_steps.common.nautobot_update_fields import (
     extract_update_fields_from_nautobot_bag,
 )
@@ -263,13 +264,41 @@ def _parse_tags_value(raw: str) -> list[str] | str | None:
     return cleaned
 
 
+def _resolve_without_secrets(
+    *,
+    device: DeviceContext,
+    field_key: str,
+    label: str,
+    raw_value: str,
+    run_id: str | None,
+    custom_field_name: str | None = None,
+) -> str | None:
+    """Resolve one field expression; a sealed secret is refused, never copied to Nautobot."""
+    resolved = resolve_update_field_expression(
+        device=device,
+        field_key=field_key,
+        raw_value=raw_value,
+        run_id=run_id,
+        custom_field_name=custom_field_name,
+        reveal_secrets=False,
+    )
+    if resolved == REDACTED_PLACEHOLDER:
+        # The expression and the value are not echoed: they can come from a secret.
+        raise ValueError(f"field {label!r} points to a secret, which this step does not copy")
+    return resolved
+
+
 def build_resolved_update_data(
     *,
     device: DeviceContext,
     raw_fields: dict[str, Any],
     run_id: str | None = None,
 ) -> dict[str, Any]:
-    """Build the Nautobot update payload for one device from enabled field specs."""
+    """Build the Nautobot update payload for one device from enabled field specs.
+
+    A field whose expression resolves to a sealed secret raises ``ValueError`` (the device
+    fails): the value would be written in cleartext to Nautobot.
+    """
     update_data: dict[str, Any] = {}
 
     for key in _DEVICE_FIELD_KEYS:
@@ -279,11 +308,8 @@ def build_resolved_update_data(
         if not enabled:
             continue
 
-        resolved = resolve_update_field_expression(
-            device=device,
-            field_key=key,
-            raw_value=value_expr,
-            run_id=run_id,
+        resolved = _resolve_without_secrets(
+            device=device, field_key=key, label=key, raw_value=value_expr, run_id=run_id
         )
         if resolved is None:
             continue
@@ -306,9 +332,10 @@ def build_resolved_update_data(
             enabled, value_expr = normalize_field_spec(cf_raw)
             if not enabled:
                 continue
-            resolved = resolve_update_field_expression(
+            resolved = _resolve_without_secrets(
                 device=device,
                 field_key="custom_fields",
+                label=name,
                 raw_value=value_expr,
                 run_id=run_id,
                 custom_field_name=name,

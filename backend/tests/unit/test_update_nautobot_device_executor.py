@@ -220,6 +220,108 @@ class UpdateOneDeviceTests(unittest.IsolatedAsyncioTestCase):
             ],
         )
 
+    async def _run_parsed_list(self, cfg, device):
+        parsed = mod._parse_config(cfg)
+        update_service = MagicMock()
+        update_service.update_device = AsyncMock(
+            return_value={"device_id": "nb-1", "device_name": "r1", "interfaces_failed": 0}
+        )
+        with (
+            patch.object(mod, "resolve_nautobot_device_id", AsyncMock(return_value="nb-1")),
+            patch.object(mod, "build_resolved_update_data", return_value={}),
+        ):
+            outcome = await _update_one_device(
+                device_key="d1", device=device, config=cfg,
+                context=WorkflowContext(run_id="r", workflow_id="w", devices={}),
+                node_id="n", nautobot_service=MagicMock(), credentials=MagicMock(),
+                update_service=update_service, parsed=parsed,
+            )
+        return outcome, update_service
+
+    _PARSED_CFG = {
+        "nautobot_source_id": "src-1",
+        "interfaces_source": "parsed_list",
+        "parsed_list": {
+            "source_path": "parsed.show_if.rows",
+            "field_map": {"name": "interface", "mac_address": "mac_address", "mtu": "mtu"},
+            "fixed_values": {"type": "1000base-t"},
+        },
+    }
+
+    def _parsed_device(self, rows):
+        return DeviceContext(
+            id="d1", name="d1", hostname="d1", primary_ip4="10.0.0.1",
+            parsed={"show_if": {"rows": rows}},
+        )
+
+    async def test_parsed_list_builds_interfaces_from_the_parsed_output(self) -> None:
+        device = self._parsed_device(
+            [
+                {"interface": "Ethernet0/0", "mac_address": "aabb.cc00.0100", "mtu": "1500"},
+                {"interface": "Loopback0", "mac_address": "", "mtu": "1514"},
+            ]
+        )
+        (_, _, ok, _), update_service = await self._run_parsed_list(self._PARSED_CFG, device)
+        self.assertTrue(ok)
+        _, kwargs = update_service.update_device.call_args
+        self.assertEqual(
+            kwargs["interfaces"],
+            [
+                {"name": "Ethernet0/0", "type": "1000base-t",
+                 "mac_address": "AA:BB:CC:00:01:00", "mtu": 1500},
+                {"name": "Loopback0", "type": "1000base-t", "mtu": 1514},
+            ],
+        )
+
+    async def test_parsed_list_new_interface_type_infer_reaches_the_payload(self) -> None:
+        cfg = {
+            **self._PARSED_CFG,
+            "parsed_list": {
+                "source_path": "parsed.show_if.rows",
+                "field_map": {"name": "interface", "mac_address": "mac_address"},
+                "new_interface_type": {"mode": "infer"},
+            },
+        }
+        device = self._parsed_device(
+            [
+                {"interface": "Ethernet0/0", "mac_address": "aabb.cc00.0100"},
+                {"interface": "Loopback0", "mac_address": ""},
+            ]
+        )
+        (_, _, ok, _), update_service = await self._run_parsed_list(cfg, device)
+        self.assertTrue(ok)
+        _, kwargs = update_service.update_device.call_args
+        self.assertEqual(
+            kwargs["interfaces"],
+            [
+                {"name": "Ethernet0/0", "mac_address": "AA:BB:CC:00:01:00",
+                 "type_if_new": "1000base-t"},
+                {"name": "Loopback0", "type_if_new": "virtual"},
+            ],
+        )
+
+    async def test_parsed_list_missing_path_fails_the_device(self) -> None:
+        device = DeviceContext(id="d1", name="d1", hostname="d1", primary_ip4="10.0.0.1")
+        (_, dev, ok, _), update_service = await self._run_parsed_list(self._PARSED_CFG, device)
+        self.assertFalse(ok)
+        self.assertIn("parsed.show_if.rows", dev.errors[-1].message)
+        update_service.update_device.assert_not_awaited()
+
+    async def test_parsed_list_empty_list_fails_the_device(self) -> None:
+        (_, dev, ok, _), _ = await self._run_parsed_list(
+            self._PARSED_CFG, self._parsed_device([])
+        )
+        self.assertFalse(ok)
+
+    async def test_parsed_list_single_row_stays_a_list(self) -> None:
+        device = self._parsed_device(
+            [{"interface": "Ethernet0/0", "mac_address": "aabb.cc00.0100"}]
+        )
+        (_, _, ok, _), update_service = await self._run_parsed_list(self._PARSED_CFG, device)
+        self.assertTrue(ok)
+        _, kwargs = update_service.update_device.call_args
+        self.assertEqual(len(kwargs["interfaces"]), 1)
+
     async def test_manual_mode_ignores_device_bag(self) -> None:
         parsed = mod._parse_config(_CFG)
         device = DeviceContext(

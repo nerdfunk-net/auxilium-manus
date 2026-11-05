@@ -24,9 +24,12 @@ from services.nautobot.client import NautobotService
 from services.nautobot.credentials import NautobotCredentials
 from services.nautobot.credentials_bound_client import CredentialsBoundNautobotClient
 from services.nautobot.devices.update import DeviceUpdateService
+from services.workflow_context.attribute_path import resolve_device_attribute_raw
 from workflow_steps.common.nautobot_interfaces import (
+    NEW_TYPE_MODES,
     build_interfaces_from_config,
     interfaces_from_nautobot_bag,
+    interfaces_from_parsed_list,
     normalize_interfaces,
 )
 from workflow_steps.common.nautobot_resolve import resolve_nautobot_device_id
@@ -44,7 +47,22 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _STEP_ID = "update-nautobot-device"
-_SOURCE_MODES = frozenset({"manual", "nautobot_origin"})
+_SOURCE_MODES = frozenset({"manual", "nautobot_origin", "parsed_list"})
+# Interface fields a parsed-list column may be mapped to (``name`` is required).
+_PARSED_LIST_FIELDS = frozenset(
+    {
+        "name",
+        "mac_address",
+        "type",
+        "port_type",
+        "mode",
+        "speed",
+        "duplex",
+        "mtu",
+        "vrf",
+        "description",
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -58,6 +76,11 @@ class _ParsedConfig:
     sync_interfaces: bool
     identifier_mode: str
     dry_run: bool
+    parsed_list_path: str = ""
+    parsed_list_field_map: dict[str, str] | None = None
+    parsed_list_fixed_values: dict[str, str] | None = None
+    parsed_list_new_type_mode: str = "none"
+    parsed_list_new_type_value: str = ""
 
 
 def _strip_empty(value: Any) -> Any:
@@ -99,6 +122,58 @@ def _resolve_device_identifier(
     return identifier
 
 
+def _clean_str_map(raw: Any, *, what: str) -> dict[str, str]:
+    """Strip a ``{field: text}`` mapping; blank values are dropped, a non-object is an error."""
+    if raw is None:
+        return {}
+    if not isinstance(raw, dict):
+        raise ValueError(f"{_STEP_ID}: parsed_list.{what} must be an object")
+    cleaned: dict[str, str] = {}
+    for key, value in raw.items():
+        text = _strip_empty(value if isinstance(value, str) else (str(value) if value else ""))
+        if text:
+            cleaned[str(key).strip()] = text
+    return cleaned
+
+
+def _parse_new_interface_type(raw: Any) -> tuple[str, str]:
+    """``{mode: none|infer|fixed, value}`` -> (mode, value); the type is for new interfaces only."""
+    if raw is None:
+        return "none", ""
+    if not isinstance(raw, dict):
+        raise ValueError(f"{_STEP_ID}: parsed_list.new_interface_type must be an object")
+    mode = str(raw.get("mode") or "none").strip().lower()
+    if mode not in NEW_TYPE_MODES:
+        raise ValueError(
+            f"{_STEP_ID}: parsed_list.new_interface_type.mode must be one of "
+            f"{sorted(NEW_TYPE_MODES)}, got {mode!r}"
+        )
+    value = (_strip_empty(raw.get("value")) or "").lower() if mode == "fixed" else ""
+    if mode == "fixed" and not value:
+        raise ValueError(f"{_STEP_ID}: parsed_list.new_interface_type 'fixed' needs a value")
+    return mode, value
+
+
+def _parse_parsed_list(
+    config: dict[str, Any],
+) -> tuple[str, dict[str, str], dict[str, str], str, str]:
+    raw = config.get("parsed_list")
+    if not isinstance(raw, dict):
+        raise ValueError(f"{_STEP_ID}: interfaces_source 'parsed_list' needs a parsed_list setting")
+    source_path = _strip_empty(raw.get("source_path")) or ""
+    if not source_path:
+        raise ValueError(f"{_STEP_ID}: parsed_list.source_path is required")
+    field_map = _clean_str_map(raw.get("field_map"), what="field_map")
+    fixed_values = _clean_str_map(raw.get("fixed_values"), what="fixed_values")
+    unknown = sorted((set(field_map) | set(fixed_values)) - _PARSED_LIST_FIELDS)
+    if unknown:
+        raise ValueError(f"{_STEP_ID}: parsed_list has unknown interface field(s): {unknown}")
+    if "name" not in field_map:
+        raise ValueError(f"{_STEP_ID}: parsed_list.field_map must map 'name' to a column")
+    new_type_mode, new_type_value = _parse_new_interface_type(raw.get("new_interface_type"))
+    return source_path, field_map, fixed_values, new_type_mode, new_type_value
+
+
 def _parse_config(config: dict[str, Any]) -> _ParsedConfig:
     source_id = str(config.get("nautobot_source_id") or "").strip()
     if not source_id:
@@ -116,24 +191,52 @@ def _parse_config(config: dict[str, Any]) -> _ParsedConfig:
         )
 
     default_prefix_length = str(config.get("default_prefix_length") or "/24")
-    manual_interfaces = normalize_interfaces(
-        build_interfaces_from_config(config, step_id=_STEP_ID),
-        default_prefix_length,
+    # The manual rows are only read (and validated) when they are the interface source; the
+    # other sources ignore them, so a stale or hand-edited ``interfaces`` value must not fail them.
+    manual_interfaces = (
+        normalize_interfaces(
+            build_interfaces_from_config(config, step_id=_STEP_ID),
+            default_prefix_length,
+        )
+        if interfaces_source == "manual"
+        else []
     )
+    sync_interfaces = parse_bool_flag(config, "sync_interfaces", default=False)
+    if interfaces_source == "parsed_list" and sync_interfaces:
+        # Sync deletes every Nautobot interface that is not in the payload, before any update
+        # runs. A parsed list is whatever the device printed (or a partial path), so an
+        # incomplete list would delete real interfaces.
+        raise ValueError(
+            f"{_STEP_ID}: sync_interfaces cannot be combined with interfaces_source "
+            "'parsed_list' (an incomplete list would delete the interfaces missing from it)"
+        )
 
     raw_identifier = config.get("device_identifier") or {}
     identifier_mode = "from_context"
     if isinstance(raw_identifier, dict):
         identifier_mode = str(raw_identifier.get("mode") or "from_context")
 
-    if interfaces_source == "nautobot_origin" and identifier_mode == "explicit":
+    if interfaces_source in {"nautobot_origin", "parsed_list"} and identifier_mode == "explicit":
         raise ValueError(
-            f"{_STEP_ID}: interfaces_source 'nautobot_origin' requires devices from an "
+            f"{_STEP_ID}: interfaces_source {interfaces_source!r} requires devices from an "
             "upstream inventory step (device_identifier.mode 'explicit' has no device "
-            "attribute bag to read interfaces from)"
+            "attribute bag or parsed output to read interfaces from)"
         )
 
-    has_interfaces = interfaces_source == "nautobot_origin" or bool(manual_interfaces)
+    parsed_list_path, parsed_list_field_map, parsed_list_fixed_values = "", {}, {}
+    new_type_mode, new_type_value = "none", ""
+    if interfaces_source == "parsed_list":
+        (
+            parsed_list_path,
+            parsed_list_field_map,
+            parsed_list_fixed_values,
+            new_type_mode,
+            new_type_value,
+        ) = _parse_parsed_list(config)
+
+    has_interfaces = interfaces_source in {"nautobot_origin", "parsed_list"} or bool(
+        manual_interfaces
+    )
     if not config_has_enabled_update_fields(raw_update_fields) and not has_interfaces:
         raise ValueError(
             f"{_STEP_ID}: configure at least one enabled device field or interface to update"
@@ -146,9 +249,14 @@ def _parse_config(config: dict[str, Any]) -> _ParsedConfig:
         manual_interfaces=manual_interfaces,
         add_prefix=parse_bool_flag(config, "add_prefix", default=True),
         default_prefix_length=default_prefix_length,
-        sync_interfaces=parse_bool_flag(config, "sync_interfaces", default=False),
+        sync_interfaces=sync_interfaces,
         identifier_mode=identifier_mode,
         dry_run=parse_bool_flag(config, "dry_run", default=False),
+        parsed_list_path=parsed_list_path,
+        parsed_list_field_map=parsed_list_field_map,
+        parsed_list_fixed_values=parsed_list_fixed_values,
+        parsed_list_new_type_mode=new_type_mode,
+        parsed_list_new_type_value=new_type_value,
     )
 
 
@@ -256,6 +364,31 @@ def _apply_update_result(
     return device_key, enriched, True, result.get("device_id")
 
 
+def _interfaces_from_parsed_list(
+    device: DeviceContext, parsed: _ParsedConfig
+) -> list[dict[str, Any]]:
+    """Read the configured parsed list from this device and map its columns to interfaces."""
+    rows = resolve_device_attribute_raw(device, parsed.parsed_list_path)
+    if not isinstance(rows, list) or not rows:
+        raise ValueError(
+            f"{_STEP_ID}: parsed list '{parsed.parsed_list_path}' is missing or empty for "
+            f"device {device.name or device.id}"
+        )
+    interfaces = interfaces_from_parsed_list(
+        rows,
+        parsed.parsed_list_field_map or {},
+        fixed_values=parsed.parsed_list_fixed_values,
+        new_type_mode=parsed.parsed_list_new_type_mode,
+        new_type_value=parsed.parsed_list_new_type_value,
+    )
+    if not interfaces:
+        raise ValueError(
+            f"{_STEP_ID}: parsed list '{parsed.parsed_list_path}' has no row with a "
+            f"'{(parsed.parsed_list_field_map or {}).get('name')}' column value"
+        )
+    return normalize_interfaces(interfaces, parsed.default_prefix_length)
+
+
 async def _update_one_device(
     *,
     device_key: str,
@@ -307,6 +440,8 @@ async def _update_one_device(
                 )
                 or None
             )
+        elif parsed.interfaces_source == "parsed_list":
+            interfaces_payload = _interfaces_from_parsed_list(resolved, parsed)
         else:
             interfaces_payload = parsed.manual_interfaces or None
 

@@ -16,6 +16,7 @@ import { Switch } from "@/components/ui/switch";
 
 import { AttributePathPicker } from "@/components/features/workflow-steps/shared/attribute-path-picker";
 import { InterfacesSourceSection } from "@/components/features/workflow-steps/shared/interfaces-source-section";
+import { ParsedListSection } from "./parsed-list-section";
 import type {
   PersistedCanvasNode,
   WorkflowCanvasEdge,
@@ -27,6 +28,7 @@ import type {
   DeviceIdentifierConfig,
   InterfacesSource,
   InterfaceUpdateConfig,
+  ParsedListConfig,
   UpdateFieldSpec,
   UpdateNautobotDeviceConfig,
 } from "./types";
@@ -37,7 +39,11 @@ import {
 import {
   customFieldRowsFromConfig,
   customFieldsToConfig,
+  interfaceSourceProblem,
   interfacesSourceFromConfig,
+  parseParsedListConfig,
+  parsedListForSave,
+  parsedListProblem,
   parseUpdateFieldsConfig,
   patchDeviceFieldSpec,
 } from "./update-device-config";
@@ -52,9 +58,14 @@ interface UpdateDeviceDialogProps {
   workflowEdges: WorkflowCanvasEdge[];
 }
 
-type PickerTarget = { kind: "field"; key: DeviceFieldKey } | { kind: "custom"; id: string };
+type PickerTarget =
+  | { kind: "field"; key: DeviceFieldKey }
+  | { kind: "custom"; id: string }
+  | { kind: "parsed_list" };
 
 const EMPTY_INTERFACES: InterfaceUpdateConfig[] = [];
+const EMPTY_SOURCES: InterfacesSource[] = [];
+const UPSTREAM_SOURCES: InterfacesSource[] = ["nautobot_origin", "parsed_list"];
 const EMPTY_UPDATE_FIELDS: NonNullable<UpdateNautobotDeviceConfig["update_fields"]> = {};
 
 function newInterfaceRow(): InterfaceUpdateConfig {
@@ -86,6 +97,13 @@ function withInterfaceIds(
     namespace: item.namespace ?? "Global",
     description: item.description,
     is_primary_ipv4: item.is_primary_ipv4,
+    mac_address: item.mac_address,
+    port_type: item.port_type,
+    mode: item.mode,
+    speed: item.speed === undefined ? undefined : String(item.speed),
+    duplex: item.duplex,
+    mtu: item.mtu === undefined ? undefined : String(item.mtu),
+    vrf: item.vrf,
   }));
 }
 
@@ -102,6 +120,7 @@ function buildInitialDraft(value: UpdateNautobotDeviceConfig) {
       update_fields: parsedFields,
       interfaces_source: interfacesSourceFromConfig(value as Record<string, unknown>),
       interfaces: withInterfaceIds(value.interfaces as Array<Partial<InterfaceUpdateConfig>>),
+      parsed_list: parseParsedListConfig(value.parsed_list),
     },
     customFieldRows: customFieldRowsFromConfig(parsedFields),
   };
@@ -124,6 +143,14 @@ function UpdateDeviceDialogForm({
   const updateFields = draft.update_fields ?? EMPTY_UPDATE_FIELDS;
   const interfaces = draft.interfaces ?? EMPTY_INTERFACES;
   const interfacesSource: InterfacesSource = draft.interfaces_source ?? "manual";
+  const parsedList: ParsedListConfig = draft.parsed_list ?? parseParsedListConfig(undefined);
+
+  const sourceProblem = interfaceSourceProblem(interfacesSource, deviceIdentifier.mode, {
+    sync_interfaces: draft.sync_interfaces,
+  });
+  const saveBlocked =
+    sourceProblem !== null ||
+    (interfacesSource === "parsed_list" && parsedListProblem(parsedList) !== null);
 
   const handleSave = () => {
     onChange({
@@ -135,6 +162,7 @@ function UpdateDeviceDialogForm({
       },
       interfaces_source: interfacesSource,
       interfaces: interfaces.map(interfaceForSave),
+      parsed_list: parsedListForSave(parsedList),
       add_prefix: draft.add_prefix ?? true,
       default_prefix_length: draft.default_prefix_length ?? "/24",
       sync_interfaces: draft.sync_interfaces ?? false,
@@ -200,8 +228,17 @@ function UpdateDeviceDialogForm({
     setCustomFieldRows((rows) => rows.filter((row) => row.id !== id));
   };
 
+  const setParsedList = (next: ParsedListConfig) => {
+    setDraft((current) => ({ ...current, parsed_list: next }));
+  };
+
   const handlePickerSelect = (path: string) => {
     if (!pickerTarget) return;
+    if (pickerTarget.kind === "parsed_list") {
+      // A path, not an expression: the step reads the list at this path.
+      setParsedList({ ...parsedList, source_path: path });
+      return;
+    }
     const attributeExpression = `{${path}}`;
     if (pickerTarget.kind === "field") {
       patchField(pickerTarget.key, { value: attributeExpression, enabled: true });
@@ -241,6 +278,15 @@ function UpdateDeviceDialogForm({
             onAddInterface={addInterface}
             onPatchInterface={patchInterface}
             onRemoveInterface={removeInterface}
+            showExtendedFields
+            unavailableSources={deviceIdentifier.mode === "explicit" ? UPSTREAM_SOURCES : EMPTY_SOURCES}
+            parsedListContent={
+              <ParsedListSection
+                value={parsedList}
+                onChange={setParsedList}
+                onBrowse={() => setPickerTarget({ kind: "parsed_list" })}
+              />
+            }
           />
 
           <section className="space-y-3 rounded-xl border border-border bg-card p-3 shadow-sm">
@@ -270,12 +316,23 @@ function UpdateDeviceDialogForm({
               <Label className="font-mono text-xs font-medium">sync_interfaces</Label>
               <Switch
                 checked={draft.sync_interfaces ?? false}
+                disabled={interfacesSource === "parsed_list"}
                 onCheckedChange={(checked) =>
                   setDraft((current) => ({ ...current, sync_interfaces: checked }))
                 }
               />
             </div>
+            {interfacesSource === "parsed_list" ? (
+              <p className="text-[11px] text-muted-foreground">
+                sync_interfaces is not available with a parsed list: an incomplete list would
+                delete the interfaces missing from it.
+              </p>
+            ) : null}
           </section>
+
+          {sourceProblem ? (
+            <p className="text-[11px] text-warning-foreground">{sourceProblem}</p>
+          ) : null}
 
           <section className="space-y-2 border-t pt-3">
             <div className="flex items-center justify-between">
@@ -301,6 +358,7 @@ function UpdateDeviceDialogForm({
           <Button
             className="bg-step text-step-foreground hover:bg-step-hover"
             type="button"
+            disabled={saveBlocked}
             onClick={handleSave}
           >
             Save

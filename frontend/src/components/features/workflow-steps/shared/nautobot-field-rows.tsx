@@ -376,16 +376,149 @@ export interface NautobotInterfaceRowValues {
   namespace: string;
   description?: string;
   is_primary_ipv4?: boolean;
+  mac_address?: string;
+  port_type?: string;
+  mode?: string;
+  speed?: string;
+  duplex?: string;
+  mtu?: string;
+  vrf?: string;
+}
+
+const UNSET_OPTION = "__unset__";
+const DUPLEX_OPTIONS = ["auto", "full", "half"] as const;
+const MODE_OPTIONS = ["access", "tagged", "tagged-all"] as const;
+
+function OptionSelect({
+  label,
+  value,
+  options,
+  onChange,
+}: {
+  label: string;
+  value: string | undefined;
+  options: ReadonlyArray<string>;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <div className="space-y-1">
+      <Label className="text-[11px] text-muted-foreground">{label}</Label>
+      <Select
+        value={value || UNSET_OPTION}
+        onValueChange={(next) => onChange(next === UNSET_OPTION ? "" : next)}
+      >
+        <SelectTrigger className="h-8 text-xs">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value={UNSET_OPTION}>Unchanged</SelectItem>
+          {options.map((option) => (
+            <SelectItem key={option} value={option}>
+              {option}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </div>
+  );
+}
+
+function TextField({
+  label,
+  placeholder,
+  value,
+  mono = false,
+  onChange,
+}: {
+  label: string;
+  placeholder: string;
+  value: string | undefined;
+  mono?: boolean;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <div className="space-y-1">
+      <Label className="text-[11px] text-muted-foreground">{label}</Label>
+      <Input
+        className={mono ? "h-8 font-mono text-xs" : "h-8 text-xs"}
+        placeholder={placeholder}
+        value={value ?? ""}
+        onChange={(event) => onChange(event.target.value)}
+      />
+    </div>
+  );
+}
+
+/** MAC, port type, 802.1Q mode, speed, duplex, MTU and VRF of one interface. */
+function NautobotInterfaceExtendedFields({
+  row,
+  onChange,
+}: {
+  row: NautobotInterfaceRowValues;
+  onChange: (patch: Partial<NautobotInterfaceRowValues>) => void;
+}) {
+  return (
+    <div className="grid gap-2 sm:grid-cols-2">
+      <TextField
+        label="MAC address"
+        mono
+        placeholder="aabb.cc00.0100"
+        value={row.mac_address}
+        onChange={(mac_address) => onChange({ mac_address })}
+      />
+      <TextField
+        label="Port type"
+        placeholder="8p8c"
+        value={row.port_type}
+        onChange={(port_type) => onChange({ port_type })}
+      />
+      <OptionSelect
+        label="802.1Q mode"
+        value={row.mode}
+        options={MODE_OPTIONS}
+        onChange={(mode) => onChange({ mode })}
+      />
+      <OptionSelect
+        label="Duplex"
+        value={row.duplex}
+        options={DUPLEX_OPTIONS}
+        onChange={(duplex) => onChange({ duplex })}
+      />
+      <TextField
+        label="Speed (Kbps)"
+        placeholder="1000000 or 1 Gbit"
+        value={row.speed}
+        onChange={(speed) => onChange({ speed })}
+      />
+      <TextField
+        label="MTU"
+        placeholder="1500"
+        value={row.mtu}
+        onChange={(mtu) => onChange({ mtu })}
+      />
+      <div className="sm:col-span-2">
+        <TextField
+          label="VRF (must exist in Nautobot)"
+          placeholder="MGMT"
+          value={row.vrf}
+          onChange={(vrf) => onChange({ vrf })}
+        />
+      </div>
+    </div>
+  );
 }
 
 export function NautobotInterfaceRow({
   row,
   onChange,
   onRemove,
+  showExtendedFields = false,
 }: {
   row: NautobotInterfaceRowValues;
   onChange: (patch: Partial<NautobotInterfaceRowValues>) => void;
   onRemove: () => void;
+  /** Also show MAC address, port type, mode, speed, duplex, MTU and VRF. */
+  showExtendedFields?: boolean;
 }) {
   return (
     <div className="space-y-2 rounded-lg border border-border bg-muted p-3">
@@ -446,6 +579,7 @@ export function NautobotInterfaceRow({
           />
         </div>
       </div>
+      {showExtendedFields ? <NautobotInterfaceExtendedFields row={row} onChange={onChange} /> : null}
       <div className="flex items-center justify-between">
         <Label className="text-[11px] text-muted-foreground">Primary IPv4</Label>
         <Switch

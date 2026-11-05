@@ -475,6 +475,41 @@ Status names are resolved by `MetadataResolver.resolve_status_id` for one conten
 that it belongs to that content type. `GET /sources/nautobot/statuses` (allow-list `ipam.ipaddress`,
 `ipam.prefix`) feeds the status pickers.
 
+### Interface fields of `update-nautobot-device`
+
+Interfaces come from one of three sources (`interfaces_source`): `manual` rows, `nautobot_origin`
+(every interface of the device's `nautobot` bag) or `parsed_list` (one interface per row of a
+list on the device, e.g. TextFSM `show interfaces`: `parsed_list.source_path`, `field_map`
+interface field -> column, `fixed_values` for the same value on every row). Every source supports
+`mac_address`, `type`, `port_type`, `mode`, `speed`, `duplex`, `mtu` and `vrf`; values are
+normalized by `workflow_steps/common/nautobot_interfaces.py` (MAC -> `AA:BB:CC:DD:EE:FF`, speed ->
+**Kbps** (`"1 Gbit"` -> 1000000; a bare number is Kbps), duplex -> `full|half|auto`, mtu -> int);
+a value that cannot be understood is logged and left out. `vrf` is resolved by name through
+`NetworkResolver.resolve_vrf_id` and must exist (an unknown VRF is a warning on that interface; the
+other fields still apply).
+
+- An **existing** interface is patched with only the fields given: `type` is not needed and
+  `status` is only sent when given (a new interface still needs a `type` and defaults to
+  `active`). A new interface without a type is reported as a warning and not created.
+- An interface spec **without IP information** (no `ip_address`/`ip_addresses`) leaves the
+  interface's existing IP assignments alone. With IP information the IPs are replaced as before.
+- `parsed_list` fails a device whose list is missing or empty, and is refused together with
+  `device_identifier.mode: explicit` and with `sync_interfaces` (sync deletes every Nautobot
+  interface missing from the payload before any update runs, so an incomplete list would delete
+  real interfaces; the dialog blocks both combinations too). A blank cell never erases a fixed
+  value; a `description`/`type` cell that is not text (a list, an object, a sealed secret) is
+  dropped and logged, never sent to Nautobot. The manual `interfaces` rows are only read and
+  validated when `interfaces_source` is `manual`.
+- **Device fields never copy a secret.** `build_resolved_update_data` resolves field and custom-field
+  expressions with `reveal_secrets=False`; an expression that points to a sealed secret fails that
+  device (as `update-nautobot-ip` does) instead of writing the cleartext to Nautobot.
+- **`type_if_new`** (an interface-spec key, set by `parsed_list.new_interface_type`) is the type used
+  only when the interface does not exist yet; `InterfaceRecordOps._create_or_update_interface`
+  ignores it for an existing interface and never sends it to Nautobot, whereas `type` (also
+  `parsed_list.fixed_values`) is always patched. `new_interface_type.mode`: `none` (default, a
+  missing interface is skipped with a warning), `infer` (`infer_interface_type_from_name`) or
+  `fixed` (+ `value`, lower-cased). An explicit `type` on the row wins over `type_if_new` on create.
+
 ### IP address steps: `get-next-free-ip`, `add-ip-to-nautobot` and `update-nautobot-ip`
 
 All are in the `nautobot` palette category; the first two share
@@ -1201,9 +1236,25 @@ parsed.k.show switch detail.parsed[mac_address={virtual_chassis.mac}].role
   placeholder in a selector: `{parsed.k.show version.parsed[0].serial[{x.i}]}`. Braces
   are only accepted inside a selector there, so JSON-like text such as
   `{"k": "{x.y}"}` still expands just `{x.y}`.
-- Not supported: placeholders in a **destination** path, and nested `{…}` inside the
-  `{path | default('x')}` value expressions used by steps such as Update Device. For
-  anything more complex use `render-jinja-template`.
+- `update-attribute` also accepts these placeholders in its **destination** path (inside a
+  `[...]` selector only); an unresolved one skips that write for the device. Not supported:
+  nested `{…}` inside the `{path | default('x')}` value expressions used by steps such as
+  Update Device. For anything more complex use `render-jinja-template`.
+
+### Writing to a list item
+
+`update-attribute` (`workflow_steps/common/attribute_write.py`) can write **into** a list of
+objects with the same `<key>[<field>=<value>]` selector, e.g.
+`nautobot.interfaces[name=Ethernet0/0].mac_address`. The item whose `<field>` equals `<value>`
+is copied and updated; when there is none, `{<field>: <value>}` is **appended** and the leaf is
+set on it, so repeated writes for the same name build up one item. Differences from reading:
+`<field>` must be a flat key (not a sub-path), the value must not be empty or contain
+`[ ] =`, the selector must be followed by the field to write, and the target must be a list
+(or absent). A `.` or `/` inside the value is fine (`Gi0/0.100`). Update Device reads such a
+bag with `interfaces_source: nautobot_origin`. Two selector forms the **reader** accepts are
+refused by the writer with a `ValueError`, because the write would otherwise succeed in a place the
+reader never looks: a dotted filter field (`interfaces[lag.name=Po1]`) and a literal position
+(`interfaces[0]`). Select the item by a flat field instead.
 
 The **attribute path picker** (the "Browse attributes" button on
 `route-on-attribute`'s config panel, in

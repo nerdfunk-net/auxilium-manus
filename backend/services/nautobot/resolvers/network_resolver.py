@@ -16,6 +16,28 @@ logger = logging.getLogger(__name__)
 class NetworkResolver(BaseResolver):
     """Resolver for network resources (IP addresses, Interfaces, Namespaces, Prefixes)."""
 
+    async def resolve_vrf_id(self, vrf: str) -> str | None:
+        """Resolve a VRF name to its UUID (REST ``ipam/vrfs``); a UUID passes through.
+
+        Returns None when no VRF has exactly that name. VRFs are never created here: a VRF is
+        a routing-design object, and a typo must not silently mint one.
+        """
+        name = (vrf or "").strip()
+        if not name:
+            return None
+        if is_valid_uuid(name):
+            return name
+
+        response = await self.nautobot.rest_request(
+            endpoint=f"ipam/vrfs/?{rest_query(name=name, limit=50, format='json')}",
+            method="GET",
+        )
+        results = response.get("results") if isinstance(response, dict) else None
+        for item in results or []:
+            if isinstance(item, dict) and item.get("name") == name and item.get("id"):
+                return str(item["id"])
+        return None
+
     async def resolve_namespace_id(self, namespace_name: str) -> str:
         """
         Resolve a namespace name to its UUID using GraphQL.

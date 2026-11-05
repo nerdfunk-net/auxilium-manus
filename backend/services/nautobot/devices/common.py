@@ -267,6 +267,10 @@ class DeviceCommonService:
         """Delegate to NetworkResolver."""
         return await self.network_resolver.resolve_namespace_id(namespace_name)
 
+    async def resolve_vrf_id(self, vrf: str) -> str | None:
+        """Delegate to NetworkResolver."""
+        return await self.network_resolver.resolve_vrf_id(vrf)
+
     async def resolve_ip_address(self, ip_address: str, namespace_id: str) -> str | None:
         """Delegate to NetworkResolver."""
         return await self.network_resolver.resolve_ip_address(ip_address, namespace_id)

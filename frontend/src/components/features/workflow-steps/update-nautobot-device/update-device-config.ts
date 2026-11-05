@@ -1,12 +1,20 @@
 import type {
+  NewInterfaceTypeConfig,
   CustomFieldRow,
   DeviceFieldKey,
   DeviceUpdateFieldsConfig,
   InterfacesSource,
+  ParsedListConfig,
+  ParsedListFieldKey,
   UpdateFieldSpec,
   UpdateNautobotDeviceConfig,
 } from "./types";
-import { DEVICE_FIELD_DEFINITIONS } from "./types";
+import {
+  NEW_INTERFACE_TYPE_MODES,
+  DEFAULT_PARSED_LIST_CONFIG,
+  DEVICE_FIELD_DEFINITIONS,
+  PARSED_LIST_FIELD_DEFINITIONS,
+} from "./types";
 
 const EMPTY_FIELD_SPEC: UpdateFieldSpec = { enabled: false, value: "" };
 
@@ -136,7 +144,108 @@ export function patchDeviceFieldSpec(
 }
 
 export function interfacesSourceFromConfig(config: Record<string, unknown>): InterfacesSource {
-  return config.interfaces_source === "nautobot_origin" ? "nautobot_origin" : "manual";
+  if (config.interfaces_source === "nautobot_origin") return "nautobot_origin";
+  if (config.interfaces_source === "parsed_list") return "parsed_list";
+  return "manual";
+}
+
+function parseStringMap(raw: unknown): Partial<Record<ParsedListFieldKey, string>> {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    return {};
+  }
+  const known = new Set<string>(PARSED_LIST_FIELD_DEFINITIONS.map((definition) => definition.key));
+  const result: Partial<Record<ParsedListFieldKey, string>> = {};
+  for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
+    if (known.has(key) && typeof value === "string") {
+      result[key as ParsedListFieldKey] = value;
+    }
+  }
+  return result;
+}
+
+function parseNewInterfaceType(raw: unknown): NewInterfaceTypeConfig {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    return { mode: "none", value: "" };
+  }
+  const record = raw as Record<string, unknown>;
+  const mode = NEW_INTERFACE_TYPE_MODES.find((candidate) => candidate === record.mode) ?? "none";
+  return { mode, value: typeof record.value === "string" ? record.value : "" };
+}
+
+/** Read the saved ``parsed_list`` setting; absent or malformed gives the defaults. */
+export function parseParsedListConfig(raw: unknown): ParsedListConfig {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    return DEFAULT_PARSED_LIST_CONFIG;
+  }
+  const record = raw as Record<string, unknown>;
+  return {
+    source_path: typeof record.source_path === "string" ? record.source_path : "",
+    field_map: parseStringMap(record.field_map),
+    fixed_values: parseStringMap(record.fixed_values),
+    new_interface_type: parseNewInterfaceType(record.new_interface_type),
+  };
+}
+
+/** Drop blank entries so the saved config only holds mappings that are really set. */
+export function parsedListForSave(value: ParsedListConfig): ParsedListConfig {
+  const clean = (map: Partial<Record<ParsedListFieldKey, string>>) => {
+    const result: Partial<Record<ParsedListFieldKey, string>> = {};
+    for (const [key, text] of Object.entries(map)) {
+      const trimmed = (text ?? "").trim();
+      if (trimmed) result[key as ParsedListFieldKey] = trimmed;
+    }
+    return result;
+  };
+  return {
+    source_path: value.source_path.trim(),
+    field_map: clean(value.field_map),
+    fixed_values: clean(value.fixed_values),
+    new_interface_type: {
+      mode: value.new_interface_type.mode,
+      value:
+        value.new_interface_type.mode === "fixed" ? value.new_interface_type.value.trim() : "",
+    },
+  };
+}
+
+/** Interface sources that read the device's upstream data, so they need a workflow device. */
+export const UPSTREAM_INTERFACE_SOURCES: ReadonlyArray<InterfacesSource> = [
+  "nautobot_origin",
+  "parsed_list",
+];
+
+/**
+ * Why this source / device identifier / sync combination would fail at run time (null when it
+ * is fine). Mirrors the checks in the step's ``_parse_config``.
+ */
+export function interfaceSourceProblem(
+  source: InterfacesSource,
+  identifierMode: string,
+  options: { sync_interfaces?: boolean },
+): string | null {
+  if (UPSTREAM_INTERFACE_SOURCES.includes(source) && identifierMode === "explicit") {
+    return (
+      "This interface source reads data from the workflow's devices, so it cannot be used " +
+      "with an explicit device identifier. Choose 'from context' or the manual source."
+    );
+  }
+  if (source === "parsed_list" && options.sync_interfaces === true) {
+    return (
+      "sync_interfaces cannot be combined with a parsed list: an incomplete list would " +
+      "delete the interfaces missing from it. Turn sync_interfaces off."
+    );
+  }
+  return null;
+}
+
+/** Why the parsed-list setup cannot work yet (null when it is complete). */
+export function parsedListProblem(value: ParsedListConfig): string | null {
+  if (!value.source_path.trim()) return "Choose the list to read (source path).";
+  if (!(value.field_map.name ?? "").trim()) return "Map the interface name to a column.";
+  if (value.new_interface_type.mode === "fixed" && !value.new_interface_type.value.trim()) {
+    return "Enter the type to create new interfaces with.";
+  }
+  return null;
 }
 
 export function parseUpdateNautobotDeviceConfig(

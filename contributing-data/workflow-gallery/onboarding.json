@@ -1,6 +1,6 @@
 {
   "export_format": "auxilium-workflow-v1",
-  "exported_at": "2026-09-29T19:00:32.915Z",
+  "exported_at": "2026-11-05T15:18:15.594Z",
   "name": "Onboarding",
   "description": "Onboarding",
   "folder": "Gallery",
@@ -11,7 +11,7 @@
       "id": "batfish-init-snapshot-4",
       "type": "workflowNode",
       "position": {
-        "x": 765.1899111203682,
+        "x": 765.2593481760791,
         "y": 48.943315615732786
       },
       "data": {
@@ -385,7 +385,7 @@
       "id": "parse-cisco-config-8",
       "type": "workflowNode",
       "position": {
-        "x": 71.07122746048512,
+        "x": 71.14066451619613,
         "y": -177.7763023589177
       },
       "zIndex": 1,
@@ -873,11 +873,11 @@
       "type": "backgroundNode",
       "position": {
         "x": -334.0675950444288,
-        "y": 195.57139701327912
+        "y": 207.57139701327912
       },
       "zIndex": -1,
       "width": 796,
-      "height": 256,
+      "height": 462,
       "style": {
         "width": 480,
         "height": 320
@@ -898,12 +898,12 @@
         "pluginConfig": {
           "color": "#e2e8f0",
           "width": 796,
-          "height": 256
+          "height": 462
         }
       },
       "measured": {
         "width": 796,
-        "height": 256
+        "height": 462
       },
       "selected": false,
       "dragging": false,
@@ -913,7 +913,7 @@
       "id": "start-nautobot-job-18",
       "type": "workflowNode",
       "position": {
-        "x": 405.13882250491395,
+        "x": 405.2082595606249,
         "y": 59.42665062277854
       },
       "data": {
@@ -1435,6 +1435,111 @@
       },
       "dragging": false,
       "selected": false
+    },
+    {
+      "id": "update-nautobot-device-21",
+      "type": "workflowNode",
+      "position": {
+        "x": 405.2082595606249,
+        "y": 244.107825481727
+      },
+      "data": {
+        "kind": "update-nautobot-device",
+        "stepUuid": "3fab1e4a-d19d-4460-bc38-643c8e395560",
+        "title": "Update Device",
+        "overview": "Update Nautobot device fields, interfaces, and tags.",
+        "description": "Update device attributes, interfaces, tags, and custom fields in Nautobot.",
+        "artifactType": "command_execution",
+        "requires": [
+          "identity"
+        ],
+        "requiresParsed": [],
+        "produces": [],
+        "producesParsed": [],
+        "consumes": [],
+        "outcomes": [
+          {
+            "name": "success"
+          },
+          {
+            "name": "failure"
+          }
+        ],
+        "pluginConfig": {
+          "nautobot_source_id": "nautobot",
+          "update_fields": {
+            "custom_fields": {}
+          },
+          "interfaces_source": "nautobot_origin",
+          "interfaces": [],
+          "parsed_list": {
+            "source_path": "",
+            "field_map": {
+              "name": "interface",
+              "mac_address": "mac_address"
+            },
+            "fixed_values": {}
+          },
+          "device_identifier": {
+            "mode": "from_context"
+          },
+          "add_prefix": true,
+          "default_prefix_length": "/24",
+          "sync_interfaces": false,
+          "dry_run": false
+        }
+      },
+      "measured": {
+        "width": 320,
+        "height": 128
+      },
+      "selected": false,
+      "dragging": false,
+      "parentId": "background-19"
+    },
+    {
+      "id": "label-22",
+      "type": "labelNode",
+      "position": {
+        "x": 447.41657072775786,
+        "y": 382.107825481727
+      },
+      "width": 250,
+      "height": 40,
+      "style": {
+        "width": 250,
+        "height": 40
+      },
+      "data": {
+        "kind": "label",
+        "stepUuid": "24431004-db0c-4d9d-a87a-ffe5653237a6",
+        "title": "Label",
+        "overview": "Place styled text on the workflow canvas.",
+        "description": "Canvas decoration — configurable text with size, font, and color. Not executed at runtime and cannot be connected to other steps.\n",
+        "artifactType": "canvas_decoration",
+        "requires": [],
+        "requiresParsed": [],
+        "produces": [],
+        "producesParsed": [],
+        "consumes": [],
+        "outcomes": [],
+        "pluginConfig": {
+          "text": "Update Interfaces",
+          "font_size": 24,
+          "font_family": "sans",
+          "bold": true,
+          "color": "#0f172a",
+          "width": 250,
+          "height": 40
+        }
+      },
+      "measured": {
+        "width": 250,
+        "height": 40
+      },
+      "selected": false,
+      "dragging": false,
+      "parentId": "background-19"
     }
   ],
   "canvas_edges": [
@@ -1629,6 +1734,19 @@
       "target": "add-to-nautobot-7",
       "targetHandle": "input",
       "id": "xy-edge__update-attribute-19success-add-to-nautobot-7input",
+      "selected": false
+    },
+    {
+      "type": "waypoint",
+      "zIndex": 0,
+      "data": {
+        "edgeStyle": "bezier"
+      },
+      "source": "add-to-nautobot-7",
+      "sourceHandle": "failure",
+      "target": "update-nautobot-device-21",
+      "targetHandle": "input",
+      "id": "xy-edge__add-to-nautobot-7failure-update-nautobot-device-21input",
       "selected": false
     }
   ],

@@ -12,6 +12,7 @@ from typing import Any
 from services.nautobot.api_protocol import NautobotApi
 from services.nautobot.devices.common import DeviceCommonService
 from services.nautobot.devices.interface_workflow.ip_ops import InterfaceIpOps
+from services.nautobot.devices.interface_workflow.payload import normalize_interface_ip_list
 from services.nautobot.devices.interface_workflow.record_ops import InterfaceRecordOps
 from services.nautobot.devices.interface_workflow.state import InterfaceUpdateState
 from services.nautobot.devices.types import InterfaceUpdateResult
@@ -131,6 +132,12 @@ class InterfaceManagerService(InterfaceIpOps, InterfaceRecordOps):
                     state.updated_interfaces.append(iface_name)
             elif iface_name not in state.created_interfaces:
                 state.created_interfaces.append(iface_name)
+
+            if not normalize_interface_ip_list(interface):
+                # No IP information in this spec (for example a MAC-only update): leave the
+                # interface's existing IP assignments alone instead of unassigning them.
+                logger.info("Interface %s carries no IPs - existing IPs left untouched", iface_name)
+                return
 
             if interface_id not in state.cleaned_interfaces:
                 logger.info("Cleaning existing IPs from interface %s", iface_name)

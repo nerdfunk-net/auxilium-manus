@@ -10,12 +10,18 @@ from services.nautobot.devices.interface_workflow.base import InterfaceOpsBase
 from services.nautobot.devices.interface_workflow.payload import (
     build_interface_payload,
     normalize_interface_type,
+    resolve_interface_vrf_id,
     resolve_tagged_vlan_ids,
     resolve_untagged_vlan_id,
 )
 from services.nautobot.devices.interface_workflow.state import InterfaceUpdateState
 
 logger = logging.getLogger(__name__)
+
+
+def _text_or_none(value: Any) -> str | None:
+    """A non-blank string, else None (a blank, a number or an object counts as not given)."""
+    return value.strip() or None if isinstance(value, str) else None
 
 
 class InterfaceRecordOps(InterfaceOpsBase):
@@ -97,15 +103,40 @@ class InterfaceRecordOps(InterfaceOpsBase):
         Returns:
             Tuple of (interface UUID if successful, was_updated flag)
         """
-        interface_type = normalize_interface_type(interface, warnings)
-        if interface_type is None:
-            return None, False
-
-        # Resolve status to UUID — use "or" fallback so empty string also defaults to "active"
-        interface_status = interface.get("status") or "active"
-        interface_status_id = await self.common.resolve_status_id(
-            interface_status, "dcim.interface"
+        existing_id = await self.common.resolve_interface_by_name(
+            device_id=device_id,
+            interface_name=interface["name"],
         )
+
+        # An existing interface is patched with only the fields supplied, so a row that carries
+        # just a MAC address works and nothing else is overwritten. A new interface needs a type
+        # (Nautobot requires it) and defaults to status "active".
+        interface_type: str | None = None
+        interface_status_id: str | None = None
+        given_type = _text_or_none(interface.get("type"))
+        if existing_id:
+            if given_type:
+                interface_type = normalize_interface_type(
+                    {**interface, "type": given_type}, warnings
+                )
+            if interface.get("status"):
+                interface_status_id = await self.common.resolve_status_id(
+                    interface["status"], "dcim.interface"
+                )
+        else:
+            # ``type_if_new`` is the type to create a missing interface with; it is never sent
+            # for an interface that exists (an explicit ``type`` still wins).
+            interface_type = normalize_interface_type(
+                {**interface, "type": given_type or _text_or_none(interface.get("type_if_new"))},
+                warnings,
+            )
+            if interface_type is None:
+                return None, False
+            # "or" fallback so an empty string also defaults to "active"
+            interface_status_id = await self.common.resolve_status_id(
+                interface.get("status") or "active", "dcim.interface"
+            )
+
         untagged_vlan_id = await resolve_untagged_vlan_id(
             common=self.common,
             interface=interface,
@@ -118,6 +149,9 @@ class InterfaceRecordOps(InterfaceOpsBase):
             device_location_id=device_location_id,
             warnings=warnings,
         )
+        vrf_id = await resolve_interface_vrf_id(
+            common=self.common, interface=interface, warnings=warnings
+        )
         interface_payload = build_interface_payload(
             device_id=device_id,
             interface=interface,
@@ -125,12 +159,9 @@ class InterfaceRecordOps(InterfaceOpsBase):
             interface_status_id=interface_status_id,
             untagged_vlan_id=untagged_vlan_id,
             tagged_vlan_ids=tagged_vlan_ids,
+            vrf_id=vrf_id,
         )
 
-        existing_id = await self.common.resolve_interface_by_name(
-            device_id=device_id,
-            interface_name=interface["name"],
-        )
         if existing_id:
             return await self._patch_existing_interface(
                 existing_id, interface, interface_payload, warnings

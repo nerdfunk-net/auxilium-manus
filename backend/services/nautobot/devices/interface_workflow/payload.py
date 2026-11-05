@@ -73,17 +73,22 @@ def build_interface_payload(
     *,
     device_id: str,
     interface: dict[str, Any],
-    interface_type: str,
-    interface_status_id: str,
+    interface_type: str | None,
+    interface_status_id: str | None,
     untagged_vlan_id: str | None,
     tagged_vlan_ids: list[str],
+    vrf_id: str | None = None,
 ) -> dict[str, Any]:
+    """Build the REST body. ``type`` and ``status`` are left out when None, so patching an
+    existing interface changes only the fields the caller supplied."""
     interface_payload: dict[str, Any] = {
         "name": interface["name"],
         "device": device_id,
-        "type": interface_type,
-        "status": interface_status_id,
     }
+    if interface_type:
+        interface_payload["type"] = interface_type
+    if interface_status_id:
+        interface_payload["status"] = interface_status_id
 
     optional_fields = [
         "enabled",
@@ -92,6 +97,9 @@ def build_interface_payload(
         "mac_address",
         "mtu",
         "mode",
+        "port_type",
+        "speed",
+        "duplex",
     ]
     for field in optional_fields:
         if field in interface and interface[field] is not None:
@@ -99,6 +107,9 @@ def build_interface_payload(
             if field == "mode" and interface[field] == "none":
                 continue
             interface_payload[field] = interface[field]
+
+    if vrf_id:
+        interface_payload["vrf"] = {"id": vrf_id}
 
     # Nautobot REST API requires VLAN references as {"id": uuid}. untagged_vlan_id
     # is already resolved by the caller (either passed through as-is if the
@@ -110,6 +121,25 @@ def build_interface_payload(
         interface_payload["tagged_vlans"] = [{"id": vlan_id} for vlan_id in tagged_vlan_ids]
 
     return interface_payload
+
+
+async def resolve_interface_vrf_id(
+    *,
+    common: DeviceCommonService,
+    interface: dict[str, Any],
+    warnings: list[str],
+) -> str | None:
+    """Resolve ``interface["vrf"]`` (name or UUID) to a VRF UUID.
+
+    An unknown VRF is a warning on that interface, not an error: its other fields still apply.
+    """
+    raw_vrf = interface.get("vrf")
+    if not raw_vrf or raw_vrf == "none":
+        return None
+    vrf_id = await common.resolve_vrf_id(str(raw_vrf))
+    if not vrf_id:
+        warnings.append(f"Interface {interface['name']}: VRF {raw_vrf!r} not found - omitting")
+    return vrf_id
 
 
 async def resolve_untagged_vlan_id(

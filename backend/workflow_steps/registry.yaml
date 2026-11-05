@@ -3095,17 +3095,53 @@ plugins:
             location: dc1
         - name: interfaces_source
           description: >
-            Where to read interfaces from — manual (the interfaces list below)
-            or nautobot_origin (every interface in the device's nautobot
-            attribute bag, populated by an upstream Config to Attributes
-            step). Incompatible with device_identifier.mode "explicit".
+            Where to read interfaces from — manual (the interfaces list below),
+            nautobot_origin (every interface in the device's nautobot attribute
+            bag, populated by an upstream Get Nautobot Attributes / Config to
+            Attributes step and optionally changed with Update Attribute, e.g.
+            nautobot.interfaces[name=Ethernet0/0].mac_address), or parsed_list
+            (a list of dicts on the device, such as TextFSM "show interfaces"
+            output; see parsed_list). nautobot_origin and parsed_list are
+            incompatible with device_identifier.mode "explicit", and parsed_list is
+            incompatible with sync_interfaces (an incomplete list would delete the interfaces
+            missing from it). The interfaces rows are only used with the manual source.
           data_type: string
           required: false
           default: manual
+        - name: parsed_list
+          description: >
+            Used when interfaces_source is parsed_list. source_path is the attribute path of
+            the list (for example parsed.<step>.<command>.parsed); field_map maps an
+            interface field to the column that holds it (name is required; also mac_address,
+            type, port_type, mode, speed, duplex, mtu, vrf, description); fixed_values sets a
+            field to the same value on every row, existing interfaces included (so do not put a
+            type there). new_interface_type {mode, value} gives the type of an interface that
+            does not exist yet and never changes an existing one: mode none (default; a missing
+            interface is skipped with a warning), infer (guessed from the name: Ethernet/Gigabit
+            -> 1000base-t, Loopback/Vlan/Tunnel -> virtual, Port-channel -> lag, unknown -> other)
+            or fixed (value is the type slug). A blank cell leaves that field out, so an existing
+            Nautobot value is not wiped. Values are normalized: MAC to AA:BB:CC:DD:EE:FF, speed to Kbps
+            ("1 Gbit" -> 1000000), duplex to full/half/auto, mtu to a number. An interface
+            that exists in Nautobot is patched with only the fields given (no type needed);
+            one that does not exist is created only when new_interface_type (or a type) gives it one. An interface
+            without IP information keeps its existing IP addresses. A VRF must already exist.
+          data_type: object
+          required: false
+          example:
+            source_path: parsed.show_interfaces.parsed
+            field_map:
+              name: interface
+              mac_address: mac_address
+              mtu: mtu
+              speed: bandwidth
+              duplex: duplex
+            new_interface_type:
+              mode: infer
         - name: interfaces
           description: >
-            Interfaces to create or update, including IP address and
-            description. Ignored when interfaces_source is nautobot_origin.
+            Interfaces to create or update, including IP address, description, MAC address,
+            type, port_type, mode, speed (Kbps), duplex, mtu and vrf. Ignored when
+            interfaces_source is nautobot_origin or parsed_list.
           data_type: object_list
           required: false
           example:
@@ -3113,6 +3149,7 @@ plugins:
               description: Uplink
               ip_address: 10.0.0.1/24
               namespace: Global
+              mac_address: aabb.cc00.0100
         - name: add_prefix
           description: Automatically create missing IP prefixes when assigning addresses.
           data_type: boolean
@@ -4468,7 +4505,12 @@ plugins:
             parsed.cisco_config.running.hostname). Inside a [...] selector a path may hold
             a {other.path} placeholder resolved on the same device, e.g.
             parsed.k.show version.parsed[0].serial[{virtual_chassis.stack_index}]; one
-            that cannot be resolved skips the update for that device. destination_path may not target
+            that cannot be resolved skips the update for that device. destination_path may hold
+            the same {other.path} placeholders inside a [...] selector, and may select an item of
+            a list of objects by a field: nautobot.interfaces[name=Ethernet0/0].mac_address
+            updates that item or appends it (name={placeholder} makes the item dynamic); an
+            interface name may contain "." or "/". Update Device reads these with
+            interfaces_source nautobot_origin. destination_path may not target
             parsed.* — that namespace is populated only by step executors
             (parse-cisco-config, render-jinja-template, ...), not by this step.
           data_type: object_list

@@ -130,6 +130,13 @@ def _split_path_segments(path: str) -> list[str]:
     return segments
 
 
+# Public aliases for the attribute writer (workflow_steps/common/attribute_write.py), which must
+# parse exactly the same "key[field=value]" selector the reader understands.
+FILTER_SEGMENT_RE = _FILTER_SEGMENT_RE
+INDEX_SEGMENT_RE = _INDEX_SEGMENT_RE
+split_path_segments = _split_path_segments
+
+
 def _find_filtered_item(items: Any, field: str, value: str) -> Any | None:
     """Return the first dict in ``items`` whose ``field`` (itself a dotted
     path, resolved via ``_traverse_path``) stringifies to ``value``."""

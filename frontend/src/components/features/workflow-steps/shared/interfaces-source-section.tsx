@@ -1,5 +1,6 @@
 "use client";
 
+import type { ReactNode } from "react";
 import { Plus } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
@@ -16,7 +17,7 @@ import {
   type NautobotInterfaceRowValues,
 } from "@/components/features/workflow-steps/shared/nautobot-field-rows";
 
-export type InterfacesSource = "manual" | "nautobot_origin";
+export type InterfacesSource = "manual" | "nautobot_origin" | "parsed_list";
 
 export interface InterfaceRowConfig {
   id?: string;
@@ -27,6 +28,13 @@ export interface InterfaceRowConfig {
   namespace?: string;
   description?: string;
   is_primary_ipv4?: boolean;
+  mac_address?: string;
+  port_type?: string;
+  mode?: string;
+  speed?: string;
+  duplex?: string;
+  mtu?: string;
+  vrf?: string;
 }
 
 interface InterfacesSourceSectionProps<T extends InterfaceRowConfig> {
@@ -38,7 +46,18 @@ interface InterfacesSourceSectionProps<T extends InterfaceRowConfig> {
   onRemoveInterface: (id: string) => void;
   /** Shown under the "Nautobot origin" select when that source is active. */
   originDescription?: string;
+  /**
+   * Offers the "Parsed list" source and renders this content while it is selected.
+   * Leave undefined for steps that do not support it.
+   */
+  parsedListContent?: ReactNode;
+  /** Show MAC address, port type, mode, speed, duplex, MTU and VRF in the manual rows. */
+  showExtendedFields?: boolean;
+  /** Sources that cannot be chosen right now (shown disabled). The selected one stays visible. */
+  unavailableSources?: ReadonlyArray<InterfacesSource>;
 }
+
+const NO_UNAVAILABLE_SOURCES: ReadonlyArray<InterfacesSource> = [];
 
 const DEFAULT_ORIGIN_DESCRIPTION =
   "Every interface present in the device's nautobot attribute bag is used — however " +
@@ -53,6 +72,9 @@ export function InterfacesSourceSection<T extends InterfaceRowConfig>({
   onPatchInterface,
   onRemoveInterface,
   originDescription = DEFAULT_ORIGIN_DESCRIPTION,
+  parsedListContent,
+  showExtendedFields = false,
+  unavailableSources = NO_UNAVAILABLE_SOURCES,
 }: InterfacesSourceSectionProps<T>) {
   return (
     <section className="space-y-3 rounded-xl border border-border bg-card p-3 shadow-sm">
@@ -85,12 +107,24 @@ export function InterfacesSourceSection<T extends InterfaceRowConfig>({
         </SelectTrigger>
         <SelectContent>
           <SelectItem value="manual">Manual — rows below</SelectItem>
-          <SelectItem value="nautobot_origin">All from Nautobot origin</SelectItem>
+          <SelectItem
+            value="nautobot_origin"
+            disabled={unavailableSources.includes("nautobot_origin")}
+          >
+            All from Nautobot origin
+          </SelectItem>
+          {parsedListContent !== undefined ? (
+            <SelectItem value="parsed_list" disabled={unavailableSources.includes("parsed_list")}>
+              From a parsed list (e.g. TextFSM)
+            </SelectItem>
+          ) : null}
         </SelectContent>
       </Select>
 
       {interfacesSource === "nautobot_origin" ? (
         <p className="text-[11px] text-muted-foreground">{originDescription}</p>
+      ) : interfacesSource === "parsed_list" && parsedListContent !== undefined ? (
+        parsedListContent
       ) : interfaces.length === 0 ? (
         <p className="text-[11px] text-muted-foreground">No interfaces configured.</p>
       ) : (
@@ -106,6 +140,13 @@ export function InterfacesSourceSection<T extends InterfaceRowConfig>({
               namespace: iface.namespace ?? "Global",
               description: iface.description,
               is_primary_ipv4: iface.is_primary_ipv4,
+              mac_address: iface.mac_address,
+              port_type: iface.port_type,
+              mode: iface.mode,
+              speed: iface.speed,
+              duplex: iface.duplex,
+              mtu: iface.mtu,
+              vrf: iface.vrf,
             };
             return (
               <NautobotInterfaceRow
@@ -113,6 +154,7 @@ export function InterfacesSourceSection<T extends InterfaceRowConfig>({
                 row={rowValues}
                 onChange={(patch) => onPatchInterface(rowId, patch as Partial<T>)}
                 onRemove={() => onRemoveInterface(rowId)}
+                showExtendedFields={showExtendedFields}
               />
             );
           })}

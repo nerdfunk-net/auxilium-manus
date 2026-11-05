@@ -364,6 +364,176 @@ class CreateIpAddressesTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result, {"Gi0/0:10.0.0.1/24": "ip-uuid"})
 
 
+class NewInterfaceFieldPayloadTests(unittest.TestCase):
+    def test_payload_carries_mac_port_type_speed_duplex_and_vrf(self) -> None:
+        payload = _build_interface_payload(
+            device_id="d1",
+            interface={
+                "name": "Gi0/0",
+                "mac_address": "AA:BB:CC:00:01:00",
+                "port_type": "8p8c",
+                "speed": 1000,
+                "duplex": "full",
+                "mode": "access",
+                "mtu": 1500,
+            },
+            interface_type="1000base-t",
+            interface_status_id="st1",
+            untagged_vlan_id=None,
+            tagged_vlan_ids=[],
+            vrf_id="vrf-1",
+        )
+        self.assertEqual(payload["mac_address"], "AA:BB:CC:00:01:00")
+        self.assertEqual(payload["port_type"], "8p8c")
+        self.assertEqual(payload["speed"], 1000)
+        self.assertEqual(payload["duplex"], "full")
+        self.assertEqual(payload["vrf"], {"id": "vrf-1"})
+
+    def test_type_and_status_are_omitted_when_not_given(self) -> None:
+        payload = _build_interface_payload(
+            device_id="d1",
+            interface={"name": "Gi0/0", "mac_address": "AA:BB:CC:00:01:00"},
+            interface_type=None,
+            interface_status_id=None,
+            untagged_vlan_id=None,
+            tagged_vlan_ids=[],
+        )
+        self.assertNotIn("type", payload)
+        self.assertNotIn("status", payload)
+        self.assertNotIn("vrf", payload)
+        self.assertEqual(payload["mac_address"], "AA:BB:CC:00:01:00")
+
+
+class PatchOnlyExistingInterfaceTests(unittest.IsolatedAsyncioTestCase):
+    """A MAC-only row must patch an existing interface without type or status."""
+
+    async def test_existing_interface_without_type_is_patched_with_only_given_fields(self) -> None:
+        svc = _make_service(rest_dispatch=lambda **kw: {})
+        svc.common.resolve_interface_by_name = AsyncMock(return_value="if-existing")
+        warnings: list[str] = []
+        result = await svc._create_or_update_interface(
+            "d1", {"name": "Gi0/0", "mac_address": "AA:BB:CC:00:01:00"}, warnings
+        )
+        self.assertEqual(result, ("if-existing", True))
+        self.assertEqual(warnings, [])
+        svc.common.resolve_status_id.assert_not_awaited()
+        svc.nautobot.rest_request.assert_awaited_once_with(
+            endpoint="dcim/interfaces/if-existing/",
+            method="PATCH",
+            data={"mac_address": "AA:BB:CC:00:01:00"},
+        )
+
+    async def test_existing_interface_status_only_sent_when_given(self) -> None:
+        svc = _make_service(rest_dispatch=lambda **kw: {})
+        svc.common.resolve_interface_by_name = AsyncMock(return_value="if-existing")
+        await svc._create_or_update_interface(
+            "d1", {"name": "Gi0/0", "status": "planned", "type": "virtual"}, []
+        )
+        svc.common.resolve_status_id.assert_awaited_once_with("planned", "dcim.interface")
+        data = svc.nautobot.rest_request.await_args.kwargs["data"]
+        self.assertEqual(data["status"], "status-uuid")
+        self.assertEqual(data["type"], "virtual")
+
+    async def test_missing_interface_without_type_is_still_not_created(self) -> None:
+        svc = _make_service()
+        warnings: list[str] = []
+        result = await svc._create_or_update_interface(
+            "d1", {"name": "Gi0/9", "mac_address": "AA:BB:CC:00:01:00"}, warnings
+        )
+        self.assertEqual(result, (None, False))
+        self.assertEqual(len(warnings), 1)
+        self.assertIn("Gi0/9", warnings[0])
+
+    async def test_type_if_new_is_used_to_create_a_missing_interface(self) -> None:
+        svc = _make_service(rest_dispatch=lambda **kw: {"id": "if-new"})
+        result = await svc._create_or_update_interface(
+            "d1", {"name": "Gi0/0", "type_if_new": "1000base-t"}, []
+        )
+        self.assertEqual(result, ("if-new", False))
+        post = svc.nautobot.rest_request.await_args.kwargs
+        self.assertEqual(post["method"], "POST")
+        self.assertEqual(post["data"]["type"], "1000base-t")
+        self.assertNotIn("type_if_new", post["data"])
+
+    async def test_explicit_type_wins_over_type_if_new_on_create(self) -> None:
+        svc = _make_service(rest_dispatch=lambda **kw: {"id": "if-new"})
+        await svc._create_or_update_interface(
+            "d1", {"name": "Gi0/0", "type": "10gbase-t", "type_if_new": "virtual"}, []
+        )
+        self.assertEqual(svc.nautobot.rest_request.await_args.kwargs["data"]["type"], "10gbase-t")
+
+    async def test_blank_type_on_an_existing_interface_is_ignored_without_a_warning(self) -> None:
+        svc = _make_service(rest_dispatch=lambda **kw: {})
+        svc.common.resolve_interface_by_name = AsyncMock(return_value="if-existing")
+        warnings: list[str] = []
+        await svc._create_or_update_interface(
+            "d1", {"name": "Gi0/0", "type": "   ", "mtu": 9000}, warnings
+        )
+        self.assertEqual(warnings, [])
+        data = svc.nautobot.rest_request.await_args.kwargs["data"]
+        self.assertEqual(data, {"mtu": 9000})
+
+    async def test_blank_type_does_not_hide_type_if_new_on_create(self) -> None:
+        svc = _make_service(rest_dispatch=lambda **kw: {"id": "if-new"})
+        warnings: list[str] = []
+        result = await svc._create_or_update_interface(
+            "d1", {"name": "Gi0/0", "type": "  ", "type_if_new": "virtual"}, warnings
+        )
+        self.assertEqual(result, ("if-new", False))
+        self.assertEqual(warnings, [])
+        self.assertEqual(svc.nautobot.rest_request.await_args.kwargs["data"]["type"], "virtual")
+
+    async def test_non_string_type_is_ignored_not_a_crash(self) -> None:
+        svc = _make_service(rest_dispatch=lambda **kw: {})
+        svc.common.resolve_interface_by_name = AsyncMock(return_value="if-existing")
+        result = await svc._create_or_update_interface(
+            "d1", {"name": "Gi0/0", "type": 5, "mtu": 9000}, []
+        )
+        self.assertEqual(result, ("if-existing", True))
+        self.assertEqual(svc.nautobot.rest_request.await_args.kwargs["data"], {"mtu": 9000})
+
+    async def test_type_if_new_never_changes_an_existing_interface(self) -> None:
+        svc = _make_service(rest_dispatch=lambda **kw: {})
+        svc.common.resolve_interface_by_name = AsyncMock(return_value="if-existing")
+        await svc._create_or_update_interface(
+            "d1",
+            {"name": "Gi0/0", "mac_address": "AA:BB:CC:00:01:00", "type_if_new": "virtual"},
+            [],
+        )
+        svc.nautobot.rest_request.assert_awaited_once_with(
+            endpoint="dcim/interfaces/if-existing/",
+            method="PATCH",
+            data={"mac_address": "AA:BB:CC:00:01:00"},
+        )
+
+    async def test_new_interface_still_defaults_status_to_active(self) -> None:
+        svc = _make_service(rest_dispatch=lambda **kw: {"id": "if-new"})
+        await svc._create_or_update_interface("d1", {"name": "Gi0/0", "type": "virtual"}, [])
+        svc.common.resolve_status_id.assert_awaited_once_with("active", "dcim.interface")
+
+    async def test_vrf_is_resolved_and_sent_as_id(self) -> None:
+        svc = _make_service(rest_dispatch=lambda **kw: {})
+        svc.common.resolve_interface_by_name = AsyncMock(return_value="if-existing")
+        svc.common.resolve_vrf_id = AsyncMock(return_value="vrf-1")
+        await svc._create_or_update_interface("d1", {"name": "Gi0/0", "vrf": "MGMT"}, [])
+        svc.common.resolve_vrf_id.assert_awaited_once_with("MGMT")
+        data = svc.nautobot.rest_request.await_args.kwargs["data"]
+        self.assertEqual(data["vrf"], {"id": "vrf-1"})
+
+    async def test_unknown_vrf_warns_but_other_fields_are_applied(self) -> None:
+        svc = _make_service(rest_dispatch=lambda **kw: {})
+        svc.common.resolve_interface_by_name = AsyncMock(return_value="if-existing")
+        svc.common.resolve_vrf_id = AsyncMock(return_value=None)
+        warnings: list[str] = []
+        await svc._create_or_update_interface(
+            "d1", {"name": "Gi0/0", "vrf": "NOPE", "mtu": 9000}, warnings
+        )
+        data = svc.nautobot.rest_request.await_args.kwargs["data"]
+        self.assertEqual(data, {"mtu": 9000})
+        self.assertEqual(len(warnings), 1)
+        self.assertIn("NOPE", warnings[0])
+
+
 class CreateOrUpdateInterfaceTests(unittest.IsolatedAsyncioTestCase):
     async def test_missing_type_returns_none(self) -> None:
         svc = _make_service()
@@ -578,6 +748,36 @@ class UpdateDeviceInterfacesTests(unittest.IsolatedAsyncioTestCase):
         await svc._process_one_interface(device_id="d1", interface={"name": "Gi0/0"}, state=state)
         self.assertEqual(state.failed_interfaces, ["Gi0/0"])
         self.assertEqual(len(state.warnings), 1)
+
+    async def test_interface_without_ip_info_keeps_its_existing_ips(self) -> None:
+        # A MAC/MTU-only row must not unassign the IPs the interface already has.
+        svc = _make_service()
+        state = _InterfaceUpdateState()
+        svc._create_or_update_interface = AsyncMock(return_value=("if1", True))
+        svc._clean_interface_ips = AsyncMock()
+        svc._assign_ips_for_interface = AsyncMock()
+        await svc._process_one_interface(
+            device_id="d1",
+            interface={"name": "Gi0/0", "mac_address": "AA:BB:CC:00:01:00"},
+            state=state,
+        )
+        svc._clean_interface_ips.assert_not_awaited()
+        svc._assign_ips_for_interface.assert_not_awaited()
+        self.assertEqual(state.updated_interfaces, ["Gi0/0"])
+
+    async def test_interface_with_ip_info_still_replaces_its_ips(self) -> None:
+        svc = _make_service()
+        state = _InterfaceUpdateState()
+        svc._create_or_update_interface = AsyncMock(return_value=("if1", True))
+        svc._clean_interface_ips = AsyncMock()
+        svc._assign_ips_for_interface = AsyncMock()
+        await svc._process_one_interface(
+            device_id="d1",
+            interface={"name": "Gi0/0", "ip_address": "10.0.0.1/24"},
+            state=state,
+        )
+        svc._clean_interface_ips.assert_awaited_once()
+        svc._assign_ips_for_interface.assert_awaited_once()
 
     async def test_process_one_interface_records_interface_id_map(self) -> None:
         svc = _make_service()

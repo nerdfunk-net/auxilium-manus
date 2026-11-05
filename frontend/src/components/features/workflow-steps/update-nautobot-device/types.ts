@@ -51,9 +51,50 @@ export interface InterfaceUpdateConfig {
   namespace?: string;
   description?: string;
   is_primary_ipv4?: boolean;
+  mac_address?: string;
+  port_type?: string;
+  mode?: string;
+  /** Kbps (Nautobot's unit); a text such as "1 Gbit" is converted by the backend. */
+  speed?: string;
+  duplex?: string;
+  mtu?: string;
+  vrf?: string;
 }
 
-export type InterfacesSource = "manual" | "nautobot_origin";
+export type InterfacesSource = "manual" | "nautobot_origin" | "parsed_list";
+
+/** Interface fields a parsed-list column can be mapped to (``name`` is required). */
+export type ParsedListFieldKey =
+  | "name"
+  | "mac_address"
+  | "type"
+  | "port_type"
+  | "mode"
+  | "speed"
+  | "duplex"
+  | "mtu"
+  | "vrf"
+  | "description";
+
+/** How to pick the type of a Nautobot interface that has to be created (never changes an existing one). */
+export type NewInterfaceTypeMode = "none" | "infer" | "fixed";
+
+export interface NewInterfaceTypeConfig {
+  mode: NewInterfaceTypeMode;
+  /** Nautobot interface type slug; only used when ``mode`` is "fixed". */
+  value: string;
+}
+
+export interface ParsedListConfig {
+  /** Attribute path of a list of objects, e.g. parsed.<step>.<command>.parsed */
+  source_path: string;
+  /** Interface field -> column name in the list. */
+  field_map: Partial<Record<ParsedListFieldKey, string>>;
+  /** Interface field -> one value used for every row (patches existing interfaces too). */
+  fixed_values: Partial<Record<ParsedListFieldKey, string>>;
+  /** Type used only for interfaces that do not exist in Nautobot yet. */
+  new_interface_type: NewInterfaceTypeConfig;
+}
 
 export interface UpdateNautobotDeviceConfig {
   nautobot_source_id?: string;
@@ -61,6 +102,7 @@ export interface UpdateNautobotDeviceConfig {
   update_fields?: DeviceUpdateFieldsConfig;
   interfaces_source?: InterfacesSource;
   interfaces?: InterfaceUpdateConfig[];
+  parsed_list?: ParsedListConfig;
   add_prefix?: boolean;
   default_prefix_length?: string;
   sync_interfaces?: boolean;
@@ -85,3 +127,45 @@ export const DEVICE_FIELD_DEFINITIONS = [
 
 export const UPDATE_FIELD_VALUE_HELP =
   "Fixed value (cityA), {nautobot.origin}, {custom.my_field}, or {custom.my_field | default('fallback')}";
+
+export const PARSED_LIST_FIELD_DEFINITIONS = [
+  { key: "name", label: "Interface name", placeholder: "interface", required: true },
+  { key: "mac_address", label: "MAC address", placeholder: "mac_address" },
+  { key: "mtu", label: "MTU", placeholder: "mtu" },
+  { key: "speed", label: "Speed", placeholder: "bandwidth" },
+  { key: "duplex", label: "Duplex", placeholder: "duplex" },
+  { key: "description", label: "Description", placeholder: "description" },
+  { key: "type", label: "Type (changes existing interfaces)", placeholder: "(leave empty)" },
+  { key: "port_type", label: "Port type", placeholder: "(column)" },
+  { key: "mode", label: "802.1Q mode", placeholder: "(column)" },
+  { key: "vrf", label: "VRF", placeholder: "(column)" },
+] as const satisfies ReadonlyArray<{
+  key: ParsedListFieldKey;
+  label: string;
+  placeholder: string;
+  required?: boolean;
+}>;
+
+/** Fields that make sense as one fixed value for every row. */
+export const PARSED_LIST_FIXED_FIELDS: ReadonlyArray<ParsedListFieldKey> = [
+  "port_type",
+  "mode",
+  "duplex",
+  "vrf",
+];
+
+export const INTERFACE_DUPLEX_OPTIONS = ["auto", "full", "half"] as const;
+export const INTERFACE_MODE_OPTIONS = ["access", "tagged", "tagged-all"] as const;
+
+export const DEFAULT_PARSED_LIST_CONFIG: ParsedListConfig = {
+  source_path: "",
+  field_map: { name: "interface", mac_address: "mac_address" },
+  fixed_values: {},
+  new_interface_type: { mode: "none", value: "" },
+};
+
+export const NEW_INTERFACE_TYPE_MODES: ReadonlyArray<NewInterfaceTypeMode> = [
+  "none",
+  "infer",
+  "fixed",
+];

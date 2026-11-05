@@ -63,7 +63,10 @@ function UpdateNautobotDeviceConfigPanel({
 
   const isSourceConfigured = isNautobotSourceConfigured(config);
   const hasUpdatePayload =
-    enabledFieldCount > 0 || interfaceCount > 0 || interfacesSource === "nautobot_origin";
+    enabledFieldCount > 0 ||
+    interfaceCount > 0 ||
+    interfacesSource === "nautobot_origin" ||
+    interfacesSource === "parsed_list";
 
   return (
     <div className="flex flex-col gap-4">
@@ -118,7 +121,9 @@ function UpdateNautobotDeviceConfigPanel({
             {enabledFieldCount} enabled field{enabledFieldCount === 1 ? "" : "s"},{" "}
             {interfacesSource === "nautobot_origin"
               ? "interfaces from Nautobot origin"
-              : `${interfaceCount} interface${interfaceCount === 1 ? "" : "s"}`}
+              : interfacesSource === "parsed_list"
+                ? `interfaces from ${updateConfig.parsed_list?.source_path || "a parsed list"}`
+                : `${interfaceCount} interface${interfaceCount === 1 ? "" : "s"}`}
             , {identifierMode === "explicit" ? "explicit device" : "from context"}
           </p>
         ) : (

@@ -124,5 +124,106 @@ class BuildOutcomesTests(unittest.TestCase):
         self.assertEqual(outcomes[1].context.devices["dev-1"].id, "dev-1")
 
 
+class ParsedListConfigTests(unittest.TestCase):
+    def _cfg(self, **parsed_list) -> dict:
+        return {
+            "nautobot_source_id": "src-1",
+            "interfaces_source": "parsed_list",
+            "parsed_list": parsed_list,
+        }
+
+    def test_valid_config_is_parsed_and_counts_as_interfaces(self) -> None:
+        parsed = _parse_config(
+            self._cfg(
+                source_path=" parsed.x.rows ",
+                field_map={"name": "interface", "mac_address": " mac ", "mtu": ""},
+                fixed_values={"type": "1000base-t", "mode": ""},
+            )
+        )
+        self.assertEqual(parsed.interfaces_source, "parsed_list")
+        self.assertEqual(parsed.parsed_list_path, "parsed.x.rows")
+        self.assertEqual(parsed.parsed_list_field_map, {"name": "interface", "mac_address": "mac"})
+        self.assertEqual(parsed.parsed_list_fixed_values, {"type": "1000base-t"})
+
+    def test_new_interface_type_defaults_to_none(self) -> None:
+        parsed = _parse_config(self._cfg(source_path="p", field_map={"name": "i"}))
+        self.assertEqual(parsed.parsed_list_new_type_mode, "none")
+        self.assertEqual(parsed.parsed_list_new_type_value, "")
+
+    def test_new_interface_type_infer_and_fixed(self) -> None:
+        infer = _parse_config(
+            self._cfg(
+                source_path="p", field_map={"name": "i"}, new_interface_type={"mode": "infer"}
+            )
+        )
+        self.assertEqual(infer.parsed_list_new_type_mode, "infer")
+        fixed = _parse_config(
+            self._cfg(
+                source_path="p",
+                field_map={"name": "i"},
+                new_interface_type={"mode": "fixed", "value": " Virtual "},
+            )
+        )
+        self.assertEqual(
+            (fixed.parsed_list_new_type_mode, fixed.parsed_list_new_type_value),
+            ("fixed", "virtual"),
+        )
+
+    def test_new_interface_type_fixed_needs_a_value_and_mode_must_be_known(self) -> None:
+        for bad in ({"mode": "fixed", "value": " "}, {"mode": "bogus"}, "infer"):
+            with self.assertRaises(ValueError):
+                _parse_config(
+                    self._cfg(source_path="p", field_map={"name": "i"}, new_interface_type=bad)
+                )
+
+    def test_source_path_is_required(self) -> None:
+        with self.assertRaises(ValueError):
+            _parse_config(self._cfg(source_path=" ", field_map={"name": "interface"}))
+
+    def test_name_mapping_is_required(self) -> None:
+        with self.assertRaises(ValueError):
+            _parse_config(self._cfg(source_path="parsed.x", field_map={"mtu": "mtu"}))
+
+    def test_explicit_device_identifier_is_refused(self) -> None:
+        cfg = self._cfg(source_path="parsed.x", field_map={"name": "interface"})
+        cfg["device_identifier"] = {"mode": "explicit", "name": "r1"}
+        with self.assertRaises(ValueError):
+            _parse_config(cfg)
+
+    def test_sync_interfaces_is_refused_with_a_parsed_list(self) -> None:
+        # sync deletes every interface not in the list, before any update runs: an incomplete
+        # list (short TextFSM output, a partial path) would delete real interfaces.
+        cfg = self._cfg(source_path="parsed.x", field_map={"name": "interface"})
+        cfg["sync_interfaces"] = True
+        with self.assertRaises(ValueError) as ctx:
+            _parse_config(cfg)
+        self.assertIn("sync_interfaces", str(ctx.exception))
+
+    def test_manual_interfaces_are_not_validated_when_another_source_is_used(self) -> None:
+        for source in ("parsed_list", "nautobot_origin"):
+            cfg = self._cfg(source_path="parsed.x", field_map={"name": "interface"})
+            cfg["interfaces_source"] = source
+            cfg["interfaces"] = "not a list"
+            parsed = _parse_config(cfg)
+            self.assertEqual(parsed.manual_interfaces, [])
+
+    def test_manual_interfaces_are_still_validated_for_the_manual_source(self) -> None:
+        with self.assertRaises(ValueError):
+            _parse_config(
+                {
+                    "nautobot_source_id": "src-1",
+                    "interfaces_source": "manual",
+                    "interfaces": "not a list",
+                }
+            )
+
+    def test_unknown_mapped_field_is_refused(self) -> None:
+        with self.assertRaises(ValueError):
+            _parse_config(
+                self._cfg(source_path="parsed.x", field_map={"name": "i", "colour": "c"})
+            )
+
+
+
 if __name__ == "__main__":
     unittest.main()
