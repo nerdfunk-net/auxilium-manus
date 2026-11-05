@@ -25,6 +25,8 @@ import {
   type DeviceCommandProposal,
   type DeviceCommandResult,
 } from "../types/ai-assistant";
+import { parseParsedTables, parsedTextWasCut } from "../utils/parsed-tables";
+import { ParsedOutputTables } from "./parsed-output-tables";
 
 interface DeviceCommandProposalCardProps {
   proposal: DeviceCommandProposal;
@@ -66,6 +68,10 @@ export function DeviceCommandProposalCard({
       ),
     [credentialsQuery.data?.credentials],
   );
+
+  // Parsed rows as tables; empty when the data is nested (Genie), cut, or did not parse.
+  const parsedText = proposal.result?.parsedText ?? "";
+  const tables = useMemo(() => parseParsedTables(parsedText), [parsedText]);
 
   const pending = proposal.state === "pending";
   // The inventory's platform names no SSH driver: the user chooses the device type, like a
@@ -261,14 +267,41 @@ export function DeviceCommandProposalCard({
               <AlertDescription>{proposal.result.error}</AlertDescription>
             </Alert>
           )}
-          {proposal.result.output && (
-            <pre
-              className="max-h-72 overflow-auto rounded border bg-muted/30 p-2 font-mono text-xs whitespace-pre"
-              data-testid="device-command-output"
-            >
-              {proposal.result.output}
-            </pre>
+          {tables.length > 0 && (
+            <ParsedOutputTables
+              tables={tables}
+              incomplete={proposal.result.truncated}
+            />
           )}
+          {tables.length === 0 && parsedTextWasCut(parsedText) && (
+            <Alert data-testid="device-command-parsed-cut">
+              <AlertDescription>
+                The parsed data is too long to show as a table here. Download it
+                for all rows.
+              </AlertDescription>
+            </Alert>
+          )}
+          {proposal.result.output &&
+            (tables.length > 0 ? (
+              <details>
+                <summary className="cursor-pointer text-xs text-muted-foreground">
+                  Raw output
+                </summary>
+                <pre
+                  className="mt-1 max-h-72 overflow-auto rounded border bg-muted/30 p-2 font-mono text-xs whitespace-pre"
+                  data-testid="device-command-output"
+                >
+                  {proposal.result.output}
+                </pre>
+              </details>
+            ) : (
+              <pre
+                className="max-h-72 overflow-auto rounded border bg-muted/30 p-2 font-mono text-xs whitespace-pre"
+                data-testid="device-command-output"
+              >
+                {proposal.result.output}
+              </pre>
+            ))}
           {proposal.result.parseErrors.length > 0 && (
             <Alert data-testid="device-command-parse-errors">
               <AlertDescription>
@@ -283,7 +316,9 @@ export function DeviceCommandProposalCard({
           {proposal.result.parsedText && (
             <details>
               <summary className="cursor-pointer text-xs text-muted-foreground">
-                Parsed with {COMMAND_PARSER_LABELS[proposal.result.parser]}
+                {tables.length > 0
+                  ? "Parsed data as JSON"
+                  : `Parsed with ${COMMAND_PARSER_LABELS[proposal.result.parser]}`}
               </summary>
               <pre
                 className="mt-1 max-h-72 overflow-auto rounded border bg-muted/30 p-2 font-mono text-xs whitespace-pre"

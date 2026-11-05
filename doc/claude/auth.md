@@ -142,6 +142,13 @@ Nautobot token, so what the token may read is what a user with the permission ca
 and report a missing source to the user. The user's inventory switch gates both tools, the addresses switch the
 addresses and serials (and lookups by them), the content switch interface descriptions (`doc/AI_TOOL_CHAIN.md` §42).
 
+**Ask the Net neighbour tools** (`propose_neighbor_discovery`, `get_discovery_result`, `get_modelled_neighbors`,
+`get_neighbor_sources`, `doc/AI_TOOL_CHAIN.md` §45). Discovery is a proposal on the device-command path: it needs the
+operator switch `AI_DEVICE_COMMANDS_ENABLED`, `netmiko:execute`, the content opt-in and the user's click; the commands
+come from a reviewed catalogue, never from the model. `get_discovery_result` is a read of the user's own stored output
+(content opt-in checked on every call); comparing it with Nautobot cabling (always for the device the output came from, never one the model
+names) also needs `sources.nautobot:read` and the addresses switch. `get_modelled_neighbors` needs Batfish access and the addresses switch.
+
 **Assistant glossary** (inventory terms and workflow step aliases). `ai_glossary_terms` is global
 and its words steer the model, so every `/ai/glossary` route, for both kinds, needs the `admin` role (P3 style); the seeded `viewer` and other roles have no
 access. The assistant reads entries through the `get_glossary` tool as the calling user.

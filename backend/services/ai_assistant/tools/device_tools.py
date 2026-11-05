@@ -23,6 +23,7 @@ from services.ai_assistant.device_access import (
     DEVICE_DRIVERS,
     DeviceAccessError,
     DeviceResolver,
+    ResolvedDevice,
     driver_known,
 )
 from services.ai_assistant.device_token import issue_token
@@ -77,6 +78,23 @@ async def _propose_device_command(ctx: ToolContext, args: ProposeDeviceCommandIn
         device = await resolver.resolve(args.device)
     except DeviceAccessError as exc:
         return ToolOutput(str(exc), is_error=True)
+    return make_device_proposal(ctx, device, commands, args.parser)
+
+
+def make_device_proposal(
+    ctx: ToolContext,
+    device: ResolvedDevice,
+    commands: list[str],
+    parser: str,
+    *,
+    purpose: str | None = None,
+) -> ToolOutput:
+    """The signed proposal card for ``commands`` (already checked) on a resolved ``device``.
+
+    Shared by ``propose_device_command`` and the neighbour discovery tool: one token format, one
+    card, one confirm endpoint. ``purpose`` is a sentence for the model about what the commands
+    are for; the card itself is the same.
+    """
     token, expires_at = issue_token(
         user_id=ctx.user_id,
         source_id=device.source_id,
@@ -84,7 +102,7 @@ async def _propose_device_command(ctx: ToolContext, args: ProposeDeviceCommandIn
         device_name=device.name,
         host=device.host,
         commands=commands,
-        parser=args.parser,
+        parser=parser,
     )
     ctx.audit_refs.add(f"device:{device.device_id}")
     known_driver = driver_known(device)
@@ -99,7 +117,7 @@ async def _propose_device_command(ctx: ToolContext, args: ProposeDeviceCommandIn
             "platform": device.platform,
         },
         "commands": commands,
-        "parser": args.parser,
+        "parser": parser,
         # When the inventory's platform names no Netmiko driver, the card asks the user for the
         # device type (from this closed list); the model has no say in it.
         "driver_known": known_driver,
@@ -111,8 +129,10 @@ async def _propose_device_command(ctx: ToolContext, args: ProposeDeviceCommandIn
         "credential and confirms. When they run it, the output is stored and you get its handle in "
         "their next message: read it with fetch_slice. Briefly say what you asked to run and why."
     )
-    if args.parser != "none":
-        label = "TextFSM" if args.parser == "textfsm" else "Genie"
+    if purpose:
+        message += f" {purpose}"
+    if parser != "none":
+        label = "TextFSM" if parser == "textfsm" else "Genie"
         message += (
             f" After the run the output is also parsed with {label}; you get the handle of the "
             "parsed data (and the raw handle) in the user's next message."

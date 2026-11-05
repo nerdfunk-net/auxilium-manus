@@ -383,7 +383,7 @@ def test_the_general_surface_offers_reads_only_and_pins_its_proposal_names() -> 
     ), names
     assert not [n for n in names if n.startswith(("run", "trigger", "execute", "start", "delete"))]
     # Pinned: without a device resolver there is no proposal tool at all. With one (phase 3,
-    # doc/AI_TOOL_CHAIN.md §29) the only addition is ``propose_device_command``; see
+    # doc/AI_TOOL_CHAIN.md §29) the only additions are ``propose_device_command`` and ``propose_neighbor_discovery``; see
     # ``test_ai_general_surface``.
     assert {n for n in names if n.startswith("propose")} == set()
 

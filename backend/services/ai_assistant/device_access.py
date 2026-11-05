@@ -116,6 +116,18 @@ def driver_known(device: ResolvedDevice) -> bool:
     return True
 
 
+def netmiko_device_type(network_driver: str | None, platform: str | None) -> str | None:
+    """The Netmiko device type for an inventory driver / platform, or ``None`` when unknown.
+
+    The neighbour catalogue picks its commands by device family; it asks here so that this stays
+    the only module that touches the Netmiko platform map.
+    """
+    try:
+        return resolve_netmiko_device_type(network_driver=network_driver, platform=platform)
+    except UnsupportedPlatformError:
+        return None
+
+
 class DeviceResolver(Protocol):
     async def resolve(self, name: str) -> ResolvedDevice: ...
 

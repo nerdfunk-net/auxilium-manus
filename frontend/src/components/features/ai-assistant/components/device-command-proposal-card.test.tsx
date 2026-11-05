@@ -4,6 +4,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -362,6 +363,134 @@ describe("DeviceCommandProposalCard", () => {
     expect(
       screen.getByTestId("device-command-parse-errors").textContent,
     ).toContain("show clock — No template");
+  });
+
+  describe("parsed rows as a table", () => {
+    const CDP_TEXT = JSON.stringify([
+      {
+        command: "show cdp neighbors detail",
+        error: null,
+        parsed: [
+          {
+            neighbor_name: "sw2.example.com",
+            local_interface: "Gi1/0/1",
+            neighbor_interface: "Gi0/24",
+            mgmt_address: "192.0.2.2",
+          },
+          {
+            neighbor_name: "<b>r2</b>",
+            local_interface: "Gi1/0/2",
+            neighbor_interface: "Gi0/0/1",
+            mgmt_address: "10.9.9.2",
+          },
+        ],
+      },
+    ]);
+    const withText = (parsedText: string) =>
+      proposal({
+        parser: "textfsm",
+        state: "applied",
+        result: result({
+          parser: "textfsm",
+          output: "$ show cdp neighbors detail\nDevice ID: sw2",
+          parsedHandle: "res_aaaaaaaaaaaa",
+          parsedText,
+        }),
+      });
+
+    it("shows a table with headers and one row per neighbour", () => {
+      renderCard(withText(CDP_TEXT));
+
+      const tables = screen.getByTestId("device-command-tables");
+      expect(
+        within(tables)
+          .getAllByRole("columnheader")
+          .map((h) => h.textContent),
+      ).toEqual([
+        "Local interface",
+        "Neighbor",
+        "Neighbor interface",
+        "Management IP",
+      ]);
+      expect(within(tables).getAllByRole("row")).toHaveLength(3);
+      expect(within(tables).getByText("sw2.example.com")).toBeTruthy();
+      expect(within(tables).getByText("2 rows")).toBeTruthy();
+    });
+
+    it("shows device text as text, never as markup", () => {
+      renderCard(withText(CDP_TEXT));
+
+      const tables = screen.getByTestId("device-command-tables");
+      expect(within(tables).getByText("<b>r2</b>")).toBeTruthy();
+      expect(tables.querySelector("b")).toBeNull();
+    });
+
+    it("keeps the raw output and the JSON, collapsed, under the table", () => {
+      renderCard(withText(CDP_TEXT));
+
+      expect(
+        screen.getByTestId("device-command-output").closest("details")?.open,
+      ).toBe(false);
+      expect(screen.getByTestId("device-command-parsed").textContent).toContain(
+        "sw2.example.com",
+      );
+    });
+
+    it("says so when the cut CLI output makes the table a prefix", () => {
+      renderCard({
+        ...withText(CDP_TEXT),
+        result: result({
+          parser: "textfsm",
+          parsedHandle: "res_aaaaaaaaaaaa",
+          parsedText: CDP_TEXT,
+          truncated: true,
+        }),
+      });
+
+      expect(
+        screen.getByTestId("device-command-tables-incomplete").textContent,
+      ).toMatch(/may be incomplete/i);
+    });
+
+    it("has no incomplete notice when the output was not cut", () => {
+      renderCard(withText(CDP_TEXT));
+
+      expect(
+        screen.queryByTestId("device-command-tables-incomplete"),
+      ).toBeNull();
+    });
+
+    it("explains why there is no table when the parsed data was cut", () => {
+      const cut =
+        '[{"command": "x", "parsed": [{"a": "1"},\n…[cut: showed 100000 of 250000 characters; the rest is in the handle]';
+      renderCard(withText(cut));
+
+      expect(screen.queryByTestId("device-command-tables")).toBeNull();
+      expect(
+        screen.getByTestId("device-command-parsed-cut").textContent,
+      ).toMatch(/too long to show as a table/i);
+      expect(screen.getByTestId("device-command-download")).toBeTruthy();
+    });
+
+    it("gives no cut notice when there is simply nothing to tabulate", () => {
+      renderCard(
+        withText('[{"command": "show version", "parsed": {"version": {}}}]'),
+      );
+
+      expect(screen.queryByTestId("device-command-parsed-cut")).toBeNull();
+    });
+
+    it("shows only the raw output and the JSON when nothing can be a table", () => {
+      renderCard(
+        withText('[{"command": "show version", "parsed": {"version": {}}}]'),
+      );
+
+      expect(screen.queryByTestId("device-command-tables")).toBeNull();
+      expect(
+        screen.getByTestId("device-command-output").closest("details"),
+      ).toBeNull();
+      expect(screen.getByTestId("device-command-parsed")).toBeTruthy();
+    });
   });
 
   describe("downloading the parsed data", () => {

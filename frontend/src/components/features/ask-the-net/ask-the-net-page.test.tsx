@@ -97,6 +97,29 @@ describe("AskTheNetPage", () => {
     expect(session?.messages ?? []).toEqual([]);
   });
 
+  it("lists the neighbour tools in the help window and lets a question be picked", () => {
+    render(<AskTheNetPage />);
+
+    fireEvent.click(screen.getByRole("button", { name: /help/i }));
+    expect(screen.getByText("Neighbours (layer 2 and layer 3)")).toBeTruthy();
+    for (const tool of [
+      "propose_neighbor_discovery",
+      "get_discovery_result",
+      "get_modelled_neighbors",
+      "get_neighbor_sources",
+    ]) {
+      expect(screen.getByText(tool)).toBeTruthy();
+    }
+    fireEvent.click(
+      screen.getByRole("button", { name: /which routing protocols and vrfs/i }),
+    );
+
+    const session =
+      useAssistantSessionStore.getState().sessions[ASK_THE_NET_SESSION_KEY];
+    expect(session?.draft).toMatch(/routing protocols and vrfs/i);
+    expect(session?.messages ?? []).toEqual([]);
+  });
+
   it("shows nothing assistant-related while the status is loading", () => {
     status = { data: undefined, isLoading: true };
     render(<AskTheNetPage />);

@@ -581,6 +581,8 @@ def test_the_raw_handle_remembers_what_a_later_parse_needs() -> None:
     assert raw.meta["parser"] == "textfsm"  # the parser the user confirmed on the card
     assert raw.meta["network_driver"] == "cisco_ios"
     assert raw.meta["platform"] == "cisco_ios"
+    # which device it came from, so a later comparison uses that device and not a model's guess
+    assert raw.meta["device_name"] == "LAB"
     [[start, end]] = raw.meta["spans"]
     assert raw.text[start:end].startswith("Cisco IOS Software")
     assert "hunter2xx" not in raw.text[start:end]  # the offsets are into the redacted text

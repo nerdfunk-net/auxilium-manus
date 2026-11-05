@@ -91,6 +91,9 @@ def test_session_offers_batfish_and_result_tools() -> None:
         "diff_results",
         "list_playbooks",
         "get_playbook",
+        # neighbour reads that need no device (doc/AI_TOOL_CHAIN.md §24)
+        "get_modelled_neighbors",
+        "get_neighbor_sources",
     }
 
 
@@ -193,12 +196,15 @@ def test_the_device_tool_is_absent_unless_the_router_offers_a_resolver() -> None
     assert "propose_device_command" not in _session().system
 
 
-def test_with_a_resolver_the_session_offers_exactly_one_proposal_tool() -> None:
+def test_with_a_resolver_the_session_offers_exactly_the_two_proposal_tools() -> None:
     session = _session(device_resolver=_Resolver())
 
     names = [s.name for s in session.toolbox.specs()]
 
-    assert [n for n in names if n.startswith("propose")] == ["propose_device_command"]
+    assert [n for n in names if n.startswith("propose")] == [
+        "propose_device_command",
+        "propose_neighbor_discovery",
+    ]
     assert not [n for n in names if n.startswith(("run", "trigger", "execute", "start", "delete"))]
     assert "propose_device_command" in session.system
     assert "show running-config" in session.system

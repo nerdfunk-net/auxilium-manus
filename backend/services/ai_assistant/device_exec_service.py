@@ -252,6 +252,9 @@ class DeviceCommandExecutor:
             "parser": grant.parser,
             "network_driver": chosen_driver or device.network_driver,
             "platform": device.platform,
+            # Which device the output came from, so a later tool compares it with that device's
+            # documentation and not with one the model names (doc/AI_TOOL_CHAIN.md §45).
+            "device_name": device.name,
         }
         if raw.success and output:
             handle = await self._store_output(user_id, output, meta, truncated)

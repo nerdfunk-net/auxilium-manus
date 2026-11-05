@@ -275,11 +275,64 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
     tools: [
       {
         name: "propose_device_command",
-        description: "Proposes one read-only command for one device, which you confirm and run.",
+        description:
+          "Proposes read-only commands for one device, which you confirm and run. Ask for the output to be parsed (TextFSM, or Genie when it is available) and the result is shown as a table, with the raw output kept below it.",
         questions: [
           "Run show version on r1.",
           "What is the current uptime of r1?",
+          "Run show ip interface brief on r1 and parse it with TextFSM.",
         ],
+      },
+      {
+        name: "parse_command_output",
+        description:
+          "Parses the output of a command you already ran, without touching the device again. Genie only works if you approved Genie when you confirmed the command.",
+        questions: ["Parse that output with TextFSM."],
+      },
+    ],
+  },
+  {
+    id: "neighbors",
+    title: "Neighbours (layer 2 and layer 3)",
+    summary:
+      "Which devices are attached to a device (CDP/LLDP) and which routers it exchanges routes with. Live results come from read-only commands that you confirm: the assistant picks them from a reviewed list and never writes them. For layer 3 it asks which routing protocol and VRF to look at, unless you said. The sources can differ: the live device is current, the model is as old as its snapshot, and Nautobot is documentation that may be incomplete. Missing in a source means no data, not not connected.",
+    requirement:
+      "Live discovery is switched on by the operator and needs the command-execution permission and the opt-in to share content. The model view needs the permission to query Batfish. The comparison with Nautobot also needs the Nautobot read permission and the addresses opt-in. Supported: Cisco IOS and IOS-XE, NX-OS, IOS-XR, Arista EOS and Junos.",
+    tools: [
+      {
+        name: "propose_neighbor_discovery",
+        description:
+          "Proposes the neighbour commands for one device, which you confirm and run: CDP and LLDP neighbours (layer 2), the routing table next hops, or the adjacencies of one routing protocol (OSPF, BGP, EIGRP, IS-IS) in a VRF. It can also list the routing protocols and VRFs a device uses, so you can choose.",
+        questions: [
+          "Which devices are connected to r1 according to CDP and LLDP?",
+          "Which routing protocols and VRFs does r1 use?",
+          "Which OSPF neighbours does r1 have?",
+          "Show the next hops in the routing table of r1.",
+        ],
+      },
+      {
+        name: "get_discovery_result",
+        description:
+          "Reads the result of a discovery you confirmed and shows the neighbours as a table: interface, neighbour, address, platform or state. It checks each neighbour against the inventory and can compare the layer 2 neighbours with the cabling documented in Nautobot, listing what is confirmed, undocumented, missing on the device or in conflict.",
+        questions: [
+          "Compare the live neighbours of r1 with the cabling in Nautobot.",
+          "Which neighbours of r1 are not in the inventory?",
+        ],
+      },
+      {
+        name: "get_modelled_neighbors",
+        description:
+          "Layer 3 and routing protocol neighbours as the Batfish model sees them, without touching the device. Not live, and it has no layer 2 information.",
+        questions: [
+          "Which OSPF neighbours does r1 have in the model?",
+          "Which routers is r1 connected to at layer 3 in the newest snapshot?",
+        ],
+      },
+      {
+        name: "get_neighbor_sources",
+        description:
+          "Shows which evidence exists for a device (live discovery, the model, Nautobot cabling) and what its platform supports.",
+        questions: ["What can you tell me about the neighbours of r1, and from which sources?"],
       },
     ],
   },

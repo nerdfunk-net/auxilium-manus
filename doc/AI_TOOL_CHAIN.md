@@ -1778,7 +1778,7 @@ Read by code, nothing was run.
 
 ## 24. Connectivity tool: neighbours of a device (Layer 2 and Layer 3)
 
-Status 2026-10-30: **description only, no code.** Goal of this first tool: *return the connectivity of
+Status 2026-11-05: **built, see §45** (unit tests only, not run against a device). Design as of 2026-10-30. Goal of this first tool: *return the connectivity of
 one device to its neighbours.* A second tool (connectivity between two given devices) is composed from it
 (24.9). Markers as in §23: [OPEN-U] owner decides or looks up, [OPEN-C] Claude checks in code.
 
@@ -3243,9 +3243,18 @@ and **not run live** (unit tests only; see "Open").
   `parser: genie`. TextFSM needs no such approval, it never leaves the process tree. Offered with the
   device tool (resolver and result store present). Playbooks may name it (`known_general_tool_names`).
 * **Frontend.** The card shows "Parse the output with TextFSM/Genie" (with a note that Genie sends the redacted
-  output to the pyATS service), then the parsed JSON (collapsed) and the commands that did not parse. The follow-up
+  output to the pyATS service), then the parsed rows **as a table per command** (2026-11-05, see below), the raw
+  output and the parsed JSON (both collapsed once a table exists) and the commands that did not parse. The follow-up
   message names the parsed handle only if it matches `res_[0-9a-f]{12}`, and says when the output was cut so the
   parsed rows may be incomplete.
+* **Table view** (2026-11-05, frontend only, no server change). The card reads the `parsed_text` it already receives
+  (`utils/parsed-tables.ts`, `components/parsed-output-tables.tsx`): a command whose parsed data is a list of flat rows
+  becomes a table. Known neighbour columns come first (local interface, neighbour, neighbour interface, management IP,
+  platform, capabilities), the others follow in template order, columns empty in every row are hidden, headers are
+  readable ("Management IP"). At most 200 rows are drawn (`MAX_TABLE_ROWS`) with a note; the download still has all of
+  them. Cells are plain text (device text is never markup). Genie's nested data, a command that did not parse and a
+  `parsed_text` that was cut at 100,000 characters (no longer valid JSON) get no table and keep the old view (raw
+  output, JSON collapsed). Not looked at in a browser yet.
 * **Download.** `GET /ai/results/{handle}/rows` (`ai_assistant:use`, rate limit `ai-result-rows` 30/min) returns
   `{parser, rows}`: the **full** rows behind a `parsed_handle` (the card text is cut at 100,000 characters). Only the
   caller's own `parsed_output` handles resolve; a raw output, another user's handle, a malformed or an expired one are
@@ -3302,3 +3311,102 @@ separate tool was built. It lives in the shared library (`libs/nautobot_read/que
 * **Tests.** `libs/nautobot_read/tests/` (100 % coverage kept), `backend/tests/unit/test_ai_nautobot_tools.py`.
 * **Open.** The live check of `has_cable`; a real device with cabling through a patch panel; whether the
   prompt should push the model towards `cabled_only` for neighbour questions.
+
+## 45. Neighbour discovery tools (2026-11-05)
+
+Built from §24 (design), 2026-11-05, **not run against a device, a Batfish coordinator or a live Nautobot** (unit tests
+only; the TextFSM paths run the real `ntc_templates` over hand-written sample output).
+
+**Why a tool and a playbook.** The model could already ask for `show cdp neighbors detail` through
+`propose_device_command`, but it would have to know the syntax per platform and VRF, which commands have a TextFSM
+template, and it would get unnormalised rows. So the commands come from a reviewed catalogue and the model only
+chooses closed values. The layer 3 question ("which protocol?") is a conversation, so it lives in the playbook
+`neighbors-of-a-device` (`knowledge/playbooks/`) and in `NEIGHBOR_PROMPT`.
+
+**Tools** (`tools/neighbor_tools.py`):
+
+| Tool | Class | What it does |
+|---|---|---|
+| `propose_neighbor_discovery(device, layer, protocol, vrf)` | proposal | `layer` `l2`/`l3`/`both`; `protocol` `routing_table`/`ospf`/`bgp`/`eigrp`/`isis`/`discover`; `vrf` `default` or a name (`[A-Za-z0-9_.-]{1,32}`). Picks the commands from `neighbors/catalogue.py`, checks them with `command_policy.check_commands` again, and builds the **same signed `device_command` card** as §29 (`device_tools.make_device_proposal`). No new token, endpoint or frontend code. Parser `textfsm`, or `none` for `discover` |
+| `get_discovery_result(handle, compare_with_nautobot?)` | read, content | Takes the RAW handle of the run. Slices the stored output at the recorded offsets, parses it with TextFSM (`parse_stored_text`, no new handle), classifies each command back through the catalogue (a command that is not in it is never read as a neighbour), normalises rows into records (`neighbors/records.py`), matches L2 neighbours to the inventory (`DeviceResolver`, at most 25 lookups) and, with `compare_with_nautobot`, reconciles the live L2 neighbours with Nautobot's cabling for **the device the output came from** (its name is stored with the output, the model cannot name another; all cabled interfaces are read in pages of 200, up to 1000; addresses switch required). Result via `publish_table` (20-row preview, handle for the rest) |
+| `get_modelled_neighbors(network, device, edge_type)` | read, addresses | Batfish `edges` question (new reader kind `edges`, a generic question with `edgeType`). L3 only; says that Batfish has no CDP/LLDP |
+| `get_neighbor_sources(device?)` | read, inventory | which evidence exists and what the device's platform supports |
+
+**Catalogue** (`neighbors/catalogue.py`): IOS / IOS-XE, NX-OS, IOS-XR, EOS, Junos; the family comes from the inventory's
+Netmiko type (`device_access.netmiko_device_type`). A test fails when an entry breaks the command policy or has no
+template in the installed ntc-templates (9.3.0). Protocol discovery (`discover`) runs `show ip protocols` (IOS only),
+`show ip route summary` / `show route summary`, `show vrf` and similar **unparsed**: they have no template (§24.14, and
+on XR `show route summary` would match the `show route` template by prefix), the model reads the text and asks the
+user. Not supported, with a fixed message: other platforms, the Junos RIB, IS-IS on NX-OS, EIGRP on EOS/Junos, and
+per-VRF forms where no template exists (IOS OSPF/BGP/EIGRP/IS-IS, XR BGP, EOS OSPF).
+
+**Records** (`neighbors/records.py`): L2 `{local_interface, neighbor_name, neighbor_interface, neighbor_ip, platform,
+capabilities}`; L3 adjacencies `{protocol, vrf, neighbor_ip, neighbor_id, interface, state, uptime}` (BGP also
+`remote_as`, `prefixes_received`); the routing table is **aggregated** by `(route protocol, next hop, interface)` with
+counts and three example prefixes, and the summary always carries the number of routes per protocol and the default
+route. Connected and local routes are counted, not listed. Text from neighbouring devices is stripped of control
+characters and cut to 100 characters (it is attacker-influenced); the model is told to treat it as data.
+
+**Reconciliation** (`neighbors/matching.py`): keyed by the canonical local interface (`services/network/interface_names.py`);
+classes `confirmed`, `conflict`, `undocumented`, `not_seen_live`, with counts. Absence in a source is "no data".
+
+**Deviations from §24 (decided while building):**
+
+* No `vrf=all` and no check that a VRF name was discovered before use: the name is validated by pattern and by the
+  command policy, the device rejects an unknown VRF. Discovery lists the names.
+* No Genie fallback; a gap is "not supported" (§24.14 allowed either).
+* `get_documented_neighbors` is not a tool (as §44 already said); the comparison is `compare_with_nautobot` on
+  `get_discovery_result`. The Batfish model is not part of the reconciliation, it is its own tool.
+* IP-based inventory matching is not done (name only). `how` is `name` or `short_name`.
+* No separate rate limit bucket: the proposal opens no session; the confirm endpoint (`/ai/exec/device-command`) keeps
+  its per-minute limit and the two-runs-at-once cap.
+* If the inventory names no supported platform, the tool refuses; it does not ask for a device type on the card
+  because the commands are signed before the card (use `propose_device_command`).
+
+**Review fixes (`doc/analysis/REVIEW.md`, 2026-11-05).** All seven findings were reproduced and fixed, each pinned by a
+test that fails without the fix.
+
+* (High) NX-OS routing tables: `route_protocol` knew only IOS letter codes. NX-OS names the source with a word
+  (`static`, `direct`, `local`, `ospf-1`, `bgp-65001`), so everything became `other` and the device's own connected
+  addresses were reported as neighbours. A token of three letters or more is now read as a word (case-insensitive,
+  process id ignored), a shorter one as a whole IOS code (`am` is no longer read as `a`).
+* (Medium) Inventory lookup: `Lookup` has four outcomes (`match`, `none`, `ambiguous`, `unknown`). Ambiguous and
+  not-permitted lookups are `matched: null` with a note, never a match; a device without an address is found with
+  `resolve_without_address`. The summary counts `inventory_unclear`.
+* (Medium) CDP and LLDP for one port are both kept: the port is `confirmed` when either agrees with the
+  documentation, `live_sources_differ` says when they name different devices, and the live label lists both.
+* (Medium) VRF rows: a VRF command already limits its output, so an empty `vrf` value fits any VRF; a row that names a
+  VRF fits only that VRF (case-insensitive). If a command returned rows and none was usable, the result has an entry
+  in `errors` instead of an empty list.
+* (Medium) Comparison with Nautobot: the output is stored with `device_name` (`device_exec_service`), the model passes
+  only `compare_with_nautobot` (was `documented_device`), and an output stored without a device name is not compared.
+  All cabled interfaces are read (200 per page, up to 1000). If the documentation is still incomplete, `complete` is
+  false, ports not found are `not_compared` and `not_seen_live` is not worked out.
+* (Low) A match on the host part of a name only (`sw2.example.com` -> inventory `sw2`) has `how: short_name` and a
+  note. MAC-style chassis ids are no longer cut at their dots.
+* (Low) Table view: a cut `parsedText` (the server's `…[cut:` notice) now says so in the card, and a table built from
+  cut CLI output carries its own "may be incomplete" notice.
+
+**Help page.** The Ask the Net help window (`frontend/src/components/features/ask-the-net/constants/help-content.ts`) has a
+new section "Neighbours (layer 2 and layer 3)" with the four tools, their requirements and example questions, and the
+device-commands section now mentions parsing (shown as a table) and `parse_command_output`. Keep that file in step with
+the tool list when a tool is added.
+
+**Review notes for the human reviewer.** `device_tools.py` was refactored (the proposal builder is now
+`make_device_proposal`, behaviour unchanged, its tests pass). Existing tests that pin the tool set were updated on
+purpose (`test_ai_general_surface`, `test_ai_hardening` comment, `test_ai_playbook_tools`): the proposal tools are now
+`propose_device_command` and `propose_neighbor_discovery`. `batfish_tools` gained the query kind `edges` and two public
+aliases (`run_target_query`, `answer_context`).
+
+**Open (not verified):**
+
+* Everything against real devices: sample output per platform, the column names of the NX-OS / XR / EOS / Junos
+  templates (the IOS ones were run for real), VRF forms of the commands, `show ip route vrf X` matching the `show ip
+  route` template by prefix.
+* Batfish `edges`: whether `Interface` / `Remote_Interface` come back as `node[interface]` text or a mapping
+  (both are read), and that `edgeType` is accepted through the generic question.
+* A neighbour whose CDP name differs from its inventory name (suffixes, serials, fqdn vs short) is only matched by the
+  full name, then the host part.
+* `list_interfaces(cabled_only=True, limit=100)`: the library maximum for `limit` was not checked.
+* The live path through the card (one click for L2; the result shows as a table, §43 "Table view") and the model's use of the playbook.
+

@@ -96,6 +96,7 @@ QueryKind = Literal[
     "compare_filters",
     "differential_reachability",
     "ip_owners",
+    "edges",
 ]
 
 
@@ -631,6 +632,11 @@ def _context(source: str, args: Target, answer: BatfishAnswer) -> dict[str, Any]
         # The rows use the Batfish names; this says which device the user's name meant.
         context["nodes_resolved"] = dict(answer.nodes_resolved)
     return context
+
+
+# Public names for the neighbour tools (tools/neighbor_tools.py), which read the model the same way.
+run_target_query = _run
+answer_context = _context
 
 
 def _differential_context(source: str, args: Target, answer: BatfishAnswer) -> dict[str, Any]:

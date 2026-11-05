@@ -32,6 +32,7 @@ from services.ai_assistant.prompts import (
     DEVICE_COMMANDS_PROMPT,
     INVENTORY_PROMPT,
     NAUTOBOT_PROMPT,
+    NEIGHBOR_PROMPT,
     RELEASED_WORKFLOWS_PROMPT,
     REPORT_TEMPLATE_PROMPT,
     REPORTS_PROMPT,
@@ -80,6 +81,10 @@ from services.ai_assistant.tools.nautobot_tools import (
     NAUTOBOT_READER_KEY,
     NautobotQueryReader,
     build_nautobot_tools,
+)
+from services.ai_assistant.tools.neighbor_tools import (
+    build_neighbor_live_tools,
+    build_neighbor_read_tools,
 )
 from services.ai_assistant.tools.output_parse_tools import build_output_parse_tools
 from services.ai_assistant.tools.playbook_tools import AVAILABLE_TOOLS_KEY, build_playbook_tools
@@ -360,9 +365,13 @@ def build_general_session(
         # Playbooks only guide the Batfish tools, so they come with them; without the permission
         # the session has no tools at all.
         tools.extend(build_playbook_tools())
+        tools.extend(build_neighbor_read_tools())
         if device_resolver is not None:
             extras[DEVICE_RESOLVER_KEY] = device_resolver
             tools.extend(build_device_tools())
+            # Neighbour discovery (doc/AI_TOOL_CHAIN.md §24): the proposal sits with the device
+            # tools; reading its result needs the result store.
+            tools.extend(build_neighbor_live_tools(with_results=store is not None))
             # Parsing (doc/AI_TOOL_CHAIN.md §43): the parse tool reads stored outputs, so it needs
             # the store; Genie is offered only when the router found exactly one usable pyATS
             # source for this user.
@@ -409,6 +418,7 @@ def build_general_session(
     ]
     if device_resolver is not None and may_query_batfish:
         parts.append(DEVICE_COMMANDS_PROMPT)
+        parts.append(NEIGHBOR_PROMPT)
     if config_reader is not None and may_query_batfish:
         parts.append(CONFIG_BACKUP_PROMPT)
     if nautobot_reader is not None:

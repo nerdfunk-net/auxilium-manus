@@ -86,7 +86,11 @@ def test_known_general_tool_names_cover_the_batfish_result_and_playbook_tools() 
         "get_playbook",
     } <= names
     assert not {n for n in names if n.startswith(("run", "execute"))}
-    assert {n for n in names if n.startswith("propose")} == {"propose_device_command"}
+    assert {n for n in names if n.startswith("propose")} == {
+        "propose_device_command",
+        "propose_neighbor_discovery",
+    }
+    assert {"get_discovery_result", "get_modelled_neighbors", "get_neighbor_sources"} <= names
 
 
 def test_known_general_tool_names_cover_the_device_name_bridge() -> None:

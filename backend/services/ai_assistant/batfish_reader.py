@@ -379,6 +379,14 @@ class DbBatfishReader:
                 params={"nodes": params.get("nodes")},
             )
             return await preview.run_generic(source_id, generic)
+        if kind == "edges":
+            edges = BatfishGenericQueryRequest(
+                network=network,
+                snapshot=snapshot,
+                question="edges",
+                params={"nodes": params.get("nodes"), "edgeType": params.get("edge_type")},
+            )
+            return await preview.run_generic(source_id, edges)
         if kind == "interfaces":
             iface = BatfishInterfacePropertiesQueryRequest(
                 network=network, snapshot=snapshot, **params
