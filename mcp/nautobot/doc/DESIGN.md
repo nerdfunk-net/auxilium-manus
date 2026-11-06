@@ -97,6 +97,7 @@ vocabulary **before** the GraphQL call, and a miss returns the guiding error fro
 | `list_tags` | `content_type` |
 | `list_devices` | `location`, `role`, `status`, `tag`, `device_type`, `platform`, `name_contains`, `limit`, `offset` |
 | `get_device` | `device` (name or id) — includes interfaces, IPs and the cabling (`cable`, `connected_to`; cable labels are free text and not gated here, `doc/AI_TOOL_CHAIN.md` §44) |
+| `list_interfaces_by_mac` | `mac_address` (a complete MAC, any notation: colon, Cisco-dotted, dashes, any case; normalized by the lib to `AA:BB:CC:DD:EE:FF`), `limit`, `offset` — each row has `device`, `device_id`, `interface`, `mac_address`, `type`, `enabled`, `status`, `ip_addresses`; several rows are possible (shared virtual / all-zero MACs); the documented MAC, not a learned MAC table (`doc/AI_TOOL_CHAIN.md` §46) |
 | `list_device_types`, `list_platforms` | — (vocabulary) |
 | `list_virtual_chassis` | `name_contains`, `limit`, `offset` |
 | `get_virtual_chassis` | `virtual_chassis` (name or id) — every member with position, priority, type, address, master flag; the lib query is shared with the `get-virtual-chassis` workflow step |
@@ -146,7 +147,7 @@ Python 3.12. Package `nautobot_mcp/`:
 | `__main__.py` | `python -m nautobot_mcp`, stdio, logs to stderr, exit 2 on bad config | done |
 | `tools/common.py` | `@guarded` (`EXPECTED_ERRORS` to `ToolError`), `Limit`/`Offset` (`envelope()` is in the lib) | done |
 | `tools/organization.py` | wrappers; logic in the lib: `list_locations`, `get_location`, `list_location_types`, `list_roles`, `list_statuses`, `list_tags` | done |
-| `tools/dcim.py` | wrappers; logic in the lib: `list_devices`, `get_device`, `list_device_types`, `list_platforms`, `list_virtual_chassis`, `get_virtual_chassis` | done |
+| `tools/dcim.py` | wrappers; logic in the lib: `list_devices`, `get_device`, `list_interfaces_by_mac`, `list_device_types`, `list_platforms`, `list_virtual_chassis`, `get_virtual_chassis` | done |
 | `networks.py` (lib) | validates addresses/prefixes before any query (`InvalidInputError`) | done |
 | `tools/ipam.py` | wrappers; logic in the lib: `list_ip_addresses`, `list_prefixes`, `list_namespaces` | done |
 
@@ -187,7 +188,8 @@ a typo suggestion, a path lookup, devices by country including child locations, 
   are unique only per location, so a repeated name (or a short name in two domains) returns the
   candidates with location and id. At most 100 interfaces are
   returned (`interfaces_truncated` says when it was cut; the assistant's `list_interfaces`, built on
-  the lib query `dcim.list_interfaces`, pages the rest; not yet an MCP tool).
+  the lib query `dcim.list_interfaces`, pages the rest; not yet an MCP tool). The cross-device lookup
+  `list_interfaces_by_mac` (lib query `dcim.list_interfaces_by_mac`) is an MCP tool.
 - Known gap: two manufacturers can share a device type model name; the model filter would
   then be ambiguous. Not handled yet (no such data to test against).
 

@@ -192,7 +192,8 @@ def test_the_tool_set_is_reads_only_with_the_names_the_library_errors_point_to()
         "list_locations", "get_location", "list_location_types", "list_roles", "list_statuses",
         "list_tags", "list_devices", "get_device", "list_device_types", "list_platforms",
         "list_ip_addresses", "list_prefixes", "list_namespaces", "get_next_free_ip",
-        "list_interfaces", "list_virtual_chassis", "get_virtual_chassis",
+        "list_interfaces", "list_interfaces_by_mac", "list_virtual_chassis",
+        "get_virtual_chassis",
     }
     assert all(n.startswith(("get_", "list_")) for n in names)
 
@@ -1051,3 +1052,97 @@ def test_the_interface_tool_texts_tell_the_model_about_the_cabling() -> None:
 
     assert "cabled_only" in specs["list_interfaces"].description
     assert "connected_to" in specs["get_device"].description
+
+
+# -- which interface has this MAC address ----------------------------------------------------------
+
+MAC_ROW = {
+    "name": "Gi1", "type": "1000base-t", "enabled": True, "mac_address": "AA:BB:CC:00:01:00",
+    "status": {"name": "Active"}, "ip_addresses": [{"address": "10.0.0.1/24"}],
+    "device": {"id": UUID_DEV, "name": "sw-1"},
+}
+
+
+def _mac_toolbox(sharing: SharingPolicy) -> tuple[Toolbox, FakeNautobot]:
+    nautobot = FakeNautobot()
+    nautobot.rows["interfaces"] = [MAC_ROW]
+    return _toolbox(nautobot, sharing=sharing)
+
+
+def test_list_interfaces_by_mac_needs_the_addresses_switch_and_sends_nothing_without_it() -> None:
+    for sharing in (SharingPolicy(), BASIC):
+        box, nautobot = _mac_toolbox(sharing)
+
+        out = _data(_call(box, "list_interfaces_by_mac", mac_address="aabb.cc00.0100"))
+
+        assert out["not_shared"] == "device_addresses"
+        assert nautobot.requests == 0
+
+
+def test_list_interfaces_by_mac_answers_which_interface_on_which_device() -> None:
+    box, nautobot = _mac_toolbox(FULL)
+
+    data = _data(_call(box, "list_interfaces_by_mac", mac_address="aabb.cc00.0100"))
+
+    call = next(c for c in nautobot.page_calls if c["root"] == "interfaces")
+    assert call["filters"] == {"mac_address": ["AA:BB:CC:00:01:00"]}  # one canonical notation
+    assert data["items"] == [
+        {
+            "device": "sw-1", "device_id": UUID_DEV, "interface": "Gi1",
+            "mac_address": "AA:BB:CC:00:01:00", "type": "1000base-t", "enabled": True,
+            "status": "Active", "ip_addresses": ["10.0.0.1/24"],
+        }
+    ]
+    assert data["applied_filters"] == {"mac_address": "AA:BB:CC:00:01:00"}
+
+
+def test_list_interfaces_by_mac_pages_within_bounds_and_rejects_bad_input() -> None:
+    box, nautobot = _mac_toolbox(FULL)
+
+    _data(_call(box, "list_interfaces_by_mac", mac_address="aabb.cc00.0100", limit=100, offset=5))
+    assert next(c for c in nautobot.page_calls if c["root"] == "interfaces")["limit"] == 100
+
+    requests_before = nautobot.requests
+    for bad in (
+        {"mac_address": "aabb.cc00.0100", "limit": 101},
+        {"mac_address": "aabb.cc00.0100", "limit": 0},
+        {"mac_address": "aabb.cc00.0100", "offset": -1},
+        {"mac_address": ""},
+        {"mac_address": "aabb.cc00.0100", "device": "sw-1"},
+        {},
+    ):
+        out = _call(box, "list_interfaces_by_mac", **bad)
+        assert out.is_error and "Invalid input for list_interfaces_by_mac" in out.content
+    assert nautobot.requests == requests_before
+
+
+def test_list_interfaces_by_mac_explains_a_malformed_mac_to_the_model() -> None:
+    box, nautobot = _mac_toolbox(FULL)
+
+    out = _call(box, "list_interfaces_by_mac", mac_address="not-a-mac")
+
+    assert out.is_error and "not a valid MAC address" in out.content
+    assert nautobot.requests == 0
+
+
+def test_the_mac_tool_text_separates_the_documented_mac_from_the_learned_mac_table() -> None:
+    specs = {spec.name: spec for spec in _toolbox(sharing=FULL)[0].specs()}
+    text = specs["list_interfaces_by_mac"].description
+
+    assert "MAC address table" in text and "show mac address-table" in text
+    assert "any notation" in text or "any format" in text
+    for name in ("get_device", "list_interfaces"):
+        assert "mac_address" in specs[name].description
+
+
+def test_list_interfaces_keeps_showing_the_mac_only_with_the_addresses_switch() -> None:
+    nautobot = FakeNautobot()
+    nautobot.rows["interfaces"] = [{**INTERFACES[0], "mac_address": "AA:BB:CC:00:01:00"}]
+
+    box, _ = _toolbox(nautobot, sharing=FULL)
+    listed = _data(_call(box, "list_interfaces", device=UUID_DEV))
+    assert listed["items"][0]["mac_address"] == "AA:BB:CC:00:01:00"
+
+    box, other = _toolbox(FakeNautobot(), sharing=BASIC)
+    withheld = _data(_call(box, "list_interfaces", device=UUID_DEV))
+    assert withheld["not_shared"] == "device_addresses" and other.requests == 0

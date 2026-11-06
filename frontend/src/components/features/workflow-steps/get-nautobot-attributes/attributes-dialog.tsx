@@ -61,6 +61,7 @@ export function AttributesDialog({
             device. Core fields (ID, name, role, device type, platform, location,
             status) are always fetched regardless of what you select here — leaving
             everything unchecked is a valid choice if you only need those.
+            &quot;Poll all Interfaces&quot; includes each interface&apos;s MAC address.
           </DialogDescription>
         </DialogHeader>
 

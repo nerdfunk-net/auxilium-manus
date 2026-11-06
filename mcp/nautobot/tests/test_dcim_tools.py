@@ -80,3 +80,68 @@ async def test_a_list_with_more_pages_reports_the_total(mcp_client, nautobot):
     data = payload(await mcp_client.call_tool("list_devices", {"tag": "LAB", "limit": 1}))
     assert (data["total"], data["total_exact"]) == (42, True)
     assert nautobot.count_calls == [("devices", {"tags": ["lab"]})]
+
+
+MAC_ROW = {
+    "name": "Ethernet0/0", "type": "1000base-t", "enabled": True,
+    "mac_address": "AA:BB:CC:00:01:00", "status": {"name": "Active"},
+    "ip_addresses": [{"address": "192.168.178.240/24"}],
+    "device": {"id": UUID_DEV1, "name": "device-1"},
+}
+
+
+async def test_list_interfaces_by_mac_is_a_read_only_tool_that_explains_documented_versus_learned(
+    mcp_client,
+):
+    tools = {t.name: t for t in (await mcp_client.list_tools()).tools}
+    tool = tools["list_interfaces_by_mac"]
+
+    text = " ".join(tool.description.split())  # the docstring is wrapped; compare the words
+    assert tool.annotations.read_only_hint
+    assert "any notation" in text
+    assert "NOT the MAC address table a switch has learned" in text  # documented, not learned
+    assert tool.input_schema["required"] == ["mac_address"]
+
+
+async def test_list_interfaces_by_mac_finds_the_interface_and_its_device(mcp_client, nautobot):
+    nautobot.list_rows["interfaces"] = [MAC_ROW]
+
+    data = payload(
+        await mcp_client.call_tool(
+            "list_interfaces_by_mac", {"mac_address": "aabb.cc00.0100", "limit": 5, "offset": 2}
+        )
+    )
+
+    call = nautobot.page_calls[-1]
+    assert call["root"] == "interfaces"
+    assert call["filters"] == {"mac_address": ["AA:BB:CC:00:01:00"]}  # one canonical notation
+    assert (call["limit"], call["offset"]) == (5, 2)
+    assert data["items"] == [
+        {
+            "device": "device-1", "device_id": UUID_DEV1, "interface": "Ethernet0/0",
+            "mac_address": "AA:BB:CC:00:01:00", "type": "1000base-t", "enabled": True,
+            "status": "Active", "ip_addresses": ["192.168.178.240/24"],
+        }
+    ]
+    assert data["applied_filters"] == {"mac_address": "AA:BB:CC:00:01:00"}
+
+
+async def test_list_interfaces_by_mac_with_no_match_is_an_empty_answer_not_an_error(
+    mcp_client, nautobot
+):
+    nautobot.list_rows["interfaces"] = []
+
+    data = payload(
+        await mcp_client.call_tool("list_interfaces_by_mac", {"mac_address": "aabb.cc00.0999"})
+    )
+
+    assert data["items"] == [] and data["total"] == 0
+
+
+async def test_list_interfaces_by_mac_rejects_a_malformed_mac_with_a_message_for_the_model(
+    mcp_client, nautobot
+):
+    result = await mcp_client.call_tool("list_interfaces_by_mac", {"mac_address": "not-a-mac"})
+
+    assert result.is_error and "not a valid MAC address" in result.content[0].text
+    assert nautobot.page_calls == []  # nothing was sent to Nautobot

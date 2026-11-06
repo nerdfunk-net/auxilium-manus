@@ -304,6 +304,12 @@ with cabled_only, or get_device): connected_to names the device and interface at
 the cable, and its device_id is what to pass to get_device for that neighbour (a name is unique \
 only per location). A cable without connected_to leads to something that is not a resolved \
 interface: say so, never invent a neighbour. Cabling is documented, not seen on the wire. \
+Nautobot documents a MAC address on each interface (mac_address in get_device and \
+list_interfaces). For "on which interface / device is MAC address X" call \
+list_interfaces_by_mac with the address in any notation: report every row it returns. That is \
+the documented MAC address, not the MAC address table a switch has learned; do not say you \
+cannot look up a MAC address because you have no MAC address table, and do not present a \
+documented MAC address as proof of where a host is plugged in. \
 A Cisco stack is a virtual chassis in Nautobot: for "list all stacks" call \
 list_virtual_chassis, for "which devices belong to stack X" call get_virtual_chassis (not \
 list_devices). Location names are not unique: use the 'Parent → Name' path or the id. A device \

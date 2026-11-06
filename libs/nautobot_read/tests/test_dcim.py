@@ -294,3 +294,88 @@ async def test_list_interfaces_cabled_only_filters_on_has_cable(ctx, nautobot):
 async def test_list_interfaces_without_cabled_only_sends_no_cable_filter(ctx, nautobot):
     await run(ctx, "list_interfaces", device=UUID_DEV1)
     assert "has_cable" not in nautobot.page_calls[0]["filters"]
+
+
+# -- list_interfaces_by_mac: which interface has this documented MAC -----------------------------
+
+MAC_ROW = {
+    "name": "Ethernet0/0", "type": "1000base-t", "enabled": True,
+    "mac_address": "AA:BB:CC:00:01:00", "status": {"name": "Active"},
+    "ip_addresses": [{"address": "192.168.178.240/24"}],
+    "device": {"id": UUID_DEV1, "name": "device-1"},
+}
+
+
+async def test_list_interfaces_by_mac_returns_the_interface_with_its_device(ctx, nautobot):
+    nautobot.list_rows["interfaces"] = [MAC_ROW]
+    data = await run(ctx, "list_interfaces_by_mac", mac_address="AA:BB:CC:00:01:00")
+    call = nautobot.page_calls[-1]
+    assert call["root"] == "interfaces"
+    assert call["filters"] == {"mac_address": ["AA:BB:CC:00:01:00"]}
+    assert data["items"] == [
+        {
+            "device": "device-1", "device_id": UUID_DEV1, "interface": "Ethernet0/0",
+            "mac_address": "AA:BB:CC:00:01:00", "type": "1000base-t", "enabled": True,
+            "status": "Active", "ip_addresses": ["192.168.178.240/24"],
+        }
+    ]
+    assert data["applied_filters"] == {"mac_address": "AA:BB:CC:00:01:00"}
+    assert data["total"] == 1
+
+
+@pytest.mark.parametrize(
+    "written",
+    ["aabb.cc00.0100", "AA:BB:CC:00:01:00", "aa:bb:cc:00:01:00", "aa-bb-cc-00-01-00",
+     "aabbcc000100", " AABB.CC00.0100 "],
+)
+async def test_list_interfaces_by_mac_sends_every_notation_in_one_canonical_form(
+    ctx, nautobot, written
+):
+    await run(ctx, "list_interfaces_by_mac", mac_address=written)
+    assert nautobot.page_calls[-1]["filters"] == {"mac_address": ["AA:BB:CC:00:01:00"]}
+
+
+async def test_list_interfaces_by_mac_with_no_match_is_an_empty_page_not_an_error(ctx, nautobot):
+    nautobot.list_rows["interfaces"] = []
+    data = await run(ctx, "list_interfaces_by_mac", mac_address="aabb.cc00.0999")
+    assert data["items"] == [] and data["returned"] == 0 and data["total"] == 0
+
+
+async def test_list_interfaces_by_mac_can_match_several_interfaces(ctx, nautobot):
+    other = {**MAC_ROW, "name": "Port-channel10", "device": {"id": UUID_DEV2, "name": "device-2"}}
+    nautobot.list_rows["interfaces"] = [MAC_ROW, other]
+    data = await run(ctx, "list_interfaces_by_mac", mac_address="aabb.cc00.0100")
+    assert [(i["device"], i["interface"]) for i in data["items"]] == [
+        ("device-1", "Ethernet0/0"), ("device-2", "Port-channel10"),
+    ]
+
+
+async def test_list_interfaces_by_mac_pages_and_reports_more(ctx, nautobot):
+    nautobot.has_more = True
+    data = await run(
+        ctx, "list_interfaces_by_mac", mac_address="aabb.cc00.0100", limit=1, offset=3
+    )
+    call = nautobot.page_calls[-1]
+    assert (call["limit"], call["offset"]) == (1, 3)
+    assert data["has_more"] is True
+
+
+async def test_list_interfaces_by_mac_tolerates_an_interface_without_a_device_or_ips(ctx, nautobot):
+    nautobot.list_rows["interfaces"] = [
+        {"name": "lo0", "type": "virtual", "enabled": None, "mac_address": "00:00:00:00:00:00",
+         "status": None, "ip_addresses": None, "device": None}
+    ]
+    [item] = (await run(ctx, "list_interfaces_by_mac", mac_address="00:00:00:00:00:00"))["items"]
+    assert item["device"] is None and item["device_id"] is None
+    assert item["ip_addresses"] == [] and item["status"] is None
+
+
+@pytest.mark.parametrize(
+    "bad", ["", "  ", "aabb.cc00", "zzzz.zzzz.zzzz", "aabb.cc00.0100.0000", "10.0.0.1"]
+)
+async def test_list_interfaces_by_mac_rejects_a_malformed_mac_before_calling_nautobot(
+    ctx, nautobot, bad
+):
+    with pytest.raises(InvalidInputError, match="MAC"):
+        await run(ctx, "list_interfaces_by_mac", mac_address=bad)
+    assert nautobot.page_calls == []

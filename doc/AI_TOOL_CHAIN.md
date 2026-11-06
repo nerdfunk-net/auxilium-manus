@@ -2750,7 +2750,7 @@ live question.
   upstream text. A source whose credentials do not load is skipped and logged with its
   error type (not the message); all sources failing is logged apart from having none configured. The name vocabularies are cached per instance and token for the process (`vocabularies_for`,
   5 minutes, at most 8 instances), not per chat request.
-* **Tools** `tools/nautobot_tools.py`, 17 reads (15 with the MCP tool names, plus `get_next_free_ip` and `list_interfaces`, §34; `list_virtual_chassis` and `get_virtual_chassis` are MCP tools too, see "Virtual chassis" below) (`list_devices`, `get_device`,
+* **Tools** `tools/nautobot_tools.py`, 18 reads (16 with the MCP tool names, `list_interfaces_by_mac` (§46) among them, plus `get_next_free_ip` and `list_interfaces` (§34); `list_virtual_chassis` and `get_virtual_chassis` are MCP tools too, see "Virtual chassis" below) (`list_devices`, `get_device`,
   `list_locations`, `get_location`, `list_location_types`, `list_roles`, `list_statuses`, `list_tags`,
   `list_device_types`, `list_platforms`, `list_ip_addresses`, `list_prefixes`, `list_namespaces`); the
   names are shared on purpose, the library's errors say "use list_devices". A page is 20 rows by default, 100 at
@@ -2762,7 +2762,8 @@ live question.
   |---|---|
   | roles, statuses, tags, device types, platforms, namespaces, location types, the location tree | nothing |
   | location description, facility, address, time zone, coordinates | inventory |
-  | devices (`list_devices`, `get_device`) | inventory; `primary_ip4/6`, `serial`, `asset_tag`, interfaces also addresses |
+  | devices (`list_devices`, `get_device`) | inventory; `primary_ip4/6`, `serial`, `asset_tag`, interfaces (with each interface's `mac_address`) also addresses |
+  | `list_interfaces`, `list_interfaces_by_mac` (§46) | addresses (whole tool, checked before any request) |
   | `list_ip_addresses`, `list_prefixes`, `get_next_free_ip` | addresses (whole tool, checked **before** any request, so a count cannot leak) |
   | device `comments` | never |
 
@@ -3459,4 +3460,61 @@ checked yet whether a command form with a template exists, which is the first st
 * `list_interfaces(cabled_only=True)`: read in pages of 200 (the library maximum `MAX_LIMIT`, checked in code) up to 1000
   interfaces; the paging (`offset`, `has_more`) against a real Nautobot was not run.
 * The live path through the card (one click for L2; the result shows as a table, §43 "Table view") and the model's use of the playbook.
+
+## 46. Finding an interface by MAC address: `list_interfaces_by_mac` (2026-11-05)
+
+**Why.** Asked *"On which interface can I find the MAC address AA:BB:CC:00:01:00?"* the assistant answered that none of
+its tools reads a device's MAC address table. The MAC was already in the data (§31/§44: the Nautobot attribute query
+selects `mac_address` for every interface, so `get_device`, `list_interfaces` and `get_device_attributes` return it, and
+so does the `get-nautobot-attributes` bag), but nothing could search **across devices** by MAC (`list_interfaces`
+needs a `device`), and nothing told the model that Nautobot documents interface MACs. Verified on the dev Nautobot
+3.2 (read-only GraphQL): the stored bags of runs 498 and 499 carry `mac_address` on every interface, and the
+step's query was not changed.
+
+**Tool** `list_interfaces_by_mac(mac_address, limit, offset)` (`tools/nautobot_tools.py`, library
+`queries/dcim.py::list_interfaces_by_mac`; **also an MCP tool** with the same name and arguments,
+`mcp/nautobot/nautobot_mcp/tools/dcim.py`, which, like the other MCP tools, has no per-user data switches: it returns what the
+Nautobot token may read and `READ_ONLY` annotates it):
+
+* `mac_address` is a complete MAC in any notation (`aa:bb:cc:00:01:00`, `aabb.cc00.0100`, `aa-bb-cc-00-01-00`, any case,
+  or bare hex). `networks.mac_address` turns it into `AA:BB:CC:DD:EE:FF` before the request and rejects anything else with a
+  message for the model (a malformed value would otherwise surface as a raw GraphQL error). Nautobot's
+  `interfaces(mac_address: [...])` filter matched the same interface for the colon, lower-case and Cisco-dotted forms.
+  Partial matches (`mac_address__ic`) work only on the canonical colon form and are not offered.
+* Each row: `device`, `device_id`, `interface`, `mac_address`, `type`, `enabled`, `status`, `ip_addresses`, plus the
+  usual `total` / `has_more` / `applied_filters`. No description or cabling (no free text to withhold). **Several rows are
+  possible**: all-zero and virtual MACs are shared (the dev Nautobot has `00:00:00:00:00:00` on a port-channel), so the
+  description tells the model to report every row, and an empty answer means "not documented", not "does not exist".
+* **Gating:** data class *addresses*, checked before any request (like `list_interfaces`); MAC addresses are address data,
+  the class the Catalyst Center tools already use for `mac_address` (§42).
+* **Documented, not learned.** The tool description and the general prompt say this is the MAC recorded on an interface in
+  Nautobot, **not** the MAC address table a switch has learned: "which port does host X sit behind" is answered live by
+  `show mac address-table`, which the model may propose with `propose_device_command` (§29) when it is offered. The
+  prompt also forbids the earlier answer ("no MAC address table, so I cannot look it up") and presenting a documented
+  MAC as proof of where a host is plugged in.
+* The descriptions of `get_device`, `list_interfaces` and `get_device_attributes` now name `mac_address`.
+
+**Help page.** The Ask the Net help dialog (`frontend/.../ask-the-net/constants/help-content.ts`) lists
+`list_interfaces_by_mac` in the Nautobot section with the example questions, says the MAC is the documented one and
+needs the addresses opt-in, mentions the MAC on `get_device` / `list_interfaces`, and names `show mac address-table`
+(live device commands) for the learned table; `help-content.test.ts` pins these entries.
+
+**Workflow step.** The help and dialog text of `get-nautobot-attributes` name the MAC and its path
+(`nautobot.interfaces[name=Ethernet0/0].mac_address`) and point to Update Attribute / Update Device for changing it.
+
+**Tests.** Library: every notation, malformed values (nothing sent), no match, several matches, paging, rows without a
+device (`libs/nautobot_read/tests/test_dcim.py`, 100 % coverage kept). Backend: the gate sends nothing without the
+addresses switch, canonical filter, bounded inputs, readable error, the description separates documented MAC from the MAC
+table (`test_ai_nautobot_tools.py`); `test_nautobot_attribute_bag_query.py` pins `mac_address` in the `interfaces` selection
+for every cables layout (mutation-checked); a vitest render test pins the Help tab text.
+
+**Open (not verified).**
+
+* A live run with a real model: whether it now picks `list_interfaces_by_mac` for the question above and phrases the
+  documented-vs-learned difference correctly (the tool, its gate and the prompt text are unit-tested only).
+* The MCP tool was tested against the fake client of `mcp/nautobot/tests` only (registration, read-only annotation, the
+  canonical filter, paging, empty answer, a malformed MAC as a tool error; coverage stays 100 %), not through a real MCP
+  client against the dev Nautobot. `list_interfaces` itself is still not an MCP tool.
+* A learned-MAC lookup on the device itself (`show mac address-table` through the §29 card, optionally parsed with §43)
+  works through the existing proposal tool; there is no dedicated tool or playbook for it yet.
 

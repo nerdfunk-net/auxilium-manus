@@ -1,4 +1,4 @@
-"""DCIM tools: devices, device types and platforms (the logic is in nautobot_read)."""
+"""DCIM tools: devices, interfaces by MAC, device types and platforms (logic in nautobot_read)."""
 
 from __future__ import annotations
 
@@ -65,6 +65,33 @@ def register(server: MCPServer, app: QueryContext) -> None:
         error lists them with their ids.
         """
         return await dcim.get_device(app, device=device)
+
+    @server.tool(annotations=READ_ONLY)
+    @guarded
+    async def list_interfaces_by_mac(
+        mac_address: Annotated[
+            str,
+            Field(description="A complete MAC address in any notation: aa:bb:cc:00:01:00, "
+                  "aabb.cc00.0100 (Cisco), aa-bb-cc-00-01-00, in any case."),
+        ],
+        limit: Limit = DEFAULT_LIMIT,
+        offset: Offset = 0,
+    ) -> dict[str, Any]:
+        """Find the interface, on any device, that has this MAC address in Nautobot.
+
+        Give a complete MAC address in any notation (aa:bb:cc:00:01:00, aabb.cc00.0100,
+        aa-bb-cc-00-01-00). Answers "on which interface can I find the MAC address
+        aa:bb:cc:00:01:00?". Each row has
+        device, device_id, interface, mac_address, type, enabled, status and ip_addresses.
+        Several rows are possible (virtual and all-zero MAC addresses are shared), so report
+        every row; an empty answer means no interface has that MAC address documented, not that
+        it does not exist. This is the MAC address documented on an interface, NOT the MAC
+        address table a switch has learned: for "behind which port does this host sit" read
+        the switch itself (show mac address-table). Documented, not live.
+        """
+        return await dcim.list_interfaces_by_mac(
+            app, mac_address=mac_address, limit=limit, offset=offset
+        )
 
     @server.tool(annotations=READ_ONLY)
     @guarded

@@ -292,7 +292,8 @@ INVENTORY_TOOLS: tuple[Tool, ...] = (
         "get_device_attributes",
         "Nautobot attributes of one device (by id from another result), optionally only some. "
         "Addresses, custom fields and config context are returned only if the user enabled them; "
-        "withheld_attributes says which and why.",
+        "withheld_attributes says which and why. The interfaces attribute includes each "
+        "interface's mac_address.",
         AttributesInput,
         _get_device_attributes,
     ),

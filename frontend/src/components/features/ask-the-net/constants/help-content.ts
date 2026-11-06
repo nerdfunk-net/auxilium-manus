@@ -145,7 +145,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
       {
         name: "list_devices / get_device",
         description:
-          "Searches devices by name, role, location, status, platform or tag, and shows one device. The interfaces of a device also show their documented cable and the device and interface at the other end.",
+          "Searches devices by name, role, location, status, platform or tag, and shows one device. The interfaces of a device also show their documented MAC address, their documented cable and the device and interface at the other end.",
         questions: [
           "How many devices are in Nautobot?",
           "List the active switches in Berlin.",
@@ -155,11 +155,21 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
       {
         name: "list_interfaces",
         description:
-          "Interfaces of a device as documented in Nautobot, page by page. An interface with a documented cable also shows the device and interface at the other end of the cable, so this is how the assistant finds the neighbours of a device. Interfaces without a cable show no cable data; that means no cable is documented, not that nothing is plugged in. Cable labels need the content opt-in.",
+          "Interfaces of a device as documented in Nautobot, page by page, each with its documented MAC address. An interface with a documented cable also shows the device and interface at the other end of the cable, so this is how the assistant finds the neighbours of a device. Interfaces without a cable show no cable data; that means no cable is documented, not that nothing is plugged in. Cable labels need the content opt-in.",
         questions: [
           "Which interfaces of r1 are documented in Nautobot?",
           "Which devices are connected to r1 according to Nautobot?",
           "Show only the cabled interfaces of r1.",
+          "What is the MAC address of Ethernet0/0 on r1 in Nautobot?",
+        ],
+      },
+      {
+        name: "list_interfaces_by_mac",
+        description:
+          "Finds the interface, on any device, that has a given MAC address in Nautobot. Write the address in any notation: AA:BB:CC:00:01:00, aabb.cc00.0100 or aa-bb-cc-00-01-00. Several interfaces can share one address (virtual and all-zero MAC addresses), so every match is listed. An empty answer means no interface has that MAC address documented, not that it does not exist. This is the MAC address recorded on the interface, not the MAC address table a switch has learned: to see behind which port a host sits, ask for the live table (see Live device commands). Needs the addresses opt-in.",
+        questions: [
+          "On which interface can I find the MAC address AA:BB:CC:00:01:00?",
+          "Which device has the MAC address aabb.cc00.0100?",
         ],
       },
       {
@@ -276,10 +286,11 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
       {
         name: "propose_device_command",
         description:
-          "Proposes read-only commands for one device, which you confirm and run. Ask for the output to be parsed (TextFSM, or Genie when it is available) and the result is shown as a table, with the raw output kept below it.",
+          "Proposes read-only commands for one device, which you confirm and run. Ask for the output to be parsed (TextFSM, or Genie when it is available) and the result is shown as a table, with the raw output kept below it. This is also how to read the MAC address table a switch has learned.",
         questions: [
           "Run show version on r1.",
           "What is the current uptime of r1?",
+          "Show the MAC address table of switch1 (show mac address-table) and find the port that learned aabb.cc00.0100.",
           "Run show ip interface brief on r1 and parse it with TextFSM.",
         ],
       },

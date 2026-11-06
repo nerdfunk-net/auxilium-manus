@@ -130,6 +130,17 @@ class ListInterfacesInput(_Input):
     offset: Skip = 0
 
 
+class ListInterfacesByMacInput(_Input):
+    mac_address: Name = Field(
+        description=(
+            "The MAC address to look for, in any notation: aa:bb:cc:00:01:00, aabb.cc00.0100 "
+            "(Cisco), aa-bb-cc-00-01-00, in any case. A complete address, not a part."
+        )
+    )
+    limit: Page = DEFAULT_PAGE
+    offset: Skip = 0
+
+
 class ListVirtualChassisInput(_Input):
     name_contains: Name | None = Field(None, description="Part of the virtual chassis name.")
     limit: Page = DEFAULT_PAGE
@@ -498,7 +509,9 @@ def build_nautobot_tools() -> tuple[Tool, ...]:
             "cable path) when that end is an interface Nautobot could resolve and the token may "
             "see: a cable without connected_to leads to something else (circuit, console, "
             "power) or to an unresolved or hidden end, so do not guess a neighbour. A cable "
-            "with several lanes shows one far end only. Documented, often incomplete or stale. "
+            "with several lanes shows one far end only. Each interface also shows its "
+            "mac_address as documented in Nautobot (null when none is recorded). Documented, "
+            "often incomplete or stale. "
             "An interface without a cable key has no cable in Nautobot. Needs the inventory "
             "data switch.",
             GetDeviceInput,
@@ -518,6 +531,8 @@ def build_nautobot_tools() -> tuple[Tool, ...]:
             "cable with several lanes shows one far end only. cabled_only=true lists the "
             "cabled interfaces, the starting point for 'what are the neighbours of this "
             "device'. No cable keys means no cable documented, not that nothing is plugged in. "
+            "Each interface shows its documented mac_address. To find which interface has a "
+            "given MAC address, on any device, use list_interfaces_by_mac. "
             "Documented, not live state. "
             "Needs the addresses data switch; interface descriptions and cable labels also "
             "need the content switch.",
@@ -525,6 +540,24 @@ def build_nautobot_tools() -> tuple[Tool, ...]:
             dcim.list_interfaces,
             gate=DataClass.ADDRESSES,
             shape=_withhold_interface_descriptions,
+        ),
+        _tool(
+            "list_interfaces_by_mac",
+            "Which interface, on which device, has this MAC address in Nautobot: the answer to "
+            "'on which interface can I find the MAC address aa:bb:cc:00:01:00?'. Give a complete "
+            "MAC address in any notation (aa:bb:cc:00:01:00, aabb.cc00.0100, aa-bb-cc-00-01-00, "
+            "any case). Each row has device, device_id, interface, mac_address, type, enabled, "
+            "status and ip_addresses. Several rows are possible (virtual and all-zero MAC "
+            "addresses are shared), so report every row and total; an empty answer means no "
+            "interface has that MAC address documented, not that it does not exist. This is "
+            "the MAC address documented on an interface, NOT the MAC address table a switch has "
+            "learned: for 'which port does this host sit behind' the live answer is the output "
+            "of show mac address-table on the switch (propose it with propose_device_command "
+            "when that tool is offered; otherwise say it cannot be read). Page with offset while "
+            "has_more is true. Documented, not live. Needs the addresses data switch.",
+            ListInterfacesByMacInput,
+            dcim.list_interfaces_by_mac,
+            gate=DataClass.ADDRESSES,
         ),
         _tool(
             "list_device_types",

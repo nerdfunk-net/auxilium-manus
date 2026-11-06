@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from nautobot_read import networks
 from nautobot_read.context import QueryContext
 from nautobot_read.queries.common import (
     DEFAULT_LIMIT,
@@ -50,6 +51,12 @@ INTERFACE_SELECTION = (
     "name type enabled mac_address description status { name } ip_addresses { address } "
     "cable { id label status { name } } "
     "connected_endpoint { __typename ... on InterfaceType { name device { id name } } }"
+)
+# A MAC lookup spans devices, so each row names its device; no description or cabling: the answer
+# is "where is this MAC", and a description is free text the assistant tools would have to withhold.
+MAC_LOOKUP_SELECTION = (
+    "name type enabled mac_address status { name } ip_addresses { address } "
+    "device { id name }"
 )
 DEVICE_NAME_QUERY = "query($id: ID!) { device(id: $id) { name } }"
 DEVICE_TYPE_SELECTION = "model manufacturer { name }"
@@ -216,6 +223,41 @@ async def list_interfaces(
     return await list_with_total(
         ctx, "interfaces", INTERFACE_SELECTION, filters, limit=limit, offset=offset,
         to_item=_interface_item, applied=applied,
+    )
+
+
+def _mac_lookup_item(row: dict[str, Any]) -> dict[str, Any]:
+    device = row.get("device") or {}
+    return {
+        "device": device.get("name"),
+        "device_id": device.get("id"),
+        "interface": row["name"],
+        "mac_address": row.get("mac_address"),
+        "type": row.get("type"),
+        "enabled": row.get("enabled"),
+        "status": (row.get("status") or {}).get("name"),
+        "ip_addresses": [ip["address"] for ip in row.get("ip_addresses") or []],
+    }
+
+
+async def list_interfaces_by_mac(
+    ctx: QueryContext,
+    *,
+    mac_address: str,
+    limit: int = DEFAULT_LIMIT,
+    offset: int = 0,
+) -> dict[str, Any]:
+    """The interfaces, on any device, whose MAC address in Nautobot equals ``mac_address``.
+
+    The MAC may be written in any notation. This is the **documented** MAC of an interface, not
+    the MAC address table a switch has learned. Several interfaces can match (virtual and
+    all-zero MACs are shared), so the answer is rows plus ``total``, never assumed to be one.
+    """
+    check_paging(limit, offset)
+    mac = networks.mac_address(mac_address)
+    return await list_with_total(
+        ctx, "interfaces", MAC_LOOKUP_SELECTION, {"mac_address": [mac]},
+        limit=limit, offset=offset, to_item=_mac_lookup_item, applied={"mac_address": mac},
     )
 
 

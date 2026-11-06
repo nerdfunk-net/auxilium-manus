@@ -2232,7 +2232,10 @@ plugins:
             Optional additional Nautobot attribute groups to retrieve for each
             device, on top of the core fields (ID, name, role, device type,
             platform, location, status, …) that are always fetched. An empty
-            list is valid — it means "core fields only".
+            list is valid — it means "core fields only". The interfaces group
+            brings each interface's name, type, enabled, mac_address, mtu,
+            description, status, IP addresses and VLANs, read as
+            nautobot.interfaces[name=Ethernet0/0].mac_address.
           data_type: string_list
           required: false
           default: []

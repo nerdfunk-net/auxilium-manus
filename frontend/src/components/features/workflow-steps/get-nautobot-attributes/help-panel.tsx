@@ -87,8 +87,16 @@ export function GetNautobotAttributesHelpPanel() {
         <p className="font-medium text-foreground">Available groups:</p>
         <ul className="list-disc space-y-1.5 pl-4">
           <li>
-            <HelpCode>interfaces</HelpCode> — all interfaces on the device
-            (name, type, enabled, IP assignments, etc.).
+            <HelpCode>interfaces</HelpCode> — all interfaces on the device:
+            name, type, enabled, <HelpCode>mac_address</HelpCode>, mtu,
+            description, status, IP assignments and VLANs. They land in{" "}
+            <HelpCode>nautobot.interfaces</HelpCode> as a list; read one
+            interface&apos;s MAC with{" "}
+            <HelpCode>nautobot.interfaces[name=Ethernet0/0].mac_address</HelpCode>{" "}
+            (the value is empty when Nautobot has no MAC for it). To change a
+            MAC, write it back with Update Attribute and apply it with Update
+            Device (<HelpCode>interfaces_source: nautobot_origin</HelpCode>), or
+            map it from a parsed list in Update Device.
           </li>
           <li>
             <HelpCode>custom_fields</HelpCode> — Nautobot custom field values
