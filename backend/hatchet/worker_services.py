@@ -23,6 +23,7 @@ from contextlib import asynccontextmanager
 import service_factory
 from core.database import SessionLocal
 from core.logging_config import WORKER_PROCESS_NAME
+from services.aci.client import AciService
 from services.batfish.client import BatfishService
 from services.catalyst_center.client import CatalystCenterService
 from services.ise.client import ISEService
@@ -62,6 +63,10 @@ async def start_all(
     await catalyst_center_service.startup()
     service_factory.set_catalyst_center_app_service(catalyst_center_service)
 
+    aci_service = AciService()
+    await aci_service.startup()
+    service_factory.set_aci_app_service(aci_service)
+
     pyats_service = PyATSShimService()
     await pyats_service.startup()
     service_factory.set_pyats_app_service(pyats_service)
@@ -89,6 +94,7 @@ async def start_all(
         await nautobot_service.shutdown()
         await ise_service.shutdown()
         await catalyst_center_service.shutdown()
+        await aci_service.shutdown()
         await pyats_service.shutdown()
         await batfish_service.shutdown()
         await mattermost_service.shutdown()

@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 
+import { useAciSourcesQuery } from "@/hooks/queries/use-aci-sources-query";
 import { useAgentSourcesQuery } from "@/hooks/queries/use-agent-sources-query";
 import { useBatfishSourcesQuery } from "@/hooks/queries/use-batfish-sources-query";
 import { useCatalystCenterSourcesQuery } from "@/hooks/queries/use-catalyst-center-sources-query";
@@ -51,6 +52,14 @@ export function useSourcesSettings() {
     () => catalystCenter.map((item) => item.source_id),
     [catalystCenter],
   );
+
+  const { data: aciData, isLoading: isAciLoading } = useAciSourcesQuery();
+  const aci = useMemo(() => aciData?.sources ?? [], [aciData]);
+  const aciById = useMemo(
+    () => new Map(aci.map((item) => [item.source_id, item])),
+    [aci],
+  );
+  const existingAciIds = useMemo(() => aci.map((item) => item.source_id), [aci]);
 
   const { data: pyatsData, isLoading: isPyatsLoading } = usePyATSSourcesQuery();
   const pyats = useMemo(() => pyatsData?.sources ?? [], [pyatsData]);
@@ -126,6 +135,7 @@ export function useSourcesSettings() {
   const iseDialogOpen = dialog.type === "ise" ? dialog : null;
   const catalystCenterDialogOpen =
     dialog.type === "catalyst_center" ? dialog : null;
+  const aciDialogOpen = dialog.type === "aci" ? dialog : null;
   const pyatsDialogOpen = dialog.type === "pyats" ? dialog : null;
   const mattermostDialogOpen = dialog.type === "mattermost" ? dialog : null;
   const batfishDialogOpen = dialog.type === "batfish" ? dialog : null;
@@ -172,6 +182,22 @@ export function useSourcesSettings() {
       credentialId: editing.credential_id,
     };
   }, [catalystCenterDialogOpen, catalystCenterById]);
+  const editingAciValue = useMemo(() => {
+    if (aciDialogOpen?.mode !== "edit" || !aciDialogOpen.sourceId) {
+      return null;
+    }
+    const editing = aciById.get(aciDialogOpen.sourceId) ?? null;
+    if (!editing) {
+      return null;
+    }
+    return {
+      sourceId: editing.source_id,
+      url: editing.url,
+      verifySsl: editing.verify_ssl,
+      timeout: editing.timeout,
+      credentialId: editing.credential_id,
+    };
+  }, [aciDialogOpen, aciById]);
   const editingPyatsValue = useMemo(() => {
     if (pyatsDialogOpen?.mode !== "edit" || !pyatsDialogOpen.sourceId) {
       return null;
@@ -244,6 +270,8 @@ export function useSourcesSettings() {
       ? saveHandlers.deleteIseSourceIsPending
       : deleteDialogOpen?.sourceType === "catalyst_center"
         ? saveHandlers.deleteCatalystCenterSourceIsPending
+        : deleteDialogOpen?.sourceType === "aci"
+        ? saveHandlers.deleteAciSourceIsPending
         : deleteDialogOpen?.sourceType === "pyats"
         ? saveHandlers.deletePyatsSourceIsPending
         : deleteDialogOpen?.sourceType === "mattermost"
@@ -262,12 +290,14 @@ export function useSourcesSettings() {
       nautobot,
       ise,
       catalystCenter,
+      aci,
       pyats,
       mattermost,
       batfish,
       agent,
       isIseLoading,
       isCatalystCenterLoading,
+      isAciLoading,
       isPyatsLoading,
       isMattermostLoading,
       isBatfishLoading,
@@ -275,6 +305,7 @@ export function useSourcesSettings() {
       existingNautobotIds,
       existingIseIds,
       existingCatalystCenterIds,
+      existingAciIds,
       existingPyatsIds,
       existingMattermostIds,
       existingBatfishIds,
@@ -284,6 +315,8 @@ export function useSourcesSettings() {
       updateIse: saveHandlers.updateIse,
       saveCatalystCenter: saveHandlers.saveCatalystCenter,
       updateCatalystCenter: saveHandlers.updateCatalystCenter,
+      saveAci: saveHandlers.saveAci,
+      updateAci: saveHandlers.updateAci,
       savePyats: saveHandlers.savePyats,
       updatePyats: saveHandlers.updatePyats,
       saveMattermost: saveHandlers.saveMattermost,
@@ -296,6 +329,7 @@ export function useSourcesSettings() {
       nautobotDialogOpen,
       iseDialogOpen,
       catalystCenterDialogOpen,
+      aciDialogOpen,
       pyatsDialogOpen,
       mattermostDialogOpen,
       batfishDialogOpen,
@@ -304,6 +338,7 @@ export function useSourcesSettings() {
       editingNautobot,
       editingIseValue,
       editingCatalystCenterValue,
+      editingAciValue,
       editingPyatsValue,
       editingMattermostValue,
       editingBatfishValue,
@@ -316,6 +351,8 @@ export function useSourcesSettings() {
         saveHandlers.createCatalystCenterSourceIsPending,
       updateCatalystCenterSourceIsPending:
         saveHandlers.updateCatalystCenterSourceIsPending,
+      createAciSourceIsPending: saveHandlers.createAciSourceIsPending,
+      updateAciSourceIsPending: saveHandlers.updateAciSourceIsPending,
       createPyatsSourceIsPending: saveHandlers.createPyatsSourceIsPending,
       updatePyatsSourceIsPending: saveHandlers.updatePyatsSourceIsPending,
       createMattermostSourceIsPending: saveHandlers.createMattermostSourceIsPending,
@@ -331,12 +368,14 @@ export function useSourcesSettings() {
       nautobot,
       ise,
       catalystCenter,
+      aci,
       pyats,
       mattermost,
       batfish,
       agent,
       isIseLoading,
       isCatalystCenterLoading,
+      isAciLoading,
       isPyatsLoading,
       isMattermostLoading,
       isBatfishLoading,
@@ -344,6 +383,7 @@ export function useSourcesSettings() {
       existingNautobotIds,
       existingIseIds,
       existingCatalystCenterIds,
+      existingAciIds,
       existingPyatsIds,
       existingMattermostIds,
       existingBatfishIds,
@@ -352,6 +392,7 @@ export function useSourcesSettings() {
       nautobotDialogOpen,
       iseDialogOpen,
       catalystCenterDialogOpen,
+      aciDialogOpen,
       pyatsDialogOpen,
       mattermostDialogOpen,
       batfishDialogOpen,
@@ -360,6 +401,7 @@ export function useSourcesSettings() {
       editingNautobot,
       editingIseValue,
       editingCatalystCenterValue,
+      editingAciValue,
       editingPyatsValue,
       editingMattermostValue,
       editingBatfishValue,

@@ -15,17 +15,23 @@ from core.auth import get_current_user, verify_token
 from core.database import get_db
 from core.models.users import User
 from dependencies import (
+    get_aci_source_config_service,
     get_catalyst_center_source_config_service,
     get_ise_source_config_service,
     get_mattermost_source_config_service,
     get_pyats_source_config_service,
 )
+from routers.sources.aci import crud as aci_crud
 from routers.sources.catalyst_center import crud as cc_crud
 from routers.sources.ise import crud as ise_crud
 from routers.sources.mattermost import crud as mm_crud
 from routers.sources.mattermost import ops as mm_ops
 from routers.sources.pyats import crud as pyats_crud
 from routers.sources.pyats import ops as pyats_ops
+from services.aci.source_config_service import (
+    AciSourceConflictError,
+    AciSourceNotFoundError,
+)
 from services.auth.rbac_service import RBACService
 from services.catalyst_center.source_config_service import (
     CatalystCenterSourceConflictError,
@@ -57,6 +63,15 @@ _RESPONSE = {
 _CREATE_BODY = {"source_id": "s1", "url": "https://x", "credential_id": 5}
 
 _VARIANTS = {
+    "aci": {
+        "module": aci_crud,
+        "ops_module": None,
+        "dep": get_aci_source_config_service,
+        "prefix": "/sources/aci",
+        "not_found": AciSourceNotFoundError,
+        "conflict": AciSourceConflictError,
+        "create_body": _CREATE_BODY,
+    },
     "catalyst_center": {
         "module": cc_crud,
         "ops_module": None,

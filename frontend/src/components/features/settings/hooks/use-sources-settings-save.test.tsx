@@ -13,6 +13,7 @@ const m = vi.hoisted(() => {
     settings: { upsertSetting: make(), deleteSetting: make() },
     ise: source(),
     catalyst: source(),
+    aci: source(),
     pyats: source(),
     mattermost: source(),
     batfish: source(),
@@ -32,6 +33,9 @@ vi.mock("@/hooks/queries/use-ise-sources-mutations", () => ({
 }));
 vi.mock("@/hooks/queries/use-catalyst-center-sources-mutations", () => ({
   useCatalystCenterSourcesMutations: () => fresh(m.catalyst),
+}));
+vi.mock("@/hooks/queries/use-aci-sources-mutations", () => ({
+  useAciSourcesMutations: () => fresh(m.aci),
 }));
 vi.mock("@/hooks/queries/use-pyats-sources-mutations", () => ({
   usePyATSSourcesMutations: () => fresh(m.pyats),
@@ -56,7 +60,7 @@ function setup(dialog: SourcesDialogState = CLOSED, nautobotById = NAUTOBOT_BY_I
 
 beforeEach(() => {
   setDialog.mockReset();
-  const groups = [m.settings, m.ise, m.catalyst, m.pyats, m.mattermost, m.batfish, m.agent];
+  const groups = [m.settings, m.ise, m.catalyst, m.aci, m.pyats, m.mattermost, m.batfish, m.agent];
   for (const group of groups) {
     for (const mutation of Object.values(group)) {
       mutation.mutateAsync = fn();
@@ -111,6 +115,7 @@ describe("saveNautobot", () => {
 describe.each([
   ["Ise", "ise", "saveIse", "updateIse"],
   ["CatalystCenter", "catalyst", "saveCatalystCenter", "updateCatalystCenter"],
+  ["Aci", "aci", "saveAci", "updateAci"],
   ["Pyats", "pyats", "savePyats", "updatePyats"],
   ["Mattermost", "mattermost", "saveMattermost", "updateMattermost"],
   ["Batfish", "batfish", "saveBatfish", "updateBatfish"],
@@ -147,6 +152,7 @@ describe("confirmDelete", () => {
   it.each([
     ["ise", "ise"],
     ["catalyst_center", "catalyst"],
+    ["aci", "aci"],
     ["pyats", "pyats"],
     ["mattermost", "mattermost"],
     ["batfish", "batfish"],
@@ -189,8 +195,8 @@ describe("useSourcesSettingsSave stability", () => {
   const FLAGS = [
     ["settings", "upsertSetting", "upsertSettingIsPending"],
     ["settings", "deleteSetting", "deleteSettingIsPending"],
-    ...(["ise", "catalyst", "pyats", "mattermost", "batfish", "agent"] as const).flatMap((group) => {
-      const type = { ise: "Ise", catalyst: "CatalystCenter", pyats: "Pyats", mattermost: "Mattermost", batfish: "Batfish", agent: "Agent" }[group];
+    ...(["ise", "catalyst", "aci", "pyats", "mattermost", "batfish", "agent"] as const).flatMap((group) => {
+      const type = { ise: "Ise", catalyst: "CatalystCenter", aci: "Aci", pyats: "Pyats", mattermost: "Mattermost", batfish: "Batfish", agent: "Agent" }[group];
       return (["create", "update", "delete"] as const).map(
         (verb) => [group, `${verb}Source`, `${verb}${type}SourceIsPending`] as const,
       );

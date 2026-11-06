@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 import service_factory
 from core.database import get_db
 from models.sources_nautobot import NautobotSourceRef
+from services.aci.source_config_service import AciSourceConfigService
 from services.agents.source_config_service import AgentSourceConfigService
 from services.auth.login_rate_limiter import LoginRateLimiter
 from services.batfish.preview_service import BatfishPreviewService
@@ -37,6 +38,12 @@ def get_catalyst_center_source_config_service(
     db: Session = Depends(get_db),
 ) -> CatalystCenterSourceConfigService:
     return service_factory.build_catalyst_center_source_config_service(db)
+
+
+def get_aci_source_config_service(
+    db: Session = Depends(get_db),
+) -> AciSourceConfigService:
+    return service_factory.build_aci_source_config_service(db)
 
 
 def get_pyats_source_config_service(

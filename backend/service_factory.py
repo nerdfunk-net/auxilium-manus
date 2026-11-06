@@ -14,6 +14,10 @@ if TYPE_CHECKING:
 
 from core.config import settings
 from repositories.inventory_repository import InventoryRepository
+from services.aci.client import AciService
+from services.aci.credentials import AciCredentials
+from services.aci.device_service import AciDeviceService
+from services.aci.source_config_service import AciSourceConfigService
 from services.agents.client import AgentClient
 from services.agents.client import build_agent_client as build_agent_client_for
 from services.agents.source_config_service import AgentConnection, AgentSourceConfigService
@@ -62,6 +66,7 @@ _cache_failure_logged = False
 _nautobot_service: NautobotService | None = None
 _ise_service: ISEService | None = None
 _catalyst_center_service: CatalystCenterService | None = None
+_aci_service: AciService | None = None
 _pyats_service: PyATSShimService | None = None
 _batfish_service: BatfishService | None = None
 _mattermost_service: MattermostService | None = None
@@ -119,6 +124,25 @@ def get_catalyst_center_app_service() -> CatalystCenterService:
 def set_catalyst_center_app_service(service: CatalystCenterService) -> None:
     global _catalyst_center_service
     _catalyst_center_service = service
+
+
+def get_aci_app_service() -> AciService:
+    if _aci_service is None:
+        raise RuntimeError("AciService is not initialized")
+    return _aci_service
+
+
+def set_aci_app_service(service: AciService) -> None:
+    global _aci_service
+    _aci_service = service
+
+
+def build_aci_source_config_service(db: Session) -> AciSourceConfigService:
+    return AciSourceConfigService(db)
+
+
+def build_aci_device_service(credentials: AciCredentials) -> AciDeviceService:
+    return AciDeviceService(get_aci_app_service(), credentials)
 
 
 def build_catalyst_center_source_config_service(db: Session) -> CatalystCenterSourceConfigService:

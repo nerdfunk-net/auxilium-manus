@@ -39,7 +39,12 @@ def _make_user(db: Session, username: str) -> User:
 
 class IsProtectedTests(unittest.TestCase):
     def test_source_write_and_delete_are_protected(self) -> None:
-        for resource in ("sources.ise", "sources.catalyst_center", "sources.nautobot"):
+        for resource in (
+            "sources.ise",
+            "sources.catalyst_center",
+            "sources.aci",
+            "sources.nautobot",
+        ):
             for action in ("write", "delete"):
                 with self.subTest(resource=resource, action=action):
                     self.assertTrue(_is_protected(Permission(resource=resource, action=action)))

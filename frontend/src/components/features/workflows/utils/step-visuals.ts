@@ -62,6 +62,7 @@ import {
   CloudCog,
   Trash2,
   UserRound,
+  Waypoints,
   Wifi,
 } from "lucide-react";
 
@@ -150,6 +151,7 @@ export const CATEGORY_SUBGROUPS: Record<string, CategorySubgroup[]> = {
         "get-catalyst-center-health",
       ],
     },
+    { label: "ACI", kinds: ["get-aci-devices"] },
   ],
 };
 
@@ -215,6 +217,7 @@ const nodeIconsByKind: Record<string, LucideIcon> = {
   funnel: Funnel,
   "step-group": FolderOpen,
   // palette_category: cisco disables the artifact_type icon fallback, so each cisco step needs one.
+  "get-aci-devices": Waypoints,
   "get-catalyst-center-devices": Server,
   "get-catalyst-center-configs": HardDriveDownload,
   "get-catalyst-center-details": ListTree,

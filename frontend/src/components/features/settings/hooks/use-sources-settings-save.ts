@@ -2,6 +2,7 @@
 
 import { useCallback, useMemo } from "react";
 
+import { useAciSourcesMutations } from "@/hooks/queries/use-aci-sources-mutations";
 import { useAgentSourcesMutations } from "@/hooks/queries/use-agent-sources-mutations";
 import { useBatfishSourcesMutations } from "@/hooks/queries/use-batfish-sources-mutations";
 import { useCatalystCenterSourcesMutations } from "@/hooks/queries/use-catalyst-center-sources-mutations";
@@ -11,6 +12,8 @@ import { usePyATSSourcesMutations } from "@/hooks/queries/use-pyats-sources-muta
 import { useSettingsMutations } from "@/hooks/queries/use-settings-mutations";
 
 import type {
+  AciSourceCreatePayload,
+  AciSourceUpdatePayload,
   AgentSourceCreatePayload,
   AgentSourceUpdatePayload,
   BatfishSourceCreatePayload,
@@ -30,6 +33,7 @@ export type SourcesDialogState =
   | { type: "nautobot"; mode: "create" | "edit"; sourceId?: string }
   | { type: "ise"; mode: "create" | "edit"; sourceId?: string }
   | { type: "catalyst_center"; mode: "create" | "edit"; sourceId?: string }
+  | { type: "aci"; mode: "create" | "edit"; sourceId?: string }
   | { type: "pyats"; mode: "create" | "edit"; sourceId?: string }
   | { type: "mattermost"; mode: "create" | "edit"; sourceId?: string }
   | { type: "batfish"; mode: "create" | "edit"; sourceId?: string }
@@ -40,6 +44,7 @@ export type SourcesDialogState =
         | "nautobot"
         | "ise"
         | "catalyst_center"
+        | "aci"
         | "pyats"
         | "mattermost"
         | "batfish"
@@ -77,6 +82,12 @@ export function useSourcesSettingsSave({
     updateSource: { mutateAsync: updateCatalystCenterSourceAsync, isPending: updateCatalystCenterSourceIsPending },
     deleteSource: { mutateAsync: deleteCatalystCenterSourceAsync, isPending: deleteCatalystCenterSourceIsPending },
   } = useCatalystCenterSourcesMutations();
+
+  const {
+    createSource: { mutateAsync: createAciSourceAsync, isPending: createAciSourceIsPending },
+    updateSource: { mutateAsync: updateAciSourceAsync, isPending: updateAciSourceIsPending },
+    deleteSource: { mutateAsync: deleteAciSourceAsync, isPending: deleteAciSourceIsPending },
+  } = useAciSourcesMutations();
 
   const {
     createSource: { mutateAsync: createPyatsSourceAsync, isPending: createPyatsSourceIsPending },
@@ -155,6 +166,22 @@ export function useSourcesSettingsSave({
     [updateCatalystCenterSourceAsync, setDialog],
   );
 
+  const saveAci = useCallback(
+    async (values: AciSourceCreatePayload) => {
+      await createAciSourceAsync(values);
+      setDialog({ type: "closed" });
+    },
+    [createAciSourceAsync, setDialog],
+  );
+
+  const updateAci = useCallback(
+    async (sourceId: string, values: AciSourceUpdatePayload) => {
+      await updateAciSourceAsync({ sourceId, data: values });
+      setDialog({ type: "closed" });
+    },
+    [updateAciSourceAsync, setDialog],
+  );
+
   const savePyats = useCallback(
     async (values: PyATSSourceCreatePayload) => {
       await createPyatsSourceAsync(values);
@@ -227,6 +254,8 @@ export function useSourcesSettingsSave({
       await deleteIseSourceAsync(dialog.sourceId);
     } else if (dialog.sourceType === "catalyst_center") {
       await deleteCatalystCenterSourceAsync(dialog.sourceId);
+    } else if (dialog.sourceType === "aci") {
+      await deleteAciSourceAsync(dialog.sourceId);
     } else if (dialog.sourceType === "pyats") {
       await deletePyatsSourceAsync(dialog.sourceId);
     } else if (dialog.sourceType === "mattermost") {
@@ -244,6 +273,7 @@ export function useSourcesSettingsSave({
     deleteSettingAsync,
     deleteIseSourceAsync,
     deleteCatalystCenterSourceAsync,
+    deleteAciSourceAsync,
     deletePyatsSourceAsync,
     deleteMattermostSourceAsync,
     deleteBatfishSourceAsync,
@@ -258,6 +288,8 @@ export function useSourcesSettingsSave({
       updateIse,
       saveCatalystCenter,
       updateCatalystCenter,
+      saveAci,
+      updateAci,
       savePyats,
       updatePyats,
       saveMattermost,
@@ -272,6 +304,8 @@ export function useSourcesSettingsSave({
       updateIseSourceIsPending,
       createCatalystCenterSourceIsPending,
       updateCatalystCenterSourceIsPending,
+      createAciSourceIsPending,
+      updateAciSourceIsPending,
       createPyatsSourceIsPending,
       updatePyatsSourceIsPending,
       createMattermostSourceIsPending,
@@ -282,6 +316,7 @@ export function useSourcesSettingsSave({
       updateAgentSourceIsPending,
       deleteIseSourceIsPending,
       deleteCatalystCenterSourceIsPending,
+      deleteAciSourceIsPending,
       deletePyatsSourceIsPending,
       deleteMattermostSourceIsPending,
       deleteBatfishSourceIsPending,
@@ -294,6 +329,8 @@ export function useSourcesSettingsSave({
       updateIse,
       saveCatalystCenter,
       updateCatalystCenter,
+      saveAci,
+      updateAci,
       savePyats,
       updatePyats,
       saveMattermost,
@@ -308,6 +345,8 @@ export function useSourcesSettingsSave({
       updateIseSourceIsPending,
       createCatalystCenterSourceIsPending,
       updateCatalystCenterSourceIsPending,
+      createAciSourceIsPending,
+      updateAciSourceIsPending,
       createPyatsSourceIsPending,
       updatePyatsSourceIsPending,
       createMattermostSourceIsPending,
@@ -318,6 +357,7 @@ export function useSourcesSettingsSave({
       updateAgentSourceIsPending,
       deleteIseSourceIsPending,
       deleteCatalystCenterSourceIsPending,
+      deleteAciSourceIsPending,
       deletePyatsSourceIsPending,
       deleteMattermostSourceIsPending,
       deleteBatfishSourceIsPending,

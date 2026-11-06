@@ -307,6 +307,7 @@ class StoreTests(SourceConfigBaseTests):
 
     def test_source_key_prefix(self) -> None:
         self.assertEqual(source_key_prefix("catalyst_center"), "sources.catalyst_center.")
+        self.assertEqual(source_key_prefix("aci"), "sources.aci.")
 
 
 if __name__ == "__main__":

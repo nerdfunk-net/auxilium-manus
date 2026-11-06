@@ -40,7 +40,7 @@ sessions does `Get Device Configs` open at once, and in what order?**
 ## Option 1 — Fan-out disabled (the default)
 
 Every inventory step (`get-nautobot-devices`, `get-virtual-chassis`, `get-git-devices`,
-`get-ise-devices`, `get-catalyst-center-devices`, `get-from-list`) ships with fan-out **off** by default:
+`get-ise-devices`, `get-catalyst-center-devices`, `get-aci-devices`, `get-from-list`) ships with fan-out **off** by default:
 
 ```python
 "fan_out": {

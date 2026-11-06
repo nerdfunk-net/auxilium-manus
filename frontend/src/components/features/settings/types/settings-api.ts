@@ -107,6 +107,42 @@ export interface CatalystCenterTestConnectionResponse {
   release?: string | null;
 }
 
+export interface AciSourceResponse {
+  source_id: string;
+  url: string;
+  verify_ssl: boolean;
+  timeout: number;
+  credential_id: number | null;
+  credential_name: string | null;
+}
+
+export interface AciSourceListResponse {
+  sources: AciSourceResponse[];
+  total: number;
+}
+
+export interface AciSourceCreatePayload {
+  source_id: string;
+  url: string;
+  credential_id: number;
+  verify_ssl: boolean;
+  timeout: number;
+}
+
+export interface AciSourceUpdatePayload {
+  url?: string;
+  credential_id?: number;
+  verify_ssl?: boolean;
+  timeout?: number;
+}
+
+export interface AciTestConnectionResponse {
+  success: boolean;
+  message: string;
+  /** APIC software version reported at login, e.g. "6.1(4h)". */
+  version?: string | null;
+}
+
 export interface SourceTestConnectionResponse {
   success: boolean;
   message: string;

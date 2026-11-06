@@ -28,6 +28,7 @@ SOURCE_CREDENTIAL_TYPES: dict[str, frozenset[str]] = {
     "pyats": frozenset({"token"}),
     "ise": frozenset({"generic"}),
     "catalyst_center": frozenset({"generic"}),
+    "aci": frozenset({"generic"}),
     # The key of the app <-> agent message envelope (services/agents/envelope.py).
     "agent": frozenset({"shared_secret"}),
 }

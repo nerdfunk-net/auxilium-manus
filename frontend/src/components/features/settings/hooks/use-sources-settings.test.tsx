@@ -9,6 +9,7 @@ const queries = vi.hoisted(() => ({
   settings: { data: undefined, isLoading: false } as Loadable,
   ise: { data: undefined, isLoading: false } as Loadable,
   catalyst: { data: undefined, isLoading: false } as Loadable,
+  aci: { data: undefined, isLoading: false } as Loadable,
   pyats: { data: undefined, isLoading: false } as Loadable,
   mattermost: { data: undefined, isLoading: false } as Loadable,
   batfish: { data: undefined, isLoading: false } as Loadable,
@@ -23,6 +24,8 @@ const saveHandlers = vi.hoisted(() => ({
     updateIse: vi.fn(),
     saveCatalystCenter: vi.fn(),
     updateCatalystCenter: vi.fn(),
+    saveAci: vi.fn(),
+    updateAci: vi.fn(),
     savePyats: vi.fn(),
     updatePyats: vi.fn(),
     saveMattermost: vi.fn(),
@@ -37,6 +40,8 @@ const saveHandlers = vi.hoisted(() => ({
     updateIseSourceIsPending: false,
     createCatalystCenterSourceIsPending: false,
     updateCatalystCenterSourceIsPending: false,
+    createAciSourceIsPending: false,
+    updateAciSourceIsPending: false,
     createPyatsSourceIsPending: false,
     updatePyatsSourceIsPending: false,
     createMattermostSourceIsPending: false,
@@ -47,6 +52,7 @@ const saveHandlers = vi.hoisted(() => ({
     updateAgentSourceIsPending: false,
     deleteIseSourceIsPending: false,
     deleteCatalystCenterSourceIsPending: false,
+    deleteAciSourceIsPending: false,
     deletePyatsSourceIsPending: false,
     deleteMattermostSourceIsPending: false,
     deleteBatfishSourceIsPending: false,
@@ -63,6 +69,7 @@ vi.mock("@/hooks/queries/use-ise-sources-query", () => ({ useISESourcesQuery: ()
 vi.mock("@/hooks/queries/use-catalyst-center-sources-query", () => ({
   useCatalystCenterSourcesQuery: () => queries.catalyst,
 }));
+vi.mock("@/hooks/queries/use-aci-sources-query", () => ({ useAciSourcesQuery: () => queries.aci }));
 vi.mock("@/hooks/queries/use-pyats-sources-query", () => ({ usePyATSSourcesQuery: () => queries.pyats }));
 vi.mock("@/hooks/queries/use-mattermost-sources-query", () => ({
   useMattermostSourcesQuery: () => queries.mattermost,
@@ -83,6 +90,7 @@ beforeEach(() => {
   queries.settings = { ...idle };
   queries.ise = { ...idle };
   queries.catalyst = { ...idle };
+  queries.aci = { ...idle };
   queries.pyats = { ...idle };
   queries.mattermost = { ...idle };
   queries.batfish = { ...idle };
@@ -128,6 +136,7 @@ describe("source lists", () => {
       nautobot: [],
       ise: [],
       catalystCenter: [],
+      aci: [],
       pyats: [],
       mattermost: [],
       batfish: [],
@@ -135,6 +144,7 @@ describe("source lists", () => {
       existingNautobotIds: [],
       existingIseIds: [],
       existingCatalystCenterIds: [],
+      existingAciIds: [],
       existingPyatsIds: [],
       existingMattermostIds: [],
       existingBatfishIds: [],
@@ -150,6 +160,7 @@ describe("source lists", () => {
   it("exposes each loaded type with its ids", () => {
     queries.ise = { data: { sources: [httpSource("ise-a")] }, isLoading: false };
     queries.catalyst = { data: { sources: [httpSource("cc-a"), httpSource("cc-b")] }, isLoading: false };
+    queries.aci = { data: { sources: [httpSource("aci-a")] }, isLoading: false };
     queries.pyats = { data: { sources: [httpSource("py-a")] }, isLoading: false };
     queries.mattermost = { data: { sources: [httpSource("mm-a")] }, isLoading: false };
     queries.batfish = { data: { sources: [{ source_id: "bf-a", host: "h", port: 9996 }] }, isLoading: false };
@@ -159,6 +170,7 @@ describe("source lists", () => {
     expect(result.current.existingAgentIds).toEqual(["geo"]);
     expect(result.current.existingIseIds).toEqual(["ise-a"]);
     expect(result.current.existingCatalystCenterIds).toEqual(["cc-a", "cc-b"]);
+    expect(result.current.existingAciIds).toEqual(["aci-a"]);
     expect(result.current.existingPyatsIds).toEqual(["py-a"]);
     expect(result.current.existingMattermostIds).toEqual(["mm-a"]);
     expect(result.current.existingBatfishIds).toEqual(["bf-a"]);
@@ -187,6 +199,7 @@ describe("source lists", () => {
   it("passes the loading flags through", () => {
     queries.settings = { data: undefined, isLoading: true };
     queries.ise = { data: undefined, isLoading: true };
+    queries.aci = { data: undefined, isLoading: true };
     queries.batfish = { data: undefined, isLoading: true };
     queries.agent = { data: undefined, isLoading: true };
     const { result } = renderHook(() => useSourcesSettings());
@@ -195,6 +208,7 @@ describe("source lists", () => {
       isAgentLoading: true,
       isIseLoading: true,
       isBatfishLoading: true,
+      isAciLoading: true,
       isCatalystCenterLoading: false,
       isPyatsLoading: false,
       isMattermostLoading: false,
@@ -214,6 +228,7 @@ describe("dialog state", () => {
     ["nautobot", "nautobotDialogOpen"],
     ["ise", "iseDialogOpen"],
     ["catalyst_center", "catalystCenterDialogOpen"],
+    ["aci", "aciDialogOpen"],
     ["pyats", "pyatsDialogOpen"],
     ["mattermost", "mattermostDialogOpen"],
     ["batfish", "batfishDialogOpen"],
@@ -227,6 +242,7 @@ describe("dialog state", () => {
       "nautobotDialogOpen",
       "iseDialogOpen",
       "catalystCenterDialogOpen",
+      "aciDialogOpen",
       "pyatsDialogOpen",
       "mattermostDialogOpen",
       "batfishDialogOpen",
@@ -274,6 +290,7 @@ describe("the source being edited", () => {
   it.each([
     ["ise", "ise", "editingIseValue"],
     ["catalyst_center", "catalyst", "editingCatalystCenterValue"],
+    ["aci", "aci", "editingAciValue"],
     ["pyats", "pyats", "editingPyatsValue"],
     ["mattermost", "mattermost", "editingMattermostValue"],
   ] as const)("is the mapped %s source in edit mode", (type, queryName, field) => {
@@ -328,13 +345,14 @@ describe("the source being edited", () => {
 
 describe("isDeletePending", () => {
   const del = (
-    sourceType: "nautobot" | "ise" | "catalyst_center" | "pyats" | "mattermost" | "batfish" | "agent",
+    sourceType: "nautobot" | "ise" | "catalyst_center" | "aci" | "pyats" | "mattermost" | "batfish" | "agent",
   ) =>
     ({ type: "delete", sourceType, sourceId: "x", key: "sources.nautobot.x" }) as const;
 
   it.each([
     ["ise", "deleteIseSourceIsPending"],
     ["catalyst_center", "deleteCatalystCenterSourceIsPending"],
+    ["aci", "deleteAciSourceIsPending"],
     ["pyats", "deletePyatsSourceIsPending"],
     ["mattermost", "deleteMattermostSourceIsPending"],
     ["batfish", "deleteBatfishSourceIsPending"],

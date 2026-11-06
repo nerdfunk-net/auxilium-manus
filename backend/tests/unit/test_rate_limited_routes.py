@@ -11,6 +11,8 @@ from fastapi.routing import APIRoute
 from routers.git.operations import router as git_operations_router
 from routers.netmiko import router as netmiko_router
 from routers.secret_manager import router as secret_manager_router
+from routers.sources.aci.crud import router as aci_crud_router
+from routers.sources.aci.ops import router as aci_ops_router
 from routers.sources.batfish.ops import router as batfish_ops_router
 from routers.sources.batfish.query import router as batfish_query_router
 from routers.sources.catalyst_center.crud import router as catalyst_center_crud_router
@@ -51,6 +53,8 @@ def _route(router, path_suffix: str, method: str) -> APIRoute:
         (templates_router, "/render", "POST", "template-render"),
         (secret_manager_router, "/test", "POST", "secret-manager-test"),
         (batfish_ops_router, "/test-connection", "POST", "batfish-test-connection"),
+        (aci_crud_router, "/test-connection", "POST", "aci-test-connection"),
+        (aci_ops_router, "/devices/preview", "POST", "aci-device-preview"),
         (
             catalyst_center_crud_router,
             "/test-connection",

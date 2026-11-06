@@ -4,7 +4,7 @@ import re
 from typing import Literal
 
 SourceType = Literal[
-    "nautobot", "ise", "pyats", "mattermost", "batfish", "catalyst_center", "agent"
+    "nautobot", "ise", "pyats", "mattermost", "batfish", "catalyst_center", "aci", "agent"
 ]
 
 SOURCE_ID_PATTERN = re.compile(r"^[a-z][a-z0-9_-]{0,63}$")
@@ -14,6 +14,7 @@ PYATS_KEY_PREFIX = "sources.pyats."
 MATTERMOST_KEY_PREFIX = "sources.mattermost."
 BATFISH_KEY_PREFIX = "sources.batfish."
 CATALYST_CENTER_KEY_PREFIX = "sources.catalyst_center."
+ACI_KEY_PREFIX = "sources.aci."
 AGENT_KEY_PREFIX = "sources.agent."
 
 _PREFIX_BY_TYPE: dict[SourceType, str] = {
@@ -23,6 +24,7 @@ _PREFIX_BY_TYPE: dict[SourceType, str] = {
     "mattermost": MATTERMOST_KEY_PREFIX,
     "batfish": BATFISH_KEY_PREFIX,
     "catalyst_center": CATALYST_CENTER_KEY_PREFIX,
+    "aci": ACI_KEY_PREFIX,
     "agent": AGENT_KEY_PREFIX,
 }
 _TYPE_BY_PREFIX: dict[str, SourceType] = {

@@ -6,6 +6,7 @@ import copy
 import hashlib
 from typing import Any
 
+from models.aci import AciDevice
 from models.catalyst_center import CatalystCenterDevice
 from models.sources_nautobot import DeviceInfo
 from models.workflow_context import Capability, DeviceContext, DeviceStatus, bare_hostname
@@ -71,6 +72,30 @@ def device_context_from_catalyst_center(
         source="catalyst_center",
         source_id=source_id,
         attribute_bags={"catalyst_center": dict(device.raw)},
+        capabilities={Capability.IDENTITY},
+        status=DeviceStatus.OK,
+    )
+
+
+def device_context_from_aci(device: AciDevice, *, source_id: str) -> DeviceContext:
+    """Build a DeviceContext from a normalized Cisco ACI fabric switch.
+
+    The id carries the source, so the same node id of two fabrics never collides. The SSH
+    address is the management IP only when the fabric has one; the TEP address is
+    fabric-internal and is never used as an address (it stays in the attribute bag). The
+    network driver is left unset: ACI is a data source here, and no SSH access was verified.
+    The bag holds a copy of the normalized record (``model_dump`` builds new containers),
+    including the raw APIC attributes.
+    """
+    return DeviceContext(
+        id=f"aci-{source_id}-{device.node_id}",
+        name=device.name,
+        hostname=bare_hostname(device.management_ip, device.name),
+        platform="Cisco ACI",
+        primary_ip4=device.management_ip,
+        source="aci",
+        source_id=source_id,
+        attribute_bags={"aci": device.model_dump()},
         capabilities={Capability.IDENTITY},
         status=DeviceStatus.OK,
     )

@@ -8,6 +8,7 @@ import {
   Radar,
   Server,
   ShieldCheck,
+  Waypoints,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -21,6 +22,7 @@ import {
 } from "@/components/ui/dialog";
 
 import { buildSourceSettingKey } from "../constants/setting-keys";
+import { AciSourceDialog } from "../dialogs/aci-source-dialog";
 import { AgentSourceDialog } from "../dialogs/agent-source-dialog";
 import { BatfishSourceDialog } from "../dialogs/batfish-source-dialog";
 import { CatalystCenterSourceDialog } from "../dialogs/catalyst-center-source-dialog";
@@ -45,7 +47,7 @@ export function SourcesSettingsCanvas() {
             <div>
               <p className="text-sm font-semibold">Sources</p>
               <p className="mt-1 text-sm text-muted-foreground">
-                Add multiple Nautobot, Cisco ISE, Cisco Catalyst Center, pyATS, and
+                Add multiple Nautobot, Cisco ISE, Cisco Catalyst Center, Cisco ACI, pyATS, and
                 agent connections. Each
                 instance needs a unique source ID for workflow step references
                 (e.g.{" "}
@@ -66,7 +68,7 @@ export function SourcesSettingsCanvas() {
               <code className="rounded bg-muted px-1 py-0.5 text-xs">
                 sources.nautobot.&lt;id&gt;
               </code>
-              . Cisco ISE and Cisco Catalyst Center connections are stored the
+              . Cisco ISE, Cisco Catalyst Center and Cisco ACI connections are stored the
               same way, with the password kept in the encrypted credentials
               store.
             </p>
@@ -151,6 +153,32 @@ export function SourcesSettingsCanvas() {
                 sources.setDialog({
                   type: "delete",
                   sourceType: "catalyst_center",
+                  sourceId,
+                  key: "",
+                })
+              }
+            />
+
+            <SourceListSection
+              title="Cisco ACI"
+              description="APIC fabric switch inventory (read-only)"
+              icon={Waypoints}
+              isLoading={sources.isAciLoading}
+              emptyLabel="No Cisco ACI sources yet."
+              addLabel="Add Cisco ACI"
+              items={sources.aci.map((item) => ({
+                sourceId: item.source_id,
+                summary: item.url,
+                detail: item.verify_ssl ? undefined : "TLS verification disabled",
+              }))}
+              onAdd={() => sources.setDialog({ type: "aci", mode: "create" })}
+              onEdit={(sourceId) =>
+                sources.setDialog({ type: "aci", mode: "edit", sourceId })
+              }
+              onDelete={(sourceId) =>
+                sources.setDialog({
+                  type: "delete",
+                  sourceType: "aci",
                   sourceId,
                   key: "",
                 })
@@ -298,6 +326,17 @@ export function SourcesSettingsCanvas() {
         onClose={() => sources.setDialog({ type: "closed" })}
         onCreate={sources.saveCatalystCenter}
         onUpdate={sources.updateCatalystCenter}
+      />
+
+      <AciSourceDialog
+        open={sources.aciDialogOpen !== null}
+        mode={sources.aciDialogOpen?.mode ?? "create"}
+        initialValue={sources.editingAciValue}
+        existingSourceIds={sources.existingAciIds}
+        isSaving={sources.createAciSourceIsPending || sources.updateAciSourceIsPending}
+        onClose={() => sources.setDialog({ type: "closed" })}
+        onCreate={sources.saveAci}
+        onUpdate={sources.updateAci}
       />
 
       <PyATSSourceDialog

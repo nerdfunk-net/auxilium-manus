@@ -171,6 +171,10 @@ export const queryKeys = {
     sites: (sourceId: string) =>
       [...queryKeys.sourcesCatalystCenter.all, "sites", sourceId] as const,
   },
+  sourcesAci: {
+    all: ["sources-aci"] as const,
+    list: () => [...queryKeys.sourcesAci.all, "list"] as const,
+  },
   sourcesPyats: {
     all: ["sources-pyats"] as const,
     list: () => [...queryKeys.sourcesPyats.all, "list"] as const,
