@@ -33,6 +33,22 @@ class OutputCapTests(unittest.TestCase):
         self.assertGreater(parsed["big"]["bytes"], 5000)
         self.assertEqual(parsed["small"], "y")
 
+    def test_an_oversized_child_does_not_take_its_small_siblings_with_it(self) -> None:
+        facts = {
+            "device": {"parsed": {"serial": "S1"}, "error": None},
+            "interfaces": {"parsed": ["row"] * 2000, "error": None},
+        }
+        persisted = _persisted(aci_details=facts)
+        capped = cap_persisted_output(persisted, value_max=1024, total_max=1_000_000)
+        parsed = capped["success"]["devices"]["d1"]["parsed"]["aci_details"]
+        self.assertEqual(parsed["device"], {"parsed": {"serial": "S1"}, "error": None})
+        self.assertTrue(parsed["interfaces"][TRUNCATED_KEY])
+
+    def test_a_dict_whose_children_all_fit_but_sum_too_much_is_marked_whole(self) -> None:
+        persisted = _persisted(group={f"k{i}": "x" * 400 for i in range(5)})
+        capped = cap_persisted_output(persisted, value_max=1024, total_max=1_000_000)
+        self.assertTrue(capped["success"]["devices"]["d1"]["parsed"]["group"][TRUNCATED_KEY])
+
     def test_total_cap_drops_largest_first(self) -> None:
         persisted = _persisted(a="a" * 800, b="b" * 600, c="c" * 400)
         capped = cap_persisted_output(persisted, value_max=1000, total_max=1200)

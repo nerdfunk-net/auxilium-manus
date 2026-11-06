@@ -181,3 +181,42 @@ switches without a management IP; there is no `aaaLogout` (a new login replaces 
 `attribute_bags["aci"]` keeps the raw APIC attributes including the TEP, like the other inventory steps keep their raw record, and no
 step may use `tep_address` as a management address.
 
+
+## Step `get-aci-details` ("Get Details from ACI", 2026-11-06)
+
+Reads per-switch facts from the APIC REST API (no SSH). Place it after `get-aci-devices`; other devices fail with
+`not_aci_device` (`aci_node_unknown` if the node id cannot be found). Output: `parsed.<parsed_output_key>.<fact> = {parsed, error}`,
+default key `aci_details`. A fact that fails is recorded with its error; the device fails only if every fact failed.
+
+| Fact | APIC classes | Notes |
+|---|---|---|
+| `device` | `fabricNode` (the node MO itself), `topSystem` | uptime, serial, role, state |
+| `software` | `topSystem` / `firmwareRunning` data | version, model |
+| `hardware` | `eqpt*` | chassis, cards, PSU, fans |
+| `interfaces` | `l1PhysIf`+`ethpmPhysIf`, `pcAggrIf`, `pcRsMbrIfs`, `mgmtMgmtIf`, `l3LbRtdIf`, `sviIf`, `ipv4Addr` | row caps per class |
+| `neighbors` | `lldpAdjEp`, `cdpAdjEp` | CDP attribute names best effort, unverified live |
+| `vlans` | `l2BD`, `l3Ctx` | |
+| `health` | `sys/health`, `sys/ch/health` | |
+| `faults` | `faultInst` | |
+| `routes` | `ipv4Route`, `ipv4Nexthop` | |
+| `protocols` | `bgpPeer`, `bgpPeerEntry`, `isisAdjEp`, `ospfAdjEp` | state names best effort, sandbox has no rows |
+| `endpoints` | `epmMacEp`, `epmIpEp` | |
+| `vpc` | `vpcDom`, `vpcIf` | |
+
+Defaults: `device, software, interfaces`. Optional classes (a spine has no `sviIf`, a fabric without vPC no `vpcDom`) are skipped
+only when the APIC answers HTTP 400 with text "unresolved class"; any other error, including another 400, fails the fact. A missing `sys/health` or `sys/ch/health` object (404) leaves that score empty and keeps the other.
+
+**Lessons.** `fabricNode` is the switch node itself: it must be read with `get_node_mo(..., relative_dn="")`
+(`/api/mo/topology/pod-1/node-101.json`); the class query returns nothing. Unit fakes cannot catch this, so re-run the live sandbox
+check after changing queries. Sandbox switches are simulated (`simsw-` versions, speeds `inherit`, no management IPs).
+
+**Persisted size (per fact).** A step value above `STEP_OUTPUT_VALUE_MAX_BYTES` (64 KB) is stored as a "too large" marker in the run result;
+a spine's `interfaces` fact (about 395 rows, 222 KB) hits this. `output_cap` replaces the oversized fact only, so `device` and `software` next to it stay readable. The live context is unaffected, so later steps still read it.
+
+**Mapper (`config-to-attributes`, `source_format: aci_details`).** Maps interfaces (name, status, description, MAC, MTU, IPv4) and
+device fields (serial, software version, platform `Cisco ACI`, device type with manufacturer `Cisco`). Not mapped: VLANs and port mode
+(ACI VLAN ids are local to one leaf), role, status, location. Interface `type` comes from the kind, else a known speed, else `other`.
+`duplex` is never sent (Nautobot accepts it on copper twisted-pair types only, and the APIC speed does not say the media); 100M and 1G ports are typed `other` for the same reason (only `mgmt0` is known copper). The TEP address on `lo0` is dropped unless primary-IP selection picked it. Fields this mapper does not produce (VLANs, mode, SVI addresses) keep the value an earlier step set on the same interface. SVI addresses are not mapped (the anycast gateway is the same on every leaf, so several devices would create one address). The TEP loopback `lo0` is never the primary IPv4 under the default priorities (only via `custom_interface`).
+
+Shared code: `workflow_steps/common/fact_entries.py` and `device_outcomes.py` hold the source-agnostic core that the Catalyst Center
+fact modules now wrap.

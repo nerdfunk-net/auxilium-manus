@@ -303,6 +303,50 @@ plugins:
             chunk_size: 1
             max_concurrency: 0
 
+  - id: get-aci-details
+    name: Get Details from ACI
+    overview: Read device, software, hardware, interface, neighbour, VLAN, health, fault, routing, endpoint and vPC facts from a Cisco ACI fabric.
+    description: >
+      Read structured facts about the leaf and spine switches selected with Get from ACI, straight
+      from the APIC, without SSH access and without writing anything to ACI. Tick the facts you
+      need; each lands on the device under parsed.<parsed_output_key>.<fact>.
+    artifact_type: configuration_management
+    palette_category: cisco
+    directory: get_aci_details
+    enabled: true
+    requires: [identity]
+    produces: [parsed]
+    outcomes:
+      - name: success
+      - name: failure
+    metadata:
+      configuration_input:
+        - name: facts
+          description: >
+            Facts to read (at least one): device (serial, model, role, state, uptime, TEP, management
+            IPs), software (running version and image type; read together with device), hardware
+            (chassis, supervisors, line/fabric cards, fans, power supplies, CPUs, memory with model,
+            serial and revision), interfaces (physical, port-channel, management, loopback and SVI
+            with description, state, MTU, speed, duplex, MAC, VLANs, IPv4 addresses and port-channel
+            membership), neighbors (LLDP and CDP neighbours per port), vlans (encap VLANs with EPG,
+            bridge domain and VRF), health (node and chassis health score), faults (counts by
+            severity and the first 50), routes (IPv4 routing table with next hops), protocols (BGP
+            peers, IS-IS/OSPF adjacencies), endpoints (learned IP and MAC endpoints) and vpc (domain,
+            peer state and vPC interfaces). Devices must come from an ACI source (Get from ACI).
+          data_type: string_list
+          required: true
+          default: [device, software, interfaces]
+          example: [device, hardware, interfaces, neighbors]
+        - name: parsed_output_key
+          description: >
+            Key under which the facts are stored on each device, read downstream as
+            parsed.<parsed_output_key>.<fact>.parsed (each fact is {parsed, error}). A fact that
+            fails is recorded as an error and does not fail the device unless every selected
+            fact failed.
+          data_type: string
+          required: false
+          default: aci_details
+
   - id: run-catalyst-center-command
     name: Run Command via Catalyst Center
     overview: Run read-only CLI commands on devices through Cisco Catalyst Center.
@@ -2826,16 +2870,17 @@ plugins:
           description: >
             Which parser produced the config at parsed.<parsed_key> —
             cisco_config_parser (from Parse Cisco Config), genie (from
-            Get & Parse Config), batfish (from Extract Facts), or
-            catalyst_details (from Get Details from Catalyst Center).
+            Get & Parse Config), batfish (from Extract Facts),
+            catalyst_details (from Get Details from Catalyst Center), or
+            aci_details (from Get Details from ACI).
           data_type: string
           required: true
           example: cisco_config_parser
         - name: config_source
           description: >
             Which parsed config to read for attribute values — running or
-            startup (exactly one). genie, batfish and catalyst_details
-            only ever populate running.
+            startup (exactly one). genie, batfish, catalyst_details and
+            aci_details only ever populate running.
           data_type: string
           required: true
           example: running
@@ -2843,20 +2888,31 @@ plugins:
           description: >
             The output_key used by the matching upstream step
             (parsed.<parsed_key>) — Parse Cisco Config, Get & Parse
-            Config, Extract Facts, or Get Details from Catalyst Center
-            (default catalyst_details). Must match that step's own
-            "output_key" configuration value.
+            Config, Extract Facts, Get Details from Catalyst Center
+            (default catalyst_details), or Get Details from ACI (default
+            aci_details). Must match that step's own "output_key" /
+            "parsed_output_key" configuration value.
           data_type: string
           required: true
           example: cisco_config
         - name: attributes
           description: >
             Which attribute groups to populate: "interfaces" and "device".
-            "device" (only with source_format catalyst_details) writes
+            "device" (only with source_format catalyst_details or aci_details) writes
             serial, software_version, platform (software type) and
             device_type (model from the platform id, manufacturer from the
             controller's vendor, default Cisco) from the device and
             software facts; role, status and location are never derived.
+            With aci_details, "device" writes serial, software_version,
+            platform "Cisco ACI" and device_type (model, manufacturer
+            Cisco), and "interfaces" reads the interfaces fact: enabled
+            follows admin state, plus description, MTU, MAC, speed (Kbps)
+            and duplex, type from the interface kind or the known speed
+            (other when the speed is inherited), IPv4 addresses (namespace
+            Global) and the port-channel as lag. ACI VLAN ids are leaf-local
+            encapsulations, so no mode or VLANs are written, and the fabric
+            internal TEP loopback is never picked as the primary IPv4 unless
+            a custom_interface pattern says so.
             With catalyst_details, "interfaces" reads the interfaces fact:
             access ports get untagged_vlan = vlan_id, trunks get
             untagged_vlan = native_vlan_id (no allowed-VLAN list exists, so

@@ -5,7 +5,7 @@ export const ATTRIBUTE_GROUPS = [
 
 /** Attribute groups only some source formats can supply. */
 export const FORMAT_RESTRICTED_GROUPS: Readonly<Record<string, readonly string[]>> = {
-  device: ["catalyst_details"],
+  device: ["catalyst_details", "aci_details"],
 };
 
 export type AttributeGroupKey = (typeof ATTRIBUTE_GROUPS)[number]["key"];
@@ -18,6 +18,7 @@ export const SOURCE_FORMAT_OPTIONS = [
     value: "catalyst_details",
     label: "Cisco Catalyst Details (Get Details from Catalyst Center)",
   },
+  { value: "aci_details", label: "Cisco ACI Details (Get Details from ACI)" },
 ] as const;
 
 export type SourceFormat = (typeof SOURCE_FORMAT_OPTIONS)[number]["value"];

@@ -151,7 +151,7 @@ export const CATEGORY_SUBGROUPS: Record<string, CategorySubgroup[]> = {
         "get-catalyst-center-health",
       ],
     },
-    { label: "ACI", kinds: ["get-aci-devices"] },
+    { label: "ACI", kinds: ["get-aci-devices", "get-aci-details"] },
   ],
 };
 
@@ -218,6 +218,7 @@ const nodeIconsByKind: Record<string, LucideIcon> = {
   "step-group": FolderOpen,
   // palette_category: cisco disables the artifact_type icon fallback, so each cisco step needs one.
   "get-aci-devices": Waypoints,
+  "get-aci-details": ListTree,
   "get-catalyst-center-devices": Server,
   "get-catalyst-center-configs": HardDriveDownload,
   "get-catalyst-center-details": ListTree,

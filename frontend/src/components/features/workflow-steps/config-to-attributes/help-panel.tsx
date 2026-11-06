@@ -78,6 +78,19 @@ export function ConfigToAttributesHelpPanel() {
             id, manufacturer = the controller&apos;s vendor, default Cisco). Role,
             status and location are never derived — use Set Default Attributes.
           </li>
+          <li>
+            <span className="font-medium text-foreground">Cisco ACI Details</span>{" "}
+            — output from an upstream <span className="font-medium text-foreground">
+            Get Details from ACI</span> step (its <HelpCode>device</HelpCode>,{" "}
+            <HelpCode>software</HelpCode> and <HelpCode>interfaces</HelpCode> facts; set{" "}
+            <HelpCode>parsed_key</HelpCode> to that step&apos;s output key, default{" "}
+            <HelpCode>aci_details</HelpCode>). Only <HelpCode>config_source: running</HelpCode>{" "}
+            applies. VLANs and port mode are never mapped (ACI VLAN ids are local to one leaf), nor are SVI addresses (the anycast gateway is the same on every leaf), duplex is never sent, and 100M/1G ports stay type other (the speed does not say copper or fibre). The TEP address on lo0 is not written unless it is chosen as primary IPv4, and fields this format does not produce are kept from earlier steps.
+            The TEP loopback <HelpCode>lo0</HelpCode> is never chosen as primary IPv4 unless you
+            name it as a custom interface. <HelpCode>Add Device Fields</HelpCode> writes serial,
+            software version, platform <HelpCode>Cisco ACI</HelpCode> (it must exist in Nautobot)
+            and device type (manufacturer Cisco). Role, status and location are never derived.
+          </li>
         </ul>
       </HelpSection>
 
@@ -103,7 +116,7 @@ export function ConfigToAttributesHelpPanel() {
           <HelpCode>parsed_key</HelpCode> must match the matching upstream step&apos;s
           own <HelpCode>output_key</HelpCode> — Parse Cisco Config for
           cisco_config_parser, Get &amp; Parse Config for genie, Get Details from
-          Catalyst Center for catalyst_details — that is where its parsed model was
+          Catalyst Center for catalyst_details, Get Details from ACI for aci_details — that is where its parsed model was
           written on each device.
         </p>
         <p>

@@ -54,6 +54,8 @@ _MAX_RATE_LIMIT_RETRIES = 3
 _MAX_RETRY_WAIT_SECONDS = 30.0
 
 _CLASS_NAME = re.compile(r"[A-Za-z][A-Za-z0-9]{0,63}")
+# The part of a distinguished name below a switch, e.g. ``sys/health``.
+_RELATIVE_DN = re.compile(r"[A-Za-z0-9_-]+(?:/[A-Za-z0-9_-]+)*")
 
 _SessionKey = tuple[str, str, str]
 # token, monotonic expiry, version reported at login
@@ -133,7 +135,7 @@ class AciService:
         page_size: int = DEFAULT_PAGE_SIZE,
         max_objects: int = DEFAULT_MAX_OBJECTS,
     ) -> list[dict[str, Any]]:
-        """Return the attribute dicts of every object of one class (all pages).
+        """Return the attribute dicts of every object of one class in the fabric (all pages).
 
         Fails with ``too_many_objects`` rather than returning a silently truncated list.
         ``query_filter`` is an APIC ``query-target-filter`` expression the caller built from
@@ -144,8 +146,85 @@ class AciService:
         Every raw object counts toward ``max_objects`` (also the ones of another class that are
         not returned), so a source that keeps sending full pages cannot loop for ever.
         """
-        if not _CLASS_NAME.fullmatch(class_name or ""):
-            raise AciValidationError(f"Invalid APIC class name: {class_name[:40]!r}")
+        _check_class_name(class_name)
+        return await self._query_paged(
+            credentials,
+            f"/api/class/{class_name}.json",
+            class_name,
+            query_filter=query_filter,
+            page_size=page_size,
+            max_objects=max_objects,
+        )
+
+    async def query_node_class(
+        self,
+        credentials: AciCredentials,
+        pod_id: int,
+        node_id: int,
+        class_name: str,
+        *,
+        query_filter: str | None = None,
+        page_size: int = DEFAULT_PAGE_SIZE,
+        max_objects: int = DEFAULT_MAX_OBJECTS,
+    ) -> list[dict[str, Any]]:
+        """Like :meth:`query_class`, but only the objects below one switch of the fabric.
+
+        ``GET /api/node/class/topology/pod-<pod>/node-<node>/<class>.json``. Pod and node are
+        positive whole numbers (the path is built from them, never from text), so a caller cannot
+        reach another part of the object tree.
+        """
+        _check_class_name(class_name)
+        path = f"/api/node/class/{_node_dn(pod_id, node_id)}/{class_name}.json"
+        return await self._query_paged(
+            credentials,
+            path,
+            class_name,
+            query_filter=query_filter,
+            page_size=page_size,
+            max_objects=max_objects,
+        )
+
+    async def get_node_mo(
+        self,
+        credentials: AciCredentials,
+        pod_id: int,
+        node_id: int,
+        relative_dn: str,
+        class_name: str,
+    ) -> dict[str, Any] | None:
+        """The attributes of one managed object below a switch, or ``None`` if it does not exist.
+
+        ``relative_dn`` is the part after ``topology/pod-<p>/node-<n>/`` (for example
+        ``sys/health``); it may only contain letters, digits, ``_``, ``-`` and single ``/``. An
+        empty one is the switch node itself (the ``fabricNode`` object, which is not *below* the
+        node and so cannot be reached with :meth:`query_node_class`).
+        """
+        _check_class_name(class_name)
+        if relative_dn != "" and not _RELATIVE_DN.fullmatch(relative_dn or ""):
+            raise AciValidationError(f"Invalid APIC object path: {(relative_dn or '')[:40]!r}")
+        suffix = f"/{relative_dn}" if relative_dn else ""
+        body = await self.get(credentials, f"/api/mo/{_node_dn(pod_id, node_id)}{suffix}.json")
+        imdata = body.get("imdata") if isinstance(body, dict) else None
+        if not isinstance(imdata, list):
+            raise AciAPIError(
+                f"APIC returned an unexpected body for {class_name}", code="invalid_response"
+            )
+        for item in imdata:
+            attributes = _attributes_of(item, class_name)
+            if attributes is not None:
+                return attributes
+        return None
+
+    async def _query_paged(
+        self,
+        credentials: AciCredentials,
+        path: str,
+        class_name: str,
+        *,
+        query_filter: str | None,
+        page_size: int,
+        max_objects: int,
+    ) -> list[dict[str, Any]]:
         rows: list[dict[str, Any]] = []
         seen = 0
         page = 0
@@ -153,7 +232,7 @@ class AciService:
             params: dict[str, Any] = {"page": page, "page-size": page_size}
             if query_filter:
                 params["query-target-filter"] = query_filter
-            body = await self.get(credentials, f"/api/class/{class_name}.json", params=params)
+            body = await self.get(credentials, path, params=params)
             imdata = body.get("imdata") if isinstance(body, dict) else None
             if not isinstance(imdata, list):
                 raise AciAPIError(
@@ -367,6 +446,24 @@ class AciService:
         if isinstance(text, str) and text.strip():
             return text.strip()[:_MAX_ERROR_MESSAGE_CHARS]
         return fallback
+
+
+def _check_class_name(class_name: str) -> None:
+    if not _CLASS_NAME.fullmatch(class_name or ""):
+        raise AciValidationError(f"Invalid APIC class name: {(class_name or '')[:40]!r}")
+
+
+def _positive_int(name: str, value: Any) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+        raise AciValidationError(f"{name} must be a positive whole number")
+    return value
+
+
+def _node_dn(pod_id: Any, node_id: Any) -> str:
+    """``topology/pod-<p>/node-<n>`` from two validated numbers."""
+    return (
+        f"topology/pod-{_positive_int('pod_id', pod_id)}/node-{_positive_int('node_id', node_id)}"
+    )
 
 
 def _attributes_of(item: Any, class_name: str) -> dict[str, Any] | None:

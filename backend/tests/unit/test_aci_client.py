@@ -179,7 +179,9 @@ class AciClientTests(unittest.IsolatedAsyncioTestCase):
             for n in dir(self.service)
             if not n.startswith("_") and callable(getattr(self.service, n))
         }
-        self.assertTrue({"get", "query_class", "login_info", "startup", "shutdown"} >= public)
+        allowed = {"get", "query_class", "query_node_class", "get_node_mo"}
+        allowed |= {"login_info", "startup", "shutdown"}
+        self.assertTrue(allowed >= public)
 
     async def test_transport_refuses_writes_other_than_login(self) -> None:
         with self.assertRaises(AciValidationError):

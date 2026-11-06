@@ -22,6 +22,12 @@ from workflow_steps.common.nautobot_interfaces import (
     infer_interface_type_from_name,
 )
 from workflow_steps.common.partial_outcomes import mark_device_failed
+from workflow_steps.config_to_attributes.aci_details import (
+    build_device_fields_from_aci_details,
+    build_interfaces_from_aci_details,
+    drop_unselected_tep_addresses,
+    keep_unmapped_interface_fields,
+)
 from workflow_steps.config_to_attributes.batfish_facts import (
     build_interfaces_from_batfish_facts,
 )
@@ -50,16 +56,22 @@ _STEP_ID = "config-to-attributes"
 _CONFIG_SOURCES = frozenset({"running", "startup"})
 _SUPPORTED_ATTRIBUTES = frozenset({"interfaces", "device"})
 _VLAN_RANGE_RE = re.compile(r"^(\d+)-(\d+)$")
-_SOURCE_FORMATS = frozenset({"cisco_config_parser", "genie", "batfish", "catalyst_details"})
+_SOURCE_FORMATS = frozenset(
+    {"cisco_config_parser", "genie", "batfish", "catalyst_details", "aci_details"}
+)
 _UPSTREAM_STEP_NAME = {
     "cisco_config_parser": "Parse Cisco Config",
     "genie": "Get & Parse Config",
     "batfish": "Extract Facts",
     "catalyst_details": "Get Details from Catalyst Center",
+    "aci_details": "Get Details from ACI",
 }
-_STARTUP_UNSUPPORTED_FORMATS = frozenset({"genie", "batfish", "catalyst_details"})
-# Attribute groups that only one source format can supply.
-_DEVICE_FIELDS_FORMATS = frozenset({"catalyst_details"})
+_STARTUP_UNSUPPORTED_FORMATS = frozenset({"genie", "batfish", "catalyst_details", "aci_details"})
+# Formats whose upstream step writes one ``{"parsed", "error"}`` entry per fact: the builders
+# receive the whole fact dict and read each fact themselves.
+_FACT_DICT_FORMATS = frozenset({"catalyst_details", "aci_details"})
+# Attribute groups that only some source formats can supply.
+_DEVICE_FIELDS_FORMATS = frozenset({"catalyst_details", "aci_details"})
 
 
 def _parse_config_source(config: dict[str, Any]) -> str:
@@ -140,14 +152,14 @@ def _select_parsed_entry(
     extract-facts`` writes a different, non-fatal shape instead — ``{"parsed":
     <node's facts or None>, "error": str | None}`` — with no running/startup
     distinction, so for that format read ``"parsed"`` regardless of
-    ``config_source``. ``get-catalyst-center-details`` writes one ``{"parsed", "error"}``
-    entry per fact (``device``/``software``/``interfaces``), so for that format the whole
-    fact dict is returned and the builders read each fact themselves.
+    ``config_source``. ``get-catalyst-center-details`` and ``get-aci-details`` write one
+    ``{"parsed", "error"}`` entry per fact (``device``/``software``/``interfaces``), so for
+    those formats the whole fact dict is returned and the builders read each fact themselves.
     """
     entry = device.parsed.get(parsed_key)
     if not isinstance(entry, dict):
         return None
-    if source_format == "catalyst_details":
+    if source_format in _FACT_DICT_FORMATS:
         return entry
     if source_format == "batfish":
         nested = entry.get("parsed")
@@ -371,6 +383,13 @@ def _build_interfaces_cisco_config_parser(
     return list(interfaces.values())
 
 
+def _parsed_location(parsed_key: str, config_source: str, source_format: str) -> str:
+    """Where the upstream data is: fact formats use ``<key>.<fact>``, not ``running``."""
+    if source_format in _FACT_DICT_FORMATS:
+        return f"parsed.{parsed_key}.<fact>"
+    return f"parsed.{parsed_key}.{config_source}"
+
+
 def _build_interfaces(parsed_entry: dict[str, Any], source_format: str) -> list[dict[str, Any]]:
     if source_format == "genie":
         return build_interfaces_from_genie_running_config(parsed_entry)
@@ -378,6 +397,8 @@ def _build_interfaces(parsed_entry: dict[str, Any], source_format: str) -> list[
         return build_interfaces_from_batfish_facts(parsed_entry)
     if source_format == "catalyst_details":
         return build_interfaces_from_catalyst_details(parsed_entry)
+    if source_format == "aci_details":
+        return build_interfaces_from_aci_details(parsed_entry)
     return _build_interfaces_cisco_config_parser(parsed_entry)
 
 
@@ -386,6 +407,14 @@ def _catalyst_vendor(device: DeviceContext) -> str | None:
     bag = device.attribute_bags.get("catalyst_center")
     vendor = bag.get("vendor") if isinstance(bag, dict) else None
     return vendor if isinstance(vendor, str) else None
+
+
+def _build_device_fields(
+    parsed_entry: dict[str, Any], device: DeviceContext, source_format: str
+) -> dict[str, Any]:
+    if source_format == "aci_details":
+        return build_device_fields_from_aci_details(parsed_entry)
+    return build_device_fields_from_catalyst_details(parsed_entry, _catalyst_vendor(device))
 
 
 def _resolve_primary_ipv4(
@@ -496,8 +525,15 @@ async def execute(
         interfaces = (
             _build_interfaces(parsed_entry, source_format) if "interfaces" in attributes else []
         )
+        existing_bag = device.attribute_bags.get("nautobot")
+        if interfaces and source_format == "aci_details":
+            # The merge below replaces a whole interface: keep what earlier steps set on it.
+            interfaces = keep_unmapped_interface_fields(
+                existing_bag.get("interfaces") if isinstance(existing_bag, dict) else None,
+                interfaces,
+            )
         device_fields = (
-            build_device_fields_from_catalyst_details(parsed_entry, _catalyst_vendor(device))
+            _build_device_fields(parsed_entry, device, source_format)
             if "device" in attributes
             else {}
         )
@@ -518,8 +554,10 @@ async def execute(
                 custom_pattern=primary_ipv4_custom_pattern,
             )
 
+        if interfaces and source_format == "aci_details":
+            drop_unselected_tep_addresses(interfaces)
+
         defaults = {**device_fields, **({"interfaces": interfaces} if interfaces else {})}
-        existing_bag = device.attribute_bags.get("nautobot")
         merged_bag = merge_nautobot_defaults(existing_bag, defaults, overwrite=True)
         enriched = device.model_copy(
             update={
@@ -551,8 +589,8 @@ async def execute(
         upstream_step = _UPSTREAM_STEP_NAME[source_format]
         raise ValueError(
             f"{_STEP_ID}: no parsed config with usable data found at "
-            f"parsed.{parsed_key}.{config_source} on any device — add a '{upstream_step}' "
-            "step upstream with a matching output_key"
+            f"{_parsed_location(parsed_key, config_source, source_format)} on any device — "
+            f"add a '{upstream_step}' step upstream with a matching output_key"
         )
 
     # A device without usable parsed data was not processed: it leaves through 'failure' instead
@@ -564,7 +602,8 @@ async def execute(
             step_id=_STEP_ID,
             code="no_parsed_data",
             message=(
-                f"no usable parsed config at parsed.{parsed_key}.{config_source} for this device"
+                "no usable parsed config at "
+                f"{_parsed_location(parsed_key, config_source, source_format)} for this device"
             ),
         )
 

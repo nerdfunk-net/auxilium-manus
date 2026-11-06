@@ -21,6 +21,28 @@ def _marker(size: int) -> dict[str, Any]:
     return {TRUNCATED_KEY: True, "bytes": size}
 
 
+def _is_marker(value: Any) -> bool:
+    return isinstance(value, dict) and bool(value.get(TRUNCATED_KEY))
+
+
+def _shrink(container: dict[str, Any], key: str, size: int, value_max: int) -> None:
+    """Replace an oversized value by a marker, sparing its small children when that suffices.
+
+    A step that nests several facts under one key (``parsed.<output_key>.<fact>``) would lose
+    all of them for the sake of one big list: the oversized children are replaced one by one
+    first, and the whole value only when it is still too large afterwards.
+    """
+    value = container[key]
+    if isinstance(value, dict):
+        for child_key, child in value.items():
+            child_size = _size(child)
+            if child_size > value_max:
+                value[child_key] = _marker(child_size)
+        if _size(value) <= value_max:
+            return
+    container[key] = _marker(size)
+
+
 def _slots(context: dict[str, Any]) -> list[tuple[dict[str, Any], str]]:
     """Every ``(container, key)`` whose value may be replaced by a marker."""
     slots: list[tuple[dict[str, Any], str]] = []
@@ -57,10 +79,14 @@ def cap_persisted_output(
 
     for size, container, key in sized:
         if size > value_max:
-            container[key] = _marker(size)
+            _shrink(container, key, size, value_max)
 
     remaining = sorted(
-        ((size, container, key) for size, container, key in sized if size <= value_max),
+        (
+            (_size(container[key]), container, key)
+            for _, container, key in sized
+            if not _is_marker(container[key])
+        ),
         key=lambda item: item[0],
     )
     total = _size(persisted)

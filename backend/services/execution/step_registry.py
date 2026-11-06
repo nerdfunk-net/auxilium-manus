@@ -53,6 +53,7 @@ from workflow_steps.fan_in.executor import execute as fan_in
 from workflow_steps.filter_output.executor import execute as filter_output
 from workflow_steps.from_change_request.executor import execute as from_change_request
 from workflow_steps.generate_password.executor import execute as generate_password
+from workflow_steps.get_aci_details.executor import execute as get_aci_details
 from workflow_steps.get_aci_devices.executor import execute as get_aci_devices
 from workflow_steps.get_batfish_devices.executor import execute as get_batfish_devices
 from workflow_steps.get_catalyst_center_configs.executor import (
@@ -145,6 +146,7 @@ STEP_REGISTRY: dict[str, StepExecutor] = {
     "from-change-request": from_change_request,
     "get-catalyst-center-devices": get_catalyst_center_devices,
     "get-aci-devices": get_aci_devices,
+    "get-aci-details": get_aci_details,
     "get-catalyst-center-configs": get_catalyst_center_configs,
     "get-catalyst-center-details": get_catalyst_center_details,
     "get-catalyst-center-topology": get_catalyst_center_topology,

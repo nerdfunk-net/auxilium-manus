@@ -21,6 +21,7 @@ const PLUGIN_UI_LOADERS: Record<string, PluginUILoader> = {
   "get-catalyst-center-topology": () => import("@/components/features/workflow-steps/get-catalyst-center-topology").then((m) => m.GetCatalystCenterTopologyPlugin),
   "get-catalyst-center-health": () => import("@/components/features/workflow-steps/get-catalyst-center-health").then((m) => m.GetCatalystCenterHealthPlugin),
   "run-catalyst-center-command": () => import("@/components/features/workflow-steps/run-catalyst-center-command").then((m) => m.RunCatalystCenterCommandPlugin),
+  "get-aci-details": () => import("@/components/features/workflow-steps/get-aci-details").then((m) => m.GetAciDetailsPlugin),
   "get-aci-devices": () => import("@/components/features/workflow-steps/get-aci-devices").then((m) => m.GetAciDevicesPlugin),
   "get-ise-devices": () => import("@/components/features/workflow-steps/get-ise-devices").then((m) => m.GetIseDevicesPlugin),
   "get-ise-tacacs-key": () => import("@/components/features/workflow-steps/get-ise-tacacs-key").then((m) => m.GetIseTacacsKeyPlugin),

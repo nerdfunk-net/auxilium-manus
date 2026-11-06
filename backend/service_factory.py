@@ -16,6 +16,7 @@ from core.config import settings
 from repositories.inventory_repository import InventoryRepository
 from services.aci.client import AciService
 from services.aci.credentials import AciCredentials
+from services.aci.details_service import AciDetailsService
 from services.aci.device_service import AciDeviceService
 from services.aci.source_config_service import AciSourceConfigService
 from services.agents.client import AgentClient
@@ -143,6 +144,10 @@ def build_aci_source_config_service(db: Session) -> AciSourceConfigService:
 
 def build_aci_device_service(credentials: AciCredentials) -> AciDeviceService:
     return AciDeviceService(get_aci_app_service(), credentials)
+
+
+def build_aci_details_service(credentials: AciCredentials) -> AciDetailsService:
+    return AciDetailsService(get_aci_app_service(), credentials)
 
 
 def build_catalyst_center_source_config_service(db: Session) -> CatalystCenterSourceConfigService:
