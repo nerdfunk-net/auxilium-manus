@@ -288,7 +288,7 @@ default `Global`) or the subnet's VRF name (`namespace_from_vrf`; a subnet whose
 with the same name share a namespace). Report (JSON artifact, kind `aci_subnet_report`): `matched`; `missing_in_nautobot` with tenant / VRF /
 bridge domain / gateway and `covered_by` (the smallest containing Nautobot prefix of that namespace); `missing_in_aci` only when `scope_prefixes`
 is set (Nautobot prefixes of type network strictly inside a scope prefix that no ACI subnet matches; containers, pools and the scope itself are
-not candidates; a fixed namespace only looks at that namespace); `overlaps` (the same network from more than one bridge domain/EPG in one
+not candidates; a fixed namespace only looks at that namespace, while `namespace_from_vrf` also flags prefixes of namespaces no VRF maps to); `overlaps` (the same network from more than one bridge domain/EPG in one
 namespace); `skipped`; `summary`. The run metadata entry `<node id>.<output_key>` (default `aci_subnet_report`) carries the summary, the first 50 prefixes of
 each list and `artifact_ref`. Outcomes: `success` always, `differences` as well when the sources disagree, so a workflow can branch on drift.
 

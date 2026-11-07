@@ -29,7 +29,9 @@ export function CompareAciSubnetsHelpPanel() {
             <HelpCode>namespace_from_vrf</HelpCode> — use each subnet&apos;s VRF name as the
             namespace instead. A subnet whose bridge domain has no VRF is skipped and listed under{" "}
             <HelpCode>skipped</HelpCode>. VRFs of different tenants with the same name share one
-            namespace.
+            namespace. With <HelpCode>scope_prefixes</HelpCode> set, this mode also looks at the
+            Nautobot prefixes of unrelated namespaces (ones no VRF maps to), so those inside a
+            scope prefix are reported as <HelpCode>missing_in_aci</HelpCode>.
           </li>
           <li>
             <HelpCode>scope_prefixes</HelpCode> — optional, one prefix per line. Nautobot{" "}

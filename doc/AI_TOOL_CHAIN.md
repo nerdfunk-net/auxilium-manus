@@ -3548,7 +3548,7 @@ Plan: `doc/plans/ACI_TOOL_CHAIN.md`. Phases 1-4 are built (devices; endpoints an
   `find_aci_endpoint` and `list_aci_subnets contains_ip`) and `aci-epg-reachability` (`get_aci_epg`, `find_aci_contracts_between`,
   `get_aci_contract`, the limits), validated by `scripts/check_playbooks.py`; prompt, Help tab and tool labels.
 * **Totals:** 14 tools (devices 3, endpoints and subnets 4 incl. `list_aci_endpoints` and `get_aci_endpoint_history`, EPG and contract 5, L3Out 1, `check_aci_connectivity` 1), none of them writes.
-  Still open: a run with a real model (record the result here, as §42 does), a single-subnet Nautobot check, fabric-wide faults.
+  Still open: a run with a real model, to be done by the maintainer with their own key (record the result here, as §42 does), a single-subnet Nautobot check, fabric-wide faults.
   The field rules live in `tools/aci_fields.py` (`RULES`, `EXCLUDED`, `project`).
 * **Endpoint listing, endpoint history and the connectivity check (2026-11-07):**
   * `list_aci_endpoints` (tenant, optional profile / EPG / `within` prefix, paged): `AciEndpointService.list_endpoints` filters `fvCEp` on a `wcard(fvCEp.dn, "/tn-T/ap-A/epg-E/")` substring (names must be plain ACI names; more than 2 000 endpoints fail with "narrow it" instead of truncating). An endpoint now also carries `vrf`, `bridge_domain` and `esg`. Costs 2 budget slots.
