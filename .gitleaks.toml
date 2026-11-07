@@ -13,6 +13,7 @@ targetRules = ["generic-api-key", "private-key"]
 paths = [
   '''^backend/tests/unit/test_ai_redaction\.py$''',
   '''^backend/tests/unit/test_ai_redaction_corpus\.py$''',
+  '''^backend/tests/unit/test_ai_result_tools\.py$''',
   '''^backend/tests/unit/test_artifact_scrub\.py$''',
   '''^backend/tests/unit/test_crypto\.py$''',
   '''^backend/tests/unit/test_device_group_secret_scrub\.py$''',
