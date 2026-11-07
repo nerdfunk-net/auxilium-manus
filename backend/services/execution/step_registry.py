@@ -41,6 +41,7 @@ from workflow_steps.batfish_path_check.executor import execute as batfish_path_c
 from workflow_steps.batfish_routing_table.executor import execute as batfish_routing_table
 from workflow_steps.batfish_validate_facts.executor import execute as batfish_validate_facts
 from workflow_steps.check_nautobot_job.executor import execute as check_nautobot_job
+from workflow_steps.collect_client_data.executor import execute as collect_client_data
 from workflow_steps.collect_statistics.executor import execute as collect_statistics
 from workflow_steps.compare_aci_subnets.executor import execute as compare_aci_subnets
 from workflow_steps.compare_data.executor import execute as compare_data
@@ -214,6 +215,7 @@ STEP_REGISTRY: dict[str, StepExecutor] = {
     "store-artifact": store_artifact,
     "store-in-db": store_in_db,
     "store-for-report": store_for_report,
+    "collect-client-data": collect_client_data,
     "get-from-db": get_from_db,
     "open-change-request": open_change_request,
     "git-clone": git_clone,

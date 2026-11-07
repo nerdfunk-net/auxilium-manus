@@ -3,6 +3,12 @@ from core.models.ai_glossary import AiGlossaryName, AiGlossaryTerm
 from core.models.background_tier import WorkflowBackgroundTier
 from core.models.base import Base
 from core.models.change_requests import ChangeRequest
+from core.models.client_data import (
+    ClientDataCollection,
+    ClientHostname,
+    ClientIpAddress,
+    ClientMacAddress,
+)
 from core.models.credentials import Credential
 from core.models.device_data_records import DeviceDataRecord
 from core.models.git import GitRepository
@@ -34,6 +40,10 @@ from core.models.workflows import Workflow
 __all__ = [
     "Base",
     "ChangeRequest",
+    "ClientDataCollection",
+    "ClientHostname",
+    "ClientIpAddress",
+    "ClientMacAddress",
     "Credential",
     "DeviceDataRecord",
     "ReportDataRecord",

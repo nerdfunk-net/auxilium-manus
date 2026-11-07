@@ -40,6 +40,7 @@ import {
   Network,
   PackagePlus,
   PlayCircle,
+  Radar,
   Workflow,
   Replace,
   RefreshCw,
@@ -260,6 +261,7 @@ const nodeIconsByKind: Record<string, LucideIcon> = {
   "generate-password": Dices,
   "store-in-db": Database,
   "store-for-report": ClipboardList,
+  "collect-client-data": Radar,
   "get-from-db": Database,
 };
 

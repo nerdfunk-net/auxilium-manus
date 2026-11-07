@@ -34,6 +34,8 @@ MANUS_ENV_FILE=                  # read this file instead of backend/.env in a d
 MANUS_STRICT_CONTEXT=1           # CI: a step output that breaks the fan-out context rules fails the run instead of being merged
 AI_CONVERSATION_RETENTION_DAYS=90  # purge saved AI assistant chats not updated for N days; 0 keeps them
 REPORT_DATA_RETENTION_DAYS=365  # purge report_data_records older than N days (newest collection per device/dataset kept); 0 keeps all
+CLIENT_DATA_KEEP_SESSIONS=5     # collect-client-data: each device keeps its newest N collections (min 1)
+CLIENT_DATA_RETENTION_DAYS=90   # purge client data older than N days (each device's newest collection kept); 0 keeps all
 STEP_OUTPUT_VALUE_MAX_BYTES=65536   # a persisted step-output value above this becomes a "too large" marker (live context unaffected)
 STEP_OUTPUT_MAX_BYTES=8388608       # total persisted size per step result; the largest values are replaced until it fits
 DATABASE_POOL_SIZE=10               # SQLAlchemy pool; default 10 (web) / 20 (MANUS_PROCESS_ROLE=worker)

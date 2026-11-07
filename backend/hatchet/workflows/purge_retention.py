@@ -1,6 +1,6 @@
 """Periodic Hatchet workflow for background housekeeping.
 
-Four independent tasks run on the same cron:
+Five independent tasks run on the same cron:
 
 * ``purge_retention`` — deletes workflow_runs in terminal states older than
   RUN_RETENTION_DAYS (gated on RUN_RETENTION_ENABLED), then sweeps
@@ -10,6 +10,9 @@ Four independent tasks run on the same cron:
   AI_CONVERSATION_RETENTION_DAYS (0 keeps them). Not gated on RUN_RETENTION_ENABLED.
 * ``purge_report_data`` — deletes report_data_records older than REPORT_DATA_RETENTION_DAYS
   (0 keeps them), always keeping each device's newest collection per dataset.
+* ``purge_client_data`` — deletes client data collections (client_ip_addresses, client_mac_addresses,
+  client_hostnames, client_data_collections) older than CLIENT_DATA_RETENTION_DAYS (0 keeps them),
+  always keeping each device's newest collection.
 * ``reconcile_change_requests`` — expires stale ``staged`` change requests past
   their TTL and finalises any ``deploying`` change request whose deploy run
   already reached a terminal status but whose detail page nobody opened (the
@@ -105,6 +108,22 @@ async def purge_report_data(input: EmptyModel, ctx: Context) -> dict:
 
     with SessionLocal() as db:
         deleted = ReportDataService(db).purge_older_than_days(
+            days, batch_size=settings.run_retention_batch_size
+        )
+    return {"deleted": deleted, "retention_days": days}
+
+
+@workflow.task(name="purge_client_data")
+async def purge_client_data(input: EmptyModel, ctx: Context) -> dict:
+    from core.database import SessionLocal
+    from services.client_data.client_data_service import ClientDataService
+
+    days = settings.client_data_retention_days
+    if days < 1:
+        return {"skipped": True}
+
+    with SessionLocal() as db:
+        deleted = ClientDataService(db).purge_older_than_days(
             days, batch_size=settings.run_retention_batch_size
         )
     return {"deleted": deleted, "retention_days": days}

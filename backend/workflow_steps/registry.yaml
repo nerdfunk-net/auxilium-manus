@@ -6207,6 +6207,139 @@ plugins:
               where_field: status
               where_equals: disabled
 
+  - id: collect-client-data
+    name: Collect Client Data
+    overview: Record which MAC and IP addresses are seen on which interface, VLAN and VRF.
+    description: >
+      Connect to each device over SSH and read its ARP table (the default VRF and every VRF
+      the device has) and its MAC address table, parse both with TextFSM, and store the
+      result for later lookups ("where is this MAC or IP?") in the tables client_ip_addresses,
+      client_mac_addresses and client_hostnames; every device and run also leaves one row in
+      client_data_collections. Each entry records the device, the interface or port, the VLAN
+      (from the MAC table, or from an SVI interface name such as Vlan10 for ARP) and the VRF.
+      Each command is judged on its own: a command the platform refuses (a router has no MAC
+      address table, an older device has no "show vrf") is recorded as not_supported and does
+      not fail the device; a device fails only when it cannot be reached, when the output
+      of a requested table is not a table (a banner or dropped session: it is never stored as "no
+      rows"), or when every requested table was refused. With collect_hostname the ARP
+      addresses are also resolved with reverse DNS (PTR) queries, once per address per run.
+      Only the newest collections of a device are kept (CLIENT_DATA_KEEP_SESSIONS) and older
+      ones are purged by age (CLIENT_DATA_RETENTION_DAYS); each device's newest collection
+      always stays. Supported platforms: Cisco IOS, IOS-XE and NX-OS (other platforms fail the
+      device with unsupported_platform). Devices are identified by name: a second device with
+      the same name in one step fails. A summary lands on each device under
+      parsed.<node id>.client_data (arp_status, mac_status, vrf_status, arp_entries,
+      mac_entries, hostnames, vrfs). Concurrency-safe: collections are keyed by run and device
+      name, so fan-out children and sibling branches need no Fan In node.
+    artifact_type: persistent_artifact
+    directory: collect_client_data
+    enabled: true
+    requires: [identity]
+    produces: [parsed]
+    outcomes:
+      - name: success
+      - name: failure
+    metadata:
+      configuration_input:
+        - name: credential_reference
+          description: >
+            Credential vault name to use when credential_source is "fixed" (the default).
+          data_type: credential_ref
+          required: false
+        - name: credential_source
+          description: >
+            "fixed" (default) uses credential_reference. "run_param" uses the credential
+            vault name held in the run parameter named by credential_param.
+          data_type: string
+          required: false
+          default: fixed
+          example: run_param
+        - name: credential_param
+          description: >
+            Name of the run parameter (workflow static_attribute) carrying the credential
+            vault name, used only when credential_source is "run_param".
+          data_type: string
+          required: false
+          example: ssh_credential
+        - name: collect_ip_address
+          description: >
+            Read the ARP table (show ip arp) and store the IP addresses with their MAC,
+            interface, VRF and VLAN.
+          data_type: boolean
+          required: false
+          default: true
+        - name: collect_mac_address
+          description: >
+            Read the MAC address table (show mac address-table) and store each MAC with its
+            VLAN and port. A device without that command is recorded as not_supported.
+          data_type: boolean
+          required: false
+          default: true
+        - name: collect_vrfs
+          description: >
+            Discover the VRFs with "show vrf" and read the ARP table of each one
+            (show ip arp vrf <name>). Needs collect_ip_address. A device without "show vrf" is
+            collected for the default VRF only.
+          data_type: boolean
+          required: false
+          default: true
+        - name: collect_hostname
+          description: >
+            Resolve the collected IP addresses to hostnames with reverse DNS (PTR) queries.
+            Needs collect_ip_address. Off by default: a slow or missing resolver slows the step.
+          data_type: boolean
+          required: false
+          default: false
+        - name: dns_timeout_seconds
+          description: >
+            Seconds to wait for each reverse DNS answer (0.1-30). An address that times out
+            has no hostname. Only used when collect_hostname is on.
+          data_type: number
+          required: false
+          default: 2
+          example: 3
+        - name: dns_concurrency
+          description: >
+            Reverse DNS lookups in flight at the same time (1-100). Only used when
+            collect_hostname is on.
+          data_type: integer
+          required: false
+          default: 20
+          example: 10
+        - name: network_driver_override
+          description: >
+            Override the Netmiko device type for all devices in this step (cisco_ios,
+            cisco_xe or cisco_nxos).
+          data_type: string
+          required: false
+          example: cisco_xe
+        - name: read_timeout
+          description: >
+            Seconds to wait for each command's response before failing with a Netmiko
+            "Pattern not detected" timeout. Large ARP or MAC tables may need more.
+          data_type: integer
+          required: false
+          default: 60
+          example: 120
+        - name: dry_run
+          description: >
+            Resolve the devices and show the commands that would run, without connecting to a
+            device or writing to the database.
+          data_type: boolean
+          required: false
+          default: false
+        - name: retry_backoff_seconds
+          description: >
+            Per-device SSH connect retry schedule for an unstable link: the seconds to wait
+            before each retry, e.g. [10, 20, 30]. Never applied to an authentication failure.
+            Empty (default) means no retry. Up to 5 entries, 1-600s each.
+          data_type: integer_list
+          required: false
+          default: []
+          example:
+            - 10
+            - 20
+
   - id: get-from-db
     name: Get from DB
     overview: Read data stored by Store in DB back into a device attribute.

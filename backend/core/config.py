@@ -266,6 +266,10 @@ class Settings:
         # Report data rows (report_data_records); 0 keeps them. The newest collection of each
         # device and dataset is always kept.
         self.report_data_retention_days = self._get_int("REPORT_DATA_RETENTION_DAYS", 365)
+        # Client data (client_ip_addresses & co): each device keeps its newest N collections;
+        # older ones are purged by age (0 keeps them); a device's newest collection always stays.
+        self.client_data_keep_sessions = self._get_int("CLIENT_DATA_KEEP_SESSIONS", 5)
+        self.client_data_retention_days = self._get_int("CLIENT_DATA_RETENTION_DAYS", 90)
         self._validate_run_retention()
         self.apply_safe_migrations = self._get_bool("APPLY_SAFE_DATABASE_MIGRATION", False)
         self.apply_risky_migrations = self._get_bool("APPLY_RISKY_DATABASE_MIGRATION", False)
@@ -372,6 +376,10 @@ class Settings:
             raise RuntimeError("AI_CONVERSATION_RETENTION_DAYS must be 0 or greater")
         if self.report_data_retention_days < 0:
             raise RuntimeError("REPORT_DATA_RETENTION_DAYS must be 0 or greater")
+        if self.client_data_keep_sessions < 1:
+            raise RuntimeError("CLIENT_DATA_KEEP_SESSIONS must be at least 1")
+        if self.client_data_retention_days < 0:
+            raise RuntimeError("CLIENT_DATA_RETENTION_DAYS must be 0 or greater")
 
     def _validate_vault(self) -> None:
         """Structural, environment-agnostic checks for the OpenBao settings.

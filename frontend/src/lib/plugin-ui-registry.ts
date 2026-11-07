@@ -80,6 +80,7 @@ const PLUGIN_UI_LOADERS: Record<string, PluginUILoader> = {
   "store-artifact": () => import("@/components/features/workflow-steps/store-artifact").then((m) => m.StoreArtifactPlugin),
   "store-in-db": () => import("@/components/features/workflow-steps/store-in-db").then((m) => m.StoreInDbPlugin),
   "store-for-report": () => import("@/components/features/workflow-steps/store-for-report").then((m) => m.StoreForReportPlugin),
+  "collect-client-data": () => import("@/components/features/workflow-steps/collect-client-data").then((m) => m.CollectClientDataPlugin),
   "get-from-db": () => import("@/components/features/workflow-steps/get-from-db").then((m) => m.GetFromDbPlugin),
   "open-change-request": () => import("@/components/features/workflow-steps/open-change-request").then((m) => m.OpenChangeRequestPlugin),
   "git-clone": () => import("@/components/features/workflow-steps/git-clone").then((m) => m.GitClonePlugin),

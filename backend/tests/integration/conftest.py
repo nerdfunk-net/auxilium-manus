@@ -62,6 +62,10 @@ _TRUNCATE_TABLES = (
     "report_datasets",
     "report_snapshots",
     "report_definitions",
+    "client_ip_addresses",
+    "client_mac_addresses",
+    "client_hostnames",
+    "client_data_collections",
 )
 
 
