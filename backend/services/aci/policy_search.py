@@ -103,7 +103,7 @@ def closest_names(wanted: str, names: Iterable[str], limit: int = 5) -> list[str
     )
 
 
-def _port(value: str | None) -> int | None:
+def port_number(value: str | None) -> int | None:
     if value is None:
         return None
     if value.isdigit():
@@ -128,7 +128,7 @@ def entry_covers(entry: AciPolicyFilterEntry, protocol: str, port: int | None) -
     low, high = entry.destination_port_from, entry.destination_port_to
     if low is None and high is None:
         return True
-    lo, hi = _port(low), _port(high if high is not None else low)
+    lo, hi = port_number(low), port_number(high if high is not None else low)
     return lo is not None and hi is not None and lo <= port <= hi
 
 

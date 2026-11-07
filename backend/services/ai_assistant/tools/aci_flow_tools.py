@@ -17,9 +17,19 @@ from typing import Annotated, Any, Literal
 
 from pydantic import Field, field_validator, model_validator
 
+from models.aci_facts import AciContracts
 from models.aci_flow import AciFlowVerdict
 from services.aci.connectivity import FLOW_LIMITS, assess_flow, parties
+from services.aci.details_service import AciDetailsService
 from services.aci.policy_service import AciPolicySnapshot
+from services.aci.zoning import (
+    SKIP_REASONS,
+    ZONING_LIMITS,
+    attach_programmed,
+    check_leaf,
+    epg_tag,
+    leaves_to_check,
+)
 from services.ai_assistant.aci_reader import AciSource
 from services.ai_assistant.data_sharing import DataClass, not_shared_marker
 from services.ai_assistant.tools.aci_fields import project
@@ -31,12 +41,21 @@ from services.ai_assistant.tools.aci_tools import (
     _finish,
     _SourceInput,
     _sources_or_error,
+    _within_budget,
 )
 from services.ai_assistant.tools.base import Tool, ToolContext, ToolOutput
 
 # Two endpoint lookups and a policy snapshot with the flow switches (about 22 reads when cold).
 COST_FLOW_CHECK = 3
+# ``verify_on_leaf`` reads up to four leaves (rules, filters, VRF scopes), so it costs more.
+COST_LEAF_VERIFY = 2
+# Each leaf that is read costs one more slot: a leaf is four APIC reads (rules, filters, VRFs, ...).
+COST_PER_LEAF = 1
 MAX_VERDICTS = 9
+_BUDGET_NOTE = (
+    "The leaves were not read: the per-minute ACI read budget does not allow it right now. "
+    "Ask again in a minute."
+)
 
 
 class CheckConnectivityInput(_SourceInput):
@@ -45,6 +64,12 @@ class CheckConnectivityInput(_SourceInput):
     protocol: Literal["tcp", "udp", "icmp"] = "tcp"
     port: Annotated[int, Field(ge=1, le=65535)] | None = Field(
         None, description="Destination port (needed for tcp and udp, not for icmp)."
+    )
+    verify_on_leaf: bool = Field(
+        False,
+        description="Also read the zoning rules the leaves of both hosts program (what the "
+        "hardware enforces) and compare them with the contract intent. Slower: ask for it when "
+        "the intent is unknown, or differs from what the user sees, or a second opinion matters.",
     )
 
     @field_validator("source_ip", "destination_ip")
@@ -62,7 +87,75 @@ class CheckConnectivityInput(_SourceInput):
         return self
 
 
-async def _evaluate(source: AciSource, args: CheckConnectivityInput) -> list[AciFlowVerdict]:
+class _LeafCache:
+    """One read of a leaf's rules and VRF scopes per call, however many verdicts need it."""
+
+    def __init__(self, details: AciDetailsService) -> None:
+        self._details = details
+        self._contracts: dict[tuple[int, int], AciContracts] = {}
+        self._scopes: dict[tuple[int, int], dict[str, str]] = {}
+
+    async def get_contracts(self, pod_id: int, node_id: int) -> AciContracts:
+        key = (pod_id, node_id)
+        if key not in self._contracts:
+            self._contracts[key] = await self._details.get_contracts(pod_id, node_id)
+        return self._contracts[key]
+
+    async def get_vrf_scopes(self, pod_id: int, node_id: int) -> dict[str, str]:
+        key = (pod_id, node_id)
+        if key not in self._scopes:
+            self._scopes[key] = await self._details.get_vrf_scopes(pod_id, node_id)
+        return self._scopes[key]
+
+
+async def _verify(
+    reader: _LeafCache,
+    policy: AciPolicySnapshot,
+    verdict: AciFlowVerdict,
+    args: CheckConnectivityInput,
+) -> AciFlowVerdict:
+    """Add what the leaves' zoning rules do with the flow (skipped when the hosts are unplaced)."""
+    if verdict.reason in SKIP_REASONS:
+        return verdict
+    src_tag = epg_tag(policy, verdict.source.epg_dn)
+    dst_tag = epg_tag(policy, verdict.destination.epg_dn)
+    leaves, skipped = leaves_to_check(verdict)
+    if src_tag is None or dst_tag is None or not leaves:
+        return verdict.model_copy(
+            update={
+                "programmed_summary": "unavailable",
+                "programmed_note": "The class tags or the leaves of the hosts are not known "
+                "(an outside address has no leaf), so the zoning rules were not read.",
+            }
+        )
+    vrf = next(
+        (v for v in (verdict.source.vrf, verdict.destination.vrf) if v and not v.startswith("?/")),
+        verdict.source.vrf or verdict.destination.vrf,
+    )
+    checks = await asyncio.gather(
+        *(
+            check_leaf(
+                reader,
+                leaf,
+                vrf=vrf,
+                src_tag=src_tag,
+                dst_tag=dst_tag,
+                protocol=args.protocol,
+                port=args.port,
+            )
+            for leaf in leaves
+        )
+    )
+    return attach_programmed(verdict, checks, skipped)
+
+
+def _unavailable(verdict: AciFlowVerdict, why: str) -> AciFlowVerdict:
+    return verdict.model_copy(update={"programmed_summary": "unavailable", "programmed_note": why})
+
+
+async def _evaluate(
+    source: AciSource, args: CheckConnectivityInput, user_id: int
+) -> list[AciFlowVerdict]:
     async def snapshot() -> AciPolicySnapshot:
         return await source.policy.snapshot(with_flow=True)
 
@@ -74,16 +167,30 @@ async def _evaluate(source: AciSource, args: CheckConnectivityInput) -> list[Aci
     )
     sources = parties(policy, args.source_ip, src_eps)
     destinations = parties(policy, args.destination_ip, dst_eps)
-    return [
+    verdicts = [
         assess_flow(policy, s, d, args.protocol, args.port) for s in sources for d in destinations
     ][:MAX_VERDICTS]
+    if not args.verify_on_leaf:
+        return verdicts
+    # The leaves are known only now, so each one is charged to the budget here.
+    needed = {
+        (leaf.pod_id, leaf.node_id)
+        for v in verdicts
+        if v.reason not in SKIP_REASONS
+        for leaf in leaves_to_check(v)[0]
+    }
+    if needed and not await _within_budget(user_id, COST_PER_LEAF * len(needed)):
+        return [v if v.reason in SKIP_REASONS else _unavailable(v, _BUDGET_NOTE) for v in verdicts]
+    reader = _LeafCache(source.details)
+    return [await _verify(reader, policy, v, args) for v in verdicts]
 
 
 async def _check(ctx: ToolContext, args: CheckConnectivityInput) -> ToolOutput:
     for data_class in (DataClass.INVENTORY, DataClass.ADDRESSES):
         if not ctx.sharing.allows(data_class):
             return ToolOutput(json.dumps(not_shared_marker(data_class), indent=1))
-    sources = await _sources_or_error(ctx, args.source, COST_FLOW_CHECK)
+    cost = COST_FLOW_CHECK + (COST_LEAF_VERIFY if args.verify_on_leaf else 0)
+    sources = await _sources_or_error(ctx, args.source, cost)
     if isinstance(sources, ToolOutput):
         return sources
     results: list[tuple[str, list[AciFlowVerdict]]] = []
@@ -91,7 +198,7 @@ async def _check(ctx: ToolContext, args: CheckConnectivityInput) -> ToolOutput:
 
     async def one(source: AciSource) -> None:
         try:
-            results.append((source.source_id, await _evaluate(source, args)))
+            results.append((source.source_id, await _evaluate(source, args, ctx.user_id)))
         except _SOURCE_ERRORS as exc:
             errors.append({"source_id": source.source_id, "error": _failure_sentence(exc)})
 
@@ -107,6 +214,7 @@ async def _check(ctx: ToolContext, args: CheckConnectivityInput) -> ToolOutput:
             "destination": args.destination_ip,
             "protocol": args.protocol,
             "port": args.port,
+            "verify_on_leaf": args.verify_on_leaf,
         },
         "results": [
             {
@@ -117,6 +225,8 @@ async def _check(ctx: ToolContext, args: CheckConnectivityInput) -> ToolOutput:
         ],
         "limits": FLOW_LIMITS,
     }
+    if args.verify_on_leaf:
+        payload["programmed_limits"] = ZONING_LIMITS
     if errors:
         payload["source_errors"] = errors
     if withheld:
@@ -141,8 +251,14 @@ def build_aci_flow_tools() -> tuple[Tool, ...]:
             "intent from the APIC, not a packet trace: it does not evaluate service graphs, "
             "policy-based redirect, route leaking, ESGs or taboo contracts (those give unknown), "
             "and a silent host is not learned. Never say 'traffic flows' from it alone; for real "
-            "reachability use Batfish or a live test. If it says no ACI source is configured, tell "
-            "the user. Needs the inventory and addresses switches.",
+            "reachability use Batfish or a live test. With verify_on_leaf it also reads the zoning "
+            "rules the hosts' leaves program (what the hardware enforces when the rules are "
+            "enabled; it also reflects vzAny, preferred groups and taboo) and compares them "
+            "with the intent: use it when the intent is unknown or the user doubts it. Only "
+            "programmed_summary permit or deny is the hardware's answer; partial, mixed, "
+            "redirect and unavailable are not (see each leaf, and programmed_limits). If it says "
+            "no ACI source is configured, tell the user. Needs the inventory and addresses "
+            "switches.",
             CheckConnectivityInput,
             check,
         ),

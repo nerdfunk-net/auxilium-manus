@@ -312,10 +312,11 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
       {
         name: "check_aci_connectivity",
         description:
-          "Checks whether the ACI contracts permit host A to connect to host B on a protocol and port. It finds both hosts' EPGs and VRFs and applies enforcement, preferred groups, vzAny and the contracts. Answers permitted, not permitted or unknown with the reason. It is contract intent, not a packet trace.",
+          "Checks whether the ACI contracts permit host A to connect to host B on a protocol and port. It finds both hosts' EPGs and VRFs and applies enforcement, preferred groups, vzAny and the contracts. Answers permitted, not permitted or unknown with the reason. It is contract intent, not a packet trace; ask for the leaf check and it also reads the zoning rules the leaves of both hosts program (what the hardware enforces) and compares them.",
         questions: [
           "Can 10.193.101.4 connect to 10.193.102.2 on TCP port 1433?",
           "Is ping allowed from 10.1.1.5 to 10.2.2.7 in ACI?",
+          "Check on the leaves whether 10.193.101.4 may connect to 10.193.102.2 on TCP 443.",
         ],
       },
       {

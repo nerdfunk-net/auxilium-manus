@@ -26,7 +26,7 @@ import re
 from collections.abc import Iterable, Sequence
 
 from models.aci_endpoint import AciEndpoint
-from models.aci_flow import AciFlowContract, AciFlowParty, AciFlowVerdict
+from models.aci_flow import AciFlowContract, AciFlowLeaf, AciFlowParty, AciFlowVerdict
 from models.aci_policy import AciPolicyContract, AciPolicyFilterEntry, AciVrfPolicy
 from services.aci.policy_search import entry_covers, readable_epg
 from services.aci.policy_service import AciPolicySnapshot
@@ -65,6 +65,7 @@ def party_for_endpoint(address: str, endpoint: AciEndpoint) -> AciFlowParty:
     elif endpoint.external_epg and endpoint.tenant:
         out, _, instp = endpoint.external_epg.partition("/")
         epg_dn = f"uni/tn-{endpoint.tenant}/out-{out}/instP-{instp}"
+    leaves = sorted({(a.pod_id, node) for a in endpoint.attachments for node in a.node_ids})
     return AciFlowParty(
         address=address,
         how="endpoint",
@@ -72,6 +73,7 @@ def party_for_endpoint(address: str, endpoint: AciEndpoint) -> AciFlowParty:
         epg_path=readable_epg(epg_dn) if epg_dn else None,
         vrf=endpoint.vrf,
         esg=endpoint.esg,
+        leaves=tuple(AciFlowLeaf(pod_id=p, node_id=n) for p, n in leaves),
     )
 
 

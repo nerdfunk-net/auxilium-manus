@@ -9,8 +9,10 @@ from services.aci.common.exceptions import AciAPIError, AciValidationError
 from services.aci.details_service import MAX_RULE_ROWS
 from tests.unit.test_aci_details_service import leaf_client, service
 
-# Synthetic: the sandbox leaf has no zoning rules, so the shape follows the documented MIT
-# (``actrlRule`` dn ``.../sys/actrl/scope-<vrf>/rule-<vrf>-s-<src>-d-<dst>-f-<filter>``).
+# The DN shapes are the real ones of a DevNet sandbox leaf (2026-11-07), see
+# ``fixtures/aci_zoning_sandbox.json``:
+# ``.../sys/actrl/scope-<vrf>/rule-<vrf>-s-<src>-d-<dst>-f-<id>`` for a rule and
+# ``.../sys/actrl/filt-<id>/ent-<id>_<n>`` for a filter entry.
 RULE = {
     "dn": "topology/pod-1/node-101/sys/actrl/scope-2359296/rule-2359296-s-49154-d-32772-f-5",
     "sPcTag": "49154",
@@ -23,7 +25,7 @@ RULE = {
     "scopeId": "2359296",
 }
 ENTRY = {
-    "dn": "topology/pod-1/node-101/sys/actrl/scope-2359296/flt-5/ent-0",
+    "dn": "topology/pod-1/node-101/sys/actrl/filt-5/ent-5_0",
     "etherT": "ip",
     "prot": "tcp",
     "sFromPort": "unspecified",
@@ -85,9 +87,9 @@ class ContractTests(unittest.IsolatedAsyncioTestCase):
         (rule,) = contracts.rules
         self.assertEqual((rule.scope, rule.filter_id), ("2359296", "5"))
         self.assertEqual((rule.source_pc_tag, rule.destination_pc_tag), ("49154", "32772"))
+        # Tag 32772 is an EPG of another VRF (scope 2916352), so it must not be named here.
         self.assertEqual(
-            (rule.source_epg, rule.destination_epg),
-            ("Heroes:Save_The_Planet:web", "SnV:Chaos:Web"),
+            (rule.source_epg, rule.destination_epg), ("Heroes:Save_The_Planet:web", None)
         )
         self.assertEqual(
             (rule.action, rule.direction, rule.priority, rule.state),
@@ -140,3 +142,79 @@ class ContractTests(unittest.IsolatedAsyncioTestCase):
         second = {**RULE, "dn": RULE["dn"].replace("s-49154", "s-1"), "sPcTag": "1"}
         rules = (await service(with_rules(RULE, second)).get_contracts(1, 101)).rules
         self.assertEqual([r.source_pc_tag for r in rules], ["1", "49154"])
+
+
+class RealShapeTests(unittest.IsolatedAsyncioTestCase):
+    """Rows copied from a real leaf: wildcard tags, implicit filters named by a word."""
+
+    async def test_the_real_dn_shapes_give_rules_and_entries_with_their_filter_ids(self) -> None:
+        import json
+        from pathlib import Path
+
+        data = json.loads(
+            (Path(__file__).parent / "fixtures" / "aci_zoning_sandbox.json").read_text()
+        )
+        client = leaf_client(
+            data={"actrlRule": data["actrlRule"], "actrlEntry": data["actrlEntry"]}
+        )
+        contracts = await service(client).get_contracts(1, 101)
+        by_filter = {e.filter_id: e for e in contracts.filters}
+        self.assertEqual(set(by_filter), {"implarp", "implicit", "9", "10"})
+        self.assertEqual(by_filter["9"].destination_port_from, "https")
+        self.assertEqual(by_filter["10"].source_port_from, "https")
+        implicit = next(
+            r for r in contracts.rules if r.filter_id == "implicit" and r.scope == "16777200"
+        )
+        self.assertEqual(
+            (implicit.source_pc_tag, implicit.destination_pc_tag, implicit.action),
+            ("any", "any", "deny,log"),
+        )
+
+    async def test_a_wildcard_rule_without_attributes_still_parses_from_its_dn(self) -> None:
+        row = {"dn": "topology/pod-1/node-101/sys/actrl/scope-5/rule-5-s-any-d-any-f-implicit"}
+        (rule,) = (await service(with_rules(row)).get_contracts(1, 101)).rules
+        self.assertEqual(
+            (rule.scope, rule.source_pc_tag, rule.destination_pc_tag, rule.filter_id),
+            ("5", "any", "any", "implicit"),
+        )
+
+
+class ScopedNamesTests(unittest.IsolatedAsyncioTestCase):
+    async def test_one_tag_in_two_vrfs_is_named_by_the_scope_of_the_rule(self) -> None:
+        circuits = [
+            {
+                "dn": "topology/pod-1/node-101/sys/ctx-[vxlan-100]/bd-[vxlan-1]/vlan-[vlan-5]",
+                "name": "A:AP:web",
+                "pcTag": "32800",
+            },
+            {
+                "dn": "topology/pod-1/node-101/sys/ctx-[vxlan-200]/bd-[vxlan-2]/vlan-[vlan-6]",
+                "name": "B:AP:db",
+                "pcTag": "32800",
+            },
+        ]
+        rules = [
+            {"dn": "x/scope-100/rule-100-s-32800-d-any-f-1", "scopeId": "100", "sPcTag": "32800",
+             "dPcTag": "any", "fltId": "1", "action": "permit"},
+            {"dn": "x/scope-200/rule-200-s-32800-d-any-f-1", "scopeId": "200", "sPcTag": "32800",
+             "dPcTag": "any", "fltId": "1", "action": "permit"},
+        ]  # fmt: skip
+        client = leaf_client(data={"actrlRule": rules, "actrlEntry": [], "vlanCktEp": circuits})
+        built = (await service(client).get_contracts(1, 101)).rules
+        assert {r.scope: r.source_epg for r in built} == {"100": "A:AP:web", "200": "B:AP:db"}
+
+
+class VrfScopeTests(unittest.IsolatedAsyncioTestCase):
+    async def test_scopes_are_keyed_by_the_exact_tenant_and_vrf_of_the_row(self) -> None:
+        import json
+        from pathlib import Path
+
+        data = json.loads(
+            (Path(__file__).parent / "fixtures" / "aci_zoning_sandbox.json").read_text()
+        )
+        scopes = await service(leaf_client(data={"l3Ctx": data["l3Ctx"]})).get_vrf_scopes(1, 101)
+        assert scopes == {"black-hole": "16777200", "VY-TN/VY-VRF": "2523136"}
+
+    async def test_a_row_without_a_scope_or_a_name_is_left_out(self) -> None:
+        rows = [{"name": "T:v", "scope": "unspecified"}, {"name": "", "scope": "5"}]
+        assert await service(leaf_client(data={"l3Ctx": rows})).get_vrf_scopes(1, 101) == {}

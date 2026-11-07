@@ -17,7 +17,9 @@ Cisco ACI fabric. The answer is the contract policy the APIC holds, not a live t
 - The protocol (tcp, udp or icmp) and, for tcp and udp, the destination port.
 
 ## Steps
-1. Call `check_aci_connectivity` with both addresses, the protocol and the port.
+1. Call `check_aci_connectivity` with both addresses, the protocol and the port. Add
+   `verify_on_leaf` when the verdict is `unknown`, when the user doubts it, or when a second opinion
+   matters: it reads the zoning rules the hosts' leaves program (what the hardware enforces).
 2. Read `verdict` and `reason` per result (one result per learned endpoint of an address):
    - `permitted` (`contract_permits`, `same_epg`, `unenforced_vrf`, `preferred_group`): say which.
    - `not_permitted` (`no_contract`, `contract_wrong_port`, `same_epg_isolated`): say why. For
@@ -27,7 +29,15 @@ Cisco ACI fabric. The answer is the contract policy the APIC holds, not a live t
 3. When it is `not_permitted` or you need detail, call `find_aci_contracts_between` for the two EPGs
    (`epg_path` of each side) and `get_aci_contract` for the subjects. If an address is not learned,
    `find_aci_endpoint` shows whether the fabric knows it under another address or MAC.
-4. A contract in the opposite direction is a finding: the consumer opens the connection to the
+4. With `verify_on_leaf`, read `programmed_summary` and `programmed_note` per verdict. `permit` or
+   `deny` means every leaf that was read gave that answer from enabled rules; it also reflects
+   vzAny, preferred groups and taboo. If the note says "Differs", report both the intent and the
+   hardware and say the leaf rule is what is enforced. `partial` (a leaf unreadable, no rule, rules
+   not enabled, a rule the check cannot judge, or leaves not read), `mixed`, `redirect` and
+   `unavailable` are findings, not answers: say the hardware's answer is not known and why (see each
+   leaf's `outcome` and `note`, and `programmed_limits`). `not_enforced` means matching rules exist
+   but the leaf reports them disabled (a simulated switch does this).
+5. A contract in the opposite direction is a finding: the consumer opens the connection to the
    provider, so a contract that goes the other way does not permit this flow.
 
 ## Decision points

@@ -1,10 +1,11 @@
 # Cisco ACI (APIC) Integration — Plan
 
-Status (2026-11-07): **built:** client, device service, source type + CRUD + test-connection, and six workflow steps with frontend
+Status (2026-11-07): **built:** client, device service, source type + CRUD + test-connection, six workflow steps with frontend
 (`get-aci-devices`, `get-aci-details`, `get-aci-policy`, `find-aci-endpoints`, `compare-aci-subnets`, `backup-aci-config`; see the sections
-at the end of this file) plus the `config-to-attributes` format `aci_details`. **Not done:** the Ask the Net tools (plan:
-[`plans/ACI_TOOL_CHAIN.md`](./plans/ACI_TOOL_CHAIN.md)) and the live check of the newer read paths (list in
-[`plans/ACI_CONTINUE.md`](./plans/ACI_CONTINUE.md)). Read-only source for the leaf and spine switches of an
+at the end of this file), the `config-to-attributes` format `aci_details`, and **14 Ask the Net tools** (`doc/AI_TOOL_CHAIN.md` §47; plan
+and design notes in [`plans/ACI_TOOL_CHAIN.md`](./plans/ACI_TOOL_CHAIN.md)). The read paths were checked live against the DevNet sandbox on
+2026-11-07 (each section says what was and was not). Two code reviews ([`analysis/REVIEW.md`](./analysis/REVIEW.md), 2026-11-06 and
+2026-11-07) are fixed. Open items and handoff: [`plans/ACI_CONTINUE.md`](./plans/ACI_CONTINUE.md). Read-only source for the leaf and spine switches of an
 ACI fabric, usable as workflow targets and from Ask the Net. Modelled on
 [`CISCO_CATALYST_INTEGRATION.md`](./CISCO_CATALYST_INTEGRATION.md).
 
@@ -85,11 +86,21 @@ filter values are validated (no `"`, control characters, length cap) before bein
 
 ## Ask the Net
 
-Same pattern as `catalyst_center_tools.py` (§42 of `AI_TOOL_CHAIN.md`): `find_aci_device` (name, serial or node id) and
-`get_aci_device_details`; permission `sources.aci:read` checked on every call; the user's inventory switch gates
-names/models, the addresses switch gates management IPs and serials; a missing source is reported to the user.
-Wiring: `surfaces.py`, `routers/ai_assistant.py` (`can_read_aci`), `playbook_tools.known_general_tool_names`,
-`DataClass` per field (fail closed). Document as a new section in `AI_TOOL_CHAIN.md`.
+Built, see `doc/AI_TOOL_CHAIN.md` §47 (14 tools: switches and facts, endpoints and subnets, endpoint listing and history, EPGs, contracts,
+L3Outs, and `check_aci_connectivity`). `sources.aci:read` is checked on every call; the inventory, addresses and content switches gate the
+fields (`tools/aci_fields.py`, fail closed); reads share the services of the steps. The services added for the tools:
+
+* `AciEndpointService.list_endpoints` (tenant / profile / EPG, `wcard(fvCEp.dn, "/tn-T/ap-A/epg-E/")` substring filter, fails above 2 000
+  endpoints) and `.history` (`fvCEp.modTs`, `fvIp.createTs` / `modTs`, the leaf's `epmMacEp` with `ifId` / `modTs`, and `eventRecord` /
+  `faultRecord` lines that name the MAC or an address). The APIC keeps **no move history**; the epoch (`1970-`) some objects report is
+  treated as unknown. An endpoint carries `vrf`, `bridge_domain` and `esg` from `vrfDn` / `bdDn` / `esgUsegDn`.
+* `AciPolicyService.snapshot(with_flow=True)`: five more class reads (`fvCtx.pcEnfPref`, `vzAny.prefGrMemb`, `vzRsAnyToProv` / `ToCons`,
+  `fvRsProtBy`) plus the `prefGrMemb` / `pcEnfPref` attributes of `fvAEPg` and `l3extInstP`; verified on the sandbox (the APIC there had no
+  `vzAny` contracts or taboo relations, so those branches are covered by unit tests only).
+* `services/aci/connectivity.py` (contract intent for "can A reach B on a port"; the REST API has no read call for it, its Visibility &
+  Troubleshooting session `troubleshootSession` is created by a write) and `services/aci/zoning.py` (the leaf's `actrlRule` / `actrlEntry`
+  for the same flow, with `AciDetailsService.get_vrf_scopes` from `l3Ctx`, keyed by the row's exact `ctxPKey`; opt-in `verify_on_leaf`; rules are ordered by priority class, rules that are not enabled are ignored, and what it cannot judge is `unsure`).
+* `AciDetailsService.get_vrf_scopes` and the corrected `actrl` DN parsing (a bug had dropped the filter id of every leaf filter entry).
 
 ## Build order (test first, one commit per phase)
 
@@ -207,7 +218,7 @@ default key `aci_details`. A fact that fails is recorded with its error; the dev
 | `endpoints` | `epmMacEp`, `epmIpEp` | |
 | `vpc` | `vpcDom`, `vpcIf` | |
 | `epgs` | `vlanCktEp` (+ `l2BD`, `l3Ctx`) | EPGs deployed on the leaf: tenant / app profile / EPG from `epgDn`, `pcTag`, encap, bridge domain, VRF. `vlanCktEp` and its `pcTag` are verified on the sandbox |
-| `contracts` | `actrlRule`, `actrlEntry` | The zoning rules the leaf enforces (source and destination `pcTag`, filter id, action) plus filter entries. Verified live 2026-11-07 on leaf-101 (rules with `implarp` / `implicit` filters, `deny,log` actions); the sandbox has no user-contract rules on that leaf, so the EPG-name join is not exercised. Tag and filter id fall back to the rule dn. EPG names only for EPGs deployed on that leaf. Rows capped at 20 000 (`too_many_objects`) |
+| `contracts` | `actrlRule`, `actrlEntry` | The zoning rules the leaf enforces (source and destination `pcTag`, filter id, action) plus filter entries. Verified live 2026-11-07 on leaf-101 (rules with `implarp` / `implicit` filters, `deny,log` actions and, after the sandbox was reset, a bidirectional `fully_qual` rule between two EPG tags with its filter entries). The rule and filter DNs are `.../sys/actrl/scope-<vrf>/rule-<vrf>-s-<src>-d-<dst>-f-<id>` and `.../sys/actrl/filt-<id>/ent-<id>_<n>`; an earlier version of the parser expected another shape and lost the filter id of every entry (fixed). Tag and filter id fall back to the rule dn. EPG names only for EPGs deployed on that leaf. Rows capped at 20 000 (`too_many_objects`) |
 
 Defaults: `device, software, interfaces`. Optional classes (a spine has no `sviIf`, a fabric without vPC no `vpcDom`) are skipped
 only when the APIC answers HTTP 400 with text "unresolved class"; any other error, including another 400, fails the fact. A missing `sys/health` or `sys/ch/health` object (404) leaves that score empty and keeps the other.

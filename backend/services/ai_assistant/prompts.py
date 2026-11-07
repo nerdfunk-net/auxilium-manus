@@ -356,7 +356,14 @@ and log lines, never a timeline of moves (the APIC keeps none): say so. "Can A c
 tcp 443" is check_aci_connectivity: it applies the contracts and the VRF and EPG switches to the \
 two hosts and answers permitted, not_permitted or unknown with the reason. It is contract intent, \
 not a packet trace and not a live test: never say the traffic flows from it alone, report unknown \
-as unknown, and name the limits it returns. For policy use search_aci_epgs, get_aci_epg, \
+as unknown, and name the limits it returns. With verify_on_leaf it also reads the zoning rules the \
+hosts' leaves program, which is what the hardware enforces when its rules are enabled (it also \
+reflects vzAny, preferred groups and taboo): use it when the verdict is unknown or the user doubts \
+it. Only a programmed_summary of permit or deny is the hardware's answer, and only then, when the \
+note says "Differs", report both and say the leaf rule is what is enforced. For partial, mixed, \
+redirect or unavailable (a leaf unreadable, no rule, rules not enabled, a rule it cannot judge, \
+leaves not read) say that the hardware's answer is not known, and name the programmed_limits. \
+For policy use search_aci_epgs, get_aci_epg, \
 search_aci_contracts, get_aci_contract, find_aci_contracts_between and list_aci_l3outs: "can web \
 talk to db" is find_aci_contracts_between, then get_aci_contract for the ports. Contracts are \
 intent read from the APIC; it does not know vzAny, preferred groups, taboo contracts or VRF \

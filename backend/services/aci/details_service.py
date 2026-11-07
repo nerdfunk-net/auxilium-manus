@@ -120,8 +120,16 @@ _ENCAP_VLAN = re.compile(r"vlan-(\d+)$")
 _DN_VLAN = re.compile(r"/vlan-\[vlan-(\d+)\]")
 _NATURAL = re.compile(r"(\d+)")
 _EPG_DN = re.compile(r"^uni/tn-([^/]+)(?:/ap-([^/]+)/epg-([^/]+))?")
-_RULE_DN = re.compile(r"/scope-(\d+)/rule-\d+-s-(\d+)-d-(\d+)-f-(\w+)$")
-_FILTER_DN = re.compile(r"/flt-(\w+)/")
+# Verified on the DevNet sandbox 2026-11-07:
+# ``.../sys/actrl/scope-<vrf>/rule-<vrf>-s-<src>-d-<dst>-f-<id>``, ``any`` for a wildcard tag and a
+# word for an implicit filter (``implarp``, ``implicit``).
+_RULE_DN = re.compile(r"/scope-(\d+)/rule-\d+-s-(\w+)-d-(\w+)-f-([\w-]+)$")
+_CTX_PKEY = re.compile(r"^uni/tn-([^/]+)/ctx-([^/]+)$")
+# The VRF scope id inside a deployed EPG's DN (``.../ctx-[vxlan-<scope>]/bd-[...]/vlan-[...]``).
+_CKT_SCOPE = re.compile(r"/ctx-\[vxlan-(\d+)\]/")
+# A leaf's filter objects are ``.../sys/actrl/filt-<id>/ent-<id>_<n>`` (``flt-`` is the tenant
+# spelling).
+_FILTER_DN = re.compile(r"/(?:filt|flt)-([\w-]+)/")
 
 
 class AciNodeClient(Protocol):
@@ -190,6 +198,18 @@ def _natural_key(name: str) -> list[Any]:
 
 
 _UNRESOLVED_CLASS = re.compile(r"unresolved class", re.IGNORECASE)
+
+
+def _epg_name(
+    names: dict[tuple[str | None, str], str], scope: str | None, tag: str | None
+) -> str | None:
+    """The EPG a tag names inside a VRF scope; a row without a scope in its DN matches any."""
+    if tag is None:
+        return None
+    if (scope, tag) in names:
+        return names[(scope, tag)]
+    unscoped = {name for (s, t), name in names.items() if t == tag and s is None}
+    return next(iter(unscoped)) if len(unscoped) == 1 else None
 
 
 async def _optional(fetch: Awaitable[list[dict[str, Any]]]) -> list[dict[str, Any]]:
@@ -576,20 +596,41 @@ class AciDetailsService:
             )
         )
 
+    async def get_vrf_scopes(self, pod_id: int, node_id: int) -> dict[str, str]:
+        """``tenant/vrf`` -> the VRF's scope id on this leaf (``l3Ctx``); only VRFs deployed here.
+
+        The scope id is what a zoning rule names (``actrlRule.scopeId``). The key comes from the
+        row's ``ctxPKey`` (``uni/tn-<tenant>/ctx-<vrf>``), which is exact; a row without one (the
+        fabric's ``black-hole`` VRF) is keyed by its name.
+        """
+        rows = await self._rows(pod_id, node_id, "l3Ctx")
+        scopes: dict[str, str] = {}
+        for row in rows:
+            scope = _known(row.get("scope"))
+            if scope is None:
+                continue
+            key = _CTX_PKEY.match(text(row.get("ctxPKey")) or "")
+            name = "/".join(key.groups()) if key else text(row.get("name"))
+            if name:
+                scopes[name] = scope
+        return scopes
+
     async def get_contracts(self, pod_id: int, node_id: int) -> AciContracts:
         """The zoning rules and filter entries the leaf enforces (``actrlRule``, ``actrlEntry``).
 
-        The class and attribute names follow the documented MIT; the sandbox leaf has no rules, so
-        they could not be checked against a live APIC.
+        Checked on the DevNet sandbox (2026-11-07): the rule and filter DNs, ``scopeId``, ``sPcTag``
+        and ``dPcTag`` (``any`` for a wildcard), ``fltId``, ``action``, ``direction`` and ``prio``.
         """
         rules, entries, circuits = await asyncio.gather(
             _optional(self._rows(pod_id, node_id, "actrlRule", max_objects=MAX_RULE_ROWS)),
             _optional(self._rows(pod_id, node_id, "actrlEntry", max_objects=MAX_FILTER_ROWS)),
             _optional(self._rows(pod_id, node_id, "vlanCktEp", max_objects=MAX_VLAN_ROWS)),
         )
-        # pcTag -> EPG name, for the EPGs deployed on this leaf only.
+        # (VRF scope, pcTag) -> EPG name, for the EPGs deployed on this leaf only. A tag below
+        # 16384 is local to its VRF, so one tag can name two EPGs of two VRFs: the scope keeps
+        # them apart.
         names = {
-            tag: name
+            (scope.group(1) if (scope := _CKT_SCOPE.search(_dn(row))) else None, tag): name
             for row in circuits
             if (tag := _known(row.get("pcTag"))) and (name := text(row.get("name")))
         }
@@ -600,13 +641,14 @@ class AciDetailsService:
             from_dn = match.groups() if match else (None, None, None, None)
             source = _known(row.get("sPcTag")) or from_dn[1]
             destination = _known(row.get("dPcTag")) or from_dn[2]
+            scope_id = _known(row.get("scopeId")) or from_dn[0]
             built_rules.append(
                 AciContractRule(
-                    scope=_known(row.get("scopeId")) or from_dn[0],
+                    scope=scope_id,
                     source_pc_tag=source,
                     destination_pc_tag=destination,
-                    source_epg=names.get(source or ""),
-                    destination_epg=names.get(destination or ""),
+                    source_epg=_epg_name(names, scope_id, source),
+                    destination_epg=_epg_name(names, scope_id, destination),
                     filter_id=_known(row.get("fltId")) or from_dn[3],
                     action=text(row.get("action")),
                     direction=text(row.get("direction")),
