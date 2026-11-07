@@ -120,6 +120,42 @@ fields (`tools/aci_fields.py`, fail closed); reads share the services of the ste
 * The sandbox switches are simulated (`simsw-` versions); real hardware may differ in `version` format.
 * DevNet sandbox is shared and resets; do not rely on its contents in tests.
 
+## Open to-dos (2026-11-07, to continue later)
+
+Everything built is committed except the doc and Help edits of 2026-11-07 (this file, `AI_TOOL_CHAIN.md`, the `compare-aci-subnets` Help panel).
+Gate at that point: backend 9931 tests, frontend 2313, ruff / pyright / tsc / the `check_*.py` guards / `check_playbooks.py` clean.
+
+**Blocking a first merge**
+1. **Commit** the three uncommitted files above (the maintainer commits).
+2. **Run Ask the Net with a real model** (maintainer, with their own key; no key is shared with Claude). The operator switches
+   `AI_ASSISTANT_ENABLED`, `AI_ALLOWED_PROVIDERS` and `AI_ALLOWED_DATA` (inventory, addresses, content) must be set. Chains: the five in
+   `plans/ACI_TOOL_CHAIN.md` §11, plus "can A connect to B on tcp 443" with and without `verify_on_leaf`. Check that the model never says "the
+   traffic flows", reports unknown / partial / unsure / `not_enforced` as not known, names the limits (no enforcement direction, no
+   shared-service tags), and does not call its earlier answers unsourced (the history replays text only; a prompt line covers it). Record the
+   result in `AI_TOOL_CHAIN.md` §47, as §42 does.
+
+**Unverified (need a target Claude has no access to)**
+3. `backup-aci-config` push to a real git remote (use a throwaway repository).
+4. `compare-aci-subnets` against a real Nautobot: the GraphQL `prefixes(limit, offset)` paging.
+5. 6.2 APIC (the sandbox runs 6.1(4h)); real hardware `version` format and management IPs; whether to fall back to `mgmtRsOoBStNode`.
+6. Not read or not covered: IPv6 endpoint search (by design), endpoints behind a hypervisor (VMM), EPG-name join of the leaf `contracts` fact
+   (the sandbox leaf has no user-contract rules), `vzAny` / taboo branches (unit-tested only).
+
+**Optional features (only if the maintainer asks), in the order they were ranked**
+7. Fabric-wide audit log and faults (ask first: time window in hours or a row cap; hours recommended).
+8. Contract hit counts.
+9. Zoning check for flows between two outside addresses and for inter-VRF leaking (shared-service tags); enforcement direction (`pcEnfDir`)
+   in the leaf check.
+10. Later ideas: optics / counters / capacity, firmware status, APIC cluster health, access-policy mapping.
+
+**Verified since the handoff:** L3Out protocol attribution (2026-11-07: `VY-TN/test-L3OUT` reports `ospf` from its `ospfExtP`, with VRF, 1 node,
+1 external EPG).
+
+**Working notes.** Handoff and lessons: `plans/ACI_CONTINUE.md` (git-ignored, local). Live checks run from a scratch cwd with
+`MANUS_ENV_FILE=/dev/null` and the sandbox password in a file outside the repo (user `admin`, `verify_ssl=False`; the sandbox is shared and
+resets, so copy rows into fixtures `backend/tests/unit/fixtures/aci_*_sandbox.json`). Run ruff / pyright on explicit files only, and never
+`prettier --write` the step Help panels (it rewraps the whole file).
+
 ## Built so far (phase 3 notes)
 
 * Source type `aci` (`sources.aci.<id>` settings rows), credential type `generic` (user + password), permissions
@@ -244,7 +280,7 @@ Fabric policy for each switch. `AciPolicyService.snapshot()` reads once per APIC
 `fvAEPg`, `fvRsBd`, `fvRsProv`, `fvRsCons`, `vzBrCP`, `vzSubj`, `vzRsSubjFiltAtt`, `vzEntry` (cap `MAX_POLICY_ROWS` = 50 000 per class,
 `too_many_objects` instead of truncation). Each device then gets the EPGs deployed on it (the `epgs` read above) joined with the snapshot.
 
-Also read (verified live 2026-11-07: 3 L3Outs, 2 external EPGs, 4 node and 4 path attachments; the sandbox has one `bgpExtP` and no OSPF / EIGRP, and the one L3Out checked showed no protocols, so protocol attribution to an L3Out is still unconfirmed): `l3extOut`, `l3extRsEctx` (VRF), `l3extInstP` (external EPGs, `pcTag`),
+Also read (verified live 2026-11-07: 3 L3Outs, 2 external EPGs, 4 node and 4 path attachments; the sandbox had one `bgpExtP` then; protocol attribution was confirmed later the same day, when `VY-TN/test-L3OUT` reported `ospf` from its `ospfExtP`): `l3extOut`, `l3extRsEctx` (VRF), `l3extInstP` (external EPGs, `pcTag`),
 `l3extSubnet` (`ip`, `scope`, `aggregate` flags copied as they are), `l3extRsNodeL3OutAtt` (node, router id), `l3extRsPathL3OutAtt`
 (path `tDn` → node(s), interface, `addr`, `ifInstT`, `encap`, `mtu`; a `protpaths-A-B` vPC path puts the L3Out on both nodes) and the
 protocol objects `bgpExtP` / `ospfExtP` / `eigrpExtP` under the L3Out. An external EPG takes part in `fvRsProv` / `fvRsCons` like an
