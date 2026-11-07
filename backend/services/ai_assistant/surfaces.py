@@ -26,6 +26,7 @@ from services.ai_assistant.device_access import DeviceResolver
 from services.ai_assistant.inventory_filter import describe_condition_tree, field_data_class
 from services.ai_assistant.output_parser import GenieParser
 from services.ai_assistant.prompts import (
+    ACI_PROMPT,
     BASE_SYSTEM_PROMPT,
     CATALYST_PROMPT,
     CONFIG_BACKUP_PROMPT,
@@ -45,6 +46,7 @@ from services.ai_assistant.prompts import (
 from services.ai_assistant.redaction import MAX_REDACT_CHARS_PER_REQUEST, Redactor
 from services.ai_assistant.released_workflow_reader import ReleasedWorkflowReader
 from services.ai_assistant.results.store import ResultStore
+from services.ai_assistant.tools.aci_tools import ACI_READER_KEY, AciReader, build_aci_tools
 from services.ai_assistant.tools.base import Toolbox, ToolContext
 from services.ai_assistant.tools.batfish_tools import (
     BATFISH_READER_KEY,
@@ -338,6 +340,7 @@ def build_general_session(
     config_reader: ConfigBackupReader | None = None,
     nautobot_reader: NautobotQueryReader | None = None,
     catalyst_reader: CatalystReader | None = None,
+    aci_reader: AciReader | None = None,
     run_reader: RunReader | None = None,
     released_reader: ReleasedWorkflowReader | None = None,
     genie_parser: GenieParser | None = None,
@@ -393,6 +396,10 @@ def build_general_session(
     if catalyst_reader is not None:
         extras[CATALYST_READER_KEY] = catalyst_reader
         tools.extend(build_catalyst_center_tools())
+    # Cisco ACI reads (doc/plans/ACI_TOOL_CHAIN.md); independent of Batfish and Nautobot.
+    if aci_reader is not None:
+        extras[ACI_READER_KEY] = aci_reader
+        tools.extend(build_aci_tools())
     # Run explanations (plan: runs in Ask the Net): the run-viewer tools plus list_runs, shared
     # with the runs-page assistant. No run is open here, so every tool takes a run_id.
     if run_reader is not None:
@@ -425,6 +432,8 @@ def build_general_session(
         parts.append(NAUTOBOT_PROMPT)
     if catalyst_reader is not None:
         parts.append(CATALYST_PROMPT)
+    if aci_reader is not None:
+        parts.append(ACI_PROMPT)
     if run_reader is not None:
         parts.append(RUN_EXPLAIN_PROMPT)
     if released_reader is not None and run_reader is not None:
@@ -435,6 +444,7 @@ def build_general_session(
             for name, reader_ in (
                 ("Nautobot", nautobot_reader),
                 ("Catalyst Center", catalyst_reader),
+                ("ACI", aci_reader),
                 ("run", run_reader),
             )
             if reader_ is not None

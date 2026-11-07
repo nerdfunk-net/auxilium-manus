@@ -32,6 +32,8 @@ export const FACT_OPTIONS: readonly FactOption[] = [
   { value: "protocols", label: "Protocols", hint: "BGP, IS-IS and OSPF adjacencies" },
   { value: "endpoints", label: "Endpoints", hint: "Learned endpoints (MAC and IP)" },
   { value: "vpc", label: "vPC", hint: "vPC domain and vPC interfaces" },
+  { value: "epgs", label: "EPGs", hint: "EPGs deployed on the switch with tag, encap, BD and VRF" },
+  { value: "contracts", label: "Contracts", hint: "Zoning rules the switch enforces, with filter entries" },
 ];
 
 function GetAciDetailsConfigPanel({ config, onChange }: PluginConfigPanelProps) {

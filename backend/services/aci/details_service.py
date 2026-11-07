@@ -14,6 +14,8 @@ constants and pod/node are validated whole numbers, so nothing a user types reac
 - ``routes``: ``ipv4Route``, ``ipv4Nexthop``;  ``protocols``: ``bgpPeer``, ``bgpPeerEntry``,
   ``isisAdjEp``, ``ospfAdjEp``;  ``endpoints``: ``epmIpEp``, ``epmMacEp``
 - ``vpc``: ``vpcDom``, ``vpcIf``
+- ``epgs``: ``vlanCktEp`` (+ ``l2BD``, ``l3Ctx``);  ``contracts``: ``actrlRule``, ``actrlEntry``
+  (the zoning rules the leaf enforces; not verifiable on the sandbox, which has no rules)
 
 A class that is only *optional* for a switch (a spine has no ``sviIf``, a fabric without vPC has no
 ``vpcDom``) is skipped when the APIC answers 400 "unresolved class"; every other error fails the
@@ -33,10 +35,14 @@ from typing import Any, Protocol
 from models.aci_facts import (
     AciAdjacency,
     AciBgpPeer,
+    AciContractRule,
+    AciContracts,
     AciDeviceDetails,
     AciEndpoint,
+    AciEpg,
     AciFault,
     AciFaults,
+    AciFilterEntry,
     AciHardwareItem,
     AciHardwareKind,
     AciHealth,
@@ -66,6 +72,8 @@ MAX_ROUTE_ROWS = 20_000
 MAX_NEXTHOP_ROWS = 100_000
 MAX_ENDPOINT_ROWS = 10_000
 MAX_FAULT_ROWS = 10_000
+MAX_RULE_ROWS = 20_000
+MAX_FILTER_ROWS = 20_000
 MAX_SMALL_ROWS = 5_000
 FAULT_ITEM_LIMIT = 50
 FAULT_DESCRIPTION_CHARS = 300
@@ -111,6 +119,9 @@ _BD = re.compile(r"/bd-\[([^\]]+)\]")
 _ENCAP_VLAN = re.compile(r"vlan-(\d+)$")
 _DN_VLAN = re.compile(r"/vlan-\[vlan-(\d+)\]")
 _NATURAL = re.compile(r"(\d+)")
+_EPG_DN = re.compile(r"^uni/tn-([^/]+)(?:/ap-([^/]+)/epg-([^/]+))?")
+_RULE_DN = re.compile(r"/scope-(\d+)/rule-\d+-s-(\d+)-d-(\d+)-f-(\w+)$")
+_FILTER_DN = re.compile(r"/flt-(\w+)/")
 
 
 class AciNodeClient(Protocol):
@@ -522,6 +533,114 @@ class AciDetailsService:
                 )
             )
         return tuple(sorted(vlans, key=lambda v: (v.vlan_id is None, v.vlan_id or 0)))
+
+    # --- EPGs and contracts ----------------------------------------------------------------------
+
+    async def get_epgs(self, pod_id: int, node_id: int) -> tuple[AciEpg, ...]:
+        """The EPGs deployed on this leaf, one row per encapsulation (``vlanCktEp``)."""
+        circuits, domains, contexts = await asyncio.gather(
+            self._rows(pod_id, node_id, "vlanCktEp", max_objects=MAX_VLAN_ROWS),
+            _optional(self._rows(pod_id, node_id, "l2BD")),
+            _optional(self._rows(pod_id, node_id, "l3Ctx")),
+        )
+        bridge_domains = _names_by_dn_id(domains, _BD)
+        vrfs = _names_by_dn_id(contexts, _CTX)
+        epgs = []
+        for row in circuits:
+            dn = _dn(row)
+            epg_dn = text(row.get("epgDn"))
+            parts = _EPG_DN.match(epg_dn or "")
+            tenant, app_profile, epg = parts.groups() if parts else (None, None, None)
+            encap = text(row.get("encap"))
+            vlan = _ENCAP_VLAN.fullmatch(encap or "")
+            epgs.append(
+                AciEpg(
+                    name=text(row.get("name")),
+                    epg_dn=epg_dn,
+                    tenant=tenant,
+                    app_profile=app_profile,
+                    epg=epg,
+                    pc_tag=_known(row.get("pcTag")),
+                    encap=encap,
+                    encap_vlan=int(vlan.group(1)) if vlan else None,
+                    fabric_encap=text(row.get("fabEncap")),
+                    bridge_domain=bridge_domains.get(_first(_BD, dn) or ""),
+                    vrf=vrfs.get(_first(_CTX, dn) or ""),
+                    state=text(row.get("operSt")),
+                )
+            )
+        return tuple(
+            sorted(
+                epgs,
+                key=lambda e: (e.tenant or "", e.app_profile or "", e.epg or "", e.encap_vlan or 0),
+            )
+        )
+
+    async def get_contracts(self, pod_id: int, node_id: int) -> AciContracts:
+        """The zoning rules and filter entries the leaf enforces (``actrlRule``, ``actrlEntry``).
+
+        The class and attribute names follow the documented MIT; the sandbox leaf has no rules, so
+        they could not be checked against a live APIC.
+        """
+        rules, entries, circuits = await asyncio.gather(
+            _optional(self._rows(pod_id, node_id, "actrlRule", max_objects=MAX_RULE_ROWS)),
+            _optional(self._rows(pod_id, node_id, "actrlEntry", max_objects=MAX_FILTER_ROWS)),
+            _optional(self._rows(pod_id, node_id, "vlanCktEp", max_objects=MAX_VLAN_ROWS)),
+        )
+        # pcTag -> EPG name, for the EPGs deployed on this leaf only.
+        names = {
+            tag: name
+            for row in circuits
+            if (tag := _known(row.get("pcTag"))) and (name := text(row.get("name")))
+        }
+        built_rules = []
+        for row in rules:
+            dn = _dn(row)
+            match = _RULE_DN.search(dn)
+            from_dn = match.groups() if match else (None, None, None, None)
+            source = _known(row.get("sPcTag")) or from_dn[1]
+            destination = _known(row.get("dPcTag")) or from_dn[2]
+            built_rules.append(
+                AciContractRule(
+                    scope=_known(row.get("scopeId")) or from_dn[0],
+                    source_pc_tag=source,
+                    destination_pc_tag=destination,
+                    source_epg=names.get(source or ""),
+                    destination_epg=names.get(destination or ""),
+                    filter_id=_known(row.get("fltId")) or from_dn[3],
+                    action=text(row.get("action")),
+                    direction=text(row.get("direction")),
+                    priority=text(row.get("prio")),
+                    state=text(row.get("operSt")),
+                )
+            )
+        built_entries = [
+            AciFilterEntry(
+                filter_id=_first(_FILTER_DN, _dn(row)),
+                ether_type=_known(row.get("etherT")),
+                protocol=_known(row.get("prot")),
+                source_port_from=_known(row.get("sFromPort")),
+                source_port_to=_known(row.get("sToPort")),
+                destination_port_from=_known(row.get("dFromPort")),
+                destination_port_to=_known(row.get("dToPort")),
+                stateful=text(row.get("stateful")),
+            )
+            for row in entries
+        ]
+        return AciContracts(
+            rules=tuple(
+                sorted(
+                    built_rules,
+                    key=lambda r: (
+                        r.scope or "",
+                        integer(r.source_pc_tag) or 0,
+                        integer(r.destination_pc_tag) or 0,
+                        r.filter_id or "",
+                    ),
+                )
+            ),
+            filters=tuple(sorted(built_entries, key=lambda f: (f.filter_id or "",))),
+        )
 
     # --- health and faults -----------------------------------------------------------------------
 

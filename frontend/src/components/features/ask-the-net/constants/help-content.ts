@@ -56,7 +56,8 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
       },
       {
         name: "get_bgp_session_status",
-        description: "BGP sessions with their status, optionally only the problems.",
+        description:
+          "BGP sessions with their status, optionally only the problems.",
         questions: [
           "Are all BGP sessions established?",
           "Which BGP sessions are not established?",
@@ -92,7 +93,8 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
       },
       {
         name: "analyze_acl",
-        description: "Tests one flow against one ACL or filter and shows permit or deny.",
+        description:
+          "Tests one flow against one ACL or filter and shows permit or deny.",
         questions: [
           "Does the ACL EDGE-IN on r1 permit TCP 443 from 10.1.1.1 to 10.2.2.2?",
         ],
@@ -140,7 +142,8 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
     title: "Nautobot (documented inventory)",
     summary:
       "Reads what is documented in Nautobot: devices, interfaces, locations, IP addresses and prefixes. It shows what is recorded, not how the network behaves.",
-    requirement: "Needs the Nautobot read permission and a configured Nautobot source.",
+    requirement:
+      "Needs the Nautobot read permission and a configured Nautobot source.",
     tools: [
       {
         name: "list_devices / get_device",
@@ -182,7 +185,8 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
       },
       {
         name: "get_next_free_ip",
-        description: "Finds the next free addresses in a prefix. It only reads; nothing is reserved.",
+        description:
+          "Finds the next free addresses in a prefix. It only reads; nothing is reserved.",
         questions: ["What is the next free IP address in 10.1.2.0/24?"],
       },
       {
@@ -192,7 +196,8 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
       },
       {
         name: "list_roles / list_statuses / list_tags / list_device_types / list_platforms",
-        description: "The vocabularies Nautobot uses, so a question can use the exact value.",
+        description:
+          "The vocabularies Nautobot uses, so a question can use the exact value.",
         questions: [
           "Which device roles exist?",
           "Which platforms are used in Nautobot?",
@@ -209,9 +214,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
         name: "get_device_name_matches",
         description:
           "Finds a device under both names: the Batfish node name (config hostname) and the Nautobot full name.",
-        questions: [
-          "Which Nautobot device is the Batfish node lab?",
-        ],
+        questions: ["Which Nautobot device is the Batfish node lab?"],
       },
     ],
   },
@@ -245,20 +248,153 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
     ],
   },
   {
+    id: "aci",
+    title: "Cisco ACI (fabric)",
+    summary:
+      "Lists the leaf and spine switches of a Cisco ACI fabric (APIC) and reads their facts: software, health, faults, interfaces, neighbours, routes, endpoints, vPC, deployed EPGs and the contract rules a leaf enforces. For one switch the assistant looks at Nautobot first, then asks ACI. A switch ACI does not know is reported as such. The data is the APIC's current view, not a live command.",
+    requirement:
+      "Needs permission to read ACI sources (the viewer role does not have it). If no ACI source is configured, the assistant tells you an administrator must add one. Serial numbers and addresses need the addresses opt-in, descriptions the content opt-in.",
+    tools: [
+      {
+        name: "list_aci_devices",
+        description:
+          "Lists the leaf and spine switches of the ACI fabric with node id, name, role, pod, model, software and state.",
+        questions: [
+          "Do you see devices in my ACI controller?",
+          "Which leafs does the ACI fabric have?",
+        ],
+      },
+      {
+        name: "find_aci_device",
+        description:
+          "Finds a switch in ACI by name (wildcards * and ?), node id, serial number or management IP address.",
+        questions: [
+          "Is leaf-101 in the ACI fabric?",
+          "Which ACI node has the serial number TEP-1-101?",
+        ],
+      },
+      {
+        name: "get_aci_device_details",
+        description:
+          "Reads facts of one ACI switch. Device and software are the default; ask for health, faults, interfaces, neighbours, routes, endpoints, vPC, EPGs or contracts when needed.",
+        questions: [
+          "Show the software, health and faults of leaf-101 in ACI.",
+          "Which EPGs are deployed on leaf-101?",
+        ],
+      },
+      {
+        name: "find_aci_endpoint",
+        description:
+          "Finds where an IPv4 or MAC address was learned in the fabric: leaf, port or vPC, tenant, EPG and encap. An empty answer means the fabric has not learned it, not that it does not exist.",
+        questions: [
+          "Where is 10.193.101.4 in the ACI fabric?",
+          "On which leaf is the MAC 45:CD:BB:C0:00:00?",
+        ],
+      },
+      {
+        name: "list_aci_endpoints",
+        description:
+          "Lists the endpoints (servers, VMs, devices) the fabric has learned in a tenant, application profile or EPG, with MAC, IPs, VRF, bridge domain and where each is attached. A configured EPG lists only hosts that sent traffic.",
+        questions: [
+          "Which servers are in the EPG web of the tenant Heroes?",
+          "List the learned endpoints of the tenant SnV with an address in 10.193.0.0/16.",
+        ],
+      },
+      {
+        name: "get_aci_endpoint_history",
+        description:
+          "Shows when the APIC learned and last changed an endpoint and its addresses, its record on each leaf, and the newest event and fault lines that name it. The APIC keeps no move history, so this is timestamps and logs, not a timeline.",
+        questions: [
+          "When did the APIC learn the address 10.193.101.4?",
+          "Show the history of the MAC 45:CD:BB:C0:00:00.",
+        ],
+      },
+      {
+        name: "check_aci_connectivity",
+        description:
+          "Checks whether the ACI contracts permit host A to connect to host B on a protocol and port. It finds both hosts' EPGs and VRFs and applies enforcement, preferred groups, vzAny and the contracts. Answers permitted, not permitted or unknown with the reason. It is contract intent, not a packet trace.",
+        questions: [
+          "Can 10.193.101.4 connect to 10.193.102.2 on TCP port 1433?",
+          "Is ping allowed from 10.1.1.5 to 10.2.2.7 in ACI?",
+        ],
+      },
+      {
+        name: "list_aci_subnets",
+        description:
+          "Lists the gateway subnets of the fabric with tenant, VRF and bridge domain; filter by an address inside, a range, a tenant, a VRF or a bridge domain.",
+        questions: [
+          "Which bridge domain and VRF own 10.1.121.7 in ACI?",
+          "List the ACI subnets of the tenant Heroes.",
+        ],
+      },
+      {
+        name: "search_aci_epgs",
+        description:
+          "Searches the application EPGs by name, tenant, application profile, bridge domain, class id or the contract they provide or consume.",
+        questions: [
+          "Find all ACI EPGs with db in the name.",
+          "Which EPGs consume the contract sql?",
+        ],
+      },
+      {
+        name: "get_aci_epg",
+        description:
+          "Reads one EPG by tenant, application profile and name: bridge domain, class id and the contracts it provides and consumes. It can also list the leaves that carry the EPG.",
+        questions: [
+          "Which contracts does the EPG web in Save_The_Planet provide and consume?",
+          "On which leaves is the EPG web in Save_The_Planet deployed?",
+        ],
+      },
+      {
+        name: "search_aci_contracts",
+        description:
+          "Searches contracts by name, tenant, scope, the EPG that provides or consumes them, or a protocol and port a filter entry covers.",
+        questions: [
+          "Which ACI contracts allow tcp/1433?",
+          "Which contracts does the EPG db provide?",
+        ],
+      },
+      {
+        name: "get_aci_contract",
+        description:
+          "Reads one contract: scope, subjects, filter entries (protocol, ports) and the provider and consumer EPGs.",
+        questions: ["Show the contract sql in the tenant common."],
+      },
+      {
+        name: "find_aci_contracts_between",
+        description:
+          "Finds the contracts that connect two EPGs, in both directions. It is contract intent: it does not know vzAny, preferred groups or VRF enforcement, so it does not prove traffic is allowed.",
+        questions: ["Is there a contract between the EPGs web and db?"],
+      },
+      {
+        name: "list_aci_l3outs",
+        description:
+          "Lists the L3Outs with VRF, protocols, border nodes, routed interfaces and external EPGs with their subnets and contracts. Addresses need the addresses opt-in.",
+        questions: [
+          "Which L3Outs does the ACI fabric have?",
+          "Which L3Outs use node 101?",
+        ],
+      },
+    ],
+  },
+  {
     id: "config-backups",
     title: "Config backups (git)",
     summary:
       "Reads the backed-up running and startup configurations from the git repository. Instant, no SSH, but possibly older than the live device. Each answer says when the backup was committed.",
-    requirement: "Needs the permission to read git files and the opt-in to share configuration content.",
+    requirement:
+      "Needs the permission to read git files and the opt-in to share configuration content.",
     tools: [
       {
         name: "list_config_backups",
-        description: "Lists the repositories that hold device configuration backups.",
+        description:
+          "Lists the repositories that hold device configuration backups.",
         questions: ["Which config backup repositories exist?"],
       },
       {
         name: "get_config_backup",
-        description: "Reads the running or startup configuration of one device.",
+        description:
+          "Reads the running or startup configuration of one device.",
         questions: [
           "Show the running config of r1 from the backup.",
           "When was the config of r1 last backed up?",
@@ -343,7 +479,9 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
         name: "get_neighbor_sources",
         description:
           "Shows which evidence exists for a device (live discovery, the model, Nautobot cabling) and what its platform supports.",
-        questions: ["What can you tell me about the neighbours of r1, and from which sources?"],
+        questions: [
+          "What can you tell me about the neighbours of r1, and from which sources?",
+        ],
       },
     ],
   },
@@ -356,21 +494,24 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
     tools: [
       {
         name: "list_runs / get_run",
-        description: "Finds runs and shows the status of one run with its steps.",
-        questions: [
-          "Which runs failed today?",
-          "Why did run 123 fail?",
-        ],
+        description:
+          "Finds runs and shows the status of one run with its steps.",
+        questions: ["Which runs failed today?", "Why did run 123 fail?"],
       },
       {
         name: "get_step_result / get_artifact",
-        description: "Reads the result of one step or an artifact the run produced.",
+        description:
+          "Reads the result of one step or an artifact the run produced.",
         questions: ["What did the backup step of run 123 return for r1?"],
       },
       {
         name: "list_run_events / get_run_workflow",
-        description: "Live events inside a step and the workflow definition a run used.",
-        questions: ["Show the events of run 123.", "Which workflow did run 123 use?"],
+        description:
+          "Live events inside a step and the workflow definition a run used.",
+        questions: [
+          "Show the events of run 123.",
+          "Which workflow did run 123 use?",
+        ],
       },
     ],
   },
@@ -379,11 +520,13 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
     title: "Released workflows",
     summary:
       "An administrator can release a workflow for Ask the Net. The assistant describes it and proposes a run; the run starts as you after you confirm.",
-    requirement: "Needs permission to execute workflows. Only released workflows you may run are listed.",
+    requirement:
+      "Needs permission to execute workflows. Only released workflows you may run are listed.",
     tools: [
       {
         name: "list_released_workflows / describe_workflow",
-        description: "Lists the released workflows and describes what one does and what it needs.",
+        description:
+          "Lists the released workflows and describes what one does and what it needs.",
         questions: [
           "Which workflows can you start for me?",
           "What does the interface backup workflow do?",
@@ -391,7 +534,8 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
       },
       {
         name: "propose_workflow_run / get_run_result",
-        description: "Proposes a run with the inputs you give, then reads the designated result.",
+        description:
+          "Proposes a run with the inputs you give, then reads the designated result.",
         questions: [
           "Run the config backup workflow for r1.",
           "What was the result of the run I just started?",
@@ -407,7 +551,8 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
     tools: [
       {
         name: "list_playbooks / get_playbook",
-        description: "Lists the playbooks and loads the one that fits the question.",
+        description:
+          "Lists the playbooks and loads the one that fits the question.",
         questions: [
           "Which playbooks do you have?",
           "Follow a playbook to find out why 10.1.2.3 is not reachable from r1.",

@@ -41,6 +41,8 @@ FACTS = (
     "protocols",
     "endpoints",
     "vpc",
+    "epgs",
+    "contracts",
 )
 DEFAULT_FACTS = ("device", "software", "interfaces")
 DEFAULT_OUTPUT_KEY = "aci_details"
@@ -60,6 +62,8 @@ _FACT_METHODS = {
     "protocols": "get_protocols",
     "endpoints": "get_endpoints",
     "vpc": "get_vpc",
+    "epgs": "get_epgs",
+    "contracts": "get_contracts",
 }
 
 

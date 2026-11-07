@@ -1,6 +1,10 @@
 # Cisco ACI (APIC) Integration — Plan
 
-Status (2026-11-06): **phases 1-5 built** (client, device service, source + CRUD + test-connection, workflow step + preview, frontend); Ask the Net still to do. Read-only source for the leaf and spine switches of an
+Status (2026-11-07): **built:** client, device service, source type + CRUD + test-connection, and six workflow steps with frontend
+(`get-aci-devices`, `get-aci-details`, `get-aci-policy`, `find-aci-endpoints`, `compare-aci-subnets`, `backup-aci-config`; see the sections
+at the end of this file) plus the `config-to-attributes` format `aci_details`. **Not done:** the Ask the Net tools (plan:
+[`plans/ACI_TOOL_CHAIN.md`](./plans/ACI_TOOL_CHAIN.md)) and the live check of the newer read paths (list in
+[`plans/ACI_CONTINUE.md`](./plans/ACI_CONTINUE.md)). Read-only source for the leaf and spine switches of an
 ACI fabric, usable as workflow targets and from Ask the Net. Modelled on
 [`CISCO_CATALYST_INTEGRATION.md`](./CISCO_CATALYST_INTEGRATION.md).
 
@@ -94,7 +98,7 @@ Wiring: `surfaces.py`, `routers/ai_assistant.py` (`can_read_aci`), `playbook_too
 3. Source config service, source type, RBAC, CRUD router, lifespans (both), test-connection (shows APIC version).
 4. Workflow step `get-aci-devices` + registry + preview endpoint + `device_builders` entry.
 5. Frontend: source dialog, step panel, preview.
-6. Ask the Net tools + docs (`AI_TOOL_CHAIN.md`, `CLAUDE.md` integrations line, `rbac_seed` docs in `auth.md`).
+6. Ask the Net tools + docs: planned in `doc/plans/ACI_TOOL_CHAIN.md` (the `CLAUDE.md` integrations line and the `auth.md` note exist already; `AI_TOOL_CHAIN.md` section 47 comes with the tools).
 7. Live check against the sandbox from a scratch cwd (see memory: live test isolation), integration test marked opt-in.
 
 ## Open items / risks
@@ -202,6 +206,8 @@ default key `aci_details`. A fact that fails is recorded with its error; the dev
 | `protocols` | `bgpPeer`, `bgpPeerEntry`, `isisAdjEp`, `ospfAdjEp` | state names best effort, sandbox has no rows |
 | `endpoints` | `epmMacEp`, `epmIpEp` | |
 | `vpc` | `vpcDom`, `vpcIf` | |
+| `epgs` | `vlanCktEp` (+ `l2BD`, `l3Ctx`) | EPGs deployed on the leaf: tenant / app profile / EPG from `epgDn`, `pcTag`, encap, bridge domain, VRF. `vlanCktEp` and its `pcTag` are verified on the sandbox |
+| `contracts` | `actrlRule`, `actrlEntry` | The zoning rules the leaf enforces (source and destination `pcTag`, filter id, action) plus filter entries. Verified live 2026-11-07 on leaf-101 (rules with `implarp` / `implicit` filters, `deny,log` actions); the sandbox has no user-contract rules on that leaf, so the EPG-name join is not exercised. Tag and filter id fall back to the rule dn. EPG names only for EPGs deployed on that leaf. Rows capped at 20 000 (`too_many_objects`) |
 
 Defaults: `device, software, interfaces`. Optional classes (a spine has no `sviIf`, a fabric without vPC no `vpcDom`) are skipped
 only when the APIC answers HTTP 400 with text "unresolved class"; any other error, including another 400, fails the fact. A missing `sys/health` or `sys/ch/health` object (404) leaves that score empty and keeps the other.
@@ -220,3 +226,84 @@ device fields (serial, software version, platform `Cisco ACI`, device type with 
 
 Shared code: `workflow_steps/common/fact_entries.py` and `device_outcomes.py` hold the source-agnostic core that the Catalyst Center
 fact modules now wrap.
+
+## Step `get-aci-policy` ("Get Policy from ACI", 2026-11-06)
+
+Fabric policy for each switch. `AciPolicyService.snapshot()` reads once per APIC, with fabric-wide class queries (`/api/class/...`):
+`fvAEPg`, `fvRsBd`, `fvRsProv`, `fvRsCons`, `vzBrCP`, `vzSubj`, `vzRsSubjFiltAtt`, `vzEntry` (cap `MAX_POLICY_ROWS` = 50 000 per class,
+`too_many_objects` instead of truncation). Each device then gets the EPGs deployed on it (the `epgs` read above) joined with the snapshot.
+
+Also read (verified live 2026-11-07: 3 L3Outs, 2 external EPGs, 4 node and 4 path attachments; the sandbox has one `bgpExtP` and no OSPF / EIGRP, and the one L3Out checked showed no protocols, so protocol attribution to an L3Out is still unconfirmed): `l3extOut`, `l3extRsEctx` (VRF), `l3extInstP` (external EPGs, `pcTag`),
+`l3extSubnet` (`ip`, `scope`, `aggregate` flags copied as they are), `l3extRsNodeL3OutAtt` (node, router id), `l3extRsPathL3OutAtt`
+(path `tDn` → node(s), interface, `addr`, `ifInstT`, `encap`, `mtu`; a `protpaths-A-B` vPC path puts the L3Out on both nodes) and the
+protocol objects `bgpExtP` / `ospfExtP` / `eigrpExtP` under the L3Out. An external EPG takes part in `fvRsProv` / `fvRsCons` like an
+application EPG, so contracts' `provider_epgs` / `consumer_epgs` include `uni/tn-…/out-…/instP-…`. A switch gets the L3Outs whose
+nodes or interface paths name it (no entry when none), and the contracts of their external EPGs next to those of its deployed EPGs.
+
+Output: `parsed.<key>.l3outs.parsed` (the L3Outs of the switch), `parsed.<key>.epgs.parsed` (EPGs with `provided` / `consumed` as `tenant/name`, class tag, bridge domain) and
+`parsed.<key>.contracts.parsed` (the contracts those EPGs use: scope, priority, subjects, filters, entries, and `provider_epgs` /
+`consumer_epgs` fabric-wide). Default key `aci_policy`. A relation names its contract or filter without a tenant: it resolves in the EPG's tenant,
+then in `common`. If the snapshot fails, every device fails with the APIC error.
+
+**Not covered:** `vzAny`, route-control (route maps, prefix lists), static routes of an L3Out, contract interfaces, taboo contracts, contracts attached to a contract without subjects.
+**Verified live 2026-11-07** (sandbox: 33 EPGs, 10 contracts, 13 subjects, 16 entries, 14 provide / 12 consume relations): the snapshot (0.9 s, 17 reads) resolves `common/sql` with its `tcp/1433` and `udp/1434` entries and its provider and consumer EPGs. Real rows: `backend/tests/unit/fixtures/aci_policy_sandbox.json`.
+
+## Step `find-aci-endpoints` ("Find Endpoint in ACI", 2026-11-06)
+
+Where does a device's address live in the fabric? Unlike the other ACI steps it works on devices of **any** source (for example Nautobot):
+each device's `address_path` (default `primary_ip4`; an IPv4 or a MAC in any usual spelling) is looked up in the APIC's learned endpoints.
+Output: `parsed.<key>.endpoints = {parsed, error}`, `parsed` a list of `{mac, ips, tenant, app_profile, epg | external_epg, encap,
+attachments: [{pod_id, node_ids, interface}]}`; a vPC path (`protpaths-A-B`) lists both nodes. Unknown address = empty list, device succeeds;
+no value at the path = failure `no_address`; APIC error = failure with the message. Default key `aci_endpoint`.
+
+Reads (`AciEndpointService`, `AciService.query_class_tree`): a MAC is one `fvCEp` query with children (`fvIp`, `fvRsCEpToPathEp`); an IPv4
+is first found as `fvIp` (its dn names the endpoint, so secondary addresses work), then those endpoints are read. Addresses are validated
+before they reach a filter (`ipaddress`, a MAC regex); endpoint DNs taken from the APIC pass a character allow-list. More than 50 endpoints
+for one address fails with `too_many_objects`. `parse_path` (`services/aci/common/paths.py`) is shared with the L3Out reader.
+
+**Verified live 2026-11-07** (7 endpoints, 18 addresses): lookup by MAC and by IPv4 returns tenant, app profile, EPG, encap and the vPC attachment (`protpaths-101-102`). IPv6 addresses are listed on an endpoint but not accepted as a search key. **Not read:** endpoints behind a hypervisor (VMM relations), so they show no attachment.
+
+## Step `compare-aci-subnets` ("Compare ACI Subnets with Nautobot", 2026-11-06)
+
+**Report only**: nothing is written to ACI or Nautobot, and the workflow's devices are not used (`requires: []`; they pass through unchanged).
+ACI side (`AciSubnetService`): `fvSubnet` (gateway address with mask under `BD-<name>` or an EPG), `fvRsCtx` (the bridge domain's VRF), `fvRsBd`
+(the bridge domain an EPG uses) and `fvBD` (a bridge domain named without a tenant resolves in the same tenant, then `common`). IPv4 and IPv6.
+L3Out `extsubnet` objects are not gateway subnets and are not read. Nautobot side (`NautobotPrefixReader`): GraphQL `prefixes(limit, offset)`
+paged by 1000, normalised to the network form; GraphQL `errors` or a missing list fail instead of looking like "no prefixes"; above 200 000 prefixes
+it fails with `too_many_objects`.
+
+Match = same network in the same namespace; type and status of the Nautobot prefix do not matter. Namespace: one fixed namespace (`namespace`,
+default `Global`) or the subnet's VRF name (`namespace_from_vrf`; a subnet whose bridge domain has no VRF is `skipped`; VRFs of different tenants
+with the same name share a namespace). Report (JSON artifact, kind `aci_subnet_report`): `matched`; `missing_in_nautobot` with tenant / VRF /
+bridge domain / gateway and `covered_by` (the smallest containing Nautobot prefix of that namespace); `missing_in_aci` only when `scope_prefixes`
+is set (Nautobot prefixes of type network strictly inside a scope prefix that no ACI subnet matches; containers, pools and the scope itself are
+not candidates; a fixed namespace only looks at that namespace); `overlaps` (the same network from more than one bridge domain/EPG in one
+namespace); `skipped`; `summary`. The run metadata entry `<node id>.<output_key>` (default `aci_subnet_report`) carries the summary, the first 50 prefixes of
+each list and `artifact_ref`. Outcomes: `success` always, `differences` as well when the sources disagree, so a workflow can branch on drift.
+
+**Verified live 2026-11-07:** `fvSubnet` / `fvRsCtx` / `fvRsBd` / `fvBD` (14 subnets, 0.2 s; BD and VRF resolved). **Unverified:** the Nautobot GraphQL `prefixes(limit, offset)` page arguments
+(taken from `libs/nautobot_read`, which uses them) were not run against a real Nautobot. Creating the missing prefixes is deliberately not part of this step.
+
+## Step `backup-aci-config` ("Back Up ACI Config to Git", 2026-11-06)
+
+Writes the **configuration** (not the state) of the fabric into a `GitRepository`: one file per tenant, `tenants/<tenant>.json`
+(`GET /api/mo/uni/tn-<tenant>.json`) and one for the access policies, `access-policies.json` (`GET /api/mo/uni/infra.json`), inside
+`repository_subdirectory` (default `aci`; one fabric per folder). Both reads use `rsp-subtree=full&rsp-prop-include=config-only`. Not backed
+up: fabric policies (`uni/fabric`), APIC settings, anything outside `uni/tn-*` and `uni/infra`. The workflow's devices are not used (`requires: []`).
+
+**Stable files.** Two reads of an unchanged fabric must give identical text or every run would be a commit: volatile attributes (`modTs`, `createTs`,
+`childAction`, `lcOwn`, `uid`) are removed, the children of every object are sorted (by class, then `rn` / `dn` / `name`, else their JSON), keys are
+sorted, 2-space indent, trailing newline. Unchanged files give no commit. The list of volatile attributes is best effort (not checked on the sandbox).
+
+**All or nothing.** Everything is read first (tenants four at a time). If any object cannot be read, for example a tenant larger than the APIC will return
+in one answer, the step fails with the list of objects and **writes nothing** and takes no repository lock, so the repository never mixes old and new files.
+A tenant name outside `[A-Za-z0-9_.-]{1,64}` is never put in a URL or file name (reported as an error). An unknown name in `tenants` is a configuration error.
+
+**Git.** Same lifecycle as `store-artifact` (destination git): `GitArtifactSink` with `pull_before_write`, the per-repository lease held from prepare to finalize
+and always released, commit (`commit`, default on, message with `{source_id}`), push (`push`, default off, needs `commit`). Files of tenants the APIC no
+longer has are **reported** as `stale_files` in the metadata (only when all tenants are backed up) and are not deleted. The metadata entry
+`<node id>.<output_key>` (default `aci_backup`) lists files, tenants, `committed`, `pushed`, `commit_sha`, `files_changed`. Outcomes: `success` always,
+`changed` as well when the commit changed files.
+
+**Review before pushing.** The export holds whatever the APIC returns as configuration; check a repository before it goes to a shared remote. Attributes named `key`, `password`, `authKey`, `community` and the like are replaced by `<secret removed>` when the APIC returns a value (the sandbox returns them empty). A tenant name with `..` or an edge dot is refused (the git sink would rewrite it and two tenants could share a file). A failure after the first write restores the files the step touched (`GitArtifactSink.discard_written`), so the next pull is not blocked; the stale-file listing refuses a symlinked folder (`list_files_in_repo_dir`).
+**Verified live 2026-11-07:** 13 tenant files plus `access-policies.json` (14 files, 1.5 MB), no errors, and two consecutive exports are byte-identical (so a second run makes no commit). **Unverified:** the push to a real git remote.

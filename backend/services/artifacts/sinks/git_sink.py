@@ -10,8 +10,8 @@ from pathlib import Path
 from typing import Any
 
 from services.artifacts.sinks.base import ArtifactSink, StoredExport
+from services.git.paths import list_files_in_repo_dir, write_text_within_repo
 from services.git.paths import repo_path as get_repo_path
-from services.git.paths import write_text_within_repo
 from services.workflow_context.device_template import sanitize_relative_path
 
 logger = logging.getLogger(__name__)
@@ -70,7 +70,7 @@ class GitArtifactSink(ArtifactSink):
         raw = self._repository.get("id")
         try:
             return int(raw) if raw is not None else None
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             return None
 
     @property
@@ -87,6 +87,15 @@ class GitArtifactSink(ArtifactSink):
         parts.append(relative_path.lstrip("/\\"))
         combined = "/".join(parts)
         return sanitize_relative_path(combined)
+
+    def existing_files(self, relative_dir: str) -> tuple[str, ...]:
+        """Names of the files directly inside ``relative_dir`` of the export folder (sorted).
+
+        Empty when the folder does not exist yet. Read only; call after ``prepare()``.
+        """
+        # ``sanitize_relative_path`` (inside ``_repo_relative_path``) refuses paths that escape;
+        # the listing itself refuses a symlink at any component, as the writes do.
+        return list_files_in_repo_dir(self._repo_root(), self._repo_relative_path(relative_dir))
 
     async def prepare(self) -> None:
         """Open or clone the repository and optionally pull latest changes."""
@@ -145,6 +154,44 @@ class GitArtifactSink(ArtifactSink):
             size_bytes=len(content.encode("utf-8")),
             sha256=digest,
         )
+
+    async def discard_written(self) -> int:
+        """Undo this sink's uncommitted writes after a failure; returns the files restored.
+
+        A written file that git tracks goes back to ``HEAD``, one it does not track is deleted.
+        Only the paths this sink wrote are touched (never ``reset --hard``), so a failed export
+        does not leave a dirty working tree that makes the next pull fail.
+        """
+        async with self._lock:
+            return await asyncio.to_thread(self._discard_written_sync)
+
+    def _discard_written_sync(self) -> int:
+        if self._repo is None or not self._written_paths:
+            return 0
+        root = self._repo_root()
+        restored = 0
+        for relative in self._written_paths:
+            try:
+                tracked = bool(self._repo.git.ls_files("--error-unmatch", relative))
+            except Exception:  # not tracked: git exits non-zero
+                tracked = False
+            try:
+                if tracked:
+                    self._repo.git.checkout("HEAD", "--", relative)
+                else:
+                    target = root / relative
+                    if target.is_file() and not target.is_symlink():
+                        target.unlink()
+                restored += 1
+            except Exception:
+                logger.warning(
+                    "Could not undo export write repo=%s path=%s",
+                    self._repository.get("name"),
+                    relative,
+                    exc_info=True,
+                )
+        self._written_paths.clear()
+        return restored
 
     async def finalize(self, commit_message: str) -> GitFinalizeResult | None:
         """Commit and/or push files written during this step."""

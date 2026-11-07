@@ -23,7 +23,10 @@ Netmiko, GitPython
 external **agents** (Route to Agent step, `/agent` reference agent) — read `doc/AGENT_INTEGRATION.md`
 before changing `backend/services/agents/`, `route_to_agent`, `agent/` (every agent below it) or `docker/redis/`;
 the **Nautobot MCP server** (`mcp/nautobot/`) and the Nautobot reads of Ask the Net share `libs/nautobot_read/` — read
-`mcp/nautobot/doc/DESIGN.md` (MCP server) and `doc/AI_TOOL_CHAIN.md` §31 (Ask the Net tools) before changing either
+`mcp/nautobot/doc/DESIGN.md` (MCP server) and `doc/AI_TOOL_CHAIN.md` §31 (Ask the Net tools) before changing either;
+**Cisco ACI** (APIC source and six steps: devices, details, policy, endpoints, subnet comparison, config backup) — read
+`doc/CISCO_ACI_INTEGRATION.md` and `doc/plans/ACI_CONTINUE.md` (status, what is not yet verified live) before changing
+`backend/services/aci/` or any `*aci*` step; the Ask the Net tools (14 tools built, §47 of `doc/AI_TOOL_CHAIN.md`) are in `doc/plans/ACI_TOOL_CHAIN.md`
 
 ## Architecture
 

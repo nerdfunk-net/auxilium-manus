@@ -94,6 +94,12 @@ template editor), never from `GET /settings` (`settings:read`). The response has
 `token_configured` only (a row without a URL is left out, as the settings parser always did); the settings form still edits the `sources.nautobot.*` rows, and a write there refreshes the
 page-side query (`use-settings-mutations.ts`).
 
+**ACI sources.** `sources.aci` (`read` / `write` / `delete`) follows the same rules: writes and deletes are admin-only (P3), the seeded
+`viewer` role has no `read`, and `POST /sources/aci/test-connection` needs `write`. The password is a global credential referenced by id;
+no response or query carries it. The ACI workflow steps read only (nothing is written to the APIC); `backup-aci-config` writes to a git
+repository and needs that repository's own rules. The Ask the Net ACI tools (14 tools, `doc/AI_TOOL_CHAIN.md` §47) need `sources.aci:read` checked on every call, so a
+viewer has none (`doc/plans/ACI_TOOL_CHAIN.md`, `doc/CISCO_ACI_INTEGRATION.md`).
+
 **Agent sources.** `sources.agent` (`read` / `write` / `delete`) follows the same rules: writes are admin-only
 (P3), the seeded `viewer` role has no `read`, and `POST /sources/agent/test-connection` needs `write` and is
 rate limited. The shared secret is a global `shared_secret` credential referenced by id; no response or query

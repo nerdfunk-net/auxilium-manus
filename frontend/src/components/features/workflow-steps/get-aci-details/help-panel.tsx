@@ -54,6 +54,16 @@ export function GetAciDetailsHelpPanel() {
           <li>
             <HelpCode>vpc</HelpCode> — vPC domain and vPC interfaces.
           </li>
+          <li>
+            <HelpCode>epgs</HelpCode> — the EPGs deployed on the switch: tenant, application
+            profile, EPG, class tag (<HelpCode>pc_tag</HelpCode>), encap, bridge domain and VRF.
+          </li>
+          <li>
+            <HelpCode>contracts</HelpCode> — the zoning rules the switch enforces (source and
+            destination class tag with the EPG name when it is deployed here, filter id, action,
+            direction, priority) and the filter entries (protocol and ports). These are the
+            programmed rules, not the contract objects; use Get Policy from ACI for those.
+          </li>
         </ul>
       </HelpSection>
 

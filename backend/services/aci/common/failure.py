@@ -5,7 +5,8 @@ Never copies message text. The inputs are the exception class, ``http_status``, 
 
 ``code`` values set at raise sites: ``token_rejected`` (credentials refused at login),
 ``request_denied`` (403 after a fresh login), ``timeout``, ``transport``, ``invalid_response``,
-``too_many_objects``.
+``too_many_objects``, ``unsafe_endpoint_dn`` (an endpoint name the APIC returned that is not safe
+to place in a query).
 """
 
 from __future__ import annotations
@@ -55,7 +56,7 @@ def _kind_and_phase(exc: AciError) -> tuple[FailureKind, FailurePhase]:
     if isinstance(exc, AciAPIError):
         if exc.code == "timeout":
             return "timeout", "api"
-        if exc.code in ("invalid_response", "too_many_objects"):
+        if exc.code in ("invalid_response", "too_many_objects", "unsafe_endpoint_dn"):
             return "invalid_response", "api"
         if exc.http_status is not None and exc.http_status >= 500:
             return "server_error", "api"

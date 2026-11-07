@@ -47,6 +47,7 @@ from models.ai_assistant import (
     WorkflowRunConfirmRequest,
     WorkflowRunConfirmResponse,
 )
+from services.ai_assistant.aci_reader import DbAciReader
 from services.ai_assistant.agent_loop import DEFAULT_BUDGET
 from services.ai_assistant.audit import AuditContext
 from services.ai_assistant.batfish_reader import DbBatfishReader
@@ -173,6 +174,7 @@ def _session_for(
     can_read_config_backups: bool = False,
     can_read_nautobot: bool = False,
     can_read_catalyst: bool = False,
+    can_read_aci: bool = False,
     can_read_runs: bool = False,
     can_start_released: bool = False,
 ) -> AssistantSession:
@@ -219,6 +221,8 @@ def _session_for(
             # Catalyst Center: offered with the permission alone, so a missing source is reported
             # to the user by the tool instead of the tools silently vanishing.
             catalyst_reader=DbCatalystCenterReader(user.id) if can_read_catalyst else None,
+            # ACI: offered with the permission alone, like Catalyst Center.
+            aci_reader=DbAciReader(user.id) if can_read_aci else None,
             # Run explanations reuse the runs-page reader; it checks workflow_runs:read per call.
             run_reader=DbRunReader(user.id) if can_read_runs else None,
             # Released workflows: the reader checks workflows:execute and visibility per call.
@@ -384,6 +388,7 @@ def chat(
     can_read_config_backups = False
     can_read_nautobot = False
     can_read_catalyst = False
+    can_read_aci = False
     can_read_runs = False
     can_start_released = False
     try:
@@ -410,6 +415,7 @@ def chat(
             can_read_catalyst = rbac.has_permission(
                 current_user.id, "sources.catalyst_center", "read"
             )
+            can_read_aci = rbac.has_permission(current_user.id, "sources.aci", "read")
             can_read_runs = rbac.has_permission(current_user.id, "workflow_runs", "read")
             can_start_released = rbac.has_permission(current_user.id, "workflows", "execute")
         if isinstance(body.context, WorkflowCanvasContext):
@@ -449,6 +455,7 @@ def chat(
                 can_read_config_backups=can_read_config_backups,
                 can_read_nautobot=can_read_nautobot,
                 can_read_catalyst=can_read_catalyst,
+                can_read_aci=can_read_aci,
                 can_read_runs=can_read_runs,
                 can_start_released=can_start_released,
             )

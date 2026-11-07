@@ -59,6 +59,8 @@ def _service(**overrides) -> MagicMock:
     service.get_protocols = AsyncMock(return_value=MagicMock(model_dump=lambda mode: {}))
     service.get_endpoints = AsyncMock(return_value=())
     service.get_vpc = AsyncMock(return_value=MagicMock(model_dump=lambda mode: {}))
+    service.get_epgs = AsyncMock(return_value=())
+    service.get_contracts = AsyncMock(return_value=MagicMock(model_dump=lambda mode: {}))
     for name, mock in overrides.items():
         setattr(service, name, mock)
     return service
@@ -151,6 +153,8 @@ class ConfigTests(unittest.IsolatedAsyncioTestCase):
                 "protocols",
                 "endpoints",
                 "vpc",
+                "epgs",
+                "contracts",
             ),
         )
 
@@ -248,6 +252,8 @@ class CollectTests(unittest.IsolatedAsyncioTestCase):
             "protocols": "get_protocols",
             "endpoints": "get_endpoints",
             "vpc": "get_vpc",
+            "epgs": "get_epgs",
+            "contracts": "get_contracts",
         }
         for fact, method in expected.items():
             with self.subTest(fact=fact), _Patched(_service()) as p:

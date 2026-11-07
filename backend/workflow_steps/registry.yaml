@@ -305,7 +305,7 @@ plugins:
 
   - id: get-aci-details
     name: Get Details from ACI
-    overview: Read device, software, hardware, interface, neighbour, VLAN, health, fault, routing, endpoint and vPC facts from a Cisco ACI fabric.
+    overview: Read device, software, hardware, interface, neighbour, VLAN, health, fault, routing, endpoint, vPC, EPG and contract facts from a Cisco ACI fabric.
     description: >
       Read structured facts about the leaf and spine switches selected with Get from ACI, straight
       from the APIC, without SSH access and without writing anything to ACI. Tick the facts you
@@ -332,7 +332,10 @@ plugins:
             bridge domain and VRF), health (node and chassis health score), faults (counts by
             severity and the first 50), routes (IPv4 routing table with next hops), protocols (BGP
             peers, IS-IS/OSPF adjacencies), endpoints (learned IP and MAC endpoints) and vpc (domain,
-            peer state and vPC interfaces). Devices must come from an ACI source (Get from ACI).
+            peer state and vPC interfaces), epgs (the EPGs deployed on the switch with tenant, application
+            profile, class tag, encap, bridge domain and VRF) and contracts (the zoning rules the
+            switch enforces: source and destination EPG tag, filter, action, plus the filter
+            entries). Devices must come from an ACI source (Get from ACI).
           data_type: string_list
           required: true
           default: [device, software, interfaces]
@@ -346,6 +349,222 @@ plugins:
           data_type: string
           required: false
           default: aci_details
+
+  - id: get-aci-policy
+    name: Get Policy from ACI
+    overview: Read the EPGs deployed on each ACI switch and the L3Outs it takes part in, with the contracts they provide and consume, including subjects, filters and the EPGs on the other side.
+    description: >
+      Read the tenant policy from the APIC (EPGs, L3Outs with their external EPGs, contracts,
+      subjects, filters; read once per APIC, not once per device) and give each leaf or spine the
+      EPGs deployed on it and the L3Outs it takes part in, with the contracts they provide and
+      consume, the definition of those contracts and the EPGs that provide or consume them.
+      Reads only; nothing is written to ACI.
+    artifact_type: configuration_management
+    palette_category: cisco
+    directory: get_aci_policy
+    enabled: true
+    requires: [identity]
+    produces: [parsed]
+    outcomes:
+      - name: success
+      - name: failure
+    metadata:
+      configuration_input:
+        - name: parsed_output_key
+          description: >
+            Key under which the result is stored on each device, read downstream as
+            parsed.<parsed_output_key>.epgs.parsed (EPGs deployed on the switch with the contracts
+            they provide and consume, as tenant/name) and parsed.<parsed_output_key>.contracts.parsed
+            (those contracts with subjects, filters, entries, and the provider and consumer EPGs
+            fabric-wide, external EPGs included) and parsed.<parsed_output_key>.l3outs.parsed (the
+            L3Outs whose nodes or interfaces include the switch: VRF, protocols, nodes with router
+            id, interfaces with address and encap, external EPGs with subnets, scope flags and
+            contracts). Each is {parsed, error}. vzAny, contract interfaces and taboo contracts
+            are not read. Devices must come from an ACI source (Get from ACI).
+          data_type: string
+          required: false
+          default: aci_policy
+
+  - id: find-aci-endpoints
+    name: Find Endpoint in ACI
+    overview: Look up where each device's IP or MAC address lives in a Cisco ACI fabric (EPG, leaf port or vPC).
+    description: >
+      For every device in the workflow, look up its IPv4 or MAC address in the learned endpoints of
+      an APIC and record the endpoint, its EPG and the leaf port (or vPC) it is attached to.
+      Works on devices from any source, for example Nautobot; they do not have to come from ACI.
+      An address the fabric does not know is a success with an empty list. Reads only; nothing is
+      written to ACI.
+    artifact_type: configuration_management
+    palette_category: cisco
+    directory: find_aci_endpoints
+    enabled: true
+    requires: [identity]
+    produces: [parsed]
+    outcomes:
+      - name: success
+      - name: failure
+    metadata:
+      configuration_input:
+        - name: aci_source_id
+          description: The Cisco ACI source (APIC) to ask.
+          data_type: string
+          required: true
+          default: ""
+        - name: address_path
+          description: >
+            Device attribute that holds the IPv4 or MAC address to look up, for example
+            primary_ip4 or a path such as nautobot.mac. A device without a value there fails with
+            no_address.
+          data_type: string
+          required: false
+          default: primary_ip4
+        - name: parsed_output_key
+          description: >
+            Key under which the result is stored on each device, read downstream as
+            parsed.<parsed_output_key>.endpoints.parsed (a list of endpoints with MAC, IPs, tenant,
+            application profile, EPG or external EPG, encap and attachments: pod, node ids and
+            interface or vPC) and .error. An empty list means the fabric does not know the address.
+            Endpoints behind a hypervisor (VMM) show no attachment.
+          data_type: string
+          required: false
+          default: aci_endpoint
+
+  - id: compare-aci-subnets
+    name: Compare ACI Subnets with Nautobot
+    overview: Report which gateway subnets of a Cisco ACI fabric are missing in Nautobot, and optionally which Nautobot networks ACI lacks.
+    description: >
+      Read the gateway subnets of all bridge domains and EPGs from an APIC and the IP prefixes of
+      a Nautobot, and report the differences: ACI subnets without a Nautobot prefix (with the
+      smallest Nautobot prefix that contains them), Nautobot networks inside given scope prefixes
+      that ACI does not have, and the same subnet used by several bridge domains. Report only;
+      nothing is written to ACI or Nautobot. Does not use the devices of the workflow.
+    artifact_type: configuration_management
+    palette_category: cisco
+    directory: compare_aci_subnets
+    enabled: true
+    requires: []
+    produces: []
+    outcomes:
+      - name: success
+      - name: differences
+    metadata:
+      configuration_input:
+        - name: aci_source_id
+          description: The Cisco ACI source (APIC) to read the subnets from.
+          data_type: string
+          required: true
+          default: ""
+        - name: nautobot_source_id
+          description: The Nautobot source to read the prefixes from.
+          data_type: string
+          required: true
+          default: ""
+        - name: namespace
+          description: >
+            Nautobot namespace the ACI subnets are compared in. A subnet matches a prefix with the
+            same network in this namespace. Ignored when namespace_from_vrf is on.
+          data_type: string
+          required: false
+          default: Global
+        - name: namespace_from_vrf
+          description: >
+            Use the name of each subnet's VRF as the Nautobot namespace instead of one fixed
+            namespace. A subnet whose bridge domain has no VRF is skipped and listed under skipped.
+          data_type: boolean
+          required: false
+          default: false
+        - name: scope_prefixes
+          description: >
+            Prefixes (for example 10.0.0.0/8) that delimit the part of Nautobot that ACI should
+            account for. Network prefixes inside them that no ACI subnet matches are reported as
+            missing_in_aci; containers, pools and the scope prefixes themselves are not. Empty
+            skips this check (missing_in_aci stays null).
+          data_type: string_list
+          required: false
+          default: []
+        - name: output_key
+          description: >
+            The run metadata entry <node id>.<output_key> holds the counts (matched,
+            missing_in_nautobot, missing_in_aci, overlaps, skipped, differences), the first 50
+            prefixes of each list and artifact_ref, the full JSON report (matched, missing_in_nautobot
+            with covered_by, missing_in_aci, overlaps with their owners, skipped). The success
+            outcome is always emitted; the differences outcome as well when the sources disagree.
+          data_type: string
+          required: false
+          default: aci_subnet_report
+
+  - id: backup-aci-config
+    name: Back Up ACI Config to Git
+    overview: Write the configuration of each ACI tenant and of the access policies as JSON files into a git repository.
+    description: >
+      Read the configuration (not the state) of every tenant and of the access policies from an
+      APIC and write it into a git repository: one file per tenant and one for the access
+      policies, stable between runs so a git diff shows only what changed. Optionally commits and
+      pushes. If any object cannot be read nothing is written. Reads ACI only; the workflow's
+      devices are not used.
+    artifact_type: configuration_management
+    palette_category: cisco
+    directory: backup_aci_config
+    enabled: true
+    requires: []
+    produces: []
+    outcomes:
+      - name: success
+      - name: changed
+    metadata:
+      configuration_input:
+        - name: aci_source_id
+          description: The Cisco ACI source (APIC) to back up.
+          data_type: string
+          required: true
+          default: ""
+        - name: git_repository_id
+          description: The git repository (Settings, Git Repositories) to write to.
+          data_type: integer
+          required: true
+        - name: repository_subdirectory
+          description: >
+            Folder inside the repository, one fabric per folder. The files are
+            tenants/<tenant>.json and access-policies.json inside it.
+          data_type: string
+          required: false
+          default: aci
+        - name: tenants
+          description: >
+            Tenants to back up. Empty backs up every tenant and reports files of tenants the APIC
+            no longer has as stale_files; they are not deleted. A name the APIC does not know
+            fails the step.
+          data_type: string_list
+          required: false
+          default: []
+        - name: include_access_policies
+          description: Also back up the access policies (uni/infra) to access-policies.json.
+          data_type: boolean
+          required: false
+          default: true
+        - name: commit
+          description: Commit the changed files. Files that did not change give no commit.
+          data_type: boolean
+          required: false
+          default: true
+        - name: push
+          description: Push the commit to the remote (needs commit).
+          data_type: boolean
+          required: false
+          default: false
+        - name: commit_message
+          description: Commit message; {source_id} is replaced by the ACI source id.
+          data_type: string
+          required: false
+          default: "ACI configuration backup of {source_id}"
+        - name: output_key
+          description: >
+            The run metadata entry <node id>.<output_key> holds the files written, the tenants,
+            stale_files, and committed, pushed, commit_sha and files_changed. The success outcome
+            is always taken; the changed outcome as well when files changed in the commit.
+          data_type: string
+          required: false
+          default: aci_backup
 
   - id: run-catalyst-center-command
     name: Run Command via Catalyst Center

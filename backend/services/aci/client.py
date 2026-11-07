@@ -156,6 +156,35 @@ class AciService:
             max_objects=max_objects,
         )
 
+    async def query_class_tree(
+        self,
+        credentials: AciCredentials,
+        class_name: str,
+        *,
+        query_filter: str | None = None,
+        child_classes: tuple[str, ...] = (),
+        page_size: int = DEFAULT_PAGE_SIZE,
+        max_objects: int = DEFAULT_MAX_OBJECTS,
+    ) -> list[dict[str, Any]]:
+        """Objects of one class with selected child objects: ``{"attributes", "children"}``.
+
+        ``children`` maps a child class name to the attribute dicts of the children of that class
+        (``rsp-subtree=children`` limited with ``rsp-subtree-class``); a class not asked for is
+        dropped. Paging and the ``too_many_objects`` rule are those of ``query_class``.
+        """
+        _check_class_name(class_name)
+        for child in child_classes:
+            _check_class_name(child)
+        return await self._query_paged(
+            credentials,
+            f"/api/class/{class_name}.json",
+            class_name,
+            query_filter=query_filter,
+            page_size=page_size,
+            max_objects=max_objects,
+            child_classes=child_classes,
+        )
+
     async def query_node_class(
         self,
         credentials: AciCredentials,
@@ -224,6 +253,7 @@ class AciService:
         query_filter: str | None,
         page_size: int,
         max_objects: int,
+        child_classes: tuple[str, ...] | None = None,
     ) -> list[dict[str, Any]]:
         rows: list[dict[str, Any]] = []
         seen = 0
@@ -232,6 +262,10 @@ class AciService:
             params: dict[str, Any] = {"page": page, "page-size": page_size}
             if query_filter:
                 params["query-target-filter"] = query_filter
+            if child_classes is not None:
+                params["rsp-subtree"] = "children"
+                if child_classes:
+                    params["rsp-subtree-class"] = ",".join(child_classes)
             body = await self.get(credentials, path, params=params)
             imdata = body.get("imdata") if isinstance(body, dict) else None
             if not isinstance(imdata, list):
@@ -242,8 +276,17 @@ class AciService:
             seen += len(imdata)
             for item in imdata:
                 attributes = _attributes_of(item, class_name)
-                if attributes is not None:
+                if attributes is None:
+                    continue
+                if child_classes is None:
                     rows.append(attributes)
+                else:
+                    rows.append(
+                        {
+                            "attributes": attributes,
+                            "children": _children_of(item, class_name, child_classes),
+                        }
+                    )
             if seen > max_objects:
                 raise AciAPIError(
                     f"APIC class {class_name} has more than {max_objects} objects; "
@@ -464,6 +507,21 @@ def _node_dn(pod_id: Any, node_id: Any) -> str:
     return (
         f"topology/pod-{_positive_int('pod_id', pod_id)}/node-{_positive_int('node_id', node_id)}"
     )
+
+
+def _children_of(
+    item: Any, class_name: str, child_classes: tuple[str, ...]
+) -> dict[str, list[dict[str, Any]]]:
+    """Attribute dicts of the wanted child classes of one object, grouped by class."""
+    obj = item.get(class_name) if isinstance(item, dict) else None
+    raw = obj.get("children") if isinstance(obj, dict) else None
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for child in raw if isinstance(raw, list) else ():
+        for child_class in child_classes:
+            attributes = _attributes_of(child, child_class)
+            if attributes is not None:
+                grouped.setdefault(child_class, []).append(attributes)
+    return grouped
 
 
 def _attributes_of(item: Any, class_name: str) -> dict[str, Any] | None:

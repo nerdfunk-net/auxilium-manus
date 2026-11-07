@@ -179,6 +179,20 @@ const TOOL_LABELS: Record<string, string> = {
   get_next_free_ip: "Looking for the next free IP address",
   find_catalyst_center_device: "Looking up a device in Catalyst Center",
   get_catalyst_center_device_details: "Reading Catalyst Center device details",
+  find_aci_device: "Looking up a switch in ACI",
+  list_aci_devices: "Listing the ACI fabric switches",
+  get_aci_device_details: "Reading ACI switch details",
+  find_aci_endpoint: "Looking up an address in the ACI fabric",
+  list_aci_subnets: "Listing ACI subnets",
+  search_aci_epgs: "Searching ACI EPGs",
+  get_aci_epg: "Reading an ACI EPG",
+  search_aci_contracts: "Searching ACI contracts",
+  get_aci_contract: "Reading an ACI contract",
+  find_aci_contracts_between: "Finding the ACI contracts between two EPGs",
+  list_aci_l3outs: "Listing ACI L3Outs",
+  list_aci_endpoints: "Listing ACI endpoints",
+  get_aci_endpoint_history: "Reading the history of an ACI endpoint",
+  check_aci_connectivity: "Checking the ACI contracts between two hosts",
 };
 
 function toolLabel(name: string): string {

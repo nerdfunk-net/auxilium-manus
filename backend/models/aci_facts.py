@@ -258,3 +258,56 @@ class AciVpc(_Fact):
     system_mac: str | None = None
     keepalive_state: str | None = None
     interfaces: tuple[AciVpcInterface, ...] = ()
+
+
+class AciEpg(_Fact):
+    """An EPG deployed on a leaf (``vlanCktEp``): who it is, its tag, encap, bridge domain, VRF."""
+
+    name: str | None = None
+    epg_dn: str | None = None
+    tenant: str | None = None
+    app_profile: str | None = None
+    epg: str | None = None
+    pc_tag: str | None = None
+    encap: str | None = None
+    encap_vlan: int | None = None
+    fabric_encap: str | None = None
+    bridge_domain: str | None = None
+    vrf: str | None = None
+    state: str | None = None
+
+
+class AciContractRule(_Fact):
+    """One zoning rule the leaf enforces (``actrlRule``): source and destination EPG tags."""
+
+    scope: str | None = None
+    source_pc_tag: str | None = None
+    destination_pc_tag: str | None = None
+    # Names are known for the EPGs deployed on this leaf only.
+    source_epg: str | None = None
+    destination_epg: str | None = None
+    filter_id: str | None = None
+    action: str | None = None
+    direction: str | None = None
+    priority: str | None = None
+    state: str | None = None
+
+
+class AciFilterEntry(_Fact):
+    """One entry of a filter the leaf programmed (``actrlEntry``)."""
+
+    filter_id: str | None = None
+    ether_type: str | None = None
+    protocol: str | None = None
+    source_port_from: str | None = None
+    source_port_to: str | None = None
+    destination_port_from: str | None = None
+    destination_port_to: str | None = None
+    stateful: str | None = None
+
+
+class AciContracts(_Fact):
+    """The contracts as the leaf enforces them: zoning rules plus their filter entries."""
+
+    rules: tuple[AciContractRule, ...] = ()
+    filters: tuple[AciFilterEntry, ...] = ()

@@ -119,6 +119,29 @@ def is_contained_regular_file(repo_root: str | Path, candidate: str | Path) -> b
         return False
 
 
+def list_files_in_repo_dir(repo_root: str | Path, relative_dir: str) -> tuple[str, ...]:
+    """Names of the regular files directly inside ``relative_dir`` (sorted); no symlink is followed.
+
+    The read twin of ``write_text_within_repo``: a symlink at any component of the directory
+    raises ``AccessDeniedError`` (otherwise a pushed symlink could make the app list a directory
+    of the host), a missing directory is empty, and a listed entry must itself be a contained
+    regular file (no symlinks, nothing under ``.git``)."""
+    root = Path(repo_root).resolve()
+    parts = Path(relative_dir).parts
+    if Path(relative_dir).is_absolute() or ".." in parts or _GIT_DIR_NAME in parts:
+        raise AccessDeniedError("Access denied: path is outside repository")
+    cursor = root
+    for part in parts:
+        cursor = cursor / part
+        if cursor.is_symlink():
+            raise AccessDeniedError("Access denied: refusing to list through a symlink")
+    if not cursor.is_dir():
+        return ()
+    return tuple(
+        sorted(entry.name for entry in cursor.iterdir() if is_contained_regular_file(root, entry))
+    )
+
+
 def list_repo_files(repo_root: str | Path, directory: str, pattern: str) -> list[Path]:
     """Glob ``pattern`` below ``directory`` and keep only contained regular files.
 

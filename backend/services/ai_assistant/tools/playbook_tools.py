@@ -53,6 +53,7 @@ class GetPlaybookInput(BaseModel):
 @cache
 def known_general_tool_names() -> frozenset[str]:
     """Every tool name the ``general`` surface can offer; playbooks are validated against it."""
+    from services.ai_assistant.tools.aci_tools import build_aci_tools
     from services.ai_assistant.tools.batfish_tools import build_batfish_tools
     from services.ai_assistant.tools.catalyst_center_tools import build_catalyst_center_tools
     from services.ai_assistant.tools.config_backup_tools import build_config_backup_tools
@@ -76,6 +77,7 @@ def known_general_tool_names() -> frozenset[str]:
             *build_config_backup_tools(),
             *build_nautobot_tools(),
             *build_catalyst_center_tools(),
+            *build_aci_tools(),
             *RUN_VIEWER_TOOLS,
             *RUN_LOOKUP_TOOLS,
         )

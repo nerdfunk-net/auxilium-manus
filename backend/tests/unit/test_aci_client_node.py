@@ -217,6 +217,7 @@ class GetNodeMoTests(unittest.IsolatedAsyncioTestCase):
             {
                 "get",
                 "query_class",
+                "query_class_tree",
                 "query_node_class",
                 "get_node_mo",
                 "login_info",

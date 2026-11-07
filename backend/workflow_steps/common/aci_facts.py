@@ -66,6 +66,7 @@ async def run_fact_step(
     node_id: str,
     output_key: str,
     collect: CollectFn,
+    prepare: Callable[[AciCredentials], Awaitable[Any]] | None = None,
 ) -> list[StepOutcome]:
     """Resolve targets/credentials, collect facts per device, and build the outcomes."""
     if not context.devices:
@@ -86,4 +87,5 @@ async def run_fact_step(
         split=split,
         credentials=credentials,
         error_code=ACI_ERROR_CODE,
+        prepare=prepare,
     )

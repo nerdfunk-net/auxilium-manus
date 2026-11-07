@@ -25,7 +25,7 @@ describe("get-aci-details config panel", () => {
     const block = /^FACTS = \(([^)]*)\)/m.exec(source)?.[1] ?? "";
     const backend = [...block.matchAll(/"([a-z_]+)"/g)].map((m) => m[1]);
     expect(FACT_OPTIONS.map((o) => o.value)).toEqual(backend);
-    expect(backend).toHaveLength(12);
+    expect(backend).toHaveLength(14);
   });
 
   it("checks the default facts and adds a fact on click", () => {

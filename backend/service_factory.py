@@ -15,10 +15,14 @@ if TYPE_CHECKING:
 from core.config import settings
 from repositories.inventory_repository import InventoryRepository
 from services.aci.client import AciService
+from services.aci.config_export_service import AciConfigExportService
 from services.aci.credentials import AciCredentials
 from services.aci.details_service import AciDetailsService
 from services.aci.device_service import AciDeviceService
+from services.aci.endpoint_service import AciEndpointService
+from services.aci.policy_service import AciPolicyService
 from services.aci.source_config_service import AciSourceConfigService
+from services.aci.subnet_service import AciSubnetService
 from services.agents.client import AgentClient
 from services.agents.client import build_agent_client as build_agent_client_for
 from services.agents.source_config_service import AgentConnection, AgentSourceConfigService
@@ -54,7 +58,9 @@ from services.mattermost.client import MattermostService
 from services.mattermost.source_config_service import MattermostSourceConfigService
 from services.nautobot.client import NautobotService
 from services.nautobot.credentials import NautobotCredentials
+from services.nautobot.credentials_bound_client import CredentialsBoundNautobotClient
 from services.nautobot.metadata_service import NautobotMetadataService
+from services.nautobot.prefix_reader import NautobotPrefixReader
 from services.pyats.client import PyATSShimService
 from services.pyats.source_config_service import PyATSSourceConfigService
 from services.sources.nautobot.persistence_service import InventoryService
@@ -144,6 +150,28 @@ def build_aci_source_config_service(db: Session) -> AciSourceConfigService:
 
 def build_aci_device_service(credentials: AciCredentials) -> AciDeviceService:
     return AciDeviceService(get_aci_app_service(), credentials)
+
+
+def build_aci_config_export_service(credentials: AciCredentials) -> AciConfigExportService:
+    return AciConfigExportService(get_aci_app_service(), credentials)
+
+
+def build_aci_subnet_service(credentials: AciCredentials) -> AciSubnetService:
+    return AciSubnetService(get_aci_app_service(), credentials)
+
+
+def build_nautobot_prefix_reader(credentials: NautobotCredentials) -> NautobotPrefixReader:
+    return NautobotPrefixReader(
+        CredentialsBoundNautobotClient(get_nautobot_app_service(), credentials)
+    )
+
+
+def build_aci_endpoint_service(credentials: AciCredentials) -> AciEndpointService:
+    return AciEndpointService(get_aci_app_service(), credentials)
+
+
+def build_aci_policy_service(credentials: AciCredentials) -> AciPolicyService:
+    return AciPolicyService(get_aci_app_service(), credentials)
 
 
 def build_aci_details_service(credentials: AciCredentials) -> AciDetailsService:

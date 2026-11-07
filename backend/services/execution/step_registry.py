@@ -27,6 +27,7 @@ from workflow_steps.add_nautobot_metadata.executor import execute as add_nautobo
 from workflow_steps.add_pyats_testbed.executor import execute as add_pyats_testbed
 from workflow_steps.add_to_ise.executor import execute as add_to_ise
 from workflow_steps.add_to_nautobot.executor import execute as add_to_nautobot
+from workflow_steps.backup_aci_config.executor import execute as backup_aci_config
 from workflow_steps.batfish_acl_check.executor import execute as batfish_acl_check
 from workflow_steps.batfish_bgp_facts.executor import execute as batfish_bgp_facts
 from workflow_steps.batfish_extract_facts.executor import execute as batfish_extract_facts
@@ -41,6 +42,7 @@ from workflow_steps.batfish_routing_table.executor import execute as batfish_rou
 from workflow_steps.batfish_validate_facts.executor import execute as batfish_validate_facts
 from workflow_steps.check_nautobot_job.executor import execute as check_nautobot_job
 from workflow_steps.collect_statistics.executor import execute as collect_statistics
+from workflow_steps.compare_aci_subnets.executor import execute as compare_aci_subnets
 from workflow_steps.compare_data.executor import execute as compare_data
 from workflow_steps.compare_pyats_snapshot.executor import execute as compare_pyats_snapshot
 from workflow_steps.config_to_attributes.executor import execute as config_to_attributes
@@ -51,10 +53,12 @@ from workflow_steps.encrypt_attribute.executor import execute as encrypt_attribu
 from workflow_steps.exists_in_nautobot.executor import execute as exists_in_nautobot
 from workflow_steps.fan_in.executor import execute as fan_in
 from workflow_steps.filter_output.executor import execute as filter_output
+from workflow_steps.find_aci_endpoints.executor import execute as find_aci_endpoints
 from workflow_steps.from_change_request.executor import execute as from_change_request
 from workflow_steps.generate_password.executor import execute as generate_password
 from workflow_steps.get_aci_details.executor import execute as get_aci_details
 from workflow_steps.get_aci_devices.executor import execute as get_aci_devices
+from workflow_steps.get_aci_policy.executor import execute as get_aci_policy
 from workflow_steps.get_batfish_devices.executor import execute as get_batfish_devices
 from workflow_steps.get_catalyst_center_configs.executor import (
     execute as get_catalyst_center_configs,
@@ -147,6 +151,10 @@ STEP_REGISTRY: dict[str, StepExecutor] = {
     "get-catalyst-center-devices": get_catalyst_center_devices,
     "get-aci-devices": get_aci_devices,
     "get-aci-details": get_aci_details,
+    "get-aci-policy": get_aci_policy,
+    "find-aci-endpoints": find_aci_endpoints,
+    "compare-aci-subnets": compare_aci_subnets,
+    "backup-aci-config": backup_aci_config,
     "get-catalyst-center-configs": get_catalyst_center_configs,
     "get-catalyst-center-details": get_catalyst_center_details,
     "get-catalyst-center-topology": get_catalyst_center_topology,

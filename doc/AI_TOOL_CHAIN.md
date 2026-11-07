@@ -3518,3 +3518,42 @@ for every cables layout (mutation-checked); a vitest render test pins the Help t
 * A learned-MAC lookup on the device itself (`show mac address-table` through the §29 card, optionally parsed with §43)
   works through the existing proposal tool; there is no dedicated tool or playbook for it yet.
 
+
+## 47. ACI tools: `find_aci_device`, `list_aci_devices`, `get_aci_device_details` (2026-11-07, phase 1)
+
+Plan: `doc/plans/ACI_TOOL_CHAIN.md`. Phases 1-4 are built (devices; endpoints and subnets; EPGs, contracts, L3Outs; rate bucket, playbooks, docs). Phase 5 is optional.
+
+* **Reader:** `services/ai_assistant/aci_reader.py::DbAciReader` checks `sources.aci:read` on every call, resolves the credentials of every
+  ACI source and hands the tools `AciSource(source_id, devices, details)`. Fixed sentences for no access, not configured, none usable.
+* **Tools** (`tools/aci_tools.py`, offered with the permission alone, so the seeded `viewer` role has none): `find_aci_device` (keys node id,
+  serial, management IP, name with `*` / `?`, alternatives tried in that order), `list_aci_devices` (role, pod, model, `name_contains`, paged,
+  `total`), `get_aci_device_details` (the 14 facts of the step; `FACTS` parity is pinned by a test; `limit` / `offset` page list facts,
+  `interface_name_contains` narrows interfaces). Every tool takes an optional `source`; without it all sources are read and one failing source
+  is a fixed sentence in `source_errors`.
+* **Data gates:** inventory before any request; lookup by serial / IP needs addresses (whole call); a field table (`_RULES`, by field name,
+  fail closed, `dn` / `epg_dn` / `raw` never sent) puts serials, TEP and management addresses, MACs, interface IPs, route data in addresses
+  and `description` in content. A test pins every model field to a rule. Upstream error text never reaches the model.
+* **Phase 2 (2026-11-07):** `find_aci_endpoint` (IPv4 or MAC; empty = "not learned", never "does not exist") and `list_aci_subnets`
+  (`contains_ip`, `within`, `prefix`, tenant / VRF / BD, paged, IPv6 ok) in `tools/aci_lookup_tools.py`. Both need the inventory **and**
+  addresses switch for the whole call, checked before any request (mutation-checked); a malformed address or prefix sends nothing.
+* **Phase 3 (2026-11-07):** `search_aci_epgs`, `get_aci_epg`, `search_aci_contracts`, `get_aci_contract`, `find_aci_contracts_between`,
+  `list_aci_l3outs` (`tools/aci_policy_tools.py`) over one policy snapshot per source. Pure searches in `services/aci/policy_search.py`
+  (port ranges, named ports, closest names), cache in `services/aci/policy_cache.py` (TTL 120 s, 8 entries, single flight, key = source id +
+  digest of URL and credentials). The permission and the inventory switch are checked on every call **before** the cache is read
+  (tests; mutation-checked with the gate, the lock and the key). Answers carry `as_of_seconds_ago`; DNs are never sent (EPGs are
+  `tenant/app_profile/epg`); `find_aci_contracts_between` and the contract reads carry a `limits` note (no vzAny, preferred groups, taboo
+  contracts, VRF enforcement) and the prompt forbids "traffic is allowed" from them. `get_aci_epg include_deployed_on` (off by default) lists the leaves that carry an EPG from each leaf's `get_epgs` (up to 50 leaves, 4 at a time; failures are counted, never quoted; one rate-budget slot; live-checked).
+* **Phase 4 (2026-11-07):** per-user budget `ai-aci-read` (20 per minute, `tools/aci_tools.py::_within_budget`), checked after the permission
+  and before any APIC request (a denied user does not use it up; tests); two built-in playbooks `aci-where-is-it` (Nautobot, then
+  `find_aci_endpoint` and `list_aci_subnets contains_ip`) and `aci-epg-reachability` (`get_aci_epg`, `find_aci_contracts_between`,
+  `get_aci_contract`, the limits), validated by `scripts/check_playbooks.py`; prompt, Help tab and tool labels.
+* **Totals:** 14 tools (devices 3, endpoints and subnets 4 incl. `list_aci_endpoints` and `get_aci_endpoint_history`, EPG and contract 5, L3Out 1, `check_aci_connectivity` 1), none of them writes.
+  Still open: a run with a real model (record the result here, as §42 does), a single-subnet Nautobot check, fabric-wide faults.
+  The field rules live in `tools/aci_fields.py` (`RULES`, `EXCLUDED`, `project`).
+* **Endpoint listing, endpoint history and the connectivity check (2026-11-07):**
+  * `list_aci_endpoints` (tenant, optional profile / EPG / `within` prefix, paged): `AciEndpointService.list_endpoints` filters `fvCEp` on a `wcard(fvCEp.dn, "/tn-T/ap-A/epg-E/")` substring (names must be plain ACI names; more than 2 000 endpoints fail with "narrow it" instead of truncating). An endpoint now also carries `vrf`, `bridge_domain` and `esg`. Costs 2 budget slots.
+  * `get_aci_endpoint_history(address)`: **the APIC keeps no move history** (checked: no history class, `eventRecord` / `faultRecord` hold nothing per endpoint on the sandbox). The tool returns what exists: `fvCEp.modTs`, `fvIp.createTs` / `modTs` per address, the endpoint's `epmMacEp` record on each attached leaf (interface, `modTs`; the epoch is shown as unknown) and the newest 15 event and 15 fault lines that name the MAC or an address (validated values only in the filter; log text needs the content switch). A leaf or the log read that fails is flagged (`leaf_records_failed`, `events_unavailable`), never an empty-looking answer. The answer says in words that it is not a move timeline. Costs 2 slots.
+  * `check_aci_connectivity(source_ip, destination_ip, protocol, port)`, **"does the REST API support a reachability check?"**: not as a read. The APIC's Visibility & Troubleshooting session (class `troubleshootSession`) is created with a POST, and this integration never writes to the APIC. The tool therefore assembles the answer from reads (`services/aci/connectivity.py`, pure and tested): both hosts as learned endpoints (or the L3Out external EPG whose `import-security` subnet covers an unlearned address, longest prefix), then ESG / different VRF (`unknown`), VRF enforcement (`fvCtx.pcEnfPref`), same EPG and intra-EPG isolation (`fvAEPg.pcEnfPref`), preferred group (`vzAny.prefGrMemb` plus `fvAEPg.prefGrMemb`), `vzAny` contracts (`vzRsAnyToProv` / `ToCons`), and the contracts the destination provides and the source consumes, with scope and a filter entry for the protocol and port. A taboo relation (`fvRsProtBy`) turns a permit into `unknown`. Result `permitted` / `not_permitted` / `unknown` with a reason code, the contracts and what they allow; a contract in the opposite direction is noted. It is contract intent, not a packet trace; service graphs, policy-based redirect, route leaking, ESGs, taboo evaluation and the real forwarding path are not evaluated and the answer says so. The policy snapshot is read with `with_flow=True` (five more class reads) under its own cache key. Costs 3 slots. The playbook `aci-can-a-reach-b` and the prompt tell the model never to say "the traffic flows".
+  * Not built, and a possible next step: a check of the **programmed zoning rules on the leaf** (`actrlRule` / `actrlEntry` with the source and destination `pcTag`) as a second opinion on what the hardware enforces. It needs the VRF scope id and the tags of both EPGs on the leaf that carries the source.
+* **Verified live 2026-11-07** against the DevNet APIC (3 switches, facts, paging, contracts). Not yet done: a run with a real model, the
+  per-user rate bucket `ai-aci-read` (plan 6.4), the Nautobot-first playbooks.

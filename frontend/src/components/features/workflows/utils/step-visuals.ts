@@ -1,4 +1,5 @@
 import {
+  Archive,
   Bell,
   Bot,
   BellRing,
@@ -45,6 +46,7 @@ import {
   Route,
   Router,
   Scale,
+  Search,
   SearchCode,
   Settings2,
   ShieldAlert,
@@ -151,7 +153,7 @@ export const CATEGORY_SUBGROUPS: Record<string, CategorySubgroup[]> = {
         "get-catalyst-center-health",
       ],
     },
-    { label: "ACI", kinds: ["get-aci-devices", "get-aci-details"] },
+    { label: "ACI", kinds: ["get-aci-devices", "get-aci-details", "get-aci-policy", "find-aci-endpoints", "compare-aci-subnets", "backup-aci-config"] },
   ],
 };
 
@@ -219,6 +221,10 @@ const nodeIconsByKind: Record<string, LucideIcon> = {
   // palette_category: cisco disables the artifact_type icon fallback, so each cisco step needs one.
   "get-aci-devices": Waypoints,
   "get-aci-details": ListTree,
+  "get-aci-policy": ShieldCheck,
+  "find-aci-endpoints": Search,
+  "compare-aci-subnets": Scale,
+  "backup-aci-config": Archive,
   "get-catalyst-center-devices": Server,
   "get-catalyst-center-configs": HardDriveDownload,
   "get-catalyst-center-details": ListTree,
