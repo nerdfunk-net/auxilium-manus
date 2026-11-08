@@ -487,6 +487,55 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
     ],
   },
   {
+    id: "learn",
+    title: "Learn OSPF and BGP (feature learn)",
+    summary:
+      "Reads the whole picture of one routing protocol on a device in one go: for OSPF the process, areas, interfaces, neighbours and the link-state database; for BGP the local AS, router id, address families, every neighbour with its state and settings, and the peer templates. The assistant picks the read-only commands from a reviewed list and never writes them; nothing runs until you confirm. To see what changed, run the BGP learn twice, once now and once later, and ask the assistant to compare the two runs: it reports neighbours that were added or removed, sessions whose state changed, and sessions that flapped in between. The runs are kept for a few hours only, so compare within the same working session. For a baseline that must last longer, use a Compare Snapshot step in a workflow.",
+    requirement:
+      "Switched on by the operator. Needs the command-execution permission and the opt-in to share content. The tables, the neighbour detail and the comparison also need Genie: the permission to read the pyATS source, and Genie approved on the card when you confirm. Supported: Cisco IOS and IOS-XE only. Only the default VRF is read unless you name a VRF (BGP only).",
+    tools: [
+      {
+        name: "propose_feature_learn",
+        description:
+          "Proposes the read-only commands that learn one feature of a device, which you confirm and run: ospf, or bgp (optionally for one VRF). The result is read from the run you confirmed; a command with nothing configured, for example no route reflector, is reported as such.",
+        questions: [
+          "Learn OSPF of r1.",
+          "Learn BGP of r1.",
+          "Learn the BGP state of r1 in the VRF BLUE.",
+          "Is a BGP session down on r1?",
+        ],
+      },
+      {
+        name: "get_bgp_learn_result",
+        description:
+          "Shows the BGP learn you ran as one table: a row per neighbour and address family with remote AS, internal or external, state, prefixes received, up or down time, hold time and the reason of the last reset, plus the local AS and router id.",
+        questions: [
+          "Show the BGP neighbours of that learn as a table.",
+          "Which BGP neighbours of r1 are not established?",
+        ],
+      },
+      {
+        name: "propose_bgp_neighbor_detail",
+        description:
+          "Proposes the read-only commands for one BGP neighbour from the learn: its policy and the total number of prefixes advertised to it and received from it. Pass the same VRF as the learn. The received count needs soft-reconfiguration inbound on the device; an error there is not a fault of the neighbour.",
+        questions: [
+          "Show the policy and the number of prefixes exchanged with the BGP neighbour 192.0.2.1 on r1.",
+          "How many prefixes does r1 receive from 192.0.2.1?",
+        ],
+      },
+      {
+        name: "compare_bgp_learns",
+        description:
+          "Compares two BGP learns of the same device and scope (run it twice: now and later) and says what changed: neighbours added or removed, state changes, and flaps (the drop counter went up or the reset reason is new). Counters and uptimes are ignored. Ask for every difference to also compare the complete learned model (templates, capabilities, timers); that takes about 30 seconds.",
+        questions: [
+          "Compare the two BGP learns of r1 I ran, the earlier one against the later one.",
+          "What changed in BGP on r1 between my two learns?",
+          "Compare the two BGP learns of r1 and show every difference, including the complete learned model.",
+        ],
+      },
+    ],
+  },
+  {
     id: "runs",
     title: "Workflow runs",
     summary:

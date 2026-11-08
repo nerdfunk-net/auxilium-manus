@@ -5,7 +5,8 @@ import { HELP_SECTIONS } from "./help-content";
 const tools = HELP_SECTIONS.flatMap((section) =>
   section.tools.map((tool) => ({ section: section.id, ...tool })),
 );
-const byName = (needle: string) => tools.find((tool) => tool.name.includes(needle));
+const byName = (needle: string) =>
+  tools.find((tool) => tool.name.includes(needle));
 
 describe("Ask the Net help: finding an interface by MAC address", () => {
   it("lists list_interfaces_by_mac in the Nautobot section with questions that use it", () => {
@@ -13,7 +14,9 @@ describe("Ask the Net help: finding an interface by MAC address", () => {
 
     expect(tool?.section).toBe("nautobot");
     expect(tool?.questions.join(" ")).toMatch(/MAC address/);
-    expect(tool?.questions.some((q) => q.includes("AA:BB:CC:00:01:00"))).toBe(true);
+    expect(tool?.questions.some((q) => q.includes("AA:BB:CC:00:01:00"))).toBe(
+      true,
+    );
   });
 
   it("says the MAC is the documented one, not the switch's learned table, and who can use it", () => {
@@ -33,7 +36,11 @@ describe("Ask the Net help: finding an interface by MAC address", () => {
     const live = byName("propose_device_command");
 
     expect(live?.section).toBe("device-commands");
-    expect(live?.questions.some((q) => /MAC address table|mac address-table/i.test(q))).toBe(true);
+    expect(
+      live?.questions.some((q) =>
+        /MAC address table|mac address-table/i.test(q),
+      ),
+    ).toBe(true);
   });
 
   it("keeps every tool entry complete", () => {
@@ -42,5 +49,36 @@ describe("Ask the Net help: finding an interface by MAC address", () => {
       expect(tool.description.length, tool.name).toBeGreaterThan(10);
       expect(tool.questions.length, tool.name).toBeGreaterThan(0);
     }
+  });
+});
+
+describe("Ask the Net help: feature learn", () => {
+  const learn = HELP_SECTIONS.find((section) => section.id === "learn");
+
+  it("lists the OSPF and BGP learn tools with questions that use them", () => {
+    const names = learn?.tools.map((tool) => tool.name) ?? [];
+
+    expect(names).toEqual([
+      "propose_feature_learn",
+      "get_bgp_learn_result",
+      "propose_bgp_neighbor_detail",
+      "compare_bgp_learns",
+    ]);
+    const questions =
+      byName("propose_feature_learn")?.questions.join(" ") ?? "";
+    expect(questions).toMatch(/OSPF/);
+    expect(questions).toMatch(/BGP/);
+  });
+
+  it("tells the user to run the BGP learn twice and compare the runs later", () => {
+    expect(learn?.summary).toMatch(/twice/);
+    expect(learn?.summary).toMatch(/compare the two runs/i);
+    expect(learn?.summary).toMatch(/few hours/);
+    expect(byName("compare_bgp_learns")?.description).toMatch(/run it twice/i);
+  });
+
+  it("says what it needs and which platforms it supports", () => {
+    expect(learn?.requirement).toMatch(/Genie/);
+    expect(learn?.requirement).toMatch(/IOS-XE/);
   });
 });
