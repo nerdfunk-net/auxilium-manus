@@ -65,9 +65,14 @@ Record = dict[str, Any]
 class Entry(Protocol):
     """What the parse step returns per command (``output_parser.ParsedCommand``)."""
 
-    command: str
-    parsed: Any
-    error: str | None
+    @property
+    def command(self) -> str: ...
+
+    @property
+    def parsed(self) -> Any: ...
+
+    @property
+    def error(self) -> str | None: ...
 
 
 def is_summary_command(command: str) -> bool:

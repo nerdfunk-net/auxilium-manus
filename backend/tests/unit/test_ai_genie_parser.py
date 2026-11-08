@@ -422,3 +422,64 @@ def test_only_filtered_totals_never_call_the_shim(patches) -> None:
 
 def test_other_commands_are_not_treated_as_totals() -> None:
     assert gp.filtered_total("show version", "Total number of prefixes 3") is None
+
+
+def test_learn_replay_returns_the_models_payload(patches) -> None:
+    shim = MagicMock()
+    shim.learn_replay = AsyncMock(
+        return_value={"payload": {"info": {"instance": {}}, "_exclude": []}, "error": None}
+    )
+    patches(shim=shim)
+
+    payload = asyncio.run(
+        gp.DbGenieParser(7).learn_replay("iosxe", "bgp", [("show bgp all summary", "raw")])
+    )
+
+    assert payload["info"] == {"instance": {}}
+    kwargs = shim.learn_replay.call_args.kwargs
+    assert kwargs["feature"] == "bgp" and kwargs["os_name"] == "iosxe"
+    assert kwargs["commands"] == [{"command": "show bgp all summary", "output": "raw"}]
+
+
+@pytest.mark.parametrize(
+    "answer", [{"payload": None, "error": "Genie could not learn x"}, {}, {"payload": {"info": 3}}]
+)
+def test_learn_replay_without_a_model_is_a_fixed_error(patches, answer) -> None:
+    shim = MagicMock()
+    shim.learn_replay = AsyncMock(return_value=answer)
+    patches(shim=shim)
+
+    with pytest.raises(ParserUnavailableError) as raised:
+        asyncio.run(gp.DbGenieParser(7).learn_replay("iosxe", "bgp", []))
+
+    assert str(raised.value) == gp.LEARN_FAILED
+
+
+def test_learn_replay_and_diff_hide_transport_errors(patches) -> None:
+    shim = MagicMock()
+    shim.learn_replay = AsyncMock(side_effect=PyATSAPIError("secret detail"))
+    shim.diff = AsyncMock(side_effect=PyATSAPIError("secret detail"))
+    patches(shim=shim)
+    parser = gp.DbGenieParser(7)
+
+    with pytest.raises(ParserUnavailableError) as first:
+        asyncio.run(parser.learn_replay("iosxe", "bgp", []))
+    with pytest.raises(ParserUnavailableError) as second:
+        asyncio.run(parser.diff_models({}, {}, []))
+
+    assert str(first.value) == gp.SHIM_FAILED and str(second.value) == gp.SHIM_FAILED
+
+
+def test_diff_models_sends_the_noise_keys_as_the_callers_exclude(patches) -> None:
+    shim = MagicMock()
+    shim.diff = AsyncMock(
+        return_value={"identical": False, "diff": "-a\n+b", "excluded": ["up_time"]}
+    )
+    patches(shim=shim)
+
+    answer = asyncio.run(gp.DbGenieParser(7).diff_models({"info": 1}, {"info": 2}, ["up_time"]))
+
+    assert answer["identical"] is False
+    kwargs = shim.diff.call_args.kwargs
+    assert kwargs["exclude_keys"] == ["up_time"]
+    assert kwargs["snapshot_a"] == {"info": 1} and kwargs["snapshot_b"] == {"info": 2}

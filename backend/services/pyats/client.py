@@ -180,6 +180,54 @@ class PyATSShimService:
             )
         return response.json()
 
+    async def learn_replay(
+        self,
+        credentials: PyATSCredentials,
+        *,
+        os_name: str,
+        feature: str,
+        commands: list[dict[str, str]],
+        timeout_seconds: float | None = None,
+    ) -> dict[str, Any]:
+        """Learn ``feature`` with Genie's Ops class from already-collected command output.
+
+        The answer is ``{"payload": {"info", "_exclude"} | None, "error": str | None}``; the shim
+        reports a failed learn as a fixed ``error`` sentence, not as an HTTP error.
+        """
+        base = await self._base_url(credentials)
+        body = {"os": os_name, "feature": feature, "commands": commands}
+        request_timeout = timeout_seconds or credentials.timeout
+        headers = {"Authorization": f"Bearer {credentials.token}"}
+
+        try:
+            response = await self._do_request(
+                "POST",
+                f"{base}/v1/learn-replay",
+                credentials.verify_ssl,
+                request_timeout,
+                json=body,
+                headers=headers,
+            )
+        except httpx.TimeoutException as exc:
+            raise PyATSAPIError(
+                f"pyATS shim learn request timed out after {request_timeout} seconds",
+                code="timeout",
+            ) from exc
+        except PyATSAPIError:
+            raise
+        except Exception as exc:
+            logger.error("pyATS shim learn request failed: %s", exc)
+            raise PyATSAPIError("pyATS shim learn request failed", code="transport") from exc
+
+        if response.status_code == 400:
+            raise PyATSValidationError(self._extract_error_message(response))
+        if response.status_code >= 400:
+            raise PyATSAPIError(
+                f"pyATS shim learn request failed with status {response.status_code}",
+                http_status=response.status_code,
+            )
+        return response.json()
+
     async def diff(
         self,
         credentials: PyATSCredentials,

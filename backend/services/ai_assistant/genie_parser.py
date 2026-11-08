@@ -87,6 +87,9 @@ def nothing_configured(output: str) -> bool:
 
 # The client waits at most this long for the shim, whatever the source's own timeout says.
 SHIM_TIMEOUT_SECONDS = 60.0
+# Learning a feature from replayed output starts a mock device in the shim (about 15 s) per call.
+LEARN_TIMEOUT_SECONDS = 120.0
+LEARN_FAILED = "Genie could not learn the feature from this output"
 
 
 def _single_source_id(db: Any, user_id: int) -> str:
@@ -154,6 +157,52 @@ class DbGenieParser:
             local[command] or _entry(command, commands.get(command), output)
             for command, output in outputs
         ]
+
+    async def learn_replay(
+        self, os_name: str, feature: str, outputs: Sequence[tuple[str, str]]
+    ) -> dict[str, Any]:
+        """The learned model from collected output, or ``ParserUnavailableError`` (safe text)."""
+        credentials = await asyncio.to_thread(_credentials, self._user_id)
+        commands = [{"command": c, "output": o} for c, o in outputs]
+        try:
+            answer = await service_factory.get_pyats_app_service().learn_replay(
+                credentials,
+                os_name=os_name,
+                feature=feature,
+                commands=commands,
+                timeout_seconds=LEARN_TIMEOUT_SECONDS,
+            )
+        except (PyATSValidationError, PyATSAPIError) as exc:
+            logger.info("AI assistant: pyATS learn failed (%s)", type(exc).__name__)
+            raise ParserUnavailableError(SHIM_FAILED) from exc
+        except ValueError as exc:
+            raise ParserUnavailableError(SHIM_FAILED) from exc
+        payload = answer.get("payload") if isinstance(answer, dict) else None
+        if not isinstance(payload, dict) or not isinstance(payload.get("info"), dict):
+            # The shim's own sentence is fixed text (no CLI output in it), but say only ours.
+            raise ParserUnavailableError(LEARN_FAILED)
+        return payload
+
+    async def diff_models(
+        self, before: dict[str, Any], after: dict[str, Any], exclude: Sequence[str]
+    ) -> dict[str, Any]:
+        credentials = await asyncio.to_thread(_credentials, self._user_id)
+        try:
+            answer = await service_factory.get_pyats_app_service().diff(
+                credentials,
+                snapshot_a=before,
+                snapshot_b=after,
+                exclude_keys=list(exclude),
+                timeout_seconds=SHIM_TIMEOUT_SECONDS,
+            )
+        except (PyATSValidationError, PyATSAPIError) as exc:
+            logger.info("AI assistant: pyATS diff failed (%s)", type(exc).__name__)
+            raise ParserUnavailableError(SHIM_FAILED) from exc
+        except ValueError as exc:
+            raise ParserUnavailableError(SHIM_FAILED) from exc
+        if not isinstance(answer, dict) or "identical" not in answer:
+            raise ParserUnavailableError(SHIM_FAILED)
+        return answer
 
 
 def _commands_of(response: Any) -> dict[str, Any]:

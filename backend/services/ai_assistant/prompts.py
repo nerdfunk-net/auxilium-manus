@@ -284,7 +284,8 @@ is supported. Read the parsed handle after the run; a command with no result is 
 'errors': say so, never invent values. For one BGP neighbour from that summary, \
 propose_bgp_neighbor_detail(device, neighbor, vrf) reads its policy and the prefix totals \
 exchanged (pass the learn's vrf). get_bgp_learn_result(handle) turns the raw handle of a \
-Genie-parsed BGP learn into one neighbour table.
+Genie-parsed BGP learn into one neighbour table; compare_bgp_learns(before, after) says what \
+changed between two raw learn handles of one device.
 """
 
 CONFIG_BACKUP_PROMPT = """\

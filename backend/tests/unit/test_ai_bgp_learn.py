@@ -11,8 +11,9 @@ import pytest
 
 from services.ai_assistant.data_sharing import DataClass, SharingPolicy
 from services.ai_assistant.device_exec_service import _shape_blocks
+from services.ai_assistant.learn import bgp_compare
 from services.ai_assistant.learn import bgp_records as br
-from services.ai_assistant.output_parser import ParsedCommand
+from services.ai_assistant.output_parser import ParsedCommand, ParserUnavailableError
 from services.ai_assistant.redaction import Redactor
 from services.ai_assistant.results.store import InMemoryResultBackend, ResultStore, StoredResult
 from services.ai_assistant.tools.base import ToolContext, ToolOutput
@@ -317,3 +318,286 @@ def test_a_family_only_in_the_neighbors_output_still_gets_a_row() -> None:
     assert vpn["state"] is None and vpn["type"] == "internal"
     assert rows[("192.168.178.241", "ipv4 unicast")]["state"] == "Established"
     assert len([r for r in records if r["address_family"] == "ipv4 unicast"]) == 2  # both peers
+
+
+# -- compare_bgp_learns ------------------------------------------------------------------------
+
+
+def _summary(state_pfxrcd: str, up_down: str = "00:40:11") -> dict[str, Any]:
+    peer = SUMMARY["vrf"]["default"]["neighbor"]["192.168.178.241"]["address_family"][
+        "ipv4 unicast"
+    ]
+    row = {**peer, "state_pfxrcd": state_pfxrcd, "up_down": up_down}
+    return {
+        "bgp_id": 65000,
+        "vrf": {
+            "default": {"neighbor": {"192.168.178.241": {"address_family": {"ipv4 unicast": row}}}}
+        },
+    }
+
+
+def _neighbors(dropped: int = 0, reason: str | None = None) -> dict[str, Any]:
+    connection: dict[str, Any] = {
+        "established": 1 + dropped,
+        "dropped": dropped,
+        "last_reset": "never",
+    }
+    if reason:
+        connection["reset_reason"] = reason
+    peer = {
+        **NEIGHBORS["vrf"]["default"]["neighbor"]["192.168.178.241"],
+        "bgp_session_transport": {"connection": connection},
+    }
+    return {"vrf": {"default": {"neighbor": {"192.168.178.241": peer}}}}
+
+
+class TaggedGenie:
+    """Answers by the tag the stored text starts with, so two readings can differ."""
+
+    def __init__(self, readings: dict[str, dict[str, Any]], *, replay_error: bool = False):
+        self.readings = readings
+        self.replay_error = replay_error
+        self.replays: list[str] = []
+        self.diffs: list[list[str]] = []
+
+    async def parse(self, os_name: str, outputs: Sequence[tuple[str, str]]) -> list[ParsedCommand]:
+        result = []
+        for command, output in outputs:
+            tag = output.split(":", 1)[0]
+            answer = self.readings.get(tag, {}).get(command)
+            result.append(ParsedCommand(command, answer, None if answer else "boom"))
+        return result
+
+    async def learn_replay(self, os_name, feature, outputs):
+        if self.replay_error:
+            raise ParserUnavailableError("The pyATS service could not parse the output")
+        tag = outputs[0][1].split(":", 1)[0]
+        self.replays.append(tag)
+        return {"info": {"tag": tag}, "_exclude": []}
+
+    async def diff_models(self, before, after, exclude):
+        self.diffs.append(list(exclude))
+        return {"identical": False, "diff": "-tag: a\n+tag: b", "excluded": list(exclude)}
+
+
+def _tagged_run(store: ResultStore, tag: str, commands: list[str] = COMMANDS, **meta: Any) -> str:
+    text, _, spans = _shape_blocks([(c, f"{tag}: {c}") for c in commands], lambda v: v)
+    full = {
+        "commands": commands,
+        "spans": spans,
+        "parser": "genie",
+        "network_driver": "cisco_ios",
+        "platform": "cisco_ios",
+        "device_name": "LAB",
+        "device_id": "dev-1",
+        "source_id": "nb1",
+        **meta,
+    }
+    return asyncio.run(
+        store.put(USER, StoredResult("device_command", DataClass.CONTENT, text=text, meta=full))
+    )
+
+
+def _compare(store: ResultStore, genie: Any, before: str, after: str, **args: Any) -> ToolOutput:
+    extras: dict[str, Any] = {RESULT_STORE_KEY: store}
+    if genie is not None:
+        extras[GENIE_PARSER_KEY] = genie
+    ctx = ToolContext(
+        user_id=USER,
+        redactor=Redactor(),
+        extras=extras,
+        sharing=SharingPolicy(inventory=True, addresses=True, content=True),
+    )
+    tool = build_bgp_learn_tools()[1]
+    assert tool.name == "compare_bgp_learns"
+    return asyncio.run(tool.handler(ctx, tool.input_model(before=before, after=after, **args)))
+
+
+UP = {SUMMARY_CMD: _summary("1"), NEIGHBORS_CMD: _neighbors()}
+FLAPPED = {
+    SUMMARY_CMD: _summary("Active", "never"),
+    NEIGHBORS_CMD: _neighbors(dropped=1, reason="Peer closed the session"),
+}
+
+
+def test_compare_reports_a_session_that_went_down_and_flapped(store) -> None:
+    genie = TaggedGenie({"a": UP, "b": FLAPPED})
+    out = _compare(store, genie, _tagged_run(store, "a"), _tagged_run(store, "b"))
+
+    assert not out.is_error
+    body = json.loads(out.content)
+    assert body["identical"] is False and "model_diff" not in body
+    changed = {r["field"]: (r["before"], r["after"]) for r in body["rows"]}
+    assert changed["state"] == ("Established", "Active")
+    assert changed["times_dropped"] == (0, 1)
+    assert changed["reset_reason"] == (None, "Peer closed the session")
+    assert body["summary"]["state_changes"] == 1
+    assert genie.replays == [] and genie.diffs == []  # the model diff is opt-in
+
+
+def test_compare_of_a_reading_with_only_counter_changes_is_identical(store) -> None:
+    later = {SUMMARY_CMD: _summary("1", "05:00:00"), NEIGHBORS_CMD: _neighbors()}
+    out = _compare(
+        store, TaggedGenie({"a": UP, "b": later}), _tagged_run(store, "a"), _tagged_run(store, "b")
+    )
+
+    body = json.loads(out.content)
+    assert body["identical"] is True and body["rows"] == []
+
+
+def test_compare_follows_parsed_handles_back_to_the_raw_readings(store) -> None:
+    raw_a, raw_b = _tagged_run(store, "a"), _tagged_run(store, "b")
+    parsed = asyncio.run(
+        store.put(
+            USER,
+            StoredResult(
+                "parsed_output", DataClass.CONTENT, rows=[{"a": 1}], meta={"source_handle": raw_a}
+            ),
+        )
+    )
+
+    out = _compare(store, TaggedGenie({"a": UP, "b": FLAPPED}), parsed, raw_b)
+
+    assert not out.is_error and json.loads(out.content)["identical"] is False
+
+
+def test_compare_refuses_other_devices_other_scopes_and_the_same_run(store) -> None:
+    genie = TaggedGenie({"a": UP, "b": UP})
+    a = _tagged_run(store, "a")
+    other_device = _tagged_run(store, "b", device_id="dev-2")
+    no_device = _tagged_run(store, "b", device_id=None)
+    other_scope = _tagged_run(store, "b", commands=[SUMMARY_CMD, NEIGHBORS_CMD])
+
+    assert "same device" in _compare(store, genie, a, other_device).content
+    assert "not recorded" in _compare(store, genie, a, no_device).content
+    assert "same commands" in _compare(store, genie, a, other_scope).content
+    assert "same reading" in _compare(store, genie, a, a).content
+    assert all(
+        _compare(store, genie, a, h).is_error for h in (other_device, no_device, other_scope, a)
+    )
+
+
+def test_compare_needs_genie_for_both_readings(store) -> None:
+    a, b = _tagged_run(store, "a"), _tagged_run(store, "b", parser="textfsm")
+
+    assert _compare(store, None, a, a).is_error
+    assert _compare(store, TaggedGenie({"a": UP, "b": UP}), a, b).is_error
+
+
+def test_compare_refuses_when_a_command_did_not_parse(store) -> None:
+    genie = TaggedGenie({"a": UP, "b": {SUMMARY_CMD: _summary("1")}})  # neighbors missing in b
+    out = _compare(store, genie, _tagged_run(store, "a"), _tagged_run(store, "b"))
+
+    assert out.is_error and "false changes" in out.content
+
+
+def test_compare_with_detail_adds_the_learned_model_diff(store) -> None:
+    genie = TaggedGenie({"a": UP, "b": FLAPPED})
+    out = _compare(store, genie, _tagged_run(store, "a"), _tagged_run(store, "b"), detail=True)
+
+    model = json.loads(out.content)["model_diff"]
+    assert model["available"] is True and model["identical"] is False
+    assert model["diff"].startswith("-tag")
+    assert sorted(genie.replays) == ["a", "b"]
+    assert genie.diffs == [list(bgp_compare.MODEL_NOISE_KEYS)]
+
+
+def test_compare_with_detail_degrades_when_the_replay_fails(store) -> None:
+    genie = TaggedGenie({"a": UP, "b": FLAPPED}, replay_error=True)
+    out = _compare(store, genie, _tagged_run(store, "a"), _tagged_run(store, "b"), detail=True)
+
+    body = json.loads(out.content)
+    assert not out.is_error and body["rows"]  # the record comparison is still there
+    assert body["model_diff"] == {
+        "available": False,
+        "reason": "The pyATS service could not parse the output",
+    }
+
+
+def test_a_reused_device_name_is_not_the_same_device(store) -> None:
+    genie = TaggedGenie({"a": UP, "b": UP})
+    a = _tagged_run(store, "a")
+    same_name_other_id = _tagged_run(store, "b", device_name="LAB", device_id="dev-9")
+    other_source = _tagged_run(store, "b", source_id="nb2")
+
+    assert "same device" in _compare(store, genie, a, same_name_other_id).content
+    assert "same device" in _compare(store, genie, a, other_source).content
+
+
+def _cut_run(store: ResultStore, tag: str, *, filled: int) -> str:
+    """A run whose stored text was cut: only the first ``filled`` commands have output."""
+    outputs = [(c, f"{tag}: {c}" if i < filled else "") for i, c in enumerate(COMMANDS)]
+    text, _, spans = _shape_blocks(outputs, lambda v: v)
+    meta = {
+        "commands": COMMANDS,
+        "spans": spans,
+        "parser": "genie",
+        "network_driver": "cisco_ios",
+        "platform": "cisco_ios",
+        "device_name": "LAB",
+        "device_id": "dev-1",
+        "source_id": "nb1",
+    }
+    return asyncio.run(
+        store.put(
+            USER,
+            StoredResult("device_command", DataClass.CONTENT, text=text, meta=meta, partial=True),
+        )
+    )
+
+
+def test_a_cut_in_the_bgp_table_still_compares(store) -> None:
+    genie = TaggedGenie({"a": UP, "b": FLAPPED})
+    # summary, neighbors and cluster-ids have output; only the last command (the table) was cut.
+    out = _compare(store, genie, _cut_run(store, "a", filled=3), _cut_run(store, "b", filled=3))
+
+    assert not out.is_error and json.loads(out.content)["rows"]
+
+
+def test_a_cut_that_reaches_the_neighbors_is_refused_not_reported_as_removals(store) -> None:
+    genie = TaggedGenie({"a": UP, "b": UP})
+    whole = _tagged_run(store, "a")
+
+    for filled in (0, 1, 2):  # nothing, only the summary, up to the neighbors command
+        out = _compare(store, genie, whole, _cut_run(store, "b", filled=filled))
+        assert out.is_error and "cut" in out.content
+
+
+def test_the_model_diff_is_redacted_as_text_before_it_is_encoded(store) -> None:
+    class Secretive(TaggedGenie):
+        async def diff_models(self, before, after, exclude):
+            return {"identical": False, "diff": " router bgp 65000\n  password 7 0822455D0A16\n+x"}
+
+    genie = Secretive({"a": UP, "b": FLAPPED})
+    out = _compare(store, genie, _tagged_run(store, "a"), _tagged_run(store, "b"), detail=True)
+
+    assert "0822455D0A16" not in out.content
+    assert json.loads(out.content)["model_diff"]["available"] is True
+
+
+def test_a_model_diff_too_large_to_redact_is_dropped_not_passed_on(store) -> None:
+    from services.ai_assistant.redaction import RedactionBudgetExceeded
+
+    class Boom(Redactor):
+        def redact(self, text: str) -> str:
+            if "tag" in text:
+                raise RedactionBudgetExceeded("too much")
+            return super().redact(text)
+
+    ctx_genie = TaggedGenie({"a": UP, "b": FLAPPED})
+    extras: dict[str, Any] = {RESULT_STORE_KEY: store, GENIE_PARSER_KEY: ctx_genie}
+    ctx = ToolContext(
+        user_id=USER,
+        redactor=Boom(),
+        extras=extras,
+        sharing=SharingPolicy(inventory=True, addresses=True, content=True),
+    )
+    tool = build_bgp_learn_tools()[1]
+    args = tool.input_model(
+        before=_tagged_run(store, "a"), after=_tagged_run(store, "b"), detail=True
+    )
+
+    out = asyncio.run(tool.handler(ctx, args))
+
+    model = json.loads(out.content)["model_diff"]
+    assert model["available"] is False and "tag" not in model.get("diff", "")

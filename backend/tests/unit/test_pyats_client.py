@@ -157,6 +157,49 @@ class PyATSShimServiceParseBatchTests(unittest.IsolatedAsyncioTestCase):
             await self.service.parse_batch(_credentials(), devices={})
 
 
+class PyATSShimServiceLearnReplayTests(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self) -> None:
+        self.service = PyATSShimService()
+        self.mock_client = AsyncMock()
+        self.service._client_verify = self.mock_client
+        self.service._client_no_verify = self.mock_client
+
+    async def test_learn_replay_posts_the_outputs_and_returns_the_body(self) -> None:
+        self.mock_client.request.return_value = httpx.Response(
+            200, json={"payload": {"info": {"a": 1}, "_exclude": []}, "error": None}
+        )
+        commands = [{"command": "show bgp all summary", "output": "raw"}]
+
+        result = await self.service.learn_replay(
+            _credentials(), os_name="iosxe", feature="bgp", commands=commands, timeout_seconds=90
+        )
+
+        self.assertEqual(result["payload"]["info"], {"a": 1})
+        call = self.mock_client.request.call_args
+        self.assertTrue(call.args[1].endswith("/v1/learn-replay"))
+        self.assertEqual(
+            call.kwargs["json"], {"os": "iosxe", "feature": "bgp", "commands": commands}
+        )
+        self.assertEqual(call.kwargs["headers"]["Authorization"], "Bearer shim-token")
+
+    async def test_learn_replay_400_raises_validation_error(self) -> None:
+        self.mock_client.request.return_value = httpx.Response(400, json={"detail": "bad os"})
+        with self.assertRaises(PyATSValidationError):
+            await self.service.learn_replay(_credentials(), os_name="x", feature="bgp", commands=[])
+
+    async def test_learn_replay_500_and_timeout_raise_api_error(self) -> None:
+        self.mock_client.request.return_value = httpx.Response(500)
+        with self.assertRaises(PyATSAPIError):
+            await self.service.learn_replay(
+                _credentials(), os_name="iosxe", feature="bgp", commands=[]
+            )
+        self.mock_client.request.side_effect = httpx.TimeoutException("timed out")
+        with self.assertRaises(PyATSAPIError):
+            await self.service.learn_replay(
+                _credentials(), os_name="iosxe", feature="bgp", commands=[]
+            )
+
+
 class PyATSShimServiceLimitsTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self) -> None:
         self.service = PyATSShimService()

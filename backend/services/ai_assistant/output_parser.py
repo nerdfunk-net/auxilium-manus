@@ -50,6 +50,18 @@ class GenieParser(Protocol):
         self, os_name: str, outputs: Sequence[tuple[str, str]]
     ) -> list[ParsedCommand]: ...
 
+    async def learn_replay(
+        self, os_name: str, feature: str, outputs: Sequence[tuple[str, str]]
+    ) -> dict[str, Any]:
+        """Genie's learned model (``{"info", "_exclude"}``) of ``feature`` from collected output."""
+        ...
+
+    async def diff_models(
+        self, before: dict[str, Any], after: dict[str, Any], exclude: Sequence[str]
+    ) -> dict[str, Any]:
+        """Genie's diff of two learned models: ``{"identical", "diff", "excluded", ...}``."""
+        ...
+
 
 Span = tuple[int, int]
 

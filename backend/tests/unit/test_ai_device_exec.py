@@ -602,6 +602,8 @@ def test_the_raw_handle_remembers_what_a_later_parse_needs() -> None:
     assert raw.meta["platform"] == "cisco_ios"
     # which device it came from, so a later comparison uses that device and not a model's guess
     assert raw.meta["device_name"] == "LAB"
+    # the name is only a label; the inventory identity is what two readings are matched on
+    assert (raw.meta["source_id"], raw.meta["device_id"]) == ("nb1", "dev-1")
     [[start, end]] = raw.meta["spans"]
     assert raw.text[start:end].startswith("Cisco IOS Software")
     assert "hunter2xx" not in raw.text[start:end]  # the offsets are into the redacted text

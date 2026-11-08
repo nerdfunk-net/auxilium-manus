@@ -2,7 +2,7 @@
 name: learn-bgp-of-a-device
 title: Learn the BGP state of a device (address families, neighbours, sessions, templates)
 when: "learn BGP of a device; show me the BGP state or configuration of X; BGP neighbours, sessions, address families or templates of X; is BGP healthy on X; is a BGP session up on X"
-tools: [propose_feature_learn, propose_bgp_neighbor_detail, get_bgp_learn_result, parse_command_output, query_result, fetch_slice]
+tools: [propose_feature_learn, propose_bgp_neighbor_detail, get_bgp_learn_result, compare_bgp_learns, parse_command_output, query_result, fetch_slice]
 scope: read-only
 ---
 # Learn the BGP state of a device
@@ -61,8 +61,17 @@ small reading (step 5). This playbook changes nothing on the device.
    handle before saying which. `received-routes` fails when soft-reconfiguration inbound is not
    configured; say that, it is not a fault of the neighbour. The policy text is not parsed for a VRF:
    read it from the raw handle. One neighbour per proposal.
-6. If the user asks what changed, you have one live reading only. Say that a comparison needs an
-   earlier reading and offer a Compare Snapshot step in a workflow for it.
+6. If the user asks what changed, you need two readings of the same device and scope: two runs of
+   this learn, whose RAW handles are in the conversation (they are kept for a few hours). With both,
+   call `compare_bgp_learns(before, after)`, `before` being the earlier run. It lists neighbours added
+   or removed and each changed field (state, remote AS, prefixes received, session settings), and it
+   ignores counters and uptimes. `times_dropped` going up or a new `reset_reason` means the session
+   flapped between the two runs: say that, and say how long ago each run was if you know. Pass
+   `detail` = true only if the user wants every difference of the learned model (templates,
+   capabilities); it takes about 30 seconds and may report `available: false`, which is not an error:
+   say the detail could not be compared. If there is only one reading, say a second run is needed:
+   propose the learn again later, or offer a Compare Snapshot step in a workflow for a baseline that
+   must outlive the stored results.
 
 ## Decision points
 - In the summary a number in the last column is the count of prefixes received and means the session
@@ -73,7 +82,8 @@ small reading (step 5). This playbook changes nothing on the device.
   multihop for eBGP). You see only this device: say what to check on the other end.
 - A neighbour with zero prefixes received on an Established session is worth a mention (inbound policy
   or the peer sends nothing), not an error.
-- Counters, timers and uptimes change on every read: never report a change because of them.
+- Counters, timers and uptimes change on every read: never report a change because of them
+  (`compare_bgp_learns` already leaves them out).
 
 ## Stop conditions
 - The user rejects the card or does not confirm: stop and say nothing ran.

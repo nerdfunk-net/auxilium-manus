@@ -279,6 +279,10 @@ class DeviceCommandExecutor:
             # Which device the output came from, so a later tool compares it with that device's
             # documentation and not with one the model names (doc/AI_TOOL_CHAIN.md §45).
             "device_name": device.name,
+            # The stable identity of the device (the name is only a label): two readings are of
+            # one router only when these match (``compare_bgp_learns``).
+            "device_id": device.device_id,
+            "source_id": device.source_id,
         }
         if raw.success and output:
             handle = await self._store_output(user_id, output, meta, truncated)

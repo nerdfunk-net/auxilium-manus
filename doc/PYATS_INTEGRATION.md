@@ -63,6 +63,9 @@ pyats-shim/                                # Standalone service, NOT part of the
 │   ├── health.py                          # GET /health, GET /health/pyats
 │   ├── jobs.py                            # POST /v1/jobs request/response models + route
 │   ├── diff.py                            # POST /v1/diff -- Genie-native snapshot diff (no subprocess/testbed)
+│   ├── replay.py                          # POST /v1/learn-replay -- Genie Ops model from already-collected output (mock device, child process)
+│   ├── replay_mock.py                     # Unicon mock-device data + request validation (no genie import)
+│   ├── replay_worker.py                   # the child process: connect to the mock device, device.learn(feature)
 │   ├── testbed_builder.py                 # device list -> pyATS testbed dict
 │   ├── job_runner.py                      # per-request temp dir, subprocess, timeout, cleanup
 │   └── job_scripts/
@@ -141,6 +144,13 @@ to **both** lifespans.
 - `GET /health/pyats` — imports `pyats`/`genie` and reports their versions.
   Distinguishes "shim process is up" from "pyATS is actually functional
   inside the container".
+- `POST /v1/learn-replay` (Bearer token required) — learns `bgp` or `ospf` with Genie's own Ops class from output the
+  caller already collected (`{"os": "iosxe", "feature": "bgp", "commands": [{"command", "output"}]}`); no device
+  connection. Each command's text is replayed through a Unicon mock device (`mock_device_cli`) in a child process
+  (90 s limit; at most two at once; the worker leads its own process group, which is killed on timeout and when the request is cancelled; the working directory with the replayed output and the Unicon session log belongs to the endpoint and is always removed, also after a kill; the body is read with a 16 MB cap before it is parsed: 413, and a body that fails validation is a fixed 422). A command that
+  was not supplied answers `% Invalid command` and Genie skips that leaf, so the model holds what the supplied
+  commands give. Answer: `{"payload": {"info", "_exclude"} | null, "error": <fixed sentence> | null}`; the payload goes
+  straight to `/v1/diff`. Used by Ask the Net's `compare_bgp_learns(detail=true)` (`doc/AI_TOOL_CHAIN.md` §49).
 - `POST /v1/jobs` (Bearer token required) — runs one `execute`/`parse`
   operation against a batch of devices in a **single** job/subprocess
   invocation (one testbed, one AEtest run connecting to every device) so

@@ -14,6 +14,7 @@ from app.health import router as health_router
 from app.job_runner import JobRunner
 from app.jobs import router as jobs_router
 from app.parse import router as parse_router
+from app.replay import router as replay_router
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -44,3 +45,4 @@ app.include_router(health_router)
 app.include_router(jobs_router)
 app.include_router(diff_router)
 app.include_router(parse_router)
+app.include_router(replay_router)

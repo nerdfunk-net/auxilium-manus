@@ -3634,6 +3634,15 @@ one IPv4/IPv6 address (canonicalised by `catalogue.parse_neighbor_address`); wit
 `learn/bgp_records.py`) turns the raw handle of a Genie-confirmed BGP learn into one record per neighbour and address
 family; shapes taken from the Genie schemas, not yet from a real handle.
 
+**Two readings** (2026-11-08, unit-tested; the shim replay run in the container): `compare_bgp_learns(before, after, detail=False)`
+(`tools/bgp_learn_tools.py`, pure compare in `learn/bgp_compare.py`) compares the merged records of two raw handles of one
+device and scope: neighbours added/removed and one row per changed field (counters, uptimes and the age of the last reset
+are never compared; `times_dropped` and `reset_reason` show a flap). A reading is the stored raw output of a confirmed
+learn, so it lives as long as the result store keeps it (4 h); a longer baseline is the Compare Snapshot step. With `detail`
+both outputs are replayed through Genie's Ops class (`POST /v1/learn-replay`, `PYATS_INTEGRATION.md`) and the two learned
+models diffed through `/v1/diff`, ignoring `bgp_compare.MODEL_NOISE_KEYS` (Genie's own BGP `_exclude` minus the keys that
+carry findings); if the replay fails the answer says `model_diff.available: false` and keeps the record comparison.
+
 **VRF** (2026-11-08, unit-tested only): `propose_feature_learn(..., vrf=)` reads `show bgp vrf <v> all summary`, `show bgp ipv4 unicast vrf <v> neighbors` and `... detail` for a
 BGP learn (name `[A-Za-z0-9_.-]{1,32}`, substituted into the catalogue only); OSPF and other platforms refuse a VRF.
 
