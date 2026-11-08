@@ -20,6 +20,7 @@ from models.ai_assistant import (
     WorkflowCanvasContext,
 )
 from services.ai_assistant.agent_loop import DEFAULT_BUDGET, RunBudget
+from services.ai_assistant.client_data_reader import ClientDataReader
 from services.ai_assistant.config_backup import ConfigBackupReader
 from services.ai_assistant.data_sharing import SharingPolicy
 from services.ai_assistant.device_access import DeviceResolver
@@ -29,6 +30,7 @@ from services.ai_assistant.prompts import (
     ACI_PROMPT,
     BASE_SYSTEM_PROMPT,
     CATALYST_PROMPT,
+    CLIENT_DATA_PROMPT,
     CONFIG_BACKUP_PROMPT,
     DEVICE_COMMANDS_PROMPT,
     INVENTORY_PROMPT,
@@ -57,6 +59,10 @@ from services.ai_assistant.tools.catalyst_center_tools import (
     CATALYST_READER_KEY,
     CatalystReader,
     build_catalyst_center_tools,
+)
+from services.ai_assistant.tools.client_data_tools import (
+    CLIENT_DATA_READER_KEY,
+    build_client_data_tools,
 )
 from services.ai_assistant.tools.config_backup_tools import (
     CONFIG_READER_KEY,
@@ -344,6 +350,7 @@ def build_general_session(
     run_reader: RunReader | None = None,
     released_reader: ReleasedWorkflowReader | None = None,
     genie_parser: GenieParser | None = None,
+    client_data_reader: ClientDataReader | None = None,
 ) -> AssistantSession:
     """Ask the Net: read-only questions about the network (doc/AI_TOOL_CHAIN.md §10a, §20.3).
 
@@ -400,6 +407,10 @@ def build_general_session(
     if aci_reader is not None:
         extras[ACI_READER_KEY] = aci_reader
         tools.extend(build_aci_tools())
+    # Collected client data (doc/CLIENT_DATA.md): stored observations, independent of Batfish.
+    if client_data_reader is not None:
+        extras[CLIENT_DATA_READER_KEY] = client_data_reader
+        tools.extend(build_client_data_tools())
     # Run explanations (plan: runs in Ask the Net): the run-viewer tools plus list_runs, shared
     # with the runs-page assistant. No run is open here, so every tool takes a run_id.
     if run_reader is not None:
@@ -434,6 +445,8 @@ def build_general_session(
         parts.append(CATALYST_PROMPT)
     if aci_reader is not None:
         parts.append(ACI_PROMPT)
+    if client_data_reader is not None:
+        parts.append(CLIENT_DATA_PROMPT)
     if run_reader is not None:
         parts.append(RUN_EXPLAIN_PROMPT)
     if released_reader is not None and run_reader is not None:
@@ -445,6 +458,7 @@ def build_general_session(
                 ("Nautobot", nautobot_reader),
                 ("Catalyst Center", catalyst_reader),
                 ("ACI", aci_reader),
+                ("client data", client_data_reader),
                 ("run", run_reader),
             )
             if reader_ is not None

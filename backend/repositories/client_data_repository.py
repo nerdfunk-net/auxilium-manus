@@ -12,7 +12,7 @@ from collections.abc import Sequence
 from datetime import datetime
 from typing import cast
 
-from sqlalchemy import CursorResult, delete, func, select, tuple_
+from sqlalchemy import CursorResult, and_, delete, func, select, tuple_
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
@@ -98,31 +98,43 @@ class ClientDataRepository:
             raise
 
     def purge_older_than(self, cutoff: datetime, *, batch_size: int = 1000) -> int:
-        """Delete collections older than *cutoff*, except each device's newest one.
+        """Delete collections older than *cutoff*, except what is still current.
 
-        The newest collection of a device always stays, however old, so a device that is
-        no longer collected still shows its last known state. Returns the rows deleted.
+        Kept however old: each device's newest collection, and its newest collection of each
+        table (ARP, MAC) that read it, so a device that is no longer collected, or whose later
+        runs left a table out, still shows its last known state. Returns the rows deleted.
         """
+        c = ClientDataCollection
+        newest_first = (c.collected_at.desc(), c.id.desc())
+        arp_read = c.arp_status != "skipped"
+        mac_read = c.mac_status != "skipped"
         ranked = (
             select(
-                ClientDataCollection.id,
-                ClientDataCollection.session_id,
-                ClientDataCollection.device_name,
-                ClientDataCollection.collected_at,
+                c.id,
+                c.session_id,
+                c.device_name,
+                c.collected_at,
+                arp_read.label("arp_read"),
+                mac_read.label("mac_read"),
                 func.row_number()
-                .over(
-                    partition_by=ClientDataCollection.device_name,
-                    order_by=(
-                        ClientDataCollection.collected_at.desc(),
-                        ClientDataCollection.id.desc(),
-                    ),
-                )
-                .label("rank"),
+                .over(partition_by=c.device_name, order_by=newest_first)
+                .label("rank_any"),
+                func.row_number()
+                .over(partition_by=(c.device_name, arp_read), order_by=newest_first)
+                .label("rank_arp"),
+                func.row_number()
+                .over(partition_by=(c.device_name, mac_read), order_by=newest_first)
+                .label("rank_mac"),
             )
         ).subquery()
         stale = (
             select(ranked.c.session_id, ranked.c.device_name)
-            .where(ranked.c.rank > 1, ranked.c.collected_at < cutoff)
+            .where(
+                ranked.c.collected_at < cutoff,
+                ranked.c.rank_any > 1,
+                ~and_(ranked.c.arp_read, ranked.c.rank_arp == 1),
+                ~and_(ranked.c.mac_read, ranked.c.rank_mac == 1),
+            )
             .order_by(ranked.c.id)
             .limit(batch_size)
         )
@@ -149,17 +161,31 @@ class ClientDataRepository:
             )
 
     def _prune_device(self, *, device_name: str, keep_sessions: int, current_session: str) -> None:
-        """Drop the device's collections beyond the newest *keep_sessions*, except the one just
-        written: an overlapping run may have stored newer ones while this run was still on the
-        wire, and a write that reports success must not delete its own rows."""
+        """Drop the device's collections beyond the newest *keep_sessions*, except what is current.
+
+        Kept besides the newest ones: the collection being written (an overlapping run may have
+        stored newer ones while this run was still on the wire, and a write that reports success
+        must not delete its own rows) and the newest collection of each table that read it, so
+        keep-N runs that left ARP or the MAC table out cannot prune away its last rows.
+        """
+        c = ClientDataCollection
+        newest_first = (c.collected_at.desc(), c.id.desc())
         ranked = list(
             self.db.scalars(
-                select(ClientDataCollection.session_id)
-                .where(ClientDataCollection.device_name == device_name)
-                .order_by(ClientDataCollection.collected_at.desc(), ClientDataCollection.id.desc())
+                select(c.session_id).where(c.device_name == device_name).order_by(*newest_first)
             )
         )
-        stale_sessions = [sid for sid in ranked[keep_sessions:] if sid != current_session]
+        protected = {current_session}
+        for read in (c.arp_status != "skipped", c.mac_status != "skipped"):
+            newest = self.db.scalar(
+                select(c.session_id)
+                .where(c.device_name == device_name, read)
+                .order_by(*newest_first)
+                .limit(1)
+            )
+            if newest is not None:
+                protected.add(newest)
+        stale_sessions = [sid for sid in ranked[keep_sessions:] if sid not in protected]
         if not stale_sessions:
             return
         for model in _ROW_MODELS:

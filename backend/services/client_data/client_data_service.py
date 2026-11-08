@@ -5,28 +5,55 @@ from __future__ import annotations
 import logging
 from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from sqlalchemy.orm import Session
 
+from core.config import settings
 from models.client_data import (
     ClientCollectionStatus,
     ClientHostnameRow,
     ClientIpRow,
     ClientMacRow,
 )
-from repositories.client_data_query_repository import ClientDataQueryRepository
+from repositories.client_data_query_repository import (
+    DEFAULT_HISTORY_ROWS,
+    MAX_HISTORY_ROWS,
+    MAX_PAGE_SIZE,
+    ClientDataQueryRepository,
+)
 from repositories.client_data_repository import ClientDataRepository
 
 logger = logging.getLogger(__name__)
+
+# Re-exported for the router (a router may not import repositories).
+__all__ = ["DEFAULT_HISTORY_ROWS", "MAX_HISTORY_ROWS", "MAX_PAGE_SIZE", "ClientDataService"]
 
 _SESSION_ID_MAX = 36  # a run uuid
 _DEVICE_NAME_MAX = 255
 
 
 class ClientDataService:
-    def __init__(self, db: Session) -> None:
+    def __init__(self, db: Session, *, uplink_threshold: int | None = None) -> None:
         self.repository = ClientDataRepository(db)
-        self.queries = ClientDataQueryRepository(db)
+        self.queries = ClientDataQueryRepository(
+            db,
+            uplink_threshold=(
+                settings.client_data_uplink_mac_threshold
+                if uplink_threshold is None
+                else uplink_threshold
+            ),
+        )
+
+    def get_client_data(self, **filters: Any) -> tuple[list[dict[str, Any]], int]:
+        """Current observations, filtered and paged (see ``ClientDataQueryRepository``)."""
+        return self.queries.get_client_data(**filters)
+
+    def get_client_history(self, **filters: Any) -> dict[str, list[dict[str, Any]]]:
+        return self.queries.get_client_history(**filters)
+
+    def get_collections(self) -> list[dict[str, Any]]:
+        return self.queries.get_collections()
 
     def store_device_collection(
         self,

@@ -18,6 +18,7 @@ _password_hash = PasswordHash.recommended()
 AI_ASSISTANT_USERNAME = "ai-assistant"
 
 DEFAULT_PERMISSIONS: list[tuple[str, str, str]] = [
+    ("client_data", "read", "View collected client data: where MAC and IP addresses were seen"),
     ("reports", "read", "Query report data and view reports"),
     ("reports", "write", "Create and edit reports"),
     ("reports", "delete", "Delete reports and report snapshots"),

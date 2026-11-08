@@ -111,3 +111,23 @@ def test_retention_settings_defaults_and_validation() -> None:
             9,
             0,
         )
+
+
+def test_uplink_threshold_setting_defaults_and_validation() -> None:
+    from core.config import Settings
+
+    assert Settings().client_data_uplink_mac_threshold == 10
+    with patch.dict("os.environ", {"CLIENT_DATA_UPLINK_MAC_THRESHOLD": "0"}):
+        with pytest.raises(RuntimeError, match="CLIENT_DATA_UPLINK_MAC_THRESHOLD"):
+            Settings()
+    with patch.dict("os.environ", {"CLIENT_DATA_UPLINK_MAC_THRESHOLD": "25"}):
+        assert Settings().client_data_uplink_mac_threshold == 25
+
+
+def test_the_service_uses_the_configured_uplink_threshold() -> None:
+    from core.config import settings
+
+    assert ClientDataService(MagicMock()).queries.uplink_threshold == (
+        settings.client_data_uplink_mac_threshold
+    )
+    assert ClientDataService(MagicMock(), uplink_threshold=3).queries.uplink_threshold == 3

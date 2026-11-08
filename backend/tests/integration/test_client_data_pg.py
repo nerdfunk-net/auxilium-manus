@@ -191,3 +191,118 @@ def test_arp_without_a_vlan_does_not_multiply_mac_rows_and_other_vlan_ips_are_no
     assert total == len(items) == 5  # 3 MAC observations + 2 ARP observations, not a product
     nine = [i for i in items if i["mac_address"] == "aabb.ccdd.0009"]
     assert [(i["vlan"], i["ip_address"]) for i in nine] == [("10", None)]
+
+
+def test_uplink_flags_likely_location_exact_match_and_coverage(session) -> None:
+    uplink = [
+        ClientMacRow(mac_address=f"aabb.0000.{n:04x}", vlan="10", port="Et0/0") for n in range(12)
+    ]
+    _collect(
+        session,
+        device="swA",
+        macs=[*uplink, ClientMacRow(mac_address="aabb.ccdd.0001", vlan="10", port="Et0/0")],
+    )
+    _collect(
+        session,
+        device="swB",
+        macs=[ClientMacRow(mac_address="aabb.ccdd.0001", vlan="10", port="Gi1/0/5")],
+        ips=[ClientIpRow(ip_address="10.0.0.5", mac_address="aabb.ccdd.0001", vlan="10")],
+    )
+    repo = ClientDataQueryRepository(session)
+
+    items, _ = repo.get_client_data(mac_address="AA:BB:CC:DD:00:01", exact=True)
+
+    flags = {
+        i["device_name"]: (i["macs_on_port"], i["is_uplink"], i["likely_location"]) for i in items
+    }
+    assert flags["swA"] == (13, True, False)
+    assert flags["swB"] == (1, False, True)
+    assert repo.get_client_data(ip_address="10.0.0.5", exact=True)[1] >= 1
+    assert repo.get_client_data(ip_address="10.0.0.", exact=True)[1] == 0
+    assert repo.get_client_data(hide_uplinks=True)[0]
+    assert all(not i["is_uplink"] for i in repo.get_client_data(hide_uplinks=True)[0])
+    assert [c["device_name"] for c in repo.get_collections()] == ["swA", "swB"]
+
+
+def test_a_table_left_out_of_a_later_run_stays_current_and_survives_pruning(session) -> None:
+    arp_off = ClientCollectionStatus(arp_status="skipped", mac_status="ok", vrf_status="skipped")
+    repo = ClientDataRepository(session)
+    _collect(
+        session,
+        device="core1",
+        session_id="arp-run",
+        ips=[ClientIpRow(ip_address="10.0.10.5", mac_address="aabb.ccdd.0001", vlan="10")],
+    )
+    for index in range(1, 4):  # newer runs that only read the MAC table, keeping just two runs
+        repo.replace_device_collection(
+            session_id=f"mac-{index}",
+            device_name="core1",
+            device_ip=None,
+            collected_at=NOW + timedelta(hours=index),
+            ip_rows=[],
+            mac_rows=[ClientMacRow(mac_address="aabb.ccdd.0009", vlan="10", port="Gi0/9")],
+            hostname_rows=[],
+            status=arp_off,
+            keep_sessions=2,
+        )
+
+    queries = ClientDataQueryRepository(session)
+    items, _ = queries.get_client_data(device_name="core1")
+    (core1,) = queries.get_collections()
+
+    assert {i["ip_address"] for i in items} >= {"10.0.10.5"}  # ARP from the old run
+    assert "aabb.ccdd.0009" in {i["mac_address"] for i in items}  # MAC table from the new one
+    assert core1["arp_collected_at"].startswith("2026-11-07T12:00")
+    assert core1["mac_collected_at"].startswith("2026-11-07T15:00")
+    assert repo.purge_older_than(NOW + timedelta(days=200)) >= 0
+    assert queries.get_client_data(device_name="core1")[1] == len(items)
+
+
+def test_review_fixes_on_postgres_ordering_history_ipv6_prefix_and_ages(session) -> None:
+    for n in range(12):  # twelve switches see the host on an uplink
+        _collect(
+            session,
+            device=f"sw{n:02d}",
+            macs=[
+                ClientMacRow(mac_address="aabb.ccdd.0001", vlan="10", port="Et0/0"),
+                ClientMacRow(mac_address=f"aabb.0000.{n:04x}", vlan="10", port="Et0/0"),
+            ],
+        )
+    _collect(
+        session,
+        device="zzz-access",
+        macs=[ClientMacRow(mac_address="aabb.ccdd.0001", vlan="10", port="Gi1/0/5")],
+        ips=[ClientIpRow(ip_address="2001:db8::5", mac_address="aabb.ccdd.0001", vlan="10")],
+    )
+    queries = ClientDataQueryRepository(session, uplink_threshold=1)
+
+    first, total = queries.get_client_data(
+        mac_address="aabb.ccdd.0001", exact=True, likely_first=True, page_size=3
+    )
+    assert total >= 13
+    assert first[0]["device_name"] == "zzz-access"
+    assert first[0]["likely_location"] is True
+
+    # IPv6 in any notation, an address prefix that is not a substring, and the age of the IP
+    expanded = "2001:0DB8:0000:0000:0000:0000:0000:0005"
+    assert queries.get_client_data(ip_address=expanded, exact=True)[1] >= 1
+    assert len(queries.get_client_history(ip_address=expanded)["ip_history"]) == 1
+    assert queries.get_client_data(ip_prefix="2001:db8:")[1] >= 1
+    assert queries.get_client_data(ip_prefix="db8:")[1] == 0
+    zzz = [i for i in first if i["device_name"] == "zzz-access"][0]
+    assert zzz["ip_collected_at"] is not None
+
+    # history: collapsed in SQL before the limit
+    for index in range(3):
+        _collect(
+            session,
+            device="h",
+            session_id=f"h{index}",
+            at=NOW + timedelta(hours=index),
+            ips=[ClientIpRow(ip_address="10.0.0.5", mac_address="aabb.ccdd.0005")],
+            macs=[
+                ClientMacRow(mac_address="aabb.ccdd.0005", vlan=v, port="Gi0/1")
+                for v in ("10", "20", "30")
+            ],
+        )
+    assert len(queries.get_client_history(ip_address="10.0.0.5", limit=4)["ip_history"]) == 3

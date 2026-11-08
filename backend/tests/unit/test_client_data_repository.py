@@ -58,6 +58,9 @@ def _store(
     ips: int = 1,
     macs: int = 1,
     keep: int = 5,
+    status: ClientCollectionStatus = ClientCollectionStatus(
+        arp_status="ok", mac_status="ok", vrf_status="ok"
+    ),
 ) -> None:
     repo.replace_device_collection(
         session_id=session_id,
@@ -73,7 +76,7 @@ def _store(
             for i in range(macs)
         ],
         hostname_rows=[ClientHostnameRow(ip_address="10.0.0.1", hostname="host.example.net")],
-        status=ClientCollectionStatus(arp_status="ok", mac_status="ok", vrf_status="ok"),
+        status=status,
         keep_sessions=keep,
     )
 
@@ -218,3 +221,56 @@ def test_a_collection_older_than_the_kept_ones_is_not_pruned_away_in_the_same_wr
     sessions = set(db.scalars(select(ClientDataCollection.session_id)))
     assert "early" in sessions
     assert _count(db, ClientIpAddress) == len(sessions)  # its rows are there too
+
+
+ARP_OFF = ClientCollectionStatus(arp_status="skipped", mac_status="ok", vrf_status="skipped")
+MAC_OFF = ClientCollectionStatus(arp_status="ok", mac_status="skipped", vrf_status="ok")
+
+
+def test_pruning_never_removes_the_newest_collection_of_a_table(db: Session) -> None:
+    repo = ClientDataRepository(db)
+    _store(repo, session_id="arp-run", at=NOW, macs=0, status=MAC_OFF)
+    for index in range(1, 4):  # three newer runs that did not read ARP
+        _store(
+            repo,
+            session_id=f"mac-{index}",
+            at=NOW + timedelta(hours=index),
+            ips=0,
+            status=ARP_OFF,
+            keep=2,
+        )
+
+    sessions = set(db.scalars(select(ClientDataCollection.session_id)))
+
+    # keep=2 would keep mac-3 and mac-2; arp-run is the last one that has ARP data.
+    assert sessions == {"arp-run", "mac-2", "mac-3"}
+    assert db.scalar(select(func.count()).select_from(ClientIpAddress)) == 1
+
+
+def test_purge_keeps_the_newest_collection_of_each_table_however_old(db: Session) -> None:
+    repo = ClientDataRepository(db)
+    old = NOW - timedelta(days=300)
+    _store(repo, session_id="arp-old", at=old, status=MAC_OFF)
+    _store(repo, session_id="mac-old", at=old + timedelta(days=1), status=ARP_OFF)
+    _store(repo, session_id="mac-newer", at=old + timedelta(days=2), status=ARP_OFF)
+    _store(repo, session_id="both-oldest", at=old - timedelta(days=5))
+
+    repo.purge_older_than(NOW - timedelta(days=90))
+
+    remaining = set(db.scalars(select(ClientDataCollection.session_id)))
+    # arp-old: newest with ARP. mac-newer: newest overall and with MAC. Others are stale.
+    assert remaining == {"arp-old", "mac-newer"}
+
+
+def test_purge_also_keeps_the_newest_mac_collection_when_it_is_not_the_newest_run(
+    db: Session,
+) -> None:
+    repo = ClientDataRepository(db)
+    old = NOW - timedelta(days=300)
+    _store(repo, session_id="mac-old", at=old, ips=0, status=ARP_OFF)
+    _store(repo, session_id="arp-newer", at=old + timedelta(days=5), macs=0, status=MAC_OFF)
+
+    repo.purge_older_than(NOW - timedelta(days=90))
+
+    remaining = set(db.scalars(select(ClientDataCollection.session_id)))
+    assert remaining == {"mac-old", "arp-newer"}  # each is the newest to have read its table

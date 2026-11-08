@@ -343,6 +343,20 @@ a tool says no Catalyst Center source is configured, tell the user that and stop
 Fields listed in withheld_fields are not shared by the user's settings.
 """
 
+CLIENT_DATA_PROMPT = """\
+Client data (where addresses were seen): find_client says where a MAC address, IP address or \
+hostname is connected, from the ARP and MAC address tables of the collected devices; \
+list_clients lists what a device, port, VLAN or VRF holds; get_client_history shows earlier \
+observations; get_client_data_coverage says which devices were collected, when, and which \
+command each could not run. It is stored data, not a live lookup: always give the age of the \
+answer (age_seconds), never call it current without it. "Where is 10.1.1.5" is find_client: \
+report the likely_location (device, port, VLAN) and say that an uplink observation only shows \
+where traffic passes. An empty answer means no collected device saw it: check \
+get_client_data_coverage and say which devices were not covered, never that the host does not \
+exist. A not_supported status is a missing table (a router has no MAC table), not an empty \
+one. For ACI fabrics use find_aci_endpoint as well.
+"""
+
 ACI_PROMPT = """\
 Cisco ACI: you can read the ACI fabric (APIC) with find_aci_device, list_aci_devices and \
 get_aci_device_details (its leafs and spines; the APIC controllers themselves are not listed), and \

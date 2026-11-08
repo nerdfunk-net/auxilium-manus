@@ -3558,3 +3558,50 @@ Plan: `doc/plans/ACI_TOOL_CHAIN.md`. Phases 1-4 are built (devices; endpoints an
   * **A bug found on the way and fixed:** the `contracts` fact of `get_aci_device_details` / `get-aci-details` lost the filter id of every filter entry, because the DN regex expected `scope-<id>/flt-<id>/` while a leaf's entries are `.../sys/actrl/filt-<id>/ent-<id>_<n>`; the old test used a guessed DN. The regexes now match the real shapes (also `s-any-d-any` rules) and the tests use rows copied from the sandbox (`tests/unit/fixtures/aci_zoning_sandbox.json`).
 * **Verified live 2026-11-07** against the DevNet APIC (3 switches, facts, paging, contracts). Not yet done: a run with a real model, the
   per-user rate bucket `ai-aci-read` (plan 6.4), the Nautobot-first playbooks.
+
+## 48. Client data tools: `find_client`, `list_clients`, `get_client_history`, `get_client_data_coverage` (2026-11-07)
+
+Where was a MAC address, IP address or hostname seen? The tools read the tables the `collect-client-data` workflow step fills
+(`doc/CLIENT_DATA.md`): ARP and MAC address tables of the collected switches and routers, with the DNS name of the address when
+collected. They read **stored observations, not the live network**; every row carries `collected_at` and `age_seconds`, and the prompt
+(`CLIENT_DATA_PROMPT`) tells the model to give the age and never to call an answer current without it.
+
+* **Tools** (`tools/client_data_tools.py`, reader `client_data_reader.py::DbClientDataReader`):
+  * `find_client(address)`: one MAC (any notation), IPv4 / IPv6 address (any notation) or hostname, matched as a **whole value** (`exact`:
+    `10.0.0.5` does not find `10.0.0.50`). It asks the repository for `likely_first` ordering, so the likely location is on the first page
+    even when 60 switches saw the host on an uplink (a test runs the real repository through the tool). Twelve hex digits without a
+    separator are tried as a MAC and, if nothing is found, as a hostname (`query.kind` says which matched). Returns every device that saw it, ordered `likely_location` first, then access ports, then uplinks, with a top-level
+    `likely_location` (device, port, VLAN, VRF, IP, hostname) or `null`. A value that is neither an address nor a hostname (`10.0.0.999`) is an
+    error without a read. An empty `rows` is an answer, never "does not exist": the note sends the model to `get_client_data_coverage`.
+  * `list_clients(device, port, vlan, vrf, mac_contains, ip_prefix, ip_contains, hostname_contains, hide_uplinks=true, page)`: substring filters
+    (`ip_contains` is text only: `10.1.` also matches `110.1.2.3`; `ip_prefix` is the start of the address and rejects a CIDR), 20 rows
+    per page with the true `total_rows` and a "continue with page=N" note. The preview size is a constant (§12.6 rule 2); `page` is the only
+    way on.
+  * Every observation carries `age_seconds` (the port or ARP entry) and `ip_age_seconds` (the ARP data the IP came from; they differ because
+    ARP and the MAC table are collected separately). The notes tell the model to quote both when they differ.
+  * `get_client_history`: exactly one of `mac_address`, `ip_address`, `hostname` (it asks for one row more than it shows, so `truncated` and
+    `total_rows_exact` are true when the list was cut); the retained collections only (a device keeps its last
+    `CLIENT_DATA_KEEP_SESSIONS` runs), newest first; the note says it is short, not a timeline.
+  * `get_client_data_coverage` is an envelope of device rows (whole rows are dropped to fit the output limit, `offset` continues) with a
+    `summary` (devices, tables not collected, MAC tables not supported): per device, when ARP and the MAC table were each last collected (`arp_age_seconds`, `mac_age_seconds`; they can come
+    from different runs, `skipped` = never collected), the status of its ARP, MAC and VRF commands (`ok`, `not_supported`, `no_template`,
+    `skipped`) and the entry counts. `not_supported` is "table missing", not "table empty"; a device not listed was never
+    collected.
+* **Uplinks:** the repository computes, from the current data, `macs_on_port` (distinct MACs a device learned on that port), `is_uplink`
+  (more than `CLIENT_DATA_UPLINK_MAC_THRESHOLD`, default 10) and `likely_location` (per MAC, the MAC-table observation on the port with the
+  fewest MACs, ties by device name and port, never an uplink). It is a heuristic, not LLDP/CDP knowledge: a lightly used trunk stays below the
+  threshold, a busy access port (a hypervisor, a hub) can pass it. The tool notes say so; `list_clients` hides uplink rows by default.
+* **Gates:** the inventory **and** the addresses switch for the three address tools (device names and addresses), checked before any read so
+  existence cannot leak (mutation-checked); coverage lists device names only and needs the inventory switch. `client_data:read` is checked
+  on **every call** by the reader (a revoked grant stops the tools at once, tested) and decides whether the router offers the tools at all.
+  The permission is not part of the seeded `viewer` role. A `ClientDataAccessError` is a fixed sentence naming the permission; any other
+  failure is the generic "failed unexpectedly" of the choke point, with the stack in the log only.
+* **REST:** the same queries are `GET /client-data`, `/client-data/history` and `/client-data/devices` (`routers/client_data.py`, permission
+  `client_data:read`, bucket `client-data-read` 120 per minute; `page_size` at most 500, `limit` at most 1000). There is no UI page yet
+  (`doc/OPEN_TODOS.md`).
+* **Wiring:** `build_general_session(client_data_reader=...)` (offered with the permission alone, like ACI), `routers/ai_assistant.py`
+  (`can_read_client_data`), `known_general_tool_names()` (playbooks may name the tools), the "no tools" sentence lists "client data".
+* **Not verified:** a run with a real model (the maintainer does it with their own key; record the result here, as §42 and §47 do), the tools
+  against real collected data from a larger network, and the quality of `likely_location` on topologies with port-channels, VPC, wireless or
+  hypervisors. Open: a playbook `where-is-this-host` (Nautobot, `find_client`, `find_aci_endpoint`, coverage), a per-user rate bucket like
+  `ai-aci-read` (the data is local, so it is not needed for load), and merging ACI endpoints into the same answer.

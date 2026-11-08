@@ -31,6 +31,7 @@ from routers.auth import router as auth_router
 from routers.cache_settings import router as cache_settings_router
 from routers.certificates import router as certificates_router
 from routers.change_requests import router as change_requests_router
+from routers.client_data import router as client_data_router
 from routers.credentials import router as credentials_router
 from routers.dashboard import router as dashboard_router
 from routers.general_settings import router as general_settings_router
@@ -193,6 +194,7 @@ async def limit_request_body(request: Request, call_next):
 app.include_router(auth_router, prefix=settings.api_prefix)
 app.include_router(ai_assistant_router, prefix=settings.api_prefix)
 app.include_router(ai_glossary_router, prefix=settings.api_prefix)
+app.include_router(client_data_router, prefix=settings.api_prefix)
 app.include_router(reports_router, prefix=settings.api_prefix)
 app.include_router(report_definitions_router, prefix=settings.api_prefix)
 app.include_router(mail_router, prefix=settings.api_prefix)

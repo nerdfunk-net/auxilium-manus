@@ -148,6 +148,12 @@ Nautobot token, so what the token may read is what a user with the permission ca
 and report a missing source to the user. The user's inventory switch gates both tools, the addresses switch the
 addresses and serials (and lookups by them), the content switch interface descriptions (`doc/AI_TOOL_CHAIN.md` §42).
 
+**Client data** (`client_data:read`). The REST API (`GET /client-data`, `/client-data/history`, `/client-data/devices`) and the Ask the Net
+tools `find_client`, `list_clients`, `get_client_history`, `get_client_data_coverage` show where a MAC or IP address was last seen (device, port,
+VLAN, VRF) from the `collect-client-data` step. The permission is **not** in `VIEWER_PERMISSIONS`: an admin grants it to a role. The tools are
+offered with the permission alone, `DbClientDataReader` checks it on every call, and the user's inventory switch and addresses switch gate the
+rows (coverage needs the inventory switch only). `doc/CLIENT_DATA.md`, `doc/AI_TOOL_CHAIN.md` §48.
+
 **Ask the Net neighbour tools** (`propose_neighbor_discovery`, `get_discovery_result`, `get_modelled_neighbors`,
 `get_neighbor_sources`, `doc/AI_TOOL_CHAIN.md` §45). Discovery is a proposal on the device-command path: it needs the
 operator switch `AI_DEVICE_COMMANDS_ENABLED`, `netmiko:execute`, the content opt-in and the user's click; the commands

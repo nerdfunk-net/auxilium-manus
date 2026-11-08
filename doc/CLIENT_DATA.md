@@ -45,12 +45,16 @@ replace the device's good data), or when the device refused every table the step
 data stays current. Supported platforms: Cisco IOS, IOS-XE and NX-OS; any other device fails with
 `unsupported_platform`.
 
-## "Current" data is per device
+## "Current" data is per device and per table
 
-Each device's newest collection (`client_data_collections`, newest `collected_at`) is what queries show. A run
-may cover only some devices, so there is no global "latest session": a device not in the newest run still shows
-its own newest collection. An *empty* newest collection hides that device's older rows, which is why every
-device writes a collection row even when it found nothing. `ClientDataQueryRepository.get_client_data` returns one row per *observation*:
+For each device, ARP (with its VRFs and hostnames) and the MAC table are each current from **the newest collection that read that table**
+(`client_data_collections`; a status other than `skipped`). A run may cover only some devices, so there is no global "latest session"; and
+a run that left a table out (`collect_ip_address` or `collect_mac_address` off) does not hide the earlier rows of that table, so ARP and the
+MAC table of one device can come from different runs. A table the device **refused** (`not_supported`) or that was **empty** is an observation
+and does supersede the older rows, which is why every device writes a collection row even when it found nothing. Coverage
+(`GET /client-data/devices`, `get_client_data_coverage`) reports the time and status of each table separately.
+
+`ClientDataQueryRepository.get_client_data` returns one row per *observation*:
 
 * a MAC-table entry (MAC, device, VLAN, port) with the IPs the same device has in ARP for that MAC **and VLAN**;
   without one, an IP any other device saw for that MAC in the same VLAN, or in no known VLAN (a routed
@@ -59,15 +63,16 @@ device writes a collection row even when it found nothing. `ClientDataQueryRepos
   router without a MAC table still shows its ARP).
 * the DNS hostname of the IP.
 
+Every observation has two times: `collected_at` is the port (MAC table) or the ARP entry, `ip_collected_at` is the ARP collection that gave the
+`ip_address` (none without an IP). They differ when the MAC table was read later than ARP or the IP came from another device. An IPv6 address
+matches in any notation (`2001:DB8::5`, the expanded form), as a MAC does. Exact matching of a hostname ignores case.
+
 Each fallback is a single row per key, so joins never multiply rows (a MAC in two VLANs with two ARP entries is
 four observations, not a product). Filters are case-insensitive substrings; the MAC filter accepts
 `aa:bb:cc...`, `aa-bb-cc...` and `aabbcc...` as well as the stored form. `page` must be at least 1 and
 `page_size` at most 500. `get_client_history` takes any MAC notation, any hostname case, and returns at most
 `limit` (default 500, max 1000) rows per list.
 
-**Caveat:** "newest" is decided per device, not per table. A run with `collect_ip_address` or
-`collect_mac_address` switched off writes a collection with that table `skipped` and no rows for it, which
-supersedes the device's earlier rows of that table in queries. Keep one configuration per device.
 
 ## Limits
 
@@ -85,11 +90,12 @@ supersedes the device's earlier rows of that table in queries. Keep one configur
 * Each device keeps its newest `CLIENT_DATA_KEEP_SESSIONS` collections (default 5, at least 1); the step prunes
   while it writes.
 * The `purge_client_data` task of the retention cron (`hatchet/workflows/purge_retention.py`) deletes
-  collections older than `CLIENT_DATA_RETENTION_DAYS` (default 90, 0 keeps all) **except each device's newest**.
+  collections older than `CLIENT_DATA_RETENTION_DAYS` (default 90, 0 keeps all) **except each device's newest collection and its
+  newest collection of each table**.
 * Running the step again in the same run replaces that run's rows for the device.
 * A collection is stamped when collection starts (before DNS and the write queue). The pruning never removes the
-  collection being written, even when an overlapping run stored newer ones first (a device may briefly hold
-  one more than `CLIENT_DATA_KEEP_SESSIONS`).
+  collection being written, even when an overlapping run stored newer ones first, and never the newest collection that read ARP or
+  the MAC table (a device may hold a few more than `CLIENT_DATA_KEEP_SESSIONS`).
 
 ## Code map
 
@@ -102,11 +108,46 @@ supersedes the device's earlier rows of that table in queries. Keep one configur
   `dns.py`, `executor.py`; panel `frontend/.../workflow-steps/collect-client-data/`
 * Tests `tests/unit/test_collect_client_data_*.py`, `test_client_data_*.py`
 
+## Uplinks and the likely location
+
+A MAC address appears on every switch it passes through, so a lookup lists each of them. For every MAC-table observation the query computes,
+from the current data and without storing anything:
+
+| Field | Meaning |
+|---|---|
+| `macs_on_port` | distinct MACs that device learned on that port (`NULL` for an ARP-only observation) |
+| `is_uplink` | `macs_on_port` is above `CLIENT_DATA_UPLINK_MAC_THRESHOLD` (default 10, at least 1): a trunk, the host is behind it |
+| `likely_location` | per MAC, the MAC-table observation on the port with the fewest MACs (ties: device name, port), unless that port is an uplink |
+
+The tie-break is a full ordering (device, port, VLAN, VRF, IP), so equal scores pick the same row every time. `likely_first` (the
+Ask the Net lookup) orders the likely location, then access ports, then uplinks **before** the page is cut, so the best answer is on the first
+page however many switches saw the MAC. History is collapsed to one entry per collection in SQL before its limit.
+
+It is a heuristic. A lightly used trunk stays below the threshold and a busy access port (a hypervisor host, a hub, an access point) can pass
+it; there is no LLDP/CDP or port-channel knowledge. A MAC seen only on uplinks has no `likely_location`. `hide_uplinks` leaves uplink rows out.
+
+## REST API
+
+`client_data:read` (not in the seeded `viewer` role; an admin grants it) gives:
+
+| Route | Returns |
+|---|---|
+| `GET /client-data` | observations; filters `device_name`, `ip_address`, `mac_address`, `port`, `vlan`, `vrf`, `hostname` (substrings, or whole values with `exact=true`), `ip_prefix` (the start of the address, `10.1.` does not match `110.1.2.3`; digits, hex letters, `.` and `:` only), `hide_uplinks`, `page` (>= 1), `page_size` (1-500) |
+| `GET /client-data/history` | **exactly one** of `ip_address`, `mac_address`, `hostname` (400 for none or several), `limit` (1-1000) |
+| `GET /client-data/devices` | each device's newest collection: age and the status of its commands (coverage) |
+
+Reads are rate limited (`client-data-read`, 120 per minute per user). The router goes through `ClientDataService`
+(`routers/` may not import repositories).
+
+## Ask the Net
+
+Four read tools (`find_client`, `list_clients`, `get_client_history`, `get_client_data_coverage`) answer "where is this MAC / IP?" from the same
+queries: `doc/AI_TOOL_CHAIN.md` §48. They need `client_data:read` (checked on every call) and the user's inventory and addresses switches.
+
 ## Not built yet
 
-REST router and `client_data:read` permission, a UI page, Ask the Net tools (with the usual opt-in gating),
-merging ACI endpoint data, the IPv6 neighbour table, and flagging trunk / uplink ports (a MAC address appears on
-every switch it passes through, so "where is it" currently lists each of them).
+A UI page (`doc/OPEN_TODOS.md`), merging ACI endpoint data, the IPv6 neighbour table, and LLDP/CDP-based uplink detection (the threshold
+heuristic above is what exists).
 
 ## Verification status
 

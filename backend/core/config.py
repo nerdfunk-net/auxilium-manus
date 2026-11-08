@@ -270,6 +270,10 @@ class Settings:
         # older ones are purged by age (0 keeps them); a device's newest collection always stays.
         self.client_data_keep_sessions = self._get_int("CLIENT_DATA_KEEP_SESSIONS", 5)
         self.client_data_retention_days = self._get_int("CLIENT_DATA_RETENTION_DAYS", 90)
+        # A port that learned more distinct MACs than this is an uplink in the client data.
+        self.client_data_uplink_mac_threshold = self._get_int(
+            "CLIENT_DATA_UPLINK_MAC_THRESHOLD", 10
+        )
         self._validate_run_retention()
         self.apply_safe_migrations = self._get_bool("APPLY_SAFE_DATABASE_MIGRATION", False)
         self.apply_risky_migrations = self._get_bool("APPLY_RISKY_DATABASE_MIGRATION", False)
@@ -380,6 +384,8 @@ class Settings:
             raise RuntimeError("CLIENT_DATA_KEEP_SESSIONS must be at least 1")
         if self.client_data_retention_days < 0:
             raise RuntimeError("CLIENT_DATA_RETENTION_DAYS must be 0 or greater")
+        if self.client_data_uplink_mac_threshold < 1:
+            raise RuntimeError("CLIENT_DATA_UPLINK_MAC_THRESHOLD must be at least 1")
 
     def _validate_vault(self) -> None:
         """Structural, environment-agnostic checks for the OpenBao settings.
