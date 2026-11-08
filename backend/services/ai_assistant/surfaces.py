@@ -35,6 +35,7 @@ from services.ai_assistant.prompts import (
     DEVICE_COMMANDS_PROMPT,
     HOST_LOOKUP_PROMPT,
     INVENTORY_PROMPT,
+    LEARN_PROMPT,
     NAUTOBOT_PROMPT,
     NEIGHBOR_PROMPT,
     RELEASED_WORKFLOWS_PROMPT,
@@ -87,6 +88,7 @@ from services.ai_assistant.tools.inventory_tools import (
     InventoryReader,
     InventoryState,
 )
+from services.ai_assistant.tools.learn_tools import build_learn_tools
 from services.ai_assistant.tools.nautobot_tools import (
     NAUTOBOT_READER_KEY,
     NautobotQueryReader,
@@ -384,6 +386,8 @@ def build_general_session(
             # Neighbour discovery (doc/AI_TOOL_CHAIN.md §24): the proposal sits with the device
             # tools; reading its result needs the result store.
             tools.extend(build_neighbor_live_tools(with_results=store is not None))
+            # Feature learn (doc/AI_TOOL_CHAIN.md §49): a proposal like the other device tools.
+            tools.extend(build_learn_tools())
             # Parsing (doc/AI_TOOL_CHAIN.md §43): the parse tool reads stored outputs, so it needs
             # the store; Genie is offered only when the router found exactly one usable pyATS
             # source for this user.
@@ -443,6 +447,7 @@ def build_general_session(
     if device_resolver is not None and may_query_batfish:
         parts.append(DEVICE_COMMANDS_PROMPT)
         parts.append(NEIGHBOR_PROMPT)
+        parts.append(LEARN_PROMPT)
     if config_reader is not None and may_query_batfish:
         parts.append(CONFIG_BACKUP_PROMPT)
     if nautobot_reader is not None:

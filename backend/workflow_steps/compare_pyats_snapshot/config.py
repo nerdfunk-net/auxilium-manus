@@ -10,4 +10,5 @@ def get_config() -> dict:
         "pull_before_read": False,
         "filename_template": "{device.name}.pyats-snapshot.json",
         "exclude_keys": [],
+        "use_snapshot_excludes": True,
     }

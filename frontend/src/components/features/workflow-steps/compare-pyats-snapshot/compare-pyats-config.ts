@@ -21,6 +21,7 @@ export function buildComparePyatsSnapshotConfig(
     parsed_output_key:
       typeof config.parsed_output_key === "string" ? config.parsed_output_key : "",
     exclude_keys: excludeKeysFromConfig(config),
+    use_snapshot_excludes: config.use_snapshot_excludes !== false,
     reference_location:
       config.reference_location === "git" || config.reference_location === "filesystem"
         ? config.reference_location

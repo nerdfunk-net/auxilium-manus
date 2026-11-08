@@ -404,6 +404,14 @@ through `PyATSShimService.diff()` → `POST /v1/diff`'s `exclude` field →
 `Diff(a, b, exclude=exclude_keys)`. Leave it empty and every key, including
 purely time-based ones, is compared literally.
 
+A learned snapshot may carry Genie's own volatile-field list as `_exclude` (beside `info`). The shim
+applies only its pure-noise keys (ages, timers, checksums, sequence numbers; `SNAPSHOT_NOISE_KEYS` in
+`pyats-shim/app/diff.py`) by default (`use_snapshot_excludes`, also a config key of the step, default true) and
+reports the keys it applied in `excluded` and the ones it kept in `not_applied`. The rest of such a list is
+comparison policy (the ospf list has `state`, `dr_*`, `statistics`, `lsas`) and is compared unless you list it in
+`exclude_keys`. Not yet confirmed against a real `get-pyats-snapshot` payload that `_exclude` survives the shim's
+`to_dict()`.
+
 It diffs one Genie feature per
 step instance between a live snapshot (from an upstream `get-pyats-snapshot`
 step in the current run) and a reference snapshot (a JSON file previously

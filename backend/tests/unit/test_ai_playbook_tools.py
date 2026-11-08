@@ -89,6 +89,7 @@ def test_known_general_tool_names_cover_the_batfish_result_and_playbook_tools() 
     assert {n for n in names if n.startswith("propose")} == {
         "propose_device_command",
         "propose_neighbor_discovery",
+        "propose_feature_learn",
     }
     assert {"get_discovery_result", "get_modelled_neighbors", "get_neighbor_sources"} <= names
 

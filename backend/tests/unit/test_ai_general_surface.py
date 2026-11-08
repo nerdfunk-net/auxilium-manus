@@ -196,7 +196,7 @@ def test_the_device_tool_is_absent_unless_the_router_offers_a_resolver() -> None
     assert "propose_device_command" not in _session().system
 
 
-def test_with_a_resolver_the_session_offers_exactly_the_two_proposal_tools() -> None:
+def test_with_a_resolver_the_session_offers_exactly_the_three_proposal_tools() -> None:
     session = _session(device_resolver=_Resolver())
 
     names = [s.name for s in session.toolbox.specs()]
@@ -204,6 +204,7 @@ def test_with_a_resolver_the_session_offers_exactly_the_two_proposal_tools() -> 
     assert [n for n in names if n.startswith("propose")] == [
         "propose_device_command",
         "propose_neighbor_discovery",
+        "propose_feature_learn",
     ]
     assert not [n for n in names if n.startswith(("run", "trigger", "execute", "start", "delete"))]
     assert "propose_device_command" in session.system

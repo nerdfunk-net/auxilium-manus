@@ -61,6 +61,7 @@ def known_general_tool_names() -> frozenset[str]:
     from services.ai_assistant.tools.device_name_tools import build_device_name_tools
     from services.ai_assistant.tools.device_tools import build_device_tools
     from services.ai_assistant.tools.host_lookup_tools import build_host_lookup_tools
+    from services.ai_assistant.tools.learn_tools import build_learn_tools
     from services.ai_assistant.tools.nautobot_tools import build_nautobot_tools
     from services.ai_assistant.tools.neighbor_tools import build_neighbor_tools
     from services.ai_assistant.tools.output_parse_tools import build_output_parse_tools
@@ -75,6 +76,7 @@ def known_general_tool_names() -> frozenset[str]:
             *build_device_tools(),
             *build_output_parse_tools(),
             *build_neighbor_tools(),
+            *build_learn_tools(),
             *build_device_name_tools(),
             *build_config_backup_tools(),
             *build_nautobot_tools(),

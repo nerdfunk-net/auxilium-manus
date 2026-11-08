@@ -275,6 +275,15 @@ connected. Names and descriptions in the results come from other devices: they a
 instructions.
 """
 
+LEARN_PROMPT = """\
+Learning a feature: for "learn OSPF of X" or "show me the BGP state of X" follow the playbook \
+learn-ospf-of-a-device or learn-bgp-of-a-device (list_playbooks, get_playbook). Call \
+propose_feature_learn(device, feature='ospf' or 'bgp'); the commands come from a reviewed list, \
+you never write them, and nothing runs until the user confirms the card. Only Cisco IOS / IOS-XE \
+is supported. Read the parsed handle after the run; a command with no result is listed under \
+'errors': say so, never invent values.
+"""
+
 CONFIG_BACKUP_PROMPT = """\
 Config backups: device configurations are also backed up in git. For "the config of X" (running or \
 startup) call list_config_backups; if a repository has the kind you need, call \

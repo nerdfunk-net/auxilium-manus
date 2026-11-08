@@ -1190,6 +1190,16 @@ plugins:
           required: false
           default: []
           example: ["updated", "last_change", "uptime"]
+        - name: use_snapshot_excludes
+          description: >
+            Also ignore the pure-noise fields (ages, timers, checksums, sequence numbers) that a
+            learned snapshot lists in Genie's own `_exclude`. On by default. Other keys of that list
+            (for ospf: state, dr_*/bdr_*, statistics, lsas) are NOT ignored: they are real changes.
+            Add them to exclude_keys if you do not want them compared. The ignored keys and the kept
+            ones are recorded in the comparison result.
+          data_type: boolean
+          required: false
+          default: true
         - name: reference_location
           description: Where the reference snapshot JSON is stored (filesystem or git).
           data_type: string

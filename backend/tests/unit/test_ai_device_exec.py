@@ -179,6 +179,22 @@ def test_the_policy_runs_again_on_the_signed_commands() -> None:
     assert runner.calls == []
 
 
+def test_more_than_five_commands_run_only_when_they_are_a_catalogue_plan() -> None:
+    from services.ai_assistant.learn import catalogue
+
+    plan = catalogue.plan_learn("ios", "ospf").commands
+    runner = FakeRunner()
+
+    _run(_executor(runner=runner), _token(plan))
+    assert runner.calls[0][1] == list(plan)
+
+    other = FakeRunner()
+    for commands in ([f"show version {i}" for i in range(6)], [*plan[:-1], "show version"]):
+        with pytest.raises(CommandNotAllowedError):
+            _run(_executor(runner=other), _token(commands))
+    assert other.calls == []
+
+
 def test_a_device_that_is_no_longer_the_same_is_refused() -> None:
     other = ResolvedDevice("nb1", "dev-OTHER", "LAB", "10.9.9.9", None, None)
     other_source = ResolvedDevice("nb2", "dev-1", "LAB", "10.1.2.3", None, None)

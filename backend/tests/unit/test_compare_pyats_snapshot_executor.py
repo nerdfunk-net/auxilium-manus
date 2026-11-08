@@ -190,6 +190,40 @@ class ComparePyatsSnapshotExecutorTests(unittest.IsolatedAsyncioTestCase):
         call_kwargs = shim.diff.call_args.kwargs
         self.assertEqual(call_kwargs["exclude_keys"], ["updated", "last_change", "5"])
 
+    async def test_snapshot_excludes_are_on_by_default_and_reported(self) -> None:
+        device = _device_with_snapshot(
+            ArtifactRef(artifact_id="placeholder", kind="pyats_snapshot")
+        )
+        outcomes, shim, _ = await self._run(
+            device=device,
+            reference_content=json.dumps({"bgp": {"success": True, "data": {"peers": 2}}}),
+            shim_diff_result={
+                "identical": True,
+                "diff": "",
+                "excluded": ["seq", "age", "seq"],
+                "not_applied": ["state"],
+            },
+        )
+
+        by_name = {outcome.name: outcome for outcome in outcomes}
+        comparison = by_name["match"].context.devices["device-1"].parsed[_NODE_ID]["comparison"]
+        self.assertEqual(comparison["excluded_keys"], ["age", "seq"])
+        self.assertEqual(comparison["snapshot_excludes_not_applied"], ["state"])
+        self.assertTrue(shim.diff.call_args.kwargs["use_snapshot_excludes"])
+
+    async def test_snapshot_excludes_can_be_switched_off(self) -> None:
+        device = _device_with_snapshot(
+            ArtifactRef(artifact_id="placeholder", kind="pyats_snapshot")
+        )
+        _, shim, _ = await self._run(
+            device=device,
+            reference_content=json.dumps({"bgp": {"success": True, "data": {"peers": 2}}}),
+            shim_diff_result={"identical": True, "diff": ""},
+            config={**_BASE_CONFIG, "use_snapshot_excludes": False},
+        )
+
+        self.assertFalse(shim.diff.call_args.kwargs["use_snapshot_excludes"])
+
     async def test_mismatch_routes_to_mismatch_outcome_and_stores_diff(self) -> None:
         device = _device_with_snapshot(
             ArtifactRef(artifact_id="placeholder", kind="pyats_snapshot")

@@ -165,6 +165,10 @@ class _FeatureResult:
     diff_text: str | None = None
     live_data: Any = None
     reference_data: Any = None
+    # Keys the shim ignored for this feature (the configured ones plus the snapshots' `_exclude`).
+    excluded: tuple[str, ...] = ()
+    # Keys a snapshot listed in its own `_exclude` that the shim did not apply (still compared).
+    not_applied: tuple[str, ...] = ()
 
 
 async def _build_device_result(
@@ -247,6 +251,12 @@ async def _build_device_result(
         "features": list(features),
         "mismatched_features": mismatched_features,
         "per_feature": per_feature,
+        # What was ignored, so a reader can see that e.g. `state` was not compared.
+        "excluded_keys": sorted({key for r in feature_results for key in r.excluded}),
+        # Listed by the snapshot but still compared (for example ospf `state`): not noise.
+        "snapshot_excludes_not_applied": sorted(
+            {key for r in feature_results for key in r.not_applied}
+        ),
         "reference_location": reference_location,
         "reference_path": reference_path,
         "step_node_id": node_id,
@@ -445,6 +455,10 @@ async def _load_reference_snapshot(
         )
 
 
+def _string_tuple(value: Any) -> tuple[str, ...]:
+    return tuple(str(item) for item in value) if isinstance(value, list) else ()
+
+
 async def _diff_features(
     *,
     device: DeviceContext,
@@ -454,6 +468,7 @@ async def _diff_features(
     live_snapshot: Any,
     reference_snapshot: Any,
     exclude_keys: list[str],
+    use_snapshot_excludes: bool,
     shim_credentials: PyATSCredentials,
 ) -> list[_FeatureResult] | _DeviceResult:
     shim = service_factory.get_pyats_app_service()
@@ -487,6 +502,7 @@ async def _diff_features(
                 snapshot_a=live_data,
                 snapshot_b=reference_data,
                 exclude_keys=exclude_keys,
+                use_snapshot_excludes=use_snapshot_excludes,
             )
         except (PyATSAPIError, PyATSValidationError) as exc:
             return _fail_device(
@@ -497,8 +513,17 @@ async def _diff_features(
                 message=f"{feature}: {exc}",
             )
 
+        excluded = _string_tuple(response.get("excluded"))
+        not_applied = _string_tuple(response.get("not_applied"))
         if response.get("identical"):
-            feature_results.append(_FeatureResult(feature=feature, status="match"))
+            feature_results.append(
+                _FeatureResult(
+                    feature=feature,
+                    status="match",
+                    excluded=excluded,
+                    not_applied=not_applied,
+                )
+            )
         else:
             feature_results.append(
                 _FeatureResult(
@@ -507,6 +532,8 @@ async def _diff_features(
                     diff_text=str(response.get("diff") or ""),
                     live_data=live_data,
                     reference_data=reference_data,
+                    excluded=excluded,
+                    not_applied=not_applied,
                 )
             )
     return feature_results
@@ -522,6 +549,7 @@ async def _compare_one_device(
     parsed_output_key: str | None,
     config: dict[str, Any],
     exclude_keys: list[str],
+    use_snapshot_excludes: bool,
     context_run_id: str,
     source_credentials: dict[str, PyATSCredentials],
     source_errors: dict[str, str],
@@ -567,6 +595,7 @@ async def _compare_one_device(
         live_snapshot=live.data,
         reference_snapshot=reference.data,
         exclude_keys=exclude_keys,
+        use_snapshot_excludes=use_snapshot_excludes,
         shim_credentials=shim_credentials,
     )
     if isinstance(feature_results, tuple):
@@ -612,6 +641,9 @@ async def execute(
         if isinstance(raw_exclude_keys, list)
         else []
     )
+
+    # Default on: the learned snapshot carries Genie's own list of volatile fields (`_exclude`).
+    use_snapshot_excludes = merged_config.get("use_snapshot_excludes") is not False
 
     if not context.devices:
         return [StepOutcome(name=outcome_name, context=context) for outcome_name in _OUTCOME_NAMES]
@@ -666,6 +698,7 @@ async def execute(
                 parsed_output_key=parsed_output_key,
                 config=merged_config,
                 exclude_keys=exclude_keys,
+                use_snapshot_excludes=use_snapshot_excludes,
                 context_run_id=context.run_id,
                 source_credentials=source_credentials,
                 source_errors=source_errors,

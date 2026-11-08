@@ -70,6 +70,18 @@ class PyATSShimServiceDiffTests(unittest.IsolatedAsyncioTestCase):
         call = self.mock_client.request.call_args
         self.assertEqual(call.kwargs["json"]["exclude"], ["updated"])
 
+    async def test_diff_sends_use_snapshot_excludes_only_when_switched_off(self) -> None:
+        self.mock_client.request.return_value = httpx.Response(
+            200, json={"identical": True, "diff": ""}
+        )
+        kwargs = {"snapshot_a": {"info": {}}, "snapshot_b": {"info": {}}}
+        await self.service.diff(_credentials(), **kwargs)
+        self.assertNotIn("use_snapshot_excludes", self.mock_client.request.call_args.kwargs["json"])
+
+        await self.service.diff(_credentials(), use_snapshot_excludes=False, **kwargs)
+        sent = self.mock_client.request.call_args.kwargs["json"]
+        self.assertIs(sent["use_snapshot_excludes"], False)
+
     async def test_diff_400_raises_validation_error(self) -> None:
         self.mock_client.request.return_value = httpx.Response(
             400, json={"detail": "Genie diff failed: incompatible shapes"}

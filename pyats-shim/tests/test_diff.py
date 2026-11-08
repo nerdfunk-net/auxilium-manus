@@ -51,32 +51,32 @@ def test_unwrap_falls_back_to_whole_dict_when_no_info_key():
 
 
 def test_compute_diff_identical_snapshots_report_no_diff():
-    identical, diff_text = _compute_diff({"info": {"a": 1}}, {"info": {"a": 1}})
+    identical, diff_text, _, _ = _compute_diff({"info": {"a": 1}}, {"info": {"a": 1}})
     assert identical is True
     assert diff_text.strip() == ""
 
 
 def test_compute_diff_differing_snapshots_report_diff():
-    identical, diff_text = _compute_diff({"info": {"a": 1}}, {"info": {"a": 2}})
+    identical, diff_text, _, _ = _compute_diff({"info": {"a": 1}}, {"info": {"a": 2}})
     assert identical is False
     assert diff_text.strip() != ""
 
 
 def test_compute_diff_unwraps_info_key_on_both_sides():
-    identical, _ = _compute_diff(
+    identical, _, _, _ = _compute_diff(
         {"info": {"a": 1}, "extra": "ignored"}, {"info": {"a": 1}}
     )
     assert identical is True
 
 
 def test_compute_diff_without_info_key_diffs_whole_dict():
-    identical, diff_text = _compute_diff({"a": 1}, {"a": 2})
+    identical, diff_text, _, _ = _compute_diff({"a": 1}, {"a": 2})
     assert identical is False
     assert diff_text.strip() != ""
 
 
 def test_compute_diff_without_exclude_reports_volatile_key_changes():
-    identical, diff_text = _compute_diff(
+    identical, diff_text, _, _ = _compute_diff(
         {"info": {"peers": 2, "updated": "4w2d"}},
         {"info": {"peers": 2, "updated": "4w0d"}},
     )
@@ -85,7 +85,7 @@ def test_compute_diff_without_exclude_reports_volatile_key_changes():
 
 
 def test_compute_diff_with_exclude_ignores_listed_keys():
-    identical, diff_text = _compute_diff(
+    identical, diff_text, _, _ = _compute_diff(
         {"info": {"peers": 2, "updated": "4w2d"}},
         {"info": {"peers": 2, "updated": "4w0d"}},
         exclude=["updated"],
@@ -95,7 +95,7 @@ def test_compute_diff_with_exclude_ignores_listed_keys():
 
 
 def test_compute_diff_with_exclude_still_reports_other_diffs():
-    identical, diff_text = _compute_diff(
+    identical, diff_text, _, _ = _compute_diff(
         {"info": {"peers": 2, "updated": "4w2d"}},
         {"info": {"peers": 3, "updated": "4w0d"}},
         exclude=["updated"],

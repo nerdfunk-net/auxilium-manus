@@ -3619,3 +3619,63 @@ collected. They read **stored observations, not the live network**; every row ca
   against real collected data from a larger network, and the quality of `likely_location` on topologies with port-channels, VPC, wireless or
   hypervisors. The built-in playbook `where-is-this-host` (Nautobot first, then `find_client`, coverage when empty, then `find_aci_endpoint`; data class A) fixes the order and the age/uplink wording (it is not verified with a real model). A live question "Find the IP address 192.168.180.2" was answered from Batfish and Nautobot alone ("not configured on any device, unassigned in Nautobot") without `find_client`; `CLIENT_DATA_PROMPT` and the playbook now say that Nautobot stays part of the answer (a network device's address is documented there) and that `find_client` is always called as well, because those sources only know devices. Checked again live by the maintainer on 2026-11-08: works. Open: a per-user rate bucket like
   `ai-aci-read` (the data is local, so it is not needed for load), (and the ACI merge is `find_host`, above).
+
+## 49. Feature learn: "learn OSPF of X" (2026-11-08)
+
+Built 2026-11-08, **unit-tested only, not run against a device from Ask the Net**. The command list was read from a real
+`pyats learn ospf --testbed-file ... -v` run (IOS-XE 17.15 IOL, `os: ios`, default VRF).
+
+**Why a catalogue and not pyATS.** `learn` is a fixed group of show commands whose parsed output Genie merges into one
+model. Ask the Net already runs reviewed commands and parses them per command (§43), so the group is a catalogue
+entry and the model reads the per-command parsed data. The merged Ops model itself is not produced (option A of the
+design discussion; running the real Ops class in the shim on replayed output would be a spike, untested).
+
+**Tool** (`tools/learn_tools.py`): `propose_feature_learn(device, feature)`, `feature` = `ospf` or `bgp`. A proposal on the §29
+path (same signed `device_command` card, same confirm endpoint). Parser is `genie` when Genie is offered to the user,
+else `none` (the model then reads raw text and says so). Catalogue: `learn/catalogue.py`, family `ios` (IOS / IOS-XE)
+only; other platforms and features are refused with a fixed message.
+
+**Commands (13)**: `show ip ospf`, `show ip protocols`, `show ip ospf mpls ldp interface`, `show ip ospf mpls traffic-eng
+link`, `show ip ospf database router|network|external|summary|opaque-area`, `show ip ospf virtual-links`, `show ip ospf
+interface`, `show ip ospf neighbor detail`, `show ip ospf sham-links`. Left out on purpose of what Genie runs:
+`show running-config | section router ospf <pid>` (needs the process id from earlier output; `show ip ospf` has it) and the
+per-interface `show ip ospf interface <name>` (repeats the full command).
+
+**Command limit.** A free-form proposal keeps `MAX_COMMANDS = 5`. A catalogue plan may carry up to
+`MAX_SIGNED_COMMANDS = 16`: `check_commands(..., limit=)` in the tool and in `DeviceExecService._execute`. Every command still
+passes `check_command` alone; the signed token is what the confirm step trusts.
+
+**BGP (7 commands, added 2026-11-08, read from the installed Genie source, not from a run: the lab has no BGP):**
+`show bgp all summary`, `show bgp all detail`, `show bgp all cluster-ids`, `show bgp all neighbors`, `show ip bgp all dampening
+parameters`, `show ip bgp template peer-policy`, `show ip bgp template peer-session`. Genie also runs per neighbour / address
+family / VRF: `show bgp all neighbors <n> policy`, `... advertised-routes`, `... received-routes`, `... routes` and
+`show bgp vrf <v> all summary`. Those are left out (whole BGP tables, and they need values from the first outputs). Whether
+`show bgp all neighbors` is what Genie runs for the neighbour detail is inferred from the parser class list; confirm with a
+`pyats learn bgp -v` run on a router that runs BGP.
+
+**Playbooks**: `learn-ospf-of-a-device`, `learn-bgp-of-a-device` (the BGP one is written from what the commands return, not from a real BGP reading). Open: a live run through the card, other platforms (each needs its own `learn`
+read), non-default VRFs, other features (bgp, interface, ...).
+
+**Compare Snapshot and Genie's `_exclude`.** A learned Ops payload carries Genie's own list of volatile fields next to
+`info`. `POST /v1/diff` merges only the **pure-noise** keys of that list from both snapshots (`SNAPSHOT_NOISE_KEYS` in
+`pyats-shim/app/diff.py`: age, uptime, last_change, last_state_change, cksum, checksum, seq, seq_num, dead_timer, hello_timer,
+area_scope_lsa_cksum_sum) when `use_snapshot_excludes` is on (config key of `compare-pyats-snapshot`, default true). The rest of the
+list is **comparison policy** and is not applied: for ospf it names `state`, `dr_*`/`bdr_*`, `statistics` and the whole `lsas`
+subtree, which would hide a neighbour falling back to INIT or a new LSA. The reference file is also read for `_exclude`, so a fixed
+allowlist stops a writer of the reference store from switching off a comparison (the list is capped at 200 entries). The response
+carries `excluded` (applied) and `not_applied`; the step records them as `comparison.excluded_keys` and
+`comparison.snapshot_excludes_not_applied`. A user who wants one of the kept keys ignored lists it in `exclude_keys`.
+**Not verified live:** that the shim's stored `ops.to_dict()` contains `_exclude` (the CLI dump did;
+`pyats-shim/tests/test_diff.py` is skipped without genie).
+
+**Review fixes (`doc/analysis/REVIEW.md`, 2026-11-08).**
+
+* (High) Command order: the stored output is cut at 500,000 characters and the cut drops the LAST commands. The catalogue lists the
+  small outputs first (OSPF: process, protocols, interfaces, neighbours) and the LSDB dumps last; BGP puts `show bgp all detail` last.
+  The playbooks tell the model to say when a command is empty because the text was cut.
+* (Medium) Time: the run budget is 300 s for up to five commands plus 20 s for each one beyond (`run_budget_seconds`: 13 commands =
+  460 s), and `show ip ospf database`, `show bgp all` and `show ip bgp all` take the long read timeout (120 s) like `show running-config`.
+* (Medium) The playbooks no longer say "stop before the other commands": the whole list runs on one confirmation, so they say to
+  report nothing from the other commands and not to propose a second run.
+* (Low) More than five commands run at confirm only when the list is exactly one catalogued plan (`learn.catalogue.is_plan`); a
+  signed token with other long lists is held to five.

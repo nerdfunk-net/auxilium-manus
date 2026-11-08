@@ -18,7 +18,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
 from services.ai_assistant.audit import log_device_command
-from services.ai_assistant.command_policy import check_commands
+from services.ai_assistant.command_policy import MAX_COMMANDS, MAX_SIGNED_COMMANDS, check_commands
 from services.ai_assistant.data_sharing import DataClass
 from services.ai_assistant.device_access import (
     DEVICE_DRIVERS,
@@ -34,6 +34,7 @@ from services.ai_assistant.device_token import (
 )
 from services.ai_assistant.genie_parser import DbGenieParser
 from services.ai_assistant.known_secrets import try_load_visible_secret_values
+from services.ai_assistant.learn import catalogue as learn_catalogue
 from services.ai_assistant.output_parser import GenieParser
 from services.ai_assistant.parse_service import ParseOutcome, parse_stored_text
 from services.ai_assistant.redaction import Redactor
@@ -52,9 +53,11 @@ MAX_OUTPUT_CHARS = 500_000
 # What is read from the device and redacted before the shown size is applied (the result store
 # also holds about this much).
 MAX_RAW_CHARS = 2_000_000
-# The whole run (connect, every command, disconnect) may take this long; Netmiko's own timeouts are
-# per command, and up to five commands are allowed.
+# The whole run (connect, every command, disconnect) may take this long for up to five commands;
+# Netmiko's own timeouts are per command. A longer catalogue plan (feature learn) gets
+# ``EXTRA_SECONDS_PER_COMMAND`` for each command beyond five.
 RUN_TIMEOUT_SECONDS = 300
+EXTRA_SECONDS_PER_COMMAND = 20
 # One person may have this many runs open at once (a run holds an SSH session). Counted in this
 # process; the per-minute rate limit on the route is the cross-process bound.
 MAX_RUNS_PER_USER = 2
@@ -103,6 +106,12 @@ def _cut(text: str, limit: int) -> str:
     head = text[:limit]
     newline = head.rfind("\n")
     return head[:newline] if newline > limit // 2 else head
+
+
+def run_budget_seconds(command_count: int) -> float:
+    """The time one run may take: the base budget plus a little for each command beyond five."""
+    extra = max(0, command_count - MAX_COMMANDS) * EXTRA_SECONDS_PER_COMMAND
+    return RUN_TIMEOUT_SECONDS + extra
 
 
 def _shape_blocks(
@@ -199,7 +208,9 @@ class DeviceCommandExecutor:
         # that an older or buggy proposer signed, and anything that is not in normalised form.
         if network_driver is not None and network_driver not in DEVICE_DRIVERS:
             raise InvalidConfirmationError
-        commands = check_commands(list(grant.commands))
+        # More than the free-form limit is allowed only for a reviewed catalogue plan.
+        limit = MAX_SIGNED_COMMANDS if learn_catalogue.is_plan(grant.commands) else MAX_COMMANDS
+        commands = check_commands(list(grant.commands), limit=limit)
         if tuple(commands) != grant.commands:
             raise InvalidConfirmationError
         secrets = await asyncio.to_thread(self._secret_loader, user_id)
@@ -217,6 +228,7 @@ class DeviceCommandExecutor:
         # The user's device type choice is only for a device whose platform the inventory does not
         # map (the card asks only then); a known driver is never replaced.
         chosen_driver = None if driver_known(device) else network_driver
+        budget = run_budget_seconds(len(commands))
         try:
             raw = await asyncio.wait_for(
                 self._runner.run(
@@ -226,11 +238,11 @@ class DeviceCommandExecutor:
                     user_id=user_id,
                     network_driver=chosen_driver,
                 ),
-                timeout=RUN_TIMEOUT_SECONDS,
+                timeout=budget,
             )
         except TimeoutError:
             raw = DeviceCommandOutput(
-                False, f"The device did not finish within {RUN_TIMEOUT_SECONDS} seconds", ()
+                False, f"The device did not finish within {budget:g} seconds", ()
             )
         redactor = Redactor(max_chars=MAX_RAW_CHARS + _REDACT_SLACK)
         redactor.add_known_secrets(secrets)

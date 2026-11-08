@@ -43,6 +43,10 @@ _LONG_COMMANDS = (
     "show startup-config",
     "show configuration",
     "show tech-support",
+    # Feature learn (doc/AI_TOOL_CHAIN.md §49): whole databases and tables of a large network.
+    "show ip ospf database",
+    "show bgp all",
+    "show ip bgp all",
 )
 # The device types the user may pick when the inventory's platform is not recognised: exactly the
 # Netmiko device types this app maps platform names to (pinned by a test).

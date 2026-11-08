@@ -17,6 +17,10 @@ import re
 
 MAX_COMMAND_CHARS = 200
 MAX_COMMANDS = 5
+# A reviewed catalogue plan (feature learn, doc/AI_TOOL_CHAIN.md §49) may carry more commands than a
+# free-form proposal. The proposal tool and the confirm step both pass this limit for a signed
+# token; every command still passes ``check_command`` on its own.
+MAX_SIGNED_COMMANDS = 16
 MAX_FILTER_PATTERN_CHARS = 80
 
 # Characters of a show command's arguments: names, addresses, interface ids, VRFs.
@@ -80,10 +84,10 @@ def check_command(raw: str) -> str:
     return command
 
 
-def check_commands(raw_commands: list[str]) -> list[str]:
+def check_commands(raw_commands: list[str], *, limit: int = MAX_COMMANDS) -> list[str]:
     """All commands normalised, repeated ones once; one bad command refuses the whole list."""
     if not raw_commands:
         raise _refuse("at least one command is required")
-    if len(raw_commands) > MAX_COMMANDS:
-        raise _refuse(f"at most {MAX_COMMANDS} commands per request")
+    if len(raw_commands) > limit:
+        raise _refuse(f"at most {limit} commands per request")
     return list(dict.fromkeys(check_command(c) for c in raw_commands))

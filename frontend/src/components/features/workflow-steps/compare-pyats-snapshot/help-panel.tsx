@@ -102,6 +102,15 @@ export function ComparePyatsSnapshotHelpPanel() {
             counters — will otherwise report as a mismatch even when nothing
             operationally meaningful changed. Add them here to silence that noise.
           </p>
+          <p>
+            One exception: a snapshot learned by Genie carries its own list of
+            volatile fields. Its pure-noise entries (ages, timers, checksums,
+            sequence numbers) are ignored automatically (config{" "}
+            <HelpCode>use_snapshot_excludes</HelpCode>, on by default). The rest of that
+            list, such as OSPF <HelpCode>state</HelpCode>, DR/BDR and{" "}
+            <HelpCode>lsas</HelpCode>, is still compared; list a key here to ignore it.
+            The result shows which keys were ignored and which were kept.
+          </p>
         </HelpWarning>
         <HelpExample>
           exclude_keys: updated, last_change, uptime
