@@ -47,6 +47,14 @@ class ProposeFeatureLearnInput(BaseModel):
             "'bgp' (address families, neighbours and their state, templates, dampening)"
         )
     )
+    vrf: str = Field(
+        default=catalogue.DEFAULT_VRF,
+        pattern=r"^[A-Za-z0-9_.-]{1,32}$",
+        description=(
+            "'default' (the global table) or the name of one VRF taken from 'show vrf' or the "
+            "inventory. Only 'bgp' supports a VRF other than 'default'"
+        ),
+    )
 
 
 async def _propose(ctx: ToolContext, args: ProposeFeatureLearnInput) -> ToolOutput:
@@ -57,7 +65,7 @@ async def _propose(ctx: ToolContext, args: ProposeFeatureLearnInput) -> ToolOutp
         return ToolOutput(str(exc), is_error=True)
     family = family_of(netmiko_device_type(device.network_driver, device.platform))
     try:
-        plan = catalogue.plan_learn(family, args.feature)
+        plan = catalogue.plan_learn(family, args.feature, args.vrf)
         commands = check_commands(list(plan.commands), limit=MAX_SIGNED_COMMANDS)
     except (catalogue.UnsupportedLearnError, CommandNotAllowedError) as exc:
         return ToolOutput(f"Not possible: {exc}", is_error=True)
@@ -67,6 +75,8 @@ async def _propose(ctx: ToolContext, args: ProposeFeatureLearnInput) -> ToolOutp
         f"These {len(commands)} commands come from a reviewed list that learns '{plan.feature}'. "
         f"Follow the playbook learn-{plan.feature}-of-a-device to read the result. "
     )
+    if args.vrf != catalogue.DEFAULT_VRF:
+        purpose += f"They read the VRF '{args.vrf}' only, not the default VRF. "
     if not genie:
         purpose += (
             "Genie is not available for this user, so the output is not parsed: read the raw "
@@ -84,5 +94,64 @@ _DESCRIPTION = (
 )
 
 
+class ProposeBgpNeighborDetailInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    device: DeviceName = Field(description="Device name exactly as in the inventory, e.g. 'LAB'")
+    neighbor: str = Field(
+        min_length=2,
+        max_length=45,
+        description="One neighbour IPv4 or IPv6 address taken from the BGP summary of a learn",
+    )
+    vrf: str = Field(
+        default=catalogue.DEFAULT_VRF,
+        pattern=r"^[A-Za-z0-9_.-]{1,32}$",
+        description=(
+            "The VRF the neighbour was found in; pass the same 'vrf' as the learn. 'default' for "
+            "the global table"
+        ),
+    )
+
+
+async def _propose_neighbor(ctx: ToolContext, args: ProposeBgpNeighborDetailInput) -> ToolOutput:
+    resolver: DeviceResolver = ctx.extras[DEVICE_RESOLVER_KEY]
+    try:
+        device = await resolver.resolve(args.device)
+    except DeviceAccessError as exc:
+        return ToolOutput(str(exc), is_error=True)
+    family = family_of(netmiko_device_type(device.network_driver, device.platform))
+    try:
+        plan = catalogue.plan_bgp_neighbor(family, args.neighbor, args.vrf)
+        commands = check_commands(list(plan.commands))
+    except (catalogue.UnsupportedLearnError, CommandNotAllowedError) as exc:
+        return ToolOutput(f"Not possible: {exc}", is_error=True)
+    parser = "genie" if GENIE_PARSER_KEY in ctx.extras else "none"
+    purpose = (
+        f"These {len(commands)} commands read the policy of one BGP neighbour and the total "
+        "number of prefixes advertised to it and received from it. Follow the playbook "
+        "learn-bgp-of-a-device. received-routes needs soft-reconfiguration inbound on the "
+        "device: an error there is not a failure of the neighbour."
+    )
+    return make_device_proposal(ctx, device, commands, parser, purpose=purpose)
+
+
+_NEIGHBOR_DESCRIPTION = (
+    "Ask the user to run the read-only commands for ONE BGP neighbour of a device: its policy "
+    "and the number of prefixes advertised to it and received from it. 'neighbor' is an address "
+    "from the summary of an earlier propose_feature_learn(feature='bgp'); pass the same 'vrf' "
+    "as that learn. The commands come "
+    "from a reviewed list, you never write them. This only proposes: nothing runs until the "
+    "user confirms in the card."
+)
+
+
 def build_learn_tools() -> list[Tool]:
-    return [Tool("propose_feature_learn", _DESCRIPTION, ProposeFeatureLearnInput, _propose)]
+    return [
+        Tool("propose_feature_learn", _DESCRIPTION, ProposeFeatureLearnInput, _propose),
+        Tool(
+            "propose_bgp_neighbor_detail",
+            _NEIGHBOR_DESCRIPTION,
+            ProposeBgpNeighborDetailInput,
+            _propose_neighbor,
+        ),
+    ]

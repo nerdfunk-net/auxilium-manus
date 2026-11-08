@@ -405,6 +405,9 @@ class SlowRunner(FakeRunner):
 
 def test_a_run_that_does_not_finish_in_time_is_reported_and_stores_nothing(monkeypatch) -> None:
     monkeypatch.setattr(ex, "RUN_TIMEOUT_SECONDS", 0.05)
+    # ``show running-config`` is a long-read command: its floor is lowered too, or it would win.
+    monkeypatch.setattr(ex, "LONG_READ_TIMEOUT_SECONDS", 0)
+    monkeypatch.setattr(ex, "CONNECT_SLACK_SECONDS", 0)
 
     result = _run(_executor(runner=SlowRunner(delay=2)))
 

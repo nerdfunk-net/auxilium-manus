@@ -3625,6 +3625,18 @@ collected. They read **stored observations, not the live network**; every row ca
 Built 2026-11-08, **unit-tested only, not run against a device from Ask the Net**. The command list was read from a real
 `pyats learn ospf --testbed-file ... -v` run (IOS-XE 17.15 IOL, `os: ios`, default VRF).
 
+**BGP neighbour detail** (2026-11-08, unit-tested only): `propose_bgp_neighbor_detail(device, neighbor)` in the same file signs
+`show bgp all neighbors <n> policy` plus `advertised-routes | include Total number of prefixes` and `received-routes ...` for
+one IPv4/IPv6 address (canonicalised by `catalogue.parse_neighbor_address`); with `vrf` it signs the `show bgp ipv4 unicast vrf
+<v> neighbors <n> ...` forms. The totals are read by `genie_parser.filtered_total`, not sent to Genie. Plan: `doc/plans/BGP_PLAYBOOK.md` Step 1.
+
+**BGP neighbour table** (2026-11-08, unit-tested only): `get_bgp_learn_result(handle)` (`tools/bgp_learn_tools.py`, merge in
+`learn/bgp_records.py`) turns the raw handle of a Genie-confirmed BGP learn into one record per neighbour and address
+family; shapes taken from the Genie schemas, not yet from a real handle.
+
+**VRF** (2026-11-08, unit-tested only): `propose_feature_learn(..., vrf=)` reads `show bgp vrf <v> all summary`, `show bgp ipv4 unicast vrf <v> neighbors` and `... detail` for a
+BGP learn (name `[A-Za-z0-9_.-]{1,32}`, substituted into the catalogue only); OSPF and other platforms refuse a VRF.
+
 **Why a catalogue and not pyATS.** `learn` is a fixed group of show commands whose parsed output Genie merges into one
 model. Ask the Net already runs reviewed commands and parses them per command (§43), so the group is a catalogue
 entry and the model reads the per-command parsed data. The merged Ops model itself is not produced (option A of the

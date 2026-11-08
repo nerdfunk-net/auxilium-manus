@@ -185,3 +185,144 @@ def test_learn_database_shows_get_the_long_read_timeout() -> None:
         for command in catalogue.plan_learn("ios", feature).commands:
             if command.startswith(("show ip ospf database", "show bgp all detail")):
                 assert command.lower().startswith(_LONG_COMMANDS), command
+
+
+def _neighbor_call(ctx: ToolContext, **args: Any) -> ToolOutput:
+    tool = build_learn_tools()[1]
+    assert tool.name == "propose_bgp_neighbor_detail"
+    return asyncio.run(tool.handler(ctx, tool.input_model(**args)))
+
+
+def test_neighbor_detail_is_a_signed_card_with_prefix_totals_only() -> None:
+    out = _neighbor_call(_ctx(), device="LAB", neighbor="192.0.2.1")
+
+    assert not out.is_error and out.proposal is not None
+    assert out.proposal["commands"] == [
+        "show bgp all neighbors 192.0.2.1 policy",
+        "show bgp all neighbors 192.0.2.1 advertised-routes | include Total number of prefixes",
+        "show bgp all neighbors 192.0.2.1 received-routes | include Total number of prefixes",
+    ]
+    grant = device_token.verify_token(out.proposal["token"], user_id=USER)
+    assert grant.commands == tuple(out.proposal["commands"])
+
+
+def test_neighbor_detail_takes_ipv6_in_canonical_form() -> None:
+    out = _neighbor_call(_ctx(), device="LAB", neighbor="2001:DB8:0:0::1")
+
+    assert out.proposal is not None
+    assert out.proposal["commands"][0] == "show bgp all neighbors 2001:db8::1 policy"
+
+
+@pytest.mark.parametrize(
+    "neighbor",
+    [
+        "192.0.2.1 policy",
+        "192.0.2.1|include x",
+        "192.0.2.1;reload",
+        "192.0.2.1\nreload",
+        "reload",
+        "peer1",
+        "192.0.2.0/24",
+        "fe80::1%Gi0/0",
+        "192.0.2.256",
+        " 192.0.2.1",
+        "all",
+    ],
+)
+def test_neighbor_detail_refuses_anything_but_one_address(neighbor: str) -> None:
+    out = _neighbor_call(_ctx(), device="LAB", neighbor=neighbor)
+
+    assert out.is_error and out.proposal is None
+
+
+def test_neighbor_detail_refuses_other_platforms_and_unknown_devices() -> None:
+    assert _neighbor_call(_ctx(FakeResolver(NXOS)), device="NX1", neighbor="192.0.2.1").is_error
+    assert _neighbor_call(_ctx(FakeResolver(None)), device="x", neighbor="192.0.2.1").is_error
+
+
+def test_neighbor_commands_pass_the_policy_within_the_free_form_limit() -> None:
+    plan = catalogue.plan_bgp_neighbor("ios", "2001:db8::1")
+
+    assert len(plan.commands) <= MAX_COMMANDS
+    for command in plan.commands:
+        assert check_command(command) == command
+    assert not catalogue.is_plan(plan.commands)
+
+
+def test_bgp_vrf_plan_fills_only_the_catalogued_templates() -> None:
+    plan = catalogue.plan_learn("ios", "bgp", "BLUE-1")
+
+    assert plan.commands == (
+        "show bgp vrf BLUE-1 all summary",
+        "show bgp ipv4 unicast vrf BLUE-1 neighbors",
+        "show bgp ipv4 unicast vrf BLUE-1 detail",
+    )
+    for command in plan.commands:
+        assert check_command(command) == command
+    assert catalogue.plan_learn("ios", "bgp", "default") == catalogue.plan_learn("ios", "bgp")
+
+
+@pytest.mark.parametrize("vrf", ["a b", "a|count", "a;reload", "x" * 33, "a/b", ""])
+def test_vrf_name_with_other_characters_is_refused(vrf: str) -> None:
+    with pytest.raises(catalogue.UnsupportedLearnError):
+        catalogue.plan_learn("ios", "bgp", vrf)
+
+
+def test_vrf_is_refused_for_ospf_and_other_platforms() -> None:
+    with pytest.raises(catalogue.UnsupportedLearnError, match="VRF"):
+        catalogue.plan_learn("ios", "ospf", "BLUE")
+    with pytest.raises(catalogue.UnsupportedLearnError, match="IOS"):
+        catalogue.plan_learn("nxos", "bgp", "BLUE")
+
+
+def test_vrf_proposal_is_signed_and_the_input_model_refuses_bad_names() -> None:
+    out = _call(_ctx(), device="LAB", feature="bgp", vrf="BLUE")
+
+    assert out.proposal is not None
+    assert out.proposal["commands"][0] == "show bgp vrf BLUE all summary"
+    assert "'BLUE'" in out.content
+    model = build_learn_tools()[0].input_model
+    with pytest.raises(ValueError):  # noqa: PT011
+        model(device="LAB", feature="bgp", vrf="BLUE all")
+    assert _call(_ctx(), device="LAB", feature="ospf", vrf="BLUE").is_error
+
+
+def test_vrf_table_command_gets_the_long_read_timeout() -> None:
+    from services.ai_assistant.device_access import _LONG_COMMANDS
+
+    for command in catalogue.plan_learn("ios", "bgp", "BLUE").commands:
+        assert command.lower().startswith(_LONG_COMMANDS)
+
+
+def test_neighbor_detail_in_a_vrf_uses_the_vrf_forms_and_checks_the_name() -> None:
+    out = _neighbor_call(_ctx(), device="LAB", neighbor="192.0.2.1", vrf="BLUE")
+
+    assert out.proposal is not None
+    assert out.proposal["commands"] == [
+        "show bgp ipv4 unicast vrf BLUE neighbors 192.0.2.1 policy",
+        "show bgp ipv4 unicast vrf BLUE neighbors 192.0.2.1 advertised-routes"
+        " | include Total number of prefixes",
+        "show bgp ipv4 unicast vrf BLUE neighbors 192.0.2.1 received-routes"
+        " | include Total number of prefixes",
+    ]
+    for command in out.proposal["commands"]:
+        assert check_command(command) == command
+    model = build_learn_tools()[1].input_model
+    with pytest.raises(ValueError):  # noqa: PT011
+        model(device="LAB", neighbor="192.0.2.1", vrf="BLUE all")
+    default = _neighbor_call(_ctx(), device="LAB", neighbor="192.0.2.1", vrf="default")
+    assert default.proposal is not None and "vrf" not in default.proposal["commands"][0]
+
+
+def test_run_budget_covers_every_long_read_command_up_to_the_cap() -> None:
+    from services.ai_assistant import device_exec_service as ex
+    from services.ai_assistant.device_access import long_command_count
+
+    vrf_plan = catalogue.plan_learn("ios", "bgp", "BLUE").commands
+    neighbor_plan = catalogue.plan_bgp_neighbor("ios", "192.0.2.1").commands
+    for commands in (vrf_plan, neighbor_plan):
+        longs = long_command_count(commands)
+        assert longs == 3
+        assert ex.run_budget_seconds(len(commands), longs) >= longs * 120
+    assert ex.run_budget_seconds(3, 0) == ex.RUN_TIMEOUT_SECONDS
+    assert ex.run_budget_seconds(16, 16) == ex.MAX_RUN_TIMEOUT_SECONDS

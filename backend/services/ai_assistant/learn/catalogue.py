@@ -17,6 +17,8 @@ Other families and features are refused with a fixed message rather than guessed
 
 from __future__ import annotations
 
+import ipaddress
+import re
 from dataclasses import dataclass
 
 FEATURES: tuple[str, ...] = ("ospf", "bgp")
@@ -56,6 +58,21 @@ _BGP_IOS: tuple[str, ...] = (
     "show bgp all detail",  # the BGP table: can be very large, so it goes last
 )
 
+# The same reading for one named VRF (doc/plans/BGP_PLAYBOOK.md step 2), IPv4 unicast only. Not
+# run on a device yet. These are the forms the Genie IOS-XE parsers register (``ShowBgpAllSummary``:
+# ``show bgp vrf {vrf} all summary``; ``ShowBgpNeighbors`` / ``ShowBgpDetail``: ``show bgp
+# {address_family} vrf {vrf} neighbors|detail``), so every command parses. ``show bgp vrf {vrf} all
+# neighbors`` and ``... all detail`` have no parser. The table goes last, as in the default VRF.
+_BGP_VRF_IOS: tuple[str, ...] = (
+    "show bgp vrf {vrf} all summary",
+    "show bgp ipv4 unicast vrf {vrf} neighbors",
+    "show bgp ipv4 unicast vrf {vrf} detail",
+)
+_VRF_TABLE: dict[str, dict[str, tuple[str, ...]]] = {"ios": {"bgp": _BGP_VRF_IOS}}
+
+DEFAULT_VRF = "default"
+_VRF = re.compile(r"[A-Za-z0-9_.-]{1,32}")
+
 # family (neighbors.catalogue.family_of) -> feature -> commands
 _TABLE: dict[str, dict[str, tuple[str, ...]]] = {"ios": {"ospf": _OSPF_IOS, "bgp": _BGP_IOS}}
 
@@ -70,8 +87,10 @@ class LearnPlan:
     commands: tuple[str, ...]
 
 
-def plan_learn(family: str | None, feature: str) -> LearnPlan:
-    """The commands that learn ``feature`` on a platform ``family``."""
+def plan_learn(family: str | None, feature: str, vrf: str = DEFAULT_VRF) -> LearnPlan:
+    """The commands that learn ``feature`` on a platform ``family`` (default VRF, or ``vrf``)."""
+    if vrf != DEFAULT_VRF:
+        return _plan_vrf(family, feature, vrf)
     features = _TABLE.get(family or "")
     if features is None:
         raise UnsupportedLearnError(
@@ -81,6 +100,25 @@ def plan_learn(family: str | None, feature: str) -> LearnPlan:
     if commands is None:
         raise UnsupportedLearnError(f"The feature '{feature}' is not supported on this platform.")
     return LearnPlan(feature, commands)
+
+
+def _check_vrf(vrf: str) -> None:
+    if not _VRF.fullmatch(vrf):
+        raise UnsupportedLearnError(
+            "A VRF name is 1 to 32 letters, digits, '.', '_' or '-', or 'default'."
+        )
+
+
+def _plan_vrf(family: str | None, feature: str, vrf: str) -> LearnPlan:
+    _check_vrf(vrf)
+    if family not in _TABLE:
+        raise UnsupportedLearnError(
+            "Feature learn is supported for Cisco IOS / IOS-XE only so far."
+        )
+    templates = _VRF_TABLE.get(family or "", {}).get(feature)
+    if templates is None:
+        raise UnsupportedLearnError(f"The feature '{feature}' is not supported for a VRF yet.")
+    return LearnPlan(feature, tuple(t.format(vrf=vrf) for t in templates))
 
 
 def is_plan(commands: tuple[str, ...] | list[str]) -> bool:
@@ -96,3 +134,54 @@ def is_plan(commands: tuple[str, ...] | list[str]) -> bool:
 def supported(family: str | None) -> list[str]:
     """The features the catalogue offers for a platform family."""
     return sorted(_TABLE.get(family or "", {}))
+
+
+# One neighbour of a BGP learn (doc/plans/BGP_PLAYBOOK.md step 1). The address is substituted into
+# these templates only after ``parse_neighbor_address``; route lists are never dumped, only the
+# "Total number of prefixes N" line that ends them (the genie parser reads it, see
+# ``genie_parser.filtered_total``). A bare ``| count`` is not used: it counts header lines and some
+# releases want a pattern after it.
+TOTAL_FILTER = "| include Total number of prefixes"
+_BGP_NEIGHBOR_IOS: tuple[str, ...] = (
+    "show bgp all neighbors {n} policy",
+    f"show bgp all neighbors {{n}} advertised-routes {TOTAL_FILTER}",
+    f"show bgp all neighbors {{n}} received-routes {TOTAL_FILTER}",
+)
+# A neighbour inside a VRF is read with the address family before ``vrf`` (Genie's forms).
+_BGP_NEIGHBOR_VRF_IOS: tuple[str, ...] = (
+    "show bgp ipv4 unicast vrf {vrf} neighbors {n} policy",
+    f"show bgp ipv4 unicast vrf {{vrf}} neighbors {{n}} advertised-routes {TOTAL_FILTER}",
+    f"show bgp ipv4 unicast vrf {{vrf}} neighbors {{n}} received-routes {TOTAL_FILTER}",
+)
+_NEIGHBOR_TABLE: dict[str, tuple[str, ...]] = {"ios": _BGP_NEIGHBOR_IOS}
+_NEIGHBOR_VRF_TABLE: dict[str, tuple[str, ...]] = {"ios": _BGP_NEIGHBOR_VRF_IOS}
+
+
+def parse_neighbor_address(value: str) -> str:
+    """The canonical text of exactly one IPv4 or IPv6 address, else ``UnsupportedLearnError``.
+
+    No host names, prefixes, scope ids, spaces, pipes or command words can pass: the result is
+    rebuilt from the parsed address, never echoed from the input.
+    """
+    if not isinstance(value, str) or value != value.strip() or not value:
+        raise UnsupportedLearnError("The neighbour must be one IPv4 or IPv6 address.")
+    if not all(c in "0123456789abcdefABCDEF.:" for c in value):
+        raise UnsupportedLearnError("The neighbour must be one IPv4 or IPv6 address.")
+    try:
+        return str(ipaddress.ip_address(value))
+    except ValueError:
+        raise UnsupportedLearnError("The neighbour must be one IPv4 or IPv6 address.") from None
+
+
+def plan_bgp_neighbor(family: str | None, neighbor: str, vrf: str = DEFAULT_VRF) -> LearnPlan:
+    """The commands that read one BGP neighbour's policy and its prefix totals."""
+    table = _NEIGHBOR_TABLE if vrf == DEFAULT_VRF else _NEIGHBOR_VRF_TABLE
+    templates = table.get(family or "")
+    if templates is None:
+        raise UnsupportedLearnError(
+            "Feature learn is supported for Cisco IOS / IOS-XE only so far."
+        )
+    address = parse_neighbor_address(neighbor)
+    if vrf != DEFAULT_VRF:
+        _check_vrf(vrf)
+    return LearnPlan("bgp-neighbor", tuple(t.format(n=address, vrf=vrf) for t in templates))

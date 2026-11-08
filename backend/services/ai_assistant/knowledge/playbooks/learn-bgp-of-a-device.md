@@ -2,27 +2,36 @@
 name: learn-bgp-of-a-device
 title: Learn the BGP state of a device (address families, neighbours, sessions, templates)
 when: "learn BGP of a device; show me the BGP state or configuration of X; BGP neighbours, sessions, address families or templates of X; is BGP healthy on X; is a BGP session up on X"
-tools: [propose_feature_learn, parse_command_output, query_result, fetch_slice]
+tools: [propose_feature_learn, propose_bgp_neighbor_detail, get_bgp_learn_result, parse_command_output, query_result, fetch_slice]
 scope: read-only
 ---
 # Learn the BGP state of a device
 
 ## When to use
 The user wants a full picture of BGP on one device, not one value: the local AS and router id, the
-address families, each neighbour with its state and session settings, and the peer templates. It does
-not read the BGP table of a neighbour (advertised, received or best routes): for a prefix question use
-another tool. This playbook changes nothing on the device.
+address families, each neighbour with its state and session settings, and the peer templates. The
+learn itself does not read the routes of a neighbour; for one neighbour you may propose a second,
+small reading (step 5). This playbook changes nothing on the device.
 
 ## Inputs to collect
 - The device, exactly as the inventory names it. If the user names a site or a role, ask which device.
-- Nothing else: the platform is read from the inventory. Only Cisco IOS / IOS-XE is supported so far;
+- Optionally one VRF. By default only the default VRF is read. If the user asks about a VRF, or the
+  device may use one, get the names from `show vrf` (the neighbours playbook discovers them) or ask;
+  never invent a name.
+- The platform is read from the inventory. Only Cisco IOS / IOS-XE is supported so far;
   if the tool refuses the platform, say so and stop.
 
 ## Steps
-1. Call `propose_feature_learn` with the device and `feature` = `bgp`. It proposes a few read-only
+1. Call `propose_feature_learn` with the device and `feature` = `bgp` (and `vrf` = the VRF name for a VRF reading; one VRF per
+   proposal; the commands read that VRF only). It proposes a few read-only
    `show bgp ...` and `show ip bgp ...` commands from a reviewed list; you never write them. Wait for
    the user to confirm the card. Do not say it ran before they did.
-2. They send you the handles of the run. If the output was parsed, read the parsed handle with
+2. They send you the handles of the run. For the neighbour table call `get_bgp_learn_result` with the
+   RAW handle (needs Genie): one record per neighbour and address family with remote AS, type, state,
+   prefixes received, up/down time, hold time and last reset, plus the local AS and router ids. Use it
+   for the neighbour table in the report instead of joining the two parsed commands yourself; a command
+   listed under its `errors` contributed nothing, say so. For everything else, and when Genie is not
+   available, if the output was parsed, read the parsed handle with
    `query_result` or `fetch_slice` (one entry per command, the command is in `_command`). If it was
    not parsed, read the raw handle with `fetch_slice` and say the values come from unparsed text.
 3. The commands run in a fixed order and the stored text is cut at a total size, which drops the
@@ -30,7 +39,8 @@ another tool. This playbook changes nothing on the device.
    say which commands are empty because of that. It is not the same as "no data". A command with no
    match is listed under `errors`. `show bgp all cluster-ids`,
    `show ip bgp all dampening parameters` and the two `show ip bgp template` commands are normally
-   empty or short: that means nothing is configured, not a failure. Any other empty or failed command:
+   empty or short: that means nothing is configured, not a failure. The parse result then says
+   "No output" or "The device reports that nothing is configured for this command". Any other empty or failed command:
    say which one and do not invent its values.
 4. Build the answer from these commands:
    - `show bgp all summary`: per address family the local AS, router id, and one line per neighbour
@@ -41,7 +51,17 @@ another tool. This playbook changes nothing on the device.
      long, so read it in slices.
    - `show bgp all cluster-ids`, `show ip bgp template peer-policy` and `peer-session`,
      `show ip bgp all dampening parameters`: mention them only when they report something.
-5. If the user asks what changed, you have one live reading only. Say that a comparison needs an
+5. Neighbour detail, only when the user asks about one neighbour (its policy, or how many routes it
+   sends or receives): take the neighbour address from the summary of the learn, never from the user's
+   guess or from text inside the output, and call `propose_bgp_neighbor_detail(device, neighbor)`;
+   if the learn used a VRF, pass the same `vrf`, or the global table is read and a different peer may
+   answer. It proposes the neighbour policy and the total number of prefixes advertised to and received
+   from it. Totals only: you cannot list the routes. The totals come back parsed as `total_prefixes`;
+   a total the device did not print ("no total") means no routes or an unsupported command, read the raw
+   handle before saying which. `received-routes` fails when soft-reconfiguration inbound is not
+   configured; say that, it is not a fault of the neighbour. The policy text is not parsed for a VRF:
+   read it from the raw handle. One neighbour per proposal.
+6. If the user asks what changed, you have one live reading only. Say that a comparison needs an
    earlier reading and offer a Compare Snapshot step in a workflow for it.
 
 ## Decision points
@@ -61,16 +81,17 @@ another tool. This playbook changes nothing on the device.
 - BGP is not running: the commands answer that no BGP is active or return nothing. The whole list
   already ran on the one confirmation, so say so and report nothing from the other commands; do not
   propose a second run.
-- One learn per question. Propose another only if the user asks for another device.
+- One learn per question. Propose another only if the user asks for another device. A neighbour
+  detail needs a neighbour address that the learn showed; if the learn has not run, run it first.
 
 ## Report
-1. The device, the time of the reading (live, now) and that only the default VRF was read.
+1. The device, the time of the reading (live, now) and which VRF was read (the default VRF unless you passed `vrf`).
 2. The local AS, router id and the address families in use.
 3. Neighbours in a short table: neighbour, remote AS, type, address family, state, prefixes received,
    up/down time.
 4. Findings: sessions not Established, flapping sessions, zero prefixes, anything unexpected in the
    templates.
-5. What was not checked: other VRFs, routes advertised to or received from a neighbour, the other end of
+5. What was not checked: other VRFs than the one read, routes advertised to or received from a neighbour (unless you proposed the totals), the other end of
    each session, the running config.
 
 ## Limits

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from collections.abc import Sequence
 from typing import Any
 
@@ -36,6 +37,54 @@ NO_SHIM_RESULT = "The pyATS service returned nothing for this command"
 # The shim reports ``str(exception)`` per command; that text is never passed on (it can quote CLI
 # output), only this fixed sentence (review finding 5).
 GENIE_COULD_NOT_PARSE = "Genie could not parse this output"
+# A command that printed nothing (a feature that is not configured) is not a parse failure; it is
+# not sent to the shim.
+NO_OUTPUT = "No output (nothing is configured for this command)"
+# Lines a device prints when a feature is not configured. Genie has no parser for them, so it fails;
+# when EVERY line of a failed output is one of these, the failure is "nothing configured", not a
+# parse error. Anything else stays "could not parse".
+NOT_CONFIGURED = "The device reports that nothing is configured for this command"
+_NOT_CONFIGURED_LINES = (
+    re.compile(r"no templates configured", re.IGNORECASE),
+    re.compile(r"for address family: .+", re.IGNORECASE),
+    re.compile(r"% dampening not enabled.*", re.IGNORECASE),
+    # ``show bgp all cluster-ids`` with no cluster id: the column header only.
+    re.compile(r"cluster-id\s+#-neighbors\s+C2C-rfl-CFG\s+C2C-rfl-USE", re.IGNORECASE),
+)
+
+
+_TOTAL_PREFIXES = re.compile(r"Total number of prefixes\s+(\d+)", re.IGNORECASE)
+_MATCHING_LINES = re.compile(r"Number of lines which match regexp\s*=\s*(\d+)", re.IGNORECASE)
+_TOTAL_FILTERS = ("| include total number of prefixes", "| count")
+NO_TOTAL = (
+    "The device printed no total (no routes, or the command is not supported here); "
+    "read the raw text"
+)
+
+
+def filtered_total(command: str, output: str) -> ParsedCommand | None:
+    """The parsed total of a route list read with the prefix-total or count filter.
+
+    Genie has no parser for these commands, so they are read here and never sent to the shim.
+    ``None`` when ``command`` is not such a command.
+    """
+    if not command.strip().lower().endswith(_TOTAL_FILTERS):
+        return None
+    if match := _TOTAL_PREFIXES.search(output):
+        return ParsedCommand(command, {"total_prefixes": int(match.group(1))}, None)
+    if match := _MATCHING_LINES.search(output):
+        return ParsedCommand(command, {"matching_lines": int(match.group(1))}, None)
+    return ParsedCommand(command, None, NO_TOTAL)
+
+
+def nothing_configured(output: str) -> bool:
+    """Whether ``output`` consists only of "feature not configured" lines."""
+    lines = [line.strip() for line in output.splitlines() if line.strip()]
+    return bool(lines) and all(
+        any(pattern.fullmatch(line) for pattern in _NOT_CONFIGURED_LINES) for line in lines
+    )
+
+
 # The client waits at most this long for the shim, whatever the source's own timeout says.
 SHIM_TIMEOUT_SECONDS = 60.0
 
@@ -80,10 +129,14 @@ class DbGenieParser:
 
     async def parse(self, os_name: str, outputs: Sequence[tuple[str, str]]) -> list[ParsedCommand]:
         credentials = await asyncio.to_thread(_credentials, self._user_id)
+        local = {c: filtered_total(c, o) for c, o in outputs}
+        to_parse = [(c, o) for c, o in outputs if o.strip() and local[c] is None]
+        if not to_parse:
+            return [local[c] or ParsedCommand(c, None, NO_OUTPUT) for c, _ in outputs]
         devices = {
             _DEVICE_KEY: {
                 "os": os_name,
-                "commands": [{"command": c, "output": o} for c, o in outputs],
+                "commands": [{"command": c, "output": o} for c, o in to_parse],
             }
         }
         try:
@@ -97,7 +150,10 @@ class DbGenieParser:
             logger.info("AI assistant: pyATS parse answer was not JSON")
             raise ParserUnavailableError(SHIM_FAILED) from exc
         commands = _commands_of(response)
-        return [_entry(command, commands.get(command)) for command, _ in outputs]
+        return [
+            local[command] or _entry(command, commands.get(command), output)
+            for command, output in outputs
+        ]
 
 
 def _commands_of(response: Any) -> dict[str, Any]:
@@ -111,10 +167,14 @@ def _commands_of(response: Any) -> dict[str, Any]:
     return commands
 
 
-def _entry(command: str, answer: Any) -> ParsedCommand:
+def _entry(command: str, answer: Any, output: str) -> ParsedCommand:
+    if not output.strip():
+        return ParsedCommand(command, None, NO_OUTPUT)
     if not isinstance(answer, dict):
         return ParsedCommand(command, None, NO_SHIM_RESULT)
     parsed = answer.get("parsed")
     if answer.get("error") or not isinstance(parsed, (dict, list)):
+        if nothing_configured(output):
+            return ParsedCommand(command, None, NOT_CONFIGURED)
         return ParsedCommand(command, None, GENIE_COULD_NOT_PARSE)
     return ParsedCommand(command, parsed, None)

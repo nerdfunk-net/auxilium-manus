@@ -90,8 +90,10 @@ def test_known_general_tool_names_cover_the_batfish_result_and_playbook_tools() 
         "propose_device_command",
         "propose_neighbor_discovery",
         "propose_feature_learn",
+        "propose_bgp_neighbor_detail",
     }
     assert {"get_discovery_result", "get_modelled_neighbors", "get_neighbor_sources"} <= names
+    assert "get_bgp_learn_result" in names
 
 
 def test_known_general_tool_names_cover_the_device_name_bridge() -> None:

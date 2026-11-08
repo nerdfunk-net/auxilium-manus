@@ -22,10 +22,12 @@ from services.ai_assistant.command_policy import MAX_COMMANDS, MAX_SIGNED_COMMAN
 from services.ai_assistant.data_sharing import DataClass
 from services.ai_assistant.device_access import (
     DEVICE_DRIVERS,
+    LONG_READ_TIMEOUT_SECONDS,
     DeviceCommandOutput,
     DeviceCommandRunner,
     DeviceResolver,
     driver_known,
+    long_command_count,
 )
 from services.ai_assistant.device_token import (
     DeviceCommandGrant,
@@ -58,6 +60,9 @@ MAX_RAW_CHARS = 2_000_000
 # ``EXTRA_SECONDS_PER_COMMAND`` for each command beyond five.
 RUN_TIMEOUT_SECONDS = 300
 EXTRA_SECONDS_PER_COMMAND = 20
+# A run of long-read commands (BGP tables, databases) may take up to this long in all.
+MAX_RUN_TIMEOUT_SECONDS = 600
+CONNECT_SLACK_SECONDS = 60
 # One person may have this many runs open at once (a run holds an SSH session). Counted in this
 # process; the per-minute rate limit on the route is the cross-process bound.
 MAX_RUNS_PER_USER = 2
@@ -108,10 +113,17 @@ def _cut(text: str, limit: int) -> str:
     return head[:newline] if newline > limit // 2 else head
 
 
-def run_budget_seconds(command_count: int) -> float:
-    """The time one run may take: the base budget plus a little for each command beyond five."""
+def run_budget_seconds(command_count: int, long_count: int = 0) -> float:
+    """The time one run may take.
+
+    The base budget plus a little for each command beyond five, but never less than every
+    long-read command needs at its own read timeout (plus connect time), so the whole run does not
+    time out while a command is still inside its read timeout and the output already collected is
+    thrown away. Capped at ``MAX_RUN_TIMEOUT_SECONDS``.
+    """
     extra = max(0, command_count - MAX_COMMANDS) * EXTRA_SECONDS_PER_COMMAND
-    return RUN_TIMEOUT_SECONDS + extra
+    needed = long_count * LONG_READ_TIMEOUT_SECONDS + CONNECT_SLACK_SECONDS
+    return min(max(RUN_TIMEOUT_SECONDS + extra, needed), MAX_RUN_TIMEOUT_SECONDS)
 
 
 def _shape_blocks(
@@ -228,7 +240,7 @@ class DeviceCommandExecutor:
         # The user's device type choice is only for a device whose platform the inventory does not
         # map (the card asks only then); a known driver is never replaced.
         chosen_driver = None if driver_known(device) else network_driver
-        budget = run_budget_seconds(len(commands))
+        budget = run_budget_seconds(len(commands), long_command_count(commands))
         try:
             raw = await asyncio.wait_for(
                 self._runner.run(

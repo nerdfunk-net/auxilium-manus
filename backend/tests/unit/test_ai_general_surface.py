@@ -205,6 +205,7 @@ def test_with_a_resolver_the_session_offers_exactly_the_three_proposal_tools() -
         "propose_device_command",
         "propose_neighbor_discovery",
         "propose_feature_learn",
+        "propose_bgp_neighbor_detail",
     ]
     assert not [n for n in names if n.startswith(("run", "trigger", "execute", "start", "delete"))]
     assert "propose_device_command" in session.system

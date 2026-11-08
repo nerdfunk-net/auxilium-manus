@@ -55,6 +55,7 @@ def known_general_tool_names() -> frozenset[str]:
     """Every tool name the ``general`` surface can offer; playbooks are validated against it."""
     from services.ai_assistant.tools.aci_tools import build_aci_tools
     from services.ai_assistant.tools.batfish_tools import build_batfish_tools
+    from services.ai_assistant.tools.bgp_learn_tools import build_bgp_learn_tools
     from services.ai_assistant.tools.catalyst_center_tools import build_catalyst_center_tools
     from services.ai_assistant.tools.client_data_tools import build_client_data_tools
     from services.ai_assistant.tools.config_backup_tools import build_config_backup_tools
@@ -77,6 +78,7 @@ def known_general_tool_names() -> frozenset[str]:
             *build_output_parse_tools(),
             *build_neighbor_tools(),
             *build_learn_tools(),
+            *build_bgp_learn_tools(),
             *build_device_name_tools(),
             *build_config_backup_tools(),
             *build_nautobot_tools(),

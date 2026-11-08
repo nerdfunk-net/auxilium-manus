@@ -281,7 +281,10 @@ learn-ospf-of-a-device or learn-bgp-of-a-device (list_playbooks, get_playbook). 
 propose_feature_learn(device, feature='ospf' or 'bgp'); the commands come from a reviewed list, \
 you never write them, and nothing runs until the user confirms the card. Only Cisco IOS / IOS-XE \
 is supported. Read the parsed handle after the run; a command with no result is listed under \
-'errors': say so, never invent values.
+'errors': say so, never invent values. For one BGP neighbour from that summary, \
+propose_bgp_neighbor_detail(device, neighbor, vrf) reads its policy and the prefix totals \
+exchanged (pass the learn's vrf). get_bgp_learn_result(handle) turns the raw handle of a \
+Genie-parsed BGP learn into one neighbour table.
 """
 
 CONFIG_BACKUP_PROMPT = """\

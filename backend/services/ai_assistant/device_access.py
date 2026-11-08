@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import ipaddress
 import logging
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any, Protocol
 
@@ -47,7 +48,21 @@ _LONG_COMMANDS = (
     "show ip ospf database",
     "show bgp all",
     "show ip bgp all",
+    "show bgp vrf",
+    "show bgp ipv4 unicast vrf",
+    "show bgp ipv6 unicast vrf",
 )
+
+
+# The per-command read timeout a long command gets (the run budget is derived from it).
+LONG_READ_TIMEOUT_SECONDS = DEFAULT_CONFIG_READ_TIMEOUT
+
+
+def long_command_count(commands: Sequence[str]) -> int:
+    """How many of ``commands`` get the long read timeout."""
+    return sum(1 for c in commands if c.lower().startswith(_LONG_COMMANDS))
+
+
 # The device types the user may pick when the inventory's platform is not recognised: exactly the
 # Netmiko device types this app maps platform names to (pinned by a test).
 DEVICE_DRIVERS = (
@@ -296,7 +311,7 @@ class DbDeviceCommandRunner:
             commands=commands,
             use_textfsm=False,
         )
-        long = any(c.lower().startswith(_LONG_COMMANDS) for c in commands)
+        long = long_command_count(commands) > 0
         with SessionLocal() as db:
             service = NetmikoPreviewService(CredentialsService(db))
             try:
@@ -304,7 +319,7 @@ class DbDeviceCommandRunner:
                     request,
                     acting_user_id=user_id,
                     host_from_inventory=True,
-                    read_timeout=DEFAULT_CONFIG_READ_TIMEOUT if long else None,
+                    read_timeout=LONG_READ_TIMEOUT_SECONDS if long else None,
                 )
             except UnsupportedPlatformError as exc:
                 raise DeviceUnsupportedPlatformError from exc

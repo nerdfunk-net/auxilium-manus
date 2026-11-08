@@ -266,3 +266,159 @@ def test_a_200_that_is_not_json_is_unavailable(patches) -> None:
         _run(gp.DbGenieParser(user_id=5))
 
     assert str(raised.value) == gp.SHIM_FAILED
+
+
+def test_empty_output_is_reported_as_no_output_and_not_sent_to_the_shim(patches) -> None:
+    shim = MagicMock()
+    shim.parse_batch = AsyncMock(
+        return_value={
+            "results": {
+                "device": {"commands": {"show version": {"parsed": {"v": 1}, "error": None}}}
+            }
+        }
+    )
+    patches(shim=shim)
+
+    result = asyncio.run(
+        gp.DbGenieParser(7).parse(
+            "iosxe", [("show version", "raw"), ("show bgp all cluster-ids", "  \n")]
+        )
+    )
+
+    assert result == [
+        ParsedCommand("show version", {"v": 1}, None),
+        ParsedCommand("show bgp all cluster-ids", None, gp.NO_OUTPUT),
+    ]
+    sent = shim.parse_batch.call_args.kwargs["devices"]["device"]["commands"]
+    assert [c["command"] for c in sent] == ["show version"]
+
+
+def test_only_empty_outputs_never_call_the_shim(patches) -> None:
+    shim = MagicMock()
+    shim.parse_batch = AsyncMock()
+    patches(shim=shim)
+
+    result = asyncio.run(gp.DbGenieParser(7).parse("iosxe", [("show x", "")]))
+
+    assert result == [ParsedCommand("show x", None, gp.NO_OUTPUT)]
+    shim.parse_batch.assert_not_called()
+
+
+_DAMPENING = (
+    "For address family: IPv4 Unicast\n\n% dampening not enabled for base\n\n"
+    "For address family: L2VPN E-VPN\n\n% dampening not enabled for base\n"
+)
+
+
+@pytest.mark.parametrize(
+    "output",
+    [
+        "No templates configured",
+        _DAMPENING,
+        "Cluster-id     #-neighbors C2C-rfl-CFG C2C-rfl-USE",
+    ],
+)
+def test_nothing_configured_messages_are_recognised(output: str) -> None:
+    assert gp.nothing_configured(output)
+
+
+@pytest.mark.parametrize(
+    "output",
+    ["", "   \n", "No templates configured\nTemplate peer-policy X", "% Invalid input", "x"],
+)
+def test_other_text_is_not_nothing_configured(output: str) -> None:
+    assert not gp.nothing_configured(output)
+
+
+def test_failed_parse_of_a_nothing_configured_output_gets_the_clear_message(patches) -> None:
+    shim = MagicMock()
+    shim.parse_batch = AsyncMock(
+        return_value={
+            "results": {
+                "device": {
+                    "commands": {
+                        "show ip bgp template peer-policy": {"parsed": None, "error": "boom"},
+                        "show bad": {"parsed": None, "error": "boom"},
+                    }
+                }
+            }
+        }
+    )
+    patches(shim=shim)
+
+    result = asyncio.run(
+        gp.DbGenieParser(7).parse(
+            "iosxe",
+            [("show ip bgp template peer-policy", "No templates configured"), ("show bad", "junk")],
+        )
+    )
+
+    assert [r.error for r in result] == [gp.NOT_CONFIGURED, gp.GENIE_COULD_NOT_PARSE]
+
+
+def test_a_real_parse_wins_over_the_nothing_configured_check(patches) -> None:
+    shim = MagicMock()
+    shim.parse_batch = AsyncMock(
+        return_value={
+            "results": {"device": {"commands": {"show x": {"parsed": {"a": 1}, "error": None}}}}
+        }
+    )
+    patches(shim=shim)
+
+    result = asyncio.run(
+        gp.DbGenieParser(7).parse("iosxe", [("show x", "No templates configured")])
+    )
+
+    assert result == [ParsedCommand("show x", {"a": 1}, None)]
+
+
+_TOTAL_CMD = "show bgp all neighbors 192.0.2.1 advertised-routes | include Total number of prefixes"
+
+
+def test_prefix_total_is_read_locally_and_never_sent_to_the_shim(patches) -> None:
+    shim = MagicMock()
+    shim.parse_batch = AsyncMock(
+        return_value={
+            "results": {"device": {"commands": {"show x": {"parsed": {"v": 1}, "error": None}}}}
+        }
+    )
+    patches(shim=shim)
+
+    result = asyncio.run(
+        gp.DbGenieParser(7).parse(
+            "iosxe",
+            [
+                ("show x", "raw"),
+                (_TOTAL_CMD, "Total number of prefixes 3 \n"),
+                (
+                    "show bgp all neighbors 192.0.2.1 received-routes | count",
+                    "Number of lines which match regexp = 9",
+                ),
+                ("show y | include Total number of prefixes", ""),
+            ],
+        )
+    )
+
+    assert result[0] == ParsedCommand("show x", {"v": 1}, None)
+    assert result[1] == ParsedCommand(_TOTAL_CMD, {"total_prefixes": 3}, None)
+    assert result[2].parsed == {"matching_lines": 9}
+    assert result[3].error == gp.NO_TOTAL  # no total printed: not "nothing configured"
+    sent = shim.parse_batch.call_args.kwargs["devices"]["device"]["commands"]
+    assert [c["command"] for c in sent] == ["show x"]
+
+
+def test_only_filtered_totals_never_call_the_shim(patches) -> None:
+    shim = MagicMock()
+    shim.parse_batch = AsyncMock()
+    patches(shim=shim)
+
+    result = asyncio.run(
+        gp.DbGenieParser(7).parse("iosxe", [(_TOTAL_CMD, "Total number of prefixes 0")])
+    )
+
+    assert result[0].parsed == {"total_prefixes": 0}
+    shim.parse_batch.assert_not_called()
+
+
+def test_other_commands_are_not_treated_as_totals() -> None:
+    assert gp.filtered_total("show version", "Total number of prefixes 3") is None

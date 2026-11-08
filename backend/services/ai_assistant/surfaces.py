@@ -57,6 +57,7 @@ from services.ai_assistant.tools.batfish_tools import (
     BatfishReader,
     build_batfish_tools,
 )
+from services.ai_assistant.tools.bgp_learn_tools import build_bgp_learn_tools
 from services.ai_assistant.tools.catalyst_center_tools import (
     CATALYST_READER_KEY,
     CatalystReader,
@@ -395,6 +396,9 @@ def build_general_session(
                 tools.extend(build_output_parse_tools())
             if genie_parser is not None:
                 extras[GENIE_PARSER_KEY] = genie_parser
+                if store is not None:
+                    # The merged BGP neighbour table needs Genie and the result store.
+                    tools.extend(build_bgp_learn_tools())
         # Backed-up configs from git (plan AI_CONFIG_FROM_GIT): content, so the router passes the
         # reader only with the opt-in and the repository read permission.
         if config_reader is not None:
