@@ -19,6 +19,7 @@ from sqlalchemy import (
     Boolean,
     Integer,
     Select,
+    String,
     and_,
     case,
     cast,
@@ -26,6 +27,7 @@ from sqlalchemy import (
     literal,
     null,
     nulls_last,
+    or_,
     select,
     union_all,
 )
@@ -37,6 +39,8 @@ from core.models.client_data import (
     ClientHostname,
     ClientIpAddress,
     ClientMacAddress,
+    ClientPortNeighbor,
+    table_was_read,
 )
 
 _LIKE_ESCAPE = "\\"
@@ -92,9 +96,10 @@ def _iso(value: datetime | None) -> str | None:
 def _latest_collections(table: str | None = None) -> Any:
     """Subquery ``(session_id, device_name)``: each device's newest collection.
 
-    With ``table`` ("arp" or "mac") only collections that read that table count, so a later run
-    that left it out (status ``skipped``) does not hide its rows. ``not_supported`` and an empty
-    table are observations and do supersede.
+    With ``table`` ("arp", "mac" or "neighbor") only collections that read that table count, so a
+    later run that left it out (status ``skipped``), or whose output was not a table
+    (``no_template``), does not hide its rows. ``not_supported`` and an empty table are
+    observations and do supersede.
     """
     c = ClientDataCollection
     stmt = select(
@@ -105,7 +110,7 @@ def _latest_collections(table: str | None = None) -> Any:
         .label("rn"),
     )
     if table is not None:
-        stmt = stmt.where(getattr(c, f"{table}_status") != "skipped")
+        stmt = stmt.where(table_was_read(getattr(c, f"{table}_status")))
     ranked = stmt.subquery(f"collection_ranked_{table or 'any'}")
     return (
         select(ranked.c.session_id, ranked.c.device_name)
@@ -152,9 +157,13 @@ def _combined(uplink_threshold: int) -> Any:
       MAC and VLAN. Without one it falls back to an IP seen by any device for that MAC in the
       same VLAN, or in no known VLAN (a routed interface); only a MAC without a VLAN takes any
       IP. An IP seen in another VLAN is never attributed to the MAC.
-    * ``macs_on_port`` counts the distinct MACs the device learned on that port; above the threshold
-      the port is an ``is_uplink``. Per MAC, the MAC-table observation on the port with the fewest
-      MACs (ties: device name, port) is the ``likely_location``, unless that port is an uplink.
+    * ``macs_on_port`` counts the distinct MACs the device learned on that port. A port is an
+      ``is_uplink`` when it has an infrastructure neighbour (a bridge, router or access point seen
+      through LLDP/CDP, also through its port-channel; ``uplink_reason`` "neighbor",
+      ``uplink_to`` the neighbour) or when it learned more MACs than the threshold
+      (``uplink_reason`` "mac_count").
+      Per MAC, the MAC-table observation on a non-uplink port with the fewest MACs (ties: device
+      name, port) is the ``likely_location``.
     * An ARP entry that no MAC-table entry of its device matches is an observation of its own
       (port = the ARP interface), so an L3 device without a MAC table still shows its ARP.
 
@@ -162,6 +171,7 @@ def _combined(uplink_threshold: int) -> Any:
     """
     latest_mac = _latest_collections("mac")
     latest_arp = _latest_collections("arp")
+    latest_neighbor = _latest_collections("neighbor")
     mac = ClientMacAddress
     ip = ClientIpAddress
     mac_entries = _newest(
@@ -231,6 +241,40 @@ def _combined(uplink_threshold: int) -> Any:
         .group_by(mac.device_name, mac.port)
         .cte("port_macs")
     )
+    nb = ClientPortNeighbor
+    current_neighbors = (
+        select(nb.device_name, nb.port, nb.is_infrastructure, nb.neighbor_name)
+        .select_from(nb)
+        .join(
+            latest_neighbor,
+            and_(
+                nb.session_id == latest_neighbor.c.session_id,
+                nb.device_name == latest_neighbor.c.device_name,
+            ),
+        )
+    )
+    # A neighbour on a member port also makes the port-channel an uplink: the MAC table shows the
+    # bundle (Po1), LLDP and CDP the member (Gi1/0/48).
+    via_channel = current_neighbors.with_only_columns(
+        nb.device_name,
+        nb.channel.label("port"),
+        nb.is_infrastructure,
+        nb.neighbor_name,
+    ).where(nb.channel.is_not(None))
+    neighbor_ports = union_all(current_neighbors, via_channel).subquery("neighbor_ports")
+    port_infra = (
+        select(
+            neighbor_ports.c.device_name,
+            neighbor_ports.c.port,
+            func.max(case((neighbor_ports.c.is_infrastructure, 1), else_=0)).label("infra"),
+            # The neighbour behind the port; the lowest name when there are several.
+            func.min(
+                case((neighbor_ports.c.is_infrastructure, neighbor_ports.c.neighbor_name))
+            ).label("uplink_to"),
+        )
+        .group_by(neighbor_ports.c.device_name, neighbor_ports.c.port)
+        .cte("port_infra")
+    )
     hostnames = _newest(
         "hostname_for_ip",
         ClientHostname,
@@ -255,6 +299,8 @@ def _combined(uplink_threshold: int) -> Any:
             mac_entries.c.session_id,
             mac_entries.c.collected_at,
             port_macs.c.macs_on_port,
+            port_infra.c.infra.label("neighbor_infra"),
+            port_infra.c.uplink_to,
             # The IP can come from another ARP collection than the port: it has its own age.
             case(
                 (arp_entries.c.ip_address.is_not(None), arp_entries.c.collected_at),
@@ -270,6 +316,13 @@ def _combined(uplink_threshold: int) -> Any:
             and_(
                 port_macs.c.device_name == mac_entries.c.device_name,
                 port_macs.c.port == mac_entries.c.port,
+            ),
+        )
+        .outerjoin(
+            port_infra,
+            and_(
+                port_infra.c.device_name == mac_entries.c.device_name,
+                port_infra.c.port == mac_entries.c.port,
             ),
         )
         .outerjoin(
@@ -307,6 +360,8 @@ def _combined(uplink_threshold: int) -> Any:
             arp_entries.c.session_id,
             arp_entries.c.collected_at,
             cast(null(), Integer).label("macs_on_port"),
+            cast(null(), Integer).label("neighbor_infra"),
+            cast(null(), String).label("uplink_to"),
             arp_entries.c.collected_at.label("ip_collected_at"),
         )
         .select_from(arp_entries)
@@ -322,6 +377,8 @@ def _combined(uplink_threshold: int) -> Any:
     )
     observations = union_all(from_mac_table, unmatched_arp).cte("observations")
     no_port_stats = observations.c.macs_on_port.is_(None)
+    behind_neighbor = func.coalesce(observations.c.neighbor_infra, 0) == 1
+    is_uplink_port = or_(observations.c.macs_on_port > literal(uplink_threshold), behind_neighbor)
     ranked = (
         select(
             observations.c.mac_address,
@@ -334,6 +391,8 @@ def _combined(uplink_threshold: int) -> Any:
             observations.c.session_id,
             observations.c.collected_at,
             observations.c.macs_on_port,
+            observations.c.neighbor_infra,
+            observations.c.uplink_to,
             observations.c.ip_collected_at,
             func.row_number()
             .over(
@@ -341,6 +400,8 @@ def _combined(uplink_threshold: int) -> Any:
                 partition_by=(observations.c.mac_address, no_port_stats),
                 # Fully ordered, so equal scores pick the same row every time.
                 order_by=(
+                    # An uplink never beats an access port, however few MACs it has learned.
+                    case((is_uplink_port, 1), else_=0),
                     observations.c.macs_on_port,
                     observations.c.device_name,
                     observations.c.port,
@@ -355,7 +416,9 @@ def _combined(uplink_threshold: int) -> Any:
         .outerjoin(hostnames, observations.c.ip_address == hostnames.c.ip_address)
         .cte("ranked")
     )
-    uplink = ranked.c.macs_on_port > literal(uplink_threshold)
+    behind_neighbor = func.coalesce(ranked.c.neighbor_infra, 0) == 1
+    over_count = ranked.c.macs_on_port > literal(uplink_threshold)
+    uplink = or_(over_count, behind_neighbor)
     return (
         select(
             ranked.c.mac_address,
@@ -370,6 +433,12 @@ def _combined(uplink_threshold: int) -> Any:
             ranked.c.macs_on_port,
             ranked.c.ip_collected_at,
             case((uplink, True), else_=False).cast(Boolean).label("is_uplink"),
+            # Why: a switch, router or access point seen through LLDP/CDP is more certain than
+            # the number of MACs.
+            case((behind_neighbor, "neighbor"), (over_count, "mac_count"), else_=None).label(
+                "uplink_reason"
+            ),
+            case((behind_neighbor, ranked.c.uplink_to), else_=None).label("uplink_to"),
             case(
                 (and_(ranked.c.macs_on_port.is_not(None), ranked.c.port_rank == 1, ~uplink), True),
                 else_=False,
@@ -477,6 +546,8 @@ class ClientDataQueryRepository:
                 "macs_on_port": row.macs_on_port,
                 "ip_collected_at": _iso(row.ip_collected_at) if row.ip_address else None,
                 "is_uplink": bool(row.is_uplink),
+                "uplink_reason": row.uplink_reason,
+                "uplink_to": row.uplink_to,
                 "likely_location": bool(row.likely_location),
                 "session_id": row.session_id,
                 "collected_at": _iso(row.collected_at),
@@ -492,12 +563,15 @@ class ClientDataQueryRepository:
         table was last read (``skipped`` and ``None`` when it never was). VRF discovery belongs to
         the ARP collection.
         """
-        by_table = {table: self._latest_rows(table) for table in ("arp", "mac")}
+        by_table = {table: self._latest_rows(table) for table in ("arp", "mac", "neighbor")}
         coverage: list[dict[str, Any]] = []
-        for device in sorted(set(by_table["arp"]) | set(by_table["mac"])):
+        for device in sorted(
+            set(by_table["arp"]) | set(by_table["mac"]) | set(by_table["neighbor"])
+        ):
             arp = by_table["arp"].get(device)
             mac = by_table["mac"].get(device)
-            stamps = [row.collected_at for row in (arp, mac) if row is not None]
+            neighbor = by_table["neighbor"].get(device)
+            stamps = [row.collected_at for row in (arp, mac, neighbor) if row is not None]
             coverage.append(
                 {
                     "device_name": device,
@@ -511,6 +585,9 @@ class ClientDataQueryRepository:
                     "vrfs": arp.vrfs if arp else None,
                     "arp_rows": arp.arp_rows if arp else 0,
                     "mac_rows": mac.mac_rows if mac else 0,
+                    "neighbor_collected_at": _iso(neighbor.collected_at) if neighbor else None,
+                    "neighbor_status": neighbor.neighbor_status if neighbor else "skipped",
+                    "neighbor_rows": neighbor.neighbor_rows if neighbor else 0,
                 }
             )
         return coverage

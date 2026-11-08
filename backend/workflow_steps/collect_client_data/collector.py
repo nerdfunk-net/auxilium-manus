@@ -17,6 +17,7 @@ from models.client_data import (
     ClientCollectionStatus,
     ClientIpRow,
     ClientMacRow,
+    ClientNeighborRow,
     CollectionStatus,
     TooManyRowsError,
     VrfResult,
@@ -27,9 +28,13 @@ from services.network.netmiko.connection import CommandResult
 from services.network.netmiko.service import NetmikoService
 from workflow_steps.collect_client_data.commands import (
     CMD_ARP,
+    CMD_CDP,
+    CMD_LLDP,
     CMD_MAC_TABLE,
     CMD_VRF_LIST,
+    NEIGHBOR_COMMANDS,
     arp_in_vrf,
+    channel_command,
 )
 from workflow_steps.collect_client_data.options import CollectOptions
 from workflow_steps.collect_client_data.parsing import (
@@ -37,9 +42,13 @@ from workflow_steps.collect_client_data.parsing import (
     STATUS_NOT_SUPPORTED,
     STATUS_OK,
     STATUS_SKIPPED,
+    NeighborEntry,
     classify_output,
+    combine_neighbor_statuses,
     parse_arp,
+    parse_channels,
     parse_mac_table,
+    parse_neighbors,
     parse_vrf_names,
 )
 
@@ -73,9 +82,10 @@ class DeviceCollection:
     mac_rows: tuple[ClientMacRow, ...]
     status: ClientCollectionStatus
     vrfs: tuple[str, ...]
+    neighbor_rows: tuple[ClientNeighborRow, ...] = ()
 
 
-def phase_one_commands(options: CollectOptions) -> list[str]:
+def phase_one_commands(options: CollectOptions, device_type: str = "cisco_ios") -> list[str]:
     commands: list[str] = []
     if options.collect_vrfs:
         commands.append(CMD_VRF_LIST)
@@ -83,6 +93,9 @@ def phase_one_commands(options: CollectOptions) -> list[str]:
         commands.append(CMD_ARP)
     if options.collect_mac_address:
         commands.append(CMD_MAC_TABLE)
+    if options.collect_neighbors:
+        # LLDP and CDP, and the port-channels that map member ports to their bundle.
+        commands.extend([*NEIGHBOR_COMMANDS, channel_command(device_type)])
     return commands
 
 
@@ -151,6 +164,43 @@ async def _collect_vrf_arp(
     return rows, results
 
 
+def _collect_neighbors(
+    outputs: dict[str, str], device_type: str
+) -> tuple[CollectionStatus, list[ClientNeighborRow]]:
+    """LLDP and CDP neighbours of the ports, each with the port-channel its port belongs to.
+
+    Neighbour data only sharpens the uplink guess, so it never fails the device: output that is
+    not a table gives status ``no_template`` and no rows (and the older neighbours stay current).
+    """
+    statuses: list[CollectionStatus] = []
+    entries: list[NeighborEntry] = []
+    for command, protocol in ((CMD_LLDP, "lldp"), (CMD_CDP, "cdp")):
+        status, raw_rows = _classify(outputs, command, device_type)
+        statuses.append(status)
+        if status == STATUS_OK:
+            entries.extend(parse_neighbors(raw_rows, protocol, device_type))
+    combined = combine_neighbor_statuses(tuple(statuses))
+    if combined != STATUS_OK:
+        return combined, []
+    channel_status, raw_channels = _classify(outputs, channel_command(device_type), device_type)
+    channels = parse_channels(raw_channels, device_type) if channel_status == STATUS_OK else {}
+    if channel_status != STATUS_OK:
+        logger.debug("port-channel table not usable status=%s", channel_status)
+    rows = [
+        ClientNeighborRow(
+            port=entry.port,
+            channel=channels.get(entry.port),
+            neighbor_name=entry.neighbor_name,
+            neighbor_port=entry.neighbor_port,
+            protocol=entry.protocol,  # type: ignore[arg-type]
+            capabilities=",".join(entry.capabilities),
+            is_infrastructure=entry.is_infrastructure,
+        )
+        for entry in entries
+    ]
+    return combined, rows
+
+
 def _to_ip_rows(raw_rows: list[dict[str, Any]], vrf: str | None) -> list[ClientIpRow]:
     return [
         ClientIpRow(
@@ -192,10 +242,10 @@ def _require_something(
         )
 
 
-def _enforce_row_cap(ip_count: int, mac_count: int, max_rows: int) -> None:
+def _enforce_row_cap(ip_count: int, mac_count: int, max_rows: int, neighbor_count: int = 0) -> None:
     """Fail the device before DNS and storage when a table is above the cap."""
     try:
-        check_row_cap(ip_count, mac_count, max_rows)
+        check_row_cap(ip_count, mac_count, max_rows, neighbor_count)
     except TooManyRowsError as exc:
         raise CollectionError(
             "too_many_rows",
@@ -212,7 +262,7 @@ async def collect_from_device(
 
     A table above *max_rows* fails the device (``too_many_rows``) before any DNS lookup.
     """
-    first = await _send(netmiko, target, phase_one_commands(options), options)
+    first = await _send(netmiko, target, phase_one_commands(options, target.device_type), options)
     outputs = first.command_outputs
 
     arp_status: CollectionStatus = STATUS_SKIPPED
@@ -241,6 +291,11 @@ async def collect_from_device(
             # Found but not (yet) read; replaced below when the per-VRF ARP runs.
             vrf_results = [VrfResult(name=name, status=STATUS_SKIPPED) for name in vrfs]
 
+    neighbor_status: CollectionStatus = STATUS_SKIPPED
+    neighbor_rows: list[ClientNeighborRow] = []
+    if options.collect_neighbors:
+        neighbor_status, neighbor_rows = _collect_neighbors(outputs, target.device_type)
+
     _require_something(options, arp_status, mac_status)
 
     if vrfs and arp_status == STATUS_OK:
@@ -249,7 +304,7 @@ async def collect_from_device(
         )
         ip_rows.extend(vrf_rows)
 
-    _enforce_row_cap(len(ip_rows), len(mac_rows), max_rows)
+    _enforce_row_cap(len(ip_rows), len(mac_rows), max_rows, len(neighbor_rows))
 
     logger.info(
         "collected client data arp=%s mac=%s vrf=%s ip_rows=%d mac_rows=%d vrfs=%d",
@@ -269,6 +324,8 @@ async def collect_from_device(
             vrf_status=vrf_status,
             vrf_count=len(vrfs),
             vrfs=vrf_results,
+            neighbor_status=neighbor_status,
         ),
         vrfs=tuple(vrfs),
+        neighbor_rows=tuple(neighbor_rows),
     )

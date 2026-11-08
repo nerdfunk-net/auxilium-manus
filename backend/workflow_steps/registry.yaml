@@ -6294,6 +6294,18 @@ plugins:
           data_type: boolean
           required: false
           default: false
+        - name: collect_neighbors
+          description: >
+            Also read the LLDP and CDP neighbours of the ports (show lldp neighbors detail, show
+            cdp neighbors detail) and the port-channels (show etherchannel summary, show
+            port-channel summary on NX-OS). A port with a switch, router or wireless access
+            point behind it is then an uplink, instead of a guess from the number of MACs, and a
+            port-channel counts as one port. A device without LLDP or CDP is recorded as not
+            supported, never failed; output that is not a table stores no neighbours and keeps
+            the older ones. Off by default.
+          data_type: boolean
+          required: false
+          default: false
         - name: dns_timeout_seconds
           description: >
             Seconds to wait for each reverse DNS answer (0.1-30). An address that times out

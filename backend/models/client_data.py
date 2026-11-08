@@ -84,6 +84,16 @@ class ClientHostnameRow(_Row):
         return _check_ip(value)
 
 
+class ClientNeighborRow(_Row):
+    port: Annotated[str, _fit(255)]
+    channel: Interface = None
+    neighbor_name: Annotated[str | None, _fit(255)] = None
+    neighbor_port: Annotated[str | None, _fit(255)] = None
+    protocol: Literal["lldp", "cdp"]
+    capabilities: Annotated[str, _fit(100)] = ""
+    is_infrastructure: bool = False
+
+
 class TooManyRowsError(Exception):
     """One device's table has more rows than ``CLIENT_DATA_MAX_ROWS_PER_TABLE`` allows."""
 
@@ -93,12 +103,14 @@ class TooManyRowsError(Exception):
         self.limit = limit
 
 
-def check_row_cap(ip_count: int, mac_count: int, limit: int) -> None:
-    """Raise ``TooManyRowsError`` when either table is above *limit* (equal is allowed)."""
+def check_row_cap(ip_count: int, mac_count: int, limit: int, neighbor_count: int = 0) -> None:
+    """Raise ``TooManyRowsError`` when a table is above *limit* (equal is allowed)."""
     if ip_count > limit:
         raise TooManyRowsError("ARP", limit)
     if mac_count > limit:
         raise TooManyRowsError("MAC", limit)
+    if neighbor_count > limit:
+        raise TooManyRowsError("neighbour", limit)
 
 
 class CollectionConflictError(Exception):
@@ -130,6 +142,7 @@ class ClientCollectionStatus(_Row):
     arp_status: CollectionStatus = "skipped"
     mac_status: CollectionStatus = "skipped"
     vrf_status: CollectionStatus = "skipped"
+    neighbor_status: CollectionStatus = "skipped"
     vrf_count: int = 0
     # None = VRF discovery did not give a list (switched off, refused): unknown, not "no VRFs".
     vrfs: list[VrfResult] | None = None

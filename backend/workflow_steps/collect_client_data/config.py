@@ -10,6 +10,7 @@ def get_config() -> dict:
         "collect_mac_address": True,
         "collect_vrfs": True,
         "collect_hostname": False,
+        "collect_neighbors": False,
         "dns_timeout_seconds": 2,
         "dns_concurrency": 20,
         "network_driver_override": "",

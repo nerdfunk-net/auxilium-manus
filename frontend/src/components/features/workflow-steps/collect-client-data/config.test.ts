@@ -39,7 +39,19 @@ describe("buildCollectClientDataConfig", () => {
       collect_mac_address: true,
       collect_vrfs: true,
       collect_hostname: false,
+      collect_neighbors: false,
     });
+  });
+
+  it("keeps the neighbour switch as given and independent of the other tables", () => {
+    expect(buildCollectClientDataConfig({}, { collect_neighbors: true }).collect_neighbors).toBe(
+      true,
+    );
+    const built = buildCollectClientDataConfig(
+      { collect_neighbors: true },
+      { collect_ip_address: false },
+    );
+    expect(built.collect_neighbors).toBe(true);
   });
 
   it("keeps MAC on when the last other table is switched off", () => {

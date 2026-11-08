@@ -8,6 +8,7 @@ from core.models.client_data import (
     ClientHostname,
     ClientIpAddress,
     ClientMacAddress,
+    ClientPortNeighbor,
 )
 from core.models.credentials import Credential
 from core.models.device_data_records import DeviceDataRecord
@@ -44,6 +45,7 @@ __all__ = [
     "ClientHostname",
     "ClientIpAddress",
     "ClientMacAddress",
+    "ClientPortNeighbor",
     "Credential",
     "DeviceDataRecord",
     "ReportDataRecord",

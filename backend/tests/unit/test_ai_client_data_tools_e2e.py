@@ -9,7 +9,7 @@ from typing import Any
 import pytest
 from sqlalchemy.orm import Session
 
-from models.client_data import ClientMacRow
+from models.client_data import ClientCollectionStatus, ClientMacRow, ClientNeighborRow
 from repositories.client_data_query_repository import ClientDataQueryRepository
 from services.ai_assistant.data_sharing import SharingPolicy
 from services.ai_assistant.providers.base import ToolCall
@@ -81,3 +81,45 @@ def test_find_client_names_the_access_port_in_a_domain_of_sixty_one_switches(
     assert data["rows"][0]["device"] == "zzz-access"
     assert data["total_rows"] == 61
     assert "no access port" not in data["note"].lower()
+
+
+def test_find_client_uses_the_lldp_neighbour_to_find_the_access_port_through_the_real_query(
+    db: Session,  # noqa: F811
+) -> None:
+    status = ClientCollectionStatus(arp_status="ok", mac_status="ok", neighbor_status="ok")
+    # swA sees the host on a trunk with ONE other MAC (the count rule would call it an access
+    # port and, having fewer MACs, prefer it); its LLDP neighbour is a router.
+    _collect(
+        db,
+        device="swA",
+        macs=[
+            ClientMacRow(mac_address="aabb.ccdd.0001", vlan="10", port="Gi1/0/48"),
+            ClientMacRow(mac_address="aabb.0000.0002", vlan="10", port="Gi1/0/48"),
+        ],
+        neighbors=[
+            ClientNeighborRow(
+                port="Gi1/0/48",
+                neighbor_name="core1",
+                protocol="lldp",
+                capabilities="bridge,router",
+                is_infrastructure=True,
+            )
+        ],
+        status=status,
+    )
+    _collect(
+        db,
+        device="swB",
+        macs=[
+            ClientMacRow(mac_address="aabb.ccdd.0001", vlan="10", port="Gi1/0/5"),
+            ClientMacRow(mac_address="aabb.0000.0003", vlan="10", port="Gi1/0/5"),
+            ClientMacRow(mac_address="aabb.0000.0004", vlan="10", port="Gi1/0/5"),
+        ],
+    )
+
+    data = _run(RepositoryReader(db, threshold=10), "find_client", address="aabb.ccdd.0001")
+
+    assert data["likely_location"]["device"] == "swB"
+    by_device = {r["device"]: r for r in data["rows"]}
+    assert (by_device["swA"]["is_uplink"], by_device["swA"]["uplink_reason"]) == (True, "neighbor")
+    assert by_device["swA"]["uplink_to"] == "core1"

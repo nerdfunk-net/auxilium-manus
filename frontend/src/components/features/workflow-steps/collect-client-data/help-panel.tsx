@@ -27,7 +27,10 @@ export function CollectClientDataHelpPanel() {
           <HelpCode>show mac address-table</HelpCode> gives MAC, VLAN and the port the MAC was
           learned on. With <HelpCode>collect_vrfs</HelpCode> the step asks the device for its
           VRFs (<HelpCode>show vrf</HelpCode>) and reads the ARP table of each one, so you do
-          not need to know them.
+          not need to know them. With <HelpCode>collect_neighbors</HelpCode> it also reads{" "}
+          <HelpCode>show lldp neighbors detail</HelpCode>,{" "}
+          <HelpCode>show cdp neighbors detail</HelpCode> and the port-channels, so a port with a
+          switch, router or access point behind it is an uplink.
         </p>
       </HelpSection>
 
@@ -44,7 +47,8 @@ export function CollectClientDataHelpPanel() {
           <HelpCode>parsed.&lt;node id&gt;.client_data</HelpCode>: <HelpCode>arp_status</HelpCode>
           , <HelpCode>mac_status</HelpCode>, <HelpCode>vrf_status</HelpCode>,{" "}
           <HelpCode>arp_entries</HelpCode>, <HelpCode>mac_entries</HelpCode>,{" "}
-          <HelpCode>hostnames</HelpCode>, <HelpCode>vrfs</HelpCode> and{" "}
+          <HelpCode>hostnames</HelpCode>, <HelpCode>neighbor_status</HelpCode>,{" "}
+          <HelpCode>neighbor_entries</HelpCode>, <HelpCode>vrfs</HelpCode> and{" "}
           <HelpCode>vrf_results</HelpCode> (the ARP status and entry count of each VRF).
         </p>
       </HelpSection>

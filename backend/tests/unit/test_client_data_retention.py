@@ -194,3 +194,19 @@ def test_the_service_accepts_a_table_exactly_at_the_cap_and_defaults_to_the_sett
 
         with pytest.raises(TooManyRowsError):
             _store(service, ips=2, macs=0)
+
+
+def test_the_row_cap_covers_the_neighbour_table_too() -> None:
+    from models.client_data import ClientNeighborRow, TooManyRowsError, check_row_cap
+
+    check_row_cap(0, 0, 2, 2)  # equal is allowed
+    with pytest.raises(TooManyRowsError) as caught:
+        check_row_cap(0, 0, 2, 3)
+    assert caught.value.table == "neighbour"
+
+    service = ClientDataService(MagicMock())
+    service.repository = MagicMock()
+    rows = [ClientNeighborRow(port=f"Gi1/0/{n}", protocol="lldp") for n in range(3)]
+    with pytest.raises(TooManyRowsError):
+        _store(service, ips=0, macs=0, max_rows=2, neighbor_rows=rows)
+    service.repository.replace_device_collection.assert_not_called()

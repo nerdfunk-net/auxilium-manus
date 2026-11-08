@@ -21,17 +21,27 @@ from core.models.client_data import (
     ClientHostname,
     ClientIpAddress,
     ClientMacAddress,
+    ClientPortNeighbor,
+    table_was_read,
 )
 from models.client_data import (
     ClientCollectionStatus,
     ClientHostnameRow,
     ClientIpRow,
     ClientMacRow,
+    ClientNeighborRow,
     CollectionConflictError,
 )
 
 # Tables that hold a collection's rows, in deletion order.
-_ROW_MODELS = (ClientIpAddress, ClientMacAddress, ClientHostname, ClientDataCollection)
+_ROW_MODELS = (
+    ClientIpAddress,
+    ClientMacAddress,
+    ClientHostname,
+    ClientPortNeighbor,
+    ClientDataCollection,
+)
+
 
 # What each dialect names when ``uq_client_data_collection_session`` is violated: PostgreSQL
 # the constraint, SQLite the table and first column.
@@ -63,6 +73,7 @@ class ClientDataRepository:
         status: ClientCollectionStatus,
         keep_sessions: int,
         target_host: str | None = None,
+        neighbor_rows: Sequence[ClientNeighborRow] = (),
     ) -> None:
         """Store one device's collection in a single transaction.
 
@@ -103,12 +114,17 @@ class ClientDataRepository:
                         ClientHostname(**common, device_ip=device_ip, **row.model_dump())
                         for row in hostname_rows
                     ),
+                    *(
+                        ClientPortNeighbor(**common, device_ip=device_ip, **row.model_dump())
+                        for row in neighbor_rows
+                    ),
                     ClientDataCollection(
                         **common,
                         **status.model_dump(),
                         target_host=target_host,
                         arp_rows=len(ip_rows),
                         mac_rows=len(mac_rows),
+                        neighbor_rows=len(neighbor_rows),
                     ),
                 ]
             )
@@ -148,8 +164,9 @@ class ClientDataRepository:
         """
         c = ClientDataCollection
         newest_first = (c.collected_at.desc(), c.id.desc())
-        arp_read = c.arp_status != "skipped"
-        mac_read = c.mac_status != "skipped"
+        arp_read = table_was_read(c.arp_status)
+        mac_read = table_was_read(c.mac_status)
+        neighbor_read = table_was_read(c.neighbor_status)
         ranked = (
             select(
                 c.id,
@@ -158,6 +175,7 @@ class ClientDataRepository:
                 c.collected_at,
                 arp_read.label("arp_read"),
                 mac_read.label("mac_read"),
+                neighbor_read.label("neighbor_read"),
                 func.row_number()
                 .over(partition_by=c.device_name, order_by=newest_first)
                 .label("rank_any"),
@@ -167,6 +185,9 @@ class ClientDataRepository:
                 func.row_number()
                 .over(partition_by=(c.device_name, mac_read), order_by=newest_first)
                 .label("rank_mac"),
+                func.row_number()
+                .over(partition_by=(c.device_name, neighbor_read), order_by=newest_first)
+                .label("rank_neighbor"),
             )
         ).subquery()
         stale = (
@@ -176,6 +197,7 @@ class ClientDataRepository:
                 ranked.c.rank_any > 1,
                 ~and_(ranked.c.arp_read, ranked.c.rank_arp == 1),
                 ~and_(ranked.c.mac_read, ranked.c.rank_mac == 1),
+                ~and_(ranked.c.neighbor_read, ranked.c.rank_neighbor == 1),
             )
             .order_by(ranked.c.id)
             .limit(batch_size)
@@ -218,7 +240,11 @@ class ClientDataRepository:
             )
         )
         protected = {current_session}
-        for read in (c.arp_status != "skipped", c.mac_status != "skipped"):
+        for read in (
+            table_was_read(c.arp_status),
+            table_was_read(c.mac_status),
+            table_was_read(c.neighbor_status),
+        ):
             newest = self.db.scalar(
                 select(c.session_id)
                 .where(c.device_name == device_name, read)

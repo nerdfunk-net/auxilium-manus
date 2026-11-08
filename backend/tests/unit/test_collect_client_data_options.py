@@ -64,3 +64,35 @@ def test_driver_override_is_trimmed() -> None:
     options = parse_options({**get_config(), "network_driver_override": " cisco_xe "})
 
     assert options.network_driver_override == "cisco_xe"
+
+
+def test_neighbours_are_off_by_default_and_can_be_switched_on() -> None:
+    assert parse_options(get_config()).collect_neighbors is False
+    assert parse_options({**get_config(), "collect_neighbors": True}).collect_neighbors is True
+
+
+def test_a_config_without_the_flag_does_not_collect_neighbours() -> None:
+    options = parse_options({"collect_ip_address": True})
+
+    assert options.collect_neighbors is False
+
+
+def test_neighbours_do_not_need_the_other_tables_but_something_must_be_collected() -> None:
+    options = parse_options(
+        {
+            **get_config(),
+            "collect_ip_address": False,
+            "collect_mac_address": False,
+            "collect_neighbors": True,
+        }
+    )
+    assert options.collect_neighbors is True and options.collect_ip_address is False
+    with pytest.raises(ValueError, match="collect_ip_address"):
+        parse_options(
+            {
+                **get_config(),
+                "collect_ip_address": False,
+                "collect_mac_address": False,
+                "collect_neighbors": False,
+            }
+        )

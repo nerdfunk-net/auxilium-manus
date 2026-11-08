@@ -2,7 +2,7 @@
 name: where-is-this-host
 title: Where is this host (MAC, IP address or hostname) on the network
 when: "where is this MAC; where is 10.1.1.5; which switch and port is host X on; where was this address last seen; which port is this device plugged into; find a host by MAC, IP or hostname; who has this IP; find the IP address 192.168.1.5; find a host; is this address in use; is this address used by a device or a client"
-tools: [list_ip_addresses, list_devices, find_client, get_client_history, get_client_data_coverage, find_aci_endpoint]
+tools: [list_ip_addresses, list_devices, find_host, find_client, get_client_history, get_client_data_coverage, find_aci_endpoint]
 scope: read-only
 ---
 # Where is this host
@@ -31,10 +31,13 @@ use but not documented. If Nautobot has it and `find_client` also saw it, say wh
 1. If you have the Nautobot tools, look the address or name up first (`list_ip_addresses`, and
    `list_devices` for a device name). That is what is documented, not where the host was seen. An
    unassigned or missing result does not end the search: go on to step 2.
-2. Call `find_client` with the identifier. Report `likely_location` (device, port, VLAN, VRF, IP,
-   hostname) and quote its age (`age_seconds`, and `ip_age_seconds` when the IP came from an ARP
-   collection of a different age). The other rows are switches that saw the MAC on an uplink: the
-   host is behind them, so do not name them as its location.
+2. If `find_host` is offered (client data and an ACI source are both configured), call it: it asks
+   the client data and the fabric together and returns one section per source, each with its own
+   status and freshness, and then step 4 is already done. Otherwise call `find_client` with the
+   identifier. Report `likely_location` (device, port, VLAN, VRF, IP, hostname) and quote its age
+   (`age_seconds`, and `ip_age_seconds` when the IP came from an ARP collection of a different
+   age). The other rows are switches that saw the MAC on an uplink: the host is behind them, so do
+   not name them as its location.
 3. If `rows` is empty, call `get_client_data_coverage` and say which devices were collected, when,
    and which tables were not (`skipped`, `not_supported`). An empty answer means "not in the stored
    data", never "the host does not exist". If the user needs the history of an address that moved,
@@ -48,9 +51,12 @@ use but not documented. If Nautobot has it and `find_client` also saw it, say wh
 ## Decision points
 - No `likely_location` but rows exist: the MAC was seen only on uplinks. Say the access switch was
   not collected, name the devices that saw it, and use the coverage to say which are missing.
-- `is_uplink` is a heuristic (many MACs on a port), not LLDP or CDP knowledge. A lightly used trunk
-  can look like an access port and a busy access port, such as a hypervisor, can look like an uplink.
-  Say so when the port is a hypervisor, access point or port channel.
+- Say how an uplink was decided (`uplink_reason`). `neighbor` is certain: LLDP or CDP saw a switch,
+  router or access point on that port (or on its port channel) and `uplink_to` names it. `mac_count`
+  is only a heuristic (many MACs on a port): a lightly used trunk can look like an access port and a
+  busy access port, such as a hypervisor, can look like an uplink. Say so when the port is a
+  hypervisor, access point or port channel, and that neighbour data is collected only where the
+  `collect_neighbors` option of the collection step was on (`get_client_data_coverage` shows it).
 - Several rows for one IP (different VRFs or devices) are all reported; never pick one silently.
 - If a tool says the user's data settings withhold a field, or that the permission is missing, tell
   the user and stop that source; do not guess the values.

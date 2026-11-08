@@ -91,6 +91,7 @@ def _store_sync(
             mac_rows=collection.mac_rows,
             hostname_rows=hostnames,
             status=collection.status,
+            neighbor_rows=collection.neighbor_rows,
             keep_sessions=settings.client_data_keep_sessions,
             collected_at=collected_at,
             target_host=target_host,
@@ -113,6 +114,8 @@ def _summary(collection: DeviceCollection, hostname_count: int) -> dict[str, Any
         "arp_status": status.arp_status,
         "mac_status": status.mac_status,
         "vrf_status": status.vrf_status,
+        "neighbor_status": status.neighbor_status,
+        "neighbor_entries": len(collection.neighbor_rows),
         "arp_entries": len(collection.ip_rows),
         "mac_entries": len(collection.mac_rows),
         "hostnames": hostname_count,
@@ -212,7 +215,7 @@ async def _collect_one(
             payload = {
                 "would_collect": True,
                 "host": target.host,
-                "commands": phase_one_commands(options),
+                "commands": phase_one_commands(options, target.device_type),
                 "collect_hostname": options.collect_hostname,
             }
             previewed = record_dry_run(device, node_id=node_id, payload=payload)

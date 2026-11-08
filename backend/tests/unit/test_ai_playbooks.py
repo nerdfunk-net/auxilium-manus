@@ -464,7 +464,7 @@ def test_where_is_this_host_playbook_orders_nautobot_client_data_then_aci() -> N
     (playbook,) = [p for p in result.playbooks if p.name == "where-is-this-host"]
 
     assert {"find_client", "get_client_data_coverage", "find_aci_endpoint"} <= set(playbook.tools)
-    body = playbook.body
+    body = " ".join(playbook.body.split())  # line breaks do not matter for the wording
     # The order is the point: documented, then stored observations, then coverage, then ACI.
     steps = body[body.index("## Steps") : body.index("## Decision points")]
     positions = [
@@ -480,7 +480,8 @@ def test_where_is_this_host_playbook_orders_nautobot_client_data_then_aci() -> N
     # The answer must carry the age and the limits of stored data.
     assert "quote its age (`age_seconds`" in body
     assert "`ip_age_seconds`" in body
-    assert "`is_uplink` is a heuristic" in body
+    assert "`neighbor` is certain" in body
+    assert "`mac_count` is only a heuristic" in body
     assert "Report `likely_location`" in body
     assert 'never "the host does not exist"' in body
     # "Find the IP address X" must reach this playbook, and a config-only answer must not stand.
@@ -491,6 +492,9 @@ def test_where_is_this_host_playbook_orders_nautobot_client_data_then_aci() -> N
     assert "report both sources" in body
     assert '"Find the IP address X" is not finished by' in body
     assert "Always call `find_client` too" in body
+    # With client data and ACI both configured, one call asks both sources.
+    assert "find_host" in playbook.tools
+    assert "If `find_host` is offered" in body
 
 
 # -- review findings ---------------------------------------------------------------------------

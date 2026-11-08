@@ -3588,10 +3588,22 @@ collected. They read **stored observations, not the live network**; every row ca
     `skipped`), the entry counts and `vrf_results` (per VRF: ARP status and rows, so an empty VRF (`ok`, 0 rows) is told from an unreadable one;
     `null` = VRFs not discovered). `not_supported` is "table missing", not "table empty"; a device not listed was never
     collected.
-* **Uplinks:** the repository computes, from the current data, `macs_on_port` (distinct MACs a device learned on that port), `is_uplink`
-  (more than `CLIENT_DATA_UPLINK_MAC_THRESHOLD`, default 10) and `likely_location` (per MAC, the MAC-table observation on the port with the
-  fewest MACs, ties by device name and port, never an uplink). It is a heuristic, not LLDP/CDP knowledge: a lightly used trunk stays below the
-  threshold, a busy access port (a hypervisor, a hub) can pass it. The tool notes say so; `list_clients` hides uplink rows by default.
+* **Uplinks:** the repository computes, from the current data, `macs_on_port` (distinct MACs a device learned on that port), `is_uplink`,
+  `uplink_reason`, `uplink_to` and `likely_location`. A port is an uplink when LLDP/CDP saw a switch, router or wireless access point on it or
+  on a member of its port-channel (`uplink_reason` `neighbor`, `uplink_to` names it; collected only where the step's `collect_neighbors` was on)
+  or when it learned more MACs than `CLIENT_DATA_UPLINK_MAC_THRESHOLD` (default 10, `mac_count`, a guess: a busy hypervisor can pass it).
+  `likely_location` is, per MAC, the observation on a non-uplink port with the fewest MACs (ties by device name and port); an uplink never beats
+  an access port. The tool notes and `CLIENT_DATA_PROMPT` tell the model that `neighbor` is certain and `mac_count` a guess;
+  `list_clients` hides uplink rows by default. Coverage has the neighbour table as a third table (`neighbor_status`, `neighbor_entries`,
+  `neighbor_age_seconds`; `summary.neighbours_not_collected`). `doc/CLIENT_DATA.md` "Uplinks and the likely location".
+* **`find_host`** (`tools/host_lookup_tools.py`, 2026-11-08): one call for "find the IP address X" / "where is this MAC" when **both** the client
+  data and an ACI source are available (offered only then; the prompt `HOST_LOOKUP_PROMPT` is added with it). It runs `find_client` and
+  `find_aci_endpoint` (so every check of both stays: `client_data:read` and `sources.aci:read` per call, the inventory and addresses switches
+  before any read, the ACI rate budget) and returns two sections, `client_data` and `aci`, each with `source`, `freshness` (stored with ages /
+  the APIC's live view at the call), `status` (`found`, `not_seen` / `not_learned`, `not_applicable`, `error`) and its `result` (first five rows;
+  the full lists are one call of the single tools away). The two are never merged into one schema or one age. The fabric is asked for a MAC or an
+  IPv4 address only (`not_applicable` for IPv6 and hostnames); a source that is denied, failing or rate limited is an `error` section next to the
+  other's answer, and only both failing is an error result. The playbook `where-is-this-host` uses it when it is offered.
 * **Gates:** the inventory **and** the addresses switch for the three address tools (device names and addresses), checked before any read so
   existence cannot leak (mutation-checked); coverage lists device names only and needs the inventory switch. `client_data:read` is checked
   on **every call** by the reader (a revoked grant stops the tools at once, tested) and decides whether the router offers the tools at all.
@@ -3605,4 +3617,4 @@ collected. They read **stored observations, not the live network**; every row ca
 * **Not verified:** a run with a real model (the maintainer does it with their own key; record the result here, as §42 and §47 do), the tools
   against real collected data from a larger network, and the quality of `likely_location` on topologies with port-channels, VPC, wireless or
   hypervisors. The built-in playbook `where-is-this-host` (Nautobot first, then `find_client`, coverage when empty, then `find_aci_endpoint`; data class A) fixes the order and the age/uplink wording (it is not verified with a real model). A live question "Find the IP address 192.168.180.2" was answered from Batfish and Nautobot alone ("not configured on any device, unassigned in Nautobot") without `find_client`; `CLIENT_DATA_PROMPT` and the playbook now say that Nautobot stays part of the answer (a network device's address is documented there) and that `find_client` is always called as well, because those sources only know devices. Re-check with a real model. Open: a per-user rate bucket like
-  `ai-aci-read` (the data is local, so it is not needed for load), and merging ACI endpoints into the same answer.
+  `ai-aci-read` (the data is local, so it is not needed for load), (and the ACI merge is `find_host`, above).

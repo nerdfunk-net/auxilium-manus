@@ -18,7 +18,16 @@ from ntc_templates.parse import ParsingException, parse_output
 
 from models.client_data import CollectionStatus
 from services.network.netmiko.output_check import find_cli_error
-from workflow_steps.collect_client_data.commands import CMD_ARP, CMD_MAC_TABLE, CMD_VRF_LIST
+from workflow_steps.collect_client_data.commands import (
+    CMD_ARP,
+    CMD_CDP,
+    CMD_CHANNELS_IOS,
+    CMD_CHANNELS_NXOS,
+    CMD_LLDP,
+    CMD_MAC_TABLE,
+    CMD_VRF_LIST,
+    NEIGHBOR_COMMANDS,
+)
 
 STATUS_OK: CollectionStatus = "ok"
 STATUS_NOT_SUPPORTED: CollectionStatus = "not_supported"
@@ -50,6 +59,26 @@ class MacEntry:
     port: str | None
 
 
+# Capabilities a neighbour can advertise, as a closed vocabulary. A port with a neighbour that
+# bridges, routes or is a wireless access point has other devices behind it: it is an uplink.
+INFRASTRUCTURE_CAPABILITIES = frozenset({"bridge", "router", "wlan_ap"})
+
+
+@dataclass(frozen=True)
+class NeighborEntry:
+    """A device seen on a local port through LLDP or CDP."""
+
+    port: str
+    neighbor_name: str | None
+    neighbor_port: str | None
+    protocol: str
+    capabilities: tuple[str, ...]
+
+    @property
+    def is_infrastructure(self) -> bool:
+        return bool(INFRASTRUCTURE_CAPABILITIES.intersection(self.capabilities))
+
+
 @dataclass(frozen=True)
 class OutputClass:
     status: CollectionStatus
@@ -64,6 +93,146 @@ def normalise_mac(raw: str | None) -> str | None:
     if not _HEX_12.match(digits):
         return None
     return f"{digits[0:4]}.{digits[4:8]}.{digits[8:12]}"
+
+
+# Long interface names -> the short form the MAC address table prints. "Ethernet" is "Eth" on
+# NX-OS and "Et" on IOS; names that are already short are left as they are.
+_PORT_PREFIXES = {
+    "gigabitethernet": "Gi",
+    "tengigabitethernet": "Te",
+    "twentyfivegige": "Twe",
+    "fortygigabitethernet": "Fo",
+    "hundredgige": "Hu",
+    "fastethernet": "Fa",
+    "port-channel": "Po",
+    "gi": "Gi",
+    "te": "Te",
+    "twe": "Twe",
+    "fo": "Fo",
+    "hu": "Hu",
+    "fa": "Fa",
+    "po": "Po",
+}
+_PORT_NAME = re.compile(r"^([A-Za-z][A-Za-z\-]*?)\s*(\d.*)$")
+
+
+def normalise_port(raw: str | None, platform: str) -> str:
+    """The short form of an interface name (``GigabitEthernet1/0/5`` -> ``Gi1/0/5``).
+
+    LLDP and CDP print long names, the MAC address table short ones; the neighbours are matched to
+    MAC-table ports by this form. Unknown names (``mgmt0``, ``Vlan10``) are returned stripped.
+    """
+    text = _text(raw)
+    match = _PORT_NAME.match(text)
+    if match is None:
+        return text
+    prefix, rest = match.group(1), match.group(2)
+    key = prefix.lower()
+    if key == "ethernet":
+        return f"{'Eth' if 'nxos' in platform else 'Et'}{rest}"
+    short = _PORT_PREFIXES.get(key)
+    return f"{short}{rest}" if short else text
+
+
+_LLDP_CODES = {
+    "b": "bridge",
+    "r": "router",
+    "w": "wlan_ap",
+    "t": "telephone",
+    "c": "docsis",
+    "s": "station",
+    "p": "repeater",
+    "o": "other",
+}
+# CDP's legacy letter codes differ from LLDP's (S is Switch there, H is Host).
+_CDP_CODES = {
+    "r": "router",
+    "t": "bridge",
+    "b": "bridge",
+    "s": "bridge",
+    "h": "station",
+    "p": "telephone",
+}
+_CDP_WORDS = {
+    "router": "router",
+    "switch": "bridge",
+    "trans-bridge": "bridge",
+    "source-route-bridge": "bridge",
+    "host": "station",
+    "phone": "telephone",
+    "repeater": "repeater",
+}
+
+
+def parse_capabilities(raw: str | None, protocol: str) -> tuple[str, ...]:
+    """Advertised capabilities as sorted names of a closed vocabulary; unknown words are dropped."""
+    found: set[str] = set()
+    for token in re.split(r"[,\s]+", _text(raw)):
+        if not token:
+            continue
+        if len(token) == 1:
+            # CDP's capital letters are codes too ("R S I"); lower-case "r" there is Repeater.
+            table = _CDP_CODES if protocol == "cdp" else _LLDP_CODES
+            name = table.get(token.lower())
+            if protocol == "cdp" and token == "r":
+                name = "repeater"
+        else:
+            name = _CDP_WORDS.get(token.lower()) if protocol == "cdp" else None
+        if name:
+            found.add(name)
+    return tuple(sorted(found))
+
+
+def parse_neighbors(
+    rows: list[dict[str, Any]], protocol: str, platform: str
+) -> list[NeighborEntry]:
+    """LLDP / CDP detail rows (ntc-templates) -> entries. Rows without a local port are skipped."""
+    entries: list[NeighborEntry] = []
+    for row in rows:
+        local = _text(row.get("local_interface"))
+        if not local:
+            continue
+        entries.append(
+            NeighborEntry(
+                port=normalise_port(local, platform),
+                neighbor_name=_text(row.get("neighbor_name")) or None,
+                neighbor_port=(
+                    _text(row.get("neighbor_interface")) or _text(row.get("neighbor_port_id"))
+                )
+                or None,
+                protocol=protocol,
+                capabilities=parse_capabilities(row.get("capabilities"), protocol),
+            )
+        )
+    return entries
+
+
+def parse_channels(rows: list[dict[str, Any]], platform: str) -> dict[str, str]:
+    """Port-channel summary rows -> ``{member port: bundle}`` (both in the short form)."""
+    members: dict[str, str] = {}
+    for row in rows:
+        bundle = normalise_port(row.get("bundle_name"), platform)
+        raw_members = row.get("member_interface")
+        if not bundle or not isinstance(raw_members, list):
+            continue
+        for member in raw_members:
+            name = normalise_port(member, platform)
+            if name and name != "--" and name[0].isalpha():
+                members[name] = bundle
+    return members
+
+
+def combine_neighbor_statuses(statuses: tuple[CollectionStatus, ...]) -> CollectionStatus:
+    """One status for the LLDP and CDP commands of a device.
+
+    Output that is not a table (``no_template``) in either one is not trusted, so the neighbours
+    of the device are not replaced; otherwise ``ok`` if either was read, else ``not_supported``.
+    """
+    if STATUS_NO_TEMPLATE in statuses:
+        return STATUS_NO_TEMPLATE
+    if STATUS_OK in statuses:
+        return STATUS_OK
+    return STATUS_NOT_SUPPORTED
 
 
 def svi_vlan(interface: str | None) -> str | None:
@@ -188,6 +357,20 @@ _MAC_TOKEN = re.compile(
     re.IGNORECASE,
 )
 _ENTRY_TOKENS: dict[str, re.Pattern[str]] = {CMD_ARP: _IP_TOKEN, CMD_MAC_TABLE: _MAC_TOKEN}
+# Neighbours: only an explicit "0 entries" line is an empty table. Blank output is not (a dropped
+# session prints nothing too, and "no neighbours" would replace the stored ones).
+_ZERO_NEIGHBORS = re.compile(r"total (?:cdp )?entries displayed\s*:\s*0\b", re.IGNORECASE)
+_ZERO_CHANNELS = re.compile(r"number of channel-groups in use\s*:\s*0\b", re.IGNORECASE)
+_TABLE_HINTS[CMD_LLDP] = _ZERO_NEIGHBORS
+_TABLE_HINTS[CMD_CDP] = _ZERO_NEIGHBORS
+_TABLE_HINTS[CMD_CHANNELS_IOS] = _ZERO_CHANNELS
+_TABLE_HINTS[CMD_CHANNELS_NXOS] = _ZERO_CHANNELS
+# The protocol is switched off on the device: the table is missing, not empty.
+_PROTOCOL_OFF = re.compile(
+    r"\b(?:lldp|cdp)\b[^\n]*\bnot (?:enabled|running|active)\b"
+    r"|\bnot (?:enabled|running)\b[^\n]*\b(?:lldp|cdp)\b",
+    re.IGNORECASE,
+)
 
 
 def _base_command(command: str) -> str:
@@ -232,6 +415,8 @@ def classify_output(raw: str, *, platform: str, command: str) -> OutputClass:
         decoded = json.loads(raw)
     except json.JSONDecodeError:
         if find_cli_error(raw) is not None:
+            return OutputClass(STATUS_NOT_SUPPORTED)
+        if command in NEIGHBOR_COMMANDS and _PROTOCOL_OFF.search(raw):
             return OutputClass(STATUS_NOT_SUPPORTED)
         if _template_exists(platform, command) and _looks_like_empty_table(raw, command):
             return OutputClass(STATUS_OK)

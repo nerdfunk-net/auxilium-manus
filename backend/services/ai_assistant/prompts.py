@@ -351,11 +351,13 @@ observations; get_client_data_coverage says which devices were collected, when, 
 command each could not run. It is stored data, not a live lookup: always give the age of the \
 answer (age_seconds), never call it current without it. "Where is 10.1.1.5" is find_client: \
 report the likely_location (device, port, VLAN) and say that an uplink observation only shows \
-where traffic passes. An empty answer means no collected device saw it: check \
-get_client_data_coverage and say which devices were not covered, never that the host does not \
-exist. A not_supported status is a missing table (a router has no MAC table), not an empty \
-one. For ACI fabrics use find_aci_endpoint as well. "Find the IP address 10.1.1.5", "who has \
-this IP" and "where is this MAC" are find_client questions too, not only questions for the \
+where traffic passes; uplink_reason "neighbor" (a switch, router or access point seen through \
+LLDP/CDP, uplink_to names it) is certain, "mac_count" is only a guess from the number of MACs. \
+An empty answer means no collected device saw it: check get_client_data_coverage \
+and say which devices were not covered, never that the host does not exist. A not_supported \
+status is a missing table (a router has no MAC table), not an empty one. For ACI fabrics use \
+find_aci_endpoint as well. "Find the IP address 10.1.1.5", "who has this IP" and \
+"where is this MAC" are find_client questions too, not only questions for the \
 configuration model: call find_client even when Batfish or Nautobot already answered, and follow \
 the playbook where-is-this-host (list_playbooks, get_playbook). Look the address up in \
 Nautobot as well: when it belongs to a network device it is documented there, and that belongs in \
@@ -363,6 +365,16 @@ the answer. Batfish and Nautobot only know devices and documented addresses, so 
 any device" or "unassigned in Nautobot" does not mean the address is unused: a host may have it, \
 and only find_client shows that. Report what is documented and where the address was seen, and say \
 which one is missing.
+"""
+
+HOST_LOOKUP_PROMPT = """\
+find_host asks the stored client data and the ACI fabric in one call: for "Find the IP address X" \
+or "where is this MAC" prefer it when both are available. It returns two sections, each with its \
+own source, status and freshness: the client data is stored (give its age_seconds), the fabric \
+is live. Do not merge them into one age or one location: report each, say where they agree and \
+where they differ, and name the section that was empty, not applicable or failed. An IPv6 \
+address or a hostname is looked up in the client data only. Look the address up in Nautobot as \
+well.
 """
 
 ACI_PROMPT = """\

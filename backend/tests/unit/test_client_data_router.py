@@ -27,6 +27,8 @@ ROW = {
     "hostname": "pc1.example.net",
     "macs_on_port": 1,
     "is_uplink": False,
+    "uplink_reason": "neighbor",
+    "uplink_to": "core1",
     "likely_location": True,
     "session_id": "run-1",
     "collected_at": "2026-11-07T12:00:00+00:00",
@@ -72,6 +74,9 @@ class FakeService:
                 "vrf_status": "not_supported",
                 "vrf_count": 1,
                 "vrfs": [{"name": "CUST", "status": "ok", "rows": 0}],
+                "neighbor_collected_at": "2026-11-07T12:00:00+00:00",
+                "neighbor_status": "ok",
+                "neighbor_rows": 3,
                 "arp_rows": 3,
                 "mac_rows": 20,
             }
@@ -128,6 +133,10 @@ def test_list_returns_a_page_with_the_uplink_flags(harness) -> None:
     assert (body["total"], body["page"], body["page_size"]) == (1, 2, 10)
     assert body["items"][0]["likely_location"] is True
     assert body["items"][0]["macs_on_port"] == 1
+    assert (body["items"][0]["uplink_reason"], body["items"][0]["uplink_to"]) == (
+        "neighbor",
+        "core1",
+    )
     assert body["items"][0]["ip_collected_at"] == "2026-11-07T11:00:00+00:00"
     _, kwargs = service.calls[0]
     assert kwargs["mac_address"] == "aabb"
@@ -229,4 +238,5 @@ def test_devices_lists_the_newest_collection_of_each_device(harness) -> None:
         20,
     )
     assert device["vrfs"] == [{"name": "CUST", "status": "ok", "rows": 0}]
+    assert (device["neighbor_status"], device["neighbor_rows"]) == ("ok", 3)
     assert device["mac_collected_at"] < device["arp_collected_at"]

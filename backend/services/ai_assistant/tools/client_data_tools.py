@@ -46,8 +46,11 @@ _COLLECTED_NOTE = (
     "table are collected separately. Quote both when they differ."
 )
 _UPLINK_NOTE = (
-    "An observation with is_uplink=true is a port that learned many MACs (a trunk to another "
-    "switch): the host is behind it, not on it. likely_location marks the access port with the "
+    "An observation with is_uplink=true is a port with other devices behind it: the host is "
+    "behind it, not on it. uplink_reason says how that was decided: 'neighbor' is a switch, "
+    "router or access point seen through LLDP or CDP on that port (uplink_to names it, also "
+    "through a port-channel), 'mac_count' is only a port that learned many MACs (a guess: a "
+    "busy hypervisor can look like this). likely_location marks the access port with the "
     "fewest MACs."
 )
 _NOT_SEEN_NOTE = (
@@ -148,6 +151,8 @@ def _observation(row: dict[str, Any]) -> dict[str, Any]:
         "mac_address": row["mac_address"],
         "macs_on_port": row["macs_on_port"],
         "is_uplink": row["is_uplink"],
+        "uplink_reason": row.get("uplink_reason"),
+        "uplink_to": row.get("uplink_to"),
         "likely_location": row["likely_location"],
         "collected_at": row["collected_at"],
         "age_seconds": _age_seconds(row["collected_at"]),
@@ -327,6 +332,9 @@ async def _coverage(ctx: ToolContext, args: CoverageInput) -> ToolOutput:
         "arp_not_collected": sum(c["arp_status"] == "skipped" for c in collections),
         "mac_not_supported": sum(c["mac_status"] == "not_supported" for c in collections),
         "mac_not_collected": sum(c["mac_status"] == "skipped" for c in collections),
+        "neighbours_not_collected": sum(
+            c.get("neighbor_status", "skipped") == "skipped" for c in collections
+        ),
     }
     if not collections:
         note = (
@@ -339,9 +347,12 @@ async def _coverage(ctx: ToolContext, args: CoverageInput) -> ToolOutput:
             "the device refused that command (a router has no MAC address table): its table is "
             "missing, not empty. ARP and the MAC table are collected separately and can come from "
             "different runs: use arp_age_seconds and mac_age_seconds, and a table with status "
-            "skipped was never collected. vrf_results lists each VRF of the device with the status "
-            "of its ARP table: ok with 0 rows is a VRF with no entries, not_supported or "
-            "no_template means the table could not be read, null means VRFs were not discovered. "
+            "skipped was never collected. The LLDP/CDP neighbours (neighbor_status, "
+            "neighbor_entries, neighbor_age_seconds) are a third table: where they were never "
+            "collected, uplinks are only guessed from the number of MACs. vrf_results lists each "
+            "VRF of the device with the status of its ARP table: ok with 0 rows is a VRF with no "
+            "entries, not_supported or no_template means the table could not be read, null means "
+            "VRFs were not discovered. "
             "A device that is not listed was never collected, so "
             "addresses behind it are unknown. " + _COLLECTED_NOTE
         )
@@ -356,6 +367,9 @@ async def _coverage(ctx: ToolContext, args: CoverageInput) -> ToolOutput:
             "mac_age_seconds": _age_seconds(c["mac_collected_at"]),
             "arp_status": c["arp_status"],
             "mac_status": c["mac_status"],
+            "neighbor_status": c.get("neighbor_status", "skipped"),
+            "neighbor_age_seconds": _age_seconds(c.get("neighbor_collected_at")),
+            "neighbor_entries": c.get("neighbor_rows", 0),
             "vrf_status": c["vrf_status"],
             "arp_entries": c["arp_rows"],
             "mac_entries": c["mac_rows"],

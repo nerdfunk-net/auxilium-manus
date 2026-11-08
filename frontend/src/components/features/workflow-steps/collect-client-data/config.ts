@@ -46,5 +46,6 @@ export function buildCollectClientDataConfig(
   next.collect_mac_address = collectMac;
   next.collect_vrfs = collectIp && flag(next.collect_vrfs, true);
   next.collect_hostname = collectIp && flag(next.collect_hostname, false);
+  next.collect_neighbors = flag(next.collect_neighbors, false);
   return next;
 }

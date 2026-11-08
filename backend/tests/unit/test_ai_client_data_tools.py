@@ -37,6 +37,8 @@ def _row(device: str, port: str, **over: Any) -> dict[str, Any]:
         "hostname": "pc1.example.net",
         "macs_on_port": 1,
         "is_uplink": False,
+        "uplink_reason": None,
+        "uplink_to": None,
         "likely_location": False,
         "session_id": "run-1",
         "collected_at": HOUR_AGO,
@@ -47,7 +49,7 @@ def _row(device: str, port: str, **over: Any) -> dict[str, Any]:
 
 
 ROWS = [
-    _row("swA", "Et0/0", macs_on_port=40, is_uplink=True),
+    _row("swA", "Et0/0", macs_on_port=40, is_uplink=True, uplink_reason="mac_count"),
     _row("swB", "Gi1/0/5", likely_location=True),
     _row("core1", "Vlan10", macs_on_port=None, mac_address="aabb.ccdd.0001"),
 ]
@@ -62,6 +64,9 @@ COVERAGE = [
         "vrf_status": "ok",
         "vrf_count": 1,
         "vrfs": [{"name": "CUST", "status": "ok", "rows": 0}],
+        "neighbor_collected_at": HOUR_AGO,
+        "neighbor_status": "ok",
+        "neighbor_rows": 4,
         "arp_rows": 6,
         "mac_rows": 0,
     },
@@ -75,6 +80,9 @@ COVERAGE = [
         "vrf_status": "ok",
         "vrf_count": 0,
         "vrfs": None,
+        "neighbor_collected_at": None,
+        "neighbor_status": "skipped",
+        "neighbor_rows": 0,
         "arp_rows": 2,
         "mac_rows": 20,
     },
@@ -431,6 +439,10 @@ def test_the_prompt_sends_find_requests_to_find_client_not_only_to_the_config_mo
     assert "not configured on any device" in CLIENT_DATA_PROMPT
     # Nautobot stays part of the answer: a network device's address is documented there.
     assert "Nautobot as well" in CLIENT_DATA_PROMPT
+    assert 'uplink_reason "neighbor"' in CLIENT_DATA_PROMPT
+    assert '"mac_count" is only a guess' in CLIENT_DATA_PROMPT
+    assert "(a switch, router or access point seen through LLDP/CDP" in CLIENT_DATA_PROMPT
+    assert ") is certain," in " ".join(CLIENT_DATA_PROMPT.split())
     assert "does not mean the address is unused" in CLIENT_DATA_PROMPT
     assert "belongs in" in CLIENT_DATA_PROMPT
 
@@ -554,4 +566,42 @@ def test_coverage_summarises_how_many_devices_lack_a_table() -> None:
         "arp_not_collected": 0,
         "mac_not_supported": 1,
         "mac_not_collected": 0,
+        "neighbours_not_collected": 1,
     }
+
+
+# --- uplinks from neighbours ---------------------------------------------------------------------
+
+
+def test_an_observation_says_why_it_is_an_uplink_and_what_is_behind_it() -> None:
+    rows = [
+        _row("swA", "Gi1/0/48", is_uplink=True, uplink_reason="neighbor", uplink_to="core1"),
+        _row("swB", "Gi1/0/5", likely_location=True),
+    ]
+    _, data = _call(FakeReader(rows=rows), "find_client", address="aabb.ccdd.0001")
+
+    by_device = {r["device"]: r for r in data["rows"]}  # the likely location comes first
+    assert (by_device["swA"]["uplink_reason"], by_device["swA"]["uplink_to"]) == (
+        "neighbor",
+        "core1",
+    )
+    assert (by_device["swB"]["uplink_reason"], by_device["swB"]["uplink_to"]) == (None, None)
+    assert "LLDP" in data["note"] and "mac_count" in data["note"]
+
+
+def test_the_list_tool_shows_the_uplink_reason_too() -> None:
+    rows = [_row("swA", "Gi1/0/48", is_uplink=True, uplink_reason="neighbor", uplink_to="core1")]
+    _, data = _call(FakeReader(rows=rows), "list_clients", hide_uplinks=False)
+
+    assert data["rows"][0]["uplink_to"] == "core1"
+
+
+def test_coverage_shows_the_neighbour_table_with_its_own_age() -> None:
+    _, data = _call(FakeReader(), "get_client_data_coverage")
+
+    core1, swb = data["rows"]
+    assert (core1["neighbor_status"], core1["neighbor_entries"]) == ("ok", 4)
+    assert 3500 <= core1["neighbor_age_seconds"] <= 3700
+    assert (swb["neighbor_status"], swb["neighbor_age_seconds"]) == ("skipped", None)
+    assert "neighbour" in data["note"]
+    assert data["summary"]["neighbours_not_collected"] == 1

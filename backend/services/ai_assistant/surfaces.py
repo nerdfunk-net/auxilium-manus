@@ -33,6 +33,7 @@ from services.ai_assistant.prompts import (
     CLIENT_DATA_PROMPT,
     CONFIG_BACKUP_PROMPT,
     DEVICE_COMMANDS_PROMPT,
+    HOST_LOOKUP_PROMPT,
     INVENTORY_PROMPT,
     NAUTOBOT_PROMPT,
     NEIGHBOR_PROMPT,
@@ -79,6 +80,7 @@ from services.ai_assistant.tools.glossary_tools import (
     STEP_ALIAS_TOOLS,
     StepAliasLookup,
 )
+from services.ai_assistant.tools.host_lookup_tools import build_host_lookup_tools
 from services.ai_assistant.tools.inventory_filter_tools import INVENTORY_FILTER_TOOLS
 from services.ai_assistant.tools.inventory_tools import (
     INVENTORY_TOOLS,
@@ -411,6 +413,10 @@ def build_general_session(
     if client_data_reader is not None:
         extras[CLIENT_DATA_READER_KEY] = client_data_reader
         tools.extend(build_client_data_tools())
+    # One question, two sources: find_host asks the client data and the APIC together. It is a
+    # composition of find_client and find_aci_endpoint, so it needs both readers.
+    if client_data_reader is not None and aci_reader is not None:
+        tools.extend(build_host_lookup_tools())
     # Run explanations (plan: runs in Ask the Net): the run-viewer tools plus list_runs, shared
     # with the runs-page assistant. No run is open here, so every tool takes a run_id.
     if run_reader is not None:
@@ -447,6 +453,8 @@ def build_general_session(
         parts.append(ACI_PROMPT)
     if client_data_reader is not None:
         parts.append(CLIENT_DATA_PROMPT)
+        if aci_reader is not None:
+            parts.append(HOST_LOOKUP_PROMPT)
     if run_reader is not None:
         parts.append(RUN_EXPLAIN_PROMPT)
     if released_reader is not None and run_reader is not None:

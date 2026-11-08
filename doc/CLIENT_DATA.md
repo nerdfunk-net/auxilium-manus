@@ -13,7 +13,8 @@ Ask the Net tools; the UI page is not built (see "Open").
 | `show ip arp` (default VRF) and `show ip arp vrf <name>` for each VRF | `client_ip_addresses` | `ip_address`, `mac_address`, `interface`, `vrf`, `vlan`, `device_name`, `device_ip` |
 | `show mac address-table` | `client_mac_addresses` | `mac_address`, `vlan`, `port`, `device_name`, `device_ip` |
 | reverse DNS (PTR) of the ARP addresses, optional | `client_hostnames` | `ip_address`, `hostname`, `device_name`, `device_ip` |
-| (outcome of the commands) | `client_data_collections` | `session_id`, `device_name`, `arp_status`, `mac_status`, `vrf_status`, `vrf_count`, `vrfs`, `target_host`, `arp_rows`, `mac_rows` |
+| `show lldp neighbors detail` and `show cdp neighbors detail`, with `show etherchannel summary` (IOS, IOS-XE) or `show port-channel summary` (NX-OS), optional (`collect_neighbors`) | `client_port_neighbors` | `port`, `channel`, `neighbor_name`, `neighbor_port`, `protocol` (`lldp`/`cdp`), `capabilities`, `is_infrastructure`, `device_name`, `device_ip` |
+| (outcome of the commands) | `client_data_collections` | `session_id`, `device_name`, `arp_status`, `mac_status`, `vrf_status`, `neighbor_status`, `vrf_count`, `vrfs`, `target_host`, `arp_rows`, `mac_rows`, `neighbor_rows` |
 
 * **`session_id`** is the uuid of the workflow run. With `device_name` it identifies one *collection*.
 * **MAC format** is normalised to dotted quads (`aabb.ccdd.eeff`) for every platform, so ARP and MAC-table
@@ -27,6 +28,14 @@ Ask the Net tools; the UI page is not built (see "Open").
   names that are not plain (letters, digits, `_ . : -`, at most 64) are dropped, because they are put into a
   command.
 
+* **Neighbours** (`collect_neighbors`, off by default because it adds commands per device). `port` is the local port in the short form the
+  MAC address table prints (`GigabitEthernet1/0/48` -> `Gi1/0/48`, `Ethernet1/5` -> `Eth1/5` on NX-OS and `Et1/5` on IOS, `Port-channel1` ->
+  `Po1`); that is how a neighbour is matched to a MAC-table port, so it is **not verified live** that every platform prints the same short form.
+  `channel` is the port-channel the port belongs to, read from the channel summary (without it only the member port matches). `capabilities`
+  is a closed vocabulary (`bridge`, `router`, `wlan_ap`, `station`, `telephone`, `repeater`, `docsis`, `other`) from LLDP's letters
+  (`B,R`) or CDP's words (`Router Switch IGMP`; CDP's legacy letters mean something else, `S` is Switch there); unknown words are dropped.
+  `is_infrastructure` is `bridge`, `router` or `wlan_ap` (a device with other devices behind it). The templates exist in ntc-templates for all
+  four commands on IOS and NX-OS (verified in the installed index); the field names are read in `parsing.parse_neighbors` / `parse_channels`.
 * **`vrfs`** (nullable JSON) lists every discovered VRF as `{name, status, rows}`: the status of its `show ip arp vrf <name>` (`ok`,
   `not_supported`, `no_template`; `skipped` when the VRF was found but the default ARP table was unusable, so it was not read) and the
   entries parsed. `ok` with `rows: 0` is an empty VRF; the other statuses mean the table could not be read. `NULL` means VRFs were not
@@ -45,6 +54,12 @@ Each command is judged on its own (`parsing.classify_output`):
 | `no_template` | text that is neither a table nor a refusal: a banner, a dropped session, blank output for the default ARP or MAC table, or a table that still has entries that TextFSM did not parse (Netmiko returns raw text for that too, so a header-looking text that contains an IP or MAC is never "empty"). |
 | `skipped` | switched off in the step configuration |
 
+Neighbours are judged per command too, and the two (LLDP and CDP) become one `neighbor_status`: `no_template` if either was output that is not
+a table (a dropped session, a banner), else `ok` if either was read, else `not_supported` (neither protocol is on). A protocol that is switched
+off (`% LLDP is not enabled`) is `not_supported`. **Blank neighbour output is `no_template`, never an empty table** (a dropped session prints
+nothing too); only an explicit `Total entries displayed: 0` is empty. Neighbour data only sharpens the uplink guess, so it **never fails the
+device**: `no_template` stores no neighbour rows and the older neighbours stay current.
+
 A device **fails** when it cannot be reached (connection, authentication, timeout), when a VRF ARP command fails
 mid-way, when the output of a requested table is not a table (`unparsable_output`: storing it as "no rows" would
 replace the device's good data), or when the device refused every table the step was asked for
@@ -54,8 +69,9 @@ data stays current. Supported platforms: Cisco IOS, IOS-XE and NX-OS; any other 
 
 ## "Current" data is per device and per table
 
-For each device, ARP (with its VRFs and hostnames) and the MAC table are each current from **the newest collection that read that table**
-(`client_data_collections`; a status other than `skipped`). A run may cover only some devices, so there is no global "latest session"; and
+For each device, ARP (with its VRFs and hostnames), the MAC table and the neighbours are each current from **the newest collection that read
+that table** (`client_data_collections`; status `ok` or `not_supported`, see `core.models.client_data.table_was_read`; `skipped` and a
+neighbour `no_template` are not observations). A run may cover only some devices, so there is no global "latest session"; and
 a run that left a table out (`collect_ip_address` or `collect_mac_address` off) does not hide the earlier rows of that table, so ARP and the
 MAC table of one device can come from different runs. A table the device **refused** (`not_supported`) or that was **empty** is an observation
 and does supersede the older rows, which is why every device writes a collection row even when it found nothing. Coverage
@@ -127,7 +143,7 @@ gives the same error. It is an inventory problem and is not retried as a replace
 * Service `services/client_data/client_data_service.py`
 * Step `workflow_steps/collect_client_data/`: `options.py`, `commands.py`, `parsing.py`, `collector.py`,
   `dns.py`, `executor.py`; panel `frontend/.../workflow-steps/collect-client-data/`
-* Tests `tests/unit/test_collect_client_data_*.py`, `test_client_data_*.py`
+* Tests `tests/unit/test_collect_client_data_*.py`, `test_client_data_*.py`, `test_ai_host_lookup_tools.py`
 
 ## Uplinks and the likely location
 
@@ -137,15 +153,23 @@ from the current data and without storing anything:
 | Field | Meaning |
 |---|---|
 | `macs_on_port` | distinct MACs that device learned on that port (`NULL` for an ARP-only observation) |
-| `is_uplink` | `macs_on_port` is above `CLIENT_DATA_UPLINK_MAC_THRESHOLD` (default 10, at least 1): a trunk, the host is behind it |
-| `likely_location` | per MAC, the MAC-table observation on the port with the fewest MACs (ties: device name, port), unless that port is an uplink |
+| `is_uplink` | the port has an infrastructure neighbour (below), **or** `macs_on_port` is above `CLIENT_DATA_UPLINK_MAC_THRESHOLD` (default 10, at least 1) |
+| `uplink_reason` | `neighbor` (a bridge, router or wireless access point seen through LLDP/CDP on the port or on a member of its port-channel; wins when both apply) or `mac_count` (only the count); `NULL` for an access port |
+| `uplink_to` | the neighbour behind a `neighbor` uplink (the lowest name when several, for example LLDP and CDP both) |
+| `likely_location` | per MAC, the MAC-table observation on a **non-uplink** port with the fewest MACs (ties: device name, port) |
 
-The tie-break is a full ordering (device, port, VLAN, VRF, IP), so equal scores pick the same row every time. `likely_first` (the
-Ask the Net lookup) orders the likely location, then access ports, then uplinks **before** the page is cut, so the best answer is on the first
-page however many switches saw the MAC. History is collapsed to one entry per collection in SQL before its limit.
+An uplink never beats an access port in the ranking, however few MACs it has learned: a trunk with two MACs and a router behind it does not
+become the likely location of a host that also sits on a busy access port. The tie-break is a full ordering (device, port, VLAN, VRF, IP), so
+equal scores pick the same row every time. `likely_first` (the Ask the Net lookup) orders the likely location, then access ports, then uplinks
+**before** the page is cut, so the best answer is on the first page however many switches saw the MAC. History is collapsed to one entry per
+collection in SQL before its limit.
 
-It is a heuristic. A lightly used trunk stays below the threshold and a busy access port (a hypervisor host, a hub, an access point) can pass
-it; there is no LLDP/CDP or port-channel knowledge. A MAC seen only on uplinks has no `likely_location`. `hide_uplinks` leaves uplink rows out.
+What the neighbour data fixes and what it does not. It fixes a **lightly used trunk** (below the threshold) and a **port-channel** (the bundle
+counts as one port through its members). It does not fix a **busy access port** (a hypervisor, a hub, an access point that does not advertise
+itself): the count rule still applies as an OR, because ports without neighbour data (a device that was not collected with `collect_neighbors`,
+or one that runs neither protocol) have nothing else to go on. A phone or host neighbour does not make a port an uplink. Neighbour ports are
+matched to MAC-table ports by name after `normalise_port`; a port named differently by the two commands would not match (unverified live).
+A MAC seen only on uplinks has no `likely_location`. `hide_uplinks` leaves uplink rows out.
 
 ## REST API
 
@@ -164,11 +188,17 @@ Reads are rate limited (`client-data-read`, 120 per minute per user). The router
 
 Four read tools (`find_client`, `list_clients`, `get_client_history`, `get_client_data_coverage`) answer "where is this MAC / IP?" from the same
 queries: `doc/AI_TOOL_CHAIN.md` §48. They need `client_data:read` (checked on every call) and the user's inventory and addresses switches.
+Where an ACI source is configured as well, `find_host` asks the client data and the APIC in one call (`tools/host_lookup_tools.py`): two sections,
+each with its own source, status (`found`, `not_seen` / `not_learned`, `not_applicable`, `error`) and freshness (the client data is stored and
+has ages; the APIC is the live view at the call), never merged into one schema or one age. The fabric is asked for a MAC or an IPv4 address only;
+an IPv6 address or a hostname is client data only. It is a composition of `find_client` and `find_aci_endpoint`, so each keeps its own checks
+(`client_data:read`, `sources.aci:read`, the data switches, the ACI rate budget), a source that is denied or failing is a status of its section and
+not a reason to drop the other, and it is offered only when both readers exist. Only the first five rows of each source are shown.
 
 ## Open
 
-A UI page (`doc/OPEN_TODOS.md`), merging ACI endpoint data into one tool (the playbook `where-is-this-host` covers it as a procedure), the IPv6 neighbour table, and LLDP/CDP-based uplink detection (the threshold
-heuristic above is what exists), and other platforms than Cisco IOS, IOS-XE and NX-OS. The list with detail is `doc/plans/CLIENT_DATA_CONTINUE.md`.
+A UI page (`doc/OPEN_TODOS.md`), the IPv6 neighbour table and other platforms than Cisco IOS, IOS-XE and NX-OS. The list with detail is
+`doc/plans/CLIENT_DATA_CONTINUE.md`.
 
 ## Verification status
 

@@ -23,6 +23,7 @@ class CollectOptions:
     collect_mac_address: bool
     collect_vrfs: bool
     collect_hostname: bool
+    collect_neighbors: bool
     dns_timeout_seconds: float
     dns_concurrency: int
     network_driver_override: str | None
@@ -51,8 +52,12 @@ def parse_options(config: dict[str, Any]) -> CollectOptions:
     collect_ip = parse_bool_flag(config, "collect_ip_address", default=True)
     collect_mac = parse_bool_flag(config, "collect_mac_address", default=True)
     collect_hostname = parse_bool_flag(config, "collect_hostname")
-    if not (collect_ip or collect_mac):
-        raise ValueError(f"{STEP_ID}: collect_ip_address or collect_mac_address must be enabled")
+    collect_neighbors = parse_bool_flag(config, "collect_neighbors")
+    if not (collect_ip or collect_mac or collect_neighbors):
+        raise ValueError(
+            f"{STEP_ID}: collect_ip_address, collect_mac_address or collect_neighbors "
+            "must be enabled"
+        )
     if collect_hostname and not collect_ip:
         raise ValueError(
             f"{STEP_ID}: collect_hostname needs collect_ip_address (it resolves the ARP addresses)"
@@ -69,6 +74,7 @@ def parse_options(config: dict[str, Any]) -> CollectOptions:
         # Per-VRF ARP only makes sense when ARP is collected.
         collect_vrfs=collect_ip and parse_bool_flag(config, "collect_vrfs", default=True),
         collect_hostname=collect_hostname,
+        collect_neighbors=collect_neighbors,
         dns_timeout_seconds=_dns_timeout(config),
         dns_concurrency=concurrency,
         network_driver_override=str(config.get("network_driver_override") or "").strip() or None,

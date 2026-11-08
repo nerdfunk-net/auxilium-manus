@@ -19,12 +19,14 @@ from core.models.client_data import (
     ClientHostname,
     ClientIpAddress,
     ClientMacAddress,
+    ClientPortNeighbor,
 )
 from models.client_data import (
     ClientCollectionStatus,
     ClientHostnameRow,
     ClientIpRow,
     ClientMacRow,
+    ClientNeighborRow,
     CollectionConflictError,
     VrfResult,
 )
@@ -33,7 +35,13 @@ from repositories.client_data_repository import ClientDataRepository
 NOW = datetime(2026, 11, 7, 12, 0, tzinfo=UTC)
 TABLES = [
     cast("Table", model.__table__)
-    for model in (ClientIpAddress, ClientMacAddress, ClientHostname, ClientDataCollection)
+    for model in (
+        ClientIpAddress,
+        ClientMacAddress,
+        ClientHostname,
+        ClientPortNeighbor,
+        ClientDataCollection,
+    )
 ]
 
 
@@ -62,6 +70,7 @@ def _store(
     macs: int = 1,
     keep: int = 5,
     host: str | None = None,
+    neighbors: int = 0,
     status: ClientCollectionStatus = ClientCollectionStatus(
         arp_status="ok", mac_status="ok", vrf_status="ok"
     ),
@@ -83,6 +92,17 @@ def _store(
         status=status,
         keep_sessions=keep,
         target_host=host,
+        neighbor_rows=[
+            ClientNeighborRow(
+                port=f"Gi1/0/{i + 1}",
+                neighbor_name=f"core{i}",
+                neighbor_port="Te1/1/1",
+                protocol="lldp",
+                capabilities="bridge,router",
+                is_infrastructure=True,
+            )
+            for i in range(neighbors)
+        ],
     )
 
 
@@ -402,3 +422,95 @@ def test_a_very_long_target_host_is_cut_to_its_column_and_still_matches_itself(
     stored = db.scalars(select(ClientDataCollection)).one()
     assert stored.target_host == host[:255]
     assert _count(db, ClientIpAddress) == 1
+
+
+NEIGHBORS_ON = ClientCollectionStatus(
+    arp_status="skipped", mac_status="skipped", neighbor_status="ok"
+)
+NEIGHBORS_OFF = ClientCollectionStatus(arp_status="ok", mac_status="ok", neighbor_status="skipped")
+
+
+def test_neighbour_rows_are_stored_with_the_collection(db: Session) -> None:
+    _store(ClientDataRepository(db), neighbors=3, status=NEIGHBORS_ON)
+
+    assert _count(db, ClientPortNeighbor) == 3
+    stored = db.scalars(select(ClientDataCollection)).one()
+    assert (stored.neighbor_status, stored.neighbor_rows) == ("ok", 3)
+    neighbor = db.scalars(select(ClientPortNeighbor).order_by(ClientPortNeighbor.port)).first()
+    assert neighbor is not None
+    assert (neighbor.device_name, neighbor.session_id, neighbor.is_infrastructure) == (
+        "sw1",
+        "s1",
+        True,
+    )
+    assert (neighbor.protocol, neighbor.capabilities, neighbor.neighbor_name) == (
+        "lldp",
+        "bridge,router",
+        "core0",
+    )
+
+
+def test_a_collection_without_neighbours_defaults_to_skipped_and_zero(db: Session) -> None:
+    _store(ClientDataRepository(db))
+
+    stored = db.scalars(select(ClientDataCollection)).one()
+    assert (stored.neighbor_status, stored.neighbor_rows) == ("skipped", 0)
+
+
+def test_the_same_run_replaces_its_neighbours(db: Session) -> None:
+    repo = ClientDataRepository(db)
+    _store(repo, neighbors=3, status=NEIGHBORS_ON)
+    _store(repo, neighbors=1, status=NEIGHBORS_ON)
+
+    assert _count(db, ClientPortNeighbor) == 1
+
+
+def test_pruning_never_removes_the_newest_collection_that_read_the_neighbours(db: Session) -> None:
+    repo = ClientDataRepository(db)
+    _store(repo, session_id="nb-run", at=NOW, neighbors=2, status=NEIGHBORS_ON)
+    for index in range(1, 4):  # newer runs that left the neighbours out
+        _store(
+            repo,
+            session_id=f"arp-{index}",
+            at=NOW + timedelta(hours=index),
+            status=NEIGHBORS_OFF,
+            keep=2,
+        )
+
+    sessions = set(db.scalars(select(ClientDataCollection.session_id)))
+
+    assert sessions == {"nb-run", "arp-2", "arp-3"}
+    assert _count(db, ClientPortNeighbor) == 2
+
+
+def test_a_neighbour_collection_that_was_not_a_table_does_not_count_as_read(db: Session) -> None:
+    unread = ClientCollectionStatus(arp_status="ok", mac_status="ok", neighbor_status="no_template")
+    repo = ClientDataRepository(db)
+    _store(repo, session_id="nb-good", at=NOW, neighbors=2, status=NEIGHBORS_ON)
+    for index in range(1, 4):
+        _store(
+            repo, session_id=f"bad-{index}", at=NOW + timedelta(hours=index), status=unread, keep=2
+        )
+
+    # keep=2 keeps bad-2 and bad-3; nb-good is still the newest that really read the neighbours.
+    assert set(db.scalars(select(ClientDataCollection.session_id))) == {"nb-good", "bad-2", "bad-3"}
+
+
+def test_purge_keeps_the_newest_neighbour_collection_however_old(db: Session) -> None:
+    repo = ClientDataRepository(db)
+    old = NOW - timedelta(days=300)
+    _store(repo, session_id="nb-old", at=old, neighbors=2, status=NEIGHBORS_ON)
+    _store(repo, session_id="arp-newer", at=old + timedelta(days=5), status=NEIGHBORS_OFF)
+    _store(
+        repo, session_id="nb-oldest", at=old - timedelta(days=5), neighbors=1, status=NEIGHBORS_ON
+    )
+
+    repo.purge_older_than(NOW - timedelta(days=90))
+
+    assert set(db.scalars(select(ClientDataCollection.session_id))) == {"nb-old", "arp-newer"}
+    assert _count(db, ClientPortNeighbor) == 2
+
+
+def test_neighbour_rows_validate_their_vocabulary() -> None:
+    with pytest.raises(ValueError):
+        ClientNeighborRow(port="Gi1/0/1", protocol="bgp")  # type: ignore[arg-type]

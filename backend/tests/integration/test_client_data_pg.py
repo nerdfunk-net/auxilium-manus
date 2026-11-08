@@ -19,6 +19,7 @@ from models.client_data import (
     ClientHostnameRow,
     ClientIpRow,
     ClientMacRow,
+    ClientNeighborRow,
     CollectionConflictError,
     VrfResult,
 )
@@ -45,7 +46,16 @@ def session():
 
 
 def _collect(
-    session, *, device, session_id="run-1", at=NOW, ips=(), macs=(), hostnames=(), status=OK
+    session,
+    *,
+    device,
+    session_id="run-1",
+    at=NOW,
+    ips=(),
+    macs=(),
+    hostnames=(),
+    neighbors=(),
+    status=OK,
 ):
     ClientDataRepository(session).replace_device_collection(
         session_id=session_id,
@@ -57,6 +67,7 @@ def _collect(
         hostname_rows=list(hostnames),
         status=status,
         keep_sessions=5,
+        neighbor_rows=list(neighbors),
     )
 
 
@@ -415,3 +426,86 @@ def test_a_later_write_of_another_device_with_the_same_name_keeps_the_first_on_p
     store("10.0.0.1", [ClientIpRow(ip_address="10.0.0.6", mac_address="aabb.ccdd.0001")])
 
     assert [r.ip_address for r in session.scalars(select(ClientIpAddress))] == ["10.0.0.6"]
+
+
+NB_OK = ClientCollectionStatus(arp_status="ok", mac_status="ok", neighbor_status="ok")
+
+
+def _neighbor(port: str, name: str = "core1", channel: str | None = None, protocol: str = "lldp"):
+    return ClientNeighborRow(
+        port=port,
+        channel=channel,
+        neighbor_name=name,
+        protocol=protocol,  # type: ignore[arg-type]
+        capabilities="bridge,router",
+        is_infrastructure=True,
+    )
+
+
+def _host_macs(port: str, n: int) -> list[ClientMacRow]:
+    return [ClientMacRow(mac_address="aabb.ccdd.0001", vlan="10", port=port)] + [
+        ClientMacRow(mac_address=f"aabb.ccdd.{0x100 + k:04x}", vlan="10", port=port)
+        for k in range(n - 1)
+    ]
+
+
+def test_neighbours_decide_the_uplink_and_the_likely_location_on_postgres(session) -> None:
+    _collect(
+        session,
+        device="swA",
+        macs=_host_macs("Po1", 2),
+        neighbors=[
+            _neighbor("Gi1/0/47", channel="Po1"),
+            _neighbor("Gi1/0/48", name="core-a", channel="Po1", protocol="cdp"),
+        ],
+        status=NB_OK,
+    )
+    _collect(session, device="swB", macs=_host_macs("Gi1/0/5", 3))
+
+    queries = ClientDataQueryRepository(session)
+    items, total = queries.get_client_data(mac_address="aabb.ccdd.0001", exact=True)
+    rows = {i["device_name"]: i for i in items}
+
+    assert total == 2  # the joins (members, channel, two protocols) never multiply rows
+    assert (rows["swA"]["is_uplink"], rows["swA"]["uplink_reason"]) == (True, "neighbor")
+    assert rows["swA"]["uplink_to"] == "core-a"  # the lowest name of the neighbours on the bundle
+    assert rows["swA"]["likely_location"] is False
+    assert (rows["swB"]["likely_location"], rows["swB"]["uplink_reason"]) == (True, None)
+    hidden, _ = queries.get_client_data(mac_address="aabb.ccdd.0001", hide_uplinks=True)
+    assert [i["device_name"] for i in hidden] == ["swB"]
+    first, _ = queries.get_client_data(mac_address="aabb.ccdd.0001", likely_first=True)
+    assert first[0]["device_name"] == "swB"
+
+
+def test_neighbours_are_current_per_table_and_survive_prune_and_purge_on_postgres(session) -> None:
+    repo = ClientDataRepository(session)
+    old = NOW - timedelta(days=300)
+    _collect(
+        session,
+        device="swA",
+        session_id="nb",
+        at=old,
+        macs=_host_macs("Gi1/0/48", 2),
+        neighbors=[_neighbor("Gi1/0/48")],
+        status=NB_OK,
+    )
+    for index in range(1, 4):  # newer runs without neighbours, keeping 2 runs
+        repo.replace_device_collection(
+            session_id=f"mac-{index}",
+            device_name="swA",
+            device_ip=None,
+            collected_at=old + timedelta(days=index),
+            ip_rows=[],
+            mac_rows=_host_macs("Gi1/0/48", 2),
+            hostname_rows=[],
+            status=ClientCollectionStatus(arp_status="skipped", mac_status="ok"),
+            keep_sessions=2,
+        )
+
+    queries = ClientDataQueryRepository(session)
+    first = queries.get_client_data(mac_address="aabb.ccdd.0001")[0][0]
+    assert first["uplink_reason"] == "neighbor"
+    assert repo.purge_older_than(NOW - timedelta(days=90)) >= 0
+    (sw,) = queries.get_collections()
+    assert (sw["neighbor_status"], sw["neighbor_rows"]) == ("ok", 1)
+    assert queries.get_client_data(mac_address="aabb.ccdd.0001")[0][0]["is_uplink"] is True

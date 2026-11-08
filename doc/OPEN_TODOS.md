@@ -19,10 +19,14 @@ pick it up without re-deriving the context.
 - **Live checks.** The step ran on a lab IOS router and switch (no NX-OS, no VRF with entries; the per-VRF status in `client_data_collections.vrfs` is unit-tested only). Open: NX-OS output, a larger network, `show vrf`
   on very old IOS, ARP volume on big L3 cores (`read_timeout`), the panel in a browser, and the Ask the Net tools with a real model (the
   maintainer runs it with their own key; record the result in `doc/AI_TOOL_CHAIN.md` §48).
-- **Uplink detection is a threshold heuristic** (`CLIENT_DATA_UPLINK_MAC_THRESHOLD`). Better: LLDP/CDP neighbours or port-channel and VPC
-  knowledge, so a trunk with little traffic and a busy access port are told apart. Needs those commands collected as well.
-- **Not built:** merging ACI endpoint data into one answer (Ask the Net has `find_aci_endpoint` separately), the IPv6 neighbour table
-  (`show ipv6 neighbors`) and other platforms than Cisco IOS, IOS-XE and NX-OS (`doc/plans/CLIENT_DATA_CONTINUE.md` 3.6, 3.7: open, skipped for now).
+- **Uplink detection from LLDP/CDP is built but not verified live** (2026-11-08, `collect_neighbors`, off by default). Open: that the local
+  port names LLDP/CDP print match the MAC-table port names after `normalise_port` on real IOS, IOS-XE and NX-OS devices (and on VPC, FEX,
+  breakout and stack ports), that `show etherchannel summary` / `show port-channel summary` parse into the member lists on real output, the
+  capability words of other CDP versions, and a busy access port (a hypervisor, a hub) that advertises nothing, which the MAC-count rule
+  (`mac_count`) still guesses. Details in `doc/CLIENT_DATA.md` "Uplinks and the likely location".
+- **`find_host` is not verified with a real model or a real fabric** (`doc/AI_TOOL_CHAIN.md` §48): whether the model prefers it for "find the IP
+  address X", and how the two sections read next to each other.
+- **Not built:** the IPv6 neighbour table (`show ipv6 neighbors`) and other platforms than Cisco IOS, IOS-XE and NX-OS (`doc/plans/CLIENT_DATA_CONTINUE.md` 3.6, 3.7: open, skipped for now).
 
 ---
 

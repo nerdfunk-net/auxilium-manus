@@ -18,6 +18,7 @@ from core.models.client_data import (
     ClientHostname,
     ClientIpAddress,
     ClientMacAddress,
+    ClientPortNeighbor,
 )
 from models.failure import FailureInfo
 from models.workflow_context import DeviceContext, WorkflowContext
@@ -33,6 +34,7 @@ TABLES = [
     ClientIpAddress.__table__,
     ClientMacAddress.__table__,
     ClientHostname.__table__,
+    ClientPortNeighbor.__table__,
     ClientDataCollection.__table__,
 ]
 
@@ -76,6 +78,26 @@ ACC1 = {
         }
     ),
 }
+
+
+LLDP_ROWS = _json(
+    {
+        "local_interface": "Gi1/0/47",
+        "neighbor_name": "core1",
+        "neighbor_interface": "TenGigabitEthernet1/1/1",
+        "capabilities": "B,R",
+    },
+    {"local_interface": "Gi1/0/7", "neighbor_name": "phone-7", "capabilities": "T"},
+)
+SW_NEIGHBORS = {
+    **ACC1,
+    "show lldp neighbors detail": LLDP_ROWS,
+    "show cdp neighbors detail": "% CDP is not enabled\n",
+    "show etherchannel summary": _json(
+        {"group": "1", "bundle_name": "Po1", "member_interface": ["Gi1/0/47", "Gi1/0/48"]}
+    ),
+}
+NEIGHBORS_ON = {"collect_neighbors": True, "collect_vrfs": False}
 
 
 class _FakeNetmiko:
@@ -272,6 +294,8 @@ class CollectClientDataExecutorTests(unittest.IsolatedAsyncioTestCase):
                 "arp_status": "ok",
                 "mac_status": "not_supported",
                 "vrf_status": "ok",
+                "neighbor_status": "skipped",
+                "neighbor_entries": 0,
                 "arp_entries": 2,
                 "mac_entries": 0,
                 "hostnames": 0,
@@ -434,6 +458,202 @@ class CollectClientDataExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(error.code, "duplicate_key")
         self.assertIn("stored per device name", error.message)
         self.assertEqual((error.failure.phase, error.failure.kind), ("internal", "ambiguous_match"))
+
+    async def test_neighbours_are_not_collected_unless_switched_on(self) -> None:
+        netmiko = _FakeNetmiko({"10.0.0.2": SW_NEIGHBORS})
+
+        await self._run({"d2": _device("d2", "acc1", "10.0.0.2")}, netmiko)
+
+        self.assertEqual(self._all(ClientPortNeighbor), [])
+        (collection,) = self._all(ClientDataCollection)
+        self.assertEqual((collection.neighbor_status, collection.neighbor_rows), ("skipped", 0))
+        self.assertTrue(
+            all("lldp" not in c and "cdp" not in c for _, cs in netmiko.calls for c in cs)
+        )
+
+    async def test_lldp_neighbours_are_stored_with_their_port_channel(self) -> None:
+        netmiko = _FakeNetmiko({"10.0.0.2": SW_NEIGHBORS})
+
+        outcomes = await self._run(
+            {"d2": _device("d2", "acc1", "10.0.0.2")}, netmiko, config=NEIGHBORS_ON
+        )
+
+        self.assertEqual(list(self._by_name(outcomes, "success")), ["d2"])
+        rows = {r.port: r for r in self._all(ClientPortNeighbor)}
+        self.assertEqual(set(rows), {"Gi1/0/47", "Gi1/0/7"})
+        uplink = rows["Gi1/0/47"]
+        self.assertEqual(
+            (uplink.neighbor_name, uplink.channel, uplink.protocol, uplink.is_infrastructure),
+            ("core1", "Po1", "lldp", True),
+        )
+        self.assertEqual(uplink.capabilities, "bridge,router")
+        self.assertEqual(
+            (rows["Gi1/0/7"].channel, rows["Gi1/0/7"].is_infrastructure), (None, False)
+        )
+        (collection,) = self._all(ClientDataCollection)
+        self.assertEqual((collection.neighbor_status, collection.neighbor_rows), ("ok", 2))
+        # One batch for the tables and the neighbour commands.
+        self.assertEqual(
+            netmiko.calls[0][1],
+            [
+                "show ip arp",
+                "show mac address-table",
+                "show lldp neighbors detail",
+                "show cdp neighbors detail",
+                "show etherchannel summary",
+            ],
+        )
+
+    async def test_nxos_uses_its_own_port_channel_command(self) -> None:
+        netmiko = _FakeNetmiko({"10.0.0.2": ACC1})
+
+        await self._run(
+            {"d2": _device("d2", "acc1", "10.0.0.2", driver="cisco_nxos")},
+            netmiko,
+            config=NEIGHBORS_ON,
+        )
+
+        self.assertIn("show port-channel summary", netmiko.calls[0][1])
+        self.assertNotIn("show etherchannel summary", netmiko.calls[0][1])
+
+    async def test_cdp_rows_are_used_when_lldp_is_off(self) -> None:
+        script = {
+            **SW_NEIGHBORS,
+            "show lldp neighbors detail": "% LLDP is not enabled\n",
+            "show cdp neighbors detail": _json(
+                {
+                    "local_interface": "GigabitEthernet1/0/48",
+                    "neighbor_name": "core2",
+                    "neighbor_interface": "Te1/1/2",
+                    "capabilities": "Router Switch IGMP",
+                }
+            ),
+        }
+
+        await self._run(
+            {"d2": _device("d2", "acc1", "10.0.0.2")},
+            _FakeNetmiko({"10.0.0.2": script}),
+            config=NEIGHBORS_ON,
+        )
+
+        (row,) = self._all(ClientPortNeighbor)
+        self.assertEqual((row.port, row.channel, row.protocol), ("Gi1/0/48", "Po1", "cdp"))
+        self.assertEqual(self._all(ClientDataCollection)[0].neighbor_status, "ok")
+
+    async def test_both_protocols_off_is_not_supported_and_the_device_still_succeeds(self) -> None:
+        script = {
+            **ACC1,
+            "show lldp neighbors detail": "% LLDP is not enabled\n",
+            "show cdp neighbors detail": "% CDP is not enabled\n",
+        }
+
+        outcomes = await self._run(
+            {"d2": _device("d2", "acc1", "10.0.0.2")},
+            _FakeNetmiko({"10.0.0.2": script}),
+            config=NEIGHBORS_ON,
+        )
+
+        self.assertEqual(list(self._by_name(outcomes, "success")), ["d2"])
+        (collection,) = self._all(ClientDataCollection)
+        self.assertEqual(
+            (collection.neighbor_status, collection.neighbor_rows), ("not_supported", 0)
+        )
+        self.assertEqual(len(self._all(ClientMacAddress)), 1)  # the other tables are intact
+
+    async def test_neighbour_output_that_is_not_a_table_never_fails_the_device_or_stores_rows(
+        self,
+    ) -> None:
+        script = {**SW_NEIGHBORS, "show cdp neighbors detail": "Connection closed by remote host"}
+
+        outcomes = await self._run(
+            {"d2": _device("d2", "acc1", "10.0.0.2")},
+            _FakeNetmiko({"10.0.0.2": script}),
+            config=NEIGHBORS_ON,
+        )
+
+        self.assertEqual(list(self._by_name(outcomes, "success")), ["d2"])
+        self.assertEqual(self._all(ClientPortNeighbor), [])  # an untrusted answer stores nothing
+        (collection,) = self._all(ClientDataCollection)
+        self.assertEqual((collection.neighbor_status, collection.neighbor_rows), ("no_template", 0))
+        self.assertEqual(len(self._all(ClientMacAddress)), 1)
+
+    async def test_a_missing_port_channel_table_only_loses_the_channel(self) -> None:
+        script = {**SW_NEIGHBORS, "show etherchannel summary": REFUSAL}
+
+        await self._run(
+            {"d2": _device("d2", "acc1", "10.0.0.2")},
+            _FakeNetmiko({"10.0.0.2": script}),
+            config=NEIGHBORS_ON,
+        )
+
+        rows = {r.port: r.channel for r in self._all(ClientPortNeighbor)}
+        self.assertEqual(rows, {"Gi1/0/47": None, "Gi1/0/7": None})
+        self.assertEqual(self._all(ClientDataCollection)[0].neighbor_status, "ok")
+
+    async def test_the_summary_and_the_dry_run_name_the_neighbour_commands(self) -> None:
+        outcomes = await self._run(
+            {"d2": _device("d2", "acc1", "10.0.0.2")},
+            _FakeNetmiko({"10.0.0.2": SW_NEIGHBORS}),
+            config=NEIGHBORS_ON,
+        )
+        summary = self._by_name(outcomes, "success")["d2"].parsed["collect-1"]["client_data"]
+        self.assertEqual((summary["neighbor_status"], summary["neighbor_entries"]), ("ok", 2))
+
+        preview = await self._run(
+            {"d2": _device("d2", "acc1", "10.0.0.2")},
+            _FakeNetmiko({}),
+            config={**NEIGHBORS_ON, "dry_run": True},
+            run_uuid="run-dry",
+        )
+        dry = self._by_name(preview, "success")["d2"].dry_run_results["collect-1"]
+        self.assertIn("show lldp neighbors detail", dry["commands"])
+        self.assertIn("show etherchannel summary", dry["commands"])
+
+    async def test_the_row_cap_covers_the_neighbour_table(self) -> None:
+        resolver = AsyncMock()
+        with (
+            patch.object(settings, "client_data_max_rows_per_table", 2),  # ARP/MAC fit: 1 each
+            patch(f"{MODULE}._hostnames", resolver),
+        ):
+            outcomes = await self._run(
+                {"d2": _device("d2", "acc1", "10.0.0.2")},
+                _FakeNetmiko(
+                    {
+                        "10.0.0.2": {
+                            **SW_NEIGHBORS,
+                            "show lldp neighbors detail": _json(
+                                *(
+                                    {
+                                        "local_interface": f"Gi1/0/{n}",
+                                        "neighbor_name": f"n{n}",
+                                        "capabilities": "B",
+                                    }
+                                    for n in range(1, 4)
+                                )
+                            ),
+                        }
+                    }
+                ),
+                config={**NEIGHBORS_ON, "collect_hostname": True},
+            )
+
+        error = self._by_name(outcomes, "failure")["d2"].errors[-1]
+        self.assertEqual(error.code, "too_many_rows")
+        self.assertIn("neighbour", error.message)
+        resolver.assert_not_awaited()  # refused by the collector, before DNS and storage
+        self.assertEqual(self._all(ClientPortNeighbor), [])
+
+    async def test_neighbours_alone_are_enough_when_other_tables_are_off(self) -> None:
+        netmiko = _FakeNetmiko({"10.0.0.2": SW_NEIGHBORS})
+
+        outcomes = await self._run(
+            {"d2": _device("d2", "acc1", "10.0.0.2")},
+            netmiko,
+            config={**NEIGHBORS_ON, "collect_ip_address": False, "collect_mac_address": False},
+        )
+
+        self.assertEqual(list(self._by_name(outcomes, "success")), ["d2"])
+        self.assertEqual(len(self._all(ClientPortNeighbor)), 2)
 
     async def test_a_default_arp_table_over_the_cap_stops_before_any_vrf_is_read(self) -> None:
         script = {

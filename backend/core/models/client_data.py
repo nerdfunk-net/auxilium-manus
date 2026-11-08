@@ -3,10 +3,20 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import JSON, DateTime, Index, Integer, String, UniqueConstraint, func
+from sqlalchemy import JSON, Boolean, DateTime, Index, Integer, String, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from core.models.base import Base
+
+
+def table_was_read(column: Any) -> Any:
+    """SQL condition: this collection really read the table whose status column is *column*.
+
+    ``skipped`` was not asked for. ``no_template`` was asked for but the output was not a table,
+    so it is no observation (the ARP and MAC tables fail the device instead of storing it).
+    ``ok`` and ``not_supported`` are observations and supersede older rows.
+    """
+    return column.in_(("ok", "not_supported"))
 
 
 class ClientIpAddress(Base):
@@ -68,6 +78,40 @@ class ClientMacAddress(Base):
     )
 
 
+class ClientPortNeighbor(Base):
+    """A device a port saw through LLDP or CDP (``show lldp neighbors detail`` and the CDP twin).
+
+    Used to tell an uplink (a port with a switch, router or access point behind it) from an
+    access port, instead of guessing from the number of MACs. ``channel`` is the port-channel the
+    port belongs to, so the MAC-table entries of the bundle match too.
+    """
+
+    __tablename__ = "client_port_neighbors"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    session_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    # The local port in the short form the MAC address table uses (``Gi1/0/48``).
+    port: Mapped[str] = mapped_column(String(255), nullable=False)
+    channel: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    neighbor_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    neighbor_port: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    protocol: Mapped[str] = mapped_column(String(8), nullable=False)  # lldp | cdp
+    # Comma separated names from a closed vocabulary (bridge, router, wlan_ap, station, ...).
+    capabilities: Mapped[str] = mapped_column(String(100), nullable=False, default="")
+    is_infrastructure: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    device_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    device_ip: Mapped[str | None] = mapped_column(String(45), nullable=True)
+    collected_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    __table_args__ = (
+        Index("idx_client_neighbor_session_device", "session_id", "device_name"),
+        Index("idx_client_neighbor_device_port", "device_name", "port"),
+        Index("idx_client_neighbor_collected_at", "collected_at"),
+    )
+
+
 class ClientHostname(Base):
     """A DNS (PTR) hostname resolved for an IP address a device had in its ARP table."""
 
@@ -117,6 +161,9 @@ class ClientDataCollection(Base):
     # The SSH target the collection came from. A later write for the same run and device name
     # from another target is a different device with the same name, not a retry. NULL = unknown.
     target_host: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # LLDP and CDP together: ok | not_supported | no_template | skipped (like the other tables).
+    neighbor_status: Mapped[str] = mapped_column(String(20), nullable=False, default="skipped")
+    neighbor_rows: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     arp_rows: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     mac_rows: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 

@@ -39,6 +39,7 @@ function CollectClientDataConfigPanel({ config, onChange }: PluginConfigPanelPro
   const collectMac = config.collect_mac_address !== false;
   const collectVrfs = collectIp && config.collect_vrfs !== false;
   const collectHostname = collectIp && config.collect_hostname === true;
+  const collectNeighbors = config.collect_neighbors === true;
   const dryRun = config.dry_run === true;
   const networkDriverOverride =
     typeof config.network_driver_override === "string" ? config.network_driver_override : "";
@@ -83,6 +84,14 @@ function CollectClientDataConfigPanel({ config, onChange }: PluginConfigPanelPro
         checked={collectHostname}
         onCheckedChange={(checked) => patchConfig({ collect_hostname: checked })}
         description="Resolve the IP addresses to hostnames with reverse DNS. Needs collect_ip_address."
+      />
+
+      <CheckboxField
+        id="collect-neighbors"
+        label="collect_neighbors"
+        checked={collectNeighbors}
+        onCheckedChange={(checked) => patchConfig({ collect_neighbors: checked })}
+        description="Read the LLDP and CDP neighbours (and the port-channels) of the ports. A port with a switch, router or access point behind it is then an uplink, instead of a guess from the number of MACs. Off by default: it adds commands per device."
       />
 
       {collectHostname ? (

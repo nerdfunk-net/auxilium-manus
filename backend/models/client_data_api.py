@@ -26,6 +26,11 @@ class ClientObservation(_Out):
     macs_on_port: int | None
     # More MACs on the port than CLIENT_DATA_UPLINK_MAC_THRESHOLD: a trunk, not an access port.
     is_uplink: bool
+    # Why: "neighbor" (a switch, router or access point seen through LLDP/CDP on the port or its
+    # port-channel) or "mac_count" (the MAC-count guess); None for an access port.
+    uplink_reason: str | None
+    # The neighbour behind an uplink port (lowest name when there are several).
+    uplink_to: str | None
     # The access port with the fewest MACs among this MAC's MAC-table observations.
     likely_location: bool
     session_id: str
@@ -96,3 +101,7 @@ class CollectionInfo(_Out):
     vrfs: list[dict[str, Any]] | None
     arp_rows: int
     mac_rows: int
+    # LLDP/CDP neighbours are a third table with their own time and status.
+    neighbor_collected_at: str | None
+    neighbor_status: str
+    neighbor_rows: int

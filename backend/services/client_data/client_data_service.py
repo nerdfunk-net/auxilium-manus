@@ -15,6 +15,7 @@ from models.client_data import (
     ClientHostnameRow,
     ClientIpRow,
     ClientMacRow,
+    ClientNeighborRow,
     check_row_cap,
 )
 from repositories.client_data_query_repository import (
@@ -70,6 +71,7 @@ class ClientDataService:
         collected_at: datetime | None = None,
         max_rows: int | None = None,
         target_host: str | None = None,
+        neighbor_rows: Sequence[ClientNeighborRow] = (),
     ) -> None:
         """Replace one device's collection for *session_id* and prune its older ones.
 
@@ -84,6 +86,7 @@ class ClientDataService:
             len(ip_rows),
             len(mac_rows),
             settings.client_data_max_rows_per_table if max_rows is None else max_rows,
+            len(neighbor_rows),
         )
         self.repository.replace_device_collection(
             session_id=session_id,
@@ -96,6 +99,7 @@ class ClientDataService:
             status=status,
             keep_sessions=keep_sessions,
             target_host=target_host,
+            neighbor_rows=neighbor_rows,
         )
 
     def purge_older_than_days(self, days: int, *, batch_size: int = 1000) -> int:

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
-from typing import cast
+from typing import Any, cast
 
 import pytest
 from sqlalchemy import Table, create_engine
@@ -17,12 +17,14 @@ from core.models.client_data import (
     ClientHostname,
     ClientIpAddress,
     ClientMacAddress,
+    ClientPortNeighbor,
 )
 from models.client_data import (
     ClientCollectionStatus,
     ClientHostnameRow,
     ClientIpRow,
     ClientMacRow,
+    ClientNeighborRow,
     VrfResult,
 )
 from repositories.client_data_query_repository import ClientDataQueryRepository
@@ -31,7 +33,13 @@ from repositories.client_data_repository import ClientDataRepository
 NOW = datetime(2026, 11, 7, 12, 0, tzinfo=UTC)
 TABLES = [
     cast("Table", model.__table__)
-    for model in (ClientIpAddress, ClientMacAddress, ClientHostname, ClientDataCollection)
+    for model in (
+        ClientIpAddress,
+        ClientMacAddress,
+        ClientHostname,
+        ClientPortNeighbor,
+        ClientDataCollection,
+    )
 ]
 OK = ClientCollectionStatus(arp_status="ok", mac_status="ok", vrf_status="ok")
 
@@ -57,6 +65,7 @@ def _collect(
     macs: list[ClientMacRow] | None = None,
     hostnames: list[ClientHostnameRow] | None = None,
     keep: int = 5,
+    neighbors: list[ClientNeighborRow] | None = None,
     status: ClientCollectionStatus = OK,
 ) -> None:
     ClientDataRepository(db).replace_device_collection(
@@ -69,6 +78,7 @@ def _collect(
         hostname_rows=hostnames or [],
         status=status,
         keep_sessions=keep,
+        neighbor_rows=neighbors or [],
     )
 
 
@@ -866,3 +876,268 @@ def test_the_ip_time_is_that_of_the_same_devices_arp_when_the_mac_table_is_newer
     assert mac_row["ip_address"] == "10.0.0.5"  # the same device's ARP
     assert mac_row["collected_at"].startswith("2026-11-07T14:00")  # the new MAC table
     assert mac_row["ip_collected_at"].startswith("2026-11-07T12:00")  # the older ARP
+
+
+# --- uplinks from LLDP / CDP neighbours --------------------------------------------------------
+
+NB_OK = ClientCollectionStatus(arp_status="ok", mac_status="ok", neighbor_status="ok")
+NB_OFF = ClientCollectionStatus(arp_status="ok", mac_status="ok", neighbor_status="skipped")
+NB_NOT_SUPPORTED = ClientCollectionStatus(
+    arp_status="ok", mac_status="ok", neighbor_status="not_supported"
+)
+HOST = "aabb.ccdd.0001"
+
+
+def _neighbor(
+    port: str,
+    name: str = "core1",
+    *,
+    infra: bool = True,
+    channel: str | None = None,
+    caps: str = "bridge,router",
+) -> ClientNeighborRow:
+    return ClientNeighborRow(
+        port=port,
+        channel=channel,
+        neighbor_name=name,
+        neighbor_port="Te1/1/1",
+        protocol="lldp",
+        capabilities=caps if infra else "telephone",
+        is_infrastructure=infra,
+    )
+
+
+def _mac(port: str, n: int = 1, vlan: str = "10") -> list[ClientMacRow]:
+    return [ClientMacRow(mac_address=HOST, vlan=vlan, port=port)] + [
+        ClientMacRow(mac_address=f"aabb.ccdd.{0x100 + k:04x}", vlan=vlan, port=port)
+        for k in range(n - 1)
+    ]
+
+
+def _find(db: Session, **kw: Any) -> dict[str, dict[str, Any]]:
+    items, _ = ClientDataQueryRepository(db).get_client_data(mac_address=HOST, exact=True, **kw)
+    return {i["device_name"]: i for i in items}
+
+
+def test_a_lightly_used_trunk_with_a_switch_behind_it_is_an_uplink(db: Session) -> None:
+    # Two MACs only: far below the threshold, so the count rule would call it an access port.
+    _collect(
+        db,
+        device="swA",
+        macs=_mac("Gi1/0/48", n=2),
+        neighbors=[_neighbor("Gi1/0/48")],
+        status=NB_OK,
+    )
+    _collect(db, device="swB", macs=_mac("Gi1/0/5", n=3), status=NB_OFF)
+
+    rows = _find(db)
+
+    assert rows["swA"]["is_uplink"] is True
+    assert rows["swA"]["uplink_reason"] == "neighbor"
+    assert rows["swA"]["uplink_to"] == "core1"
+    assert rows["swA"]["likely_location"] is False
+    # swB has more MACs on its port, but it is the access port: the trunk must not win.
+    assert rows["swB"]["likely_location"] is True
+    assert (rows["swB"]["is_uplink"], rows["swB"]["uplink_reason"], rows["swB"]["uplink_to"]) == (
+        False,
+        None,
+        None,
+    )
+
+
+def test_a_port_channel_bundle_is_an_uplink_through_its_member_neighbour(db: Session) -> None:
+    _collect(
+        db,
+        device="swA",
+        macs=_mac("Po1", n=2),
+        neighbors=[_neighbor("Gi1/0/47", channel="Po1"), _neighbor("Gi1/0/48", channel="Po1")],
+        status=NB_OK,
+    )
+
+    assert _find(db)["swA"]["is_uplink"] is True
+
+
+def test_a_phone_neighbour_does_not_make_an_access_port_an_uplink(db: Session) -> None:
+    _collect(
+        db,
+        device="swA",
+        macs=_mac("Gi1/0/7", n=2),
+        neighbors=[_neighbor("Gi1/0/7", "phone-7", infra=False)],
+        status=NB_OK,
+    )
+
+    row = _find(db)["swA"]
+
+    assert (row["is_uplink"], row["uplink_reason"], row["likely_location"]) == (False, None, True)
+
+
+def test_the_mac_count_rule_still_applies_where_there_is_no_neighbour_data(db: Session) -> None:
+    _collect(db, device="swA", macs=_mac("Gi1/0/48", n=12), status=NB_OFF)
+
+    row = _find(db)["swA"]
+
+    assert (row["is_uplink"], row["uplink_reason"], row["uplink_to"]) == (True, "mac_count", None)
+
+
+def test_a_neighbour_wins_over_the_count_as_the_reason(db: Session) -> None:
+    _collect(
+        db,
+        device="swA",
+        macs=_mac("Gi1/0/48", n=12),
+        neighbors=[_neighbor("Gi1/0/48")],
+        status=NB_OK,
+    )
+
+    row = _find(db)["swA"]
+
+    assert (row["uplink_reason"], row["uplink_to"]) == ("neighbor", "core1")
+
+
+def test_hide_uplinks_leaves_out_neighbour_based_uplinks(db: Session) -> None:
+    _collect(
+        db,
+        device="swA",
+        macs=_mac("Gi1/0/48", n=2),
+        neighbors=[_neighbor("Gi1/0/48")],
+        status=NB_OK,
+    )
+    _collect(db, device="swB", macs=_mac("Gi1/0/5", n=2), status=NB_OFF)
+
+    assert set(_find(db, hide_uplinks=True)) == {"swB"}
+
+
+def test_neighbours_of_another_device_do_not_leak(db: Session) -> None:
+    _collect(db, device="swA", macs=_mac("Gi1/0/48", n=2), status=NB_OFF)
+    _collect(
+        db, device="swB", macs=_mac("Gi1/0/5", n=2), neighbors=[_neighbor("Gi1/0/48")], status=NB_OK
+    )
+
+    rows = _find(db)
+
+    assert rows["swA"]["is_uplink"] is False  # swB's Gi1/0/48 is not swA's
+    assert rows["swB"]["is_uplink"] is False  # and swB's MAC is on Gi1/0/5
+
+
+def test_a_run_that_left_neighbours_out_does_not_hide_them(db: Session) -> None:
+    _collect(
+        db,
+        device="swA",
+        session_id="nb",
+        macs=_mac("Gi1/0/48", n=2),
+        neighbors=[_neighbor("Gi1/0/48")],
+        status=NB_OK,
+    )
+    _collect(
+        db,
+        device="swA",
+        session_id="mac-only",
+        at=NOW + timedelta(hours=1),
+        macs=_mac("Gi1/0/48", n=2),
+        status=NB_OFF,
+    )
+
+    assert _find(db)["swA"]["uplink_reason"] == "neighbor"
+
+
+def test_output_that_was_not_a_table_does_not_hide_the_older_neighbours(db: Session) -> None:
+    bad = ClientCollectionStatus(arp_status="ok", mac_status="ok", neighbor_status="no_template")
+    _collect(
+        db,
+        device="swA",
+        session_id="nb",
+        macs=_mac("Gi1/0/48", n=2),
+        neighbors=[_neighbor("Gi1/0/48")],
+        status=NB_OK,
+    )
+    _collect(
+        db,
+        device="swA",
+        session_id="later",
+        at=NOW + timedelta(hours=1),
+        macs=_mac("Gi1/0/48", n=2),
+        status=bad,
+    )
+
+    assert _find(db)["swA"]["uplink_reason"] == "neighbor"
+
+
+def test_a_later_run_that_found_no_lldp_or_cdp_replaces_the_old_neighbours(db: Session) -> None:
+    _collect(
+        db,
+        device="swA",
+        session_id="nb",
+        macs=_mac("Gi1/0/48", n=2),
+        neighbors=[_neighbor("Gi1/0/48")],
+        status=NB_OK,
+    )
+    _collect(
+        db,
+        device="swA",
+        session_id="off",
+        at=NOW + timedelta(hours=1),
+        macs=_mac("Gi1/0/48", n=2),
+        status=NB_NOT_SUPPORTED,
+    )
+
+    row = _find(db)["swA"]
+
+    assert (row["is_uplink"], row["uplink_reason"]) == (False, None)
+
+
+def test_an_arp_only_observation_has_no_uplink_information(db: Session) -> None:
+    _collect(
+        db,
+        device="core",
+        ips=[ClientIpRow(ip_address="10.0.0.5", mac_address=HOST, interface="Vlan10", vlan="10")],
+        neighbors=[_neighbor("Vlan10")],
+        status=NB_OK,
+    )
+
+    row = _find(db)["core"]
+
+    assert (row["is_uplink"], row["uplink_reason"], row["uplink_to"]) == (False, None, None)
+
+
+def test_two_neighbours_on_one_port_give_one_row_and_a_stable_name(db: Session) -> None:
+    both = [
+        _neighbor("Gi1/0/48", "core-b"),
+        ClientNeighborRow(
+            port="Gi1/0/48",
+            neighbor_name="core-a",
+            protocol="cdp",
+            capabilities="bridge,router",
+            is_infrastructure=True,
+        ),
+    ]
+    _collect(db, device="swA", macs=_mac("Gi1/0/48", n=2), neighbors=both, status=NB_OK)
+
+    items, total = ClientDataQueryRepository(db).get_client_data(mac_address=HOST, exact=True)
+
+    assert total == 1 and len(items) == 1  # the join never multiplies rows
+    assert items[0]["uplink_to"] == "core-a"
+
+
+def test_coverage_reports_the_neighbour_table_separately(db: Session) -> None:
+    _collect(
+        db,
+        device="swA",
+        session_id="nb",
+        macs=_mac("Gi1/0/48", n=2),
+        neighbors=[_neighbor("Gi1/0/48"), _neighbor("Gi1/0/47")],
+        status=NB_OK,
+    )
+    _collect(
+        db,
+        device="swA",
+        session_id="mac-only",
+        at=NOW + timedelta(hours=1),
+        macs=_mac("Gi1/0/48", n=2),
+        status=NB_OFF,
+    )
+
+    (sw,) = ClientDataQueryRepository(db).get_collections()
+
+    assert sw["neighbor_status"] == "ok"
+    assert sw["neighbor_rows"] == 2
+    assert sw["neighbor_collected_at"].startswith("2026-11-07T12:00")
+    assert sw["mac_collected_at"].startswith("2026-11-07T13:00")  # a different run
