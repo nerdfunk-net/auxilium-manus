@@ -59,6 +59,25 @@ pick it up without re-deriving the context.
 
 ---
 
+## Feature learn (Ask the Net OSPF / BGP, `doc/AI_TOOL_CHAIN.md` §49)
+
+Built 2026-11-08. Checked live on the lab pair (two IOS routers, iBGP, AS 65000): the learn card, Genie parsing, the merged
+neighbour table (`get_bgp_learn_result`) and `compare_bgp_learns` with and without `detail`. Not yet checked:
+
+- **Neighbour detail on a router.** `propose_bgp_neighbor_detail`: whether `| include Total number of prefixes` works on
+  `advertised-routes` / `received-routes` on a real IOS-XE (the total is read locally by `genie_parser.filtered_total`), and whether
+  Genie parses the global `policy` output.
+- **VRFs.** The three VRF learn commands and the VRF form of the neighbour detail were taken from the Genie IOS-XE parser
+  registrations, not from a run (the lab has no VRF BGP). The VRF `policy` form has no Genie parser, so it stays raw.
+- **The command list against `pyats learn bgp -v`.** The BGP list was read from the Genie source, not from a run.
+- **A real model run** of both learn playbooks (a person has driven the tools, not a model on its own).
+- **Size.** A router with many neighbours or address families (output size, the 600 s run cap).
+- **Later:** other platforms (NX-OS, IOS-XR, EOS, Junos) and other features (`interface`, `routing`, `vrf`, `platform`, `arp`,
+  `lldp`): each needs one `pyats learn <feature> -v` run first; do not copy IOS commands to another OS.
+- **Known test failures outside this work:** `test_check_flag_parsing_guard` (`compare_pyats_snapshot/executor.py:646` uses
+  `config.get(...) is True`) and three `pyats-shim/tests/test_parse.py` tests whose sample `show version` text lacks keys the
+  installed Genie requires.
+
 ## Run Workflow step (`start-workflow`) and child runs
 
 - **Live verification.** Built and covered by unit and render tests, not yet run end to end: a backup

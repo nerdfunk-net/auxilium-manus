@@ -161,6 +161,16 @@ come from a reviewed catalogue, never from the model. `get_discovery_result` is 
 (content opt-in checked on every call); comparing it with Nautobot cabling (always for the device the output came from, never one the model
 names) also needs `sources.nautobot:read` and the addresses switch. `get_modelled_neighbors` needs Batfish access and the addresses switch.
 
+**Ask the Net feature learn** (`propose_feature_learn`, `propose_bgp_neighbor_detail`, `get_bgp_learn_result`,
+`compare_bgp_learns`, `doc/AI_TOOL_CHAIN.md` §49). The two proposals are on the device-command path: operator switch
+`AI_DEVICE_COMMANDS_ENABLED`, `netmiko:execute`, the content opt-in and the user's click; the commands come from a reviewed
+catalogue and the VRF name and neighbour address are checked and substituted by the server, never written by the model.
+`get_bgp_learn_result` and `compare_bgp_learns` read the user's own stored output (content opt-in checked on every call) and
+need Genie: `sources.pyats:read` (the seeded `viewer` role does not hold it), exactly one pyATS source and an output that was
+confirmed with parser `genie`. Two readings are compared only when they came from the same inventory source and device id.
+`compare_bgp_learns(detail=true)` sends the redacted outputs to the shim's `POST /v1/learn-replay`; the replay request carries no device
+credentials and the diff text is redacted again before it reaches the model.
+
 **Assistant glossary** (inventory terms and workflow step aliases). `ai_glossary_terms` is global
 and its words steer the model, so every `/ai/glossary` route, for both kinds, needs the `admin` role (P3 style); the seeded `viewer` and other roles have no
 access. The assistant reads entries through the `get_glossary` tool as the calling user.

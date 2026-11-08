@@ -27,6 +27,7 @@ the **Nautobot MCP server** (`mcp/nautobot/`) and the Nautobot reads of Ask the 
 **Cisco ACI** (APIC source and six steps: devices, details, policy, endpoints, subnet comparison, config backup) — read
 `doc/CISCO_ACI_INTEGRATION.md` and `doc/plans/ACI_CONTINUE.md` (status, what is not yet verified live) before changing
 `backend/services/aci/` or any `*aci*` step; the Ask the Net tools (14 tools built, §47 of `doc/AI_TOOL_CHAIN.md`) are in `doc/plans/ACI_TOOL_CHAIN.md`;
+**feature learn** (Ask the Net `propose_feature_learn`, `compare_bgp_learns`, the shim's `POST /v1/learn-replay`, playbooks `learn-ospf-of-a-device` and `learn-bgp-of-a-device`) — read `doc/AI_TOOL_CHAIN.md` §49 before changing `services/ai_assistant/learn/` or `pyats-shim/app/replay*.py`;
 **client data** (the `collect-client-data` step, tables `client_*`, `GET /client-data`, the Ask the Net tools `find_client` & co, permission `client_data:read`) — read `doc/CLIENT_DATA.md` and §48 of `doc/AI_TOOL_CHAIN.md` before changing it
 
 ## Architecture
