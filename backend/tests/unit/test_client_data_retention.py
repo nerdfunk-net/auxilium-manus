@@ -131,3 +131,66 @@ def test_the_service_uses_the_configured_uplink_threshold() -> None:
         settings.client_data_uplink_mac_threshold
     )
     assert ClientDataService(MagicMock(), uplink_threshold=3).queries.uplink_threshold == 3
+
+
+def test_max_rows_setting_defaults_and_validation() -> None:
+    from core.config import Settings
+
+    assert Settings().client_data_max_rows_per_table == 200_000
+    with patch.dict("os.environ", {"CLIENT_DATA_MAX_ROWS_PER_TABLE": "0"}):
+        with pytest.raises(RuntimeError, match="CLIENT_DATA_MAX_ROWS_PER_TABLE"):
+            Settings()
+    with patch.dict("os.environ", {"CLIENT_DATA_MAX_ROWS_PER_TABLE": "1"}):
+        assert Settings().client_data_max_rows_per_table == 1
+
+
+def _store(service: ClientDataService, *, ips: int, macs: int, **extra) -> None:
+    from models.client_data import ClientCollectionStatus, ClientIpRow, ClientMacRow
+
+    service.store_device_collection(
+        session_id="s1",
+        device_name="sw1",
+        device_ip=None,
+        ip_rows=[
+            ClientIpRow(ip_address=f"10.0.0.{n + 1}", mac_address="aabb.ccdd.eeff")
+            for n in range(ips)
+        ],
+        mac_rows=[
+            ClientMacRow(mac_address=f"aabb.ccdd.{n:04x}", vlan="10", port="Gi1/0/1")
+            for n in range(macs)
+        ],
+        hostname_rows=[],
+        status=ClientCollectionStatus(),
+        keep_sessions=5,
+        **extra,
+    )
+
+
+@pytest.mark.parametrize(("ips", "macs", "table"), [(3, 1, "ARP"), (1, 3, "MAC")])
+def test_the_service_rejects_a_table_above_the_cap_and_writes_nothing(ips, macs, table) -> None:
+    from models.client_data import TooManyRowsError
+
+    service = ClientDataService(MagicMock())
+    service.repository = MagicMock()
+
+    with pytest.raises(TooManyRowsError) as caught:
+        _store(service, ips=ips, macs=macs, max_rows=2)
+
+    assert caught.value.table == table
+    service.repository.replace_device_collection.assert_not_called()
+
+
+def test_the_service_accepts_a_table_exactly_at_the_cap_and_defaults_to_the_setting() -> None:
+    from core.config import settings
+
+    service = ClientDataService(MagicMock())
+    service.repository = MagicMock()
+
+    _store(service, ips=2, macs=2, max_rows=2)
+    service.repository.replace_device_collection.assert_called_once()
+
+    with patch.object(settings, "client_data_max_rows_per_table", 1):
+        from models.client_data import TooManyRowsError
+
+        with pytest.raises(TooManyRowsError):
+            _store(service, ips=2, macs=0)

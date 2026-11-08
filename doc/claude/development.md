@@ -37,6 +37,7 @@ REPORT_DATA_RETENTION_DAYS=365  # purge report_data_records older than N days (n
 CLIENT_DATA_KEEP_SESSIONS=5     # collect-client-data: each device keeps its newest N collections (min 1)
 CLIENT_DATA_RETENTION_DAYS=90   # purge client data older than N days (each device's newest collection kept); 0 keeps all
 CLIENT_DATA_UPLINK_MAC_THRESHOLD=10  # a switch port that learned more distinct MACs than this is flagged as an uplink (min 1)
+CLIENT_DATA_MAX_ROWS_PER_TABLE=200000  # collect-client-data: a device table (ARP or MAC) above this many rows fails that device, nothing stored (min 1)
 STEP_OUTPUT_VALUE_MAX_BYTES=65536   # a persisted step-output value above this becomes a "too large" marker (live context unaffected)
 STEP_OUTPUT_MAX_BYTES=8388608       # total persisted size per step result; the largest values are replaced until it fits
 DATABASE_POOL_SIZE=10               # SQLAlchemy pool; default 10 (web) / 20 (MANUS_PROCESS_ROLE=worker)

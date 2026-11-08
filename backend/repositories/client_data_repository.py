@@ -13,7 +13,7 @@ from datetime import datetime
 from typing import cast
 
 from sqlalchemy import CursorResult, and_, delete, func, select, tuple_
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from core.models.client_data import (
@@ -27,10 +27,23 @@ from models.client_data import (
     ClientHostnameRow,
     ClientIpRow,
     ClientMacRow,
+    CollectionConflictError,
 )
 
 # Tables that hold a collection's rows, in deletion order.
 _ROW_MODELS = (ClientIpAddress, ClientMacAddress, ClientHostname, ClientDataCollection)
+
+# What each dialect names when ``uq_client_data_collection_session`` is violated: PostgreSQL
+# the constraint, SQLite the table and first column.
+_COLLECTION_KEY_MARKERS = (
+    "uq_client_data_collection_session",
+    "client_data_collections.session_id",
+)
+
+
+def _violates_collection_key(exc: IntegrityError) -> bool:
+    detail = str(exc.orig)
+    return any(marker in detail for marker in _COLLECTION_KEY_MARKERS)
 
 
 class ClientDataRepository:
@@ -49,8 +62,14 @@ class ClientDataRepository:
         hostname_rows: Sequence[ClientHostnameRow],
         status: ClientCollectionStatus,
         keep_sessions: int,
+        target_host: str | None = None,
     ) -> None:
         """Store one device's collection in a single transaction.
+
+        A collection already stored for this ``session_id`` and ``device_name`` from a different
+        ``target_host`` is another device with the same name: ``CollectionConflictError`` is raised
+        and the stored rows stay. The same target (a retry or rerun) replaces its own rows; an
+        unknown host on either side counts as the same.
 
         The device's earlier rows for this ``session_id`` are deleted first, so a retried
         step does not duplicate them; then the device's collections beyond the newest
@@ -59,6 +78,10 @@ class ClientDataRepository:
         """
         if keep_sessions < 1:
             raise ValueError("keep_sessions must be at least 1")
+        target_host = target_host[:255] if target_host else None
+        self._refuse_other_device(
+            session_id=session_id, device_name=device_name, target_host=target_host
+        )
         common = {
             "session_id": session_id,
             "device_name": device_name,
@@ -83,6 +106,7 @@ class ClientDataRepository:
                     ClientDataCollection(
                         **common,
                         **status.model_dump(),
+                        target_host=target_host,
                         arp_rows=len(ip_rows),
                         mac_rows=len(mac_rows),
                     ),
@@ -93,9 +117,27 @@ class ClientDataRepository:
                 device_name=device_name, keep_sessions=keep_sessions, current_session=session_id
             )
             self.db.commit()
+        except IntegrityError as exc:
+            self.db.rollback()
+            if _violates_collection_key(exc):
+                raise CollectionConflictError from exc
+            raise
         except SQLAlchemyError:
             self.db.rollback()
             raise
+
+    def _refuse_other_device(
+        self, *, session_id: str, device_name: str, target_host: str | None
+    ) -> None:
+        """Raise when this run already holds a collection of that name from another target."""
+        c = ClientDataCollection
+        stored = self.db.scalars(
+            select(c.target_host).where(c.session_id == session_id, c.device_name == device_name)
+        ).all()
+        if any(
+            host is not None and target_host is not None and host != target_host for host in stored
+        ):
+            raise CollectionConflictError
 
     def purge_older_than(self, cutoff: datetime, *, batch_size: int = 1000) -> int:
         """Delete collections older than *cutoff*, except what is still current.

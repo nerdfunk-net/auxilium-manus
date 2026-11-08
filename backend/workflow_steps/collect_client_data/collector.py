@@ -18,6 +18,9 @@ from models.client_data import (
     ClientIpRow,
     ClientMacRow,
     CollectionStatus,
+    TooManyRowsError,
+    VrfResult,
+    check_row_cap,
 )
 from models.failure import FailureInfo
 from services.network.netmiko.connection import CommandResult
@@ -115,20 +118,37 @@ def _classify(
 
 
 async def _collect_vrf_arp(
-    netmiko: NetmikoService, target: DeviceTarget, vrfs: list[str], options: CollectOptions
-) -> list[ClientIpRow]:
-    """ARP entries of each VRF (one extra round trip on the same pooled session)."""
-    commands = {vrf: arp_in_vrf(vrf) for vrf in vrfs}
-    result = await _send(netmiko, target, list(commands.values()), options)
+    netmiko: NetmikoService,
+    target: DeviceTarget,
+    vrfs: list[str],
+    options: CollectOptions,
+    *,
+    max_rows: int,
+    rows_so_far: int,
+) -> tuple[list[ClientIpRow], list[VrfResult]]:
+    """ARP entries of each VRF, one command per round trip on the same pooled session.
+
+    One command at a time, so that reading stops at the row cap instead of fetching every VRF
+    table first. Also returns what each VRF gave, so an empty VRF can be told from one the
+    device refused.
+    """
     rows: list[ClientIpRow] = []
-    for vrf, command in commands.items():
+    results: list[VrfResult] = []
+    for vrf in vrfs:
+        command = arp_in_vrf(vrf)
+        result = await _send(netmiko, target, [command], options)
         status, raw_rows = _classify(result.command_outputs, command, target.device_type)
         if status != STATUS_OK:
             # One VRF the device cannot show must not discard the others.
             logger.debug("per-VRF ARP not usable status=%s", status)
+            results.append(VrfResult(name=vrf, status=status))
             continue
-        rows.extend(_to_ip_rows(raw_rows, vrf))
-    return rows
+        # Counted before parsing, over everything read so far, so a huge VRF is not parsed.
+        _enforce_row_cap(rows_so_far + len(rows) + len(raw_rows), 0, max_rows)
+        vrf_rows = _to_ip_rows(raw_rows, vrf)
+        rows.extend(vrf_rows)
+        results.append(VrfResult(name=vrf, status=STATUS_OK, rows=len(vrf_rows)))
+    return rows, results
 
 
 def _to_ip_rows(raw_rows: list[dict[str, Any]], vrf: str | None) -> list[ClientIpRow]:
@@ -172,10 +192,26 @@ def _require_something(
         )
 
 
+def _enforce_row_cap(ip_count: int, mac_count: int, max_rows: int) -> None:
+    """Fail the device before DNS and storage when a table is above the cap."""
+    try:
+        check_row_cap(ip_count, mac_count, max_rows)
+    except TooManyRowsError as exc:
+        raise CollectionError(
+            "too_many_rows",
+            f"The {exc.table} table has more rows than CLIENT_DATA_MAX_ROWS_PER_TABLE "
+            f"({exc.limit}) allows; nothing was stored for this device",
+            FailureInfo(phase="command", kind="payload_too_large"),
+        ) from exc
+
+
 async def collect_from_device(
-    *, netmiko: NetmikoService, target: DeviceTarget, options: CollectOptions
+    *, netmiko: NetmikoService, target: DeviceTarget, options: CollectOptions, max_rows: int
 ) -> DeviceCollection:
-    """Collect one device. Raises ``CollectionError`` when nothing usable could be read."""
+    """Collect one device. Raises ``CollectionError`` when nothing usable could be read.
+
+    A table above *max_rows* fails the device (``too_many_rows``) before any DNS lookup.
+    """
     first = await _send(netmiko, target, phase_one_commands(options), options)
     outputs = first.command_outputs
 
@@ -185,12 +221,15 @@ async def collect_from_device(
     ip_rows: list[ClientIpRow] = []
     mac_rows: list[ClientMacRow] = []
     vrfs: list[str] = []
+    vrf_results: list[VrfResult] | None = None
 
     if options.collect_ip_address:
         arp_status, raw_rows = _classify(outputs, CMD_ARP, target.device_type)
+        _enforce_row_cap(len(raw_rows), 0, max_rows)  # before parsing an oversized table
         ip_rows = _to_ip_rows(raw_rows, None)
     if options.collect_mac_address:
         mac_status, raw_rows = _classify(outputs, CMD_MAC_TABLE, target.device_type)
+        _enforce_row_cap(0, len(raw_rows), max_rows)
         mac_rows = [
             ClientMacRow(mac_address=e.mac_address, vlan=e.vlan, port=e.port)
             for e in parse_mac_table(raw_rows)
@@ -198,11 +237,19 @@ async def collect_from_device(
     if options.collect_vrfs:
         vrf_status, _ = _classify(outputs, CMD_VRF_LIST, target.device_type)
         vrfs = parse_vrf_names(outputs.get(CMD_VRF_LIST, "")) if vrf_status == STATUS_OK else []
+        if vrf_status == STATUS_OK:
+            # Found but not (yet) read; replaced below when the per-VRF ARP runs.
+            vrf_results = [VrfResult(name=name, status=STATUS_SKIPPED) for name in vrfs]
 
     _require_something(options, arp_status, mac_status)
 
     if vrfs and arp_status == STATUS_OK:
-        ip_rows.extend(await _collect_vrf_arp(netmiko, target, vrfs, options))
+        vrf_rows, vrf_results = await _collect_vrf_arp(
+            netmiko, target, vrfs, options, max_rows=max_rows, rows_so_far=len(ip_rows)
+        )
+        ip_rows.extend(vrf_rows)
+
+    _enforce_row_cap(len(ip_rows), len(mac_rows), max_rows)
 
     logger.info(
         "collected client data arp=%s mac=%s vrf=%s ip_rows=%d mac_rows=%d vrfs=%d",
@@ -221,6 +268,7 @@ async def collect_from_device(
             mac_status=mac_status,
             vrf_status=vrf_status,
             vrf_count=len(vrfs),
+            vrfs=vrf_results,
         ),
         vrfs=tuple(vrfs),
     )

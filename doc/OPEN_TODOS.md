@@ -16,16 +16,13 @@ pick it up without re-deriving the context.
   `/client-data/history`, `/client-data/devices`, permission `client_data:read`). It needs a route stub, a feature folder, query keys and
   hooks (`useClientDataQuery` and friends, TanStack Query), a sidebar link shown only with the permission, and `hasPermission` for it in
   `frontend/src/lib/permissions.ts`.
-- **Live checks.** The step ran on a lab IOS router and switch (no NX-OS, no VRF with entries). Open: NX-OS output, a larger network, `show vrf`
+- **Live checks.** The step ran on a lab IOS router and switch (no NX-OS, no VRF with entries; the per-VRF status in `client_data_collections.vrfs` is unit-tested only). Open: NX-OS output, a larger network, `show vrf`
   on very old IOS, ARP volume on big L3 cores (`read_timeout`), the panel in a browser, and the Ask the Net tools with a real model (the
   maintainer runs it with their own key; record the result in `doc/AI_TOOL_CHAIN.md` §48).
 - **Uplink detection is a threshold heuristic** (`CLIENT_DATA_UPLINK_MAC_THRESHOLD`). Better: LLDP/CDP neighbours or port-channel and VPC
   knowledge, so a trunk with little traffic and a busy access port are told apart. Needs those commands collected as well.
-- **No row cap per device.** One device's tables are written in one transaction; a very large MAC or ARP table is not limited.
-- **Two fan-out children holding devices with the same name** hit the unique collection constraint; the second reports `storage_failed`.
 - **Not built:** merging ACI endpoint data into one answer (Ask the Net has `find_aci_endpoint` separately), the IPv6 neighbour table
-  (`show ipv6 neighbors`), a playbook `where-is-this-host`, other platforms than Cisco IOS, IOS-XE and NX-OS, an IP sort that is numeric
-  (`10.0.0.10` sorts before `10.0.0.2`).
+  (`show ipv6 neighbors`) and other platforms than Cisco IOS, IOS-XE and NX-OS (`doc/plans/CLIENT_DATA_CONTINUE.md` 3.6, 3.7: open, skipped for now).
 
 ---
 

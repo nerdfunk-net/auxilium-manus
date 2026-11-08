@@ -84,6 +84,46 @@ class ClientHostnameRow(_Row):
         return _check_ip(value)
 
 
+class TooManyRowsError(Exception):
+    """One device's table has more rows than ``CLIENT_DATA_MAX_ROWS_PER_TABLE`` allows."""
+
+    def __init__(self, table: str, limit: int) -> None:
+        super().__init__(f"{table} table above the row cap of {limit}")
+        self.table = table
+        self.limit = limit
+
+
+def check_row_cap(ip_count: int, mac_count: int, limit: int) -> None:
+    """Raise ``TooManyRowsError`` when either table is above *limit* (equal is allowed)."""
+    if ip_count > limit:
+        raise TooManyRowsError("ARP", limit)
+    if mac_count > limit:
+        raise TooManyRowsError("MAC", limit)
+
+
+class CollectionConflictError(Exception):
+    """Another writer stored a collection for the same run and device name first.
+
+    Devices are stored per name; two fan-out children that hold devices with one name are
+    separate executions, so only the database unique key can tell. Not retried as a replace.
+    """
+
+    def __init__(self) -> None:
+        super().__init__("a collection for this run and device name already exists")
+
+
+class VrfResult(_Row):
+    """What reading the ARP table of one discovered VRF gave.
+
+    ``ok`` with ``rows == 0`` is an empty VRF; ``not_supported`` / ``no_template`` mean the device
+    refused or the output was not a table; ``skipped`` means the VRF was found but not read.
+    """
+
+    name: Annotated[str, _fit(64)]
+    status: CollectionStatus
+    rows: int = 0
+
+
 class ClientCollectionStatus(_Row):
     """Outcome of each command of one device's collection."""
 
@@ -91,3 +131,5 @@ class ClientCollectionStatus(_Row):
     mac_status: CollectionStatus = "skipped"
     vrf_status: CollectionStatus = "skipped"
     vrf_count: int = 0
+    # None = VRF discovery did not give a list (switched off, refused): unknown, not "no VRFs".
+    vrfs: list[VrfResult] | None = None

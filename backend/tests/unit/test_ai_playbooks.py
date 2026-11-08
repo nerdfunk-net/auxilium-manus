@@ -455,6 +455,44 @@ def test_every_shipped_playbook_is_valid_for_the_general_surface() -> None:
     assert all(p.source == "builtin" and p.data_class == "A" for p in result.playbooks)
 
 
+def test_where_is_this_host_playbook_orders_nautobot_client_data_then_aci() -> None:
+    from services.ai_assistant.tools.playbook_tools import known_general_tool_names
+
+    result = pb.load_playbooks(
+        known_tools=known_general_tool_names(), local_dir=Path("/nonexistent/playbooks")
+    )
+    (playbook,) = [p for p in result.playbooks if p.name == "where-is-this-host"]
+
+    assert {"find_client", "get_client_data_coverage", "find_aci_endpoint"} <= set(playbook.tools)
+    body = playbook.body
+    # The order is the point: documented, then stored observations, then coverage, then ACI.
+    steps = body[body.index("## Steps") : body.index("## Decision points")]
+    positions = [
+        steps.index(tool)
+        for tool in (
+            "list_ip_addresses",
+            "find_client",
+            "get_client_data_coverage",
+            "find_aci_endpoint",
+        )
+    ]
+    assert positions == sorted(positions)
+    # The answer must carry the age and the limits of stored data.
+    assert "quote its age (`age_seconds`" in body
+    assert "`ip_age_seconds`" in body
+    assert "`is_uplink` is a heuristic" in body
+    assert "Report `likely_location`" in body
+    assert 'never "the host does not exist"' in body
+    # "Find the IP address X" must reach this playbook, and a config-only answer must not stand.
+    assert "find the ip address" in playbook.when.lower()
+    assert "not configured on any device" in body
+    assert "Batfish" in body and "Nautobot" in body
+    assert "network device" in body and "not in the model" in body
+    assert "report both sources" in body
+    assert '"Find the IP address X" is not finished by' in body
+    assert "Always call `find_client` too" in body
+
+
 # -- review findings ---------------------------------------------------------------------------
 
 

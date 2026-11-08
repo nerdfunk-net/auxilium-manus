@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from pydantic import BaseModel, ConfigDict
 
 
@@ -90,5 +92,7 @@ class CollectionInfo(_Out):
     # VRF discovery belongs to the ARP collection.
     vrf_status: str
     vrf_count: int
+    # Per discovered VRF: its ARP status and row count; None = VRFs were not discovered.
+    vrfs: list[dict[str, Any]] | None
     arp_rows: int
     mac_rows: int

@@ -339,7 +339,10 @@ async def _coverage(ctx: ToolContext, args: CoverageInput) -> ToolOutput:
             "the device refused that command (a router has no MAC address table): its table is "
             "missing, not empty. ARP and the MAC table are collected separately and can come from "
             "different runs: use arp_age_seconds and mac_age_seconds, and a table with status "
-            "skipped was never collected. A device that is not listed was never collected, so "
+            "skipped was never collected. vrf_results lists each VRF of the device with the status "
+            "of its ARP table: ok with 0 rows is a VRF with no entries, not_supported or "
+            "no_template means the table could not be read, null means VRFs were not discovered. "
+            "A device that is not listed was never collected, so "
             "addresses behind it are unknown. " + _COLLECTED_NOTE
         )
     devices = [
@@ -357,6 +360,7 @@ async def _coverage(ctx: ToolContext, args: CoverageInput) -> ToolOutput:
             "arp_entries": c["arp_rows"],
             "mac_entries": c["mac_rows"],
             "vrfs": c["vrf_count"],
+            "vrf_results": c.get("vrfs"),
         }
         for c in collections
     ]

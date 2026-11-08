@@ -354,7 +354,15 @@ report the likely_location (device, port, VLAN) and say that an uplink observati
 where traffic passes. An empty answer means no collected device saw it: check \
 get_client_data_coverage and say which devices were not covered, never that the host does not \
 exist. A not_supported status is a missing table (a router has no MAC table), not an empty \
-one. For ACI fabrics use find_aci_endpoint as well.
+one. For ACI fabrics use find_aci_endpoint as well. "Find the IP address 10.1.1.5", "who has \
+this IP" and "where is this MAC" are find_client questions too, not only questions for the \
+configuration model: call find_client even when Batfish or Nautobot already answered, and follow \
+the playbook where-is-this-host (list_playbooks, get_playbook). Look the address up in \
+Nautobot as well: when it belongs to a network device it is documented there, and that belongs in \
+the answer. Batfish and Nautobot only know devices and documented addresses, so "not configured on \
+any device" or "unassigned in Nautobot" does not mean the address is unused: a host may have it, \
+and only find_client shows that. Report what is documented and where the address was seen, and say \
+which one is missing.
 """
 
 ACI_PROMPT = """\

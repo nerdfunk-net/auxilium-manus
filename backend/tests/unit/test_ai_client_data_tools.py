@@ -61,6 +61,7 @@ COVERAGE = [
         "mac_status": "not_supported",
         "vrf_status": "ok",
         "vrf_count": 1,
+        "vrfs": [{"name": "CUST", "status": "ok", "rows": 0}],
         "arp_rows": 6,
         "mac_rows": 0,
     },
@@ -73,6 +74,7 @@ COVERAGE = [
         "mac_status": "ok",
         "vrf_status": "ok",
         "vrf_count": 0,
+        "vrfs": None,
         "arp_rows": 2,
         "mac_rows": 20,
     },
@@ -345,6 +347,15 @@ def test_coverage_shows_what_each_device_could_and_could_not_provide() -> None:
     assert "skipped" in data["note"]
 
 
+def test_coverage_lists_each_vrf_and_tells_an_empty_vrf_from_a_missing_one() -> None:
+    _, data = _call(FakeReader(), "get_client_data_coverage")
+
+    core1, swb = data["rows"]
+    assert core1["vrf_results"] == [{"name": "CUST", "status": "ok", "rows": 0}]
+    assert swb["vrf_results"] is None  # VRFs unknown (not discovered), not "no VRFs"
+    assert "0 rows" in data["note"]
+
+
 def test_coverage_without_data_says_how_to_collect_it() -> None:
     out, data = _call(FakeReader(coverage=[]), "get_client_data_coverage")
 
@@ -408,6 +419,20 @@ def test_the_general_surface_offers_the_tools_only_with_a_reader() -> None:
     }
     assert "find_client" in system
     assert "client data" in system.lower()
+
+
+def test_the_prompt_sends_find_requests_to_find_client_not_only_to_the_config_model() -> None:
+    from services.ai_assistant.prompts import CLIENT_DATA_PROMPT
+
+    assert '"Find the IP address' in CLIENT_DATA_PROMPT
+    assert "find_client" in CLIENT_DATA_PROMPT
+    assert "where-is-this-host" in CLIENT_DATA_PROMPT
+    # Batfish and Nautobot only know configured addresses; that is not "not on the network".
+    assert "not configured on any device" in CLIENT_DATA_PROMPT
+    # Nautobot stays part of the answer: a network device's address is documented there.
+    assert "Nautobot as well" in CLIENT_DATA_PROMPT
+    assert "does not mean the address is unused" in CLIENT_DATA_PROMPT
+    assert "belongs in" in CLIENT_DATA_PROMPT
 
 
 def test_playbooks_know_the_client_data_tools() -> None:

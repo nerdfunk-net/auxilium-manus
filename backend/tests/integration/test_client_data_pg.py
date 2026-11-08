@@ -19,6 +19,8 @@ from models.client_data import (
     ClientHostnameRow,
     ClientIpRow,
     ClientMacRow,
+    CollectionConflictError,
+    VrfResult,
 )
 from repositories.client_data_query_repository import ClientDataQueryRepository
 from repositories.client_data_repository import ClientDataRepository
@@ -42,7 +44,9 @@ def session():
         s.close()
 
 
-def _collect(session, *, device, session_id="run-1", at=NOW, ips=(), macs=(), hostnames=()):
+def _collect(
+    session, *, device, session_id="run-1", at=NOW, ips=(), macs=(), hostnames=(), status=OK
+):
     ClientDataRepository(session).replace_device_collection(
         session_id=session_id,
         device_name=device,
@@ -51,7 +55,7 @@ def _collect(session, *, device, session_id="run-1", at=NOW, ips=(), macs=(), ho
         ip_rows=list(ips),
         mac_rows=list(macs),
         hostname_rows=list(hostnames),
-        status=OK,
+        status=status,
         keep_sessions=5,
     )
 
@@ -306,3 +310,108 @@ def test_review_fixes_on_postgres_ordering_history_ipv6_prefix_and_ages(session)
             ],
         )
     assert len(queries.get_client_history(ip_address="10.0.0.5", limit=4)["ip_history"]) == 3
+
+
+def test_vrf_results_round_trip_through_a_json_column(session) -> None:
+    status = ClientCollectionStatus(
+        arp_status="ok",
+        mac_status="skipped",
+        vrf_status="ok",
+        vrf_count=2,
+        vrfs=[
+            VrfResult(name="CUST", status="ok", rows=0),
+            VrfResult(name="B", status="no_template"),
+        ],
+    )
+    _collect(
+        session,
+        device="core1",
+        ips=[ClientIpRow(ip_address="10.0.0.1", mac_address="aabb.ccdd.0001", vrf="CUST")],
+        status=status,
+    )
+    _collect(session, device="sw9")  # no VRF information: stored as NULL
+
+    by_device = {
+        c["device_name"]: c["vrfs"] for c in ClientDataQueryRepository(session).get_collections()
+    }
+
+    assert by_device["core1"] == [
+        {"name": "CUST", "status": "ok", "rows": 0},
+        {"name": "B", "status": "no_template", "rows": 0},
+    ]
+    assert by_device["sw9"] is None
+
+
+def test_addresses_sort_numerically_with_ipv4_before_ipv6(session) -> None:
+    addresses = ["10.0.0.10", "10.0.0.2", "2001:db8::1", "9.255.0.1", "10.0.0.100"]
+    _collect(
+        session,
+        device="core1",
+        ips=[
+            ClientIpRow(ip_address=ip, mac_address=f"aabb.ccdd.{n:04x}", vlan="10")
+            for n, ip in enumerate(addresses)
+        ],
+    )
+
+    items, _ = ClientDataQueryRepository(session).get_client_data(device_name="core1")
+
+    assert [i["ip_address"] for i in items] == [
+        "9.255.0.1",
+        "10.0.0.2",
+        "10.0.0.10",
+        "10.0.0.100",
+        "2001:db8::1",
+    ]
+
+
+def test_a_duplicate_device_and_session_is_a_collection_conflict_on_postgres(session) -> None:
+    _collect(session, device="core1", session_id="run-1")
+    other = db_mod.SessionLocal()
+    try:
+        repo = ClientDataRepository(other)
+        repo._delete_collection = lambda **_: None  # the race: the other writer was first
+        with pytest.raises(CollectionConflictError):
+            repo.replace_device_collection(
+                session_id="run-1",
+                device_name="core1",
+                device_ip=None,
+                collected_at=NOW,
+                ip_rows=[],
+                mac_rows=[],
+                hostname_rows=[],
+                status=OK,
+                keep_sessions=5,
+            )
+    finally:
+        other.close()
+
+    assert session.scalar(select(func.count()).select_from(ClientDataCollection)) == 1
+
+
+def test_a_later_write_of_another_device_with_the_same_name_keeps_the_first_on_postgres(
+    session,
+) -> None:
+    def store(host: str, ips: list[ClientIpRow]) -> None:
+        other = db_mod.SessionLocal()
+        try:
+            ClientDataRepository(other).replace_device_collection(
+                session_id="run-1",
+                device_name="core1",
+                device_ip=None,
+                collected_at=NOW,
+                ip_rows=ips,
+                mac_rows=[],
+                hostname_rows=[],
+                status=OK,
+                keep_sessions=5,
+                target_host=host,
+            )
+        finally:
+            other.close()
+
+    store("10.0.0.1", [ClientIpRow(ip_address="10.0.0.5", mac_address="aabb.ccdd.0001")])
+    with pytest.raises(CollectionConflictError):  # no stub: a real second session, after commit
+        store("10.0.0.99", [ClientIpRow(ip_address="10.9.9.9", mac_address="aabb.ccdd.0002")])
+    store("10.0.0.1", [ClientIpRow(ip_address="10.0.0.6", mac_address="aabb.ccdd.0001")])
+
+    assert [r.ip_address for r in session.scalars(select(ClientIpAddress))] == ["10.0.0.6"]

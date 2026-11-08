@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Any
 
-from sqlalchemy import DateTime, Index, Integer, String, UniqueConstraint, func
+from sqlalchemy import JSON, DateTime, Index, Integer, String, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from core.models.base import Base
@@ -111,6 +112,11 @@ class ClientDataCollection(Base):
     mac_status: Mapped[str] = mapped_column(String(20), nullable=False, default="skipped")
     vrf_status: Mapped[str] = mapped_column(String(20), nullable=False, default="skipped")
     vrf_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # [{"name", "status", "rows"}] per discovered VRF; NULL = not discovered (nullable JSON).
+    vrfs: Mapped[list[dict[str, Any]] | None] = mapped_column(JSON, nullable=True)
+    # The SSH target the collection came from. A later write for the same run and device name
+    # from another target is a different device with the same name, not a retry. NULL = unknown.
+    target_host: Mapped[str | None] = mapped_column(String(255), nullable=True)
     arp_rows: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     mac_rows: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 

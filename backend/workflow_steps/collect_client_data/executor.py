@@ -21,7 +21,7 @@ from sqlalchemy.orm import object_session
 from core.config import settings
 from core.database import get_db_session
 from core.models.runs import WorkflowRun
-from models.client_data import ClientHostnameRow
+from models.client_data import ClientHostnameRow, CollectionConflictError, TooManyRowsError
 from models.failure import FailureInfo, failure_from_exception
 from models.workflow_context import (
     Capability,
@@ -79,6 +79,7 @@ def _store_sync(
     collection: DeviceCollection,
     hostnames: list[ClientHostnameRow],
     collected_at: datetime,
+    target_host: str,
 ) -> None:
     db = get_db_session()
     try:
@@ -92,6 +93,7 @@ def _store_sync(
             status=collection.status,
             keep_sessions=settings.client_data_keep_sessions,
             collected_at=collected_at,
+            target_host=target_host,
         )
     finally:
         db.close()
@@ -115,6 +117,10 @@ def _summary(collection: DeviceCollection, hostname_count: int) -> dict[str, Any
         "mac_entries": len(collection.mac_rows),
         "hostnames": hostname_count,
         "vrfs": list(collection.vrfs),
+        # None = VRFs were not discovered (switched off or refused), which is not "no VRFs".
+        "vrf_results": (
+            None if status.vrfs is None else [result.model_dump() for result in status.vrfs]
+        ),
     }
 
 
@@ -214,7 +220,12 @@ async def _collect_one(
         # Stamped when collection starts, not after DNS and queueing for the write lock: the
         # per-device ranking (and the keep-N pruning) must order collections by when they ran.
         collected_at = datetime.now(UTC)
-        collection = await collect_from_device(netmiko=netmiko, target=target, options=options)
+        collection = await collect_from_device(
+            netmiko=netmiko,
+            target=target,
+            options=options,
+            max_rows=settings.client_data_max_rows_per_table,
+        )
         hostnames = await _hostnames(resolver, collection)
         # One write at a time: each is short, and a large fan-out must not take a pooled
         # database connection per device.
@@ -227,9 +238,23 @@ async def _collect_one(
                 collection=collection,
                 hostnames=hostnames,
                 collected_at=collected_at,
+                target_host=target.host,
             )
     except CollectionError as exc:
         return _fail(device, node_id, exc.code, exc.message, exc.failure), False
+    except CollectionConflictError:
+        # Another execution (a fan-out sibling) stored a different device with this name.
+        return _duplicate_failure(device, node_id), False
+    except TooManyRowsError as exc:
+        # The storage layer's own check (the collector normally catches this first).
+        return _fail(
+            device,
+            node_id,
+            "too_many_rows",
+            f"The {exc.table} table has more rows than CLIENT_DATA_MAX_ROWS_PER_TABLE "
+            f"({exc.limit}) allows; nothing was stored for this device",
+            FailureInfo(phase="command", kind="payload_too_large"),
+        ), False
     except (SQLAlchemyError, ValueError) as exc:
         # Database text can carry SQL and bound values: keep the class name only.
         logger.warning("client data storage failed error=%s", type(exc).__name__)
@@ -251,8 +276,8 @@ def _duplicate_failure(device: DeviceContext, node_id: str) -> DeviceContext:
         device,
         node_id,
         DUPLICATE_KEY_CODE,
-        f"another device in this step has the same name as {device.name!r}; client data is "
-        "stored per device name",
+        f"another device in this run has the same name as {device.name!r} (in this step or "
+        "in another execution); client data is stored per device name",
         DUPLICATE_KEY_FAILURE,
     )
 

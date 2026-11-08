@@ -5,12 +5,13 @@ from __future__ import annotations
 import json
 import unittest
 from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from sqlalchemy import Table, create_engine, select
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from core.config import settings
 from core.models.base import Base
 from core.models.client_data import (
     ClientDataCollection,
@@ -22,6 +23,7 @@ from models.failure import FailureInfo
 from models.workflow_context import DeviceContext, WorkflowContext
 from services.artifacts import InMemoryArtifactService
 from services.network.netmiko.connection import CommandResult as NetmikoCommandResult
+from workflow_steps.collect_client_data.collector import collect_from_device
 from workflow_steps.collect_client_data.config import get_config
 from workflow_steps.collect_client_data.executor import execute
 
@@ -48,6 +50,20 @@ CORE1 = {
     "show vrf": _json({"name": "default"}, {"name": "CUST"}),
     "show ip arp": _json(_arp("10.0.10.5", "aabb.ccdd.0001", "Vlan10")),
     "show ip arp vrf CUST": _json(_arp("10.0.20.7", "AABB.CCDD.0002", "Vlan20")),
+}
+MANY_MACS = {
+    "show ip arp": "Protocol  Address          Age (min)  Hardware Addr   Type   Interface\n",
+    "show mac address-table": _json(
+        *(
+            {
+                "destination_address": f"aabb.ccdd.{n:04x}",
+                "vlan_id": "10",
+                "destination_port": ["Gi1/0/5"],
+                "type": "DYNAMIC",
+            }
+            for n in range(3)
+        )
+    ),
 }
 ACC1 = {
     "show ip arp": "Protocol  Address          Age (min)  Hardware Addr   Type   Interface\n",
@@ -171,6 +187,64 @@ class CollectClientDataExecutorTests(unittest.IsolatedAsyncioTestCase):
             ],
         )
 
+    async def test_each_vrf_is_recorded_with_its_own_status_and_row_count(self) -> None:
+        script = {
+            "show vrf": _json({"name": "A"}, {"name": "B"}, {"name": "C"}, {"name": "D"}),
+            "show ip arp": _json(_arp("10.0.10.5", "aabb.ccdd.0001", "Vlan10")),
+            "show ip arp vrf A": _json(_arp("10.0.20.7", "aabb.ccdd.0002", "Vlan20")),
+            # B: header only (an empty VRF); C: refused (not scripted); D: banner text
+            "show ip arp vrf B": "Protocol  Address  Age (min)  Hardware Addr   Type   Interface\n",
+            "show ip arp vrf D": "Connection closed by remote host",
+        }
+        netmiko = _FakeNetmiko({"10.0.0.1": script})
+
+        outcomes = await self._run({"d1": _device("d1", "core1", "10.0.0.1")}, netmiko)
+
+        collection = self._all(ClientDataCollection)[0]
+        self.assertEqual(
+            collection.vrfs,
+            [
+                {"name": "A", "status": "ok", "rows": 1},
+                {"name": "B", "status": "ok", "rows": 0},
+                {"name": "C", "status": "not_supported", "rows": 0},
+                {"name": "D", "status": "no_template", "rows": 0},
+            ],
+        )
+        self.assertEqual(collection.vrf_count, 4)
+        summary = self._by_name(outcomes, "success")["d1"].parsed["collect-1"]["client_data"]
+        self.assertEqual(summary["vrf_results"], collection.vrfs)
+
+    async def test_vrfs_are_unknown_when_discovery_did_not_run_or_found_none(self) -> None:
+        outcomes = await self._run(
+            {"d1": _device("d1", "core1", "10.0.0.1")},
+            _FakeNetmiko({"10.0.0.1": CORE1}),
+            config={"collect_vrfs": False},
+        )
+        summary = self._by_name(outcomes, "success")["d1"].parsed["collect-1"]["client_data"]
+        self.assertIsNone(summary["vrf_results"])
+        await self._run(
+            {"d2": _device("d2", "acc1", "10.0.0.2")},
+            _FakeNetmiko({"10.0.0.2": ACC1}),
+            run_uuid="run-uuid-2",
+        )
+
+        by_run = {c.session_id: c.vrfs for c in self._all(ClientDataCollection)}
+        self.assertIsNone(by_run["run-uuid-1"])  # not asked: unknown
+        self.assertIsNone(by_run["run-uuid-2"])  # `show vrf` refused: unknown
+
+    async def test_vrf_found_but_default_arp_unusable_is_recorded_as_skipped(self) -> None:
+        script = {
+            "show vrf": _json({"name": "CUST"}),
+            "show ip arp": REFUSAL,
+            "show mac address-table": ACC1["show mac address-table"],
+        }
+        await self._run(
+            {"d1": _device("d1", "core1", "10.0.0.1")}, _FakeNetmiko({"10.0.0.1": script})
+        )
+
+        (collection,) = self._all(ClientDataCollection)
+        self.assertEqual(collection.vrfs, [{"name": "CUST", "status": "skipped", "rows": 0}])
+
     async def test_l2_device_without_vrf_support_stores_mac_table(self) -> None:
         netmiko = _FakeNetmiko({"10.0.0.2": ACC1})
 
@@ -202,6 +276,7 @@ class CollectClientDataExecutorTests(unittest.IsolatedAsyncioTestCase):
                 "mac_entries": 0,
                 "hostnames": 0,
                 "vrfs": ["CUST"],
+                "vrf_results": [{"name": "CUST", "status": "ok", "rows": 1}],
             },
         )
 
@@ -279,6 +354,186 @@ class CollectClientDataExecutorTests(unittest.IsolatedAsyncioTestCase):
         failed = self._by_name(outcomes, "failure")["d1"]
         self.assertEqual(failed.errors[-1].code, "unparsable_output")
         self.assertEqual({c.session_id for c in self._all(ClientDataCollection)}, {"run-a"})
+        self.assertEqual(len(self._all(ClientIpAddress)), 2)
+
+    async def test_a_table_above_the_row_cap_fails_the_device_before_dns_and_stores_nothing(
+        self,
+    ) -> None:
+        resolver = AsyncMock()
+        with (
+            patch.object(settings, "client_data_max_rows_per_table", 1),
+            patch(f"{MODULE}._hostnames", resolver),
+        ):
+            outcomes = await self._run(
+                {"d1": _device("d1", "core1", "10.0.0.1")},
+                _FakeNetmiko({"10.0.0.1": CORE1}),
+                config={"collect_hostname": True},
+            )
+
+        failed = self._by_name(outcomes, "failure")["d1"]
+        error = failed.errors[-1]
+        self.assertEqual(error.code, "too_many_rows")
+        self.assertEqual(
+            (error.failure.phase, error.failure.kind), ("command", "payload_too_large")
+        )
+        self.assertIn("CLIENT_DATA_MAX_ROWS_PER_TABLE", error.message)
+        resolver.assert_not_awaited()
+        self.assertEqual(self._all(ClientDataCollection), [])
+        self.assertEqual(self._all(ClientIpAddress), [])
+
+    async def test_a_table_exactly_at_the_row_cap_is_stored(self) -> None:
+        with patch.object(settings, "client_data_max_rows_per_table", 2):  # CORE1 has 2 ARP rows
+            outcomes = await self._run(
+                {"d1": _device("d1", "core1", "10.0.0.1")}, _FakeNetmiko({"10.0.0.1": CORE1})
+            )
+
+        self.assertEqual(list(self._by_name(outcomes, "success")), ["d1"])
+        self.assertEqual(len(self._all(ClientIpAddress)), 2)
+
+    async def test_the_mac_table_has_its_own_row_cap(self) -> None:
+        with patch.object(settings, "client_data_max_rows_per_table", 0 + 1):
+            outcomes = await self._run(
+                {"d2": _device("d2", "acc1", "10.0.0.2")}, _FakeNetmiko({"10.0.0.2": MANY_MACS})
+            )
+
+        error = self._by_name(outcomes, "failure")["d2"].errors[-1]
+        self.assertEqual(error.code, "too_many_rows")
+        self.assertIn("MAC", error.message)
+
+    async def test_the_storage_layer_refuses_too_many_rows_even_if_the_collector_let_them_by(
+        self,
+    ) -> None:
+        real = collect_from_device
+
+        async def unbounded(**kwargs: Any):
+            return await real(**{**kwargs, "max_rows": 10**9})
+
+        with (
+            patch.object(settings, "client_data_max_rows_per_table", 1),
+            patch(f"{MODULE}.collect_from_device", unbounded),
+        ):
+            outcomes = await self._run(
+                {"d1": _device("d1", "core1", "10.0.0.1")}, _FakeNetmiko({"10.0.0.1": CORE1})
+            )
+
+        self.assertEqual(self._by_name(outcomes, "failure")["d1"].errors[-1].code, "too_many_rows")
+        self.assertEqual(self._all(ClientDataCollection), [])
+
+    async def test_a_conflicting_write_of_the_same_device_name_fails_as_duplicate_key(self) -> None:
+        from models.client_data import CollectionConflictError
+
+        with patch(
+            "repositories.client_data_repository.ClientDataRepository.replace_device_collection",
+            side_effect=CollectionConflictError(),
+        ):
+            outcomes = await self._run(
+                {"d1": _device("d1", "core1", "10.0.0.1")}, _FakeNetmiko({"10.0.0.1": CORE1})
+            )
+
+        error = self._by_name(outcomes, "failure")["d1"].errors[-1]
+        self.assertEqual(error.code, "duplicate_key")
+        self.assertIn("stored per device name", error.message)
+        self.assertEqual((error.failure.phase, error.failure.kind), ("internal", "ambiguous_match"))
+
+    async def test_a_default_arp_table_over_the_cap_stops_before_any_vrf_is_read(self) -> None:
+        script = {
+            "show vrf": _json({"name": "A"}, {"name": "B"}),
+            "show ip arp": _json(
+                _arp("10.0.10.5", "aabb.ccdd.0001", "Vlan10"),
+                _arp("10.0.10.6", "aabb.ccdd.0002", "Vlan10"),
+            ),
+        }
+        netmiko = _FakeNetmiko({"10.0.0.1": script})
+
+        with patch.object(settings, "client_data_max_rows_per_table", 1):
+            outcomes = await self._run({"d1": _device("d1", "core1", "10.0.0.1")}, netmiko)
+
+        self.assertEqual(self._by_name(outcomes, "failure")["d1"].errors[-1].code, "too_many_rows")
+        self.assertEqual(len(netmiko.calls), 1)  # phase one only: no per-VRF round trip
+
+    async def test_a_mac_table_over_the_cap_stops_before_any_vrf_is_read(self) -> None:
+        script = {**MANY_MACS, "show vrf": _json({"name": "A"})}
+        script["show ip arp"] = _json(_arp("10.0.10.5", "aabb.ccdd.0001", "Vlan10"))
+        netmiko = _FakeNetmiko({"10.0.0.2": script})
+
+        with patch.object(settings, "client_data_max_rows_per_table", 1):
+            outcomes = await self._run({"d2": _device("d2", "acc1", "10.0.0.2")}, netmiko)
+
+        self.assertEqual(self._by_name(outcomes, "failure")["d2"].errors[-1].code, "too_many_rows")
+        self.assertEqual(len(netmiko.calls), 1)
+
+    async def test_vrf_tables_are_read_one_at_a_time_and_reading_stops_at_the_cap(self) -> None:
+        script = {
+            "show vrf": _json({"name": "A"}, {"name": "B"}, {"name": "C"}),
+            "show ip arp": _json(_arp("10.0.10.5", "aabb.ccdd.0001", "Vlan10")),
+            "show ip arp vrf A": _json(_arp("10.0.20.7", "aabb.ccdd.0002", "Vlan20")),
+            "show ip arp vrf B": _json(_arp("10.0.30.7", "aabb.ccdd.0003", "Vlan30")),
+            "show ip arp vrf C": _json(_arp("10.0.40.7", "aabb.ccdd.0004", "Vlan40")),
+        }
+        netmiko = _FakeNetmiko({"10.0.0.1": script})
+
+        with patch.object(settings, "client_data_max_rows_per_table", 2):
+            outcomes = await self._run({"d1": _device("d1", "core1", "10.0.0.1")}, netmiko)
+
+        # 1 default + 1 in A = 2 (at the cap); B pushes the total to 3, so C is never requested.
+        self.assertEqual(self._by_name(outcomes, "failure")["d1"].errors[-1].code, "too_many_rows")
+        self.assertEqual(
+            [commands for _, commands in netmiko.calls[1:]],
+            [["show ip arp vrf A"], ["show ip arp vrf B"]],
+        )
+        self.assertEqual(self._all(ClientDataCollection), [])
+
+    async def test_a_raw_table_over_the_cap_is_refused_before_it_is_parsed(self) -> None:
+        with (
+            patch.object(settings, "client_data_max_rows_per_table", 1),
+            patch(
+                "workflow_steps.collect_client_data.collector.parse_arp",
+                side_effect=AssertionError("parsed an oversized table"),
+            ),
+        ):
+            outcomes = await self._run(
+                {"d1": _device("d1", "core1", "10.0.0.1")},
+                _FakeNetmiko(
+                    {
+                        "10.0.0.1": {
+                            "show ip arp": _json(
+                                _arp("10.0.10.5", "aabb.ccdd.0001", "Vlan10"),
+                                _arp("10.0.10.6", "aabb.ccdd.0002", "Vlan10"),
+                            )
+                        }
+                    }
+                ),
+                config={"collect_vrfs": False, "collect_mac_address": False},
+            )
+
+        self.assertEqual(self._by_name(outcomes, "failure")["d1"].errors[-1].code, "too_many_rows")
+
+    async def test_a_later_execution_with_the_same_device_name_fails_and_keeps_the_first(
+        self,
+    ) -> None:
+        first = await self._run(
+            {"d1": _device("d1", "core1", "10.0.0.1")}, _FakeNetmiko({"10.0.0.1": CORE1})
+        )
+        second = await self._run(
+            {"d9": _device("d9", "core1", "10.0.0.9")}, _FakeNetmiko({"10.0.0.9": CORE1})
+        )
+
+        self.assertEqual(list(self._by_name(first, "success")), ["d1"])
+        error = self._by_name(second, "failure")["d9"].errors[-1]
+        self.assertEqual(error.code, "duplicate_key")
+        self.assertIn("this run", error.message)
+        self.assertEqual({r.device_ip for r in self._all(ClientIpAddress)}, {"10.0.0.1"})
+        (collection,) = self._all(ClientDataCollection)
+        self.assertEqual(collection.target_host, "10.0.0.1")
+
+    async def test_rerunning_the_same_device_in_the_same_run_still_replaces(self) -> None:
+        for _ in range(2):
+            outcomes = await self._run(
+                {"d1": _device("d1", "core1", "10.0.0.1")}, _FakeNetmiko({"10.0.0.1": CORE1})
+            )
+            self.assertEqual(list(self._by_name(outcomes, "success")), ["d1"])
+
+        self.assertEqual(len(self._all(ClientDataCollection)), 1)
         self.assertEqual(len(self._all(ClientIpAddress)), 2)
 
     async def test_unsupported_platform_fails_without_connecting(self) -> None:

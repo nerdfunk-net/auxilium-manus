@@ -3573,7 +3573,7 @@ collected. They read **stored observations, not the live network**; every row ca
     separator are tried as a MAC and, if nothing is found, as a hostname (`query.kind` says which matched). Returns every device that saw it, ordered `likely_location` first, then access ports, then uplinks, with a top-level
     `likely_location` (device, port, VLAN, VRF, IP, hostname) or `null`. A value that is neither an address nor a hostname (`10.0.0.999`) is an
     error without a read. An empty `rows` is an answer, never "does not exist": the note sends the model to `get_client_data_coverage`.
-  * `list_clients(device, port, vlan, vrf, mac_contains, ip_prefix, ip_contains, hostname_contains, hide_uplinks=true, page)`: substring filters
+  * `list_clients(device, port, vlan, vrf, mac_contains, ip_prefix, ip_contains, hostname_contains, hide_uplinks=true, page)` (ordered by address, numerically on PostgreSQL): substring filters
     (`ip_contains` is text only: `10.1.` also matches `110.1.2.3`; `ip_prefix` is the start of the address and rejects a CIDR), 20 rows
     per page with the true `total_rows` and a "continue with page=N" note. The preview size is a constant (§12.6 rule 2); `page` is the only
     way on.
@@ -3585,7 +3585,8 @@ collected. They read **stored observations, not the live network**; every row ca
   * `get_client_data_coverage` is an envelope of device rows (whole rows are dropped to fit the output limit, `offset` continues) with a
     `summary` (devices, tables not collected, MAC tables not supported): per device, when ARP and the MAC table were each last collected (`arp_age_seconds`, `mac_age_seconds`; they can come
     from different runs, `skipped` = never collected), the status of its ARP, MAC and VRF commands (`ok`, `not_supported`, `no_template`,
-    `skipped`) and the entry counts. `not_supported` is "table missing", not "table empty"; a device not listed was never
+    `skipped`), the entry counts and `vrf_results` (per VRF: ARP status and rows, so an empty VRF (`ok`, 0 rows) is told from an unreadable one;
+    `null` = VRFs not discovered). `not_supported` is "table missing", not "table empty"; a device not listed was never
     collected.
 * **Uplinks:** the repository computes, from the current data, `macs_on_port` (distinct MACs a device learned on that port), `is_uplink`
   (more than `CLIENT_DATA_UPLINK_MAC_THRESHOLD`, default 10) and `likely_location` (per MAC, the MAC-table observation on the port with the
@@ -3603,5 +3604,5 @@ collected. They read **stored observations, not the live network**; every row ca
   (`can_read_client_data`), `known_general_tool_names()` (playbooks may name the tools), the "no tools" sentence lists "client data".
 * **Not verified:** a run with a real model (the maintainer does it with their own key; record the result here, as §42 and §47 do), the tools
   against real collected data from a larger network, and the quality of `likely_location` on topologies with port-channels, VPC, wireless or
-  hypervisors. Open: a playbook `where-is-this-host` (Nautobot, `find_client`, `find_aci_endpoint`, coverage), a per-user rate bucket like
+  hypervisors. The built-in playbook `where-is-this-host` (Nautobot first, then `find_client`, coverage when empty, then `find_aci_endpoint`; data class A) fixes the order and the age/uplink wording (it is not verified with a real model). A live question "Find the IP address 192.168.180.2" was answered from Batfish and Nautobot alone ("not configured on any device, unassigned in Nautobot") without `find_client`; `CLIENT_DATA_PROMPT` and the playbook now say that Nautobot stays part of the answer (a network device's address is documented there) and that `find_client` is always called as well, because those sources only know devices. Re-check with a real model. Open: a per-user rate bucket like
   `ai-aci-read` (the data is local, so it is not needed for load), and merging ACI endpoints into the same answer.

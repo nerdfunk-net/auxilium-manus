@@ -15,6 +15,7 @@ from models.client_data import (
     ClientHostnameRow,
     ClientIpRow,
     ClientMacRow,
+    check_row_cap,
 )
 from repositories.client_data_query_repository import (
     DEFAULT_HISTORY_ROWS,
@@ -67,12 +68,23 @@ class ClientDataService:
         status: ClientCollectionStatus,
         keep_sessions: int,
         collected_at: datetime | None = None,
+        max_rows: int | None = None,
+        target_host: str | None = None,
     ) -> None:
-        """Replace one device's collection for *session_id* and prune its older ones."""
+        """Replace one device's collection for *session_id* and prune its older ones.
+
+        A table above the row cap (``max_rows``, default ``CLIENT_DATA_MAX_ROWS_PER_TABLE``)
+        raises ``TooManyRowsError`` before anything is written.
+        """
         if not session_id or len(session_id) > _SESSION_ID_MAX:
             raise ValueError(f"session_id must be 1-{_SESSION_ID_MAX} characters")
         if not device_name.strip() or len(device_name) > _DEVICE_NAME_MAX:
             raise ValueError(f"device_name must be 1-{_DEVICE_NAME_MAX} characters")
+        check_row_cap(
+            len(ip_rows),
+            len(mac_rows),
+            settings.client_data_max_rows_per_table if max_rows is None else max_rows,
+        )
         self.repository.replace_device_collection(
             session_id=session_id,
             device_name=device_name,
@@ -83,6 +95,7 @@ class ClientDataService:
             hostname_rows=hostname_rows,
             status=status,
             keep_sessions=keep_sessions,
+            target_host=target_host,
         )
 
     def purge_older_than_days(self, days: int, *, batch_size: int = 1000) -> int:

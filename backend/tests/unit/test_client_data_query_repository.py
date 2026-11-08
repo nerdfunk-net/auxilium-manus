@@ -23,6 +23,7 @@ from models.client_data import (
     ClientHostnameRow,
     ClientIpRow,
     ClientMacRow,
+    VrfResult,
 )
 from repositories.client_data_query_repository import ClientDataQueryRepository
 from repositories.client_data_repository import ClientDataRepository
@@ -659,7 +660,11 @@ def test_hostnames_follow_the_arp_collection(lab: Session) -> None:
 
 def test_coverage_takes_vrf_information_from_the_arp_collection(db: Session) -> None:
     with_vrfs = ClientCollectionStatus(
-        arp_status="ok", mac_status="skipped", vrf_status="ok", vrf_count=2
+        arp_status="ok",
+        mac_status="skipped",
+        vrf_status="ok",
+        vrf_count=2,
+        vrfs=[VrfResult(name="CUST", status="ok", rows=1)],
     )
     _collect(
         db,
@@ -680,6 +685,7 @@ def test_coverage_takes_vrf_information_from_the_arp_collection(db: Session) -> 
     (core,) = ClientDataQueryRepository(db).get_collections()
 
     assert (core["vrf_status"], core["vrf_count"]) == ("ok", 2)
+    assert core["vrfs"] == [{"name": "CUST", "status": "ok", "rows": 1}]
 
 
 # --- review findings: ordering before LIMIT, history collapse, IPv6, prefix, ages, ties ----------

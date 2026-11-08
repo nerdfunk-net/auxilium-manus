@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 from typing import cast
+from unittest.mock import patch
 
 import pytest
 from sqlalchemy import Table, create_engine, func, select
@@ -24,6 +25,8 @@ from models.client_data import (
     ClientHostnameRow,
     ClientIpRow,
     ClientMacRow,
+    CollectionConflictError,
+    VrfResult,
 )
 from repositories.client_data_repository import ClientDataRepository
 
@@ -58,6 +61,7 @@ def _store(
     ips: int = 1,
     macs: int = 1,
     keep: int = 5,
+    host: str | None = None,
     status: ClientCollectionStatus = ClientCollectionStatus(
         arp_status="ok", mac_status="ok", vrf_status="ok"
     ),
@@ -78,6 +82,7 @@ def _store(
         hostname_rows=[ClientHostnameRow(ip_address="10.0.0.1", hostname="host.example.net")],
         status=status,
         keep_sessions=keep,
+        target_host=host,
     )
 
 
@@ -274,3 +279,126 @@ def test_purge_also_keeps_the_newest_mac_collection_when_it_is_not_the_newest_ru
 
     remaining = set(db.scalars(select(ClientDataCollection.session_id)))
     assert remaining == {"mac-old", "arp-newer"}  # each is the newest to have read its table
+
+
+def test_vrf_results_are_stored_and_replaced(db: Session) -> None:
+    repo = ClientDataRepository(db)
+    vrfs = [
+        VrfResult(name="CUST", status="ok", rows=0),
+        VrfResult(name="X", status="not_supported"),
+    ]
+    _store(
+        repo,
+        status=ClientCollectionStatus(
+            arp_status="ok", mac_status="ok", vrf_status="ok", vrf_count=2, vrfs=vrfs
+        ),
+    )
+    stored = db.scalars(select(ClientDataCollection)).one()
+    assert stored.vrfs == [
+        {"name": "CUST", "status": "ok", "rows": 0},
+        {"name": "X", "status": "not_supported", "rows": 0},
+    ]
+
+    _store(repo)  # the same run again, no VRF information: unknown, not the old list
+    db.expire_all()
+    assert db.scalars(select(ClientDataCollection)).one().vrfs is None
+
+
+def test_vrf_result_rejects_an_unknown_status() -> None:
+    with pytest.raises(ValueError):
+        VrfResult(name="CUST", status="weird")  # type: ignore[arg-type]
+
+
+def _racing_duplicate(repo: ClientDataRepository) -> None:
+    """Make the delete-first step a no-op, as when another transaction wrote the key meanwhile."""
+    repo._delete_collection = lambda **_: None  # type: ignore[method-assign]
+
+
+def test_a_second_writer_of_the_same_device_and_session_gets_a_collection_conflict(
+    db: Session,
+) -> None:
+    repo = ClientDataRepository(db)
+    _store(repo, ips=2, macs=1)
+    _racing_duplicate(repo)
+
+    with pytest.raises(CollectionConflictError):
+        _store(repo, ips=5, macs=5)
+
+    # The failed write rolled back completely; the first collection is intact.
+    assert _count(db, ClientIpAddress) == 2
+    assert _count(db, ClientDataCollection) == 1
+
+
+def test_an_integrity_error_of_another_table_is_not_reported_as_a_conflict(db: Session) -> None:
+    from sqlalchemy.exc import IntegrityError
+
+    repo = ClientDataRepository(db)
+    error = IntegrityError(
+        "INSERT", {}, Exception("NOT NULL constraint failed: client_ip_addresses.ip_address")
+    )
+
+    with patch.object(db, "flush", side_effect=error), pytest.raises(IntegrityError):
+        _store(repo)
+
+
+def test_a_genuine_retry_of_the_same_device_still_replaces(db: Session) -> None:
+    repo = ClientDataRepository(db)
+    _store(repo, ips=3)
+    _store(repo, ips=1)
+
+    assert _count(db, ClientIpAddress) == 1
+    assert _count(db, ClientDataCollection) == 1
+
+
+def test_a_later_write_of_another_device_with_the_same_name_is_refused_and_keeps_the_first(
+    db: Session,
+) -> None:
+    repo = ClientDataRepository(db)
+    _store(repo, ips=2, macs=1, host="10.0.0.1")  # committed: the first execution is done
+
+    with pytest.raises(CollectionConflictError):  # a second execution, a different device
+        _store(repo, ips=5, macs=5, host="10.0.0.99")
+
+    db.expire_all()
+    assert _count(db, ClientIpAddress) == 2  # the first device's rows are still there
+    assert _count(db, ClientMacAddress) == 1
+    assert db.scalars(select(ClientDataCollection)).one().target_host == "10.0.0.1"
+
+
+def test_the_same_target_host_replaces_its_own_collection(db: Session) -> None:
+    repo = ClientDataRepository(db)
+    _store(repo, ips=3, host="10.0.0.1")
+    _store(repo, ips=1, host="10.0.0.1")
+
+    assert _count(db, ClientIpAddress) == 1
+    assert _count(db, ClientDataCollection) == 1
+
+
+def test_a_collection_without_a_recorded_host_can_be_replaced(db: Session) -> None:
+    repo = ClientDataRepository(db)
+    _store(repo, ips=3)  # older row or unknown host
+    _store(repo, ips=1, host="10.0.0.1")
+    _store(repo, ips=2)  # unknown host again: not a conflict
+
+    assert _count(db, ClientIpAddress) == 2
+
+
+def test_the_same_name_in_another_run_is_not_a_conflict(db: Session) -> None:
+    repo = ClientDataRepository(db)
+    _store(repo, session_id="run-1", host="10.0.0.1")
+    _store(repo, session_id="run-2", host="10.0.0.99")
+
+    assert _count(db, ClientDataCollection) == 2
+
+
+def test_a_very_long_target_host_is_cut_to_its_column_and_still_matches_itself(
+    db: Session,
+) -> None:
+    repo = ClientDataRepository(db)
+    host = "core-switch." + "building-a." * 30 + "example.net"  # longer than 255 characters
+    _store(repo, ips=2, host=host)
+    _store(repo, ips=1, host=host)  # the same target: replaces, no false conflict
+
+    stored = db.scalars(select(ClientDataCollection)).one()
+    assert stored.target_host == host[:255]
+    assert _count(db, ClientIpAddress) == 1

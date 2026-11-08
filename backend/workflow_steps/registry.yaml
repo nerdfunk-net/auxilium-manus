@@ -6221,16 +6221,20 @@ plugins:
       address table, an older device has no "show vrf") is recorded as not_supported and does
       not fail the device; a device fails only when it cannot be reached, when the output
       of a requested table is not a table (a banner or dropped session: it is never stored as "no
-      rows"), or when every requested table was refused. With collect_hostname the ARP
+      rows"), when every requested table was refused, or when a table has more rows than
+      CLIENT_DATA_MAX_ROWS_PER_TABLE (too_many_rows; nothing is stored). With collect_hostname the ARP
       addresses are also resolved with reverse DNS (PTR) queries, once per address per run.
       Only the newest collections of a device are kept (CLIENT_DATA_KEEP_SESSIONS) and older
       ones are purged by age (CLIENT_DATA_RETENTION_DAYS); each device's newest collection
       always stays. Supported platforms: Cisco IOS, IOS-XE and NX-OS (other platforms fail the
       device with unsupported_platform). Devices are identified by name: a second device with
-      the same name in one step fails. A summary lands on each device under
+      the same name in one step, or a different device (another SSH target) with that name stored
+      earlier in the same run by another execution, fails with duplicate_key; the first device's
+      data stays. A summary lands on each device under
       parsed.<node id>.client_data (arp_status, mac_status, vrf_status, arp_entries,
-      mac_entries, hostnames, vrfs). Concurrency-safe: collections are keyed by run and device
-      name, so fan-out children and sibling branches need no Fan In node.
+      mac_entries, hostnames, vrfs, vrf_results: the ARP status and entry count of each VRF).
+      Collections are keyed by run and device name, so fan-out children and sibling
+      branches need no Fan In node as long as their device names differ.
     artifact_type: persistent_artifact
     directory: collect_client_data
     enabled: true

@@ -70,7 +70,8 @@ class FakeService:
                 "arp_status": "ok",
                 "mac_status": "ok",
                 "vrf_status": "not_supported",
-                "vrf_count": 0,
+                "vrf_count": 1,
+                "vrfs": [{"name": "CUST", "status": "ok", "rows": 0}],
                 "arp_rows": 3,
                 "mac_rows": 20,
             }
@@ -227,4 +228,5 @@ def test_devices_lists_the_newest_collection_of_each_device(harness) -> None:
         "not_supported",
         20,
     )
+    assert device["vrfs"] == [{"name": "CUST", "status": "ok", "rows": 0}]
     assert device["mac_collected_at"] < device["arp_collected_at"]

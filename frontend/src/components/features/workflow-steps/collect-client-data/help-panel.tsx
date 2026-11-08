@@ -44,7 +44,8 @@ export function CollectClientDataHelpPanel() {
           <HelpCode>parsed.&lt;node id&gt;.client_data</HelpCode>: <HelpCode>arp_status</HelpCode>
           , <HelpCode>mac_status</HelpCode>, <HelpCode>vrf_status</HelpCode>,{" "}
           <HelpCode>arp_entries</HelpCode>, <HelpCode>mac_entries</HelpCode>,{" "}
-          <HelpCode>hostnames</HelpCode> and <HelpCode>vrfs</HelpCode>.
+          <HelpCode>hostnames</HelpCode>, <HelpCode>vrfs</HelpCode> and{" "}
+          <HelpCode>vrf_results</HelpCode> (the ARP status and entry count of each VRF).
         </p>
       </HelpSection>
 

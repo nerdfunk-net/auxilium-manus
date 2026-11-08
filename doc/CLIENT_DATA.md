@@ -3,8 +3,8 @@
 The `collect-client-data` step ("Collect Client Data") reads the ARP table and the MAC address table
 of every device it is given and stores what it finds, so the question "where is this MAC / IP address
 right now?" can be answered from live data. It is the workflow-step form of the Celery job in cockpit-ng
-(`get_client_data`). This document covers the data model and the rules of the step; the REST endpoint,
-the UI page and the Ask the Net tools are not built yet (see "Not built yet").
+(`get_client_data`). This document covers the data model and the rules of the step, the REST API and the
+Ask the Net tools; the UI page is not built (see "Open").
 
 ## What is collected
 
@@ -13,7 +13,7 @@ the UI page and the Ask the Net tools are not built yet (see "Not built yet").
 | `show ip arp` (default VRF) and `show ip arp vrf <name>` for each VRF | `client_ip_addresses` | `ip_address`, `mac_address`, `interface`, `vrf`, `vlan`, `device_name`, `device_ip` |
 | `show mac address-table` | `client_mac_addresses` | `mac_address`, `vlan`, `port`, `device_name`, `device_ip` |
 | reverse DNS (PTR) of the ARP addresses, optional | `client_hostnames` | `ip_address`, `hostname`, `device_name`, `device_ip` |
-| (outcome of the commands) | `client_data_collections` | `session_id`, `device_name`, `arp_status`, `mac_status`, `vrf_status`, `vrf_count`, `arp_rows`, `mac_rows` |
+| (outcome of the commands) | `client_data_collections` | `session_id`, `device_name`, `arp_status`, `mac_status`, `vrf_status`, `vrf_count`, `vrfs`, `target_host`, `arp_rows`, `mac_rows` |
 
 * **`session_id`** is the uuid of the workflow run. With `device_name` it identifies one *collection*.
 * **MAC format** is normalised to dotted quads (`aabb.ccdd.eeff`) for every platform, so ARP and MAC-table
@@ -26,6 +26,13 @@ the UI page and the Ask the Net tools are not built yet (see "Not built yet").
 * **VRF discovery** runs `show vrf` (there is no TextFSM template for `show ip vrf`). `default` is skipped;
   names that are not plain (letters, digits, `_ . : -`, at most 64) are dropped, because they are put into a
   command.
+
+* **`vrfs`** (nullable JSON) lists every discovered VRF as `{name, status, rows}`: the status of its `show ip arp vrf <name>` (`ok`,
+  `not_supported`, `no_template`; `skipped` when the VRF was found but the default ARP table was unusable, so it was not read) and the
+  entries parsed. `ok` with `rows: 0` is an empty VRF; the other statuses mean the table could not be read. `NULL` means VRFs were not
+  discovered (`collect_vrfs` off, or `show vrf` refused): unknown, not "no VRFs". `[]` means discovery ran and found none. The list is read from
+  the ARP collection and shown by `GET /client-data/devices` (`vrfs`), `get_client_data_coverage` (`vrf_results`) and the step summary
+  (`parsed.<node>.client_data.vrf_results`). Existing rows have `NULL` until the next run.
 
 ## Per-command outcomes
 
@@ -41,7 +48,7 @@ Each command is judged on its own (`parsing.classify_output`):
 A device **fails** when it cannot be reached (connection, authentication, timeout), when a VRF ARP command fails
 mid-way, when the output of a requested table is not a table (`unparsable_output`: storing it as "no rows" would
 replace the device's good data), or when the device refused every table the step was asked for
-(`nothing_collected`). A refused MAC table on a router is a success. A failed device stores nothing, so its older
+(`nothing_collected`), when a table is above `CLIENT_DATA_MAX_ROWS_PER_TABLE` (`too_many_rows`), or when another execution already stored a device of the same name for the run (`duplicate_key`). A refused MAC table on a router is a success. A failed device stores nothing, so its older
 data stays current. Supported platforms: Cisco IOS, IOS-XE and NX-OS; any other device fails with
 `unsupported_platform`.
 
@@ -67,6 +74,9 @@ Every observation has two times: `collected_at` is the port (MAC table) or the A
 `ip_address` (none without an IP). They differ when the MAC table was read later than ARP or the IP came from another device. An IPv6 address
 matches in any notation (`2001:DB8::5`, the expanded form), as a MAC does. Exact matching of a hostname ignores case.
 
+Observations are ordered by IP address (on PostgreSQL numerically and IPv4 before IPv6: `10.0.0.2` before `10.0.0.10`; SQLite, used in unit tests,
+sorts the text), then MAC and device. With `likely_first` the likely location and access ports come before that order.
+
 Each fallback is a single row per key, so joins never multiply rows (a MAC in two VLANs with two ARP entries is
 four observations, not a product). Filters are case-insensitive substrings; the MAC filter accepts
 `aa:bb:cc...`, `aa-bb-cc...` and `aabbcc...` as well as the stored form. `page` must be at least 1 and
@@ -83,7 +93,18 @@ four observations, not a product). Filters are case-insensitive substrings; the 
   reserved addresses, and stops after 1000 distinct addresses. It uses the worker's system resolver. The timeout
   counts from the start of a lookup, and an abandoned lookup keeps its slot until it ends, so at most
   `dns_concurrency` resolver calls are in flight.
-* The rows of one device are written in one transaction (no row cap yet).
+* The rows of one device are written in one transaction. A device whose ARP or MAC table has more rows than `CLIENT_DATA_MAX_ROWS_PER_TABLE` (default 200 000, at least 1; equal is allowed) fails with `too_many_rows` (`FailureInfo(phase="command", kind="payload_too_large")`) and stores nothing, so its older data stays current. The collector counts the raw rows of each table **before parsing** them, right after the first round trip and before any per-VRF read, so an oversized default ARP or MAC table is refused without a second round trip. Per-VRF ARP tables are read **one command at a time**, the running total (default VRF plus the VRFs read so far) is checked after each, and reading stops at the first overflow (later VRFs are never requested). Nothing is sent to DNS and the service checks again before writing. **Limit:** Netmiko reads one command's output to completion, so the cap does not bound the bytes of a single table the device sends; it bounds the parsing, the further round trips, the DNS and the storage. A byte limit on the read would be a change in the shared Netmiko service.
+
+## Same device name twice
+
+Collections are keyed by run and device name (`uq_client_data_collection_session`), and each remembers the SSH target it came from
+(`target_host`). Two devices with one name inside one step are caught before any connection (`duplicate_key`). Two fan-out children (or sibling
+branches) are separate executions, so the repository decides at write time, **before deleting anything**: a collection already stored for this
+run and name from a *different* target is another device with the same name, so `CollectionConflictError` is raised and the first device's rows
+stay; the device fails as `duplicate_key` ("another device in this run has the same name ... client data is stored per device name"), not as
+`storage_failed`. The same target (a retry or a rerun of the same device) replaces its own rows. A collection without a recorded target (rows
+from before the column existed) is replaceable, and so is a write without a target. If the two writes overlap, the unique key fires at insert and
+gives the same error. It is an inventory problem and is not retried as a replace.
 
 ## Retention
 
@@ -144,10 +165,10 @@ Reads are rate limited (`client-data-read`, 120 per minute per user). The router
 Four read tools (`find_client`, `list_clients`, `get_client_history`, `get_client_data_coverage`) answer "where is this MAC / IP?" from the same
 queries: `doc/AI_TOOL_CHAIN.md` §48. They need `client_data:read` (checked on every call) and the user's inventory and addresses switches.
 
-## Not built yet
+## Open
 
-A UI page (`doc/OPEN_TODOS.md`), merging ACI endpoint data, the IPv6 neighbour table, and LLDP/CDP-based uplink detection (the threshold
-heuristic above is what exists).
+A UI page (`doc/OPEN_TODOS.md`), merging ACI endpoint data into one tool (the playbook `where-is-this-host` covers it as a procedure), the IPv6 neighbour table, and LLDP/CDP-based uplink detection (the threshold
+heuristic above is what exists), and other platforms than Cisco IOS, IOS-XE and NX-OS. The list with detail is `doc/plans/CLIENT_DATA_CONTINUE.md`.
 
 ## Verification status
 

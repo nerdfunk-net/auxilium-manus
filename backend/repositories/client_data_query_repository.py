@@ -29,6 +29,7 @@ from sqlalchemy import (
     select,
     union_all,
 )
+from sqlalchemy.dialects.postgresql import INET
 from sqlalchemy.orm import InstrumentedAttribute, Session
 
 from core.models.client_data import (
@@ -451,7 +452,7 @@ class ClientDataQueryRepository:
 
         count_stmt = select(func.count()).select_from(combined)
         order = [
-            nulls_last(combined.c.ip_address.asc()),
+            nulls_last(self._ip_sort_key(combined.c.ip_address).asc()),
             combined.c.mac_address,
             combined.c.device_name,
         ]
@@ -507,11 +508,22 @@ class ClientDataQueryRepository:
                     "mac_status": mac.mac_status if mac else "skipped",
                     "vrf_status": arp.vrf_status if arp else "skipped",
                     "vrf_count": arp.vrf_count if arp else 0,
+                    "vrfs": arp.vrfs if arp else None,
                     "arp_rows": arp.arp_rows if arp else 0,
                     "mac_rows": mac.mac_rows if mac else 0,
                 }
             )
         return coverage
+
+    def _ip_sort_key(self, column: Any) -> Any:
+        """Numeric order (``10.0.0.2`` before ``10.0.0.10``, IPv4 before IPv6) on PostgreSQL.
+
+        Stored addresses are validated, so the ``inet`` cast cannot fail. SQLite (unit tests) has
+        no ``inet`` and keeps the string order.
+        """
+        if self.db.get_bind().dialect.name == "postgresql":
+            return cast(column, INET)
+        return column
 
     def _latest_rows(self, table: str) -> dict[str, ClientDataCollection]:
         latest = _latest_collections(table)
