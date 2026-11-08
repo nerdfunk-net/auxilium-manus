@@ -30,7 +30,7 @@ Ask the Net tools; the UI page is not built (see "Open").
 
 * **Neighbours** (`collect_neighbors`, off by default because it adds commands per device). `port` is the local port in the short form the
   MAC address table prints (`GigabitEthernet1/0/48` -> `Gi1/0/48`, `Ethernet1/5` -> `Eth1/5` on NX-OS and `Et1/5` on IOS, `Port-channel1` ->
-  `Po1`); that is how a neighbour is matched to a MAC-table port, so it is **not verified live** that every platform prints the same short form.
+  `Po1`); that is how a neighbour is matched to a MAC-table port, the maintainer checked it live in an IOS-only lab (2026-11-08, it works); NX-OS and port-channels were not covered.
   `channel` is the port-channel the port belongs to, read from the channel summary (without it only the member port matches). `capabilities`
   is a closed vocabulary (`bridge`, `router`, `wlan_ap`, `station`, `telephone`, `repeater`, `docsis`, `other`) from LLDP's letters
   (`B,R`) or CDP's words (`Router Switch IGMP`; CDP's legacy letters mean something else, `S` is Switch there); unknown words are dropped.
@@ -168,7 +168,7 @@ What the neighbour data fixes and what it does not. It fixes a **lightly used tr
 counts as one port through its members). It does not fix a **busy access port** (a hypervisor, a hub, an access point that does not advertise
 itself): the count rule still applies as an OR, because ports without neighbour data (a device that was not collected with `collect_neighbors`,
 or one that runs neither protocol) have nothing else to go on. A phone or host neighbour does not make a port an uplink. Neighbour ports are
-matched to MAC-table ports by name after `normalise_port`; a port named differently by the two commands would not match (unverified live).
+matched to MAC-table ports by name after `normalise_port`; a port named differently by the two commands would not match (works in the maintainer's IOS-only lab without port-channels, 2026-11-08; NX-OS, port-channels and other port types unchecked).
 A MAC seen only on uplinks has no `likely_location`. `hide_uplinks` leaves uplink rows out.
 
 ## REST API
@@ -204,6 +204,7 @@ A UI page (`doc/OPEN_TODOS.md`), the IPv6 neighbour table and other platforms th
 
 * Unit tests cover parsing, the executor (scripted Netmiko), DNS, options, the repositories and retention; the
   read queries also run on PostgreSQL in `tests/integration/test_client_data_pg.py` (the `manus_test` database).
-* **Not verified:** the step has not been run against real devices or through a real workflow run. Untested:
-  IOS / IOS-XE / NX-OS output beyond the ntc-templates field names, `show vrf` on very old IOS, the volume of
-  large ARP tables (`read_timeout`), and the frontend panel in a browser.
+* **Run live:** the step ran on a lab IOS router and switch (2026-11-07), and the maintainer checked the LLDP/CDP uplinks (`collect_neighbors`),
+  `find_host` and the Ask the Net playbook/prompt change in their lab on 2026-11-08 (they work). That lab is IOS only and has no port-channel.
+* **Not verified:** NX-OS (output beyond the ntc-templates field names, `Eth` port names, the port-channel summary), port-channels (the `show etherchannel summary` parsing and an uplink found through a bundle's member ports), VPC / FEX / breakout / stack port names, `show vrf` on very old IOS, a
+  VRF with ARP entries, the volume of large ARP tables (`read_timeout`), a larger network, and the frontend panel in a browser.
