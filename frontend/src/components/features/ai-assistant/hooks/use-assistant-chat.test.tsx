@@ -437,6 +437,61 @@ describe("useAssistantChat", () => {
     });
   });
 
+  describe("config download proposals", () => {
+    const payload = {
+      kind: "config_download",
+      handle: "res_0123456789ab",
+      device: "LAB",
+      config_kind: "running",
+      repository: "backups",
+      committed_at: "2026-11-01T10:00:00+00:00",
+      size_chars: 40000,
+      line_count: 1500,
+      partial: false,
+    };
+
+    it("keeps the handle and the facts for the download card", async () => {
+      fetchMock.mockResolvedValue(
+        sseResponse([frame("proposal", payload), frame("done", {})]),
+      );
+      const { result } = renderHook(() =>
+        useAssistantChat({ sessionKey: KEY }),
+      );
+
+      await send(result, "Download the config of LAB");
+
+      expect(result.current.messages[1].proposal).toEqual({
+        kind: "config_download",
+        summary: "Download running config of LAB",
+        handle: "res_0123456789ab",
+        device: "LAB",
+        configKind: "running",
+        repository: "backups",
+        committedAt: "2026-11-01T10:00:00+00:00",
+        sizeChars: 40000,
+        lineCount: 1500,
+        partial: false,
+        state: "pending",
+      });
+    });
+
+    it("ignores a payload with a malformed handle", async () => {
+      fetchMock.mockResolvedValue(
+        sseResponse([
+          frame("proposal", { ...payload, handle: "../res_0123456789ab" }),
+          frame("done", {}),
+        ]),
+      );
+      const { result } = renderHook(() =>
+        useAssistantChat({ sessionKey: `${KEY}-bad` }),
+      );
+
+      await send(result, "Download the config of LAB");
+
+      expect(result.current.messages[1].proposal).toBeUndefined();
+    });
+  });
+
   describe("device command proposals", () => {
     const payload = {
       kind: "device_command",

@@ -83,3 +83,10 @@ def log_device_command(
         outcome,
         handle or "-",
     )
+
+
+def log_config_download(*, user_id: int, device: str, handle: str) -> None:
+    """One line per config download: who, which device and handle, never the configuration."""
+    logger.info(
+        "ai_assistant_config_download user_id=%s device=%s handle=%s", user_id, device, handle
+    )

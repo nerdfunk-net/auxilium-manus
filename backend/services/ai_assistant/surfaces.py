@@ -19,7 +19,7 @@ from models.ai_assistant import (
     TemplateEditorContext,
     WorkflowCanvasContext,
 )
-from services.ai_assistant.agent_loop import DEFAULT_BUDGET, RunBudget
+from services.ai_assistant.agent_loop import DEFAULT_BUDGET, DEFAULT_TURN_TOKENS, RunBudget
 from services.ai_assistant.client_data_reader import ClientDataReader
 from services.ai_assistant.config_backup import ConfigBackupReader
 from services.ai_assistant.data_sharing import SharingPolicy
@@ -133,7 +133,7 @@ MAX_VARIABLE_VALUE_CHARS = 1000
 # The token figure counts input re-sent on every step; the time figure is wall clock per question.
 # 300 s: a local model is much slower than a hosted one, and every step re-sends the conversation.
 # Where the time goes is logged per question (``agent_loop``: model vs tool seconds).
-GENERAL_BUDGET = RunBudget(max_tool_steps=16, max_total_tokens=400_000, max_seconds=300)
+GENERAL_BUDGET = RunBudget(max_tool_steps=16, max_total_tokens=DEFAULT_TURN_TOKENS, max_seconds=300)
 
 
 @dataclass(frozen=True)

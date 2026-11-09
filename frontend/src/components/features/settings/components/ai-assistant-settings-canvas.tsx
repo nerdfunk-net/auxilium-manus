@@ -100,6 +100,16 @@ const formSchema = z
     share_config_context: z.boolean(),
     share_content_data: z.boolean(),
     share_report_data: z.boolean(),
+    // Text so an empty box can mean "use the default"; digits only, 20,000 to 10 million.
+    max_turn_tokens: z
+      .string()
+      .regex(/^\d{0,8}$/, "Digits only")
+      .refine((value) => Number(value || 0) <= 10_000_000, {
+        message: "At most 10,000,000",
+      })
+      .refine((value) => Number(value || 0) === 0 || Number(value) >= 20_000, {
+        message: "At least 20,000 (or empty for the default)",
+      }),
   })
   .refine(
     (values) =>
@@ -168,6 +178,10 @@ function AiAssistantSettingsForm({ settings }: { settings: AiSettings }) {
       share_config_context: settings.share_config_context,
       share_content_data: settings.share_content_data,
       share_report_data: settings.share_report_data,
+      max_turn_tokens:
+        settings.max_turn_tokens != null
+          ? String(settings.max_turn_tokens)
+          : "",
     }),
     [settings],
   );
@@ -179,11 +193,13 @@ function AiAssistantSettingsForm({ settings }: { settings: AiSettings }) {
 
   const handleSave = useCallback(
     (values: FormValues) => {
-      const { api_key, base_url, ...rest } = values;
+      const { api_key, base_url, max_turn_tokens, ...rest } = values;
       // A blank key field means "leave the stored key unchanged"; the base URL only applies to
       // the OpenAI-compatible provider.
       const payload = {
         ...rest,
+        // An empty box sends 0, which the backend reads as "use the default".
+        max_turn_tokens: Number(max_turn_tokens || 0),
         ...(rest.provider === "openai_compat" && canSetServerUrl
           ? { base_url: base_url.trim() }
           : {}),
@@ -330,12 +346,12 @@ function AiAssistantSettingsForm({ settings }: { settings: AiSettings }) {
                         </FormControl>
                         <FormDescription>
                           The server&apos;s OpenAI-compatible base URL,
-                          including the version prefix, usually /v1 (for
-                          Ollama: http://host:11434/v1). The app appends
-                          /chat/completions to it; a URL without /v1 is
-                          answered with 404 by most servers. A server on the same
-                          machine as the backend is only reachable when the
-                          backend runs with ALLOW_LOOPBACK_SOURCE_URLS enabled.
+                          including the version prefix, usually /v1 (for Ollama:
+                          http://host:11434/v1). The app appends
+                          /chat/completions to it; a URL without /v1 is answered
+                          with 404 by most servers. A server on the same machine
+                          as the backend is only reachable when the backend runs
+                          with ALLOW_LOOPBACK_SOURCE_URLS enabled.
                           {!canSetServerUrl &&
                             " Only an administrator can change the server URL."}
                         </FormDescription>
@@ -429,6 +445,44 @@ function AiAssistantSettingsForm({ settings }: { settings: AiSettings }) {
                       <FormDescription>
                         Private to your account and stored encrypted. It is
                         never shown again after saving.
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base">Token limit</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <FormField
+                  control={form.control}
+                  name="max_turn_tokens"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Tokens for one question</FormLabel>
+                      <FormControl>
+                        <Input
+                          inputMode="numeric"
+                          autoComplete="off"
+                          placeholder={String(settings.default_turn_tokens)}
+                          {...field}
+                        />
+                      </FormControl>
+                      <FormDescription>
+                        Ask the Net checks the tokens of all its model calls
+                        before each further tool step and stops the question
+                        when they are over this number. The call that crosses
+                        the limit has already been sent and counted, and an
+                        answer that needs no further tool step is never cut. The
+                        conversation is sent again on every step, so long
+                        investigations such as learning OSPF or BGP can reach
+                        it. It applies to Ask the Net only, not to the editor
+                        assistants. At least 20,000; leave empty for the default
+                        ({settings.default_turn_tokens}).
                       </FormDescription>
                       <FormMessage />
                     </FormItem>

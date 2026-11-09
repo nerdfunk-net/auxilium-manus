@@ -25,6 +25,7 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_TIMEOUT = httpx.Timeout(120.0, connect=10.0)
 MAX_ERROR_BODY_CHARS = 2000
+MAX_LOGGED_ERROR_CHARS = 300
 
 # Brief server-side failures (e.g. Gemini answering 503 while a model is overloaded) are retried
 # before any output has been streamed, so a retry can never duplicate text. 429 (quota) is not
@@ -141,6 +142,16 @@ async def raise_for_status(response: httpx.Response) -> None:
     if response.status_code < 300:
         return
     body = (await response.aread()).decode("utf-8", errors="replace")[:MAX_ERROR_BODY_CHARS]
+    # The client message never echoes the body, but the operator needs it to tell a context-size
+    # error from a rate limit (a local server says "context length exceeded (N tokens)"). Logged
+    # short, on one line and without control characters.
+    logger.warning(
+        "Provider answered HTTP %s: %s",
+        response.status_code,
+        " ".join("".join(ch if ch.isprintable() else " " for ch in body).split())[
+            :MAX_LOGGED_ERROR_CHARS
+        ],
+    )
     raise error_for_status(response.status_code, body)
 
 

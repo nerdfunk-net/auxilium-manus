@@ -16,7 +16,7 @@ from collections.abc import AsyncIterator
 from dataclasses import replace
 from typing import NoReturn
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
@@ -33,6 +33,7 @@ from models.ai_assistant import (
     AiStatusResponse,
     ChatRequest,
     CommandParseError,
+    ConfigTextResponse,
     DeviceCommandConfirmRequest,
     DeviceCommandResponse,
     GeneralContext,
@@ -49,7 +50,7 @@ from models.ai_assistant import (
 )
 from services.ai_assistant.aci_reader import DbAciReader
 from services.ai_assistant.agent_loop import DEFAULT_BUDGET
-from services.ai_assistant.audit import AuditContext
+from services.ai_assistant.audit import AuditContext, log_config_download
 from services.ai_assistant.batfish_reader import DbBatfishReader
 from services.ai_assistant.catalyst_center_reader import DbCatalystCenterReader
 from services.ai_assistant.chat_service import ChatEvent, check_connection, stream_chat
@@ -96,7 +97,11 @@ from services.ai_assistant.released_workflow_reader import (
 )
 from services.ai_assistant.report_reader import DbReportReader
 from services.ai_assistant.results.factory import get_result_store
-from services.ai_assistant.results.store import ResultStore, ResultStoreUnavailableError
+from services.ai_assistant.results.store import (
+    ResultStore,
+    ResultStoreUnavailableError,
+    StoredResult,
+)
 from services.ai_assistant.run_reader import DbRunReader
 from services.ai_assistant.settings_service import AiRuntimeConfig, AiSettingsService
 from services.ai_assistant.surfaces import (
@@ -111,6 +116,7 @@ from services.ai_assistant.surfaces import (
 from services.ai_assistant.template_reader import DbTemplateReader
 from services.ai_assistant.token_once import ConfirmationStoreUnavailableError
 from services.ai_assistant.tools.base import Toolbox
+from services.ai_assistant.tools.config_backup_tools import HANDLE_KIND as CONFIG_BACKUP_KIND
 from services.ai_assistant.workflow_reader import DbReferenceReader, DbWorkflowValidator
 from services.ai_assistant.workflow_run_exec import WorkflowRunExecutor
 from services.ai_assistant.workflow_run_token import InvalidRunTokenError
@@ -472,6 +478,10 @@ def chat(
                 detail={"code": "ai_context_too_large", "message": str(exc)},
             ) from exc
         system, toolbox, budget = session.system, session.toolbox, session.budget
+        # The user's own token cap replaces the surface default, only where a surface has one
+        # (the editors have none and keep it).
+        if config.max_turn_tokens is not None and budget.max_total_tokens is not None:
+            budget = replace(budget, max_total_tokens=config.max_turn_tokens)
 
     audit = AuditContext(
         user_id=current_user.id,
@@ -566,25 +576,16 @@ def _device_http_error(exc: Exception) -> HTTPException | None:
 _RESULT_ROWS_BUDGET = rate_limited("ai-result-rows", attempts=30, window_seconds=60)
 
 
-@router.get(
-    "/results/{handle}/rows",
-    response_model=ParsedRowsResponse,
-    dependencies=[_OPERATOR, _USE, Depends(_RESULT_ROWS_BUDGET)],
-)
-async def get_parsed_rows(
-    handle: str,
-    current_user: User = Depends(get_current_user),
-    store: ResultStore = Depends(get_result_store),
-    service: AiSettingsService = Depends(get_ai_settings_service),
-) -> ParsedRowsResponse:
-    """The full rows of a parsed device output, for a download (doc/AI_TOOL_CHAIN.md §43).
+async def _own_content_result(
+    handle: str, user: User, store: ResultStore, service: AiSettingsService
+) -> StoredResult | None:
+    """The caller's own stored result, or ``None`` (unknown, expired, malformed or not theirs).
 
-    Only the caller's own ``parsed_output`` handles resolve (a raw output, another user's handle
-    and an expired one are all the same 404). The content opt-in is checked on every call, like the
-    assistant's own reads, so switching sharing off stops the download too.
+    The content opt-in is checked on every call, like the assistant's own reads, so switching
+    sharing off stops a download too. The caller still checks the kind of the result.
     """
     try:
-        config = await asyncio.to_thread(service.require_runtime_config, current_user.id)
+        config = await asyncio.to_thread(service.require_runtime_config, user.id)
     except AiAssistantError as exc:
         _raise_http(exc)
     if not config.sharing.content:
@@ -596,7 +597,7 @@ async def get_parsed_rows(
             },
         )
     try:
-        stored = await store.get(current_user.id, handle)
+        return await store.get(user.id, handle)
     except ResultStoreUnavailableError as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -605,13 +606,83 @@ async def get_parsed_rows(
                 "message": "Stored results are unavailable",
             },
         ) from exc
+
+
+def _result_not_found() -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND,
+        detail={"code": "result_not_found", "message": "Unknown or expired result"},
+    )
+
+
+@router.get(
+    "/results/{handle}/rows",
+    response_model=ParsedRowsResponse,
+    dependencies=[_OPERATOR, _USE, Depends(_RESULT_ROWS_BUDGET)],
+)
+async def get_parsed_rows(
+    handle: str,
+    response: Response,
+    current_user: User = Depends(get_current_user),
+    store: ResultStore = Depends(get_result_store),
+    service: AiSettingsService = Depends(get_ai_settings_service),
+) -> ParsedRowsResponse:
+    """The full rows of a parsed device output, for a download (doc/AI_TOOL_CHAIN.md §43).
+
+    Only the caller's own ``parsed_output`` handles resolve (a raw output, another user's handle
+    and an expired one are all the same 404).
+    """
+    stored = await _own_content_result(handle, current_user, store, service)
     if stored is None or stored.kind != PARSED_KIND or stored.rows is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail={"code": "result_not_found", "message": "Unknown or expired result"},
-        )
+        raise _result_not_found()
+    response.headers["Cache-Control"] = "no-store"
     meta = stored.meta or {}
     return ParsedRowsResponse(parser=str(meta.get("parser", "")), rows=stored.rows)
+
+
+@router.get(
+    "/results/{handle}/text",
+    response_model=ConfigTextResponse,
+    dependencies=[_OPERATOR, _USE, Depends(_RESULT_ROWS_BUDGET)],
+)
+async def get_config_text(
+    handle: str,
+    response: Response,
+    current_user: User = Depends(get_current_user),
+    store: ResultStore = Depends(get_result_store),
+    service: AiSettingsService = Depends(get_ai_settings_service),
+    db: Session = Depends(get_db),
+) -> ConfigTextResponse:
+    """The redacted text of a backed-up config, for a download (doc/AI_TOOL_CHAIN.md §30).
+
+    Only the caller's own ``config_backup`` handles resolve; anything else is the same 404. The
+    right to read config files is checked again (as ``get_config_backup`` does), so revoking it
+    stops a handle that is still alive, and every download is logged (ids, never content).
+    """
+    stored = await _own_content_result(handle, current_user, store, service)
+    if stored is None or stored.kind != CONFIG_BACKUP_KIND or stored.text is None:
+        raise _result_not_found()
+    if not await asyncio.to_thread(
+        RBACService(db).has_permission, current_user.id, "git.files", "read"
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "code": "config_access_denied",
+                "message": "You no longer have access to configuration backups.",
+            },
+        )
+    # The redacted configuration must not sit in the browser's HTTP cache.
+    response.headers["Cache-Control"] = "no-store"
+    meta = stored.meta or {}
+    log_config_download(user_id=current_user.id, device=str(meta.get("device", "")), handle=handle)
+    committed_at = meta.get("committed_at")
+    return ConfigTextResponse(
+        device=str(meta.get("device", "")),
+        kind=str(meta.get("kind", "")),
+        committed_at=committed_at if isinstance(committed_at, str) else None,
+        text=stored.text,
+    )
 
 
 @router.post(

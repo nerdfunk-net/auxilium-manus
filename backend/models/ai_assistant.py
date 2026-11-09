@@ -11,6 +11,13 @@ AiStatusReason = Literal[
 ]
 
 
+# Upper bound a user may set for ``max_turn_tokens``.
+MAX_TURN_TOKENS_LIMIT = 10_000_000
+# Lowest cap a user may set (0 clears it). A cap below one tool round of a normal conversation
+# would make every question that uses a tool fail after its first model call.
+MIN_TURN_TOKENS_LIMIT = 20_000
+
+
 class UserAiSettingsUpdate(BaseModel):
     """Partial update: omitted fields are left unchanged. ``api_key`` is write-only."""
 
@@ -29,6 +36,17 @@ class UserAiSettingsUpdate(BaseModel):
     share_config_context: bool | None = None
     share_content_data: bool | None = None
     share_report_data: bool | None = None
+    # Token cap for one question (input + output of all steps). 0 = back to the default.
+    max_turn_tokens: int | None = Field(default=None, ge=0, le=MAX_TURN_TOKENS_LIMIT)
+
+    @field_validator("max_turn_tokens")
+    @classmethod
+    def _turn_tokens_not_absurdly_low(cls, value: int | None) -> int | None:
+        if value is not None and 0 < value < MIN_TURN_TOKENS_LIMIT:
+            raise ValueError(
+                f"max_turn_tokens must be 0 (default) or at least {MIN_TURN_TOKENS_LIMIT}"
+            )
+        return value
 
     @field_validator("model")
     @classmethod
@@ -64,6 +82,9 @@ class UserAiSettingsResponse(BaseModel):
     share_config_context: bool
     share_content_data: bool
     share_report_data: bool
+    # The user's own cap; None = the default below applies.
+    max_turn_tokens: int | None = None
+    default_turn_tokens: int = 0
     available_providers: list[AiProvider]
     # Selectable models per provider; the UI shows a picker, not a free-text field.
     available_models: dict[str, list[AiModelOption]]
@@ -289,6 +310,15 @@ class DeviceCommandResponse(BaseModel):
     parsed_handle: str | None = None
     parsed_text: str = ""
     parse_errors: list[CommandParseError] = Field(default_factory=list)
+
+
+class ConfigTextResponse(BaseModel):
+    """The redacted text of a backed-up config (for a download; the chat only shows a preview)."""
+
+    device: str
+    kind: str
+    committed_at: str | None = None
+    text: str
 
 
 class ParsedRowsResponse(BaseModel):

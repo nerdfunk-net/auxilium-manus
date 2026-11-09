@@ -26,11 +26,16 @@ from services.ai_assistant.providers.base import (
 from services.ai_assistant.tools.base import Toolbox
 
 logger = logging.getLogger(__name__)
+# One line per model call; a child logger, so ``logger`` keeps only the per-turn summary.
+call_logger = logger.getChild("calls")
 
 MAX_TOOL_STEPS = 8
 # No surface may ask for more than this, whatever its budget says (doc/AI_TOOL_CHAIN.md §6.4).
 HARD_MAX_TOOL_STEPS = 24
 MAX_OUTPUT_TOKENS = 16000
+# Cumulative input + output tokens one question may use on a surface with a token budget, unless
+# the user set their own (``user_ai_settings.max_turn_tokens``).
+DEFAULT_TURN_TOKENS = 400_000
 
 
 @dataclass(frozen=True)
@@ -153,6 +158,19 @@ async def run_agent(
             raise ProviderUnavailableError("The provider returned no response")
         input_tokens += turn.input_tokens
         output_tokens += turn.output_tokens
+        # One line per model call: ``input`` is what THIS request sent (the whole conversation),
+        # ``total`` the running sum the budget counts. Counts only, no content.
+        call_logger.info(
+            "Ask the Net model call: step=%d input=%d output=%d total=%d limit=%s "
+            "messages=%d tools_called=%d",
+            step,
+            turn.input_tokens,
+            turn.output_tokens,
+            input_tokens + output_tokens,
+            budget.max_total_tokens,
+            len(conversation),
+            len(turn.tool_calls),
+        )
         # After every provider turn (cumulative), not once at the end: a turn that then fails
         # (cut off, too many steps) has still spent the tokens, and the audit must see them.
         yield ChatEvent("usage", {"input_tokens": input_tokens, "output_tokens": output_tokens})
@@ -171,7 +189,9 @@ async def run_agent(
         ):
             raise stop(
                 f"token budget used up (limit={budget.max_total_tokens})",
-                "The assistant used too many tokens for one question; please narrow the request",
+                f"The assistant used too many tokens for one question "
+                f"({input_tokens + output_tokens:,} of {budget.max_total_tokens:,} allowed; the "
+                f"limit can be changed in the AI assistant settings), please narrow the request",
             )
 
         conversation.append(

@@ -13,6 +13,7 @@ import type {
   AssistantContext,
   ChatMessage,
   CommandParser,
+  ConfigDownloadProposal,
   DeviceCommandResult,
   WorkflowRunDevice,
   WorkflowRunResult,
@@ -28,6 +29,7 @@ import {
   useAssistantSessionStore,
 } from "../store/assistant-session-store";
 import { buildChatHistory } from "../utils/chat-history";
+import { RESULT_HANDLE } from "../utils/config-download";
 import { canvasFingerprint } from "../utils/canvas-fingerprint";
 import { filterTreeFingerprint } from "../utils/filter-tree-fingerprint";
 import { parseProposedConditionTree } from "../utils/parse-condition-tree";
@@ -196,6 +198,43 @@ function parseWorkflowRun(payload: ProposalPayload): ParsedWorkflowRun | null {
     devices: parsedDevices,
     credentialInputs,
     driverChoices,
+  };
+}
+
+type ParsedConfigDownload = Omit<ConfigDownloadProposal, "kind" | "summary" | "state">;
+
+/** The config-download payload, or null when anything the card needs is missing or mistyped. */
+function parseConfigDownload(
+  payload: ProposalPayload,
+): ParsedConfigDownload | null {
+  const {
+    handle,
+    device,
+    config_kind: configKind,
+    repository,
+    committed_at: committedAt,
+    size_chars: sizeChars,
+    line_count: lineCount,
+    partial,
+  } = payload as Record<string, unknown>;
+  if (
+    typeof handle !== "string" ||
+    !RESULT_HANDLE.test(handle) ||
+    typeof device !== "string" ||
+    typeof sizeChars !== "number" ||
+    typeof lineCount !== "number"
+  ) {
+    return null;
+  }
+  return {
+    handle,
+    device,
+    configKind: typeof configKind === "string" ? configKind : "",
+    repository: typeof repository === "string" ? repository : "",
+    committedAt: typeof committedAt === "string" ? committedAt : null,
+    sizeChars,
+    lineCount,
+    partial: partial === true,
   };
 }
 
@@ -414,6 +453,19 @@ export function useAssistantChat({
                     proposal: {
                       kind: "device_command",
                       summary: `${parsed.commands.join("; ")} on ${parsed.device.name}`,
+                      ...parsed,
+                      state: "pending",
+                    },
+                  }));
+                }
+              } else if (proposal.kind === "config_download") {
+                const parsed = parseConfigDownload(proposal);
+                if (parsed) {
+                  patchAssistant(assistantId, (m) => ({
+                    ...m,
+                    proposal: {
+                      kind: "config_download",
+                      summary: `Download ${parsed.configKind} config of ${parsed.device}`,
                       ...parsed,
                       state: "pending",
                     },

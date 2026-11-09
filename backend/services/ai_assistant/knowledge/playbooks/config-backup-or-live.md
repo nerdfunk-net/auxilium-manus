@@ -2,7 +2,7 @@
 name: config-backup-or-live
 title: Get a device configuration from the git backup or from the device
 when: "get, show or read the running or startup config of a device; 'config of X'; what is configured on X"
-tools: [list_config_backups, get_config_backup, search_config_backups, propose_device_command, fetch_slice]
+tools: [list_config_backups, get_config_backup, offer_config_download, search_config_backups, propose_device_command, fetch_slice]
 scope: read-only
 ---
 # Get a device configuration: backup first, live on request
@@ -14,6 +14,8 @@ needs no click; a live command shows the device now. This playbook only reads an
 ## Inputs to collect
 - The device name exactly as the inventory has it. If it is missing, ask; do not guess.
 - Running or startup. If the user does not say, use running.
+- Show or download: "show", "read" or "what is configured" mean show it in the chat; "download", "save", "export" or
+  "give me the file" mean a download button.
 - Live or backup: the words "live", "now", "current" or "right now" mean live. Otherwise use the backup.
 
 ## Steps
@@ -21,7 +23,13 @@ needs no click; a live command shows the device now. This playbook only reads an
    need, call `get_config_backup` with the device and the kind. If several repositories offer it, ask
    the user which one and pass it as `repository`.
 2. Report the age: the answer carries `committed_at` and `age`. Say when the backup was committed and
-   that the live device may differ. Read long configs with `fetch_slice` using the handle.
+   that the live device may differ.
+   - Download requested: call `offer_config_download` with the handle. Do not paste the config.
+   - Show requested and `large` is false: read the rest with `fetch_slice` using the handle if needed.
+   - Show requested and `large` is true: show only the preview, give `line_count`, and ask whether the
+     user wants a download. Do not page through the file with `fetch_slice`. On "yes" call
+     `offer_config_download` with the same handle (it stays valid for a few hours; if it has expired,
+     call `get_config_backup` again).
 3. If `get_config_backup` says no backup file exists, no repository is configured, or a placeholder is
    empty for this device, say so in one sentence and offer the live configuration.
 4. Live requested, or the user accepts the offer: call `propose_device_command` with

@@ -414,6 +414,7 @@ def _capture_chat(monkeypatch: pytest.MonkeyPatch) -> dict[str, object]:
         seen["tools"] = [spec.name for spec in kwargs["toolbox"].specs()]
         seen["extras"] = kwargs["toolbox"]._context.extras
         seen["system"] = kwargs["system"]
+        seen["budget"] = kwargs["budget"]
         yield ChatEvent("done", {})
 
     monkeypatch.setattr(ai_router_module, "stream_chat", fake_stream)
@@ -1151,6 +1152,124 @@ def test_an_unavailable_store_is_503(rows_client) -> None:
     assert client.get("/api/ai/results/res_000000000000/rows").status_code == 503
 
 
+# -- download of a backed-up config (doc/AI_TOOL_CHAIN.md section 30) --------------------------
+
+
+def _config_put(put, **kw):
+    base = {
+        "kind": "config_backup",
+        "rows": None,
+        "text": "hostname LAB\n",
+        "meta": {
+            "device": "LAB",
+            "kind": "running",
+            "repository": "backups",
+            "committed_at": "2026-11-01T10:00:00+00:00",
+        },
+    }
+    base.update(kw)
+    return put(**base)
+
+
+def test_the_config_text_must_not_be_cached_by_the_browser(rows_client) -> None:
+    client, put, _ = rows_client
+
+    response = client.get(f"/api/ai/results/{_config_put(put)}/text")
+
+    assert response.headers["cache-control"] == "no-store"
+
+
+def test_the_config_download_needs_git_file_access_again(rows_client, monkeypatch) -> None:
+    client, put, _ = rows_client
+    handle = _config_put(put)
+    monkeypatch.setattr(
+        RBACService,
+        "has_permission",
+        lambda self, _uid, resource, action: (resource, action) != ("git.files", "read"),
+    )
+
+    response = client.get(f"/api/ai/results/{handle}/text")
+
+    assert response.status_code == 403
+    assert response.json()["detail"]["code"] == "config_access_denied"
+
+
+def test_the_config_download_is_audited_without_content(rows_client, caplog) -> None:
+    import logging
+
+    client, put, _ = rows_client
+
+    with caplog.at_level(logging.INFO):
+        client.get(f"/api/ai/results/{_config_put(put)}/text")
+
+    lines = [
+        r.getMessage() for r in caplog.records if "ai_assistant_config_download" in r.getMessage()
+    ]
+    assert len(lines) == 1
+    assert "user_id=1" in lines[0] and "device=LAB" in lines[0]
+    assert "hostname LAB" not in lines[0]
+
+
+def test_a_config_text_can_be_fetched_by_its_owner(rows_client) -> None:
+    client, put, _ = rows_client
+
+    response = client.get(f"/api/ai/results/{_config_put(put)}/text")
+
+    assert response.status_code == 200, response.text
+    assert response.json() == {
+        "device": "LAB",
+        "kind": "running",
+        "committed_at": "2026-11-01T10:00:00+00:00",
+        "text": "hostname LAB\n",
+    }
+
+
+@pytest.mark.parametrize("handle", ["res_000000000000", "not-a-handle", "res_ZZZZ"])
+def test_config_text_unknown_or_malformed_handle_is_404(rows_client, handle) -> None:
+    client, _, _ = rows_client
+
+    assert client.get(f"/api/ai/results/{handle}/text").status_code == 404
+
+
+def test_config_text_of_another_user_is_404(rows_client) -> None:
+    client, put, _ = rows_client
+
+    assert client.get(f"/api/ai/results/{_config_put(put, user_id=2)}/text").status_code == 404
+
+
+def test_only_config_backups_are_served_as_text(rows_client) -> None:
+    client, put, _ = rows_client
+    raw = put(kind="device_command", rows=None, text="show version output")
+
+    assert client.get(f"/api/ai/results/{raw}/text").status_code == 404
+    # and a config handle is not a parsed-rows handle
+    assert client.get(f"/api/ai/results/{_config_put(put)}/rows").status_code == 404
+
+
+def test_turning_content_sharing_off_stops_the_config_download(rows_client) -> None:
+    client, put, _ = rows_client
+    handle = _config_put(put)
+    client.patch("/api/ai/settings", json={"share_content_data": False})
+
+    response = client.get(f"/api/ai/results/{handle}/text")
+
+    assert response.status_code == 403
+    assert response.json()["detail"]["code"] == "content_sharing_off"
+
+
+def test_config_text_with_an_unavailable_store_is_503(rows_client) -> None:
+    from services.ai_assistant.results.store import ResultStoreUnavailableError
+
+    client, _, store = rows_client
+
+    async def down(*_args):
+        raise ResultStoreUnavailableError
+
+    store.get = down  # type: ignore[method-assign]
+
+    assert client.get("/api/ai/results/res_000000000000/text").status_code == 503
+
+
 def test_the_device_type_choices_in_the_request_model_match_the_resolver_list() -> None:
     from typing import get_args
 
@@ -1325,3 +1444,57 @@ def test_a_changed_release_says_so_under_the_same_code(client: TestClient) -> No
         "code": "workflow_not_released",
         "message": "changed or released again. Ask again.",
     }
+
+
+def _chat_general(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> dict[str, object]:
+    monkeypatch.setattr(ai_router_module, "try_load_visible_secret_values", lambda _uid: [])
+    seen = _capture_chat(monkeypatch)
+    client.post(
+        "/api/ai/chat",
+        json={"messages": [{"role": "user", "content": "hi"}], "context": {"surface": "general"}},
+    )
+    return seen
+
+
+def test_the_general_chat_uses_the_default_token_budget_without_a_user_cap(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from services.ai_assistant.agent_loop import DEFAULT_TURN_TOKENS
+
+    _configure(client)
+
+    seen = _chat_general(client, monkeypatch)
+
+    assert seen["budget"].max_total_tokens == DEFAULT_TURN_TOKENS  # type: ignore[attr-defined]
+
+
+def test_the_general_chat_uses_the_users_own_token_cap(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _configure(client)
+    client.patch("/api/ai/settings", json={"max_turn_tokens": 900_000})
+
+    seen = _chat_general(client, monkeypatch)
+
+    budget = seen["budget"]
+    assert budget.max_total_tokens == 900_000  # type: ignore[attr-defined]
+    # Only the token figure changes; steps and time keep the surface's values.
+    assert budget.max_tool_steps == 16  # type: ignore[attr-defined]
+
+
+def test_the_users_token_cap_does_not_add_a_budget_to_a_surface_without_one(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _configure(client)
+    client.patch("/api/ai/settings", json={"max_turn_tokens": 900_000})
+    seen = _capture_chat(monkeypatch)
+
+    client.post(
+        "/api/ai/chat",
+        json={
+            "messages": [{"role": "user", "content": "hi"}],
+            "context": {"surface": "template_editor", "name": "Base", "content": "x"},
+        },
+    )
+
+    assert seen["budget"].max_total_tokens is None  # type: ignore[attr-defined]

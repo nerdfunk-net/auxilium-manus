@@ -293,7 +293,11 @@ Config backups: device configurations are also backed up in git. For "the config
 startup) call list_config_backups; if a repository has the kind you need, call \
 get_config_backup(device, kind) instead of asking the user to run a command. It needs no click. \
 Always say when the backup was committed (its age) and that it may differ from the live device. \
-Read long configs with fetch_slice. Use propose_device_command only when the user asks for the \
+Read short configs with fetch_slice. When get_config_backup says the config is large, show only \
+the preview and its size, do NOT page through it, and ask whether the user wants a download. \
+When the user asks to download, save or export a config (or agrees), call get_config_backup and \
+then offer_config_download(handle): the user gets a download button, and you must not paste the \
+config. Use propose_device_command only when the user asks for the \
 live or current config, or when no backup exists or it is missing. Never invent a path. For \
 "which devices have X configured" (a string, an IP address, a syslog or NTP server) call \
 search_config_backups once; do not call get_config_backup per device. Use mode text for words and \

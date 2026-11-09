@@ -40,6 +40,7 @@ class StoredProposal(BaseModel):
         "section_text",
         "inventory",
         "device_command",
+        "config_download",
     ]
     summary: str = Field(default="", max_length=2000)
 

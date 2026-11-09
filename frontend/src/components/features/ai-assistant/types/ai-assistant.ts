@@ -40,6 +40,9 @@ export interface AiSettings {
   share_content_data: boolean;
   /** Values collected by Store for Report steps (query results, snapshots). */
   share_report_data: boolean;
+  /** The user's own token cap for one question; null = the default applies. */
+  max_turn_tokens: number | null;
+  default_turn_tokens: number;
   available_providers: AiProvider[];
   available_models: Record<string, AiModelOption[]>;
   /** What the administrator allows (AI_ASSISTANT_ENABLED / AI_ALLOWED_PROVIDERS / AI_ALLOWED_DATA). */
@@ -62,6 +65,8 @@ export interface AiSettingsUpdate {
   share_config_context?: boolean;
   share_content_data?: boolean;
   share_report_data?: boolean;
+  /** 0 = back to the default. */
+  max_turn_tokens?: number;
 }
 
 export interface AiConnectionTestResult {
@@ -330,6 +335,28 @@ export interface DeviceCommandProposal {
   state: ProposalState;
 }
 
+/**
+ * A backed-up device configuration the user can download. The server stored the (redacted) text
+ * behind `handle`; the card carries no text, the download reads it from the server.
+ */
+export interface ConfigDownloadProposal {
+  kind: "config_download";
+  summary: string;
+  /** The handle of the stored text (`res_` + 12 hex digits). */
+  handle: string;
+  device: string;
+  /** "running" or "startup" (shown as text only). */
+  configKind: string;
+  repository: string;
+  /** ISO 8601 time of the backup's last commit, when known. */
+  committedAt: string | null;
+  sizeChars: number;
+  lineCount: number;
+  /** True when the file was longer than the server's limit and only its start is stored. */
+  partial: boolean;
+  state: ProposalState;
+}
+
 /** The run a confirmed workflow proposal started. */
 export interface WorkflowRunResult {
   runId: number;
@@ -373,6 +400,7 @@ export type AssistantProposal =
   | SectionTextProposal
   | InventoryProposal
   | DeviceCommandProposal
+  | ConfigDownloadProposal
   | WorkflowRunProposal;
 
 /** A message in the panel; `error` is set on an assistant turn that failed. */
@@ -408,6 +436,7 @@ export interface SavedProposal {
     | "section_text"
     | "inventory"
     | "device_command"
+    | "config_download"
     | "workflow_run";
   summary: string;
 }

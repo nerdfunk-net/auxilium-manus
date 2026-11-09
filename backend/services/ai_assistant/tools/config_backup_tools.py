@@ -25,7 +25,11 @@ from services.ai_assistant.config_backup import (
     ConfigSearchResult,
 )
 from services.ai_assistant.data_sharing import DataClass, not_shared_marker
-from services.ai_assistant.results.store import ResultStoreUnavailableError, StoredResult
+from services.ai_assistant.results.store import (
+    MAX_STORED_BYTES,
+    ResultStoreUnavailableError,
+    StoredResult,
+)
 from services.ai_assistant.tools.base import Tool, ToolContext, ToolOutput
 from services.ai_assistant.tools.result_tools import RESULT_STORE_KEY
 
@@ -35,6 +39,12 @@ logger = logging.getLogger(__name__)
 CONFIG_READER_KEY = "config_backup_reader"
 HANDLE_KIND = "config_backup"
 PREVIEW_CHARS = 3000
+# A config above this many characters (about 400 lines) is "large": the model shows the preview and
+# asks whether the user wants a download, instead of paging the whole file into the chat.
+LARGE_CONFIG_CHARS = 15_000
+CONFIG_DOWNLOAD_KIND = "config_download"
+# What the stored text may take in the store: the JSON envelope and ``meta`` need some room.
+_STORE_TEXT_BUDGET_BYTES = MAX_STORED_BYTES - 16_384
 # Redaction budget for the stored copy (a config can be large); separate from the request's own.
 STORED_REDACT_CHARS = 2_100_000
 
@@ -95,6 +105,14 @@ class SearchConfigBackupsInput(BaseModel):
         return value
 
 
+class OfferConfigDownloadInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    handle: Annotated[str, StringConstraints(pattern=r"^res_[0-9a-f]{12}$")] = Field(
+        description="The handle returned by get_config_backup"
+    )
+
+
 def _reader(ctx: ToolContext) -> ConfigBackupReader:
     return ctx.extras[CONFIG_READER_KEY]
 
@@ -139,19 +157,61 @@ async def _list_config_backups(ctx: ToolContext, args: ListConfigBackupsInput) -
     return ToolOutput(json.dumps({"repositories": [_repository_row(r) for r in repositories]}))
 
 
+STORE_CUT_MARKER = "\n…[backup cut to fit the download store: the rest of the file is not included]"
+
 _TRUNCATED_MARKER = (
     "\n…[backup truncated: the file is longer than the limit; the rest is not shown]"
 )
 
 
-async def _store(ctx: ToolContext, text: str) -> str | None:
-    """Store the already redacted ``text``; ``None`` when there is no store or it is too large."""
+def _json_bytes(text: str) -> int:
+    """Size of ``text`` as the store writes it (UTF-8, every newline escaped to two bytes)."""
+    return len(json.dumps(text, ensure_ascii=False).encode("utf-8"))
+
+
+def fit_to_store(text: str) -> tuple[str, bool]:
+    """``text`` cut on a line boundary so the stored document stays under the store's cap.
+
+    The reader's character cap is not enough: JSON turns each newline into two bytes, so a file
+    just under the cap would be refused and the user would get no download at all. Returns the
+    text (with a marker when it was cut) and whether it was cut.
+    """
+    size = _json_bytes(text)
+    if size <= _STORE_TEXT_BUDGET_BYTES:
+        return text, False
+    budget = _STORE_TEXT_BUDGET_BYTES - _json_bytes(STORE_CUT_MARKER)
+    end = len(text)
+    # The size is nearly linear in the length, so a few proportional cuts converge.
+    for _ in range(8):
+        end = int(end * budget / size * 0.99)
+        newline = text.rfind("\n", 0, end)
+        end = newline + 1 if newline > 0 else end
+        size = _json_bytes(text[:end])
+        if size <= budget:
+            break
+    return text[:end] + STORE_CUT_MARKER, True
+
+
+async def _store(
+    ctx: ToolContext, text: str, meta: dict[str, object], *, partial: bool = False
+) -> str | None:
+    """Store the already redacted ``text``; ``None`` when there is no store or it is too large.
+
+    ``meta`` says where the text came from, so the download card can name the file.
+    """
     store = ctx.extras.get(RESULT_STORE_KEY)
     if store is None:
         return None
     try:
         return await store.put(
-            ctx.user_id, StoredResult(kind=HANDLE_KIND, data_class=DataClass.CONTENT, text=text)
+            ctx.user_id,
+            StoredResult(
+                kind=HANDLE_KIND,
+                data_class=DataClass.CONTENT,
+                text=text,
+                partial=partial,
+                meta=meta,
+            ),
         )
     except ResultStoreUnavailableError:
         logger.warning("Result store unavailable; config backup returned without a handle")
@@ -160,22 +220,35 @@ async def _store(ctx: ToolContext, text: str) -> str | None:
     return None
 
 
-def _answer(backup: ConfigBackup, preview: str, handle: str | None, cut: bool) -> dict[str, object]:
+_LARGE_NOTE = (
+    "This configuration is large. Show the preview and the size, do not page through the whole "
+    "file with fetch_slice, and ask whether the user wants a download. If they say yes (or asked "
+    "for a download), call offer_config_download with the handle."
+)
+
+
+def _answer(
+    backup: ConfigBackup, redacted: str, handle: str | None, cut: bool, *, store_cut: bool = False
+) -> dict[str, object]:
+    large = len(redacted) > LARGE_CONFIG_CHARS
     answer: dict[str, object] = {
         "repository": backup.repository,
         "committed_at": backup.committed_at,
         "age": _age(backup.committed_at),
         "source": "git backup, not the live device",
-        "preview": preview,
+        "preview": redacted[:PREVIEW_CHARS],
+        "size_chars": len(redacted),
+        "line_count": len(redacted.splitlines()),
+        "large": large,
     }
     if handle is not None:
         answer["handle"] = handle
-        answer["note"] = "Read the rest with fetch_slice(handle, offset)."
+        answer["note"] = _LARGE_NOTE if large else "Read the rest with fetch_slice(handle, offset)."
     elif cut:
         answer["note"] = (
             "The text was cut and no handle could be stored; say the answer is partial."
         )
-    if backup.truncated:
+    if backup.truncated or store_cut:
         answer["truncated"] = "The file is longer than the size limit; only the start is available."
     return answer
 
@@ -199,11 +272,61 @@ async def _get_config_backup(ctx: ToolContext, args: GetConfigBackupInput) -> To
         return ToolOutput("The backup is too large to redact safely", is_error=True)
     if backup.truncated:
         redacted += _TRUNCATED_MARKER
-    handle = await _store(ctx, redacted)
-    preview = redacted[:PREVIEW_CHARS]
+    # The text the store keeps and the text the answer describes are the same one.
+    redacted, store_cut = fit_to_store(redacted)
+    meta = {
+        "device": args.device,
+        "kind": args.kind,
+        "repository": backup.repository,
+        "committed_at": backup.committed_at,
+        # fetch_slice refuses a large config: it is for the download, not for the chat.
+        "no_paging": len(redacted) > LARGE_CONFIG_CHARS,
+    }
+    handle = await _store(ctx, redacted, meta, partial=backup.truncated or store_cut)
     cut = len(redacted) > PREVIEW_CHARS
     return ToolOutput(
-        json.dumps(_answer(backup, preview, handle, cut)), truncated=cut and handle is None
+        json.dumps(_answer(backup, redacted, handle, cut, store_cut=store_cut)),
+        truncated=cut and handle is None,
+    )
+
+
+async def _offer_config_download(ctx: ToolContext, args: OfferConfigDownloadInput) -> ToolOutput:
+    """A download card for a config the user already fetched; nothing is read or sent to the model.
+
+    The card only carries the handle. The download route re-checks owner, kind and the content
+    opt-in, so a forged proposal gives the client nothing.
+    """
+    if not ctx.sharing.allows(DataClass.CONTENT):
+        return ToolOutput(json.dumps(not_shared_marker(DataClass.CONTENT)))
+    store = ctx.extras.get(RESULT_STORE_KEY)
+    if store is None:
+        return ToolOutput("Downloads are not available: no result store.", is_error=True)
+    try:
+        stored = await store.get(ctx.user_id, args.handle)
+    except ResultStoreUnavailableError:
+        return ToolOutput("Stored results are unavailable right now.", is_error=True)
+    if stored is None or stored.kind != HANDLE_KIND or stored.text is None:
+        return ToolOutput(
+            "Unknown or expired handle. Call get_config_backup again and use its handle.",
+            is_error=True,
+        )
+    meta = stored.meta or {}
+    proposal = {
+        "kind": CONFIG_DOWNLOAD_KIND,
+        "handle": args.handle,
+        "device": str(meta.get("device", "")),
+        "config_kind": str(meta.get("kind", "")),
+        "repository": str(meta.get("repository", "")),
+        "committed_at": meta.get("committed_at"),
+        "size_chars": len(stored.text),
+        "line_count": len(stored.text.splitlines()),
+        "partial": stored.partial,
+    }
+    return ToolOutput(
+        "A download button for the configuration was shown to the user. Do not paste the "
+        "configuration into the chat; say briefly that it is ready to download and that the "
+        "download stays available for a few hours.",
+        proposal=proposal,
     )
 
 
@@ -319,6 +442,15 @@ def build_config_backup_tools() -> list[Tool]:
             "live device. For the current config use propose_device_command.",
             GetConfigBackupInput,
             _get_config_backup,
+        ),
+        Tool(
+            "offer_config_download",
+            "Show the user a download button for a backed-up configuration that "
+            "get_config_backup already fetched (pass its handle). Use it when the user asks to "
+            "download or save a config, or agrees after a large config was offered. It sends "
+            "nothing to you and runs nothing.",
+            OfferConfigDownloadInput,
+            _offer_config_download,
         ),
         Tool(
             "search_config_backups",

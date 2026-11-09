@@ -650,3 +650,25 @@ def test_a_turn_without_tools_still_logs_its_model_time(caplog) -> None:
 
     text = [r for r in caplog.records if r.name == LOGGER][0].getMessage()
     assert "model=7.0s" in text and "tools=0.0s" in text and "tokens=7" in text
+
+
+def test_token_budget_message_names_the_numbers_and_where_to_change_it() -> None:
+    from services.ai_assistant.agent_loop import RunBudget
+
+    with pytest.raises(ProviderRequestError) as info:
+        _run_budget(_looping(5, i=600, o=0), RunBudget(max_tool_steps=10, max_total_tokens=1000))
+
+    assert "1,200 of 1,000" in info.value.message
+    assert "settings" in info.value.message
+
+
+def test_every_model_call_logs_its_own_and_the_running_token_count(caplog) -> None:
+    from services.ai_assistant.agent_loop import RunBudget
+
+    with caplog.at_level("INFO", logger=LOGGER + ".calls"), pytest.raises(ProviderRequestError):
+        _run_budget(_looping(5, i=600, o=7), RunBudget(max_tool_steps=10, max_total_tokens=1000))
+
+    lines = [r.getMessage() for r in caplog.records if r.name == LOGGER + ".calls"]
+    assert len(lines) == 2
+    assert "step=0 input=600 output=7 total=607 limit=1000" in lines[0]
+    assert "step=1 input=600 output=7 total=1214 limit=1000" in lines[1]

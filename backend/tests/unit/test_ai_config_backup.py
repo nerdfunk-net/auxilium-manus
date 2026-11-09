@@ -12,10 +12,10 @@ import pytest
 from git import Repo
 
 from services.ai_assistant import config_backup as cb
-from services.ai_assistant.data_sharing import SharingPolicy
+from services.ai_assistant.data_sharing import DataClass, SharingPolicy
 from services.ai_assistant.device_access import DeviceNotFoundError, ResolvedDevice
 from services.ai_assistant.redaction import Redactor
-from services.ai_assistant.results.store import InMemoryResultBackend, ResultStore
+from services.ai_assistant.results.store import InMemoryResultBackend, ResultStore, StoredResult
 from services.ai_assistant.surfaces import build_general_session
 from services.ai_assistant.tools import config_backup_tools as tools
 from services.ai_assistant.tools.base import ToolContext
@@ -286,6 +286,153 @@ def test_get_config_backup_redacts_stores_and_reports_age() -> None:
     assert "hunter2hunter2" not in (stored.text or "") and stored.text
     assert "config:LAB" in ctx.audit_refs
     assert ctx.extras[tools.CONFIG_READER_KEY].calls == [("LAB", "startup", None)]
+
+
+LARGE_BACKUP = cb.ConfigBackup(
+    "enable secret hunter2hunter2\n" + "interface x\n" * 2000,
+    "backups",
+    "Berlin/LAB.running.cfg",
+    "2026-10-30T10:00:00+00:00",
+)
+
+
+def test_get_config_backup_reports_size_and_flags_a_large_config() -> None:
+    out = _call("get_config_backup", _ctx(FakeReader(LARGE_BACKUP)), device="LAB")
+    data = json.loads(out.content)
+
+    assert data["size_chars"] > tools.LARGE_CONFIG_CHARS
+    assert data["line_count"] == 2001
+    assert data["large"] is True
+    assert "offer_config_download" in data["note"]
+
+
+def test_get_config_backup_small_config_is_not_large() -> None:
+    small = cb.ConfigBackup("hostname LAB\n", "backups", "LAB.cfg", None)
+
+    data = json.loads(_call("get_config_backup", _ctx(FakeReader(small)), device="LAB").content)
+
+    assert data["large"] is False
+    assert data["size_chars"] == len("hostname LAB\n")
+
+
+def test_stored_backup_remembers_where_it_came_from() -> None:
+    ctx = _ctx(FakeReader(BACKUP))
+
+    data = json.loads(_call("get_config_backup", ctx, device="LAB", kind="startup").content)
+    stored = asyncio.run(ctx.extras[RESULT_STORE_KEY].get(7, data["handle"]))
+
+    assert stored.meta == {
+        "device": "LAB",
+        "kind": "startup",
+        "repository": "backups",
+        "committed_at": BACKUP.committed_at,
+        "no_paging": False,
+    }
+
+
+def _fetched_handle(ctx) -> str:
+    return json.loads(_call("get_config_backup", ctx, device="LAB").content)["handle"]
+
+
+def test_offer_config_download_sends_a_card_and_not_the_text() -> None:
+    ctx = _ctx(FakeReader(LARGE_BACKUP))
+    handle = _fetched_handle(ctx)
+
+    out = _call("offer_config_download", ctx, handle=handle)
+
+    assert out.proposal is not None
+    assert out.proposal["kind"] == "config_download"
+    assert out.proposal["handle"] == handle
+    assert out.proposal["device"] == "LAB"
+    assert out.proposal["config_kind"] == "running"
+    assert out.proposal["line_count"] == 2001
+    assert "interface x" not in out.content and "hunter2hunter2" not in out.content
+    assert "button" in out.content
+
+
+def test_offer_config_download_refuses_a_foreign_or_unknown_handle() -> None:
+    ctx = _ctx(FakeReader(BACKUP))
+    _fetched_handle(ctx)
+
+    out = _call("offer_config_download", ctx, handle="res_000000000000")
+
+    assert out.is_error and out.proposal is None
+
+
+def test_offer_config_download_refuses_other_kinds_of_handle() -> None:
+    ctx = _ctx(FakeReader(BACKUP))
+    other = asyncio.run(
+        ctx.extras[RESULT_STORE_KEY].put(
+            7, StoredResult(kind="device_command", data_class=DataClass.CONTENT, text="x")
+        )
+    )
+
+    out = _call("offer_config_download", ctx, handle=other)
+
+    assert out.is_error and out.proposal is None
+
+
+def test_offer_config_download_needs_the_content_opt_in() -> None:
+    ctx = _ctx(FakeReader(BACKUP))
+    handle = _fetched_handle(ctx)
+    ctx_off = _ctx(FakeReader(BACKUP), content=False)
+    ctx_off.extras[RESULT_STORE_KEY] = ctx.extras[RESULT_STORE_KEY]
+
+    out = _call("offer_config_download", ctx_off, handle=handle)
+
+    assert json.loads(out.content)["not_shared"] == "content_data"
+    assert out.proposal is None
+
+
+@pytest.mark.parametrize("handle", ["", "x", "res_ZZ", "../res_000000000000"])
+def test_offer_config_download_handle_is_pattern_checked(handle: str) -> None:
+    with pytest.raises(ValueError):
+        tools.OfferConfigDownloadInput(handle=handle)
+
+
+def test_a_config_near_the_size_cap_still_gets_a_handle_and_says_it_was_cut() -> None:
+    # 1.99 million characters, a newline every ten: JSON writes each newline as two characters,
+    # so the stored document is over the store's 2,000,000 byte cap although the text is under it.
+    text = "x" * 9 + "\n"
+    big = cb.ConfigBackup(text * 199_000, "backups", "LAB.cfg", "2026-10-30T10:00:00+00:00")
+    ctx = _ctx(FakeReader(big))
+
+    data = json.loads(_call("get_config_backup", ctx, device="LAB").content)
+
+    assert data["handle"].startswith("res_")
+    assert "truncated" in data
+    stored = asyncio.run(ctx.extras[RESULT_STORE_KEY].get(7, data["handle"]))
+    assert stored.partial is True
+    assert stored.text.endswith(tools.STORE_CUT_MARKER)
+    proposal = _call("offer_config_download", ctx, handle=data["handle"]).proposal
+    assert proposal is not None and proposal["partial"] is True
+
+
+def test_a_large_config_cannot_be_paged_into_the_chat_with_fetch_slice() -> None:
+    from services.ai_assistant.tools.result_tools import build_result_tools
+
+    ctx = _ctx(FakeReader(LARGE_BACKUP))
+    handle = _fetched_handle(ctx)
+    fetch = next(t for t in build_result_tools() if t.name == "fetch_slice")
+
+    out = asyncio.run(fetch.handler(ctx, fetch.input_model(handle=handle)))
+
+    assert out.is_error
+    assert "offer_config_download" in out.content
+    assert "interface x" not in out.content
+
+
+def test_a_small_config_can_still_be_read_with_fetch_slice() -> None:
+    from services.ai_assistant.tools.result_tools import build_result_tools
+
+    small = cb.ConfigBackup("hostname LAB\n", "backups", "LAB.cfg", None)
+    ctx = _ctx(FakeReader(small))
+    handle = _fetched_handle(ctx)
+    fetch = next(t for t in build_result_tools() if t.name == "fetch_slice")
+
+    out = asyncio.run(fetch.handler(ctx, fetch.input_model(handle=handle)))
+
+    assert not out.is_error and "hostname LAB" in out.content
 
 
 def test_get_config_backup_needs_the_content_opt_in() -> None:

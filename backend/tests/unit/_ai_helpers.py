@@ -28,6 +28,7 @@ class FakeRepo:
             share_config_context=False,
             share_content_data=False,
             share_report_data=False,
+            max_turn_tokens=None,
         )
         for key, value in values.items():
             setattr(row, key, value)

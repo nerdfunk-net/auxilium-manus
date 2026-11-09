@@ -696,3 +696,21 @@ def test_a_connection_error_is_retried_once_more_then_reported(vendor) -> None:
         _collect(build(recorder))
 
     assert len(calls) == 3
+
+
+def test_a_failed_request_logs_the_status_and_a_short_one_line_body(caplog) -> None:
+    body = "maximum context length is 32768 tokens\n\x00" + "x" * 1000
+    response = httpx.Response(400, content=body.encode())
+
+    with (
+        caplog.at_level("WARNING", logger=http_common.logger.name),
+        pytest.raises(ProviderRequestError) as info,
+    ):
+        asyncio.run(http_common.raise_for_status(response))
+
+    line = next(r.getMessage() for r in caplog.records if r.name == http_common.logger.name)
+    assert line.startswith("Provider answered HTTP 400: maximum context length is 32768 tokens ")
+    assert "\n" not in line and "\x00" not in line
+    assert len(line) < 400
+    # The message for the client still never echoes the body.
+    assert "maximum context" not in info.value.message

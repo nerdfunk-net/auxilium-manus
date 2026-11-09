@@ -356,3 +356,61 @@ def test_model_name_control_characters_removed() -> None:
     assert update.model is not None
     assert "\n" not in update.model and "\x00" not in update.model
     assert len(update.model) == 100
+
+
+# -- per-user token cap for one question ------------------------------------------------------
+
+
+def test_turn_token_cap_defaults_to_none_and_reports_the_default(
+    service: AiSettingsService,
+) -> None:
+    from services.ai_assistant.agent_loop import DEFAULT_TURN_TOKENS
+
+    result = service.get(1)
+
+    assert result.max_turn_tokens is None
+    assert result.default_turn_tokens == DEFAULT_TURN_TOKENS
+
+
+def test_turn_token_cap_is_saved_and_reaches_the_runtime_config(service: AiSettingsService) -> None:
+    service.update(1, UserAiSettingsUpdate(enabled=True, api_key=SecretStr("sk-ant-x")))
+
+    assert (
+        service.update(1, UserAiSettingsUpdate(max_turn_tokens=900_000)).max_turn_tokens == 900_000
+    )
+    assert service.require_runtime_config(1).max_turn_tokens == 900_000
+
+
+def test_turn_token_cap_zero_restores_the_default(service: AiSettingsService, repo) -> None:
+    service.update(1, UserAiSettingsUpdate(max_turn_tokens=900_000))
+
+    result = service.update(1, UserAiSettingsUpdate(max_turn_tokens=0))
+
+    assert result.max_turn_tokens is None
+    assert repo.rows[1].max_turn_tokens is None
+
+
+def test_omitting_the_turn_token_cap_leaves_it_unchanged(service: AiSettingsService) -> None:
+    service.update(1, UserAiSettingsUpdate(max_turn_tokens=900_000))
+
+    assert (
+        service.update(1, UserAiSettingsUpdate(model="claude-sonnet-5-5")).max_turn_tokens
+        == 900_000
+    )
+
+
+@pytest.mark.parametrize("value", [-1, 10_000_001])
+def test_turn_token_cap_out_of_range_is_rejected_by_the_schema(value: int) -> None:
+    with pytest.raises(ValueError):
+        UserAiSettingsUpdate(max_turn_tokens=value)
+
+
+@pytest.mark.parametrize("value", [1, 5_000, 19_999])
+def test_a_turn_token_cap_below_the_floor_is_refused(value: int) -> None:
+    with pytest.raises(ValueError, match="at least 20000"):
+        UserAiSettingsUpdate(max_turn_tokens=value)
+
+
+@pytest.mark.parametrize("value", [0, 20_000, 10_000_000])
+def test_a_turn_token_cap_at_the_edges_is_accepted(value: int) -> None:
+    assert UserAiSettingsUpdate(max_turn_tokens=value).max_turn_tokens == value

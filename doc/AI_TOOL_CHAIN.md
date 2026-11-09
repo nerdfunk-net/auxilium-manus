@@ -2388,7 +2388,8 @@ existence guard and the call see them.
 - Per-surface step budget (§6.4) is **done** (2026-11-01): `agent_loop.RunBudget` (steps, total tokens, wall
   clock; steps clamped to `HARD_MAX_TOOL_STEPS = 24`), carried by `AssistantSession.budget` and passed through
   `stream_chat`. Other surfaces keep the default (8 steps, no token/time limit); `general` uses
-  `surfaces.GENERAL_BUDGET` (16 steps, 400k tokens, 300 s). The numbers are first guesses, to be tuned from use.
+  `surfaces.GENERAL_BUDGET` (16 steps, 400k tokens, 300 s). The numbers are first guesses, to be tuned from use; the
+  token figure can be replaced per user (§35a).
 
 ### 27.0-A Batfish tool inventory (end of 2026-11-01)
 
@@ -2618,7 +2619,7 @@ the guard scripts, `ruff`, `pyright`, `tsc` and `eslint` were clean.
   (`known_secrets.try_load_visible_secret_values` returns `None`), `_session_for` turns the content opt-in off for
   that request (ACL lines, descriptions and run content are then withheld).
 - Every surface has a `RunBudget` (`agent_loop.py`); `general` gets 16 steps, 400k tokens and 300 s
-  (`surfaces.GENERAL_BUDGET`), the others keep 8 steps. The time limit is checked before every model call and
+  (`surfaces.GENERAL_BUDGET`; the user may set their own token figure, §35a), the others keep 8 steps. The time limit is checked before every model call and
   tool and cancels a tool that outlives it.
 - Tool names: reads start with `get_`, `list_`, `query_`, `fetch_`, `analyze_`, `check_`, `diff_`, `compare_` or
   `differential_`; nothing starts with `run`, `trigger`, `execute`, `start`, `delete` or `propose` on the `general`
@@ -2716,6 +2717,27 @@ the config backup in a `device_configs` git repository, with the backup's age, n
   `DbDeviceResolver.resolve_without_address`, so a device without a management IP still has a backup. Two panel
   bugs from the device-command work are fixed too: no follow-up after the chat was cleared, and several waiting
   follow-ups are queued and sent as one turn.
+* **Large configs and download** (2026-11-09). `get_config_backup` also returns `size_chars`, `line_count` and `large`
+  (above `LARGE_CONFIG_CHARS`, 15,000 characters); for a large config the note tells the model to show the preview, not
+  to page the file with `fetch_slice`, and to ask the user whether they want a download. The stored handle carries
+  `meta` (device, kind, repository, `committed_at`). `offer_config_download(handle)` is a proposal-style tool (no device
+  access, nothing sent to the model, no token): it checks the content opt-in and that the handle is the caller's own
+  `config_backup` handle, and sends a `config_download` proposal (handle, device, kind, size). The card
+  (`config-download-card.tsx`) has a "Download config" button that calls `GET /ai/results/{handle}/text`
+  (`ai_assistant:use`, rate limit `ai-result-rows`): only the caller's own `config_backup` handles resolve (anything
+  else is the same 404), the content opt-in is checked on every call, and the text is the redacted copy. The file is
+  built in the browser (`<device>-<kind>-config.cfg`). Handles live 4 hours; nothing is saved on the server. "Show" vs
+  "download" is decided by the playbook `config-backup-or-live` and `CONFIG_BACKUP_PROMPT`. Tests:
+  `test_ai_config_backup.py`, `test_ai_assistant_router.py` (config text), `config-download-card.test.tsx`,
+  `use-assistant-chat.test.tsx`. Not tried with a real model or in a browser yet.
+  **Review fixes** (`doc/analysis/REVIEW.md`, 2026-11-09): the text is cut on a line boundary to fit the store
+  (`fit_to_store`, JSON writes each newline as two bytes, so a file near the 2 MB reader cap used to get no handle;
+  the card says "only its start" and `partial` is set); a large config's handle is marked `meta.no_paging` and
+  `fetch_slice` refuses it (a note is not a limit; the preview can carry text that tells the model otherwise);
+  the text route checks `git.files:read` again (403 `config_access_denied`), writes one audit line
+  (`ai_assistant_config_download`: user, device, handle) and sends `Cache-Control: no-store` (the rows route too); the
+  card says the button is gone after a reload (saved conversations keep only kind and summary). A turn token cap
+  must be 0 or at least 20,000, and the settings text now says when the cap is checked.
 * **Open.** The optional "test with device" endpoint for the admin UI. `{nautobot.custom_fields.<name>}` does
   not work (the reader requests no attribute groups); add the group if a site needs it.
 
@@ -2959,6 +2981,23 @@ interface stanzas loaded as a snapshot, would settle them.
 * **Playbooks** accept `get_device_name_matches` (`known_general_tool_names`).
 * **Interface summary** adds `active_unknown` / `admin_up_unknown`, so `active + inactive + active_unknown == total`.
 
+## 35a. Token budget per user and token diagnostics (2026-11-09)
+
+**The token budget is cumulative.** `RunBudget.max_total_tokens` (default `agent_loop.DEFAULT_TURN_TOKENS` = 400 000 on the
+general surface) is the sum of input + output tokens over every model call of one question. The whole conversation is
+re-sent each step, so a 16-step learn run reaches it with about 25k tokens per call. It is not a request size.
+
+**Per-user cap.** `user_ai_settings.max_turn_tokens` (nullable int; `PATCH /ai/settings` `max_turn_tokens`, 0 = back to the
+default, at most 10 000 000; the settings page has a "Token limit" card). `routers/ai_assistant.py` replaces only
+`max_total_tokens` of the surface budget with it, and only on a surface that has one (the editors keep none).
+
+**Diagnostics** (counts and the error category only, never content):
+- `services.ai_assistant.agent_loop.calls`, INFO, one line per model call: `step input output total limit messages
+  tools_called`. `input` is what that one request sent; `total` is what the budget counts.
+- The budget error shown to the user now names the numbers ("1,200 of 1,000 allowed") and where to change the limit.
+- `providers/http_common.raise_for_status` logs `Provider answered HTTP <status>: <first 300 chars of the body>` (WARNING),
+  so a local server's "context length exceeded" text reaches the log. The client message still never echoes the body.
+
 ## 36. Time budget and the timing log (2026-11-02)
 
 **The message.** "The assistant took too long for one question; please narrow the request" is raised by our own tool
@@ -2967,7 +3006,7 @@ question, checked before every model call and every tool; a tool still running w
 two budget messages say "too many tool steps" and "too many tokens".
 
 **Limit.** `surfaces.GENERAL_BUDGET.max_seconds` is now 300 (was 180) because a local model is much slower than a hosted
-one and each step re-sends the conversation. Steps (16) and tokens (400k) are unchanged.
+one and each step re-sends the conversation. Steps (16) and tokens (400k, per-user override in §35a) are unchanged.
 
 **Timing log.** Every question logs, from `services.ai_assistant.agent_loop`:
 

@@ -24,6 +24,7 @@ from models.ai_assistant import (
     UserAiSettingsUpdate,
 )
 from repositories.user_ai_settings_repository import UserAiSettingsRepository
+from services.ai_assistant.agent_loop import DEFAULT_TURN_TOKENS
 from services.ai_assistant.base_url_policy import BaseUrlPolicyError, validate_llm_base_url
 from services.ai_assistant.data_sharing import SharingPolicy
 from services.ai_assistant.exceptions import (
@@ -177,6 +178,8 @@ class AiRuntimeConfig:
     share_custom_fields: bool = False
     share_config_context: bool = False
     share_report_data: bool = False
+    # The user's own cap on tokens per question; ``None`` = the surface default.
+    max_turn_tokens: int | None = None
     # The administrator's global proxy, already resolved (password included); ``None`` = direct.
     proxy: ProxyConfig | None = field(default=None, repr=False)
 
@@ -226,6 +229,8 @@ class AiSettingsService:
                 share_config_context=False,
                 share_content_data=False,
                 share_report_data=False,
+                max_turn_tokens=None,
+                default_turn_tokens=DEFAULT_TURN_TOKENS,
                 available_providers=list(ENABLED_PROVIDERS),
                 available_models=_available_models(),
                 **_operator_fields(),
@@ -243,6 +248,8 @@ class AiSettingsService:
             share_config_context=bool(row.share_config_context),
             share_content_data=bool(row.share_content_data),
             share_report_data=bool(row.share_report_data),
+            max_turn_tokens=row.max_turn_tokens or None,
+            default_turn_tokens=DEFAULT_TURN_TOKENS,
             available_providers=list(ENABLED_PROVIDERS),
             available_models=_available_models(),
             **_operator_fields(),
@@ -314,6 +321,7 @@ class AiSettingsService:
             share_config_context=shares["share_config_context"],
             share_content_data=shares["share_content_data"],
             share_report_data=shares["share_report_data"],
+            max_turn_tokens=row.max_turn_tokens or None,
             proxy=self._proxy_resolver() if self._proxy_resolver is not None else None,
         )
 
@@ -348,6 +356,9 @@ class AiSettingsService:
         for flag in SHARE_FLAGS:
             if getattr(data, flag) is not None:
                 values[flag] = getattr(data, flag)
+        if data.max_turn_tokens is not None:
+            # 0 clears the user's own cap (the default applies again).
+            values["max_turn_tokens"] = data.max_turn_tokens or None
         if data.api_key is not None or data.clear_api_key:
             keys = _key_map(existing)
             if data.api_key is not None:

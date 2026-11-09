@@ -23,6 +23,7 @@ _UPDATABLE_FIELDS = frozenset(
         "share_config_context",
         "share_content_data",
         "share_report_data",
+        "max_turn_tokens",
     }
 )
 

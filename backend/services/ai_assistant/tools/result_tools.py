@@ -320,6 +320,15 @@ async def _fetch_slice(ctx: ToolContext, args: FetchSliceInput) -> ToolOutput:
             total=len(loaded.rows),
             kind=loaded.kind,
         )
+    if loaded.meta and loaded.meta.get("no_paging"):
+        # The producing tool marked it: a large file is for a download, not for the chat. The
+        # model's note says so too, but a note is not a limit.
+        return ToolOutput(
+            "This stored text is too large to read in the chat, so it is not paged. Ask the user "
+            "whether they want a download and call offer_config_download with this handle; to "
+            "look for something specific use search_config_backups.",
+            is_error=True,
+        )
     text = loaded.text or ""
     start, end = _text_window(text, args.offset, args.limit)
     # Redact the raw text (real newlines), then wrap it. The tags keep it out of the JSON header,

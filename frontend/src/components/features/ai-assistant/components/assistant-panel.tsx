@@ -42,6 +42,7 @@ import {
 } from "../utils/conversation-mapping";
 import { AssistantMessageText } from "./assistant-message-text";
 import { SavedConversationsDialog } from "./saved-conversations-dialog";
+import { ConfigDownloadCard } from "./config-download-card";
 import { DeviceCommandProposalCard } from "./device-command-proposal-card";
 import { WorkflowRunProposalCard } from "./workflow-run-proposal-card";
 import { InventoryProposalCard } from "./inventory-proposal-card";
@@ -142,6 +143,7 @@ const TOOL_LABELS: Record<string, string> = {
   list_config_backups: "Looking for config backups",
   get_config_backup: "Reading a config backup",
   search_config_backups: "Searching config backups",
+  offer_config_download: "Preparing a config download",
   list_playbooks: "Looking for a matching playbook",
   get_playbook: "Reading a playbook",
   list_batfish_networks: "Listing Batfish networks",
@@ -469,6 +471,9 @@ export function AssistantPanel({
           onResult={(result) => handleDeviceResult(message.id, result)}
           onReject={() => setProposalState(message.id, "rejected")}
         />
+      )}
+      {message.proposal?.kind === "config_download" && (
+        <ConfigDownloadCard proposal={message.proposal} />
       )}
       {message.proposal?.kind === "workflow_run" && (
         <WorkflowRunProposalCard

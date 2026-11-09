@@ -42,6 +42,10 @@ class UserAiSettings(Base):
     # rest.
     # NOT NULL with a Python default so AutoSchemaMigration can add the column to existing rows.
     share_report_data: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    # Per-user cap on input + output tokens summed over every model call of one question (the
+    # history is re-sent each step). NULL = the surface's default budget. A JSON/nullable column
+    # needs no default for AutoSchemaMigration.
+    max_turn_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
