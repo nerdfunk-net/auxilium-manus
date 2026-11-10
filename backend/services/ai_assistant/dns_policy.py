@@ -23,6 +23,11 @@ __all__ = [
 ]
 
 
+# Cloud metadata addresses that are not link-local: Alibaba, and AWS's IPv6 one.
+_METADATA_ADDRESSES = frozenset({ipaddress.ip_address("100.100.100.200")})
+_METADATA_NETWORKS = (ipaddress.ip_network("fd00:ec2::/32"),)
+
+
 class DnsPolicyError(ValueError):
     """The query is not allowed. The message is written for the model and the user."""
 
@@ -56,7 +61,10 @@ def reverse_address(text: str) -> ipaddress.IPv4Address | ipaddress.IPv6Address:
     except ValueError as exc:
         raise DnsPolicyError(f"{text!r} is not an IP address") from exc
     mapped = getattr(address, "ipv4_mapped", None)
-    for candidate in (address, mapped):
+    sixtofour = getattr(address, "sixtofour", None)
+    if address in _METADATA_ADDRESSES or any(address in net for net in _METADATA_NETWORKS):
+        raise DnsPolicyError(f"{address} is a special-purpose address and is not looked up")
+    for candidate in (address, mapped, sixtofour):
         if candidate is not None and (
             candidate.is_loopback
             or candidate.is_link_local

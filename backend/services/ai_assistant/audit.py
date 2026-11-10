@@ -7,6 +7,7 @@ Applied changes are audited separately by the existing ``WorkflowChange`` path.
 
 from __future__ import annotations
 
+import hashlib
 import logging
 from dataclasses import dataclass, field
 
@@ -90,3 +91,10 @@ def log_config_download(*, user_id: int, device: str, handle: str) -> None:
     logger.info(
         "ai_assistant_config_download user_id=%s device=%s handle=%s", user_id, device, handle
     )
+
+
+def log_dns_lookup(*, query: str, status: str) -> None:
+    """One line per DNS lookup: a hash of the query (never the name), so a lookup used to carry
+    data out can be matched to a suspect name afterwards."""
+    digest = hashlib.sha256(query.strip().lower().encode()).hexdigest()[:16]
+    logger.info("ai_assistant_dns_lookup query=%s status=%s", digest, status)

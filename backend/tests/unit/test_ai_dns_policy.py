@@ -107,3 +107,9 @@ def test_special_addresses_are_refused(text: str) -> None:
 def test_an_ipv6_scope_id_is_refused() -> None:
     with pytest.raises(DnsPolicyError):
         reverse_address("fe80::1%eth0")
+
+
+@pytest.mark.parametrize("text", ["100.100.100.200", "fd00:ec2::254", "2002:a9fe:a9fe::"])
+def test_metadata_addresses_are_refused(text: str) -> None:
+    with pytest.raises(DnsPolicyError):
+        reverse_address(text)

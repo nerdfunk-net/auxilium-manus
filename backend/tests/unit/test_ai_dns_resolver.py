@@ -114,3 +114,49 @@ def test_an_unexpected_error_is_unavailable_not_raised() -> None:
         assert (
             _run(SystemDnsResolver(("local.zz",)).forward("lab.local.zz")).status == "unavailable"
         )
+
+
+def test_forward_queries_the_absolute_name() -> None:
+    with patch(
+        "services.ai_assistant.dns_resolver.socket.getaddrinfo",
+        return_value=[_info("10.0.0.1", "lab.local.zz")],
+    ) as gai:
+        _run(SystemDnsResolver(("local.zz",)).forward("lab.local.zz"))
+    assert gai.call_args.args[0] == "lab.local.zz."
+
+
+def test_an_alias_outside_the_allowed_suffixes_reports_no_addresses() -> None:
+    with patch(
+        "services.ai_assistant.dns_resolver.socket.getaddrinfo",
+        return_value=[_info("203.0.113.9", "evil.example.")],
+    ):
+        answer = _run(SystemDnsResolver(("local.zz",)).forward("lab.local.zz"))
+    assert (answer.status, answer.values, answer.canonical_name) == (
+        "outside_allowed_domain",
+        (),
+        "evil.example",
+    )
+
+
+def test_a_timed_out_lookup_keeps_its_slot_so_the_next_one_never_starts() -> None:
+    import services.ai_assistant.dns_resolver as mod
+
+    started: list[float] = []
+
+    def slow(*_a: Any, **_k: Any) -> Any:
+        started.append(time.monotonic())
+        time.sleep(0.4)
+        return [_info("10.0.0.1")]
+
+    async def two() -> None:
+        r = SystemDnsResolver(("local.zz",), timeout_seconds=0.05)
+        await asyncio.gather(r.forward("a.local.zz"), r.forward("b.local.zz"))
+
+    with (
+        patch("services.ai_assistant.dns_resolver.socket.getaddrinfo", side_effect=slow),
+        patch.object(mod, "_POOL", mod.ThreadPoolExecutor(max_workers=1)),
+    ):
+        _run(two())
+        time.sleep(0.6)
+    # The second call timed out while queued, so it never entered the OS call.
+    assert len(started) == 1

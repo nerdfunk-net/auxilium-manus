@@ -25,6 +25,9 @@ def normalize_suffix(raw: str) -> str:
     suffix = raw.strip().strip(".").lower()
     if not is_valid_dns_name(suffix):
         raise ValueError(f"AI_DNS_ALLOWED_SUFFIXES: {raw!r} is not a valid DNS suffix")
+    if "." not in suffix:
+        # One label ("com") would allow a whole TLD and defeat the exfiltration limit.
+        raise ValueError(f"AI_DNS_ALLOWED_SUFFIXES: {raw!r} needs at least two labels")
     return suffix
 
 

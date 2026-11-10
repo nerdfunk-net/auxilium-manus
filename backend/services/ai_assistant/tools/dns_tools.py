@@ -16,6 +16,7 @@ from typing import Annotated, Any
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
+from services.ai_assistant.audit import log_dns_lookup
 from services.ai_assistant.data_sharing import DataClass, not_shared_marker
 from services.ai_assistant.dns_policy import DnsPolicyError, forward_name, reverse_address
 from services.ai_assistant.dns_resolver import DnsAnswer, DnsResolver
@@ -77,6 +78,15 @@ async def _lookup(resolver: DnsResolver, query: str) -> dict[str, Any]:
             "status": answer.status,
             "names": list(answer.values),
         }
+    if answer.status == "outside_allowed_domain":
+        return {
+            "kind": "forward",
+            "asked": address,
+            "status": "not_allowed",
+            "canonical_name": answer.canonical_name,
+            "message": "The name is an alias for a name outside the allowed domains; "
+            "no addresses are reported. Tell the user; do not look up the target.",
+        }
     result: dict[str, Any] = {
         "kind": "forward",
         "asked": address,
@@ -95,6 +105,7 @@ async def _get_dns_lookup(ctx: ToolContext, args: DnsLookupInput) -> ToolOutput:
             return ToolOutput(json.dumps(not_shared_marker(data_class), indent=1))
     resolver: DnsResolver = ctx.extras[DNS_RESOLVER_KEY]
     result = await _lookup(resolver, args.query)
+    log_dns_lookup(query=args.query, status=str(result.get("status")))
     result["resolver"] = _RESOLVER
     result["note"] = _NOTE
     return ToolOutput(json.dumps(ctx.redactor.redact_data(result), indent=1))
