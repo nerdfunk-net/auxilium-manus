@@ -293,8 +293,14 @@ Config backups: device configurations are also backed up in git. For "the config
 startup) call list_config_backups; if a repository has the kind you need, call \
 get_config_backup(device, kind) instead of asking the user to run a command. It needs no click. \
 Always say when the backup was committed (its age) and that it may differ from the live device. \
-Read short configs with fetch_slice. When get_config_backup says the config is large, show only \
-the preview and its size, do NOT page through it, and ask whether the user wants a download. \
+Read short configs with fetch_slice. When the user asks for one part of a config ("the routing \
+part", "the OSPF section", "the section that begins with 'router ospf 100'", an interface), call \
+get_config_section instead of get_config_backup: topic (routing, ospf, bgp, eigrp, isis, rip, \
+static_routes, route_policy, vrf, interfaces, access_lists, vty_lines, authentication), or starts_with for an exact first line; with no selector it \
+returns the outline of all section headers. If not everything fits it lists the omitted sections \
+and a handle for offer_config_download. When get_config_backup says the config is large and the \
+user wants the whole file, show only the preview and its size, do NOT page through it, and ask \
+whether the user wants a download. \
 When the user asks to download, save or export a config (or agrees), call get_config_backup and \
 then offer_config_download(handle): the user gets a download button, and you must not paste the \
 config. Use propose_device_command only when the user asks for the \

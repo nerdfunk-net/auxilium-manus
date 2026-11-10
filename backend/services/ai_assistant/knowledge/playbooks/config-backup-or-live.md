@@ -2,7 +2,7 @@
 name: config-backup-or-live
 title: Get a device configuration from the git backup or from the device
 when: "get, show or read the running or startup config of a device; 'config of X'; what is configured on X"
-tools: [list_config_backups, get_config_backup, offer_config_download, search_config_backups, propose_device_command, fetch_slice]
+tools: [list_config_backups, get_config_backup, get_config_section, offer_config_download, search_config_backups, propose_device_command, fetch_slice]
 scope: read-only
 ---
 # Get a device configuration: backup first, live on request
@@ -26,6 +26,10 @@ needs no click; a live command shows the device now. This playbook only reads an
    that the live device may differ.
    - Download requested: call `offer_config_download` with the handle. Do not paste the config.
    - Show requested and `large` is false: read the rest with `fetch_slice` using the handle if needed.
+   - Only a part requested ("routing config", "OSPF section", "access-lists", "vty lines", "authentication part", "interfaces", "section that begins with 'router ospf 100'"):
+     call `get_config_section` (topic or starts_with) rather than `get_config_backup`; it works for large
+     configs too. No selector gives the outline. If sections are listed in `not_shown`, show what fit and
+     offer a download with the returned `handle`.
    - Show requested and `large` is true: show only the preview, give `line_count`, and ask whether the
      user wants a download. Do not page through the file with `fetch_slice`. On "yes" call
      `offer_config_download` with the same handle (it stays valid for a few hours; if it has expired,

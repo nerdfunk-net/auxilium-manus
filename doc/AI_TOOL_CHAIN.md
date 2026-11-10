@@ -2551,6 +2551,7 @@ built-in with the same name, `disabled: true` hides a built-in one.
 | Container | `docker/start.sh` | `mkdir -p /app/data/ai/playbooks /app/data/ai/knowledge` (the existing recursive `chown` covers the files). `check-compose.sh` and `check-image.sh` passed |
 | First playbook | `knowledge/playbooks/target-unreachable.md` | §21.5 adapted to today's tools: `get_traceroute`, `get_routes`, `get_bgp_session_status`, `get_interface_properties`, `analyze_acl`, `check_reachability`, `query_result`, `fetch_slice`, `list_batfish_*`. Differences from §21.5: no `propose_show_command` (step 7 tells the user which read-only commands they can run themselves and to share the result), no released-workflow hint (no such tool yet), the filter name comes from `get_interface_properties` |
 | UI | `assistant-panel.tsx` | Activity labels for both tools |
+| pyATS vs Batfish (2026-11-10) | `prompts.py`, `knowledge/playbooks/compare-with-baseline.md` | `GENERAL_PROMPT` separates the two tools: pyATS snapshots, baselines, learns and runs never go through a Batfish tool; the playbook `compare-with-baseline` lists run tools only. Prompt guidance, not enforcement; not tried with a real model (§22 note) |
 
 **Review 2026-11-01 (`doc/analysis/REVIEW.md`).** All nine findings checked against the code. Fixed: 1 (confinement), 3 and 5 (command shapes, title/when, tool-name lint), 4 (paging), 6 (hidden name), 7 (strict decoding), 8 (overlay first, 20,000 cap), 9 (slug input). **Finding 2 is a decision, not changed:** a local playbook may set `data_class: A` (you chose "A when explicit"), which removes the gate for every user and tells the model to follow the file; an overlay has no data class by design (§25.10 (2)). What was added: `check_playbooks.py` prints a note for each local class A playbook. If you want the gate to be a boundary, the option is to ignore `data_class: A` in local files (always B) or to require the admin to enable it. Still no checker for knowledge overlays.
 
@@ -2744,6 +2745,23 @@ the config backup in a `device_configs` git repository, with the backup's age, n
   (`ai_assistant_config_download`: user, device, handle) and sends `Cache-Control: no-store` (the rows route too); the
   card says the button is gone after a reload (saved conversations keep only kind and summary). A turn token cap
   must be 0 or at least 20,000, and the settings text now says when the cap is checked.
+* **Config sections** (2026-11-10). "Show me the routing part / the OSPF section of X" no longer hits the "too large to
+  read in the chat" wall (that wall is `fetch_slice` refusing a `no_paging` handle, which stays). `get_config_section(device,
+  kind, repository?, topic | starts_with | header_regex)` (content class, same gates and redaction as `get_config_backup`;
+  the shared `_read_redacted` does read, redact, fit) cuts the **redacted** text into sections with
+  `services/ai_assistant/config_sections.py` (pure functions): a section is a column-0 line plus the indented lines under
+  it, so it holds for IOS, IOS-XE, NX-OS and IOS-XR; `!` and blank lines separate; a `banner ... ^C` block is one section.
+  Selectors (at most one): `topic` (`routing`, `ospf`, `bgp`, `eigrp`, `isis`, `rip`, `static_routes`, `route_policy`,
+  `vrf`, `interfaces`, `access_lists`, `vty_lines`, `authentication` (aaa, tacacs, radius, usernames, enable, ssh login
+  settings; other sections that mention authentication, such as an interface's `dot1x`, are not part of it); fixed prefix
+  lists in `TOPICS`, the model writes no pattern), `starts_with` (whole-word prefix of the first line,
+  e.g. `router ospf 100`, which does not also match `router ospf 1000`; a plain prefix when nothing matches, so
+  `interface Loopback` works) or `header_regex` (on first lines only, 200 characters, run off the event loop). No selector
+  returns the outline (headers, line ranges). The answer carries up to 14,000 characters of section text; if the part is
+  bigger, the rest is listed in `not_shown` and the whole part is stored behind a `config_backup` handle (`no_paging`,
+  `meta.part`) for `offer_config_download`. The library `cisco_config_parser` (used by the `parse-cisco-config` step) was
+  not used: it returns a structured dict, not the original text, and needs a platform hint. Tests:
+  `test_ai_config_sections.py`. Not tried with a real model yet.
 * **Open.** The optional "test with device" endpoint for the admin UI. `{nautobot.custom_fields.<name>}` does
   not work (the reader requests no attribute groups); add the group if a site needs it.
 

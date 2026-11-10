@@ -402,6 +402,15 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
         ],
       },
       {
+        name: "get_config_section",
+        description:
+          "Reads one part of a backed-up configuration: a topic such as routing, ospf or bgp, or the sections that start with a given line. Works for large configs.",
+        questions: [
+          "Show me the routing related config part of r1.",
+          "Show me the config section that begins with the line 'router ospf 100' on r1.",
+        ],
+      },
+      {
         name: "search_config_backups",
         description:
           "Finds which devices contain a text or regular expression in their backed-up configuration.",

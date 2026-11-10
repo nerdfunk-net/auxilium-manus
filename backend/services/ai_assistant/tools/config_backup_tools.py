@@ -13,16 +13,34 @@ import asyncio
 import json
 import logging
 from datetime import UTC, datetime
-from typing import Annotated, Literal
+from typing import Annotated, Literal, Self
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StringConstraints,
+    field_validator,
+    model_validator,
+)
 
 from services.ai_assistant.config_backup import (
     BackupRepository,
     ConfigBackup,
     ConfigBackupError,
     ConfigBackupReader,
+    ConfigKind,
     ConfigSearchResult,
+)
+from services.ai_assistant.config_sections import (
+    MAX_PATTERN_CHARS,
+    Section,
+    TopicName,
+    outline,
+    select_by_prefix,
+    select_by_regex,
+    select_by_topic,
+    split_sections,
 )
 from services.ai_assistant.data_sharing import DataClass, not_shared_marker
 from services.ai_assistant.results.store import (
@@ -103,6 +121,42 @@ class SearchConfigBackupsInput(BaseModel):
         if not value.strip():
             raise ValueError("query must contain more than spaces")
         return value
+
+
+class GetConfigSectionInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    device: DeviceName = Field(description="Device name exactly as in the inventory, e.g. 'LAB'")
+    kind: Literal["running", "startup"] = Field(default="running")
+    repository: RepositoryName | None = Field(
+        default=None,
+        description="Repository name from list_config_backups; only needed when several match",
+    )
+    topic: TopicName | None = Field(
+        default=None,
+        description="A named group of sections: routing (all routing protocols, static routes, "
+        "route policy, VRFs), ospf, bgp, eigrp, isis, rip, static_routes, route_policy, vrf, "
+        "interfaces, access_lists (ACLs, object-groups), vty_lines (line vty/console/aux), "
+        "authentication (aaa, tacacs, radius, usernames, enable, ssh login settings)",
+    )
+    starts_with: str | None = Field(
+        default=None,
+        max_length=200,
+        description="Sections whose first line begins with this text, e.g. 'router ospf 100' or "
+        "'interface GigabitEthernet0/0'. Case-insensitive; whole words first, else any prefix.",
+    )
+    header_regex: str | None = Field(
+        default=None,
+        max_length=MAX_PATTERN_CHARS,
+        description="Sections whose first line matches this regular expression (escape dots)",
+    )
+
+    @model_validator(mode="after")
+    def _at_most_one_selector(self) -> Self:
+        chosen = [x for x in (self.topic, self.starts_with, self.header_regex) if x]
+        if len(chosen) > 1:
+            raise ValueError("give only one of topic, starts_with and header_regex")
+        return self
 
 
 class OfferConfigDownloadInput(BaseModel):
@@ -253,17 +307,20 @@ def _answer(
     return answer
 
 
-async def _get_config_backup(ctx: ToolContext, args: GetConfigBackupInput) -> ToolOutput:
-    if not ctx.sharing.allows(DataClass.CONTENT):
-        return ToolOutput(json.dumps(not_shared_marker(DataClass.CONTENT)))
+async def _read_redacted(
+    ctx: ToolContext, device: str, kind: ConfigKind, repository: str | None
+) -> tuple[ConfigBackup, str, bool] | ToolOutput:
+    """Read a backup and return ``(backup, redacted text, cut to fit the store)``.
+
+    Redact the whole text first and cut second: a secret that straddles the preview cut (or the
+    file size cut, which the reader makes on a line boundary) is already gone. The copy has its
+    own character budget, separate from the request's.
+    """
     try:
-        backup = await _reader(ctx).read(args.device, args.kind, args.repository)
+        backup = await _reader(ctx).read(device, kind, repository)
     except ConfigBackupError as exc:
         return ToolOutput(str(exc), is_error=True)
-    ctx.audit_refs.add(f"config:{args.device}")
-    # Redact the whole text first and cut second: a secret that straddles the preview cut (or the
-    # file size cut, which the reader makes on a line boundary) is already gone. The copy has its
-    # own character budget, separate from the request's.
+    ctx.audit_refs.add(f"config:{device}")
     try:
         redacted = await asyncio.to_thread(
             ctx.redactor.fork(max_chars=STORED_REDACT_CHARS).redact, backup.text
@@ -274,6 +331,16 @@ async def _get_config_backup(ctx: ToolContext, args: GetConfigBackupInput) -> To
         redacted += _TRUNCATED_MARKER
     # The text the store keeps and the text the answer describes are the same one.
     redacted, store_cut = fit_to_store(redacted)
+    return backup, redacted, store_cut
+
+
+async def _get_config_backup(ctx: ToolContext, args: GetConfigBackupInput) -> ToolOutput:
+    if not ctx.sharing.allows(DataClass.CONTENT):
+        return ToolOutput(json.dumps(not_shared_marker(DataClass.CONTENT)))
+    read = await _read_redacted(ctx, args.device, args.kind, args.repository)
+    if isinstance(read, ToolOutput):
+        return read
+    backup, redacted, store_cut = read
     meta = {
         "device": args.device,
         "kind": args.kind,
@@ -288,6 +355,116 @@ async def _get_config_backup(ctx: ToolContext, args: GetConfigBackupInput) -> To
         json.dumps(_answer(backup, redacted, handle, cut, store_cut=store_cut)),
         truncated=cut and handle is None,
     )
+
+
+# What one answer may carry of the section text (the tool output cap is 20,000 characters).
+SECTION_TEXT_BUDGET = 14_000
+OUTLINE_MAX_ENTRIES = 150
+
+
+def _select(sections: list[Section], args: GetConfigSectionInput) -> list[Section] | None:
+    """The sections the arguments ask for; ``None`` when no selector was given."""
+    if args.topic:
+        return select_by_topic(sections, args.topic)
+    if args.starts_with and args.starts_with.strip():
+        return select_by_prefix(sections, args.starts_with.strip())
+    if args.header_regex:
+        return select_by_regex(sections, args.header_regex)
+    return None
+
+
+def _section_answer(
+    backup: ConfigBackup, selected: list[Section], handle: str | None, shown: list[Section]
+) -> dict[str, object]:
+    answer: dict[str, object] = {
+        "repository": backup.repository,
+        "committed_at": backup.committed_at,
+        "age": _age(backup.committed_at),
+        "source": "git backup, not the live device",
+        "sections_found": len(selected),
+        "sections": [
+            {"header": s.header[:200], "lines": f"{s.start_line}-{s.end_line}", "text": s.text}
+            for s in shown
+        ],
+    }
+    if len(shown) < len(selected):
+        answer["truncated"] = True
+        omitted = [outline([s])[0] for s in selected[len(shown) :][:OUTLINE_MAX_ENTRIES]]
+        answer["not_shown"] = omitted
+        answer["note"] = (
+            f"{len(selected) - len(shown)} more section(s) did not fit; they are listed in "
+            "not_shown. Ask for one of them with starts_with, or offer a download of the part."
+        )
+    if handle is not None:
+        answer["handle"] = handle
+    return answer
+
+
+async def _get_config_section(ctx: ToolContext, args: GetConfigSectionInput) -> ToolOutput:
+    if not ctx.sharing.allows(DataClass.CONTENT):
+        return ToolOutput(json.dumps(not_shared_marker(DataClass.CONTENT)))
+    read = await _read_redacted(ctx, args.device, args.kind, args.repository)
+    if isinstance(read, ToolOutput):
+        return read
+    backup, redacted, _store_cut = read
+    sections = split_sections(redacted)
+    try:
+        selected = await asyncio.to_thread(_select, sections, args)
+    except ValueError as exc:
+        return ToolOutput(str(exc), is_error=True)
+    if selected is None:
+        # No selector: the outline of the whole config, so the model can pick a header.
+        entries = outline(sections)
+        return ToolOutput(
+            json.dumps(
+                {
+                    "repository": backup.repository,
+                    "age": _age(backup.committed_at),
+                    "source": "git backup, not the live device",
+                    "section_count": len(sections),
+                    "outline": entries[:OUTLINE_MAX_ENTRIES],
+                    "outline_cut": len(entries) > OUTLINE_MAX_ENTRIES,
+                    "note": "Call again with topic, starts_with or header_regex to read sections.",
+                }
+            )
+        )
+    if not selected:
+        return ToolOutput(
+            json.dumps(
+                {
+                    "sections_found": 0,
+                    "source": "git backup, not the live device",
+                    "note": "No section matches. Call without a selector to see the outline.",
+                }
+            )
+        )
+    shown: list[Section] = []
+    used = 0
+    for section in selected:
+        if shown and used + len(section.text) > SECTION_TEXT_BUDGET:
+            break
+        if not shown and len(section.text) > SECTION_TEXT_BUDGET:
+            # One section alone is larger than an answer: cut it on a line and say so.
+            cut = section.text[:SECTION_TEXT_BUDGET].rsplit("\n", 1)[0]
+            section = Section(
+                section.header, section.start_line, section.end_line, cut + "\n…[cut]"
+            )
+        shown.append(section)
+        used += len(section.text)
+    handle = None
+    if len(shown) < len(selected) or any(s.text.endswith("…[cut]") for s in shown):
+        # The part the user asked for is bigger than the chat answer: keep it for a download.
+        part, part_cut = fit_to_store("\n!\n".join(s.text for s in selected))
+        meta = {
+            "device": args.device,
+            "kind": args.kind,
+            "repository": backup.repository,
+            "committed_at": backup.committed_at,
+            "no_paging": True,
+            "part": args.topic or args.starts_with or args.header_regex,
+        }
+        handle = await _store(ctx, part, meta, partial=part_cut)
+    return ToolOutput(json.dumps(_section_answer(backup, selected, handle, shown)))
 
 
 async def _offer_config_download(ctx: ToolContext, args: OfferConfigDownloadInput) -> ToolOutput:
@@ -442,6 +619,16 @@ def build_config_backup_tools() -> list[Tool]:
             "live device. For the current config use propose_device_command.",
             GetConfigBackupInput,
             _get_config_backup,
+        ),
+        Tool(
+            "get_config_section",
+            "Read parts of a backed-up device configuration (git backup, no SSH): a topic such as "
+            "routing, ospf or bgp, the sections that start with a line like 'router ospf 100', or "
+            "sections whose first line matches a regex. Without a selector it returns the outline "
+            "(all top-level headers). Use it instead of get_config_backup when the user wants a "
+            "section, not the whole file, especially for a large config.",
+            GetConfigSectionInput,
+            _get_config_section,
         ),
         Tool(
             "offer_config_download",

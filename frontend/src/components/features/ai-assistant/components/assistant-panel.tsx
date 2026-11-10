@@ -143,6 +143,7 @@ const TOOL_LABELS: Record<string, string> = {
   list_config_backups: "Looking for config backups",
   get_config_backup: "Reading a config backup",
   search_config_backups: "Searching config backups",
+  get_config_section: "Reading config sections",
   offer_config_download: "Preparing a config download",
   list_playbooks: "Looking for a matching playbook",
   get_playbook: "Reading a playbook",

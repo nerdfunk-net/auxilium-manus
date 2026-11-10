@@ -234,6 +234,7 @@ describe("AssistantPanel tool activity labels (Ask the Net)", () => {
     ["list_config_backups", /config backups/i],
     ["get_config_backup", /config backup/i],
     ["search_config_backups", /searching config backups/i],
+    ["get_config_section", /reading config sections/i],
     ["find_catalyst_center_device", /catalyst center/i],
     ["get_catalyst_center_device_details", /catalyst center/i],
     ["find_aci_device", /aci/i],
