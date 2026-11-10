@@ -77,3 +77,22 @@ describe("mergeRunInputAttributes", () => {
     expect(merged).toEqual(customized);
   });
 });
+
+describe("batfish-init-snapshot network_name run parameter", () => {
+  const node = (pluginConfig: Record<string, unknown>) => ({
+    data: { kind: "batfish-init-snapshot", pluginConfig },
+  });
+
+  it("declares a required string attr when network_name comes from a run parameter", () => {
+    const merged = mergeRunInputAttributes(
+      [node({ network_name_source: "run_param", network_name_param: "network_name" })],
+      [],
+    );
+    expect(merged).toEqual([{ name: "network_name", type: "string", required: true }]);
+  });
+
+  it("ignores a fixed network_name and drops the stale auto-added attr", () => {
+    const stale: StaticAttributeDef[] = [{ name: "network_name", type: "string", required: true }];
+    expect(mergeRunInputAttributes([node({ network_name_source: "fixed" })], stale)).toEqual([]);
+  });
+});

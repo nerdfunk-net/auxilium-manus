@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Select,
   SelectContent,
@@ -29,11 +30,14 @@ import { BatfishInitSnapshotHelpPanel } from "./help-panel";
 const RETAIN_SNAPSHOTS_KEY = "retain_snapshots";
 const ALLOW_PARTIAL_SNAPSHOT_KEY = "allow_partial_snapshot";
 const NETWORK_NAME_KEY = "network_name";
+const NETWORK_NAME_SOURCE_KEY = "network_name_source";
+const NETWORK_NAME_PARAM_KEY = "network_name_param";
 const CONFIG_SOURCE_KEY = "config_source";
 const BASE_PATH_KEY = "base_path";
 const GLOB_PATTERN_KEY = "glob_pattern";
 
 type ConfigSource = "live" | "git";
+type NetworkNameSource = "fixed" | "run_param";
 
 const CONFIG_SOURCE_OPTIONS = [
   {
@@ -71,6 +75,9 @@ function BatfishInitSnapshotConfigPanel({
   const sourceId = batfishSourceIdFromConfig(config);
   const retainSnapshots = retainSnapshotsFromConfig(config);
   const networkName = stringFromConfig(config, NETWORK_NAME_KEY);
+  const networkNameSource: NetworkNameSource =
+    config[NETWORK_NAME_SOURCE_KEY] === "run_param" ? "run_param" : "fixed";
+  const networkNameParam = stringFromConfig(config, NETWORK_NAME_PARAM_KEY);
   const configSource = configSourceFromConfig(config);
   const isGitSource = configSource === "git";
   const basePath = stringFromConfig(config, BASE_PATH_KEY);
@@ -109,6 +116,21 @@ function BatfishInitSnapshotConfigPanel({
       onChange({ ...config, [CONFIG_SOURCE_KEY]: value });
     },
     [config, onChange],
+  );
+
+  const handleNetworkNameSourceChange = useCallback(
+    (value: string) => {
+      const source: NetworkNameSource = value === "run_param" ? "run_param" : "fixed";
+      // Switching to a run parameter proposes the key name so the parameter is declared at once.
+      onChange({
+        ...config,
+        [NETWORK_NAME_SOURCE_KEY]: source,
+        ...(source === "run_param" && !networkNameParam.trim()
+          ? { [NETWORK_NAME_PARAM_KEY]: NETWORK_NAME_KEY }
+          : {}),
+      });
+    },
+    [config, networkNameParam, onChange],
   );
 
   const handleFieldChange = useCallback(
@@ -226,22 +248,52 @@ function BatfishInitSnapshotConfigPanel({
       ) : null}
 
       <div className="space-y-1.5">
-        <div className="flex items-center gap-1.5">
-          <span className="font-mono text-xs font-medium">{NETWORK_NAME_KEY}</span>
-          <Badge className="h-4 rounded px-1 text-[10px]" variant="secondary">
-            string
-          </Badge>
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-1.5">
+            <span className="font-mono text-xs font-medium">{NETWORK_NAME_KEY}</span>
+            <Badge className="h-4 rounded px-1 text-[10px]" variant="secondary">
+              {networkNameSource === "run_param" ? "run parameter" : "string"}
+            </Badge>
+          </div>
+          <Tabs value={networkNameSource} onValueChange={handleNetworkNameSourceChange}>
+            <TabsList className="h-7">
+              <TabsTrigger className="h-5 px-2 text-[11px]" value="fixed">
+                Fixed
+              </TabsTrigger>
+              <TabsTrigger className="h-5 px-2 text-[11px]" value="run_param">
+                Run parameter
+              </TabsTrigger>
+            </TabsList>
+          </Tabs>
         </div>
-        <Input
-          value={networkName}
-          onChange={(event) => handleFieldChange(NETWORK_NAME_KEY)(event.target.value)}
-          placeholder="manus-workflow-<workflow_id> (default)"
-          className="h-8 font-mono text-xs"
-        />
-        <p className="text-[11px] leading-4 text-muted-foreground">
-          Optional. Overrides the default network name with a stable one independent of
-          workflow_id -- use for a production network refreshed on a schedule.
-        </p>
+        {networkNameSource === "run_param" ? (
+          <>
+            <Input
+              value={networkNameParam}
+              onChange={(event) => handleFieldChange(NETWORK_NAME_PARAM_KEY)(event.target.value)}
+              placeholder="network_name"
+              className="h-8 font-mono text-xs"
+            />
+            <p className="text-[11px] leading-4 text-muted-foreground">
+              Name of a string run parameter. It is declared on the workflow automatically and
+              its value is entered per run or per schedule. An empty value uses the default
+              network name.
+            </p>
+          </>
+        ) : (
+          <>
+            <Input
+              value={networkName}
+              onChange={(event) => handleFieldChange(NETWORK_NAME_KEY)(event.target.value)}
+              placeholder="manus-workflow-<workflow_id> (default)"
+              className="h-8 font-mono text-xs"
+            />
+            <p className="text-[11px] leading-4 text-muted-foreground">
+              Optional. Overrides the default network name with a stable one independent of
+              workflow_id -- use for a production network refreshed on a schedule.
+            </p>
+          </>
+        )}
       </div>
 
       <div className="space-y-1.5">

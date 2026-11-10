@@ -61,6 +61,7 @@ from workflow_steps.common.batfish_git_source import (
 from workflow_steps.common.content_resolver import list_exportable_content
 from workflow_steps.common.git_repository_loader import load_git_repository
 from workflow_steps.common.partial_outcomes import mark_device_failed
+from workflow_steps.common.run_param_reference import resolve_config_reference
 from workflow_steps.common.step_flags import parse_bool_flag
 
 if TYPE_CHECKING:
@@ -288,7 +289,15 @@ async def execute(
 
     connection = BatfishSourceConfigService(db).resolve_connection(source_id)
 
-    network = str(merged_config.get("network_name") or "").strip() or (
+    # network_name is either typed in the step or read from a run parameter, so a
+    # schedule can supply it (blank still falls back to the per-workflow default).
+    network = resolve_config_reference(
+        merged_config,
+        source_key="network_name_source",
+        param_key="network_name_param",
+        literal_key="network_name",
+        run_inputs=run.run_inputs,
+    ) or (
         f"manus-workflow-{context.workflow_id}"
     )
     # B5: a custom network_name may be a deliberately shared network, but it must not

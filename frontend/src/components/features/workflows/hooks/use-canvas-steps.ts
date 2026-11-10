@@ -12,7 +12,7 @@ import { DEFAULT_ENCRYPT_ATTRIBUTE_CONFIG } from "@/components/features/workflow
 import { DEFAULT_DECRYPT_ATTRIBUTE_CONFIG } from "@/components/features/workflow-steps/decrypt-attribute/config";
 
 import type { StaticAttributeDef } from "../types/workflow-persistence";
-import { mergeRunInputAttributes } from "../utils/run-input-attributes";
+import { mergeRunInputAttributes, RUN_PARAM_STEP_KINDS } from "../utils/run-input-attributes";
 import {
   BACKGROUND_Z_INDEX,
   DEFAULT_BACKGROUND_CONFIG,
@@ -101,7 +101,9 @@ export function useCanvasSteps(
         return nextNodes;
       });
 
-      if (nextNodes.some((n) => n.id === nodeId && n.data.kind === "get-from-user")) {
+      if (
+        nextNodes.some((n) => n.id === nodeId && RUN_PARAM_STEP_KINDS.includes(n.data.kind))
+      ) {
         setStaticAttributes((current) => mergeRunInputAttributes(nextNodes, current));
       }
       markDirty();
