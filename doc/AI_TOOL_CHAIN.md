@@ -1375,6 +1375,12 @@ database: **everything lives in Git, nothing in PostgreSQL.**
 > depend on Batfish (Git pointer files, "the model never writes a baseline", the user choosing backup or live,
 > diff normalisation, the staleness rule) may still carry over. Comparing two **Batfish** snapshots is a different,
 > existing capability: `diff_results` (§27.0b) and Batfish's own differential questions.
+>
+> **Separation rule (2026-11-10).** pyATS and Batfish are two tools and the assistant must not mix them. "Snapshot" and
+> "baseline" in the pyATS sense (Get Snapshot, Compare Snapshot, learn, stored reading in git) are answered from workflow
+> runs, step results and the learn tools, never from a Batfish tool. `GENERAL_PROMPT` states this rule and the playbook
+> `compare-with-baseline` (pyATS only, no Batfish tool) covers "compare X with its baseline". Batfish is used only when
+> the user asks about the model. Cause of the fix: the prompt was Batfish-only, so "snapshot" led to `list_batfish_networks`.
 
 ### 22.1 Terms
 
@@ -3713,7 +3719,7 @@ family / VRF: `show bgp all neighbors <n> policy`, `... advertised-routes`, `...
 `show bgp all neighbors` is what Genie runs for the neighbour detail is inferred from the parser class list; confirm with a
 `pyats learn bgp -v` run on a router that runs BGP.
 
-**Playbooks**: `learn-ospf-of-a-device`, `learn-bgp-of-a-device` (the BGP one is written from what the commands return, not from a real BGP reading). Open: a live run through the card, other platforms (each needs its own `learn`
+**Playbooks**: `compare-with-baseline` (pyATS only, §22), `learn-ospf-of-a-device`, `learn-bgp-of-a-device` (the BGP one is written from what the commands return, not from a real BGP reading). Open: a live run through the card, other platforms (each needs its own `learn`
 read), non-default VRFs, other features (bgp, interface, ...).
 
 **Compare Snapshot and Genie's `_exclude`.** A learned Ops payload carries Genie's own list of volatile fields next to

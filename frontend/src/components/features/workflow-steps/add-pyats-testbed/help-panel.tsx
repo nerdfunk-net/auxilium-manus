@@ -26,6 +26,34 @@ export function AddPyatsTestbedHelpPanel() {
         </HelpWarning>
       </HelpSection>
 
+      <HelpSection title="Using this step with fan-out">
+        <p>
+          Place this step directly after the inventory step, inside the
+          fan-out branch, and before the pyATS steps that need it. The
+          pyATS steps send the devices of one fan-out child to the shim as a
+          single job (up to 5 devices per job), and every job pays pyATS&apos;s
+          start-up cost once.
+        </p>
+        <HelpWarning title="Use Chunked fan-out, not Per device">
+          <p>
+            With <HelpCode>mode: per_device</HelpCode> each child holds one
+            device, so every pyATS job runs for a single device and the
+            batching never applies. Set the fan-out of the inventory step to{" "}
+            <HelpCode>mode: chunked</HelpCode> with a{" "}
+            <HelpCode>chunk_size</HelpCode> of about 5 to 10. Keep chunks
+            small: the devices of a chunk are processed one after another
+            inside one pyATS job.
+          </p>
+        </HelpWarning>
+        <HelpExample>
+          Get from Nautobot (fan-out: chunked, chunk_size: 5)
+          <br />
+          <span className="text-muted-foreground">
+            → Add Testbed → Get &amp; Parse Config
+          </span>
+        </HelpExample>
+      </HelpSection>
+
       <HelpSection title="pyats_source_id">
         <p>
           The pyATS shim source (configured under Settings → Sources) that

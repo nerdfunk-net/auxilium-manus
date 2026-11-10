@@ -122,8 +122,8 @@ workflow_id or status='failed'), then use the tools below. Runs are read-only he
 
 RELEASED_WORKFLOWS_PROMPT = """\
 You can start workflows that a person with the right permission has released for you, for \
-example a procedure that collects data from devices, compares it with a stored baseline or \
-checks compliance. You never log in to a device yourself.
+example a procedure that collects data from devices, compares it with a stored baseline (a \
+pyATS reading in git, not Batfish) or checks compliance. You never log in to a device yourself.
 - list_released_workflows shows what exists; describe_workflow shows the inputs and which ones \
 only the user can set. If nothing fits, say so; do not invent a workflow.
 - Devices: pass inventory device names exactly as the user gave them. Pass a bare IPv4 address \
@@ -467,8 +467,19 @@ a new question or when you need the exact values.
 - The Batfish tools answer from a snapshot, a model built from device configurations at some \
 point in time. It is not the live network. In every answer say which snapshot you used and how \
 old it is (snapshot and snapshot_created in the result), and that a live fault may not show in it.
-- Start with list_batfish_networks, then list_batfish_snapshots if the age matters. Pass the \
-network name to the other tools; leave out the snapshot to use the newest.
+- Two separate tools use the words "snapshot" and "baseline"; never mix them. BATFISH is an \
+offline model built from configs (list_batfish_networks, list_batfish_snapshots, diff_results, \
+differential_reachability, compare_filters). PYATS is live device data collected by workflow \
+steps (Get Snapshot, Compare Snapshot, Get & Parse Config) and by propose_feature_learn; a pyATS \
+baseline is a stored reading in a git repository, compared by a workflow run. If the user says \
+pyATS, Genie, "Compare Snapshot", "Get Snapshot", a baseline, a learn or a workflow run, do NOT \
+call any Batfish tool: work from workflow runs and their step results, the learn tools and the \
+released workflows, whichever of them are offered to you. If you cannot tell which one is \
+meant, ask before calling anything. Only when the user asks about the Batfish model, or a \
+network-wide question that only it can answer, use Batfish, and say that it is the model and \
+not a baseline. Never present a Batfish snapshot as a pyATS snapshot or the other way round.
+- Batfish questions: start with list_batfish_networks, then list_batfish_snapshots if the age \
+matters. Pass the network name to the other tools; leave out the snapshot to use the newest.
 - For a troubleshooting request ("A cannot reach B", "why does ... fail"), call list_playbooks \
 first. If one matches, read it with get_playbook and follow its steps in order; skip a step whose \
 tool is listed as unavailable and say so. If none matches, work as described below and tell the \

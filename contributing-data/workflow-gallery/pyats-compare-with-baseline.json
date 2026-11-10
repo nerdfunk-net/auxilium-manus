@@ -1,0 +1,390 @@
+{
+  "export_format": "auxilium-workflow-v1",
+  "exported_at": "2026-11-10T19:54:51.231Z",
+  "name": "PyATS Compare with Baseline",
+  "description": "PyATS Compare with Baseline",
+  "folder": "Gallery",
+  "visibility": "public",
+  "notes": null,
+  "canvas_nodes": [
+    {
+      "id": "add-pyats-testbed-2",
+      "type": "workflowNode",
+      "position": {
+        "x": 603.2234888075404,
+        "y": 462.4459007603683
+      },
+      "zIndex": 1,
+      "data": {
+        "kind": "add-pyats-testbed",
+        "stepUuid": "8dc672e4-9970-4b7d-9ed7-4a3592175ff6",
+        "title": "Add Testbed",
+        "overview": "Build a pyATS testbed from the current device list.",
+        "description": "Resolve a credential and pyATS shim source for the current device list, producing a reusable testbed bundle that downstream pyATS-backed steps (e.g. Get & Parse Config) consume without needing their own credential/source configuration.\n",
+        "artifactType": "configuration_management",
+        "requires": [
+          "identity"
+        ],
+        "requiresParsed": [],
+        "produces": [
+          "pyats_testbed"
+        ],
+        "producesParsed": [],
+        "consumes": [],
+        "outcomes": [
+          {
+            "name": "success"
+          },
+          {
+            "name": "failure"
+          }
+        ],
+        "pluginConfig": {
+          "pyats_source_id": "pyats",
+          "credential_reference": "cisco - noc",
+          "credential_source": "run_param",
+          "credential_param": "credentials"
+        }
+      },
+      "measured": {
+        "width": 320,
+        "height": 128
+      },
+      "dragging": false,
+      "selected": false
+    },
+    {
+      "id": "get-pyats-snapshot-4",
+      "type": "workflowNode",
+      "position": {
+        "x": 986.3608553946538,
+        "y": 462.4459007603683
+      },
+      "zIndex": 1,
+      "data": {
+        "kind": "get-pyats-snapshot",
+        "stepUuid": "f738b5af-286e-436f-9cc9-66f0c98f2f19",
+        "title": "Get Snapshot",
+        "overview": "Capture a Genie \"learn\" snapshot of live device state.",
+        "description": "Learn one or more Genie features (BGP, OSPF, interfaces, platform, ...) or \"all\" via pyATS and store the structured snapshot. Requires an upstream Add Testbed step.\n",
+        "artifactType": "configuration_management",
+        "requires": [
+          "identity",
+          "pyats_testbed"
+        ],
+        "requiresParsed": [],
+        "produces": [
+          "parsed"
+        ],
+        "producesParsed": [],
+        "consumes": [],
+        "outcomes": [
+          {
+            "name": "success"
+          },
+          {
+            "name": "failure"
+          }
+        ],
+        "pluginConfig": {
+          "features": [
+            "routing",
+            "config"
+          ]
+        },
+        "outcomeHandleSide": "bottom"
+      },
+      "measured": {
+        "width": 320,
+        "height": 128
+      },
+      "dragging": false,
+      "selected": false
+    },
+    {
+      "id": "fan-in-4",
+      "type": "workflowNode",
+      "position": {
+        "x": 986.3608553946538,
+        "y": 646.1452072768303
+      },
+      "zIndex": 1,
+      "data": {
+        "kind": "fan-in",
+        "stepUuid": "f3092f55-f2b5-4d1b-a31a-526793e47aac",
+        "title": "Fan In",
+        "overview": "Rejoin fan-out branches into one execution path.",
+        "description": "Rejoin a fanned-out workflow into a single path. Per-device steps run in parallel child workflows up to this node; steps placed after it run once over all devices. Place git / store-artifact steps after Fan In for safe, single-commit exports.\n",
+        "artifactType": "control_flow",
+        "requires": [
+          "identity"
+        ],
+        "requiresParsed": [],
+        "produces": [],
+        "producesParsed": [],
+        "consumes": [],
+        "outcomes": [
+          {
+            "name": "success"
+          }
+        ],
+        "incomeHandleSide": "top",
+        "outcomeHandleSide": "left"
+      },
+      "measured": {
+        "width": 320,
+        "height": 128
+      },
+      "dragging": false,
+      "selected": false
+    },
+    {
+      "id": "git-pull-5",
+      "type": "workflowNode",
+      "position": {
+        "x": 603.2234888075404,
+        "y": 646.1452072768303
+      },
+      "zIndex": 1,
+      "data": {
+        "kind": "git-pull",
+        "stepUuid": "57752019-0a92-4be8-8f4b-546dfccc58bf",
+        "title": "Git Pull",
+        "overview": "Pull latest changes for a git source.",
+        "description": "Pull the latest changes for a configured git source. Fan-out note: a per-repo advisory lock (services/git/repo_lock.py) serialises concurrent callers -- fan-out children or independent sibling branches in one run -- against the same source, so the working tree is not corrupted.\n",
+        "artifactType": "persistent_artifact",
+        "requires": [
+          "identity"
+        ],
+        "requiresParsed": [],
+        "produces": [],
+        "producesParsed": [],
+        "consumes": [],
+        "outcomes": [
+          {
+            "name": "success"
+          },
+          {
+            "name": "failure"
+          }
+        ],
+        "incomeHandleSide": "right",
+        "outcomeHandleSide": "left",
+        "pluginConfig": {
+          "git_repository_id": 2
+        }
+      },
+      "measured": {
+        "width": 320,
+        "height": 128
+      },
+      "selected": false,
+      "dragging": false
+    },
+    {
+      "id": "compare-pyats-snapshot-6",
+      "type": "workflowNode",
+      "position": {
+        "x": 205.96338263662886,
+        "y": 646.1452072768303
+      },
+      "zIndex": 1,
+      "data": {
+        "kind": "compare-pyats-snapshot",
+        "stepUuid": "aeb73bfd-5677-4a24-a606-8c6bf7cddc9b",
+        "title": "Compare Snapshot",
+        "overview": "Diff one or more Genie features between two snapshots via genie.utils.diff.Diff.",
+        "description": "Compare a live pyATS snapshot (from an upstream Get Snapshot step) against a stored reference snapshot using Genie's own structure-aware diff instead of a plain text diff. Select one or more Genie features to compare; a device matches only when every selected feature is identical. Configure exclude_keys to ignore volatile fields (e.g. updated, uptime) that Genie does not ignore automatically. On a mismatch the diff artifact of each device is recorded at parsed.<this node's id>.comparison_diff (an output of this step, not a setting).\n",
+        "artifactType": "control_flow",
+        "requires": [
+          "identity",
+          "pyats_testbed"
+        ],
+        "requiresParsed": [],
+        "produces": [
+          "parsed"
+        ],
+        "producesParsed": [],
+        "consumes": [],
+        "outcomes": [
+          {
+            "name": "match"
+          },
+          {
+            "name": "mismatch"
+          },
+          {
+            "name": "failure"
+          }
+        ],
+        "pluginConfig": {
+          "features": [
+            "routing",
+            "config"
+          ],
+          "source_step_node_id": "get-pyats-snapshot-4",
+          "parsed_output_key": "pyats_snapshot",
+          "exclude_keys": [],
+          "reference_location": "git",
+          "reference_subdirectory": "pyats-snapshots",
+          "git_repository_id": 2,
+          "repository_subdirectory": "snapshots/",
+          "pull_before_read": false,
+          "filename_template": "{device.name}_snapshot_baseline.json"
+        },
+        "incomeHandleSide": "right",
+        "outcomeHandleSide": "bottom"
+      },
+      "measured": {
+        "width": 320,
+        "height": 128
+      },
+      "dragging": false,
+      "selected": false
+    },
+    {
+      "id": "get-from-user-6",
+      "type": "workflowNode",
+      "position": {
+        "x": 205.96338263662886,
+        "y": 462.4459007603683
+      },
+      "zIndex": 1,
+      "data": {
+        "kind": "get-from-user",
+        "stepUuid": "9d8e422f-09b0-4417-a46a-8afe0adac6c7",
+        "title": "Get from User",
+        "overview": "Ask the operator for devices when the run starts.",
+        "description": "Prompt the operator to enter one or more target devices when starting the workflow run. A schedule, or another workflow's Run Workflow step, fills the same input, so the workflow can also be started by a calling workflow.\n",
+        "artifactType": "inventory_selector",
+        "requires": [],
+        "requiresParsed": [],
+        "produces": [
+          "identity"
+        ],
+        "producesParsed": [],
+        "consumes": [],
+        "outcomes": [
+          {
+            "name": "success"
+          }
+        ],
+        "pluginConfig": {
+          "device_param": "target_devices",
+          "default_network_driver": "cisco_ios",
+          "lookup_mode": "manual",
+          "nautobot_source_id": "",
+          "fan_out": {
+            "enabled": true,
+            "mode": "chunked",
+            "chunk_size": 5,
+            "max_concurrency": 10,
+            "approval": {
+              "enabled": false,
+              "batch_size": 1,
+              "first_batch_auto": true
+            }
+          }
+        }
+      },
+      "measured": {
+        "width": 320,
+        "height": 128
+      },
+      "selected": false,
+      "dragging": false
+    }
+  ],
+  "canvas_edges": [
+    {
+      "type": "waypoint",
+      "zIndex": 0,
+      "data": {
+        "edgeStyle": "bezier"
+      },
+      "source": "add-pyats-testbed-2",
+      "sourceHandle": "success",
+      "target": "get-pyats-snapshot-4",
+      "targetHandle": "input",
+      "id": "xy-edge__add-pyats-testbed-2success-get-pyats-snapshot-4input",
+      "selected": false
+    },
+    {
+      "type": "waypoint",
+      "zIndex": 0,
+      "data": {
+        "edgeStyle": "bezier"
+      },
+      "source": "get-pyats-snapshot-4",
+      "sourceHandle": "success",
+      "target": "fan-in-4",
+      "targetHandle": "input",
+      "id": "xy-edge__get-pyats-snapshot-4success-fan-in-4input",
+      "selected": false
+    },
+    {
+      "type": "waypoint",
+      "zIndex": 0,
+      "data": {
+        "edgeStyle": "bezier"
+      },
+      "source": "fan-in-4",
+      "sourceHandle": "success",
+      "target": "git-pull-5",
+      "targetHandle": "input",
+      "id": "xy-edge__fan-in-4success-git-pull-5input",
+      "selected": false
+    },
+    {
+      "type": "waypoint",
+      "zIndex": 0,
+      "data": {
+        "edgeStyle": "bezier"
+      },
+      "source": "git-pull-5",
+      "sourceHandle": "success",
+      "target": "compare-pyats-snapshot-6",
+      "targetHandle": "input",
+      "id": "xy-edge__git-pull-5success-compare-pyats-snapshot-6input",
+      "selected": false
+    },
+    {
+      "type": "waypoint",
+      "zIndex": 0,
+      "data": {
+        "edgeStyle": "bezier"
+      },
+      "source": "get-from-user-6",
+      "sourceHandle": "success",
+      "target": "add-pyats-testbed-2",
+      "targetHandle": "input",
+      "id": "xy-edge__get-from-user-6success-add-pyats-testbed-2input",
+      "selected": false
+    }
+  ],
+  "canvas_groups": [],
+  "static_attributes": [
+    {
+      "name": "credentials",
+      "type": "reference",
+      "ref_kind": "credential",
+      "default": null,
+      "required": false
+    },
+    {
+      "name": "target_devices",
+      "type": "string",
+      "ref_kind": null,
+      "default": null,
+      "required": true
+    }
+  ],
+  "credential_references": [
+    {
+      "name": "cisco - noc",
+      "visibility": "global",
+      "owner_username": null
+    }
+  ],
+  "templates": []
+}
