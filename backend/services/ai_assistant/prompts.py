@@ -384,6 +384,18 @@ and only find_client shows that. Report what is documented and where the address
 which one is missing.
 """
 
+DNS_PROMPT = """\
+DNS: get_dns_lookup asks the DNS resolver of the backend host. Give it an IP address for "which \
+name belongs to 1.1.1.1" (reverse lookup) or a fully qualified name for "what IP address does \
+LAB.local.zz have in DNS" (forward lookup). It is a live answer from that one resolver, not \
+stored data and not necessarily what the device sees from its own DNS server: say which. \
+not_found is not proof that a host does not exist and unavailable means the resolver did not \
+answer. Name lookups work only under the domains the operator allowed; when the result says \
+not_allowed, tell the user and do not try another spelling or another tool to get around it. \
+DNS shows what the resolver says, Nautobot and Batfish what is documented or configured: when \
+the question is about a device, compare them and report differences.
+"""
+
 HOST_LOOKUP_PROMPT = """\
 find_host asks the stored client data and the ACI fabric in one call: for "Find the IP address X" \
 or "where is this MAC" prefer it when both are available. It returns two sections, each with its \

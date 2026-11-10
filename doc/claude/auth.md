@@ -154,6 +154,10 @@ VLAN, VRF) from the `collect-client-data` step. The permission is **not** in `VI
 offered with the permission alone, `DbClientDataReader` checks it on every call, and the user's inventory switch and addresses switch gate the
 rows (coverage needs the inventory switch only). `doc/CLIENT_DATA.md`, `doc/AI_TOOL_CHAIN.md` §48.
 
+**Ask the Net DNS lookup** (`get_dns_lookup`, `doc/AI_TOOL_CHAIN.md` §50). No RBAC permission: the operator switch `AI_DNS_LOOKUP_ENABLED` offers it, the
+user's inventory **and** addresses switches gate it (checked before any lookup), and a name lookup works only under the operator's
+`AI_DNS_ALLOWED_SUFFIXES` (a query leaves the host, so the model must not choose the domain). Reverse lookups of special-purpose addresses are refused.
+
 **Ask the Net neighbour tools** (`propose_neighbor_discovery`, `get_discovery_result`, `get_modelled_neighbors`,
 `get_neighbor_sources`, `doc/AI_TOOL_CHAIN.md` §45). Discovery is a proposal on the device-command path: it needs the
 operator switch `AI_DEVICE_COMMANDS_ENABLED`, `netmiko:execute`, the content opt-in and the user's click; the commands

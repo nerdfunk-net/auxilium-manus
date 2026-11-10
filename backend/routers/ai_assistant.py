@@ -74,6 +74,7 @@ from services.ai_assistant.device_exec_service import (
     SecretsUnavailableError,
     TooManyRunsError,
 )
+from services.ai_assistant.dns_resolver import SystemDnsResolver
 from services.ai_assistant.exceptions import (
     AiAssistantDisabledError,
     AiAssistantError,
@@ -233,6 +234,13 @@ def _session_for(
             aci_reader=DbAciReader(user.id) if can_read_aci else None,
             # Client data: offered with the permission alone; the reader checks it per call.
             client_data_reader=DbClientDataReader(user.id) if can_read_client_data else None,
+            # DNS: the operator switch alone; the tool checks the data switches and the suffix
+            # policy (doc/AI_TOOL_CHAIN.md §50).
+            dns_resolver=(
+                SystemDnsResolver(settings.ai_dns_allowed_suffixes)
+                if settings.ai_dns_lookup_enabled
+                else None
+            ),
             # Run explanations reuse the runs-page reader; it checks workflow_runs:read per call.
             run_reader=DbRunReader(user.id) if can_read_runs else None,
             # Released workflows: the reader checks workflows:execute and visibility per call.

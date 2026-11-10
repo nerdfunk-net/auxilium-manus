@@ -20,6 +20,8 @@ VAULT_ENABLED=false    # optional OpenBao secret storage; see doc/VAULT_INTEGRAT
 AI_ASSISTANT_ENABLED=false     # operator switch for the AI assistant (off by default)
 AI_ALLOWED_PROVIDERS=          # anthropic,gemini,openai_compat (none by default)
 AI_DEVICE_COMMANDS_ENABLED=false  # Ask the Net may propose read-only 'show' commands for a device (user confirms each one; needs netmiko:execute); also gates neighbour discovery and feature learn (OSPF/BGP)
+AI_DNS_LOOKUP_ENABLED=false  # Ask the Net resolves names / IP addresses through DNS (backend host resolver; get_dns_lookup, AI_TOOL_CHAIN §50)
+AI_DNS_ALLOWED_SUFFIXES=     # comma-separated domains a NAME lookup may target (empty = reverse lookups only); stops data leaving in DNS names
 AI_ALLOWED_DATA=               # inventory,addresses,custom_fields,config_context,content,report (none by default)
 MANUS_PROCESS_ROLE=web         # web | worker: a worker needs no INITIAL_PASSWORD / OpenBao management role
 SESSION_MAX_AGE_HOURS=12        # absolute session lifetime (see doc/claude/auth.md)

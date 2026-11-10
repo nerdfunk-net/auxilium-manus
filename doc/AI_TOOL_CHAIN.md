@@ -3739,3 +3739,38 @@ carries `excluded` (applied) and `not_applied`; the step records them as `compar
   report nothing from the other commands and not to propose a second run.
 * (Low) More than five commands run at confirm only when the list is exactly one catalogued plan (`learn.catalogue.is_plan`); a
   signed token with other long lists is held to five.
+
+## 50. DNS lookups: `get_dns_lookup` (2026-11-10)
+
+"Which name belongs to 1.1.1.1?" and "What IP address has LAB.local.zz in DNS?" had no tool: Nautobot and Batfish show what is
+documented or configured, not what a resolver answers. **Built 2026-11-10, unit-tested only; not run with a real model or against
+the lab's DNS.**
+
+* **Tool** (`tools/dns_tools.py`, name `get_dns_lookup` because reads start with `get_`, `test_ai_hardening`): one input, `query`.
+  An IP literal is a **reverse** lookup (names), anything else a **forward** lookup (addresses, `canonical_name`). The result has
+  `kind`, `asked` (the normalised name or address), `status` (`found`, `not_found`, `unavailable`, `not_allowed`), `resolver`
+  and a `note`: live answer of the **backend host's system resolver**, not stored, not necessarily what the device gets from its own
+  DNS server, no TTL, `not_found` is never proof that a host does not exist, compare with Nautobot.
+* **Resolver** (`dns_resolver.py`): standard library only (`getaddrinfo` with `AI_CANONNAME`, `gethostbyaddr`) in a thread with a
+  3 s timeout and at most 8 lookups at once (a timed-out thread lives until the OS gives up). It never raises: NXDOMAIN / no data is
+  `not_found`; a timeout, `EAI_AGAIN` or any other error is `unavailable`. A reverse answer that is the address itself is `not_found`.
+  There is no `dnspython` and no way to choose the DNS server: it is whatever the backend host uses (`/etc/hosts` and search
+  domains included). A different server or record types (CNAME chain, TTL, MX) would need `dnspython`; not done.
+* **Exfiltration guard** (`dns_policy.py`, `core/dns_names.py`): a DNS query leaves the building, so a prompt-injected model could
+  send data out in a name such as `<secret>.attacker.example`. A forward lookup is therefore allowed only for a fully qualified name
+  under a suffix in **`AI_DNS_ALLOWED_SUFFIXES`** (comma separated, label-boundary match: `xlocal.zz` is not under `local.zz`; the
+  suffix itself and single-label names are refused, because the resolver's search domains would step around the check). An empty
+  list refuses every name lookup. The refusal is `not_allowed` with the allowed suffixes, and **nothing reaches the resolver**.
+  A reverse lookup sends an address (at most 128 bits), so it needs no list; loopback, link-local (the cloud metadata address),
+  unspecified, multicast and reserved addresses, a scope id and an IPv4-mapped form of those are refused. Public addresses
+  are allowed (the `1.1.1.1` example).
+* **Gates:** operator switch `AI_DNS_LOOKUP_ENABLED` (default off; `core/config.py`, docker compose, both `.env.example` files,
+  `doc/claude/development.md`); the user's **inventory and addresses switches**, checked before any lookup (mutation-checked: without
+  them the resolver is not called); output through the redactor. **No RBAC permission**: any user of Ask the Net with the switches on
+  may use it. The router passes `SystemDnsResolver` on the switch alone (`routers/ai_assistant.py::_session_for`), the surface adds
+  `DNS_PROMPT` and lists "DNS" in the "no Batfish" sentence. A startup warning is logged for the switch on with an empty suffix list;
+  a malformed suffix refuses to start.
+* **Not done / open:** a per-user rate bucket (the chat budget and the concurrency cap bound it today); a playbook that compares DNS
+  with Nautobot for a device (`DNS_PROMPT` asks for the comparison); a run with a real model; a check against the lab DNS
+  (`AI_DNS_LOOKUP_ENABLED=true`, `AI_DNS_ALLOWED_SUFFIXES=local.zz`: "Which name belongs to 1.1.1.1?", "What IP does LAB.local.zz
+  resolve to?", and a name outside the suffix must come back `not_allowed`).

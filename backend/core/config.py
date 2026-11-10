@@ -7,6 +7,7 @@ from urllib.parse import quote_plus
 from dotenv import dotenv_values, load_dotenv
 
 from core import crypto_policy
+from core.dns_names import normalize_suffixes
 from core.production_guards import (
     ai_policy_warnings,
     collect_startup_warnings,
@@ -117,6 +118,8 @@ class Settings:
     process_role: str
     ai_assistant_enabled: bool
     ai_device_commands_enabled: bool
+    ai_dns_lookup_enabled: bool
+    ai_dns_allowed_suffixes: tuple[str, ...]
     ai_allowed_providers: frozenset[str]
     ai_allowed_data: frozenset[str]
     apply_safe_migrations: bool
@@ -254,6 +257,18 @@ class Settings:
         # Lets Ask the Net propose read-only show commands for a device; the user still confirms
         # every one. Off unless the operator turns it on (doc/AI_TOOL_CHAIN.md §29).
         self.ai_device_commands_enabled = self._get_bool("AI_DEVICE_COMMANDS_ENABLED", False)
+        # Lets Ask the Net resolve names and IP addresses through DNS (doc/AI_TOOL_CHAIN.md §50).
+        # A forward lookup sends the name to a DNS server, so it works only under the suffixes
+        # listed here; a reverse lookup of an address needs no list. Off unless turned on.
+        self.ai_dns_lookup_enabled = self._get_bool("AI_DNS_LOOKUP_ENABLED", False)
+        self.ai_dns_allowed_suffixes = normalize_suffixes(
+            self._get_csv("AI_DNS_ALLOWED_SUFFIXES", "")
+        )
+        if self.ai_dns_lookup_enabled and not self.ai_dns_allowed_suffixes:
+            logger.warning(
+                "Startup configuration: AI_DNS_LOOKUP_ENABLED is true but AI_DNS_ALLOWED_SUFFIXES "
+                "is empty; only reverse lookups of IP addresses will work"
+            )
         self.ai_allowed_providers = frozenset(self._get_csv("AI_ALLOWED_PROVIDERS", ""))
         self.ai_allowed_data = frozenset(self._get_csv("AI_ALLOWED_DATA", ""))
         validate_ai_operator_policy(providers=self.ai_allowed_providers, data=self.ai_allowed_data)
