@@ -185,7 +185,7 @@ credentials and the diff text is redacted again before it reaches the model.
 
 **Contact the AI step** (`contact-the-ai`, `doc/WORKFLOW-STEPS.md`). No RBAC permission of its own: whoever may edit and run the workflow may use it. It runs as the
 operator-designated service user `WORKFLOW_AI_USER`, so that user's AI key, provider and sharing switches (and the operator's `AI_ALLOWED_DATA`) decide
-what the prompt may contain; the triggering user's own settings are never used. Every prompt is redacted; an unset user or a missing switch ends the step on `failure`.
+what the prompt may contain (each placeholder is checked with the assistant's data-sharing rules before it is read); the triggering user's own settings are never used. Every prompt is redacted; an unset, unknown or inactive user (looked up case-insensitively) or a withheld placeholder ends the step on `failure`.
 
 **Ask the Net / builder assistant wiki notes** (`get_workflow_notes`, `propose_workflow_notes`, `doc/ai_integration/AI_ASSISTANT.md` §24). Reading
 needs `workflows:read` and the workflow's visibility; the text is redacted (credentials always, addresses unless the user shares them). Proposing is

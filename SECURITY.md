@@ -84,4 +84,9 @@ choice and is redacted on a best-effort basis; the redactor misses some vendor f
 under 8 characters are never tracked. The `ai-assistant` account must stay inactive unless you use
 AI collaboration; its role grants are not evaluated on the AI write path.
 
+The workflow step "Contact the AI" sends a prompt to the provider **as the service user named in
+`WORKFLOW_AI_USER`**, not as the person who runs the workflow: that user's key is spent and that user's sharing
+switches (within `AI_ALLOWED_DATA`) decide what the prompt may contain. Anyone who can edit and run a workflow can
+therefore send what those switches allow. Use a dedicated account and switch on only what the step needs.
+
 Details and reasoning: [`doc/SECURITY-NOTES.md`](doc/SECURITY-NOTES.md).

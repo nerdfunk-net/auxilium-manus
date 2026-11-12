@@ -100,6 +100,9 @@ x-manus-common-env: &manus-common-env
   AI_ASSISTANT_ENABLED: "${AI_ASSISTANT_ENABLED:-false}"
   AI_ALLOWED_PROVIDERS: "${AI_ALLOWED_PROVIDERS:-}"
   AI_ALLOWED_DATA: "${AI_ALLOWED_DATA:-}"
+  # Username whose AI settings the "Contact the AI" workflow step uses in background runs (a dedicated
+  # service user with the AI assistant configured). Empty: the step ends on its failure outcome.
+  WORKFLOW_AI_USER: "${WORKFLOW_AI_USER:-}"
   # Ask the Net may propose read-only show commands for a device (also neighbour discovery); the user confirms each one.
   AI_DEVICE_COMMANDS_ENABLED: "${AI_DEVICE_COMMANDS_ENABLED:-false}"
   # Ask the Net DNS lookups (doc/AI_TOOL_CHAIN.md section 50); name lookups only under the listed suffixes.

@@ -1357,6 +1357,18 @@ run input with its old and new definition (a secret-named default shows only a l
 surface requires `workflows:read`; `propose_workflow` is offered only with `workflows:write`. The seeded
 `ai-assistant` account's role grants are inert on the script path.
 
+**Workflow step (`contact-the-ai`).** A workflow step can send a prompt to the provider (doc/WORKFLOW-STEPS.md,
+"Asking the AI"). A background run has no interactive user, so the step runs as the service user named by
+`WORKFLOW_AI_USER` and calls `require_runtime_config` for them: their provider, key and proxy are used, and their
+switches ANDed with `AI_ALLOWED_DATA` become the `SharingPolicy`. Each placeholder is checked against that policy
+before it is read, with the rules of this document (§16, S5-03: inventory before the category switches, the Nautobot
+allow-list, other bags need inventory and content, category keys below a bag are withheld); a withheld placeholder
+fails the step and nothing is sent. Unlike the chat surfaces, nothing is relabelled (`device-1`): a name needs the
+inventory switch. The prompt and system prompt go through `Redactor` with the service user's credential values; the
+reply gets no tools, is length-capped and has `@channel` / `@all` / `@here` defused. The provider's text is never
+stored or logged on failure (fixed wording and a `FailureInfo`). The step is a send, not a proposal: it persists
+nothing itself beyond the answer in the run.
+
 ## 22. Proxy
 
 Companies that control outbound traffic with an HTTP/HTTPS proxy can route every provider call
