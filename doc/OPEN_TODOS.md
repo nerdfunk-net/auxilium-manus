@@ -997,3 +997,17 @@ users, git repositories) beyond loading them. The isolated stack has no Nautobot
   measured 38.2 / 29.7 / 29.1 / 37.9 (2026-10-22).
 - **Pages that fetch more than they need** — the import dialogs were the case found; a quick check of the other
   always-mounted dialogs for queries that ignore `enabled` is cheap (`grep -rn "use.*Query()" frontend/src`).
+
+---
+
+## Network discovery (`discover-network` step, playbook `walk-the-network`)
+
+- **Live checks.** Unit-tested only (`doc/WORKFLOW-STEPS.md` "Discovering the network", `doc/AI_TOOL_CHAIN.md` §52). Not run against devices: real
+  CDP detail output per platform, the platform / software-line to driver mapping (a virtual IOS switch reports `Linux`), `cisco_xe` login to such a
+  device, logout per device on a live pool. Not run: a released walk workflow end to end and a real model following the playbook.
+- **Credential exposure.** CDP is unauthenticated: a device inside the permitted prefixes can name any management address in them and is offered
+  the step's SSH credential. Mitigated by narrow prefixes, a read-only credential and the operator switch; not removable.
+- **Not built.** LLDP fallback, non-Cisco platforms, per-device credentials, stored walk history (the result lives in the run), Nautobot as a platform
+  fallback for devices whose CDP gives no software text, a UI for the per-device `parsed.<node>.discovery` neighbour lists.
+- **Released-workflow free IPv4** (`doc/AI_TOOL_CHAIN.md` §16.10) still needs `allow_netmiko_arbitrary_hosts`, which startup refuses outside
+  development: that path cannot work in production (the same trap the first version of the step fell into).

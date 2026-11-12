@@ -167,6 +167,12 @@ come from a reviewed catalogue, never from the model. `get_discovery_result` is 
 (content opt-in checked on every call); comparing it with Nautobot cabling (always for the device the output came from, never one the model
 names) also needs `sources.nautobot:read` and the addresses switch. `get_modelled_neighbors` needs Batfish access and the addresses switch.
 
+**Discover Network and `walk-the-network`** (`discover-network` step, `doc/WORKFLOW-STEPS.md`; playbook, `doc/AI_TOOL_CHAIN.md` §52). Following the
+neighbours CDP reports needs the operator switch `DISCOVER_NETWORK_FOLLOW_ENABLED` (not `ALLOW_NETMIKO_ARBITRARY_HOSTS`, which startup refuses outside
+development), the workflow author's permitted CIDR prefixes (/8 or more specific) and the host policy; the run's SSH credential is offered to every
+followed host. Ask the Net only proposes a *released* workflow (`workflows:release_ai`, P3) and the user's click starts it as that user (§16);
+`get_run_result` / `get_step_result` with `include=['discovery']` return the crawl record only when the inventory, addresses **and** content switches are on.
+
 **Ask the Net feature learn** (`propose_feature_learn`, `propose_bgp_neighbor_detail`, `get_bgp_learn_result`,
 `compare_bgp_learns`, `doc/AI_TOOL_CHAIN.md` §49). The two proposals are on the device-command path: operator switch
 `AI_DEVICE_COMMANDS_ENABLED`, `netmiko:execute`, the content opt-in and the user's click; the commands come from a reviewed

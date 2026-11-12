@@ -20,6 +20,7 @@ VAULT_ENABLED=false    # optional OpenBao secret storage; see doc/VAULT_INTEGRAT
 AI_ASSISTANT_ENABLED=false     # operator switch for the AI assistant (off by default)
 AI_ALLOWED_PROVIDERS=          # anthropic,gemini,openai_compat (none by default)
 AI_DEVICE_COMMANDS_ENABLED=false  # Ask the Net may propose read-only 'show' commands for a device (user confirms each one; needs netmiko:execute); also gates neighbour discovery and feature learn (OSPF/BGP)
+DISCOVER_NETWORK_FOLLOW_ENABLED=false  # Discover Network step may log into devices found through CDP (inside the permitted CIDR prefixes of the workflow; offers the workflow SSH credential to them); default true in development only, allowed in production (doc/WORKFLOW-STEPS.md)
 AI_DNS_LOOKUP_ENABLED=false  # Ask the Net resolves names / IP addresses through DNS (backend host resolver; get_dns_lookup, AI_TOOL_CHAIN §50)
 AI_DNS_ALLOWED_SUFFIXES=     # comma-separated domains a NAME lookup may target (empty = reverse lookups only); stops data leaving in DNS names
 AI_ALLOWED_DATA=               # inventory,addresses,custom_fields,config_context,content,report (none by default)
