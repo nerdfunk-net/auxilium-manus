@@ -735,6 +735,10 @@ active `workflow_ai_sessions` row (the `ai_workflow_apply.py` gate above).
 
 ## Writing wiki notes
 
+(The in-app builder assistant writes wiki notes too, but through its own path: a proposal the user saves with a click via
+`PATCH /workflows/{id}/notes`, not this script. See `doc/ai_integration/AI_ASSISTANT.md` §24. Its template file,
+`backend/services/ai_assistant/knowledge/wiki_notes_template.md`, mirrors the structure below; keep the two in line.)
+
 When creating a new workflow (or substantially extending an existing one),
 include a `notes` field in the same patch — write the wiki, don't leave it for
 the human to backfill. Use the structure and discipline from

@@ -233,6 +233,8 @@ All tools take/return JSON, run as the calling user, and have bounded output siz
 | `get_glossary` | workflow | Administrator-defined nickname -> one registry step ("Workflow step aliases", §15); offered only when the session has a glossary reader |
 | `validate_workflow` | workflow | The four validation tiers on a plan, without proposing |
 | `propose_workflow` | workflow | Expand + validate; emits a `proposal` only when error-free |
+| `get_workflow_notes` | workflow | The open workflow's wiki, redacted (§24) |
+| `get_wiki_template` / `propose_workflow_notes` | workflow | Wiki structure and a notes proposal; only with `workflows:write` and a saved workflow (§24) |
 
 **Built (phase 5, run explainer, surface `run_viewer`)** - see §14. All read-only; the first class B/C
 tools, so every value of those classes passes the opt-in of §4.2:
@@ -628,6 +630,9 @@ returns to the model as a plan error. The user types a secret into a new step by
 | `get_glossary` | A | The step an administrator-defined nickname means (whole-name match, `did_you_mean` names on a miss, stale when the step is gone or the word is now a real step name); see §15 "Workflow step aliases" |
 | `validate_workflow` | A | Run the tiers on a plan without proposing |
 | `propose_workflow` | proposal | Expand + validate; emits the `proposal` event with a change summary |
+| `get_workflow_notes` | A | The wiki of the open workflow, secrets and (unless shared) addresses as tokens; §24 |
+| `get_wiki_template` | A | The standard wiki structure, how to fill it and an example; §24 |
+| `propose_workflow_notes` | proposal | Complete new notes; emits a `workflow_notes` proposal that the user saves with a click; §24 |
 
 **Recipes.** `knowledge/workflow_recipes.md` is the in-app counterpart of
 `doc/ai_collaboration/AI_VOCABULARY.md`: the same confirmed phrase -> wiring mappings, minus the
@@ -1441,12 +1446,17 @@ The builder assistant reads the open workflow's wiki (`workflows.notes`) and can
 **Reading (always).** `WorkflowCanvasContext.workflow_id` (null while unsaved) tells the server which workflow is open; the
 client never sends the notes. `chat()` reads the saved notes (`DbWorkflowNotesReader`, needs `workflows:read` and the normal
 visibility rule: a private workflow only for its creator) and `build_workflow_editor_session` puts them into the system prompt as
-`<wiki_notes>` (data, not instructions; cut at 8 000 characters). The tool `get_workflow_notes` returns the whole text.
+`<wiki_notes>` (data, not instructions; cut at 8 000 characters at a line end and never inside a token, `cut_notes`). The tool `get_workflow_notes` returns the whole text.
+`DbWorkflowNotesReader` returns `""` for a wiki that exists but is empty and `None` only when it cannot be read (missing, private to someone else, no
+`workflows:read`). The prompt block, `get_workflow_notes` and `propose_workflow_notes` all keep the two apart: an unreadable wiki is never described as
+empty and is never written.
 
 **Redaction** (`tools/workflow_notes_tools.py::redact_notes`). Credentials: the usual patterns plus the exact values of the
 credentials the user can see (`known_secrets`) become `__SECRET_n__`. Addresses: IPv4, IPv6 and MAC addresses become `__ADDR_n__`
 (`Redactor.redact_addresses`; Jinja untouched; clock times such as `12:30:45` are not addresses) **unless** the user switched on
-"Addresses and serial numbers". Both token kinds are restorable. Fail closed: when the credential values cannot be loaded the wiki
+"Addresses and serial numbers". Both token kinds are restorable, but only in notes: `__ADDR_n__` has no field origin, so `Redactor.restore_data` (used by
+`propose_workflow` for canvas plans) refuses it in every field (`SecretRelocationError`) and the prompt forbids copying a wiki token into the canvas.
+`__SECRET_n__` keeps its field binding. Fail closed: when the credential values cannot be loaded the wiki
 is withheld (prompt says so, no propose tool), as pattern redaction alone is not enough for free text.
 
 **Writing.** `propose_workflow_notes` (offered with `workflows:write` and a saved workflow) takes the COMPLETE new notes. It
@@ -1455,7 +1465,7 @@ contains something that looks like a credential, and returns a `workflow_notes` 
 Like every tool it saves nothing. The card (`workflow-notes-proposal-card.tsx`) shows a diff; **only the user's click on
 "Save notes"** calls `PATCH /workflows/{id}/notes` (`useAssistantNotesTarget`), i.e. `workflows:write` plus the creator/admin rule
 of `WorkflowService.update_notes`. A user who may write workflows but did not create this one gets the 403 as a toast and nothing
-is saved. Unlike canvas and template proposals this one saves at once, because notes are not part of the canvas save. The
+is saved. Unlike canvas and template proposals this one saves at once on the click, because notes are not part of the canvas save (the card says so: "Saved to the wiki only when you click Save notes"). The
 in-app assistant does not use `update_notes_for_ai_session` (that is the external apply script, `doc/ai_collaboration/PROCESS.md`).
 
 **Template.** Wiki notes follow one structure (`# Name`, `## Purpose`, `## Assumptions / prerequisites`, `## Gotchas`, `## Example`;

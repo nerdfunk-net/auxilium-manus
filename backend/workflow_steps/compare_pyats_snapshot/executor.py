@@ -67,6 +67,7 @@ from services.workflow_context.device_template import (
 from services.workflow_context.node_result import set_node_result
 from workflow_steps.common.content_resolver import ExportableContent, list_exportable_content
 from workflow_steps.common.pyats_features import parse_feature_list
+from workflow_steps.common.step_flags import parse_bool_flag
 from workflow_steps.compare_data.reference_reader import read_reference_text
 from workflow_steps.compare_pyats_snapshot.config import get_config
 
@@ -643,7 +644,7 @@ async def execute(
     )
 
     # Default on: the learned snapshot carries Genie's own list of volatile fields (`_exclude`).
-    use_snapshot_excludes = merged_config.get("use_snapshot_excludes") is not False
+    use_snapshot_excludes = parse_bool_flag(merged_config, "use_snapshot_excludes", default=True)
 
     if not context.devices:
         return [StepOutcome(name=outcome_name, context=context) for outcome_name in _OUTCOME_NAMES]

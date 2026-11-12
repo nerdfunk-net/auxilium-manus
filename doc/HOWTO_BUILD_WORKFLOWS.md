@@ -721,6 +721,10 @@ AI — it's worth the same care as the canvas itself.
 
 ### A structure to reuse
 
+> The in-app assistant uses a copy of this structure,
+> `backend/services/ai_assistant/knowledge/wiki_notes_template.md`
+> (`get_wiki_template`). Change the headings or rules in both places.
+
 Not every workflow needs every section below — include only what's actually
 true for that workflow:
 
