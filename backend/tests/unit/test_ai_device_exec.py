@@ -179,6 +179,47 @@ def test_the_policy_runs_again_on_the_signed_commands() -> None:
     assert runner.calls == []
 
 
+def test_a_signed_ping_and_traceroute_run_but_other_verbs_never_do() -> None:
+    # doc/AI_TOOL_CHAIN.md §51: probes built by the catalogue pass the confirm step.
+    runner = FakeRunner()
+    commands = ["ping 192.168.178.241 repeat 5 timeout 2", "traceroute 192.168.178.241"]
+
+    result = _run(_executor(runner=runner), _token(commands))
+
+    assert result.commands == tuple(commands)
+    assert runner.calls == [(DEVICE, commands, 11, USER)]
+    refused = (["ping example.com"], ["ping 127.0.0.1"], ["telnet 10.0.0.1"], ["ping 10.0.0.1 | x"])
+    for bad in refused:
+        with pytest.raises(CommandNotAllowedError):
+            _run(_executor(runner=runner), _token(bad))
+    assert len(runner.calls) == 1
+
+
+def test_a_probe_run_that_timed_out_keeps_what_finished_for_the_assistant() -> None:
+    # The ping finished, the traceroute hit the read timeout: the ping output is stored (a handle),
+    # the run still reports the failure (doc/analysis/REVIEW.md, issue 1).
+    ping, trace = "ping 192.168.178.241 repeat 5 timeout 2", "traceroute 192.168.178.241"
+    runner = FakeRunner(DeviceCommandOutput(False, "timed out", ((ping, "5/5 ok"), (trace, ""))))
+
+    result = _run(_executor(runner=runner), _token([ping, trace]))
+
+    assert not result.success and result.handle is not None
+    assert "5/5 ok" in result.output
+
+
+def test_a_show_run_that_timed_out_still_gets_no_handle() -> None:
+    partial = FakeRunner(DeviceCommandOutput(False, "timeout", (("show version", "half"),)))
+
+    assert _run(_executor(runner=partial), _token(["show version"])).handle is None
+
+
+def test_ping_and_traceroute_get_the_long_read_timeout() -> None:
+    from services.ai_assistant.device_access import long_command_count
+
+    commands = ["ping 10.0.0.1 repeat 5", "traceroute 10.0.0.1", "show version"]
+    assert long_command_count(commands) == 2
+
+
 def test_more_than_five_commands_run_only_when_they_are_a_catalogue_plan() -> None:
     from services.ai_assistant.learn import catalogue
 

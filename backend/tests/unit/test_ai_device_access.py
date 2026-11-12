@@ -164,6 +164,7 @@ def test_runner_sends_the_inventory_host_and_the_users_credential() -> None:
         "acting_user_id": 3,
         "host_from_inventory": True,
         "read_timeout": None,
+        "interrupt_on_timeout": False,
     }
     assert out == da.DeviceCommandOutput(
         success=True, error=None, outputs=(("show version", "IOS 15"),)
@@ -381,3 +382,30 @@ def test_select_device_by_ip_refuses_two_devices_on_one_address() -> None:
     b = DeviceInfo(id="b", name="b", primary_ip4="10.0.0.5/24")
     with pytest.raises(DeviceAmbiguousError):
         select_device_by_ip([("src", a), ("src", b)])
+
+
+@pytest.mark.parametrize(
+    ("commands", "interrupt"),
+    [
+        (["ping 10.0.0.1 repeat 5"], True),
+        (["ping 10.0.0.1 repeat 5", "traceroute 10.0.0.1"], True),
+        (["show version"], False),
+        (["ping 10.0.0.1 repeat 5", "show version"], False),
+    ],
+)
+def test_only_a_pure_probe_run_is_interrupted_on_timeout(commands, interrupt) -> None:
+    from models.netmiko import NetmikoRunCommandsResponse
+
+    service = MagicMock()
+    service.run_commands = AsyncMock(
+        return_value=NetmikoRunCommandsResponse(success=True, commands=[])
+    )
+    with (
+        patch.object(da, "SessionLocal"),
+        patch.object(da, "CredentialsService"),
+        patch.object(da, "NetmikoPreviewService", return_value=service),
+    ):
+        asyncio.run(
+            da.DbDeviceCommandRunner().run(_resolved(), commands, credential_id=9, user_id=3)
+        )
+    assert service.run_commands.call_args.kwargs["interrupt_on_timeout"] is interrupt

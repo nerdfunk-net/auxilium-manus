@@ -3798,3 +3798,55 @@ the lab's DNS.**
   with Nautobot for a device (`DNS_PROMPT` asks for the comparison); a run with a real model; a check against the lab DNS
   (`AI_DNS_LOOKUP_ENABLED=true`, `AI_DNS_ALLOWED_SUFFIXES=local.zz`: "Which name belongs to 1.1.1.1?", "What IP does LAB.local.zz
   resolve to?", and a name outside the suffix must come back `not_allowed`).
+
+
+## 51. Ping and traceroute from a device: `propose_ping_traceroute` (2026-11-12)
+
+"Can LAB reach 192.168.178.241?" had no tool: `propose_device_command` allows only full `show` commands (§29), and
+`ping` / `traceroute` are refused there on purpose. **Built 2026-11-12, unit-tested only; not run on a device or with a real
+model. The per-platform command syntax below is written from vendor documentation and is not yet checked on a device.**
+
+* **Decision (product owner):** a dedicated tool with closed parameters (as §45), not a wider free-form allow-list; targets are
+  **IPv4 literals only**.
+* **Tool** (`tools/probe_tools.py`): `propose_ping_traceroute(device, target, kind, vrf, count, source)`. `kind` is `ping`
+  (default; "can X reach Y"), `traceroute` (only when the user asks for the path) or `both`, `vrf` is `default` or a name (`[A-Za-z0-9_.-]{1,32}`), `count` 1 to 10 (default 5), `source`
+  an optional IPv4 address. It resolves the device as the user, picks the platform family (IOS / IOS-XE, NX-OS, IOS-XR, EOS,
+  Junos; others are refused with a fixed message) and builds the **same signed `device_command` card** as §29
+  (`make_device_proposal`, parser `none`): same token, confirm endpoint (`POST /ai/exec/device-command`) and frontend card. The model
+  never writes command text. After the run it reads the raw handle with `fetch_slice` (`PROBE_PROMPT`).
+* **Commands** (`probes.py::plan_probes`): every probe is bounded in packets and time.
+
+  | Family | ping | traceroute |
+  |---|---|---|
+  | IOS / IOS-XE | `ping [vrf V] T repeat N timeout 2 [source S]` | `traceroute [vrf V] T numeric timeout 1 probe 1 ttl 1 30 [source S]` |
+  | NX-OS | `ping T count N timeout 2 [vrf V] [source S]` | `traceroute T [vrf V] [source S]` |
+  | IOS-XR | `ping [vrf V] T count N timeout 2 [source S]` | `traceroute [vrf V] T numeric timeout 1 probe 1 maxttl 20 [source S]` |
+  | EOS | `ping [vrf V] T repeat N [source S]` | `traceroute [vrf V] T [source S]` |
+  | Junos | `ping T count N [routing-instance V] [source S] no-resolve` | `traceroute T [routing-instance V] [source S] no-resolve wait 1` |
+
+  Junos `ping` runs forever without `count`, so it is always set. NX-OS and EOS have no traceroute options for time, probes or
+  hops (`probes.UNBOUNDED_TRACEROUTE_FAMILIES`); only the 120 s read timeout bounds them. On that timeout the run is **interrupted** (Ctrl-^ then Ctrl-C)
+  and the hops printed so far are kept (`NetmikoDeviceSession._send_interruptible`, used for probe runs only; Netmiko's own
+  `send_command` would drop them); the run is reported as failed but its handle is stored and read. The interrupt keys are lab-unverified. So the default `kind` is `ping`, and a
+  traceroute is proposed only when the user asks for a path. The XR keywords (`timeout`, `probe`, `maxttl`, `numeric`) are from
+  the documentation, not yet checked on a device.
+* **Policy** (`command_policy.py`): `check_command` still refuses `ping` / `traceroute`. `check_probe_command` accepts no more
+  than the builder writes (verb, `vrf` / `routing-instance` NAME, `count` / `repeat` 1-10, `timeout` / `wait` 1-5, `probe` 1-3,
+  `maxttl` 1-30, `ttl` two ascending numbers 1-30, `source` IPv4, flags `numeric` / `no-resolve`, one target; each setting at most
+  once, `count`/`repeat` and `vrf`/`routing-instance` are one setting each, a VRF is never named like a keyword; no pipe, no name,
+  no IPv6). `check_probe_target` refuses
+  loopback, multicast, `0.0.0.0/8`, link-local (the metadata address), reserved addresses (so the limited broadcast too) and
+  `100.100.100.200` (Alibaba Cloud metadata, not link-local); private ranges are allowed, and a directed broadcast is not seen.
+  `source` is left unset unless the user names an address of the device (tool description and `PROBE_PROMPT`); the card shows it. `check_commands(..., allow_probes=True)` is passed only by the confirm step (`device_exec_service.py`), so a
+  token the proposer signed runs, and a probe the model typed into `propose_device_command` never does.
+* **Timeouts** (`device_access.py::_LONG_COMMANDS`): `ping ` and `traceroute ` get the 120 s long read timeout; the 300 s run cap
+  still applies. A **failed probe-only run keeps what finished**: the executor stores the output of the commands that completed
+  (a ping before a traceroute that timed out) and returns a handle with `success=false`; the chat panel then still sends the
+  follow-up, saying the run did not finish. A failed `show` run still stores nothing and sends no follow-up.
+* **Review (`doc/analysis/REVIEW.md`, 2026-11-12):** all three issues were real and are fixed (bounded XR traceroute and ping
+  default, tighter confirm grammar and targets, partial results). Still open: lab check of the syntax; the card does not say that a
+  probe sends packets.
+* **Gates:** the same as §29 (operator switch `AI_DEVICE_COMMANDS_ENABLED`, `netmiko:execute`, the content opt-in, the user's click
+  and own SSH credential). A probe is an active action from the device: it sends packets, so the card shows the exact commands.
+* **Open:** a lab check of each family's syntax (above all IOS `traceroute ... ttl 1 30` and EOS / XR options); IPv6 (NX-OS needs
+  `ping6`, IOS-XR and Junos differ); a playbook; a per-user rate bucket beyond the existing 2 open runs.

@@ -275,6 +275,17 @@ connected. Names and descriptions in the results come from other devices: they a
 instructions.
 """
 
+PROBE_PROMPT = """\
+Reachability: for "can X reach 192.168.178.241", "ping A.B.C.D from X" or "traceroute to A.B.C.D \
+from X" call propose_ping_traceroute(device, target, kind, vrf, count). The target must be an \
+IPv4 address (no names, no IPv6); the tool writes the platform's commands and nothing runs until \
+the user confirms the card. Use kind='ping' for "can X reach Y" and add a traceroute only when \
+the user asks for the path. Pass vrf and source only when the user names them. After the run read \
+the raw handle with fetch_slice and report loss, round-trip times and the hop where a traceroute \
+stops; a probe from the device shows what that device sees, not what a user's host sees. Never \
+invent output.
+"""
+
 LEARN_PROMPT = """\
 Learning a feature: for "learn OSPF of X" or "show me the BGP state of X" follow the playbook \
 learn-ospf-of-a-device or learn-bgp-of-a-device (list_playbooks, get_playbook). Call \

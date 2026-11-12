@@ -73,12 +73,16 @@ class NetmikoService:
         auto_confirm_prompts: bool = False,
         retry: RetryPolicy | None = None,
         fail_on_cli_error: bool = False,
+        interrupt_on_timeout: bool = False,
     ) -> CommandResult:
         del privileged  # pooled sessions always connect privileged; see module docstring
         resolved_device_type = device_type or resolve_netmiko_device_type(
             network_driver=network_driver,
             platform=platform,
         )
+
+        # Passed only when set, so a caller that does not use it is unchanged.
+        extra = {"interrupt_on_timeout": True} if interrupt_on_timeout else {}
 
         def _op(session: NetmikoDeviceSession) -> CommandResult:
             return session.send_commands(
@@ -87,6 +91,7 @@ class NetmikoService:
                 read_timeout=read_timeout or DEFAULT_READ_TIMEOUT,
                 auto_confirm_prompts=auto_confirm_prompts,
                 fail_on_cli_error=fail_on_cli_error,
+                **extra,
             )
 
         return await self._pool.run_on_device(

@@ -664,6 +664,30 @@ describe("AssistantPanel device command proposals", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("a timed-out ping and traceroute run still tells the assistant what finished", async () => {
+    deviceRun.mockResolvedValue(
+      resultFor({
+        success: false,
+        error: "The device did not finish within 300 seconds",
+        commands: [
+          "ping 192.168.178.241 repeat 5",
+          "traceroute 192.168.178.241",
+        ],
+      }),
+    );
+    render(<AssistantPanel sessionKey={KEY} />);
+
+    fireEvent.change(screen.getByLabelText("SSH login"), {
+      target: { value: "11" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /^run$/i }));
+
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    const last = sentMessages().at(-1);
+    expect(last?.content).toContain("stored as res_0123456789ab");
+    expect(last?.content).toContain("did not finish");
+  });
+
   it.each([
     ["failed", { success: false, error: "timed out", handle: null }],
     ["has no handle", { handle: null }],

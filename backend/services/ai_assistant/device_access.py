@@ -24,6 +24,7 @@ from core.safe_hosts import validate_device_host
 from dependencies import nautobot_credentials_from_source_id
 from models.netmiko import NetmikoRunCommandsRequest
 from models.sources_nautobot import DeviceInfo
+from services.ai_assistant.command_policy import is_probe_run
 from services.auth.rbac_service import RBACService
 from services.credentials.credentials_service import CredentialsService
 from services.network.netmiko.connection import DEFAULT_CONFIG_READ_TIMEOUT
@@ -44,6 +45,9 @@ _LONG_COMMANDS = (
     "show startup-config",
     "show configuration",
     "show tech-support",
+    # Ping and traceroute (doc/AI_TOOL_CHAIN.md §51): bounded, but a silent hop is slow.
+    "ping ",
+    "traceroute ",
     # Feature learn (doc/AI_TOOL_CHAIN.md §49): whole databases and tables of a large network.
     "show ip ospf database",
     "show bgp all",
@@ -320,6 +324,8 @@ class DbDeviceCommandRunner:
                     acting_user_id=user_id,
                     host_from_inventory=True,
                     read_timeout=LONG_READ_TIMEOUT_SECONDS if long else None,
+                    # A probe that runs out of time is interrupted and keeps its hops so far.
+                    interrupt_on_timeout=is_probe_run(commands),
                 )
             except UnsupportedPlatformError as exc:
                 raise DeviceUnsupportedPlatformError from exc

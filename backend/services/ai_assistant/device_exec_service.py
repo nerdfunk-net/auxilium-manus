@@ -18,7 +18,12 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
 from services.ai_assistant.audit import log_device_command
-from services.ai_assistant.command_policy import MAX_COMMANDS, MAX_SIGNED_COMMANDS, check_commands
+from services.ai_assistant.command_policy import (
+    MAX_COMMANDS,
+    MAX_SIGNED_COMMANDS,
+    check_commands,
+    is_probe_run,
+)
 from services.ai_assistant.data_sharing import DataClass
 from services.ai_assistant.device_access import (
     DEVICE_DRIVERS,
@@ -222,7 +227,7 @@ class DeviceCommandExecutor:
             raise InvalidConfirmationError
         # More than the free-form limit is allowed only for a reviewed catalogue plan.
         limit = MAX_SIGNED_COMMANDS if learn_catalogue.is_plan(grant.commands) else MAX_COMMANDS
-        commands = check_commands(list(grant.commands), limit=limit)
+        commands = check_commands(list(grant.commands), limit=limit, allow_probes=True)
         if tuple(commands) != grant.commands:
             raise InvalidConfirmationError
         secrets = await asyncio.to_thread(self._secret_loader, user_id)
@@ -284,7 +289,10 @@ class DeviceCommandExecutor:
             "device_id": device.device_id,
             "source_id": device.source_id,
         }
-        if raw.success and output:
+        # A probe run that failed (a traceroute hit the read timeout after the ping finished) still
+        # keeps what finished, so the assistant can report the ping; a failed show run keeps none
+        # because half a config would read as a whole one.
+        if output and (raw.success or is_probe_run(commands)):
             handle = await self._store_output(user_id, output, meta, truncated)
         parsed = await self._parse(
             user_id,

@@ -40,6 +40,7 @@ from services.ai_assistant.prompts import (
     LEARN_PROMPT,
     NAUTOBOT_PROMPT,
     NEIGHBOR_PROMPT,
+    PROBE_PROMPT,
     RELEASED_WORKFLOWS_PROMPT,
     REPORT_TEMPLATE_PROMPT,
     REPORTS_PROMPT,
@@ -104,6 +105,7 @@ from services.ai_assistant.tools.neighbor_tools import (
 )
 from services.ai_assistant.tools.output_parse_tools import build_output_parse_tools
 from services.ai_assistant.tools.playbook_tools import AVAILABLE_TOOLS_KEY, build_playbook_tools
+from services.ai_assistant.tools.probe_tools import build_probe_tools
 from services.ai_assistant.tools.released_workflow_tools import (
     RELEASED_WORKFLOWS_KEY,
     build_released_workflow_tools,
@@ -393,6 +395,8 @@ def build_general_session(
             tools.extend(build_neighbor_live_tools(with_results=store is not None))
             # Feature learn (doc/AI_TOOL_CHAIN.md §49): a proposal like the other device tools.
             tools.extend(build_learn_tools())
+            # Ping and traceroute (doc/AI_TOOL_CHAIN.md §51): a proposal, like the tools above.
+            tools.extend(build_probe_tools())
             # Parsing (doc/AI_TOOL_CHAIN.md §43): the parse tool reads stored outputs, so it needs
             # the store; Genie is offered only when the router found exactly one usable pyATS
             # source for this user.
@@ -461,6 +465,7 @@ def build_general_session(
         parts.append(DEVICE_COMMANDS_PROMPT)
         parts.append(NEIGHBOR_PROMPT)
         parts.append(LEARN_PROMPT)
+        parts.append(PROBE_PROMPT)
     if config_reader is not None and may_query_batfish:
         parts.append(CONFIG_BACKUP_PROMPT)
     if nautobot_reader is not None:

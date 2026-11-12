@@ -511,6 +511,7 @@ class NetmikoDeviceSession:
         use_textfsm: bool = False,
         auto_confirm_prompts: bool = False,
         fail_on_cli_error: bool = False,
+        interrupt_on_timeout: bool = False,
     ) -> CommandResult:
         if auto_confirm_prompts and use_textfsm:
             # Confirm-handling reads output via expect_string; textfsm-parsed structures
@@ -527,6 +528,27 @@ class NetmikoDeviceSession:
 
         try:
             for command in commands:
+                if interrupt_on_timeout:
+                    text, timed_out = self._send_interruptible(command, read_timeout=read_timeout)
+                    outputs[command] = text
+                    combined.append(text)
+                    if timed_out:
+                        return CommandResult(
+                            success=False,
+                            output="\n".join(combined),
+                            command_outputs=outputs,
+                            error=(
+                                f"Command {command!r} did not finish within {read_timeout} "
+                                f"seconds on {self.host}; it was interrupted and the output "
+                                "so far is kept"
+                            ),
+                            failure=FailureInfo(
+                                phase="command",
+                                kind="command_timeout",
+                                hint="increase_read_timeout",
+                            ),
+                        )
+                    continue
                 if auto_confirm_prompts:
                     text, was_confirmed = self._send_command_confirming(
                         command, read_timeout=read_timeout
@@ -573,6 +595,41 @@ class NetmikoDeviceSession:
                 confirmed_prompts=confirmed,
                 failure=failure,
             )
+
+    def _send_interruptible(self, command: str, *, read_timeout: int) -> tuple[str, bool]:
+        """Run ``command``; on a read timeout interrupt it and keep what was printed.
+
+        Netmiko's ``send_command`` raises ``ReadTimeout`` and drops the text read so far, which for
+        a traceroute is the hops already found. This reads the channel itself: it ends at the
+        prompt, or at the deadline after Ctrl-^ and Ctrl-C (IOS and the others break a running
+        probe with one of them) so the device stops probing. Returns ``(text, timed_out)``.
+        """
+        conn = self.connection
+        prompt = re.compile(re.escape(conn.base_prompt) + r"\S*[#>$%]\s*$")
+        conn.write_channel(conn.normalize_cmd(command))
+        chunks: list[str] = []
+        deadline = time.monotonic() + read_timeout
+        timed_out = True
+        while time.monotonic() < deadline:
+            time.sleep(0.2)
+            chunks.append(conn.read_channel())
+            if prompt.search("".join(chunks)):
+                timed_out = False
+                break
+        if timed_out:
+            conn.write_channel("\x1e\x03")
+            settle = time.monotonic() + 5
+            while time.monotonic() < settle:
+                time.sleep(0.2)
+                chunks.append(conn.read_channel())
+                if prompt.search("".join(chunks)):
+                    break
+        lines = "".join(chunks).replace("\r", "").split("\n")
+        if lines and command.strip() in lines[0]:
+            lines = lines[1:]
+        if lines and prompt.search(lines[-1]):
+            lines = lines[:-1]
+        return "\n".join(lines).strip("\n"), timed_out
 
     def _confirm_prompt_pattern(self, *, extra_cues: tuple[str, ...] = ()) -> str:
         base_prompt = re.escape(getattr(self.connection, "base_prompt", ""))

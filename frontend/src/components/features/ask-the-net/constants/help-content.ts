@@ -441,6 +441,16 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
         ],
       },
       {
+        name: "propose_ping_traceroute",
+        description:
+          "Proposes a ping (the default) and/or traceroute from one device to an IPv4 address, which you confirm and run. Ask for a traceroute only when you want the path. The assistant only picks the device, target, VRF and packet count; the commands for the device's platform (IOS, IOS-XE, NX-OS, IOS-XR, EOS, Junos) come from a reviewed list and are always limited in packets and time. IPv4 addresses only: no names, no IPv6, and no loopback, multicast or link-local targets.",
+        questions: [
+          "Can r1 reach 192.168.178.241?",
+          "Ping 192.168.178.241 from r1.",
+          "Run a traceroute from r1 to 192.168.178.241 in VRF MGMT.",
+        ],
+      },
+      {
         name: "parse_command_output",
         description:
           "Parses the output of a command you already ran, without touching the device again. Genie only works if you approved Genie when you confirmed the command.",

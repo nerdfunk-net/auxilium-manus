@@ -96,6 +96,7 @@ class NetmikoPreviewService:
         acting_user_id: int,
         host_from_inventory: bool = False,
         read_timeout: int | None = None,
+        interrupt_on_timeout: bool = False,
     ) -> NetmikoRunCommandsResponse:
         commands = [command.strip() for command in payload.commands if command.strip()]
         if not commands:
@@ -119,6 +120,7 @@ class NetmikoPreviewService:
                 use_textfsm=payload.use_textfsm,
                 read_timeout=read_timeout,
                 credential_reference=f"credential:{payload.credential_id}",
+                interrupt_on_timeout=interrupt_on_timeout,
             )
         except NetmikoConnectionError as exc:
             # Device-side connect/auth/timeout failure: report gracefully so the

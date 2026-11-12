@@ -1,11 +1,11 @@
 {
   "export_format": "auxilium-workflow-v1",
-  "exported_at": "2026-11-10T19:54:51.231Z",
+  "exported_at": "2026-11-12T16:03:47.114Z",
   "name": "PyATS Compare with Baseline",
   "description": "PyATS Compare with Baseline",
   "folder": "Gallery",
   "visibility": "public",
-  "notes": null,
+  "notes": "# PyATS Compare with Baseline\n\n## Purpose\nThis workflow gets a snapshout from a list of devices and compares it with the baseline of the devices. The result is either a \"Match\", \"Mismatch\" or a FAILURE.\n\n## Assumptions / prerequisites\n* credentials: 'cisco - noc' credentials to get the snapshot\n* git repository: the configured git repo that holds the baseline\n\n## Gotchas\nnothing destructive; fan out is used in the \"Get from User\" step. Fan-in is used before pulling the git repo.\n\n## Example\nThe workflow asks the user for a name eg. LAB.local.zz, logs into the device and gets the snapshot. It then loads the baseline and compare it with the snaphot.\n\n",
   "canvas_nodes": [
     {
       "id": "add-pyats-testbed-2",

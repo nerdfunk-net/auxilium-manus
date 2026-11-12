@@ -209,6 +209,8 @@ function toolLabel(name: string): string {
 const FOLLOW_THRESHOLD_PX = 48;
 /** A result handle as the server makes it; anything else is not put into a message. */
 const STORED_HANDLE = /^res_[0-9a-f]{12}$/;
+/** A ping or traceroute: the only kind of run whose partial result is read after a failure. */
+const PROBE_COMMAND = /^(ping|traceroute) /;
 
 export function AssistantPanel({
   sessionKey,
@@ -276,8 +278,13 @@ export function AssistantPanel({
         return;
       }
       completeDeviceCommand(messageId, result);
+      // A failed run is read only when it was a ping/traceroute: the backend stores what finished
+      // (the ping) while a timed-out traceroute fails the run. A failed show run keeps no handle.
+      const probeOnly = result.commands.every((command) =>
+        PROBE_COMMAND.test(command),
+      );
       if (
-        result.success &&
+        (result.success || probeOnly) &&
         result.handle &&
         STORED_HANDLE.test(result.handle)
       ) {
@@ -290,9 +297,12 @@ export function AssistantPanel({
         const cutPart = result.truncated
           ? " The output was cut for size, so the parsed rows may be incomplete."
           : "";
+        const failedPart = result.success
+          ? ""
+          : " The run did not finish (for example a traceroute timed out): only the commands that completed are stored, so say what is missing.";
         const followUp =
           `I ran ${result.commands.join(", ")} on ${result.deviceName}. ` +
-          `The output is stored as ${result.handle}.${parsedPart}${cutPart} Please read it and answer my request.`;
+          `The output is stored as ${result.handle}.${parsedPart}${cutPart}${failedPart} Please read it and answer my request.`;
         // `send` ignores a message while an answer is streaming, which would lose this one: the
         // user can start another question while the command runs. Hold it until the stream ends.
         if (isStreamingRef.current) {
