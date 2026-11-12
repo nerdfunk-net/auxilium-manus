@@ -177,6 +177,21 @@ def _deny_by_key(policy: SharingPolicy, data: Any) -> Any:
     return data
 
 
+def setting_name(data_class: DataClass) -> str:
+    """The label of the user setting that releases ``data_class`` (for messages)."""
+    return _SETTING_FOR[data_class]
+
+
+def category_of_key(key: str) -> DataClass | None:
+    """The address / custom-field / config-context class a dict key belongs to, if any."""
+    return _CATEGORY_OF.get(key)
+
+
+def mask_by_key(policy: SharingPolicy, data: Any) -> Any:
+    """Replace values under address / custom-field / config-context keys the policy withholds."""
+    return _deny_by_key(policy, data)
+
+
 def mask_run_attributes(policy: SharingPolicy, bags: dict[str, Any] | None) -> dict[str, Any]:
     """Mask a device's ``attribute_bags`` for the model (S5-03).
 

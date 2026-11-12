@@ -35,6 +35,21 @@ class RunMessageTemplateTests(unittest.TestCase):
         self.assertEqual(render_for_all_devices("{device_count}: {devices}", context), "2: a, b")
         self.assertEqual(render_for_all_devices("{device.name}", context), "a\nb")
 
+    def test_markers_in_values_and_names_are_not_expanded(self) -> None:
+        marker = "\x00devices\x00"
+        device = DeviceContext(
+            id="d0",
+            name="\x00run_summary\x00",
+            hostname="h",
+            attribute_bags={"custom": {"note": f"x{marker}y"}},
+        )
+        context = WorkflowContext(run_id="r", workflow_id="w", devices={"d0": device})
+        # a resolved attribute value never expands a run-level marker
+        self.assertEqual(render_for_all_devices("{custom.note}", context), "xdevicesy")
+        # a device name that holds a marker is printed, not evaluated (single pass)
+        rendered = render_for_all_devices("{devices} / {run_summary}", context)
+        self.assertTrue(rendered is not None and rendered.startswith("run_summary / 1 device(s)"))
+
 
 if __name__ == "__main__":
     unittest.main()

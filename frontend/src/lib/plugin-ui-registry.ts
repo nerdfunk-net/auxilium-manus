@@ -106,6 +106,7 @@ const PLUGIN_UI_LOADERS: Record<string, PluginUILoader> = {
   "log-attributes": () => import("@/components/features/workflow-steps/log-attributes").then((m) => m.LogAttributesPlugin),
   "show-summary": () => import("@/components/features/workflow-steps/show-summary").then((m) => m.ShowSummaryPlugin),
   notify: () => import("@/components/features/workflow-steps/notify").then((m) => m.NotifyPlugin),
+  "contact-the-ai": () => import("@/components/features/workflow-steps/contact-the-ai").then((m) => m.ContactTheAiPlugin),
   "notify-mattermost": () => import("@/components/features/workflow-steps/notify-mattermost").then((m) => m.NotifyMattermostPlugin),
   "notify-on-error": () => import("@/components/features/workflow-steps/notify-on-error").then((m) => m.NotifyOnErrorPlugin),
   "secret-get": () => import("@/components/features/workflow-steps/secret-get").then((m) => m.SecretGetPlugin),

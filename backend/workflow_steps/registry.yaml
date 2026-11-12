@@ -5451,6 +5451,66 @@ plugins:
           required: true
           example: "Workflow finished: {device_count} device(s) ({devices})"
 
+  - id: contact-the-ai
+    name: Contact the AI
+    overview: Send a prompt to the AI model and keep the answer.
+    description: >
+      Sends one prompt to the AI model and stores the answer on every device in
+      the configured output_attribute (default ai.response), e.g. to use it as
+      the message of Notify Mattermost; the answer (or the failure reason) is
+      also shown in the run view. The prompt supports {run_summary} (device counts per status
+      and the failed devices with error codes), {devices}, {device_count} and
+      {path.to.value} attributes of the first device; a path that points at a
+      dict or list (e.g. {nautobot}) is sent as JSON, which can be risky and
+      expensive, so prefer single fields. Everything is redacted
+      before it is sent, and every placeholder is checked against the sharing
+      switches of the AI service user (WORKFLOW_AI_USER) with the AI assistant's
+      rules; a placeholder that is not allowed ends the step on failure and
+      nothing is sent. Ends on failure when the AI is unavailable; a run with
+      no device sends nothing. Fan-out note:
+      place after Fan In (or at the end of a non-fanned workflow) for one call
+      per run; inside fan-out children it calls the model once per child.
+    artifact_type: control_flow
+    palette_category: notify
+    directory: contact_the_ai
+    enabled: true
+    requires: [identity]
+    produces: []
+    outcomes:
+      - name: success
+      - name: failure
+    metadata:
+      configuration_input:
+        - name: prompt
+          description: >
+            Prompt text. Supports {run_summary}, {devices}, {device_count} and
+            {path.to.value} placeholders (first device).
+          data_type: string
+          required: true
+          example: "Summarize this backup run in three lines.\n{run_summary}"
+        - name: system_prompt
+          description: Optional instructions for tone, language or format.
+          data_type: string
+          required: false
+        - name: output_attribute
+          description: >
+            Where the answer is stored on every device, as bag.field. Not a
+            placeholder, not device.*, not a reserved or secret path.
+          data_type: string
+          required: false
+          default: ai.response
+          example: custom.ai_summary
+        - name: max_output_tokens
+          description: Upper bound for the answer length (1-4096).
+          data_type: integer
+          required: false
+          default: 1024
+        - name: timeout_seconds
+          description: How long to wait for the model (1-600 seconds).
+          data_type: integer
+          required: false
+          default: 120
+
   - id: notify-on-error
     name: Notify On Error
     overview: Write a notification for every accumulated error on every failed device.

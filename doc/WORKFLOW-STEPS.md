@@ -675,6 +675,61 @@ rules a step author must keep:
   the same cause. A late (expired) answer is only a timeout for its device: it says nothing about the secret.
 - Failure codes and kinds: `doc/AGENT_INTEGRATION.md` "Failures and what they mean".
 
+### Asking the AI: `contact-the-ai`
+
+Sends one prompt per step execution to the AI model (palette category Notify) and stores the answer on
+every device in `output_attribute` (`bag.field`, default `ai.response`), so a later step such as
+`notify-mattermost` can post `{ai.response}`. The target is validated with the `update-attribute` write rules
+before anything is sent (no placeholders, no `device.*`, no reserved bag `parsed` / `run_input`, no secret
+path). The run viewer shows the answer, provider, model and target, or the failure reason, under "AI response"
+(`metadata["<node id>.ai_response"]`, `step-result-viewer/ai-response-panel.tsx`). Config: `prompt`,
+`system_prompt`, `output_attribute`, `max_output_tokens` (1-4096),
+`timeout_seconds` (1-600). Outcomes `success` / `failure`.
+
+- **Whose AI settings:** a background run has no interactive user, so the step uses the settings (provider,
+  key, sharing switches, proxy) of the service user named by the operator in `WORKFLOW_AI_USER`, through
+  `AiSettingsService.require_runtime_config`. Unset, AI disabled by the operator, or not configured: the step
+  ends on `failure` (`permission_denied`), nothing is sent.
+- **What may be sent:** every placeholder is checked against the service user's sharing switches **before** it is
+  resolved, with the interactive assistant's rules (`services/ai_assistant/data_sharing.py`, S5-03; checks in
+  `workflow_steps/contact_the_ai/prompt.py::check_path`). The operator's `AI_ALLOWED_DATA` is already ANDed in
+  by `require_runtime_config`. `device.name` / `platform` / ..., a Nautobot basic attribute (`name`, `role`,
+  `location`, ...), `{devices}` and `{run_summary}` (counts per device status plus failed device names with error
+  codes, never error text; `build_run_summary` in `workflow_steps/common/run_message_template.py`, also usable
+  in `notify-mattermost`) need *Inventory*. `device.hostname` / `primary_ip4` and the Nautobot address group
+  (`hostname`, `serial`, `asset_tag`, `interfaces`, ...) need *Addresses*, `custom_fields` *Custom fields*,
+  `config_context` *Config context* (each of these needs *Inventory* as well, as in the assistant). A Nautobot
+  attribute in none of those groups (`comments`, ...) is never sent. Any other bag (`custom`, `parsed`, `ise`,
+  run inputs, ...) needs *Inventory* **and** *Content*, and a key named like one of the groups below it is
+  withheld without its switch. A placeholder the policy withholds ends the step on `failure`
+  (`permission_denied`, a fixed message naming the placeholder and the switch) and nothing is sent. A prompt
+  without placeholders needs no switch. Scalars are always read with `reveal_secrets=False`.
+- **Whole bags and other dicts (`{nautobot}`, `{nautobot.location}`, `{parsed.x.y}`):** in this step only, a path
+  that resolves to a dict or list is rendered as compact JSON (`workflow_steps/contact_the_ai/prompt.py`); every
+  other step still renders it as an empty string. The same switch rules apply; a whole `{nautobot}` is filtered
+  like the assistant filters it (withheld attribute names are listed under `withheld`), and below any other bag
+  the withheld category keys are replaced by `{"not_shared": ...}`. It then goes through
+  `Redactor.tokenize_data` (secret-named keys and sealed envelopes become tokens), and each value is cut at
+  20 000 characters. **Risky:** a bag mixes addresses, custom fields, config context and whatever upstream
+  steps stored, so more data leaves the network than a named field would, and redaction is best-effort.
+  **Expensive:** a device bag with interfaces is tens of thousands of characters, paid on every run. Prefer
+  single fields (`{nautobot.role}`) and send a whole bag only when the model needs it.
+- **Redaction:** the rendered prompt and system prompt always go through `Redactor` (config-style secrets,
+  the service user's visible credential values, addresses unless the *Addresses* switch is on). If the
+  credential values cannot be loaded the step fails closed. Redaction is best-effort, like the assistant's
+  (`doc/ai_integration/AI_ASSISTANT.md` §4.3). Tokens in the answer are never restored.
+- **Safety of the answer:** the model gets no tools and a built-in instruction to treat run data as data. The
+  answer is cut at 10 000 characters and `@channel` / `@all` / `@here` are defused. The prompt is cut at
+  100 000 characters.
+- **Failures** are a closed-vocabulary `FailureInfo` (`auth_failed`, `rate_limited`, `server_error`, `timeout`,
+  ...) plus one fixed sentence per kind. The provider's own text (it can carry a configured base URL) is never
+  stored in the run, shown in the viewer or logged. Wire a fallback `notify-mattermost` to the `failure` outcome.
+- **No device:** the step sends nothing and stores nothing (there is no device to attach the answer to); the
+  summary and the viewer say "skipped".
+- **Service user lookup** is case-insensitive, like login.
+- **Fan-out:** place it after Fan In (or at the end of a non-fanned workflow) for one call per run; inside
+  fan-out children it calls the model once per child.
+
 ### Structured failure on `DeviceError`
 
 When a step fails a device, pass a `FailureInfo` (`models/failure.py`) as

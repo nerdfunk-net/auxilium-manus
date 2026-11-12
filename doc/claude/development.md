@@ -24,6 +24,7 @@ DISCOVER_NETWORK_FOLLOW_ENABLED=false  # Discover Network step may log into devi
 AI_DNS_LOOKUP_ENABLED=false  # Ask the Net resolves names / IP addresses through DNS (backend host resolver; get_dns_lookup, AI_TOOL_CHAIN §50)
 AI_DNS_ALLOWED_SUFFIXES=     # comma-separated domains a NAME lookup may target (empty = reverse lookups only); stops data leaving in DNS names
 AI_ALLOWED_DATA=               # inventory,addresses,custom_fields,config_context,content,report (none by default)
+WORKFLOW_AI_USER=             # username whose AI settings the contact-the-ai workflow step uses in background runs (unset, unknown or inactive user = the step fails); use a dedicated service user, doc/WORKFLOW-STEPS.md
 MANUS_PROCESS_ROLE=web         # web | worker: a worker needs no INITIAL_PASSWORD / OpenBao management role
 SESSION_MAX_AGE_HOURS=12        # absolute session lifetime (see doc/claude/auth.md)
 REFRESH_TOKEN_MAX_AGE_HOURS=12   # defaults to SESSION_MAX_AGE_HOURS; must not exceed it

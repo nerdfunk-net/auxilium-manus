@@ -183,6 +183,10 @@ confirmed with parser `genie`. Two readings are compared only when they came fro
 `compare_bgp_learns(detail=true)` sends the redacted outputs to the shim's `POST /v1/learn-replay`; the replay request carries no device
 credentials and the diff text is redacted again before it reaches the model.
 
+**Contact the AI step** (`contact-the-ai`, `doc/WORKFLOW-STEPS.md`). No RBAC permission of its own: whoever may edit and run the workflow may use it. It runs as the
+operator-designated service user `WORKFLOW_AI_USER`, so that user's AI key, provider and sharing switches (and the operator's `AI_ALLOWED_DATA`) decide
+what the prompt may contain; the triggering user's own settings are never used. Every prompt is redacted; an unset user or a missing switch ends the step on `failure`.
+
 **Ask the Net / builder assistant wiki notes** (`get_workflow_notes`, `propose_workflow_notes`, `doc/ai_integration/AI_ASSISTANT.md` §24). Reading
 needs `workflows:read` and the workflow's visibility; the text is redacted (credentials always, addresses unless the user shares them). Proposing is
 offered with `workflows:write`; a proposal saves nothing: the user's click calls `PATCH /workflows/{id}/notes`, which applies the creator/admin rule.

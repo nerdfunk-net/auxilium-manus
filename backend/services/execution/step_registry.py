@@ -48,6 +48,7 @@ from workflow_steps.compare_data.executor import execute as compare_data
 from workflow_steps.compare_pyats_snapshot.executor import execute as compare_pyats_snapshot
 from workflow_steps.config_to_attributes.executor import execute as config_to_attributes
 from workflow_steps.configure_replace_config.executor import execute as configure_replace_config
+from workflow_steps.contact_the_ai.executor import execute as contact_the_ai
 from workflow_steps.decrypt_attribute.executor import execute as decrypt_attribute
 from workflow_steps.deploy_rendered_template.executor import execute as deploy_rendered_template
 from workflow_steps.discover_network.executor import execute as discover_network
@@ -242,6 +243,7 @@ STEP_REGISTRY: dict[str, StepExecutor] = {
     "show-summary": show_summary,
     "notify": notify,
     "notify-mattermost": notify_mattermost,
+    "contact-the-ai": contact_the_ai,
     "notify-on-error": notify_on_error,
     "send-mail": send_mail,
     "secret-get": secret_get,

@@ -122,6 +122,7 @@ class Settings:
     ai_dns_allowed_suffixes: tuple[str, ...]
     ai_allowed_providers: frozenset[str]
     ai_allowed_data: frozenset[str]
+    workflow_ai_username: str | None
     apply_safe_migrations: bool
     apply_risky_migrations: bool
     install_certificate_files: bool
@@ -272,6 +273,9 @@ class Settings:
             )
         self.ai_allowed_providers = frozenset(self._get_csv("AI_ALLOWED_PROVIDERS", ""))
         self.ai_allowed_data = frozenset(self._get_csv("AI_ALLOWED_DATA", ""))
+        # The username whose AI settings (provider, key, data opt-ins) the contact-the-ai
+        # workflow step uses; a background run has no interactive user. Unset = the step fails.
+        self.workflow_ai_username = (environ.get("WORKFLOW_AI_USER") or "").strip() or None
         validate_ai_operator_policy(providers=self.ai_allowed_providers, data=self.ai_allowed_data)
         for message in ai_policy_warnings(
             enabled=self.ai_assistant_enabled,

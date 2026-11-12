@@ -14,6 +14,7 @@ import {
 import { DebugLogsPanel, extractDebugLogs } from "./debug-logs-panel";
 import { DevicesSection } from "./devices-section";
 import { DiscoveryPanel, extractDiscovery } from "./discovery-panel";
+import { AiResponsePanel, extractAiResponses } from "./ai-response-panel";
 import { LogAttributesPanel, extractLogAttributes } from "./log-attributes-panel";
 import { MetadataPanel, metadataWithoutDebugPanels } from "./metadata-panel";
 
@@ -41,6 +42,7 @@ export function OutcomeContextView({
     () => extractLogAttributes(context.metadata),
     [context.metadata],
   );
+  const aiResponses = useMemo(() => extractAiResponses(context.metadata), [context.metadata]);
   const discovery = useMemo(() => extractDiscovery(context.metadata), [context.metadata]);
   const remainingMetadata = useMemo(
     () => metadataWithoutDebugPanels(context.metadata),
@@ -88,6 +90,15 @@ export function OutcomeContextView({
         batfishResults={batfishResults}
         batfishConnection={batfishConnection}
       />
+
+      {aiResponses.length > 0 ? (
+        <div>
+          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            AI response
+          </p>
+          <AiResponsePanel entries={aiResponses} />
+        </div>
+      ) : null}
 
       {debugLogs.length > 0 ? (
         <div>

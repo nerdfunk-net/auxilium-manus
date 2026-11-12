@@ -41,7 +41,9 @@ def render_placeholder_template(
 
     def _replace(match: re.Match[str]) -> str:
         value = resolve_device_attribute(device, match.group(1), reveal_secrets=False, error=error)
-        text = value if value is not None else ""
+        # NUL delimits the run-level markers of run_message_template; a resolved value must never
+        # carry one in, or it would be expanded as a run-level placeholder.
+        text = value.replace("\x00", "") if value is not None else ""
         return value_transform(text) if value_transform else text
 
     return _PLACEHOLDER_PATTERN.sub(_replace, template)
