@@ -50,6 +50,7 @@ import { canvasFromWorkflowResponse } from "./utils/apply-loaded-workflow";
 import { canvasPersistPayload } from "./utils/canvas-persist-payload";
 import { isGroupCanvasNode } from "./utils/canvas-group-projection";
 import { computeDeviceParamConfigs } from "./utils/device-param-hints";
+import { useAssistantNotesTarget } from "./hooks/use-assistant-notes-target";
 import { useUnsavedChangesWarning } from "./hooks/use-unsaved-changes-warning";
 import { useWorkflowBuilderStore } from "./hooks/use-workflow-builder-store";
 import { useWorkflowCanvas } from "./hooks/use-workflow-canvas";
@@ -136,6 +137,7 @@ export function WorkflowBuilderPage() {
   const { allNodes, allEdges, groups, staticAttributes, applyLoadedCanvas } =
     canvas;
   const workflowNameForAssistant = persistence.workflowName;
+  const assistantWorkflowId = persistence.workflowId;
   const getAssistantContext = useCallback((): AssistantContext => {
     const payload = canvasPersistPayload(
       allNodes,
@@ -145,6 +147,7 @@ export function WorkflowBuilderPage() {
     );
     return {
       surface: "workflow_editor",
+      workflow_id: assistantWorkflowId,
       name: workflowNameForAssistant,
       ...payload,
       static_attributes: payload.static_attributes as unknown as Record<
@@ -152,7 +155,15 @@ export function WorkflowBuilderPage() {
         unknown
       >[],
     };
-  }, [allNodes, allEdges, groups, staticAttributes, workflowNameForAssistant]);
+  }, [
+    allNodes,
+    allEdges,
+    groups,
+    staticAttributes,
+    workflowNameForAssistant,
+    assistantWorkflowId,
+  ]);
+  const notesTarget = useAssistantNotesTarget(assistantWorkflowId);
   const applyWorkflowProposal = useCallback(
     (proposal: WorkflowProposal) => {
       // Same path as loading a saved workflow, so the canvas migrates/repairs it identically; the
@@ -315,6 +326,7 @@ export function WorkflowBuilderPage() {
                 placeholder="Describe the workflow you need, or what to change…"
                 getContext={getAssistantContext}
                 workflowTarget={workflowTarget}
+                notesTarget={notesTarget}
               />
             </div>
           </ResizableAssistantAside>

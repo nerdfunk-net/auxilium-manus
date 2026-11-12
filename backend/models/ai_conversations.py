@@ -41,6 +41,7 @@ class StoredProposal(BaseModel):
         "inventory",
         "device_command",
         "config_download",
+        "workflow_notes",
     ]
     summary: str = Field(default="", max_length=2000)
 

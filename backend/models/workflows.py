@@ -188,8 +188,11 @@ class WorkflowGitRestoreRequest(BaseModel):
     commit_sha: str = Field(..., min_length=4)
 
 
+MAX_NOTES_CHARS = 100_000
+
+
 class WorkflowNotesUpdate(BaseModel):
-    notes: str | None = Field(None, max_length=100_000)
+    notes: str | None = Field(None, max_length=MAX_NOTES_CHARS)
 
 
 class WorkflowNotesResponse(BaseModel):

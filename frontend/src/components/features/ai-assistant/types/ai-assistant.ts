@@ -104,6 +104,8 @@ export interface TemplateEditorContext {
 /** The workflow builder canvas in its persisted shape (the server builds the model's view). */
 export interface WorkflowCanvasContext {
   surface: "workflow_editor";
+  /** The saved workflow, whose wiki notes the server reads; null while unsaved. */
+  workflow_id: number | null;
   name: string;
   canvas_nodes: Record<string, unknown>[];
   canvas_edges: Record<string, unknown>[];
@@ -232,6 +234,22 @@ export interface WorkflowProposal {
   warnings: WorkflowProposalWarning[];
   /** Fingerprint of the canvas when the turn started (detects edits made meanwhile). */
   baseFingerprint: string;
+  state: ProposalState;
+}
+
+/**
+ * New wiki notes for the open workflow. Unlike the other proposals, applying saves at once
+ * (through the notes endpoint, as the user): the notes are not part of the canvas save.
+ */
+export interface WorkflowNotesProposal {
+  kind: "workflow_notes";
+  workflowId: number;
+  summary: string;
+  /** The complete proposed notes (Markdown). */
+  notes: string;
+  /** The saved notes the proposal was made against. */
+  baseNotes: string;
+  warnings: string[];
   state: ProposalState;
 }
 
@@ -395,6 +413,7 @@ export interface WorkflowRunProposal {
 export type AssistantProposal =
   | TemplateProposal
   | WorkflowProposal
+  | WorkflowNotesProposal
   | QueryProposal
   | ReportOutlineProposal
   | SectionTextProposal
@@ -437,7 +456,8 @@ export interface SavedProposal {
     | "inventory"
     | "device_command"
     | "config_download"
-    | "workflow_run";
+    | "workflow_run"
+    | "workflow_notes";
   summary: string;
 }
 

@@ -1,0 +1,431 @@
+{
+  "export_format": "auxilium-workflow-v1",
+  "exported_at": "2026-11-12T16:57:09.689Z",
+  "name": "PyATS Write Baseline",
+  "description": "PyATS Write Baseline",
+  "folder": "Gallery",
+  "visibility": "private",
+  "notes": "# PyATS Write Baseline\n\n## Purpose\nRecords a pre-change baseline of the network. It loads the devices of the Nautobot inventory `LAB`, runs a pyATS snapshot (all features) on each device with fan-out (up to 10 devices at a time), joins the results with Fan In, pulls the git repository, stores one JSON snapshot file per device, and then commits and pushes once. Use it before a change to capture the state you may need to compare against later.\n\n## Assumptions / prerequisites\n* credentials: 'cisco - noc' (SSH, used by the pyATS testbed), 'pyats' and 'nautobot' (token), 'gitea' (token for the git repository)\n* inventory: 'LAB' (filter inventory, global scope)\n* git repository: 'gitea' (category device_configs)\n* nautobot: source 'nautobot'\n* pyats: source 'pyats'\n\n## Gotchas\n* Writes to git and pushes to the remote 'gitea' repository. The push cannot be undone from the canvas.\n* Fan-out starts at Get from Nautobot (one child per device, max 10 concurrent). Fan In (Fan In, fan-in) joins them before Git Pull.\n* Store Artifact (store-artifact) runs after Fan In so that the run creates one commit. Its own commit and push flags are off; Git Push (git-push) makes the single commit and push.\n* Store Artifact `content_source` is `pyats_snapshot`. This value is not in the step's documented list (running_config, startup_config, command_output, latest_command_output, rendered_template, merged_content, comparison_diff). Check it before running, because the file content depends on it.\n* Store Artifact `parsed_output_key` holds a secret placeholder instead of an output key. The field only applies when `content_source` is `rendered_template`, so it should be cleared or checked.\n* Store Artifact writes to `snapshots/` in the repository, one file per device, named `{device.name}_snapshot_baseline.json`.\n\n## Example\nFor a device named `LAB-SW1`, this run writes `snapshots/LAB-SW1_snapshot_baseline.json` into git repository 'gitea' and creates one commit with one push for the whole run. With N devices in inventory `LAB`, it writes N files in that single commit.",
+  "canvas_nodes": [
+    {
+      "id": "get-nautobot-devices-1",
+      "type": "workflowNode",
+      "position": {
+        "x": 206.50531691011867,
+        "y": 461.47389982514505
+      },
+      "zIndex": 1,
+      "data": {
+        "kind": "get-nautobot-devices",
+        "stepUuid": "a140fecd-cb6f-4f40-bfeb-5a42bfad3718",
+        "title": "Get from Nautobot",
+        "overview": "Select devices from the Nautobot inventory.",
+        "description": "Select one or more target devices from the inventory.",
+        "artifactType": "inventory_selector",
+        "requires": [],
+        "requiresParsed": [],
+        "produces": [
+          "identity"
+        ],
+        "producesParsed": [],
+        "consumes": [],
+        "outcomes": [
+          {
+            "name": "success"
+          }
+        ],
+        "pluginConfig": {
+          "nautobot_source_id": "nautobot",
+          "inventory_id": 1,
+          "inventory_name": "LAB",
+          "inventory_type": "filter",
+          "device_filter": {
+            "id": "root",
+            "logic": "AND",
+            "negate": false,
+            "items": []
+          },
+          "device_ids": [],
+          "fan_out": {
+            "enabled": true,
+            "mode": "per_device",
+            "chunk_size": 1,
+            "max_concurrency": 10,
+            "approval": {
+              "enabled": false,
+              "batch_size": 1,
+              "first_batch_auto": true
+            }
+          }
+        }
+      },
+      "measured": {
+        "width": 320,
+        "height": 128
+      },
+      "selected": false
+    },
+    {
+      "id": "add-pyats-testbed-2",
+      "type": "workflowNode",
+      "position": {
+        "x": 603.2234888075404,
+        "y": 461.47389982514505
+      },
+      "zIndex": 1,
+      "data": {
+        "kind": "add-pyats-testbed",
+        "stepUuid": "8dc672e4-9970-4b7d-9ed7-4a3592175ff6",
+        "title": "Add Testbed",
+        "overview": "Build a pyATS testbed from the current device list.",
+        "description": "Resolve a credential and pyATS shim source for the current device list, producing a reusable testbed bundle that downstream pyATS-backed steps (e.g. Get & Parse Config) consume without needing their own credential/source configuration.\n",
+        "artifactType": "configuration_management",
+        "requires": [
+          "identity"
+        ],
+        "requiresParsed": [],
+        "produces": [
+          "pyats_testbed"
+        ],
+        "producesParsed": [],
+        "consumes": [],
+        "outcomes": [
+          {
+            "name": "success"
+          },
+          {
+            "name": "failure"
+          }
+        ],
+        "pluginConfig": {
+          "pyats_source_id": "pyats",
+          "credential_reference": "cisco - noc"
+        }
+      },
+      "measured": {
+        "width": 320,
+        "height": 128
+      },
+      "dragging": false,
+      "selected": false
+    },
+    {
+      "id": "get-pyats-snapshot-4",
+      "type": "workflowNode",
+      "position": {
+        "x": 986.3608553946538,
+        "y": 461.47389982514505
+      },
+      "zIndex": 1,
+      "data": {
+        "kind": "get-pyats-snapshot",
+        "stepUuid": "f738b5af-286e-436f-9cc9-66f0c98f2f19",
+        "title": "Get Snapshot",
+        "overview": "Capture a Genie \"learn\" snapshot of live device state.",
+        "description": "Learn one or more Genie features (BGP, OSPF, interfaces, platform, ...) or \"all\" via pyATS and store the structured snapshot. Requires an upstream Add Testbed step.\n",
+        "artifactType": "configuration_management",
+        "requires": [
+          "identity",
+          "pyats_testbed"
+        ],
+        "requiresParsed": [],
+        "produces": [
+          "parsed"
+        ],
+        "producesParsed": [],
+        "consumes": [],
+        "outcomes": [
+          {
+            "name": "success"
+          },
+          {
+            "name": "failure"
+          }
+        ],
+        "pluginConfig": {
+          "features": [
+            "all"
+          ]
+        },
+        "outcomeHandleSide": "bottom"
+      },
+      "measured": {
+        "width": 320,
+        "height": 128
+      },
+      "dragging": false,
+      "selected": false
+    },
+    {
+      "id": "fan-in-4",
+      "type": "workflowNode",
+      "position": {
+        "x": 986.3608553946538,
+        "y": 648.1590853494158
+      },
+      "zIndex": 1,
+      "data": {
+        "kind": "fan-in",
+        "stepUuid": "f3092f55-f2b5-4d1b-a31a-526793e47aac",
+        "title": "Fan In",
+        "overview": "Rejoin fan-out branches into one execution path.",
+        "description": "Rejoin a fanned-out workflow into a single path. Per-device steps run in parallel child workflows up to this node; steps placed after it run once over all devices. Place git / store-artifact steps after Fan In for safe, single-commit exports.\n",
+        "artifactType": "control_flow",
+        "requires": [
+          "identity"
+        ],
+        "requiresParsed": [],
+        "produces": [],
+        "producesParsed": [],
+        "consumes": [],
+        "outcomes": [
+          {
+            "name": "success"
+          }
+        ],
+        "incomeHandleSide": "top",
+        "outcomeHandleSide": "left"
+      },
+      "measured": {
+        "width": 320,
+        "height": 128
+      },
+      "dragging": false,
+      "selected": false
+    },
+    {
+      "id": "git-pull-5",
+      "type": "workflowNode",
+      "position": {
+        "x": 603.2234888075404,
+        "y": 648.1590853494158
+      },
+      "zIndex": 1,
+      "data": {
+        "kind": "git-pull",
+        "stepUuid": "57752019-0a92-4be8-8f4b-546dfccc58bf",
+        "title": "Git Pull",
+        "overview": "Pull latest changes for a git source.",
+        "description": "Pull the latest changes for a configured git source. Fan-out note: a per-repo advisory lock (services/git/repo_lock.py) serialises concurrent callers -- fan-out children or independent sibling branches in one run -- against the same source, so the working tree is not corrupted.\n",
+        "artifactType": "persistent_artifact",
+        "requires": [
+          "identity"
+        ],
+        "requiresParsed": [],
+        "produces": [],
+        "producesParsed": [],
+        "consumes": [],
+        "outcomes": [
+          {
+            "name": "success"
+          },
+          {
+            "name": "failure"
+          }
+        ],
+        "incomeHandleSide": "right",
+        "outcomeHandleSide": "left",
+        "pluginConfig": {
+          "git_repository_id": 2
+        }
+      },
+      "measured": {
+        "width": 320,
+        "height": 128
+      },
+      "selected": false,
+      "dragging": false
+    },
+    {
+      "id": "store-artifact-6",
+      "type": "workflowNode",
+      "position": {
+        "x": 206.50531691011867,
+        "y": 648.1590853494158
+      },
+      "zIndex": 1,
+      "data": {
+        "kind": "store-artifact",
+        "stepUuid": "b07b2dd4-0906-44fa-990a-3805bbba5f6d",
+        "title": "Store Artifact",
+        "overview": "Persist backups, reports, or logs.",
+        "description": "Persist generated content such as backups, reports, or logs. Fan-out note: the filesystem sink writes a shared destination; concurrent child workflows can still race on the same path -- prefer per-device path templates or disable fan-out when using it. The git sink holds a per-repo advisory lock (services/git/repo_lock.py) across concurrent callers -- fan-out children or independent sibling branches in one run -- so the working tree is not corrupted, but each caller still opens its own commit; place it after a Fan In node (or other join point) for one commit, not N.\n",
+        "artifactType": "persistent_artifact",
+        "requires": [
+          "identity"
+        ],
+        "requiresParsed": [],
+        "produces": [],
+        "producesParsed": [],
+        "consumes": [],
+        "outcomes": [
+          {
+            "name": "success"
+          },
+          {
+            "name": "failure"
+          }
+        ],
+        "incomeHandleSide": "right",
+        "outcomeHandleSide": "bottom",
+        "pluginConfig": {
+          "destination": "git",
+          "output_subdirectory": "exports",
+          "content_source": "pyats_snapshot",
+          "source_step_node_id": "get-pyats-snapshot-4",
+          "parsed_output_key": "pyats_snapshot",
+          "filename_template": "{device.name}_snapshot_baseline.json",
+          "strict_templates": true,
+          "retention_policy": "standard-90-days",
+          "git_repository_id": 2,
+          "repository_subdirectory": "snapshots/",
+          "pull_before_write": false,
+          "commit_after_write": false,
+          "push_after_write": false,
+          "commit_message_template": "commit {timestamp}"
+        }
+      },
+      "measured": {
+        "width": 320,
+        "height": 128
+      },
+      "dragging": false,
+      "selected": false
+    },
+    {
+      "id": "git-push-7",
+      "type": "workflowNode",
+      "position": {
+        "x": 206.50531691011867,
+        "y": 844.6459322746923
+      },
+      "zIndex": 1,
+      "data": {
+        "kind": "git-push",
+        "stepUuid": "948a6957-1692-4034-913c-6efb9c700819",
+        "title": "Git Push",
+        "overview": "Commit and push changes to git remote.",
+        "description": "Commit exported changes and push them to the configured git source remote. Fan-out note: a per-repo advisory lock (services/git/repo_lock.py) serialises concurrent callers -- fan-out children or independent sibling branches in one run -- against the same source, so the working tree is not corrupted. Each caller still produces its own commit/push though; prefer a single push after a Fan In node, or unique branches/paths per caller, if you want exactly one.\n",
+        "artifactType": "persistent_artifact",
+        "requires": [
+          "identity"
+        ],
+        "requiresParsed": [],
+        "produces": [],
+        "producesParsed": [],
+        "consumes": [],
+        "outcomes": [
+          {
+            "name": "success"
+          },
+          {
+            "name": "failure"
+          }
+        ],
+        "incomeHandleSide": "top",
+        "outcomeHandleSide": "right",
+        "pluginConfig": {
+          "git_repository_id": 2,
+          "commit_before_push": true,
+          "commit_message_template": "commit {timestamp}"
+        }
+      },
+      "measured": {
+        "width": 320,
+        "height": 128
+      },
+      "dragging": false,
+      "selected": false
+    }
+  ],
+  "canvas_edges": [
+    {
+      "type": "waypoint",
+      "zIndex": 0,
+      "data": {
+        "edgeStyle": "bezier"
+      },
+      "source": "get-nautobot-devices-1",
+      "sourceHandle": "success",
+      "target": "add-pyats-testbed-2",
+      "targetHandle": "input",
+      "id": "xy-edge__get-nautobot-devices-1success-add-pyats-testbed-2input",
+      "selected": false
+    },
+    {
+      "type": "waypoint",
+      "zIndex": 0,
+      "data": {
+        "edgeStyle": "bezier"
+      },
+      "source": "add-pyats-testbed-2",
+      "sourceHandle": "success",
+      "target": "get-pyats-snapshot-4",
+      "targetHandle": "input",
+      "id": "xy-edge__add-pyats-testbed-2success-get-pyats-snapshot-4input",
+      "selected": false
+    },
+    {
+      "type": "waypoint",
+      "zIndex": 0,
+      "data": {
+        "edgeStyle": "bezier"
+      },
+      "source": "get-pyats-snapshot-4",
+      "sourceHandle": "success",
+      "target": "fan-in-4",
+      "targetHandle": "input",
+      "id": "xy-edge__get-pyats-snapshot-4success-fan-in-4input",
+      "selected": false
+    },
+    {
+      "type": "waypoint",
+      "zIndex": 0,
+      "data": {
+        "edgeStyle": "bezier"
+      },
+      "source": "fan-in-4",
+      "sourceHandle": "success",
+      "target": "git-pull-5",
+      "targetHandle": "input",
+      "id": "xy-edge__fan-in-4success-git-pull-5input",
+      "selected": false
+    },
+    {
+      "type": "waypoint",
+      "zIndex": 0,
+      "data": {
+        "edgeStyle": "bezier"
+      },
+      "source": "git-pull-5",
+      "sourceHandle": "success",
+      "target": "store-artifact-6",
+      "targetHandle": "input",
+      "id": "xy-edge__git-pull-5success-store-artifact-6input",
+      "selected": false
+    },
+    {
+      "type": "waypoint",
+      "zIndex": 0,
+      "data": {
+        "edgeStyle": "bezier"
+      },
+      "source": "store-artifact-6",
+      "sourceHandle": "success",
+      "target": "git-push-7",
+      "targetHandle": "input",
+      "id": "xy-edge__store-artifact-6success-git-push-7input",
+      "selected": false
+    }
+  ],
+  "canvas_groups": [],
+  "static_attributes": [],
+  "credential_references": [
+    {
+      "name": "cisco - noc",
+      "visibility": "global",
+      "owner_username": null
+    }
+  ],
+  "templates": []
+}

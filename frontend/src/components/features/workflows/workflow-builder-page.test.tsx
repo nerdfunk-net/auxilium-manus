@@ -56,6 +56,9 @@ vi.mock("@/components/features/ai-assistant/hooks/use-assistant-session-open", (
 vi.mock("@/components/features/ai-assistant/components/assistant-panel", () => ({
   AssistantPanel: h.stub("assistant"),
 }));
+vi.mock("./hooks/use-assistant-notes-target", () => ({
+  useAssistantNotesTarget: () => ({ currentNotes: "", onApply: vi.fn() }),
+}));
 vi.mock("./hooks/use-unsaved-changes-warning", () => ({ useUnsavedChangesWarning: vi.fn() }));
 vi.mock("./hooks/use-workflow-keyboard-shortcuts", () => ({
   useWorkflowKeyboardShortcuts: vi.fn(),

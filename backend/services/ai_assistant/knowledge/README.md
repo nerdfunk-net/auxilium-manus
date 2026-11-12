@@ -15,6 +15,7 @@ Background: `doc/ai_integration/AI_ASSISTANT.md` (design) and the section "In-ap
 | `workflow_reference.md` | `get_workflow_reference` | Workflow builder | **Rules**: plan format, outcomes, capability flow, fan-out/fan-in, static attributes, references, secrets |
 | `inventory_reference.md` | `get_inventory_reference` | Inventory page | **Rules and recipes** for writing an inventory filter: fields, operators per field, value formats, AND/OR/negate, location semantics |
 | `workflow_recipes.md` | `get_workflow_recipes` | Workflow builder | **Recipes**: which steps and wiring a recurring request phrase usually means, plus silent-failure pitfalls |
+| `wiki_notes_template.md` | `get_wiki_template` | Workflow builder (with `workflows:write`, saved workflow) | The wiki structure (Purpose / Assumptions / Gotchas / Example), how to fill it from the canvas, a finished example. Keep in line with `doc/HOWTO_BUILD_WORKFLOWS.md` "Documenting the workflow" |
 
 Rule of thumb for where new text goes:
 

@@ -177,6 +177,10 @@ confirmed with parser `genie`. Two readings are compared only when they came fro
 `compare_bgp_learns(detail=true)` sends the redacted outputs to the shim's `POST /v1/learn-replay`; the replay request carries no device
 credentials and the diff text is redacted again before it reaches the model.
 
+**Ask the Net / builder assistant wiki notes** (`get_workflow_notes`, `propose_workflow_notes`, `doc/ai_integration/AI_ASSISTANT.md` §24). Reading
+needs `workflows:read` and the workflow's visibility; the text is redacted (credentials always, addresses unless the user shares them). Proposing is
+offered with `workflows:write`; a proposal saves nothing: the user's click calls `PATCH /workflows/{id}/notes`, which applies the creator/admin rule.
+
 **Assistant glossary** (inventory terms and workflow step aliases). `ai_glossary_terms` is global
 and its words steer the model, so every `/ai/glossary` route, for both kinds, needs the `admin` role (P3 style); the seeded `viewer` and other roles have no
 access. The assistant reads entries through the `get_glossary` tool as the calling user.

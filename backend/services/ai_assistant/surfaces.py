@@ -22,7 +22,7 @@ from models.ai_assistant import (
 from services.ai_assistant.agent_loop import DEFAULT_BUDGET, DEFAULT_TURN_TOKENS, RunBudget
 from services.ai_assistant.client_data_reader import ClientDataReader
 from services.ai_assistant.config_backup import ConfigBackupReader
-from services.ai_assistant.data_sharing import SharingPolicy
+from services.ai_assistant.data_sharing import DataClass, SharingPolicy
 from services.ai_assistant.device_access import DeviceResolver
 from services.ai_assistant.dns_resolver import DnsResolver
 from services.ai_assistant.inventory_filter import describe_condition_tree, field_data_class
@@ -123,6 +123,17 @@ from services.ai_assistant.tools.template_tools import (
     TemplateEditorState,
     TemplateReader,
 )
+from services.ai_assistant.tools.workflow_notes_tools import (
+    GET_NOTES_TOOL,
+    GET_TEMPLATE_TOOL,
+    MAX_PROMPT_NOTES_CHARS,
+    NOTES_EXTRAS_KEY,
+    PROPOSE_NOTES_TOOL,
+    NotesReader,
+    WorkflowNotesState,
+    cut_notes,
+    redact_notes,
+)
 from services.ai_assistant.tools.workflow_tools import (
     WORKFLOW_EDITOR_TOOLS,
     PluginCatalogue,
@@ -202,6 +213,10 @@ def build_workflow_editor_session(
     validator: WorkflowValidator,
     may_propose: bool = True,
     glossary: StepAliasLookup | None = None,
+    notes_reader: NotesReader | None = None,
+    saved_notes: str | None = None,
+    sharing: SharingPolicy | None = None,
+    known_secrets: Iterable[str] | None = (),
 ) -> AssistantSession:
     # The canvas may be up to MAX_CANVAS_JSON_CHARS of JSON; its strings are redacted one by one.
     redactor = Redactor(max_chars=max(MAX_REDACT_CHARS_PER_REQUEST, MAX_CANVAS_JSON_CHARS))
@@ -217,6 +232,19 @@ def build_workflow_editor_session(
     extras: dict[str, Any] = {"workflow_editor": state}
     if glossary is not None:
         extras["glossary"] = glossary
+    # Wiki notes: sent only when the exact credential values could be loaded (``None`` = could
+    # not), and addresses stay masked unless the user shares them.
+    notes_available = known_secrets is not None
+    if known_secrets:
+        redactor.add_known_secrets(known_secrets)
+    mask_addresses = not (sharing or SharingPolicy()).allows(DataClass.ADDRESSES)
+    if notes_reader is not None:
+        extras[NOTES_EXTRAS_KEY] = WorkflowNotesState(
+            workflow_id=context.workflow_id,
+            reader=notes_reader,
+            available=notes_available,
+            mask_addresses=mask_addresses,
+        )
     tool_context = ToolContext(user_id=user_id, redactor=redactor, extras=extras)
     # Built first so secrets in step configs get their tokens before any tool runs.
     view = build_compact_view(
@@ -228,12 +256,52 @@ def build_workflow_editor_session(
         f"{json.dumps(view, default=str)}\n"
         "</canvas_state>"
     )
-    system = "\n\n".join([BASE_SYSTEM_PROMPT, WORKFLOW_EDITOR_PROMPT, canvas_block])
+    notes_block = _wiki_notes_block(
+        context.workflow_id, saved_notes, notes_available, mask_addresses, redactor
+    )
+    system = "\n\n".join([BASE_SYSTEM_PROMPT, WORKFLOW_EDITOR_PROMPT, canvas_block, notes_block])
     # A user without ``workflows:write`` can still be advised, but gets no proposal tool (S5-08).
     tools = tuple(t for t in WORKFLOW_EDITOR_TOOLS if may_propose or t.name != "propose_workflow")
     if glossary is not None:
         tools = (*tools, *STEP_ALIAS_TOOLS)
+    if notes_reader is not None:
+        tools = (*tools, GET_NOTES_TOOL)
+        if may_propose and notes_available and context.workflow_id is not None:
+            tools = (*tools, GET_TEMPLATE_TOOL, PROPOSE_NOTES_TOOL)
     return AssistantSession(system=system, toolbox=Toolbox(tools, tool_context))
+
+
+def _wiki_notes_block(
+    workflow_id: int | None,
+    notes: str | None,
+    available: bool,
+    mask_addresses: bool,
+    redactor: Redactor,
+) -> str:
+    """The workflow's wiki, redacted, as data (never instructions) for the system prompt."""
+    if workflow_id is None:
+        return "<wiki_notes>The workflow is not saved yet, so it has no wiki.</wiki_notes>"
+    if not available:
+        return (
+            "<wiki_notes>The wiki is withheld: the user's credentials could not be checked "
+            "against it.</wiki_notes>"
+        )
+    if notes is None:
+        return (
+            "<wiki_notes>The wiki cannot be read (the workflow is missing or not visible to the "
+            "user). Do not assume it is empty and do not write it.</wiki_notes>"
+        )
+    if notes == "":
+        return "<wiki_notes>The workflow has no wiki notes yet.</wiki_notes>"
+    text, was_cut = cut_notes(
+        redact_notes(redactor, notes, mask_addresses=mask_addresses), MAX_PROMPT_NOTES_CHARS
+    )
+    cut = "\n[cut: call get_workflow_notes for the whole wiki]" if was_cut else ""
+    masked = " IP and MAC addresses are masked as __ADDR_n__." if mask_addresses else ""
+    return (
+        f"<wiki_notes>\nThe workflow's saved wiki (Markdown); secrets are __SECRET_n__.{masked}\n"
+        f"{text}{cut}\n</wiki_notes>"
+    )
 
 
 def build_run_viewer_session(

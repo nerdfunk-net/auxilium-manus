@@ -180,6 +180,7 @@ def test_the_shipped_files_load() -> None:
         "template_reference",
         "workflow_reference",
         "workflow_recipes",
+        "wiki_notes_template",
     ):
         text = kl.load_knowledge(name, local_dir=Path("/nonexistent/ai/knowledge"))
         assert text.strip()

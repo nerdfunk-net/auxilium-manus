@@ -164,7 +164,16 @@ _PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("auth-header", re.compile(r"\b(?:Bearer|Basic)[ \t]+(?P<s>[A-Za-z0-9._~+/=-]{8,})", _FLAGS)),
 )
 
-_TOKEN = re.compile(r"__SECRET_(\d+)__")
+_TOKEN = re.compile(r"__(?:SECRET|ADDR)_(\d+)__")
+
+# Network addresses (free text such as wiki notes). Bounded repetition only, so linear in the text.
+_OCTET = r"(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)"
+_ADDRESS_PATTERNS: tuple[re.Pattern[str], ...] = (
+    re.compile(rf"(?<![\w.])(?:{_OCTET}\.){{3}}{_OCTET}(?![\w]|\.\d)"),  # IPv4 (/len stays)
+    re.compile(r"\b[0-9A-Fa-f]{2}(?:[:-][0-9A-Fa-f]{2}){5}\b"),  # MAC aa:bb:cc:dd:ee:ff
+    re.compile(r"\b[0-9A-Fa-f]{4}(?:\.[0-9A-Fa-f]{4}){2}\b"),  # MAC aabb.ccdd.eeff
+    re.compile(r"(?<![\w:])(?:[0-9A-Fa-f]{0,4}:){2,7}[0-9A-Fa-f]{0,4}(?![\w:])"),  # IPv6
+)
 _UNMASK = re.compile(f"{_SENTINEL_OPEN}(\\d+){_SENTINEL_CLOSE}")
 
 
@@ -285,6 +294,42 @@ class Redactor:
         self._spent = 0
         # Exact values (longest first) replaced wherever they occur, see ``add_known_secrets``.
         self._known: list[str] = []
+        self._addr_token_by_value: dict[str, str] = {}
+
+    def _address_token(self, value: str) -> str:
+        token = self._addr_token_by_value.get(value)
+        if token is None:
+            token = f"__ADDR_{len(self._addr_token_by_value) + 1}__"
+            self._addr_token_by_value[value] = token
+            self._secret_by_token[token] = value
+        return token
+
+    def redact_addresses(self, text: str) -> str:
+        """Replace IPv4 / IPv6 / MAC addresses by restorable ``__ADDR_n__`` tokens.
+
+        For text whose addresses the user has not agreed to share (wiki notes). False positives
+        (a version number such as ``1.2.3.4``) are accepted; Jinja expressions are left alone.
+        """
+        self._spent += len(text)
+        if self._spent > self._max_chars:
+            raise RedactionBudgetExceeded("too much text to redact in one request")
+        masked, saved = _mask(text)
+
+        def replace(match: re.Match[str]) -> str:
+            value = match.group(0)
+            return self._address_token(value)
+
+        def replace_ipv6(match: re.Match[str]) -> str:
+            value = match.group(0)
+            # A colon group of digits is a clock time unless it has the shape of an IPv6 address.
+            if "::" not in value and value.count(":") != 7:
+                return value
+            return self._address_token(value)
+
+        for pattern in _ADDRESS_PATTERNS[:-1]:
+            masked = pattern.sub(replace, masked)
+        masked = _ADDRESS_PATTERNS[-1].sub(replace_ipv6, masked)
+        return _unmask(masked, saved)
 
     def _token_for(self, secret: str) -> str:
         token = self._token_by_secret.get(secret)
@@ -455,10 +500,25 @@ class Redactor:
         def put_back(match: re.Match[str]) -> str:
             token = match.group(0)
             if check_origin:
+                if token.startswith("__ADDR_"):
+                    # Address tokens come from wiki text only; they never belong in a canvas
+                    # field, so ``restore_data`` (canvas plans) refuses them everywhere.
+                    raise SecretRelocationError(token, key, scope)
                 self._check_origin(token, key, scope)
             return self._secret_by_token.get(token, token)
 
         return _TOKEN.sub(put_back, text)
+
+    def secret_values_in(self, text: str) -> set[str]:
+        """Secret values this redactor's patterns and known secrets find in ``text``."""
+        probe = self.fork(max_chars=len(text) + 1)
+        probe.redact(text)
+        return set(probe._token_by_secret)
+
+    @staticmethod
+    def has_unresolved_token(text: str) -> bool:
+        """A ``__SECRET_n__`` / ``__ADDR_n__`` token is still in ``text`` (after ``restore``)."""
+        return _TOKEN.search(text) is not None
 
     @staticmethod
     def data_contains_placeholder(data: Any) -> bool:

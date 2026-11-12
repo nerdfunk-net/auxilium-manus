@@ -143,6 +143,8 @@ class WorkflowCanvasContext(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     surface: Literal["workflow_editor"]
+    # The saved workflow (None while unsaved); its wiki notes are read on the server.
+    workflow_id: int | None = Field(default=None, ge=1)
     name: str = Field(default="", max_length=255)
     canvas_nodes: list[dict[str, Any]] = Field(default_factory=list, max_length=500)
     canvas_edges: list[dict[str, Any]] = Field(default_factory=list, max_length=1000)

@@ -10,6 +10,7 @@ import asyncio
 from typing import Any
 
 from core.database import SessionLocal
+from core.domain_exceptions import AccessDeniedError, NotFoundError
 from core.source_keys import SourceType, source_key_prefix
 from repositories.inventory_repository import InventoryRepository
 from repositories.settings_repository import SettingsRepository
@@ -18,6 +19,7 @@ from services.auth.rbac_service import RBACService
 from services.credentials.credentials_service import CredentialsService
 from services.git.repository_service import GitRepositoryService
 from services.plugin_registry.plugin_registry_service import PluginRegistryService
+from services.workflow.workflow_service import WorkflowService
 from services.workflow.workflow_validation_service import WorkflowValidationService
 
 SOURCE_TYPES: tuple[SourceType, ...] = (
@@ -97,3 +99,27 @@ class DbWorkflowValidator:
             return WorkflowValidationService(db, self._registry).validate(
                 nodes, edges, acting_user_id=self._user_id
             )
+
+
+class DbWorkflowNotesReader:
+    """Reads the saved wiki notes of a workflow as the calling user.
+
+    ``None`` means "the user may not read this workflow's wiki" (unknown id, a private workflow of
+    someone else, no ``workflows:read``). A readable workflow without notes gives ``""``, so a
+    missing wiki is never mistaken for a missing permission.
+    """
+
+    def __init__(self, user_id: int) -> None:
+        self._user_id = user_id
+
+    async def read_notes(self, workflow_id: int) -> str | None:
+        return await asyncio.to_thread(self.read_notes_sync, workflow_id)
+
+    def read_notes_sync(self, workflow_id: int) -> str | None:
+        with SessionLocal() as db:
+            if not RBACService(db).has_permission(self._user_id, "workflows", "read"):
+                return None
+            try:
+                return WorkflowService(db).get_notes(workflow_id, self._user_id) or ""
+            except NotFoundError, AccessDeniedError:
+                return None

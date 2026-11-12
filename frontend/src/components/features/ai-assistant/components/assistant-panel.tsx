@@ -34,6 +34,7 @@ import {
   type ReportOutlineProposal,
   type SectionTextProposal,
   type SavedConversation,
+  type WorkflowNotesProposal,
   type WorkflowProposal,
 } from "../types/ai-assistant";
 import {
@@ -50,6 +51,7 @@ import { QueryProposalCard } from "./query-proposal-card";
 import { ReportOutlineCard, SectionTextCard } from "./report-proposal-cards";
 import { WorkflowProposalCard } from "./workflow-proposal-card";
 import { TemplateProposalCard } from "./template-proposal-card";
+import { WorkflowNotesProposalCard } from "./workflow-notes-proposal-card";
 
 /** Where a template proposal is applied: the editor's unsaved buffer. */
 export interface TemplateProposalTarget {
@@ -61,6 +63,14 @@ export interface TemplateProposalTarget {
 export interface WorkflowProposalTarget {
   currentFingerprint: string;
   onApply: (proposal: WorkflowProposal) => void;
+}
+
+/** Where wiki notes are shown and saved (the open workflow's notes). */
+export interface WorkflowNotesTarget {
+  /** The saved notes right now. */
+  currentNotes: string;
+  /** Saves the notes as the user; true when saved (a failure is reported by the target). */
+  onApply: (proposal: WorkflowNotesProposal) => Promise<boolean>;
 }
 
 /** Where report drafts are applied: the report editor on the Reports tab. */
@@ -92,6 +102,7 @@ interface AssistantPanelProps {
   getContext?: () => AssistantContext | undefined;
   templateTarget?: TemplateProposalTarget;
   workflowTarget?: WorkflowProposalTarget;
+  notesTarget?: WorkflowNotesTarget;
   queryTarget?: QueryProposalTarget;
   reportTarget?: ReportProposalTarget;
   inventoryTarget?: InventoryProposalTarget;
@@ -219,6 +230,7 @@ export function AssistantPanel({
   getContext,
   templateTarget,
   workflowTarget,
+  notesTarget,
   queryTarget,
   reportTarget,
   inventoryTarget,
@@ -517,6 +529,19 @@ export function AssistantPanel({
               workflowTarget.onApply(message.proposal);
               setProposalState(message.id, "applied");
             }
+          }}
+          onReject={() => setProposalState(message.id, "rejected")}
+        />
+      )}
+      {message.proposal?.kind === "workflow_notes" && notesTarget && (
+        <WorkflowNotesProposalCard
+          proposal={message.proposal}
+          currentNotes={notesTarget.currentNotes}
+          onApply={async () => {
+            if (message.proposal?.kind !== "workflow_notes") return false;
+            const saved = await notesTarget.onApply(message.proposal);
+            if (saved) setProposalState(message.id, "applied");
+            return saved;
           }}
           onReject={() => setProposalState(message.id, "rejected")}
         />

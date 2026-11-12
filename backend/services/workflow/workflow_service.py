@@ -716,6 +716,10 @@ class WorkflowService:
             raise AccessDeniedError("Access denied")
         return self._apply_notes_update(workflow, notes)
 
+    def get_notes(self, workflow_id: int, user_id: int) -> str | None:
+        """The saved wiki notes of a workflow the user may read (private ones: creator only)."""
+        return self._get_readable_workflow(workflow_id, user_id).notes
+
     def update_notes_for_ai_session(
         self, workflow_id: int, notes: str | None, ai_user_id: int
     ) -> WorkflowNotesResponse:

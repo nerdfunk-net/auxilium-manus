@@ -216,11 +216,55 @@ describe("useAssistantChat", () => {
     });
   });
 
+  it("turns a workflow_notes proposal into a pending notes proposal", async () => {
+    fetchMock.mockResolvedValue(
+      sseResponse([
+        frame("proposal", {
+          kind: "workflow_notes",
+          workflow_id: 7,
+          summary: "add gotchas",
+          notes: "# A\nnew",
+          base_notes: "# A",
+          warnings: ["w"],
+        }),
+        frame("done", {}),
+      ]),
+    );
+    const { result } = renderHook(() => useAssistantChat({ sessionKey: KEY }));
+
+    await send(result, "document it");
+
+    expect(result.current.messages[1].proposal).toEqual({
+      kind: "workflow_notes",
+      workflowId: 7,
+      summary: "add gotchas",
+      notes: "# A\nnew",
+      baseNotes: "# A",
+      warnings: ["w"],
+      state: "pending",
+    });
+  });
+
+  it("ignores a workflow_notes proposal without notes or workflow id", async () => {
+    fetchMock.mockResolvedValue(
+      sseResponse([
+        frame("proposal", { kind: "workflow_notes", summary: "x" }),
+        frame("done", {}),
+      ]),
+    );
+    const { result } = renderHook(() => useAssistantChat({ sessionKey: KEY }));
+
+    await send(result, "document it");
+
+    expect(result.current.messages[1].proposal).toBeUndefined();
+  });
+
   it("fingerprints the canvas as it was when a workflow proposal was requested", async () => {
     const nodes = [{ id: "a", data: { kind: "k", title: "A" } }];
     const edges: Record<string, unknown>[] = [];
     const context: AssistantContext = {
       surface: "workflow_editor",
+      workflow_id: null,
       name: "w",
       canvas_nodes: nodes,
       canvas_edges: edges,

@@ -118,7 +118,11 @@ from services.ai_assistant.template_reader import DbTemplateReader
 from services.ai_assistant.token_once import ConfirmationStoreUnavailableError
 from services.ai_assistant.tools.base import Toolbox
 from services.ai_assistant.tools.config_backup_tools import HANDLE_KIND as CONFIG_BACKUP_KIND
-from services.ai_assistant.workflow_reader import DbReferenceReader, DbWorkflowValidator
+from services.ai_assistant.workflow_reader import (
+    DbReferenceReader,
+    DbWorkflowNotesReader,
+    DbWorkflowValidator,
+)
 from services.ai_assistant.workflow_run_exec import WorkflowRunExecutor
 from services.ai_assistant.workflow_run_token import InvalidRunTokenError
 from services.auth.rbac_service import RBACService
@@ -186,6 +190,7 @@ def _session_for(
     can_read_client_data: bool = False,
     can_read_runs: bool = False,
     can_start_released: bool = False,
+    workflow_notes: str | None = None,
 ) -> AssistantSession:
     sharing = config.sharing
     # S5-04: with run / device content shared, scrub the exact secrets the user can resolve.
@@ -287,6 +292,12 @@ def _session_for(
             validator=DbWorkflowValidator(user.id, registry),
             may_propose=can_write_workflows,
             glossary=DbGlossaryReader("workflow_step"),
+            notes_reader=DbWorkflowNotesReader(user.id),
+            saved_notes=workflow_notes,
+            sharing=sharing,
+            # ``None`` (values not loadable) withholds the wiki: pattern redaction alone is not
+            # enough for free text.
+            known_secrets=try_load_visible_secret_values(user.id),
         )
     return build_template_editor_session(
         user_id=user.id,
@@ -410,6 +421,7 @@ def chat(
     can_read_client_data = False
     can_read_runs = False
     can_start_released = False
+    workflow_notes: str | None = None
     try:
         config: AiRuntimeConfig = service.require_runtime_config(current_user.id)
         if isinstance(body.context, InventoryContext):
@@ -451,6 +463,11 @@ def chat(
                     },
                 )
             can_write_workflows = rbac.has_permission(current_user.id, "workflows", "write")
+            if body.context.workflow_id is not None:
+                # The wiki is always read for the prompt; the reader applies visibility rules.
+                workflow_notes = DbWorkflowNotesReader(current_user.id).read_notes_sync(
+                    body.context.workflow_id
+                )  # "" = no notes yet, None = not readable
     except AiAssistantError as exc:
         _raise_http(exc)
     finally:
@@ -479,6 +496,7 @@ def chat(
                 can_read_client_data=can_read_client_data,
                 can_read_runs=can_read_runs,
                 can_start_released=can_start_released,
+                workflow_notes=workflow_notes,
             )
         except RedactionBudgetExceeded as exc:
             raise HTTPException(

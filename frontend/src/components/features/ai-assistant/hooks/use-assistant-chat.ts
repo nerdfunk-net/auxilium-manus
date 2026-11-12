@@ -58,6 +58,9 @@ interface ProposalPayload {
   kind?: string;
   parser?: string;
   content?: string;
+  notes?: string;
+  base_notes?: string;
+  workflow_id?: number;
   summary?: string;
   warnings?: unknown[];
   canvas_nodes?: Record<string, unknown>[];
@@ -442,6 +445,24 @@ export function useAssistantChat({
                     summary: proposal.summary ?? "",
                     warnings: (proposal.warnings ?? []) as string[],
                     baseContent,
+                    state: "pending",
+                  },
+                }));
+              } else if (
+                proposal.kind === "workflow_notes" &&
+                typeof proposal.notes === "string" &&
+                typeof proposal.workflow_id === "number"
+              ) {
+                const { notes, workflow_id } = proposal;
+                patchAssistant(assistantId, (m) => ({
+                  ...m,
+                  proposal: {
+                    kind: "workflow_notes",
+                    workflowId: workflow_id,
+                    summary: proposal.summary ?? "",
+                    notes,
+                    baseNotes: proposal.base_notes ?? "",
+                    warnings: (proposal.warnings ?? []) as string[],
                     state: "pending",
                   },
                 }));
