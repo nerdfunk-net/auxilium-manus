@@ -13,6 +13,7 @@ import {
 } from "./batfish-result-panel";
 import { DebugLogsPanel, extractDebugLogs } from "./debug-logs-panel";
 import { DevicesSection } from "./devices-section";
+import { DiscoveryPanel, extractDiscovery } from "./discovery-panel";
 import { LogAttributesPanel, extractLogAttributes } from "./log-attributes-panel";
 import { MetadataPanel, metadataWithoutDebugPanels } from "./metadata-panel";
 
@@ -40,6 +41,7 @@ export function OutcomeContextView({
     () => extractLogAttributes(context.metadata),
     [context.metadata],
   );
+  const discovery = useMemo(() => extractDiscovery(context.metadata), [context.metadata]);
   const remainingMetadata = useMemo(
     () => metadataWithoutDebugPanels(context.metadata),
     [context.metadata],
@@ -76,6 +78,8 @@ export function OutcomeContextView({
           ) : null}
         </div>
       ) : null}
+
+      <DiscoveryPanel entries={discovery} />
 
       <DevicesSection
         devices={devices}

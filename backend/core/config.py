@@ -137,6 +137,7 @@ class Settings:
     netmiko_keepalive_seconds: int
     oidc_redirect_uri_allowlist: list[str]
     allow_netmiko_arbitrary_hosts: bool
+    discover_network_follow_enabled: bool
     allowed_file_extensions: list[str]
     vault_enabled: bool
     vault_addr: str
@@ -316,6 +317,12 @@ class Settings:
         self.oidc_redirect_uri_allowlist = self._get_csv("OIDC_REDIRECT_URI_ALLOWLIST", "")
         self.allow_netmiko_arbitrary_hosts = self._get_bool(
             "ALLOW_NETMIKO_ARBITRARY_HOSTS", self.environment == "development"
+        )
+        # discover-network may log into devices that CDP reports (not from the inventory), inside
+        # the prefixes the workflow author lists. Unlike the preview switch above this one is
+        # allowed in production; it defaults on in development only (doc/WORKFLOW-STEPS.md).
+        self.discover_network_follow_enabled = self._get_bool(
+            "DISCOVER_NETWORK_FOLLOW_ENABLED", self.environment == "development"
         )
         self.allowed_file_extensions = self._get_csv(
             "ALLOWED_FILE_EXTENSIONS", DEFAULT_ALLOWED_FILE_EXTENSIONS

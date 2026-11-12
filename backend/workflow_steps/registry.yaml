@@ -6366,6 +6366,151 @@ plugins:
             - 10
             - 20
 
+  - id: discover-network
+    name: Discover Network
+    overview: Walk across the network through CDP neighbours and list every device found.
+    description: >
+      Start at the devices that arrive in the workflow (the seeds), log into each over SSH,
+      read "show cdp neighbors detail", log out, and add the neighbours to a list of known
+      devices. With follow_neighbors on, the next known device that was not visited yet is
+      visited the same way, level by level, until nothing new is left or a limit is reached
+      (max_devices, max_depth). Only Cisco IOS, IOS-XE and NX-OS devices are logged into. The
+      device type comes from the CDP platform string; if that is not usable (a virtual switch
+      reports "Linux"), from the software line of the same detail output ("Cisco IOS Software
+      [IOSXE], Linux Software ...").
+      A neighbour is followed only when it reports a management IPv4 address, advertises a
+      router or switch capability (follow_only_infrastructure), lies inside one of the
+      permitted_prefixes (CIDR) and passes the host policy (never loopback, link-local or
+      multicast). Following neighbours also needs the operator switch
+      DISCOVER_NETWORK_FOLLOW_ENABLED (on by default in development only), because the devices
+      found are not from the inventory and are offered the step's SSH credential: CDP is not
+      authenticated, so use narrow prefixes and a credential that may only read.
+      Everything else is only listed, with a reason: follow_disabled, no_management_ip,
+      not_infrastructure, out_of_scope, unsupported_platform, limit_reached, unreachable or
+      login_failed. A dead neighbour never fails the step; a seed that cannot be visited
+      (unreachable, login_failed, unsupported_platform, cdp_not_enabled, cdp_not_supported,
+      cdp_no_output) leaves through the failure outcome, with the crawl record on both exits. The success outcome carries the seeds and every device that was logged
+      into (as new devices with their management IP as primary_ip4, so a following
+      Exists in Nautobot step with the primary_ip strategy can tell which ones Nautobot does
+      not know). Each device has parsed.<node id>.discovery (depth, discovered_from, cdp_status,
+      neighbors); the step-level result is metadata["<node id>.discovery"] (visited,
+      seen_not_visited, edges, limits_hit; bounded, truncated says when it was cut).
+      Fan-out note: a walk is one connected crawl. With fan-out on the seeds every child
+      walks alone and visits shared devices again; use one seed or no fan-out before this step.
+    artifact_type: persistent_artifact
+    directory: discover_network
+    enabled: true
+    requires: [identity]
+    produces: [parsed]
+    outcomes:
+      - name: success
+      - name: failure
+    metadata:
+      configuration_input:
+        - name: credential_reference
+          description: >
+            Credential vault name to use when credential_source is "fixed" (the default). One
+            credential is used for every device of the walk.
+          data_type: credential_ref
+          required: false
+        - name: credential_source
+          description: >
+            "fixed" (default) uses credential_reference. "run_param" uses the credential
+            vault name held in the run parameter named by credential_param.
+          data_type: string
+          required: false
+          default: fixed
+          example: run_param
+        - name: credential_param
+          description: >
+            Name of the run parameter (workflow static_attribute) carrying the credential
+            vault name, used only when credential_source is "run_param".
+          data_type: string
+          required: false
+          example: ssh_credential
+        - name: follow_neighbors
+          description: >
+            Log into the devices found through CDP (and follow their neighbours in turn).
+            Off by default: only the seeds are visited and their neighbours are listed.
+            Needs permitted_prefixes.
+          data_type: boolean
+          required: false
+          default: false
+        - name: permitted_prefixes
+          description: >
+            IPv4 prefixes in CIDR form (one per entry, for example 10.1.0.0/16) that a
+            discovered device must lie in to be logged into. Required when follow_neighbors is
+            on. At most 50 entries, each /8 or more specific; loopback, link-local, multicast
+            and reserved ranges are refused.
+          data_type: string_list
+          required: false
+          default: []
+          example:
+            - 10.1.0.0/16
+        - name: follow_only_infrastructure
+          description: >
+            Follow only neighbours that advertise a router or switch capability, so phones,
+            access points and hosts are listed but not logged into.
+          data_type: boolean
+          required: false
+          default: true
+        - name: max_devices
+          description: >
+            Most devices to log into, seeds included (1-500). Neighbours beyond it are listed
+            as limit_reached.
+          data_type: integer
+          required: false
+          default: 50
+          example: 100
+        - name: max_depth
+          description: >
+            Most hops from a seed to follow (1-20; seeds are depth 0). Neighbours further away
+            are listed as limit_reached.
+          data_type: integer
+          required: false
+          default: 5
+          example: 3
+        - name: concurrency
+          description: >
+            Devices of one level logged into at the same time (1-20).
+          data_type: integer
+          required: false
+          default: 5
+          example: 5
+        - name: network_driver_override
+          description: >
+            Netmiko device type (cisco_ios, cisco_xe or cisco_nxos) for seeds whose platform
+            is unknown and for discovered devices whose CDP platform string is empty.
+          data_type: string
+          required: false
+          example: cisco_xe
+        - name: read_timeout
+          description: >
+            Seconds to wait for each command's response before failing with a Netmiko
+            "Pattern not detected" timeout.
+          data_type: integer
+          required: false
+          default: 60
+          example: 120
+        - name: dry_run
+          description: >
+            Show the seeds, the command and the scope that would be used, without connecting
+            to a device.
+          data_type: boolean
+          required: false
+          default: false
+        - name: retry_backoff_seconds
+          description: >
+            Per-device SSH connect retry schedule for an unstable link: the seconds to wait
+            before each retry, e.g. [10, 20, 30]. Never applied to an authentication failure.
+            Empty (default) means no retry. Up to 5 entries, 1-600s each.
+          data_type: integer_list
+          required: false
+          default: []
+          example:
+            - 10
+            - 20
+
   - id: get-from-db
     name: Get from DB
     overview: Read data stored by Store in DB back into a device attribute.

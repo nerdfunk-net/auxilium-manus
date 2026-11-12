@@ -24,6 +24,43 @@ export interface LogAttributesPayload {
   content?: string;
 }
 
+/** One device the discover-network step logged into (metadata["<node id>.discovery"].visited). */
+export interface DiscoveryVisitedEntry {
+  name: string;
+  ip: string;
+  depth: number;
+  discovered_from: string | null;
+  seed: boolean;
+  cdp_status: string;
+}
+
+/** A neighbour that was reported but not logged into, and why (a closed reason code). */
+export interface DiscoverySeenEntry {
+  name: string;
+  ip: string | null;
+  platform: string;
+  reason: string;
+  seen_from: string;
+  depth: number;
+}
+
+export interface DiscoveryEdgeEntry {
+  from: string;
+  local_port: string;
+  to: string;
+  remote_port: string;
+  to_ip: string | null;
+}
+
+/** The step-level record of discover-network (backend workflow_steps/discover_network/results.py). */
+export interface DiscoveryPayload {
+  visited: DiscoveryVisitedEntry[];
+  seen_not_visited: DiscoverySeenEntry[];
+  edges: DiscoveryEdgeEntry[];
+  limits_hit: string[];
+  truncated: boolean;
+}
+
 export interface ParsedTemplateEntry {
   artifact_ref: ArtifactRef;
   step_node_id: string;

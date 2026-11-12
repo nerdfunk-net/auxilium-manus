@@ -105,6 +105,8 @@ x-manus-common-env: &manus-common-env
   # Ask the Net DNS lookups (doc/AI_TOOL_CHAIN.md section 50); name lookups only under the listed suffixes.
   AI_DNS_LOOKUP_ENABLED: "${AI_DNS_LOOKUP_ENABLED:-false}"
   AI_DNS_ALLOWED_SUFFIXES: "${AI_DNS_ALLOWED_SUFFIXES:-}"
+  # Discover Network step may log into devices found through CDP (doc/WORKFLOW-STEPS.md); off unless turned on.
+  DISCOVER_NETWORK_FOLLOW_ENABLED: "${DISCOVER_NETWORK_FOLLOW_ENABLED:-false}"
 
   # Retention (scripts/purge_retention.py); 0 keeps everything where a day count applies
   AI_CONVERSATION_RETENTION_DAYS: "${AI_CONVERSATION_RETENTION_DAYS:-90}"

@@ -50,6 +50,7 @@ from workflow_steps.config_to_attributes.executor import execute as config_to_at
 from workflow_steps.configure_replace_config.executor import execute as configure_replace_config
 from workflow_steps.decrypt_attribute.executor import execute as decrypt_attribute
 from workflow_steps.deploy_rendered_template.executor import execute as deploy_rendered_template
+from workflow_steps.discover_network.executor import execute as discover_network
 from workflow_steps.encrypt_attribute.executor import execute as encrypt_attribute
 from workflow_steps.exists_in_nautobot.executor import execute as exists_in_nautobot
 from workflow_steps.fan_in.executor import execute as fan_in
@@ -216,6 +217,7 @@ STEP_REGISTRY: dict[str, StepExecutor] = {
     "store-in-db": store_in_db,
     "store-for-report": store_for_report,
     "collect-client-data": collect_client_data,
+    "discover-network": discover_network,
     "get-from-db": get_from_db,
     "open-change-request": open_change_request,
     "git-clone": git_clone,

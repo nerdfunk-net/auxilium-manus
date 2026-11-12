@@ -2,6 +2,7 @@
 
 import { isBatfishMetadataKey } from "./batfish-result-panel";
 import { DEBUG_LOGS_METADATA_SUFFIX } from "./debug-logs-panel";
+import { isDiscoveryMetadataKey } from "./discovery-panel";
 import { LOG_ATTRIBUTES_METADATA_SUFFIX } from "./log-attributes-panel";
 
 export function metadataWithoutDebugPanels(metadata: Record<string, unknown>): Record<string, unknown> {
@@ -10,7 +11,8 @@ export function metadataWithoutDebugPanels(metadata: Record<string, unknown>): R
       ([key, value]) =>
         !key.endsWith(DEBUG_LOGS_METADATA_SUFFIX) &&
         !key.endsWith(LOG_ATTRIBUTES_METADATA_SUFFIX) &&
-        !isBatfishMetadataKey(key, value),
+        !isBatfishMetadataKey(key, value) &&
+        !isDiscoveryMetadataKey(key, value),
     ),
   );
 }

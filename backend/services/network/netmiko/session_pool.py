@@ -234,35 +234,64 @@ class DeviceSessionPool:
                 self._created_total += 1
             return entry
 
+    async def _disconnect_entry(self, entry: PooledSession, *, reason: str) -> None:
+        """Disconnect one pooled session after any operation still running on it. Never raises."""
+        loop = asyncio.get_running_loop()
+        inflight = entry.inflight
+        if inflight is not None and not inflight.done():
+            # A cancelled operation may still be running on its thread: let it finish
+            # before the session is disconnected underneath it.
+            with contextlib.suppress(TimeoutError, asyncio.CancelledError, Exception):
+                await asyncio.wait_for(asyncio.shield(inflight), timeout=_INFLIGHT_GRACE_SECONDS)
+            if not inflight.done():
+                logger.warning(
+                    "Disconnecting session with operation still running key=%s", entry.key
+                )
+        async with entry.lock:
+            try:
+                await loop.run_in_executor(self._executor, entry.session.disconnect)
+            except Exception:
+                logger.warning(
+                    "Failed to disconnect session during %s key=%s",
+                    reason,
+                    entry.key,
+                    exc_info=True,
+                )
+
     async def suspend(self) -> None:
         """Disconnect every live session but keep the pool usable afterwards.
 
         Called before durable waits. Never raises — a disconnect failure is
         logged and the next acquire will reconnect anyway.
         """
-        loop = asyncio.get_running_loop()
         for entry in list(self._sessions.values()):
-            inflight = entry.inflight
-            if inflight is not None and not inflight.done():
-                # A cancelled operation may still be running on its thread: let it finish
-                # before the session is disconnected underneath it.
-                with contextlib.suppress(TimeoutError, asyncio.CancelledError, Exception):
-                    await asyncio.wait_for(
-                        asyncio.shield(inflight), timeout=_INFLIGHT_GRACE_SECONDS
-                    )
-                if not inflight.done():
-                    logger.warning(
-                        "Disconnecting session with operation still running key=%s", entry.key
-                    )
-            async with entry.lock:
-                try:
-                    await loop.run_in_executor(self._executor, entry.session.disconnect)
-                except Exception:
-                    logger.warning(
-                        "Failed to disconnect session during suspend key=%s",
-                        entry.key,
-                        exc_info=True,
-                    )
+            await self._disconnect_entry(entry, reason="suspend")
+
+    async def close_host(self, host: str) -> None:
+        """Disconnect and forget every pooled session of one host. Never raises.
+
+        For a step that walks many devices one after the other (``discover-network``): each
+        device is logged out when its visit is done instead of holding a socket until the
+        segment ends. A later use of the same host simply connects again.
+
+        The entries stay registered until the disconnect has finished, so a second use of the
+        host waits on the same session lock instead of opening another login next to the one
+        that is closing. The close is shielded: a caller that is cancelled (a cancelled visit
+        runs this from its ``finally``) does not stop the disconnect, which finishes on its own.
+        """
+        async with self._pool_lock:
+            entries = [entry for key, entry in self._sessions.items() if key[0] == host]
+        if entries:
+            await asyncio.shield(self._close_entries(entries))
+
+    async def _close_entries(self, entries: list[PooledSession]) -> None:
+        for entry in entries:
+            await self._disconnect_entry(entry, reason="close_host")
+        async with self._pool_lock:
+            for entry in entries:
+                # Forget it unless another caller connected it again in the meantime.
+                if self._sessions.get(entry.key) is entry and not entry.session.is_alive():
+                    del self._sessions[entry.key]
 
     async def close(self) -> None:
         """Disconnect everything and shut down the thread executor. Idempotent

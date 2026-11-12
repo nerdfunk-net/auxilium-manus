@@ -3456,6 +3456,11 @@ new section "Neighbours (layer 2 and layer 3)" with the four tools, their requir
 device-commands section now mentions parsing (shown as a table) and `parse_command_output`. Keep that file in step with
 the tool list when a tool is added.
 
+**Walking the whole network.** The tools above read one device per click. A crawl that follows CDP from a seed across
+every reachable device is the workflow step `discover-network` (`doc/WORKFLOW-STEPS.md` "Discovering the network"): it
+runs in the worker, bounded by user-entered CIDR prefixes, and can be released for Ask the Net like any workflow (§16).
+A playbook around that released workflow is not written yet.
+
 **Review notes for the human reviewer.** `device_tools.py` was refactored (the proposal builder is now
 `make_device_proposal`, behaviour unchanged, its tests pass). Existing tests that pin the tool set were updated on
 purpose (`test_ai_general_surface`, `test_ai_hardening` comment, `test_ai_playbook_tools`): the proposal tools are now

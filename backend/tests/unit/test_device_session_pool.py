@@ -162,6 +162,115 @@ class DeviceSessionPoolTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(entry.session.connect_calls, 2)
             await pool.close()
 
+    async def test_close_host_disconnects_and_forgets_only_that_host(self) -> None:
+        with _patch_session_cls():
+            pool = DeviceSessionPool(max_workers=2)
+            for host, credential_reference in (
+                ("10.0.0.1", "admin-cred"),
+                ("10.0.0.1", "other-cred"),
+                ("10.0.0.2", "admin-cred"),
+            ):
+                await pool.run_on_device(
+                    host=host,
+                    device_type="cisco_ios",
+                    credential_reference=credential_reference,
+                    username="admin",
+                    password="secret",
+                    op=lambda session: None,
+                )
+            by_host = {}
+            for entry in pool._sessions.values():
+                by_host.setdefault(entry.key[0], []).append(entry.session)
+
+            await pool.close_host("10.0.0.1")
+
+            self.assertEqual([s.connected for s in by_host["10.0.0.1"]], [False, False])
+            self.assertEqual([s.disconnect_calls for s in by_host["10.0.0.1"]], [1, 1])
+            self.assertTrue(by_host["10.0.0.2"][0].connected)
+            self.assertEqual({key[0] for key in pool._sessions}, {"10.0.0.2"})
+            await pool.close_host("10.0.0.1")  # nothing left: a no-op
+            await pool.close()
+
+    async def test_close_host_never_raises_and_a_later_use_reconnects(self) -> None:
+        with _patch_session_cls():
+            pool = DeviceSessionPool(max_workers=2)
+            kwargs = {
+                "host": "10.0.0.1",
+                "device_type": "cisco_ios",
+                "credential_reference": "admin-cred",
+                "username": "admin",
+                "password": "secret",
+            }
+            await pool.run_on_device(**kwargs, op=lambda session: None)
+            next(iter(pool._sessions.values())).session.disconnect_error = RuntimeError("boom")
+
+            await pool.close_host("10.0.0.1")  # must not raise
+
+            await pool.run_on_device(**kwargs, op=lambda session: None)
+            self.assertEqual(len(FakeSession.instances), 2)
+            self.assertEqual(FakeSession.instances[1].connect_calls, 1)
+            await pool.close()
+
+    async def test_close_host_still_disconnects_when_the_caller_is_cancelled(self) -> None:
+        # A cancelled visit runs close_host from its ``finally``; a cancel that lands while it
+        # waits for the running operation must not leave the session connected.
+        import threading
+
+        release = threading.Event()
+        with _patch_session_cls():
+            pool = DeviceSessionPool(max_workers=2)
+            kwargs = {
+                "host": "10.0.0.1",
+                "device_type": "cisco_ios",
+                "credential_reference": "admin-cred",
+                "username": "admin",
+                "password": "secret",
+            }
+            op = asyncio.ensure_future(
+                pool.run_on_device(**kwargs, op=lambda session: release.wait(5))
+            )
+            await asyncio.sleep(0.05)  # the operation is running on its thread
+            op.cancel()
+            with self.assertRaises(asyncio.CancelledError):
+                await op
+            session = FakeSession.instances[0]
+
+            closing = asyncio.ensure_future(pool.close_host("10.0.0.1"))
+            await asyncio.sleep(0.05)
+            closing.cancel()  # the visit is cancelled again while close_host waits
+            release.set()
+            with self.assertRaises(asyncio.CancelledError):
+                await closing
+            await asyncio.sleep(0.2)  # the shielded close finishes on its own
+
+            self.assertFalse(session.connected)
+            self.assertEqual(session.disconnect_calls, 1)
+            self.assertEqual(pool._sessions, {})
+            await pool.close()
+
+    async def test_close_host_keeps_the_entry_until_the_session_is_down(self) -> None:
+        # While the disconnect runs, a second use of the host must wait on the same entry
+        # instead of opening a second login next to the one that is closing.
+        with _patch_session_cls():
+            pool = DeviceSessionPool(max_workers=2)
+            kwargs = {
+                "host": "10.0.0.1",
+                "device_type": "cisco_ios",
+                "credential_reference": "admin-cred",
+                "username": "admin",
+                "password": "secret",
+            }
+            await pool.run_on_device(**kwargs, op=lambda session: None)
+            entry = next(iter(pool._sessions.values()))
+            await entry.lock.acquire()  # the disconnect cannot start yet
+            closing = asyncio.ensure_future(pool.close_host("10.0.0.1"))
+            await asyncio.sleep(0.05)
+            self.assertIn(entry.key, pool._sessions)  # still known while it is closing
+            entry.lock.release()
+            await closing
+            self.assertEqual(pool._sessions, {})
+            await pool.close()
+
     async def test_close_is_idempotent_and_shuts_executor(self) -> None:
         with _patch_session_cls():
             pool = DeviceSessionPool(max_workers=2)

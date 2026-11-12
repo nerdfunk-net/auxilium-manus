@@ -1712,6 +1712,59 @@ case: back up the running config before a change.
 - **Result.** Each device gets `attribute_bags[bag_name]` (default `child_run`) =
   `{run_id, workflow_id, status, waited_seconds}`.
 
+### Discovering the network: `discover-network`
+
+`discover-network` (display name "Discover Network", `artifact_type: persistent_artifact`, outcomes `success` /
+`failure`) walks across the network through CDP. The devices that arrive in the context are the **seeds**. Each
+device is logged into over a pooled SSH session, `show cdp neighbors detail` is read (TextFSM), and the session is
+closed again (`DeviceSessionPool.close_host`) before the next level starts. Code: `backend/workflow_steps/discover_network/`
+(`crawler.py` is the pure breadth-first walk, `executor.py` wires SSH, credentials and outcomes).
+
+- **Following is opt-in.** `follow_neighbors` (default off) logs into the devices CDP reports; off, only the seeds are
+  visited and the neighbours are listed. It needs `permitted_prefixes`: IPv4 CIDR, at most 50, each /8 or more
+  specific, never overlapping loopback, link-local, multicast or reserved space (`scope.parse_prefixes`).
+  A neighbour is queued only if it has a management IPv4 address, advertises router or switch
+  (`follow_only_infrastructure`, default on), lies in a permitted prefix, passes `core.safe_hosts.validate_device_host`,
+  is Cisco IOS / IOS-XE / NX-OS (guessed from the model in the CDP platform string, with or without the word "cisco"; if that is not usable, from
+  the software line of the detail output, so a virtual switch that reports `Platform: Linux` but
+  `Cisco IOS Software [IOSXE], Linux Software (...)` is logged into as IOS-XE; IOS-XR is never guessed;
+  `network_driver_override` only when both are empty) and `max_devices` (default 50, seeds included) / `max_depth`
+  (default 5) allow it. The operator switch `DISCOVER_NETWORK_FOLLOW_ENABLED` (default on in development only, allowed
+  in production) is also required, checked before any login (`scope.ensure_following_allowed`): the devices found are
+  not from the inventory. It is deliberately not `ALLOW_NETMIKO_ARBITRARY_HOSTS`: startup refuses that one outside
+  development. A followed host is checked against the prefixes and `validate_device_host` once more right before the
+  login (`executor._make_visit`). **Residual risk:** CDP is unauthenticated, so a device inside the prefixes (or a
+  spoofed advertisement) can name any management address in them and is then offered the step's SSH credential. Keep
+  the prefixes narrow and use a read-only credential.
+- **Identity** is the management IP. A name recognises a device only when there is no IP to compare: a seed given by
+  host name (its SSH host name decides, the display name only on an exact match) and a neighbour that reported no
+  address. Two qualified names that differ (`core1.a.example`, `core1.b.example`) are two devices. A neighbour first seen
+  without an address and later with one is followed, and the old `no_management_ip` row is dropped. Names, platform
+  strings and ports from CDP are attacker-influenced text: control characters removed, cut to 100 characters, never used
+  to build a command or a path.
+- **Closed reasons** a neighbour was not logged into (`seen_not_visited[].reason`): `follow_disabled`,
+  `no_management_ip`, `not_infrastructure`, `out_of_scope`, `unsupported_platform`, `limit_reached`, `unreachable`,
+  `login_failed`.
+- **Outcomes.** A neighbour that cannot be reached never fails the step; it is listed with its reason. A device that is
+  reached but has CDP off (or no table) is still *visited* (`cdp_status` says why). A **seed** that cannot be visited
+  leaves through `failure` (`unreachable`, `login_failed`, `unsupported_platform`, and for a reached seed without a
+  CDP table `cdp_not_enabled`, `cdp_not_supported` or `cdp_no_output`; its `parsed.<node id>.discovery.cdp_status` is
+  kept, and the crawl record is on both exits). A seed given twice (same address) is visited once; the second passes
+  through on `success`.
+- **Result.** `success` carries the seeds and every device that was logged into; discovered devices are new
+  `DeviceContext`s (`source: "discover-network"`, `primary_ip4` = the address used, `network_driver` = the guessed type).
+  Each has `parsed.<node id>.discovery` (`depth`, `discovered_from`, `cdp_status`, `neighbors`); the step-level lists
+  (`visited`, `seen_not_visited`, `edges`, `limits_hit`, `truncated`) are in `metadata["<node id>.discovery"]`, bounded
+  (500 seen, 1000 edges, 200 neighbours per device). The run page shows the step-level record as a "Network discovery"
+  panel in the step result (`step-result-viewer/discovery-panel.tsx`: visited devices, seen-not-visited with the reason,
+  links, a warning for `limits_hit` / `truncated`) and hides it from the raw Metadata list. To find devices Nautobot does not know, wire
+  `exists-in-nautobot` (strategy `primary_ip`) behind it.
+- **Fan-out.** A walk is one connected crawl: with fan-out on the seeds every child walks alone and revisits shared
+  devices. Use one seed or no fan-out before this step.
+- Not built: LLDP fallback, non-Cisco platforms, per-device credentials, stored history of walks. Not run against real
+  devices yet (unit tests with a scripted Netmiko only): the CDP detail fields per platform and the platform-string
+  mapping are from sample output and general knowledge.
+
 ### Change requests (CI/CD pipeline)
 
 `open-change-request` is a persistent-artifact step that ends a *stage run*: it commits

@@ -6,6 +6,7 @@ import {
   Camera,
   CheckCircle2,
   Combine,
+  Compass,
   ClipboardList,
   Database,
   Dices,
@@ -262,6 +263,7 @@ const nodeIconsByKind: Record<string, LucideIcon> = {
   "store-in-db": Database,
   "store-for-report": ClipboardList,
   "collect-client-data": Radar,
+  "discover-network": Compass,
   "get-from-db": Database,
 };
 
