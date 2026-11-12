@@ -610,6 +610,15 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
           "What was the result of the run I just started?",
         ],
       },
+      {
+        name: "walk-the-network (playbook)",
+        description:
+          "Walks through the network from one seed device by following CDP neighbours and compares the devices it found with Nautobot. A released workflow does the walk with your own SSH credential, inside the prefixes its releaser allowed; you confirm one card. The result lists the devices that were logged in to, the neighbours that were seen but not visited (with the reason) and the devices Nautobot does not know. Reading it needs the inventory, addresses and run content opt-ins.",
+        questions: [
+          "Walk through the network starting at core1.",
+          "Which devices reachable from core1 are not in Nautobot?",
+        ],
+      },
     ],
   },
   {

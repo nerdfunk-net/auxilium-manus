@@ -333,3 +333,58 @@ def test_a_long_list_says_it_was_cut_off() -> None:
 @pytest.mark.parametrize("name", ["list_released_workflows", "describe_workflow", "get_run_result"])
 def test_read_tools_are_registered(name: str) -> None:
     assert name in {t.name for t in build_released_workflow_tools()}
+
+
+class _DiscoverRuns(FakeRuns):
+    """A finished run whose designated step is a Discover Network / Exists in Nautobot step."""
+
+    async def get_run(self, run_id):
+        run = await super().get_run(run_id)
+        record = {
+            "visited": [
+                {"name": "core1", "ip": "10.1.0.1", "depth": 0, "discovered_from": None,
+                 "seed": True, "cdp_status": "ok"}
+            ],
+            "seen_not_visited": [
+                {"name": "far", "ip": "172.16.0.9", "platform": "", "reason": "out_of_scope",
+                 "seen_from": "core1", "depth": 1}
+            ],
+            "edges": [],
+            "limits_hit": [],
+            "truncated": False,
+        }  # fmt: skip
+        envelope = {
+            "devices": {"d1": {"id": "d1", "name": "core1", "status": "ok"}},
+            "metadata": {"disc.discovery": record},
+        }
+        step = {
+            "step_node_id": "disc",
+            "step_type": "exists-in-nautobot",
+            "step_name": "Exists in Nautobot",
+            "status": "success",
+            "output": {"outcomes": {"exists": envelope, "non_existing": {"devices": {}}}},
+        }
+        return {**run, "ai_result_node_id": "disc", "step_results": [step]}
+
+
+def _discover_box(*, addresses: bool) -> Toolbox:
+    sharing = SharingPolicy(inventory=True, addresses=addresses, content=True)
+    runs = _DiscoverRuns()
+    extras: dict[str, Any] = {RELEASED_WORKFLOWS_KEY: FakeReleased()}
+    extras.update(run_viewer_extras(runs, sharing, can_list_runs=True))
+    ctx = ToolContext(user_id=9, redactor=Redactor(), extras=extras, sharing=sharing)
+    return Toolbox(build_released_workflow_tools(), ctx)
+
+
+def test_result_carries_the_crawl_record_of_a_discover_step() -> None:
+    out = _call(_discover_box(addresses=True), "get_run_result", run_id=1)
+    view = json.loads(out.content)["discovery"]
+    assert [v["name"] for v in view["visited"]] == ["core1"]
+    assert view["seen_by_reason"] == {"out_of_scope": 1}
+
+
+def test_the_crawl_record_needs_the_addresses_switch_too() -> None:
+    out = _call(_discover_box(addresses=False), "get_run_result", run_id=1)
+    view = json.loads(out.content)["discovery"]
+    assert view["not_shared"] == "device_addresses"
+    assert "172.16.0.9" not in out.content

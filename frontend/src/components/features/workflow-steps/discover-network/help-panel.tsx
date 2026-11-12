@@ -54,7 +54,7 @@ export function DiscoverNetworkHelpPanel() {
           logged into. Discovered devices are new devices in the workflow with their management
           IP as <HelpCode>primary_ip4</HelpCode>. Wire an{" "}
           <HelpCode>Exists in Nautobot</HelpCode> step with the{" "}
-          <HelpCode>primary_ip</HelpCode> strategy behind it to find the devices Nautobot does
+          <HelpCode>interface_ip</HelpCode> strategy (any interface address; a CDP management address is often a loopback) behind it to find the devices Nautobot does
           not know. Each device has <HelpCode>parsed.&lt;node id&gt;.discovery</HelpCode>. On the
           run page, the step&apos;s result shows a <strong>Network discovery</strong> panel: the
           visited devices, the neighbours that were seen but not visited (with the reason), the

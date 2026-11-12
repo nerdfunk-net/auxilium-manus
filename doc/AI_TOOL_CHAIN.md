@@ -3459,7 +3459,7 @@ the tool list when a tool is added.
 **Walking the whole network.** The tools above read one device per click. A crawl that follows CDP from a seed across
 every reachable device is the workflow step `discover-network` (`doc/WORKFLOW-STEPS.md` "Discovering the network"): it
 runs in the worker, bounded by user-entered CIDR prefixes, and can be released for Ask the Net like any workflow (§16).
-A playbook around that released workflow is not written yet.
+The playbook around that released workflow is `walk-the-network` (§52).
 
 **Review notes for the human reviewer.** `device_tools.py` was refactored (the proposal builder is now
 `make_device_proposal`, behaviour unchanged, its tests pass). Existing tests that pin the tool set were updated on
@@ -3855,3 +3855,49 @@ model. The per-platform command syntax below is written from vendor documentatio
   and own SSH credential). A probe is an active action from the device: it sends packets, so the card shows the exact commands.
 * **Open:** a lab check of each family's syntax (above all IOS `traceroute ... ttl 1 30` and EOS / XR options); IPv6 (NX-OS needs
   `ping6`, IOS-XR and Junos differ); a playbook; a per-user rate bucket beyond the existing 2 open runs.
+
+## 52. Walking through the network: playbook `walk-the-network` (2026-11-12)
+
+Built after the step `discover-network` (`doc/WORKFLOW-STEPS.md` "Discovering the network"), **unit-tested only, not run
+with a real model or a real released workflow**. The loop is not a playbook: every device login needs a click (D2), one
+device per proposal, the chat keeps no state, and the single-device tools resolve hosts from Nautobot only (§29, §45). A
+workflow does the walk in the worker; the playbook starts it and explains the result.
+
+* **Flow.** `list_released_workflows` (pick the one that discovers the network through CDP) -> `describe_workflow` ->
+  tell the user what will happen (their own SSH credential is used on every device the walk may follow) ->
+  `propose_workflow_run` with the seed in `devices` (one card, the user's click starts it, §16) -> `get_run` ->
+  `get_run_result` -> report. Optional: `list_ip_addresses` for an address the workflow found but Nautobot did not match (the
+  workflow compares by the address it logged in to). No released workflow: the playbook says an administrator has to release
+  one and stops; it never substitutes single-device lookups.
+* **What the assistant cannot do.** Choose or widen the scope: the permitted prefixes, `max_devices`, `max_depth` and the
+  operator switch `DISCOVER_NETWORK_FOLLOW_ENABLED` are fixed by the workflow and the deployment. The credential is chosen by
+  the user on the card (§16.10). The seed is an inventory device name; a bare IPv4 only if the release allows addresses
+  outside the inventory (and `allow_netmiko_arbitrary_hosts` outside development, which production refuses: that part of §16.10
+  cannot work in production, as the first version of the step found out the hard way).
+* **Reading the result: `include=['discovery']`.** `get_step_result` (and so `get_run_result`, which now passes
+  `["parsed", "discovery"]`) returns, before the per-device lists, a bounded view of the crawl record the step wrote to its
+  outcome metadata (`<node id>.discovery`): `visited_total` and the first 50 `visited` (name, ip, depth, discovered_from, seed,
+  cdp_status), `seen_not_visited_total`, `seen_by_reason`, the first 50 `seen_not_visited` (name, ip, platform, reason,
+  seen_from), `links_total`, `limits_hit`, `truncated`, and a `note` when a list was cut. Before this the tool never read
+  outcome metadata, so the assistant could not have seen who was not visited. Gates: the record has device names, addresses
+  and text the devices reported, so it is shown only when the **inventory, addresses and content** opt-ins are all on
+  (otherwise the not-shared marker names the first missing one). Only a record of the right shape under a key ending in
+  `.discovery` is read (other metadata, such as log dumps, is never returned), every field is typed (a wrong type becomes
+  null), and the answer is redacted like every run result.
+* **Setting it up (administrator).** Build `Get from User` (device input, one device) -> `Discover Network`
+  (`credential_source: run_param`, `follow_neighbors`, the permitted prefixes, limits) -> `Exists in Nautobot`
+  (`strategy: interface_ip`). Release it (`workflows:release_ai`, P3) with the devices input, the credential input marked as chosen on
+  the card and **`Exists in Nautobot` as the designated result step**: its outcomes split the devices into known and unknown
+  and it carries the walk record in its metadata (checked in the executor: `{**context.metadata, ...}`). Do not fan out before the walk.
+  `workflow_recipes.md` has a recipe so the builder assistant can build it.
+* **Files.** `knowledge/playbooks/walk-the-network.md`; `run_tools.py` (`_discovery_view`, `MAX_DISCOVERY_ROWS`);
+  `released_workflow_tools.py` (`get_run_result`); `playbook_tools.py::known_general_tool_names` now includes the
+  released-workflow tools (a built-in playbook could not name them before); `RELEASED_WORKFLOWS_PROMPT` points to the playbook;
+  help page entry in `ask-the-net/constants/help-content.ts`. Tests: `test_ai_walk_the_network_playbook.py` (loads; every
+  reason code of `crawler.REASON_*` and every field the tool returns is named in the text, so the three cannot drift),
+  `test_ai_run_discovery.py`, `test_ai_released_workflow_tools.py`. `test_ai_playbook_tools.py` pins the set of `propose_*` tools; it
+  now includes `propose_workflow_run`.
+* **Not verified / open.** A real model following the playbook; a released walk workflow end to end (the card, the run, the
+  result); how large a record the model copes with (rows are capped at 50 per list, the stored record at 500 / 1000);
+  whether the designated step's 20-devices-per-outcome limit is enough (the tool says how many are not shown; ask for one
+  device with `get_step_result`).

@@ -34,6 +34,7 @@ MAX_DEVICES_LISTED = 20
 MAX_EVENTS_LISTED = 100
 MAX_ARTIFACT_CHARS = 8000
 MAX_FIELD_CHARS = 2000
+MAX_DISCOVERY_ROWS = 50
 TRUNCATION_NOTE = "…[truncated; the output is longer than shown]"
 
 
@@ -105,8 +106,12 @@ class StepResultInput(RunRef):
     device: str | None = Field(default=None, max_length=255, description="Only this device")
     include: list[str] = Field(
         default_factory=list,
-        max_length=2,
-        description="Extra detail: 'attributes' (inventory data) and/or 'parsed' (parsed output)",
+        max_length=3,
+        description=(
+            "Extra detail: 'attributes' (inventory data), 'parsed' (parsed output) and/or "
+            "'discovery' (the crawl record of a Discover Network step: visited devices, "
+            "neighbours seen but not visited with the reason, link count)"
+        ),
     )
 
 
@@ -296,6 +301,94 @@ def _device_summary(
     return out
 
 
+# -- Discover Network record ------------------------------------------------------------------
+
+DISCOVERY_SUFFIX = ".discovery"
+# The record holds device names, management addresses and text the devices reported about
+# themselves: it is shared only when all three switches are on.
+_DISCOVERY_CLASSES = (DataClass.INVENTORY, DataClass.ADDRESSES, DataClass.CONTENT)
+
+
+def _discovery_record(step: dict[str, Any]) -> dict[str, Any] | None:
+    """The ``<node id>.discovery`` record the step wrote to its outcome metadata, if any."""
+    for envelope in ((step.get("output") or {}).get("outcomes") or {}).values():
+        metadata = envelope.get("metadata") if isinstance(envelope, dict) else None
+        for key, value in (metadata or {}).items():
+            if (
+                isinstance(key, str)
+                and key.endswith(DISCOVERY_SUFFIX)
+                and isinstance(value, dict)
+                and isinstance(value.get("visited"), list)
+                and isinstance(value.get("seen_not_visited"), list)
+            ):
+                return value
+    return None
+
+
+def _str_or_none(value: Any) -> str | None:
+    return value[:MAX_FIELD_CHARS] if isinstance(value, str) else None
+
+
+def _int_or_none(value: Any) -> int | None:
+    return value if isinstance(value, int) and not isinstance(value, bool) else None
+
+
+def _rows(value: Any) -> list[dict[str, Any]]:
+    return [row for row in value if isinstance(row, dict)] if isinstance(value, list) else []
+
+
+def _discovery_view(ctx: ToolContext, record: dict[str, Any]) -> dict[str, Any]:
+    """A bounded, typed view of the crawl record, or the not-shared marker."""
+    for data_class in _DISCOVERY_CLASSES:
+        if not ctx.sharing.allows(data_class):
+            return not_shared_marker(data_class)
+    visited = _rows(record.get("visited"))
+    seen = _rows(record.get("seen_not_visited"))
+    by_reason: dict[str, int] = {}
+    for row in seen:
+        reason = _str_or_none(row.get("reason")) or "unknown"
+        by_reason[reason] = by_reason.get(reason, 0) + 1
+    view: dict[str, Any] = {
+        "visited_total": len(visited),
+        "visited": [
+            {
+                "name": _str_or_none(row.get("name")),
+                "ip": _str_or_none(row.get("ip")),
+                "depth": _int_or_none(row.get("depth")),
+                "discovered_from": _str_or_none(row.get("discovered_from")),
+                "seed": row.get("seed") is True,
+                "cdp_status": _str_or_none(row.get("cdp_status")),
+            }
+            for row in visited[:MAX_DISCOVERY_ROWS]
+        ],
+        "seen_not_visited_total": len(seen),
+        "seen_by_reason": by_reason,
+        "seen_not_visited": [
+            {
+                "name": _str_or_none(row.get("name")),
+                "ip": _str_or_none(row.get("ip")),
+                "platform": _str_or_none(row.get("platform")),
+                "reason": _str_or_none(row.get("reason")),
+                "seen_from": _str_or_none(row.get("seen_from")),
+            }
+            for row in seen[:MAX_DISCOVERY_ROWS]
+        ],
+        "links_total": len(_rows(record.get("edges"))),
+        "limits_hit": _rows_of_text(record.get("limits_hit")),
+        "truncated": record.get("truncated") is True,
+    }
+    if len(visited) > MAX_DISCOVERY_ROWS or len(seen) > MAX_DISCOVERY_ROWS:
+        view["note"] = (
+            f"Lists are cut to the first {MAX_DISCOVERY_ROWS} rows; the totals are complete "
+            "for the stored record."
+        )
+    return view
+
+
+def _rows_of_text(value: Any) -> list[str]:
+    return [x for x in value if isinstance(x, str)] if isinstance(value, list) else []
+
+
 # -- handlers ---------------------------------------------------------------------------------
 
 
@@ -358,7 +451,11 @@ async def _get_step_result(ctx: ToolContext, args: StepResultInput) -> ToolOutpu
         outcomes[outcome] = [
             _device_summary(ctx, labeler, d, include) for d in devices[:MAX_DEVICES_LISTED]
         ]
-    result: dict[str, Any] = {"step": _step_summary(ctx, step), "outcomes": outcomes}
+    # The record goes before the per-device lists: a size cut of the answer drops the tail first.
+    result: dict[str, Any] = {"step": _step_summary(ctx, step)}
+    if "discovery" in include and (record := _discovery_record(step)) is not None:
+        result["discovery"] = _discovery_view(ctx, record)
+    result["outcomes"] = outcomes
     if omitted:
         result["note"] = (
             f"{omitted} more device(s) not shown; pass 'device' to look at a specific one."

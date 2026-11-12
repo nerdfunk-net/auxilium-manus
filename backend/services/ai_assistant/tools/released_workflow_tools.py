@@ -273,7 +273,10 @@ async def _run_result(ctx: ToolContext, args: RunResultInput) -> ToolOutput:
     if run.get("status") not in ("success", "failed", "cancelled"):
         return ToolOutput(f"The run is {run.get('status')}; ask again when it has finished.")
     ctx.audit_refs.add(f"run:{args.run_id}")
-    return await read_step_result(ctx, args.run_id, node_id, ["parsed"])
+    # "discovery" adds the crawl record of a Discover Network step (visited, seen-not-visited,
+    # reasons); it is absent for any other step and gated by the inventory, addresses and content
+    # opt-ins.
+    return await read_step_result(ctx, args.run_id, node_id, ["parsed", "discovery"])
 
 
 def build_released_workflow_tools() -> tuple[Tool, ...]:
@@ -302,7 +305,9 @@ def build_released_workflow_tools() -> tuple[Tool, ...]:
         Tool(
             "get_run_result",
             "The result the releaser designated for a finished run of a released workflow: the "
-            "output of one step. Needs the content opt-in.",
+            "output of one step. Needs the content opt-in. For a Discover Network workflow it "
+            "also returns the crawl record (devices visited, neighbours seen but not visited and "
+            "why), which needs the inventory, addresses and content opt-ins.",
             RunResultInput,
             _run_result,
         ),

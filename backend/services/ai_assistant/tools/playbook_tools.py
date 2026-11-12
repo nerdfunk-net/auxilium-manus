@@ -68,6 +68,7 @@ def known_general_tool_names() -> frozenset[str]:
     from services.ai_assistant.tools.neighbor_tools import build_neighbor_tools
     from services.ai_assistant.tools.output_parse_tools import build_output_parse_tools
     from services.ai_assistant.tools.probe_tools import build_probe_tools
+    from services.ai_assistant.tools.released_workflow_tools import build_released_workflow_tools
     from services.ai_assistant.tools.result_tools import build_result_tools
     from services.ai_assistant.tools.run_tools import RUN_LOOKUP_TOOLS, RUN_VIEWER_TOOLS
 
@@ -90,6 +91,7 @@ def known_general_tool_names() -> frozenset[str]:
             *build_aci_tools(),
             *build_client_data_tools(),
             *build_host_lookup_tools(),
+            *build_released_workflow_tools(),
             *RUN_VIEWER_TOOLS,
             *RUN_LOOKUP_TOOLS,
         )

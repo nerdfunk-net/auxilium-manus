@@ -6391,7 +6391,7 @@ plugins:
       (unreachable, login_failed, unsupported_platform, cdp_not_enabled, cdp_not_supported,
       cdp_no_output) leaves through the failure outcome, with the crawl record on both exits. The success outcome carries the seeds and every device that was logged
       into (as new devices with their management IP as primary_ip4, so a following
-      Exists in Nautobot step with the primary_ip strategy can tell which ones Nautobot does
+      Exists in Nautobot step with the interface_ip strategy (any interface address; a CDP management address is often a loopback, not the primary IP) can tell which ones Nautobot does
       not know). Each device has parsed.<node id>.discovery (depth, discovered_from, cdp_status,
       neighbors); the step-level result is metadata["<node id>.discovery"] (visited,
       seen_not_visited, edges, limits_hit; bounded, truncated says when it was cut).

@@ -242,7 +242,7 @@ tools, so every value of those classes passes the opt-in of §4.2:
 | Tool | Purpose |
 |------|---------|
 | `get_run` | Status, timings, error category, every step, fan-out groups |
-| `get_step_result` | One step per outcome and device: status, capabilities, commands + artifact ids, structured `failures` (§19, not gated); `include` = `attributes` (B) / `parsed` (C) |
+| `get_step_result` | One step per outcome and device: status, capabilities, commands + artifact ids, structured `failures` (§19, not gated); `include` = `attributes` (B) / `parsed` (C) / `discovery` (the crawl record of a Discover Network step; needs inventory + addresses + content; `doc/AI_TOOL_CHAIN.md` §52) |
 | `get_artifact` | Stored command output / config text (C), truncated at 8000 chars |
 | `list_run_events` | Live run events; message text is C |
 | `get_run_workflow` | The run's workflow as the compact view (A), "as saved now" |

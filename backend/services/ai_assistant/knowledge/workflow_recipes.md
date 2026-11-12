@@ -142,6 +142,23 @@ read there by dataset and field name, never by workflow output.
   devices have none" is answered there by grouping by device name with *Count items* (a device that
   found nothing shows 0); *Count devices* counts every collected device.
 
+### "walk through the network" / "discover the network from a seed device" / "find devices that are not in Nautobot"
+Three steps in a row: `get-from-user` ("Get from User") -> `discover-network` ("Discover Network") ->
+`exists-in-nautobot` ("Exists in Nautobot"). The seed comes from the first step (see "ask the user for the
+name or IP of a device"; one device is the normal case).
+- `discover-network`: set `credential_source: run_param` with a `credential_param` and the matching
+  credential `static_attributes` entry, so the user picks their own SSH credential. `follow_neighbors: true`
+  needs `permitted_prefixes` (IPv4 CIDR, /8 or more specific, one entry per prefix): ask the user for them,
+  never guess. `max_devices` (default 50) and `max_depth` (default 5) bound the walk. Following also needs the
+  operator switch `DISCOVER_NETWORK_FOLLOW_ENABLED`; say so. Do not fan out before this step: a walk is one
+  connected crawl.
+- `exists-in-nautobot`: set `nautobot_source_id` and `strategy: interface_ip` (the address the walk logged in
+  to is often a loopback, not the primary IP); leave `ip_address` at its default. Wire `exists` and
+  `non_existing` onward as the user wants.
+- To let Ask the Net run it, the workflow must be released (admin, `workflows:release_ai`) with the devices
+  input from `get-from-user`, the credential input marked as chosen on the card, and `exists-in-nautobot` as the
+  designated result step (the result then carries the walk record). Say that you cannot release it.
+
 ## Not covered
 For a phrase that is not listed, pick the steps from `list_steps` and `get_step_schema`, say what you
 chose and why, and ask when a name or id cannot be resolved with the tools.

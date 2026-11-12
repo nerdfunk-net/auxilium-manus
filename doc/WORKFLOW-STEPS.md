@@ -1758,7 +1758,8 @@ closed again (`DeviceSessionPool.close_host`) before the next level starts. Code
   (500 seen, 1000 edges, 200 neighbours per device). The run page shows the step-level record as a "Network discovery"
   panel in the step result (`step-result-viewer/discovery-panel.tsx`: visited devices, seen-not-visited with the reason,
   links, a warning for `limits_hit` / `truncated`) and hides it from the raw Metadata list. To find devices Nautobot does not know, wire
-  `exists-in-nautobot` (strategy `primary_ip`) behind it.
+  `exists-in-nautobot` behind it, with strategy `interface_ip` (any interface address; the address logged in to is often a loopback,
+  not the primary IP) or `primary_ip`.
 - **Fan-out.** A walk is one connected crawl: with fan-out on the seeds every child walks alone and revisits shared
   devices. Use one seed or no fan-out before this step.
 - Not built: LLDP fallback, non-Cisco platforms, per-device credentials, stored history of walks. Not run against real
