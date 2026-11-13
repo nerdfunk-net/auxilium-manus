@@ -58,6 +58,10 @@ class Neighbor:
     capabilities: tuple[str, ...]
     # First line of the "Version" block of the detail output ("Cisco IOS Software [IOSXE], ...").
     software: str = ""
+    # Set when the Nautobot lookup replaced the address: the interface address CDP reported,
+    # and where the address in ``ip`` now comes from ("cdp", "nautobot_name", "nautobot_ip").
+    reported_ip: str | None = None
+    ip_source: str = "cdp"
 
     @property
     def is_infrastructure(self) -> bool:

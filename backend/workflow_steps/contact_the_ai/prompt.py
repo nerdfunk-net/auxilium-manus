@@ -121,15 +121,30 @@ def check_path(policy: SharingPolicy, path: str) -> None:
     _check_nested_keys(policy, path, parts[1:])
 
 
+_ADDRESS_CHARS = frozenset("0123456789abcdefABCDEF.:%")
+
+
+def cut_text(text: str, limit: int) -> tuple[str, int]:
+    """``text`` cut to at most ``limit`` characters and the number of characters left out.
+
+    The cut never ends inside what could be an address: a trailing run of digits, hex letters, dots
+    and colons is dropped as well, because a fragment such as ``140.1.0`` (the start of
+    ``140.1.0.15``) matches no address pattern and would reach the model unmasked.
+    """
+    if len(text) <= limit:
+        return text, 0
+    end = limit
+    while end > 0 and text[end - 1] in _ADDRESS_CHARS:
+        end -= 1
+    return text[:end], len(text) - end
+
+
 def _structured_json(value: dict | list, redactor: Redactor) -> str:
     text = json.dumps(
         redactor.tokenize_data(value), separators=(",", ":"), ensure_ascii=False, default=str
     )
-    if len(text) > MAX_STRUCTURED_CHARS:
-        return (
-            f"{text[:MAX_STRUCTURED_CHARS]}… ({len(text) - MAX_STRUCTURED_CHARS} more characters)"
-        )
-    return text
+    head, omitted = cut_text(text, MAX_STRUCTURED_CHARS)
+    return f"{head}… ({omitted} more characters)" if omitted else head
 
 
 def _filtered(policy: SharingPolicy, path: str, raw: dict | list) -> dict | list:

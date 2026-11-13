@@ -26,6 +26,8 @@ class DiscoverOptions:
     read_timeout: int
     dry_run: bool
     retry: RetryPolicy
+    resolve_management_ip: bool
+    nautobot_source_id: str | None
 
 
 def _bounded(config: dict[str, Any], key: str, default: int, minimum: int, maximum: int) -> int:
@@ -56,4 +58,6 @@ def parse_options(config: dict[str, Any]) -> DiscoverOptions:
         read_timeout=parse_read_timeout(config, step_id=STEP_ID, default=DEFAULT_READ_TIMEOUT),
         dry_run=parse_bool_flag(config, "dry_run"),
         retry=parse_retry_backoff_seconds(config, step_id=STEP_ID),
+        resolve_management_ip=parse_bool_flag(config, "resolve_management_ip", default=True),
+        nautobot_source_id=str(config.get("nautobot_source_id") or "").strip() or None,
     )

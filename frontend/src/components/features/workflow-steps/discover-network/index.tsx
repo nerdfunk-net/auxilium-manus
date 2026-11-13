@@ -12,12 +12,20 @@ import type {
   PluginConfigPanelProps,
   PluginUIComponent,
 } from "@/components/features/workflows/types/plugin-ui";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { useNautobotSourceCredentials } from "@/hooks/queries/use-nautobot-source-credentials";
 
 import { clampReadTimeout, DEFAULT_READ_TIMEOUT } from "../run-command/config";
 import { CheckboxField } from "../shared/checkbox-field";
 import { FieldHeader } from "../shared/field-header";
+import {
+  isNautobotSourceConfigured,
+  NAUTOBOT_SOURCE_ID_KEY,
+  nautobotSourceIdFromConfig,
+} from "../shared/nautobot-source-config";
+import { NautobotSourceSelectDialog } from "../shared/nautobot-source-select-dialog";
 import {
   buildDiscoverNetworkConfig,
   clampConcurrency,
@@ -27,6 +35,7 @@ import {
   DEFAULT_CONCURRENCY,
   DEFAULT_MAX_DEPTH,
   DEFAULT_MAX_DEVICES,
+  managementIpHint,
   MAX_CONCURRENCY,
   MAX_MAX_DEPTH,
   MAX_MAX_DEVICES,
@@ -41,6 +50,74 @@ const EMPTY_PREFIXES: string[] = [];
 
 function numberOr(value: unknown, fallback: number): number {
   return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+}
+
+interface ManagementIpFieldsProps {
+  config: Record<string, unknown>;
+  enabled: boolean;
+  onEnabledChange: (enabled: boolean) => void;
+  onSourceChange: (sourceId: string) => void;
+}
+
+/** The Nautobot lookup of a discovered device's management address, and its source. */
+function ManagementIpFields({
+  config,
+  enabled,
+  onEnabledChange,
+  onSourceChange,
+}: ManagementIpFieldsProps) {
+  const sourceId = useMemo(() => nautobotSourceIdFromConfig(config), [config]);
+  const credentials = useNautobotSourceCredentials({ sourceId });
+  const [sourceOpen, setSourceOpen] = useState(false);
+  const isSourceConfigured = isNautobotSourceConfigured(config);
+  const hint = useMemo(() => managementIpHint(config), [config]);
+
+  return (
+    <div className="flex flex-col gap-2">
+      <CheckboxField
+        id="discover-network-management-ip"
+        label="resolve_management_ip"
+        checked={enabled}
+        onCheckedChange={onEnabledChange}
+        description="Get the management IP of a discovered device. CDP reports an interface address, which is often not the address a device accepts logins on. The device is looked up in Nautobot by name; if that finds nothing, by the interface address. The management IP found is the one that is checked against the permitted prefixes and logged into."
+      />
+      {enabled ? (
+        <div className="space-y-1.5">
+          <FieldHeader name={NAUTOBOT_SOURCE_ID_KEY} type="string" />
+          {isSourceConfigured ? (
+            <p className="font-mono text-[11px] text-muted-foreground">
+              {sourceId}
+              {credentials.isReady ? (
+                <span className="block truncate font-sans">{credentials.url}</span>
+              ) : credentials.isLoading ? (
+                <span className="block font-sans">Loading credentials…</span>
+              ) : (
+                <span className="block font-sans text-warning-foreground">
+                  Source not found in settings
+                </span>
+              )}
+            </p>
+          ) : null}
+          {hint ? <p className="text-[11px] text-warning-foreground">{hint}</p> : null}
+          <Button
+            className="h-7 w-full text-xs"
+            size="sm"
+            type="button"
+            variant="outline"
+            onClick={() => setSourceOpen(true)}
+          >
+            {isSourceConfigured ? "Edit Source" : "Configure Source"}
+          </Button>
+          <NautobotSourceSelectDialog
+            open={sourceOpen}
+            selectedSourceId={sourceId}
+            onClose={() => setSourceOpen(false)}
+            onSave={onSourceChange}
+          />
+        </div>
+      ) : null}
+    </div>
+  );
 }
 
 interface PermittedPrefixesFieldProps {
@@ -100,6 +177,14 @@ function DiscoverNetworkConfigPanel({ config, onChange }: PluginConfigPanelProps
     (patch: Record<string, unknown>) => onChange(buildDiscoverNetworkConfig(config, patch)),
     [config, onChange],
   );
+  const handleResolveChange = useCallback(
+    (checked: boolean) => patchConfig({ resolve_management_ip: checked }),
+    [patchConfig],
+  );
+  const handleSourceChange = useCallback(
+    (sourceId: string) => patchConfig({ [NAUTOBOT_SOURCE_ID_KEY]: sourceId }),
+    [patchConfig],
+  );
   const handlePrefixes = useCallback(
     (next: string[]) => patchConfig({ permitted_prefixes: next }),
     [patchConfig],
@@ -129,6 +214,15 @@ function DiscoverNetworkConfigPanel({ config, onChange }: PluginConfigPanelProps
             </li>
           ))}
         </ul>
+      ) : null}
+
+      {follow ? (
+        <ManagementIpFields
+          config={config}
+          enabled={config.resolve_management_ip !== false}
+          onEnabledChange={handleResolveChange}
+          onSourceChange={handleSourceChange}
+        />
       ) : null}
 
       <CheckboxField

@@ -7,10 +7,15 @@ unique collection constraint. Uses ``clean_tables`` because the repositories com
 
 from __future__ import annotations
 
+import contextlib
+import random
+import re
+import sys
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 import pytest
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 
 import core.database as db_mod
 from core.models.client_data import ClientDataCollection, ClientIpAddress, ClientMacAddress
@@ -25,6 +30,9 @@ from models.client_data import (
 )
 from repositories.client_data_query_repository import ClientDataQueryRepository
 from repositories.client_data_repository import ClientDataRepository
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "unit"))
+from _client_data_dataset import build_dataset  # noqa: E402
 
 pytestmark = [
     pytest.mark.integration,
@@ -509,3 +517,126 @@ def test_neighbours_are_current_per_table_and_survive_prune_and_purge_on_postgre
     (sw,) = queries.get_collections()
     assert (sw["neighbor_status"], sw["neighbor_rows"]) == ("ok", 1)
     assert queries.get_client_data(mac_address="aabb.ccdd.0001")[0][0]["is_uplink"] is True
+
+
+# --- the lookup is narrowed to the MACs a filter can match -------------------------------------
+
+
+def test_the_narrowed_lookup_returns_what_the_full_view_returns_on_postgres(
+    session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import repositories.client_data_query_repository as query_module
+
+    facts = build_dataset(_collect, session)
+    lookups = [
+        {"ip_address": facts.ip, "exact": True},
+        {"ip_address": "10.1."},
+        {"ip_prefix": "10.0."},
+        {"ip_address": facts.ipv6, "exact": True},
+        {"mac_address": facts.mac.upper().replace(".", ":"), "exact": True},
+        {"mac_address": "ccdd.000"},
+        {"device_name": facts.switch},
+        {"port": facts.port},
+        {"port": "Gi0/0"},
+        {"vlan": "20"},
+        {"vrf": "cust"},
+        {"hostname": facts.hostname, "exact": True},
+        {"hostname": "EXAMPLE"},
+        {"ip_address": facts.ip, "device_name": facts.router},
+        {"ip_address": "192.0.2.77"},
+        {"hide_uplinks": True},
+        {},
+    ]
+    seen_rows = 0
+    for lookup in lookups:
+        for flags in ({}, {"likely_first": True}, {"likely_first": True, "hide_uplinks": True}):
+            kwargs = {**lookup, **flags, "page_size": 500}
+            repo = ClientDataQueryRepository(session, uplink_threshold=3)
+            narrowed = repo.get_client_data(**kwargs)
+            with monkeypatch.context() as patch:
+                patch.setattr(query_module, "_narrowing", lambda *a, **k: [])
+                reference = repo.get_client_data(**kwargs)
+            assert narrowed == reference, kwargs
+            seen_rows += len(narrowed[0])
+    assert seen_rows > 100  # the comparison was not between empty results
+
+
+def _fill(session, devices: int, macs_per_device: int, arps_per_router: int) -> str:
+    """Switches with MAC tables and routers with ARP tables that share their MACs."""
+    rng = random.Random(3)  # noqa: S311 - a reproducible shape, not a secret
+    pool = [f"{n * 2654435761 % 16**12:012x}" for n in range(devices * macs_per_device // 2)]
+    dotted = [f"{m[0:4]}.{m[4:8]}.{m[8:12]}" for m in pool]
+    for index in range(devices):
+        _collect(
+            session,
+            device=f"sw{index:03d}",
+            macs=[
+                ClientMacRow(mac_address=rng.choice(dotted), vlan="10", port=f"Gi1/0/{n % 24}")
+                for n in range(macs_per_device)
+            ],
+            status=ClientCollectionStatus(arp_status="skipped", mac_status="ok"),
+        )
+    for index in range(devices // 4):
+        _collect(
+            session,
+            device=f"rt{index:03d}",
+            ips=[
+                ClientIpRow(
+                    ip_address=f"10.{index}.{n // 250}.{n % 250 + 1}",
+                    mac_address=rng.choice(dotted),
+                    interface="Vlan10",
+                    vlan="10",
+                )
+                for n in range(arps_per_router)
+            ],
+            status=ClientCollectionStatus(arp_status="ok", mac_status="skipped", vrf_status="ok"),
+        )
+    session.execute(
+        text("ANALYZE client_mac_addresses, client_ip_addresses, client_data_collections")
+    )
+    return "10.0.0.5"
+
+
+@pytest.mark.parametrize(
+    ("lookup", "guard"),
+    [
+        # A point lookup is cheap by narrowing alone, whatever the planner does.
+        ({"ip_address": "10.0.0.5", "exact": True}, False),
+        # Nothing to narrow: the hash-join guard has to keep the plan linear.
+        ({}, True),
+        ({"ip_address": "10."}, True),
+    ],
+)
+def test_a_lookup_does_not_compare_every_mac_row_with_every_arp_row(session, lookup, guard) -> None:
+    """3,000 MAC rows x 1,200 ARP rows: nested loops used to discard millions of pairs."""
+    from sqlalchemy import event
+
+    _fill(session, devices=40, macs_per_device=75, arps_per_router=120)
+    statements: list[tuple[str, object]] = []
+
+    def capture(_conn, _cursor, statement, parameters, *_):
+        if "mac_entries" in statement:
+            statements.append((statement, parameters))
+
+    engine = session.get_bind()
+    event.listen(engine, "before_cursor_execute", capture)
+    try:
+        ClientDataQueryRepository(session).get_client_data(**lookup)
+    finally:
+        event.remove(engine, "before_cursor_execute", capture)
+
+    heavy = statements
+    assert heavy
+    removed = 0
+    repo = ClientDataQueryRepository(session)
+    for sql, params in heavy:
+        with repo._hash_joins() if guard else contextlib.nullcontext():
+            plan = session.connection().exec_driver_sql(
+                "EXPLAIN (ANALYZE, TIMING OFF) " + sql, params
+            )
+            removed += sum(
+                int(m.group(1))
+                for (line,) in plan
+                if (m := re.search(r"Rows Removed by Join Filter: (\d+)", line))
+            )
+    assert removed < 20_000, removed

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 import pytest
 
@@ -303,3 +303,88 @@ def test_a_virtual_switch_that_reports_linux_is_followed_by_its_software_line() 
     result = asyncio.run(crawl([seed("10.1.0.1")], visit, settings()))
     assert types == ["cisco_ios", "cisco_xe"]
     assert result.seen == ()
+
+
+# --- management IP resolution (injected lookup) ---------------------------------------------
+
+
+def resolver(table: dict[str, str], calls: list[str] | None = None):  # noqa: ANN201
+    """A fake lookup: reported interface IP -> management IP (the name is kept)."""
+
+    async def resolve(neighbor: Neighbor) -> Neighbor:
+        if calls is not None:
+            calls.append(neighbor.name)
+        mgmt = table.get(neighbor.ip or "")
+        if mgmt is None:
+            return neighbor
+        return replace(neighbor, ip=mgmt, reported_ip=neighbor.ip, ip_source="nautobot_name")
+
+    return resolve
+
+
+def run_resolving(net: FakeNet, seeds: list[Target], resolve, **over: object):  # noqa: ANN001, ANN201
+    return asyncio.run(crawl(seeds, net.visit, settings(**over), resolve=resolve))
+
+
+def test_the_management_ip_replaces_the_interface_ip_for_the_login() -> None:
+    net = FakeNet({"10.1.0.1": [nb("B", "192.168.9.2")]})
+    result = run_resolving(net, [seed("10.1.0.1")], resolver({"192.168.9.2": "10.1.0.2"}))
+    assert net.visits == ["10.1.0.1", "10.1.0.2"]
+    assert result.visited[1].target.host == "10.1.0.2"
+    assert result.edges[0].to_ip == "10.1.0.2"
+
+
+def test_scope_is_checked_on_the_management_ip_not_the_interface_ip() -> None:
+    net = FakeNet({"10.1.0.1": [nb("in", "172.16.0.9"), nb("out", "10.1.0.5")]})
+    table = {"172.16.0.9": "10.1.0.9", "10.1.0.5": "172.16.0.5"}
+    result = run_resolving(net, [seed("10.1.0.1")], resolver(table))
+    assert net.visits == ["10.1.0.1", "10.1.0.9"]
+    assert [(s.name, s.reason, s.ip) for s in result.seen] == [
+        ("out", "out_of_scope", "172.16.0.5")
+    ]
+
+
+def test_two_interface_ips_of_one_device_are_visited_once() -> None:
+    net = FakeNet(
+        {"10.1.0.1": [nb("B", "192.168.9.2")], "10.1.0.2": [nb("B", "192.168.8.2")]}
+    )
+    table = {"192.168.9.2": "10.1.0.2", "192.168.8.2": "10.1.0.2"}
+    run_resolving(net, [seed("10.1.0.1")], resolver(table))
+    assert net.visits == ["10.1.0.1", "10.1.0.2"]
+
+
+def test_a_neighbour_without_an_ip_can_get_one_from_the_lookup() -> None:
+    async def resolve(neighbor: Neighbor) -> Neighbor:
+        return replace(neighbor, ip="10.1.0.2", ip_source="nautobot_name")
+
+    net = FakeNet({"10.1.0.1": [nb("B", None)]})
+    run_resolving(net, [seed("10.1.0.1")], resolve)
+    assert net.visits == ["10.1.0.1", "10.1.0.2"]
+
+
+def test_the_lookup_is_skipped_for_neighbours_that_would_not_be_followed() -> None:
+    calls: list[str] = []
+    net = FakeNet(
+        {
+            "10.1.0.1": [
+                nb("phone", "10.1.0.5", platform="cisco IP Phone", caps=("telephone",)),
+                nb("linux", "10.1.0.6", platform="Linux"),
+                nb("good", "10.1.0.7"),
+            ]
+        }
+    )
+    run_resolving(net, [seed("10.1.0.1")], resolver({}, calls))
+    assert calls == ["good"]
+
+
+def test_the_lookup_is_skipped_when_following_is_off() -> None:
+    calls: list[str] = []
+    net = FakeNet({"10.1.0.1": [nb("B", "10.1.0.2")]})
+    run_resolving(net, [seed("10.1.0.1")], resolver({}, calls), follow=False)
+    assert calls == []
+
+
+def test_without_a_resolver_nothing_changes() -> None:
+    net = FakeNet({"10.1.0.1": [nb("B", "10.1.0.2")]})
+    run(net, [seed("10.1.0.1")])
+    assert net.visits == ["10.1.0.1", "10.1.0.2"]

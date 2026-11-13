@@ -67,6 +67,10 @@ HOW TO READ THE RESULT
            "x10,000 estimated 25 actual 250000", mean PostgreSQL picked a nested loop from a
            wrong row estimate: the query shape is the cause, not the amount of data.
            Small numbers and a quick finish: the client-data query is not the problem.
+           Since 2026-11-13 a lookup by IP, MAC, hostname, device, port, VLAN or VRF is narrowed
+           to the MACs it can match and runs with nested loops disabled (doc/CLIENT_DATA.md "Cost
+           of a lookup"): expect a few thousand removed rows at most and a finish in well under
+           a second. Hundreds of millions again means that protection was lost.
     tables: ``modified_since_analyze`` far above ``live`` means stale statistics (run ANALYZE).
     time:  a first run much slower than the next ones points to cold caches or JIT.
     tools: the line that says TIMEOUT names the phase that hangs. If find_client is quick and

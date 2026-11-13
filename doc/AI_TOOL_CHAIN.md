@@ -3664,6 +3664,7 @@ collected. They read **stored observations, not the live network**; every row ca
   an access port. The tool notes and `CLIENT_DATA_PROMPT` tell the model that `neighbor` is certain and `mac_count` a guess;
   `list_clients` hides uplink rows by default. Coverage has the neighbour table as a third table (`neighbor_status`, `neighbor_entries`,
   `neighbor_age_seconds`; `summary.neighbours_not_collected`). `doc/CLIENT_DATA.md` "Uplinks and the likely location".
+* **Speed of the lookups (2026-11-13):** the correlated view was built for the whole network before the filter cut it, which was quadratic (61 s and 176 million discarded join rows for one IP on 9,800 MAC rows, so `find_client` ran into the 120 s budget). A lookup now correlates only the MACs its filters can match, and PostgreSQL runs it without nested loops; 0.1-0.5 s with 29,000 MAC rows and 17,400 hostnames, also without a filter. The answer is unchanged (compared with the full view in `test_client_data_narrowing.py`). `doc/CLIENT_DATA.md` "Cost of a lookup".
 * **`find_host`** (`tools/host_lookup_tools.py`, 2026-11-08): one call for "find the IP address X" / "where is this MAC" when **both** the client
   data and an ACI source are available (offered only then; the prompt `HOST_LOOKUP_PROMPT` is added with it). It runs `find_client` and
   `find_aci_endpoint` (so every check of both stays: `client_data:read` and `sources.aci:read` per call, the inventory and addresses switches

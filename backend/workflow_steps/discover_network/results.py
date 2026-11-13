@@ -22,6 +22,8 @@ def _neighbor_dict(neighbor: Neighbor) -> dict[str, Any]:
     return {
         "name": neighbor.name,
         "ip": neighbor.ip,
+        "reported_ip": neighbor.reported_ip,
+        "ip_source": neighbor.ip_source,
         "platform": neighbor.platform,
         "local_port": neighbor.local_port,
         "remote_port": neighbor.remote_port,
@@ -73,6 +75,8 @@ def _seen_dict(seen: Seen) -> dict[str, Any]:
     return {
         "name": seen.name,
         "ip": seen.ip,
+        "reported_ip": seen.reported_ip,
+        "ip_source": seen.ip_source,
         "platform": seen.platform,
         "reason": seen.reason,
         "seen_from": seen.seen_from,
@@ -80,11 +84,18 @@ def _seen_dict(seen: Seen) -> dict[str, Any]:
     }
 
 
-def step_summary(result: CrawlResult, *, seed_hosts: frozenset[str]) -> dict[str, Any]:
-    """The step-level record in ``metadata["<node id>.discovery"]``."""
+def step_summary(
+    result: CrawlResult, *, seed_hosts: frozenset[str], management_ip_lookup: str = "off"
+) -> dict[str, Any]:
+    """The step-level record in ``metadata["<node id>.discovery"]``.
+
+    ``management_ip_lookup`` says what happened to the Nautobot lookup: ``on``, ``off``,
+    ``no_source`` (switched on, no Nautobot source chosen) or ``unavailable`` (Nautobot failed).
+    """
     seen = result.seen[:MAX_SEEN]
     edges = result.edges[:MAX_EDGES]
     return {
+        "management_ip_lookup": management_ip_lookup,
         "visited": [
             {
                 "name": v.target.name,
@@ -104,6 +115,8 @@ def step_summary(result: CrawlResult, *, seed_hosts: frozenset[str]) -> dict[str
                 "to": e.to_name,
                 "remote_port": e.remote_port,
                 "to_ip": e.to_ip,
+                "reported_ip": e.reported_ip,
+                "ip_source": e.ip_source,
             }
             for e in edges
         ],

@@ -106,6 +106,9 @@ export function buildDiscoverNetworkConfig(
   next.follow_neighbors = flag(next.follow_neighbors, false);
   next.permitted_prefixes = [...prefixList(next.permitted_prefixes)];
   next.follow_only_infrastructure = flag(next.follow_only_infrastructure, true);
+  next.resolve_management_ip = flag(next.resolve_management_ip, true);
+  next.nautobot_source_id =
+    typeof next.nautobot_source_id === "string" ? next.nautobot_source_id : "";
   next.max_devices = numberOr(next.max_devices, DEFAULT_MAX_DEVICES);
   next.max_depth = numberOr(next.max_depth, DEFAULT_MAX_DEPTH);
   next.concurrency = numberOr(next.concurrency, DEFAULT_CONCURRENCY);
@@ -127,4 +130,16 @@ export function configIssues(config: Record<string, unknown>): string[] {
     if (problem) issues.push(`${prefix}: ${problem}`);
   }
   return issues;
+}
+
+/**
+ * A hint (not an error: the step still runs on the CDP addresses) when the management IP
+ * lookup is on but no Nautobot source was chosen.
+ */
+export function managementIpHint(config: Record<string, unknown>): string | null {
+  const lookupOn = config.follow_neighbors === true && config.resolve_management_ip !== false;
+  const source = typeof config.nautobot_source_id === "string" ? config.nautobot_source_id : "";
+  return lookupOn && !source.trim()
+    ? "No Nautobot source chosen: discovered devices are logged into at the address CDP reports."
+    : null;
 }

@@ -14,11 +14,13 @@ more than ``MAX_REDACT_CHARS_PER_REQUEST`` characters (S5-01).
 
 from __future__ import annotations
 
+import ipaddress
 import json
 import re
 from collections.abc import Iterable
 from typing import Any
 
+from core.address_masking import AddressMasker
 from services.workflow_context.secret_fields import (
     is_sealed_secret,
     is_secret_key_name,
@@ -167,12 +169,22 @@ _PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
 _TOKEN = re.compile(r"__(?:SECRET|ADDR)_(\d+)__")
 
 # Network addresses (free text such as wiki notes). Bounded repetition only, so linear in the text.
-_OCTET = r"(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)"
+# Up to three leading zeros are matched too (``010.001.002.003``): Python's ``ipaddress`` refuses
+# them, so such an octet is tokenised instead of slipping through unmasked.
+_OCTET = r"0{0,3}(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)"
+_ZONE = r"(?:%[0-9A-Za-z_.\-]{1,32})?"  # fe80::1%eth0
+# The patterns below are used by position: IPv4 [0], the two MAC forms [1:3], IPv6 [3], and the
+# IPv6 form with an embedded IPv4 (::ffff:192.0.2.1, 2001:db8:1:2:3:4:192.0.2.1) in _IPV6_MIXED.
 _ADDRESS_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(rf"(?<![\w.])(?:{_OCTET}\.){{3}}{_OCTET}(?![\w]|\.\d)"),  # IPv4 (/len stays)
     re.compile(r"\b[0-9A-Fa-f]{2}(?:[:-][0-9A-Fa-f]{2}){5}\b"),  # MAC aa:bb:cc:dd:ee:ff
     re.compile(r"\b[0-9A-Fa-f]{4}(?:\.[0-9A-Fa-f]{4}){2}\b"),  # MAC aabb.ccdd.eeff
-    re.compile(r"(?<![\w:])(?:[0-9A-Fa-f]{0,4}:){2,7}[0-9A-Fa-f]{0,4}(?![\w:])"),  # IPv6
+    re.compile(
+        rf"(?<![\w:])(?:[0-9A-Fa-f]{{0,4}}:){{2,7}}[0-9A-Fa-f]{{0,4}}{_ZONE}(?![\w:])"
+    ),  # IPv6
+)
+_IPV6_MIXED = re.compile(
+    rf"(?<![\w:.])(?:[0-9A-Fa-f]{{0,4}}:){{2,7}}(?:{_OCTET}\.){{3}}{_OCTET}{_ZONE}(?![\w]|\.\d)"
 )
 _UNMASK = re.compile(f"{_SENTINEL_OPEN}(\\d+){_SENTINEL_CLOSE}")
 
@@ -274,11 +286,33 @@ class SecretRelocationError(ValueError):
         self.token = token
 
 
+def _parse_address(text: str) -> ipaddress.IPv4Address | ipaddress.IPv6Address | None:
+    try:
+        return ipaddress.ip_address(text)
+    except ValueError:
+        return None  # not an address (a clock time such as 12:30:45, a leading-zero octet)
+
+
+def _addresses_in(text: str) -> list[ipaddress.IPv4Address | ipaddress.IPv6Address]:
+    """The addresses ``text`` contains, parsed; what is not an address is skipped."""
+    patterns = (_IPV6_MIXED, _ADDRESS_PATTERNS[0], _ADDRESS_PATTERNS[-1])
+    parsed = (_parse_address(m.group(0)) for pattern in patterns for m in pattern.finditer(text))
+    return [address for address in parsed if address is not None]
+
+
 class Redactor:
     """One instance per request: the token table is request-scoped, never shared or stored."""
 
-    def __init__(self, *, max_chars: int = MAX_REDACT_CHARS_PER_REQUEST) -> None:
+    def __init__(
+        self,
+        *,
+        max_chars: int = MAX_REDACT_CHARS_PER_REQUEST,
+        address_masker: AddressMasker | None = None,
+    ) -> None:
         self._max_chars = max_chars
+        # Optional reversible masking of IP addresses (core/address_masking.py); without it every
+        # address becomes a token, as before.
+        self._address_masker = address_masker
         self._token_by_secret: dict[str, str] = {}
         self._secret_by_token: dict[str, str] = {}
         # Tokens standing in for a whole non-string value (e.g. a sealed secret envelope).
@@ -304,32 +338,77 @@ class Redactor:
             self._secret_by_token[token] = value
         return token
 
-    def redact_addresses(self, text: str) -> str:
+    def redact_addresses(self, text: str, *, inside_jinja: bool = False) -> str:
         """Replace IPv4 / IPv6 / MAC addresses by restorable ``__ADDR_n__`` tokens.
 
-        For text whose addresses the user has not agreed to share (wiki notes). False positives
-        (a version number such as ``1.2.3.4``) are accepted; Jinja expressions are left alone.
+        For text whose addresses the user has not agreed to share. False positives (a version
+        number such as ``1.2.3.4``) are accepted. Jinja expressions (``{{ }}``) are left alone
+        unless ``inside_jinja`` is set: wiki notes keep their template syntax, but text that is
+        merely forwarded (a prompt) must not let an address hide inside ``{{ }}``.
         """
         self._spent += len(text)
         if self._spent > self._max_chars:
             raise RedactionBudgetExceeded("too much text to redact in one request")
-        masked, saved = _mask(text)
+        masked, saved = (text, []) if inside_jinja else _mask(text)
+        if self._address_masker is not None:
+            self._address_masker.observe(_addresses_in(masked))
 
         def replace(match: re.Match[str]) -> str:
+            return self._address_token(match.group(0))
+
+        def masked_or_token(value: str) -> str:
+            """A reversible fake address when the masker offers one, else a token."""
+            shown = self._address_masker.mask(value) if self._address_masker is not None else None
+            if shown is None:
+                return self._address_token(value)
+            # Stored behind a sentinel so no later pattern can mask the fake address again.
+            saved.append(shown)
+            return f"{_SENTINEL_OPEN}{len(saved) - 1}{_SENTINEL_CLOSE}"
+
+        def replace_mixed(match: re.Match[str]) -> str:
             value = match.group(0)
-            return self._address_token(value)
+            try:
+                ipaddress.ip_address(value)
+            except ValueError:
+                return self._address_token(value)  # odd shape: hide the whole of it
+            return masked_or_token(value)
+
+        def replace_ipv4(match: re.Match[str]) -> str:
+            return masked_or_token(match.group(0))
 
         def replace_ipv6(match: re.Match[str]) -> str:
             value = match.group(0)
             # A colon group of digits is a clock time unless it has the shape of an IPv6 address.
             if "::" not in value and value.count(":") != 7:
                 return value
-            return self._address_token(value)
+            return masked_or_token(value)
 
-        for pattern in _ADDRESS_PATTERNS[:-1]:
+        # The IPv6 form with an embedded IPv4 goes first: the IPv4 pass would otherwise take the
+        # tail and leave the (identifying) IPv6 prefix in the text.
+        masked = _IPV6_MIXED.sub(replace_mixed, masked)
+        masked = _ADDRESS_PATTERNS[0].sub(replace_ipv4, masked)
+        for pattern in _ADDRESS_PATTERNS[1:-1]:  # MAC addresses always stay tokens
             masked = pattern.sub(replace, masked)
         masked = _ADDRESS_PATTERNS[-1].sub(replace_ipv6, masked)
         return _unmask(masked, saved)
+
+    def restore_addresses(self, text: str) -> str:
+        """Put the real addresses back for the fake ones this redactor's masker handed out.
+
+        Only those exact addresses are restored. Tokens (``__ADDR_n__``, ``__SECRET_n__``) and
+        every other address are left as they are; without a masker the text is unchanged.
+        """
+        if self._address_masker is None:
+            return text
+        return self._address_masker.restore(
+            text, (_IPV6_MIXED, _ADDRESS_PATTERNS[-1], _ADDRESS_PATTERNS[0])
+        )
+
+    @property
+    def masked_address_count(self) -> int:
+        """Distinct addresses hidden so far (tokens plus fake addresses); never their values."""
+        masked = self._address_masker.masked_count if self._address_masker is not None else 0
+        return len(self._addr_token_by_value) + masked
 
     def _token_for(self, secret: str) -> str:
         token = self._token_by_secret.get(secret)

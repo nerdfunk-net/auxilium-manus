@@ -11,7 +11,8 @@ from __future__ import annotations
 
 import ipaddress
 import re
-from collections.abc import Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
+from contextlib import contextmanager
 from datetime import datetime
 from typing import Any
 
@@ -29,6 +30,7 @@ from sqlalchemy import (
     nulls_last,
     or_,
     select,
+    union,
     union_all,
 )
 from sqlalchemy.dialects.postgresql import INET
@@ -150,8 +152,127 @@ def _newest(
     return select(*(ranked.c[column.key] for column in columns)).where(ranked.c.rn == 1).cte(name)
 
 
-def _combined(uplink_threshold: int) -> Any:
+Predicate = Callable[[Any], Any]
+
+# Where each filter's value lives in the stored tables: (MAC-table column, ARP-table column).
+# The ARP interface is the "port" of an ARP-only observation; the VRF exists only in ARP.
+_FILTER_SOURCES: dict[str, tuple[str | None, str | None]] = {
+    "device_name": ("device_name", "device_name"),
+    "port": ("port", "interface"),
+    "vlan": ("vlan", "vlan"),
+    "vrf": (None, "vrf"),
+    "ip_address": (None, "ip_address"),
+    "ip_prefix": (None, "ip_address"),
+    "mac_address": ("mac_address", "mac_address"),
+}
+# The column of the correlated view a filter is applied to (a prefix filters the address).
+_VIEW_COLUMN = {"ip_prefix": "ip_address"}
+
+
+def _predicates(
+    *,
+    device_name: str | None = None,
+    ip_address: str | None = None,
+    mac_address: str | None = None,
+    port: str | None = None,
+    vlan: str | None = None,
+    vrf: str | None = None,
+    hostname: str | None = None,
+    exact: bool = False,
+    ip_prefix: str | None = None,
+) -> dict[str, Predicate]:
+    """The filters that are set, each as a function from a column to its condition.
+
+    The one definition of what a filter value means: the correlated view is filtered with it, and
+    the same function selects the MACs a lookup has to correlate (``_narrowing``), so the two
+    cannot disagree.
+    """
+    found: dict[str, Predicate] = {}
+    for key, value in (
+        ("device_name", device_name),
+        ("port", port),
+        ("vlan", vlan),
+        ("vrf", vrf),
+        ("hostname", hostname),
+    ):
+        if value:
+            found[key] = lambda column, value=value: _matches(column, value, exact=exact)
+    if ip_address:
+        if exact:
+            canonical = _canonical_ip(ip_address)
+            found["ip_address"] = lambda column: column == canonical
+        else:
+            found["ip_address"] = lambda column: _contains(column, ip_address)
+    if ip_prefix and ip_prefix.strip():
+        prefix = ip_prefix.strip()
+        found["ip_prefix"] = lambda column: _starts_with(column, prefix)
+    if mac_address:
+        if exact:
+            dotted = _dotted_mac(mac_address)
+            found["mac_address"] = lambda column: column == dotted
+        else:
+            typed = _MAC_SEPARATORS.sub("", mac_address).lower()
+            # Stored as aabb.ccdd.eeff: compare without separators, so aa:bb:cc... also matches.
+            found["mac_address"] = lambda column: _contains(func.replace(column, ".", ""), typed)
+    return found
+
+
+def _narrowing(predicates: Mapping[str, Predicate], latest_mac: Any, latest_arp: Any) -> list[Any]:
+    """One CTE ``candidate_macs_<filter>`` per filter: the MACs that can produce a matching row.
+
+    Every row of the correlated view belongs to one MAC, and everything that is computed for a
+    MAC (the IP fallbacks, ``likely_location``) is computed among that MAC's own rows. A lookup
+    therefore needs the rows of the MACs that have a matching MAC-table or ARP row, and no others.
+    Without this the whole network is correlated first and the filter cuts the result afterwards,
+    which is quadratic in the table sizes (join filters over every MAC row x every IP row).
+    The CTEs may hold more MACs than the final filter keeps (the filter still runs on the view),
+    never fewer: a hostname selects the MACs of the ARP rows that carry its address.
+    """
+    mac, ip, host = ClientMacAddress, ClientIpAddress, ClientHostname
+
+    def current(model: Any, latest: Any) -> Any:
+        return and_(
+            model.session_id == latest.c.session_id, model.device_name == latest.c.device_name
+        )
+
+    candidates: list[Any] = []
+    for key, predicate in predicates.items():
+        parts: list[Any] = []
+        if key == "hostname":
+            addresses = (
+                select(host.ip_address)
+                .join(latest_arp, current(host, latest_arp))
+                .where(predicate(host.hostname))
+            )
+            parts.append(
+                select(ip.mac_address)
+                .join(latest_arp, current(ip, latest_arp))
+                .where(ip.mac_address.is_not(None), ip.ip_address.in_(addresses))
+            )
+        else:
+            mac_column, ip_column = _FILTER_SOURCES[key]
+            if mac_column:
+                parts.append(
+                    select(mac.mac_address)
+                    .join(latest_mac, current(mac, latest_mac))
+                    .where(predicate(getattr(mac, mac_column)))
+                )
+            if ip_column:
+                parts.append(
+                    select(ip.mac_address)
+                    .join(latest_arp, current(ip, latest_arp))
+                    .where(ip.mac_address.is_not(None), predicate(getattr(ip, ip_column)))
+                )
+        query = parts[0] if len(parts) == 1 else union(*parts)
+        candidates.append(query.cte(f"candidate_macs_{key}"))
+    return candidates
+
+
+def _combined(uplink_threshold: int, predicates: Mapping[str, Predicate] | None = None) -> Any:
     """The current observations, one row each, with the DNS hostname of the IP.
+
+    With *predicates* (the filters of a lookup) only the MACs that can match them are correlated
+    (``_narrowing``); the rows of those MACs are the same as in the full view.
 
     * A MAC-table entry (MAC, device, VLAN, port) gets the IPs the same device has in ARP for that
       MAC and VLAN. Without one it falls back to an IP seen by any device for that MAC in the
@@ -172,6 +293,11 @@ def _combined(uplink_threshold: int) -> Any:
     latest_mac = _latest_collections("mac")
     latest_arp = _latest_collections("arp")
     latest_neighbor = _latest_collections("neighbor")
+    candidates = _narrowing(predicates or {}, latest_mac, latest_arp)
+
+    def only_candidates(column: Any) -> list[Any]:
+        return [column.in_(select(found.c.mac_address)) for found in candidates]
+
     mac = ClientMacAddress
     ip = ClientIpAddress
     mac_entries = _newest(
@@ -180,6 +306,7 @@ def _combined(uplink_threshold: int) -> Any:
         [mac.mac_address, mac.device_name, mac.vlan, mac.port, mac.session_id, mac.collected_at],
         [mac.mac_address, mac.device_name, mac.vlan, mac.port],
         latest_mac,
+        where=and_(*only_candidates(mac.mac_address)) if candidates else None,
     )
     arp_entries = _newest(
         "arp_entries",
@@ -196,9 +323,10 @@ def _combined(uplink_threshold: int) -> Any:
         ],
         [ip.mac_address, ip.device_name, ip.ip_address, ip.vrf],
         latest_arp,
-        where=ip.mac_address.is_not(None),
+        where=and_(ip.mac_address.is_not(None), *only_candidates(ip.mac_address)),
     )
-    with_mac = ip.mac_address.is_not(None)
+    # ARP rows that carry a MAC (and belong to a MAC the lookup can match).
+    with_mac = and_(ip.mac_address.is_not(None), *only_candidates(ip.mac_address))
     ip_in_vlan = _newest(
         "ip_in_vlan",
         ip,
@@ -458,6 +586,28 @@ class ClientDataQueryRepository:
         self.db = db
         self.uplink_threshold = uplink_threshold
 
+    @contextmanager
+    def _hash_joins(self) -> Iterator[None]:
+        """PostgreSQL only: do not plan nested loops while the correlated view runs.
+
+        Its window-function CTEs have no statistics (``rn = 1`` is guessed at 0.5 % of the rows),
+        so the planner expects a handful of rows, picks nested loops and compares every MAC row
+        with every ARP row: 176 million discarded pairs on 9,800 MAC rows. Narrowing the lookup to
+        its MACs removes most of that; a lookup that cannot be narrowed (no filter, a broad
+        substring, ``hide_uplinks``) still needs hash joins. ``enable_nestloop`` only makes nested
+        loops very expensive, so a plan that needs one can still use it. The setting is restored.
+        """
+        bind = self.db.get_bind()
+        if bind.dialect.name != "postgresql":
+            yield
+            return
+        previous = self.db.execute(select(func.current_setting("enable_nestloop"))).scalar()
+        self.db.execute(select(func.set_config("enable_nestloop", "off", True)))
+        try:
+            yield
+        finally:
+            self.db.execute(select(func.set_config("enable_nestloop", previous or "on", True)))
+
     def get_client_data(
         self,
         *,
@@ -487,35 +637,22 @@ class ClientDataQueryRepository:
             raise ValueError("page must be at least 1")
         if not 1 <= page_size <= MAX_PAGE_SIZE:
             raise ValueError(f"page_size must be between 1 and {MAX_PAGE_SIZE}")
-        combined = _combined(self.uplink_threshold)
-        filters = {
-            "device_name": device_name,
-            "ip_address": ip_address,
-            "mac_address": mac_address,
-            "port": port,
-            "vlan": vlan,
-            "vrf": vrf,
-            "hostname": hostname,
-        }
+        predicates = _predicates(
+            device_name=device_name,
+            ip_address=ip_address,
+            mac_address=mac_address,
+            port=port,
+            vlan=vlan,
+            vrf=vrf,
+            hostname=hostname,
+            exact=exact,
+            ip_prefix=ip_prefix,
+        )
+        combined = _combined(self.uplink_threshold, predicates)
         conditions = [
-            _matches(combined.c[key], value, exact=exact)
-            for key, value in filters.items()
-            if value and key not in ("mac_address", "ip_address")
+            predicate(combined.c[_VIEW_COLUMN.get(key, key)])
+            for key, predicate in predicates.items()
         ]
-        if ip_address:
-            if exact:
-                conditions.append(combined.c.ip_address == _canonical_ip(ip_address))
-            else:
-                conditions.append(_contains(combined.c.ip_address, ip_address))
-        if ip_prefix and ip_prefix.strip():
-            conditions.append(_starts_with(combined.c.ip_address, ip_prefix.strip()))
-        if mac_address:
-            # Stored as aabb.ccdd.eeff: compare without separators, so aa:bb:cc... also matches.
-            if exact:
-                conditions.append(combined.c.mac_address == _dotted_mac(mac_address))
-            else:
-                typed = _MAC_SEPARATORS.sub("", mac_address).lower()
-                conditions.append(_contains(func.replace(combined.c.mac_address, ".", ""), typed))
         if hide_uplinks:
             conditions.append(combined.c.is_uplink.is_(False))
 
@@ -533,7 +670,9 @@ class ClientDataQueryRepository:
             data_stmt = data_stmt.where(*conditions)
         data_stmt = data_stmt.limit(page_size).offset((page - 1) * page_size)
 
-        total = self.db.execute(count_stmt).scalar() or 0
+        with self._hash_joins():
+            total = self.db.execute(count_stmt).scalar() or 0
+            rows = list(self.db.execute(data_stmt))
         items = [
             {
                 "mac_address": row.mac_address,
@@ -552,7 +691,7 @@ class ClientDataQueryRepository:
                 "session_id": row.session_id,
                 "collected_at": _iso(row.collected_at),
             }
-            for row in self.db.execute(data_stmt)
+            for row in rows
         ]
         return items, total
 

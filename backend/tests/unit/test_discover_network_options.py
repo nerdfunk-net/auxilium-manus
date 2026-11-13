@@ -63,3 +63,20 @@ def test_numeric_limits_are_bounded(key: str, value: object) -> None:
 def test_override_is_trimmed() -> None:
     options = parse_options({**get_config(), "network_driver_override": " cisco_xe "})
     assert options.network_driver_override == "cisco_xe"
+
+
+def test_management_ip_lookup_is_on_by_default_without_a_source() -> None:
+    options = parse_options(get_config())
+    assert (options.resolve_management_ip, options.nautobot_source_id) == (True, None)
+
+
+def test_management_ip_lookup_can_be_switched_off_and_the_source_is_trimmed() -> None:
+    options = parse_options(
+        {**get_config(), "resolve_management_ip": "false", "nautobot_source_id": " nb-1 "}
+    )
+    assert (options.resolve_management_ip, options.nautobot_source_id) == (False, "nb-1")
+
+
+def test_management_ip_flag_must_be_a_boolean() -> None:
+    with pytest.raises(ValueError):
+        parse_options({**get_config(), "resolve_management_ip": "maybe"})

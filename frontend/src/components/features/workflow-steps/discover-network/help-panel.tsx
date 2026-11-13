@@ -34,6 +34,15 @@ export function DiscoverNetworkHelpPanel() {
           <HelpCode>unsupported_platform</HelpCode>, <HelpCode>limit_reached</HelpCode>,{" "}
           <HelpCode>unreachable</HelpCode> or <HelpCode>login_failed</HelpCode>.
         </p>
+        <p>
+          <HelpCode>resolve_management_ip</HelpCode> (on by default, needs a Nautobot source):
+          CDP reports an interface address, which a device may not accept logins on. The
+          neighbour is looked up in Nautobot by name and its primary IPv4 is used; if the name
+          finds nothing, by the interface address. The address found is the one checked against
+          the permitted prefixes and logged into. An unclear or missing answer keeps the CDP
+          address. Each link in the result shows the reported address and where the address
+          came from.
+        </p>
         <HelpWarning title="Scope is your safety net">
           <p>
             What a neighbour reports about itself is not trusted. Permitted prefixes must be /8

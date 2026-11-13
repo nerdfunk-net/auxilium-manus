@@ -9,6 +9,8 @@ def get_config() -> dict:
         "follow_neighbors": False,
         "permitted_prefixes": [],
         "follow_only_infrastructure": True,
+        "resolve_management_ip": True,
+        "nautobot_source_id": "",
         "max_devices": 50,
         "max_depth": 5,
         "concurrency": 5,

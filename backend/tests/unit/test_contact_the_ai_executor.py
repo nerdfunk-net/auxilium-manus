@@ -8,6 +8,7 @@ from contextlib import ExitStack
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+from core.address_masking import AddressMap
 from models.workflow_context import DeviceContext, DeviceError, DeviceStatus, WorkflowContext
 from services.ai_assistant.exceptions import AiAssistantDisabledError
 from services.ai_assistant.providers.base import (
@@ -74,6 +75,12 @@ def _context(*devices: DeviceContext) -> WorkflowContext:
     return WorkflowContext(run_id="run-1", workflow_id="wf-1", devices={d.id: d for d in devices})
 
 
+def _settings(username: str | None, masking: str = "tokens", address_map=None):
+    return SimpleNamespace(
+        workflow_ai_username=username, ai_address_masking=masking, ai_address_map=address_map
+    )
+
+
 async def _run(
     config: dict,
     context: WorkflowContext,
@@ -83,6 +90,8 @@ async def _run(
     username: str | None = "ai-service",
     user: object | None = SimpleNamespace(id=7, is_active=True),
     known: list[str] | None = None,
+    masking: str = "tokens",
+    address_map=None,
 ):
     fake = provider or _FakeProvider()
     service = MagicMock()
@@ -92,9 +101,7 @@ async def _run(
         service.require_runtime_config.return_value = ai or _ai()
     with ExitStack() as stack:
         stack.enter_context(patch(f"{_MOD}.object_session", return_value=MagicMock()))
-        stack.enter_context(
-            patch(f"{_MOD}.settings", SimpleNamespace(workflow_ai_username=username))
-        )
+        stack.enter_context(patch(f"{_MOD}.settings", _settings(username, masking, address_map)))
         stack.enter_context(patch(f"{_MOD}.AiSettingsService.from_session", return_value=service))
         users = MagicMock()
         users.get_by_username_ci.return_value = user
@@ -248,9 +255,7 @@ class ContactTheAiTests(unittest.IsolatedAsyncioTestCase):
             service.require_runtime_config.return_value = _ai()
             with ExitStack() as stack:
                 stack.enter_context(patch(f"{_MOD}.object_session", return_value=MagicMock()))
-                stack.enter_context(
-                    patch(f"{_MOD}.settings", SimpleNamespace(workflow_ai_username="AI-Service"))
-                )
+                stack.enter_context(patch(f"{_MOD}.settings", _settings("AI-Service")))
                 stack.enter_context(
                     patch(f"{_MOD}.AiSettingsService.from_session", return_value=service)
                 )
@@ -513,6 +518,102 @@ class StructuredPlaceholderTests(unittest.IsolatedAsyncioTestCase):
 
         ctx = _context(_device("r1", bags={"nautobot": _BAG}))
         self.assertEqual(render_for_all_devices("[{nautobot}]", ctx), "[]")
+
+
+class AddressMaskingTests(unittest.IsolatedAsyncioTestCase):
+    _MAP = AddressMap.from_mapping(
+        {"140.1.0.0/24": "192.168.178.0/24", "8.0.0.0/16": "10.0.0.0/16"}
+    )
+    _BAGS = {"custom": {"gw": "140.1.0.1", "host": "8.0.3.9", "other": "9.9.9.9"}}
+    _PROMPT = "gw {custom.gw} host {custom.host} other {custom.other}"
+
+    async def _go(self, masking, *, reply="ok", ai=None, address_map=None):
+        ctx = _context(_device("r1", bags=self._BAGS))
+        return await _run(
+            {"prompt": self._PROMPT},
+            ctx,
+            provider=_FakeProvider(reply=reply),
+            ai=ai,
+            masking=masking,
+            address_map=address_map,
+        )
+
+    async def test_tokens_mode_is_the_default_behaviour(self) -> None:
+        outcome, fake = await self._go("tokens")
+        self.assertEqual(fake.prompt, "gw __ADDR_1__ host __ADDR_2__ other __ADDR_3__")
+        info = outcome.context.metadata["node_1.ai_response"]
+        self.assertEqual((info["address_masking"], info["addresses_masked"]), ("tokens", 3))
+
+    async def test_map_mode_sends_fake_addresses_and_restores_the_reply(self) -> None:
+        reply = "Look at 192.168.178.1 and 10.0.3.9; __ADDR_1__ is unknown"
+        outcome, fake = await self._go("map", reply=reply, address_map=self._MAP)
+        self.assertEqual(fake.prompt, "gw 192.168.178.1 host 10.0.3.9 other __ADDR_1__")
+        for real in ("140.1.0.1", "8.0.3.9", "9.9.9.9"):
+            self.assertNotIn(real, fake.prompt)
+        stored = outcome.context.devices["r1"].attribute_bags["ai"]["response"]
+        self.assertEqual(stored, "Look at 140.1.0.1 and 8.0.3.9; __ADDR_1__ is unknown")
+        info = outcome.context.metadata["node_1.ai_response"]
+        self.assertEqual((info["address_masking"], info["addresses_masked"]), ("map", 3))
+        # apart from the answer itself the metadata carries counts only, no prefix or address
+        rest = repr({key: value for key, value in info.items() if key != "response"})
+        for text in ("140.1", "192.168.178", "10.0.3", "8.0.3"):
+            self.assertNotIn(text, rest)
+
+    async def test_auto_mode_pseudonymises_the_rest(self) -> None:
+        reply = "try 198.18.0.1, not 198.18.0.9"
+        outcome, fake = await self._go("auto", reply=reply, address_map=None)
+        self.assertEqual(fake.prompt, "gw 198.18.0.1 host 198.18.1.9 other 198.18.2.9")
+        stored = outcome.context.devices["r1"].attribute_bags["ai"]["response"]
+        # only the address that was shown comes back; .9 of the same fake block was never sent
+        self.assertEqual(stored, "try 140.1.0.1, not 198.18.0.9")
+
+    async def test_addresses_switch_on_sends_real_addresses_and_masks_nothing(self) -> None:
+        ai = _ai(share_device_addresses=True, share_custom_fields=True, share_config_context=True)
+        outcome, fake = await self._go("map", ai=ai, address_map=self._MAP, reply="at 10.0.3.9")
+        self.assertEqual(fake.prompt, "gw 140.1.0.1 host 8.0.3.9 other 9.9.9.9")
+        stored = outcome.context.devices["r1"].attribute_bags["ai"]["response"]
+        self.assertEqual(stored, "at 10.0.3.9")  # nothing was masked, so nothing is restored
+        self.assertEqual(
+            outcome.context.metadata["node_1.ai_response"]["address_masking"], "shared"
+        )
+
+    async def test_secrets_are_still_never_restored(self) -> None:
+        bags = {"custom": {"cfg": f"hostname r1\n{_SECRET_LINE}"}}
+        outcome, fake = await _run(
+            {"prompt": "{custom.cfg}"},
+            _context(_device("r1", bags=bags)),
+            provider=_FakeProvider(reply="the key is __SECRET_1__"),
+            masking="map",
+            address_map=self._MAP,
+        )
+        self.assertNotIn("hunter2hunter2", fake.prompt)
+        stored = outcome.context.devices["r1"].attribute_bags["ai"]["response"]
+        self.assertEqual(stored, "the key is __SECRET_1__")
+
+
+class AddressReviewFixTests(unittest.IsolatedAsyncioTestCase):
+    async def test_an_address_inside_jinja_braces_is_still_masked(self) -> None:
+        bags = {"custom": {"cfg": "{{ ntp server 9.9.9.9 }}"}}
+        _, fake = await _run(
+            {"prompt": "{custom.cfg}"},
+            _context(_device("r1", bags=bags)),
+            masking="auto",
+        )
+        self.assertNotIn("9.9.9.9", fake.prompt)
+
+    async def test_the_system_prompt_warns_about_stand_in_addresses(self) -> None:
+        _, fake = await _run({"prompt": "hi"}, _context(_device("r1")))
+        self.assertIn("stand-in values", fake.system)
+        self.assertIn("never invent, complete or list other addresses", fake.system)
+
+    async def test_a_cut_prompt_does_not_end_in_half_an_address(self) -> None:
+        from workflow_steps.contact_the_ai import executor
+
+        bags = {"custom": {"note": "x" * 90 + " 140.1.0.15 and more"}}
+        with patch.object(executor, "MAX_PROMPT_CHARS", 97):  # lands inside 140.1.0.15
+            _, fake = await _run({"prompt": "{custom.note}"}, _context(_device("r1", bags=bags)))
+        self.assertNotIn("140.1.0", fake.prompt)
+        self.assertIn("more characters left out", fake.prompt)
 
 
 class RunSummaryTests(unittest.TestCase):

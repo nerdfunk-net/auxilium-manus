@@ -81,6 +81,8 @@ class Seen:
     reason: str
     seen_from: str
     depth: int
+    reported_ip: str | None = None  # the interface address CDP reported, if replaced
+    ip_source: str = "cdp"
 
 
 @dataclass(frozen=True)
@@ -90,6 +92,8 @@ class Edge:
     to_name: str
     remote_port: str
     to_ip: str | None
+    reported_ip: str | None = None
+    ip_source: str = "cdp"
 
 
 @dataclass(frozen=True)
@@ -114,6 +118,9 @@ class CrawlResult:
 
 
 VisitFn = Callable[[Target], Awaitable[Reading]]
+# Looks up the management address of a neighbour (Nautobot) and returns the neighbour with that
+# address in ``ip``. It never raises: when nothing is found it returns the neighbour unchanged.
+ResolveFn = Callable[[Neighbor], Awaitable[Neighbor]]
 
 
 def _is_ip(host: str) -> bool:
@@ -218,6 +225,8 @@ class _State:
                 reason=reason,
                 seen_from=origin.name,
                 depth=origin.depth + 1,
+                reported_ip=neighbor.reported_ip,
+                ip_source=neighbor.ip_source,
             )
         )
 
@@ -243,6 +252,19 @@ class _State:
         )
         self.register(target)
         return target
+
+    def wants_resolution(self, neighbor: Neighbor) -> bool:
+        """Whether the neighbour could be logged into, so its management address is worth a lookup.
+
+        Checks everything that does not depend on the address; scope and limits are decided
+        later, on the address the lookup returns.
+        """
+        cfg = self.settings
+        if not cfg.follow:
+            return False
+        if cfg.only_infrastructure and not neighbor.is_infrastructure:
+            return False
+        return neighbor_device_type(neighbor, override=cfg.override) is not None
 
     def _skip_reason(self, neighbor: Neighbor, depth: int) -> str | None:
         cfg = self.settings
@@ -287,8 +309,34 @@ async def _visit_level(
     return list(await asyncio.gather(*(one(t) for t in frontier)))
 
 
-async def crawl(seeds: list[Target], visit: VisitFn, settings: CrawlSettings) -> CrawlResult:
-    """Visit the seeds, then every followable neighbour, level by level."""
+async def _resolve_neighbors(
+    neighbors: tuple[Neighbor, ...], state: _State, resolve: ResolveFn | None, concurrency: int
+) -> tuple[Neighbor, ...]:
+    """The neighbours with their management address where the lookup found one."""
+    if resolve is None:
+        return neighbors
+    gate = asyncio.Semaphore(concurrency)
+
+    async def one(neighbor: Neighbor) -> Neighbor:
+        if not state.wants_resolution(neighbor):
+            return neighbor
+        async with gate:
+            return await resolve(neighbor)
+
+    return tuple(await asyncio.gather(*(one(n) for n in neighbors)))
+
+
+async def crawl(
+    seeds: list[Target],
+    visit: VisitFn,
+    settings: CrawlSettings,
+    resolve: ResolveFn | None = None,
+) -> CrawlResult:
+    """Visit the seeds, then every followable neighbour, level by level.
+
+    ``resolve`` swaps a neighbour's interface address for its management address before the
+    scope check, the duplicate check and the login, so all three use the address that is dialled.
+    """
     state = _State(settings=settings)
     frontier: list[Target] = []
     for seed in seeds:
@@ -316,8 +364,11 @@ async def crawl(seeds: list[Target], visit: VisitFn, settings: CrawlSettings) ->
                         )
                     )
                 continue
-            state.visited.append(Visited(target, outcome.neighbors, outcome.status))
-            for neighbor in outcome.neighbors:
+            neighbors = await _resolve_neighbors(
+                outcome.neighbors, state, resolve, settings.concurrency
+            )
+            state.visited.append(Visited(target, neighbors, outcome.status))
+            for neighbor in neighbors:
                 state.edges.append(
                     Edge(
                         from_name=target.name,
@@ -325,6 +376,8 @@ async def crawl(seeds: list[Target], visit: VisitFn, settings: CrawlSettings) ->
                         to_name=neighbor.name,
                         remote_port=neighbor.remote_port,
                         to_ip=neighbor.ip,
+                        reported_ip=neighbor.reported_ip,
+                        ip_source=neighbor.ip_source,
                     )
                 )
                 if state.is_known(neighbor):

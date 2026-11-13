@@ -59,8 +59,11 @@ export function ContactTheAiHelpPanel() {
             content&quot; too. A Nautobot attribute in none of these groups
             (such as <HelpCode>comments</HelpCode>) is never sent. If one
             placeholder is not allowed, the step ends on failure and nothing is
-            sent. IP and MAC addresses are replaced by tokens unless
-            &quot;Addresses and serial numbers&quot; is on.
+            sent. Unless &quot;Addresses and serial numbers&quot; is on, IP
+            addresses are hidden: as <HelpCode>__ADDR_n__</HelpCode> tokens, or,
+            if the operator configured address masking, as fake addresses that
+            are mapped back to the real ones in the answer. MAC addresses are
+            always tokens.
           </p>
         </HelpWarning>
         <HelpWarning title="Whole attribute bags: risky and expensive">

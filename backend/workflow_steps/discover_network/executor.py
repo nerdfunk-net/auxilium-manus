@@ -39,6 +39,10 @@ from workflow_steps.discover_network.crawler import (
     VisitError,
     crawl,
 )
+from workflow_steps.discover_network.nautobot_lookup import (
+    ManagementIpLookup,
+    build_management_ip_lookup,
+)
 from workflow_steps.discover_network.options import STEP_ID, DiscoverOptions, parse_options
 from workflow_steps.discover_network.parsing import (
     CDP_COMMAND,
@@ -201,11 +205,29 @@ def _dry_run(
     return [StepOutcome(name="success", context=context.model_copy(update={"devices": previewed}))]
 
 
+def _management_ip_lookup(
+    db: Any, options: DiscoverOptions
+) -> tuple[ManagementIpLookup | None, str]:
+    """The Nautobot lookup for discovered devices and its status for the step summary.
+
+    Only useful when following: seeds are dialled at the address the workflow gave them.
+    Switched on without a Nautobot source the step still runs on the CDP addresses
+    (``no_source``) so a workflow saved before the option existed keeps working.
+    """
+    if not options.follow_neighbors or not options.resolve_management_ip:
+        return None, "off"
+    if options.nautobot_source_id is None:
+        logger.warning("discover-network: management IP lookup is on but no Nautobot source is set")
+        return None, "no_source"
+    return build_management_ip_lookup(db, options.nautobot_source_id), "on"
+
+
 def _build_outcomes(
     context: WorkflowContext,
     node_id: str,
     result: CrawlResult,
     seed_errors: dict[str, VisitError],
+    management_ip_lookup: str = "off",
 ) -> list[StepOutcome]:
     seed_hosts = frozenset(v.target.host for v in result.visited if v.target.seed_id is not None)
     ok: dict[str, DeviceContext] = {}
@@ -237,7 +259,9 @@ def _build_outcomes(
             # The same device given twice: the crawler visits it once, under the first seed.
             ok[device_id] = with_discovery(device, node_id, {"skipped": "duplicate_seed"})
 
-    summary: dict[str, Any] = step_summary(result, seed_hosts=seed_hosts)
+    summary: dict[str, Any] = step_summary(
+        result, seed_hosts=seed_hosts, management_ip_lookup=management_ip_lookup
+    )
     metadata = {**context.metadata, f"{node_id}.{RESULT_KEY}": summary}
     outcomes = [
         StepOutcome(
@@ -326,8 +350,13 @@ async def execute(
         credentials=(username, password, reference),
         options=options,
     )
-    result = await crawl(seeds, visit, crawl_settings)
-    outcomes = _build_outcomes(context, node_id, result, seed_errors)
+    lookup, lookup_status = _management_ip_lookup(db, options)
+    result = await crawl(
+        seeds, visit, crawl_settings, resolve=lookup.resolve if lookup is not None else None
+    )
+    if lookup is not None and lookup.unavailable:
+        lookup_status = "unavailable"
+    outcomes = _build_outcomes(context, node_id, result, seed_errors, lookup_status)
     logger.info(
         "discover-network finished visited=%d seen=%d failed_seeds=%d limits=%s run_id=%s",
         len(result.visited),

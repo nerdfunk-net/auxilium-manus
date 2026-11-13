@@ -6,6 +6,7 @@ import {
   clampMaxDepth,
   clampMaxDevices,
   configIssues,
+  managementIpHint,
   parsePrefixText,
   validatePrefix,
 } from "./config";
@@ -68,7 +69,18 @@ describe("buildDiscoverNetworkConfig", () => {
       max_devices: 50,
       max_depth: 5,
       concurrency: 5,
+      resolve_management_ip: true,
+      nautobot_source_id: "",
     });
+  });
+
+  it("keeps the management IP lookup setting and the Nautobot source", () => {
+    const built = buildDiscoverNetworkConfig(
+      { resolve_management_ip: false },
+      { nautobot_source_id: "nb-1" },
+    );
+    expect(built.resolve_management_ip).toBe(false);
+    expect(built.nautobot_source_id).toBe("nb-1");
   });
 
   it("keeps the prefixes when following is switched off", () => {
@@ -117,5 +129,14 @@ describe("configIssues", () => {
       configIssues({ follow_neighbors: true, permitted_prefixes: ["10.1.0.0/16"] }),
     ).toEqual([]);
     expect(configIssues({})).toEqual([]);
+  });
+});
+
+describe("managementIpHint", () => {
+  it("asks for a source only when following with the lookup on", () => {
+    expect(managementIpHint({ follow_neighbors: true })).toContain("No Nautobot source");
+    expect(managementIpHint({ follow_neighbors: true, nautobot_source_id: "nb-1" })).toBeNull();
+    expect(managementIpHint({ follow_neighbors: true, resolve_management_ip: false })).toBeNull();
+    expect(managementIpHint({ follow_neighbors: false })).toBeNull();
   });
 });

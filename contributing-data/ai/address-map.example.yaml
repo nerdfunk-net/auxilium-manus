@@ -1,0 +1,29 @@
+# Example for AI_ADDRESS_MAP_FILE (AI_ADDRESS_MASKING=map or auto), see doc/ai_integration/AI_ASSISTANT.md
+# section 21 "Address masking".
+#
+# THIS IS ONLY AN EXAMPLE, with documentation prefixes. It is not read by the application.
+#
+# contributing-data/ is committed to git and copied into the container image (/app/contributing-data/), so
+# NEVER put your real prefixes into this file. Copy it to your data directory, which git ignores, and edit the copy:
+#
+#   local development   cp contributing-data/ai/address-map.example.yaml data/ai/address-map.yaml
+#                       (AI_ADDRESS_MAP_FILE=ai/address-map.yaml)
+#   Docker              cp contributing-data/ai/address-map.example.yaml docker/data/ai/address-map.yaml
+#                       (same setting; the container reads /app/data/ai/address-map.yaml)
+#
+# A relative AI_ADDRESS_MAP_FILE is read from DATA_DIRECTORY. Your copy lists your real networks: keep it out of
+# git and readable by administrators only.
+#
+# One line per prefix:  real prefix: fake prefix
+#   - the fake prefix is what the AI model sees; the real address comes back in the model's reply
+#   - both sides need the same address family and the same prefix length
+#   - a host keeps its position: 203.0.113.5 becomes 10.250.1.5
+#   - no two prefixes in the file may overlap (a fake one must not overlap a real one either)
+#   - choose fake prefixes your network does not use, otherwise a fake address could be mistaken for a real one
+#   - with AI_ADDRESS_MASKING=auto the prefixes must stay out of 198.18.0.0/15 and 2001:db8::/32
+#   - an address that no line covers becomes an __ADDR_n__ token (map) or gets a generated fake one (auto)
+---
+203.0.113.0/24: 10.250.1.0/24
+198.51.100.0/24: 10.250.2.0/24
+# IPv6 works the same way (3fff::/20 is the documentation range):
+# 3fff:0:1::/64: fd00:250:1::/64

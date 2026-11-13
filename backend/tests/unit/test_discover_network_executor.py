@@ -7,6 +7,8 @@ import unittest
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from nautobot_read.client import NautobotError, Page
+
 from models.failure import FailureInfo
 from models.workflow_context import DeviceContext, DeviceStatus, WorkflowContext
 from services.artifacts import InMemoryArtifactService
@@ -14,6 +16,7 @@ from services.network.netmiko.connection import CommandResult
 from workflow_steps.discover_network.config import get_config
 from workflow_steps.discover_network.crawler import Target, VisitError
 from workflow_steps.discover_network.executor import _make_visit, execute
+from workflow_steps.discover_network.nautobot_lookup import ManagementIpLookup
 from workflow_steps.discover_network.options import parse_options
 
 MODULE = "workflow_steps.discover_network.executor"
@@ -57,6 +60,27 @@ def _device(device_id: str, name: str, ip: str) -> DeviceContext:
     return DeviceContext(
         id=device_id, name=name, hostname=name, primary_ip4=f"{ip}/24", network_driver="cisco_ios"
     )
+
+
+class _FakeNautobot:
+    """``list_page`` answers keyed by (root, filter name, value); ``fail`` simulates an outage."""
+
+    def __init__(self, tables: dict[tuple[str, str, str], list[dict[str, Any]]]) -> None:
+        self.tables = tables
+        self.fail = False
+
+    async def list_page(
+        self, root: str, selection: str, filters: dict[str, list[str]], *, limit: int, offset: int
+    ) -> Page:
+        del selection, limit, offset
+        if self.fail:
+            raise NautobotError("Could not reach Nautobot.")
+        (name, values), = ((k, v) for k, v in filters.items() if v)
+        return Page(items=tuple(self.tables.get((root, name, values[0]), [])), has_more=False)
+
+
+def _nb_device(name: str, primary: str) -> dict[str, Any]:
+    return {"id": name, "name": name, "primary_ip4": {"address": primary}}
 
 
 class DiscoverNetworkExecutorTests(unittest.IsolatedAsyncioTestCase):
@@ -158,6 +182,85 @@ class DiscoverNetworkExecutorTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(
             [c.args[0] for c in self.pool.close_host.await_args_list], ["10.1.0.1", "10.1.0.2"]
+        )
+
+    async def test_the_management_ip_from_nautobot_is_the_host_that_is_logged_into(self) -> None:
+        lookup = ManagementIpLookup(
+            _FakeNautobot({("devices", "name", "B"): [_nb_device("B", "10.1.0.22/32")]})
+        )
+        netmiko = _FakeNetmiko(
+            {"10.1.0.1": _cdp(_row("B", "192.168.9.2")), "10.1.0.22": _cdp()}
+        )
+        with patch(f"{MODULE}.build_management_ip_lookup", return_value=lookup) as build:
+            outcomes = await self._run(
+                {"d1": _device("d1", "A", "10.1.0.1")},
+                netmiko,
+                {
+                    "follow_neighbors": True,
+                    "permitted_prefixes": ["10.1.0.0/16"],
+                    "nautobot_source_id": "nb-1",
+                },
+            )
+        self.assertEqual(build.call_args.args[1], "nb-1")
+        self.assertEqual(netmiko.hosts, ["10.1.0.1", "10.1.0.22"])
+        found = next(d for d in self._devices(outcomes, "success").values() if d.name == "B")
+        self.assertEqual(found.primary_ip4, "10.1.0.22")
+        summary = outcomes[0].context.metadata["disc-1.discovery"]
+        self.assertEqual(summary["management_ip_lookup"], "on")
+        self.assertEqual(summary["edges"][0]["reported_ip"], "192.168.9.2")
+        self.assertEqual(summary["edges"][0]["ip_source"], "nautobot_name")
+
+    async def test_the_lookup_without_a_nautobot_source_falls_back_to_the_cdp_address(self) -> None:
+        netmiko = _FakeNetmiko({"10.1.0.1": _cdp(_row("B", "10.1.0.2")), "10.1.0.2": _cdp()})
+        with patch(f"{MODULE}.build_management_ip_lookup") as build:
+            outcomes = await self._run(
+                {"d1": _device("d1", "A", "10.1.0.1")},
+                netmiko,
+                {"follow_neighbors": True, "permitted_prefixes": ["10.1.0.0/16"]},
+            )
+        build.assert_not_called()
+        self.assertEqual(netmiko.hosts, ["10.1.0.1", "10.1.0.2"])
+        self.assertEqual(
+            outcomes[0].context.metadata["disc-1.discovery"]["management_ip_lookup"], "no_source"
+        )
+
+    async def test_the_lookup_can_be_switched_off(self) -> None:
+        netmiko = _FakeNetmiko({"10.1.0.1": _cdp(_row("B", "10.1.0.2")), "10.1.0.2": _cdp()})
+        with patch(f"{MODULE}.build_management_ip_lookup") as build:
+            outcomes = await self._run(
+                {"d1": _device("d1", "A", "10.1.0.1")},
+                netmiko,
+                {
+                    "follow_neighbors": True,
+                    "permitted_prefixes": ["10.1.0.0/16"],
+                    "nautobot_source_id": "nb-1",
+                    "resolve_management_ip": False,
+                },
+            )
+        build.assert_not_called()
+        self.assertEqual(
+            outcomes[0].context.metadata["disc-1.discovery"]["management_ip_lookup"], "off"
+        )
+
+    async def test_a_nautobot_outage_falls_back_to_the_cdp_address_and_is_reported(self) -> None:
+        client = _FakeNautobot({})
+        client.fail = True
+        netmiko = _FakeNetmiko({"10.1.0.1": _cdp(_row("B", "10.1.0.2")), "10.1.0.2": _cdp()})
+        with patch(
+            f"{MODULE}.build_management_ip_lookup", return_value=ManagementIpLookup(client)
+        ):
+            outcomes = await self._run(
+                {"d1": _device("d1", "A", "10.1.0.1")},
+                netmiko,
+                {
+                    "follow_neighbors": True,
+                    "permitted_prefixes": ["10.1.0.0/16"],
+                    "nautobot_source_id": "nb-1",
+                },
+            )
+        self.assertEqual(netmiko.hosts, ["10.1.0.1", "10.1.0.2"])
+        self.assertEqual(
+            outcomes[0].context.metadata["disc-1.discovery"]["management_ip_lookup"], "unavailable"
         )
 
     async def test_without_follow_only_the_seed_is_visited(self) -> None:

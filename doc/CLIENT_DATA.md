@@ -145,6 +145,28 @@ gives the same error. It is an inventory problem and is not retried as a replace
   `dns.py`, `executor.py`; panel `frontend/.../workflow-steps/collect-client-data/`
 * Tests `tests/unit/test_collect_client_data_*.py`, `test_client_data_*.py`, `test_ai_host_lookup_tools.py`
 
+## Cost of a lookup (2026-11-13)
+
+The correlated view (MAC table x ARP table x VLAN fallbacks x hostnames, `_combined`) is built from window-function CTEs. PostgreSQL has no
+statistics for a window column, guesses a handful of rows and plans **nested loops**, which compare every MAC row with every ARP row. On a
+production copy (9,800 MAC rows, 5,800 ARP rows) one IP lookup discarded 176 million rows in join filters and took 61 s, and the cost grows with the
+square of the table sizes. Two measures, both in `repositories/client_data_query_repository.py`:
+
+* **Narrowing** (`_narrowing`): every filter (`ip_address`, `ip_prefix`, `mac_address`, `hostname`, `device_name`, `port`, `vlan`, `vrf`) selects the
+  MACs that have a matching MAC-table or ARP row (CTE `candidate_macs_<filter>`), and the correlation reads only those MACs. This is exact, not an
+  approximation: everything computed for a MAC (IP fallbacks, `likely_location`) is computed among that MAC's own rows, and the filter still runs on
+  the result. `macs_on_port` is deliberately **not** narrowed (it counts all MACs of the port). The filter meaning lives in one place
+  (`_predicates`), used for the final filter and for the narrowing, so the two cannot drift. `tests/unit/test_client_data_narrowing.py` compares the
+  narrowed lookup with the full view for every filter, exact/substring, `likely_first` and `hide_uplinks`.
+* **Hash-join guard** (`_hash_joins`, PostgreSQL only): `enable_nestloop = off` for the count and data statements (restored afterwards). A lookup that
+  cannot be narrowed (no filter, `hide_uplinks` only, a substring that matches everything) is then linear too. It does not forbid a nested loop, it
+  makes one expensive.
+
+Measured on a scratch database with the same shape (lab, PostgreSQL 17): 9,750 MAC / 5,800 ARP rows 50 s -> 0.05 s for an IP lookup; 29,000 MAC rows
+and 17,400 hostnames: 0.1-0.5 s for every kind of lookup, also without a filter; 97,500 MAC / 58,000 ARP rows: 0.2-1.7 s. At three times the
+production size the old query needed 242-302 s (822 million discarded rows). `tests/integration/test_client_data_pg.py` checks the plan (rows
+removed by join filters) on PostgreSQL. Diagnose with `backend/scripts/analyze_client_tool.py` (`plan`, `time`).
+
 ## Uplinks and the likely location
 
 A MAC address appears on every switch it passes through, so a lookup lists each of them. For every MAC-table observation the query computes,

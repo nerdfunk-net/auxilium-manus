@@ -6514,6 +6514,27 @@ plugins:
           data_type: boolean
           required: false
           default: true
+        - name: resolve_management_ip
+          description: >
+            Get the management IP of a discovered device (default on). CDP reports an
+            interface address of a neighbour, which is often not the address the device
+            accepts logins on. When on (and follow_neighbors is on), the neighbour is looked
+            up in Nautobot by name and its primary IPv4 is used; if the name finds nothing,
+            by the reported interface address (device name and primary IPv4). The address
+            found is the one checked against permitted_prefixes and the host policy and
+            logged into; an ambiguous or missing answer, or a Nautobot failure, keeps the CDP
+            address. Needs nautobot_source_id (without one the lookup is skipped, recorded as
+            management_ip_lookup "no_source"). Each edge and neighbour record carries
+            reported_ip and ip_source (cdp, nautobot_name or nautobot_ip).
+          data_type: boolean
+          required: false
+          default: true
+        - name: nautobot_source_id
+          description: >
+            Nautobot source (sources.nautobot.<id>) used for the management IP lookup.
+          data_type: string
+          required: false
+          example: nautobot-prod
         - name: max_devices
           description: >
             Most devices to log into, seeds included (1-500). Neighbours beyond it are listed

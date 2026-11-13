@@ -202,6 +202,11 @@ tracked. The operator can switch the assistant off or limit providers and data c
 (`AI_ASSISTANT_ENABLED`, `AI_ALLOWED_PROVIDERS`, `AI_ALLOWED_DATA`); a user's own switches can only
 narrow those limits.
 
+With `AI_ADDRESS_MASKING=map` or `auto`, addresses are replaced by fake ones and mapped back in the reply
+(`doc/ai_integration/AI_ASSISTANT.md` §21). `AI_ADDRESS_MAP_FILE` lists your real prefixes: keep it admin-only and
+out of git. Only the exact addresses that were sent are restored. Hostnames, serials and unusual address forms are not masked, and a restored reply carries real
+addresses to wherever it goes (for `contact-the-ai`, a Mattermost channel).
+
 ## Route to Agent: what an agent sees, and the limits of its protocol
 
 The step sends the attributes and content an author selects to an external agent. Messages are one

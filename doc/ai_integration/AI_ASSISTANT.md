@@ -1369,6 +1369,54 @@ reply gets no tools, is length-capped and has `@channel` / `@all` / `@here` defu
 stored or logged on failure (fixed wording and a `FailureInfo`). The step is a send, not a proposal: it persists
 nothing itself beyond the answer in the run.
 
+**Address masking.** While a user's addresses switch is off, text that is sent to a model has its IP and MAC
+addresses replaced by `__ADDR_n__` tokens (`Redactor.redact_addresses`). That hides the address but also every
+relationship between addresses, and a reply keeps the tokens. The operator can choose a reversible alternative with
+`AI_ADDRESS_MASKING` (`core/address_masking.py`, read once at startup; a bad value or file stops the start):
+
+- `tokens` (default): today's behaviour, byte for byte.
+- `map`: `AI_ADDRESS_MAP_FILE` is a YAML file of `real_prefix: fake_prefix` lines (relative paths are read from
+  `DATA_DIRECTORY`; start from `contributing-data/ai/address-map.example.yaml` (an example only: that folder is in git and in
+  the image, so never edit it with real prefixes), copy it to `data/ai/` or, in Docker, `docker/data/ai/`, both
+  ignored by git). An address inside a real prefix becomes the address at the same position in the fake prefix
+  (`140.1.0.5` with `140.1.0.0/24: 192.168.178.0/24` becomes `192.168.178.5`; a `/24` written after it stays). Every
+  other address still becomes a token, so nothing unmapped is ever sent. Both sides of a line must have the same
+  family and prefix length, and no two prefixes of the file may overlap (also a fake against a real one).
+- `auto`: the file is optional; every address it does not cover is grouped per request by /24 (IPv4) or /64 (IPv6)
+  and each group gets the next free block of `198.18.0.0/15` (IPv4) or `2001:db8::/32` (IPv6), keeping the position
+  inside the block, so addresses that shared a subnet still share one. A file prefix inside those pools is refused.
+  When a pool is used up the rest become tokens.
+
+Netmask shapes (`255.0.0.0` to `255.255.255.255`) and wildcard shapes (`0.0.0.0` to `0.255.255.255`: `0.0.0.255`,
+`0.0.1.255`, ...) pass through unchanged in `map` / `auto`, because they carry meaning and identify nothing: both ranges
+are reserved space that no host can have, so a lookalike anywhere else is masked. Tokens mode still hides them. MAC
+addresses always become tokens.
+
+`Redactor.restore_addresses` turns fake addresses in the reply back into real ones, and **only the exact addresses
+the masker handed out in that request**: a neighbour of a fake address, the fake prefix itself (`198.18.0.0/15`), a
+prefix length, tokens and secrets are left as they are. A fake range is a range the model already knows, so a
+reply that completes a subnet or lists every host must not turn into real addresses the model was never shown. The
+system prompt also tells the model to use only the addresses it was given. The price: a reply that names the
+subnet of two fake hosts shows the fake subnet.
+
+Details that matter: the IPv6 form with an embedded IPv4 (`2001:db8:1:2:3:4:192.0.2.1`, `::ffff:192.0.2.1`) is one
+address, hidden whole (an IPv4-mapped one follows the IPv4 rules); an IPv6 zone id goes with its address; octets with
+leading zeros (`010.001.002.003`) are matched and tokenised; in `auto` mode a pool block that holds a real address
+of the request is never handed out, and a stand-in is never equal to the address it replaces. A real address that
+equals a stand-in handed out earlier in the same request becomes a token. The step masks addresses inside `{{ }}`
+as well (wiki notes keep template syntax unmasked), and cuts a prompt only where it cannot leave half an address.
+With the addresses switch **on** nothing is masked or restored. The fake address is parked behind the same
+private-use sentinel as a Jinja span, so a later pattern cannot mask it again.
+
+The file is read once at startup: a relative `AI_ADDRESS_MAP_FILE` must stay inside `DATA_DIRECTORY` (an absolute path
+is taken as given), it must be UTF-8, at most 256 KiB, and may not use YAML aliases.
+
+Limits: auto mode loses the private / public / loopback class (one pool) and the /24 and /64 grouping is a heuristic;
+hostnames, serials and any address form the patterns do not match are not covered, which is why the addresses switch
+still gates those fields; a restored reply puts real addresses where the reply goes (for `contact-the-ai` the
+Mattermost channel). The file lists real prefixes: keep it admin-only and out of git. Only `contact-the-ai` uses it
+today; the chat surfaces keep withholding address data instead of masking it.
+
 ## 22. Proxy
 
 Companies that control outbound traffic with an HTTP/HTTPS proxy can route every provider call

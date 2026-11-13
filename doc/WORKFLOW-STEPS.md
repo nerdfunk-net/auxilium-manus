@@ -717,7 +717,12 @@ path). The run viewer shows the answer, provider, model and target, or the failu
 - **Redaction:** the rendered prompt and system prompt always go through `Redactor` (config-style secrets,
   the service user's visible credential values, addresses unless the *Addresses* switch is on). If the
   credential values cannot be loaded the step fails closed. Redaction is best-effort, like the assistant's
-  (`doc/ai_integration/AI_ASSISTANT.md` §4.3). Tokens in the answer are never restored.
+  (`doc/ai_integration/AI_ASSISTANT.md` §4.3). With the addresses switch off, the operator's
+  `AI_ADDRESS_MASKING` (`tokens` / `map` / `auto`, `AI_ADDRESS_MAP_FILE`) decides whether an address becomes a
+  token or a reversible fake address (§21 "Address masking"); fake addresses the model repeats are mapped back to
+  the real ones in the answer and in the stored attribute, exactly those that were sent, never a neighbour or a
+  whole prefix. Tokens and secrets in the answer are never restored.
+  The viewer metadata records the mode and how many addresses were hidden, never the addresses.
 - **Safety of the answer:** the model gets no tools and a built-in instruction to treat run data as data. The
   answer is cut at 10 000 characters and `@channel` / `@all` / `@here` are defused. The prompt is cut at
   100 000 characters.
@@ -1791,6 +1796,19 @@ closed again (`DeviceSessionPool.close_host`) before the next level starts. Code
   login (`executor._make_visit`). **Residual risk:** CDP is unauthenticated, so a device inside the prefixes (or a
   spoofed advertisement) can name any management address in them and is then offered the step's SSH credential. Keep
   the prefixes narrow and use a read-only credential.
+- **Management IP lookup** (`resolve_management_ip`, default on; `nautobot_source_id`). CDP reports an *interface*
+  address of a neighbour, which is often not the address a device accepts logins on. For every neighbour that could be
+  followed (follow on, infrastructure, supported platform; not phones or hosts) `nautobot_lookup.ManagementIpLookup`
+  looks the **name** up in Nautobot (exact, ignoring case, start of a full name, then the first label of a qualified
+  name) and uses the device's `primary_ip4`; if that finds nothing usable, it looks up the reported **interface
+  address** and uses the owning device's name and `primary_ip4`. An ambiguous answer (several devices) is never
+  guessed. The crawler swaps the address *before* the scope check, the duplicate check and the login
+  (`crawler._resolve_neighbors`), so the prefixes, the host policy and the identity rule apply to the address that is
+  dialled; two interface addresses of one device collapse to one visit. Records carry `reported_ip` (the CDP address)
+  and `ip_source` (`cdp`, `nautobot_name`, `nautobot_ip`); the step summary has `management_ip_lookup`: `on`, `off`,
+  `no_source` (on, but no Nautobot source chosen: the step runs on the CDP addresses so older workflows keep working)
+  or `unavailable` (Nautobot failed: CDP addresses used). A configured but unusable source (missing token or URL) is a
+  `ValueError` at start. Reads go through `NautobotServiceClient` (`strict=False`) like `get-virtual-chassis`.
 - **Identity** is the management IP. A name recognises a device only when there is no IP to compare: a seed given by
   host name (its SSH host name decides, the display name only on an exact match) and a neighbour that reported no
   address. Two qualified names that differ (`core1.a.example`, `core1.b.example`) are two devices. A neighbour first seen

@@ -7,6 +7,14 @@ from urllib.parse import quote_plus
 from dotenv import dotenv_values, load_dotenv
 
 from core import crypto_policy
+from core.address_masking import (
+    MODE_TOKENS,
+    AddressMap,
+    AddressMapError,
+    load_address_map,
+    resolve_map_path,
+    validate_masking_config,
+)
 from core.dns_names import normalize_suffixes
 from core.production_guards import (
     ai_policy_warnings,
@@ -123,6 +131,8 @@ class Settings:
     ai_allowed_providers: frozenset[str]
     ai_allowed_data: frozenset[str]
     workflow_ai_username: str | None
+    ai_address_masking: str
+    ai_address_map: AddressMap | None
     apply_safe_migrations: bool
     apply_risky_migrations: bool
     install_certificate_files: bool
@@ -304,6 +314,22 @@ class Settings:
         self.install_certificate_files = self._get_bool("INSTALL_CERTIFICATE_FILES", False)
         self.credential_encryption_key = environ.get("CREDENTIAL_ENCRYPTION_KEY", "")
         self.data_directory = Path(environ.get("DATA_DIRECTORY", PROJECT_ROOT / "data")).resolve()
+        # Reversible masking of IP addresses in text sent to an AI model (core/address_masking.py).
+        # tokens (default): every address becomes a token. map: the YAML file at AI_ADDRESS_MAP_FILE
+        # (relative paths are read from DATA_DIRECTORY). auto: the file is optional and every other
+        # address is pseudonymised per request. Only applies when the sharing switch for addresses
+        # is off; a bad file or setting stops the start.
+        self.ai_address_masking = (environ.get("AI_ADDRESS_MASKING") or MODE_TOKENS).strip().lower()
+        address_map_file = (environ.get("AI_ADDRESS_MAP_FILE") or "").strip()
+        self.ai_address_map = None
+        try:
+            if address_map_file:
+                self.ai_address_map = load_address_map(
+                    resolve_map_path(address_map_file, self.data_directory)
+                )
+            validate_masking_config(self.ai_address_masking, self.ai_address_map)
+        except AddressMapError as exc:
+            raise RuntimeError(f"Invalid address masking configuration: {exc}") from exc
         self.log_directory = Path(
             environ.get("LOG_DIRECTORY", self.data_directory / "logs")
         ).resolve()
