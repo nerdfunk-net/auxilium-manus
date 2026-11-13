@@ -17,7 +17,7 @@ import {
 import { MarkdownView } from "@/components/ui/markdown-view";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useReportDefinitionQuery } from "@/hooks/queries/use-report-definitions-query";
-import { useReportSnapshotPdfDownload } from "@/hooks/queries/use-report-snapshot-pdf-download";
+import { useReportSnapshotDownload } from "@/hooks/queries/use-report-snapshot-download";
 import { useReportSnapshotQuery } from "@/hooks/queries/use-report-snapshots-query";
 
 import type { SnapshotContent } from "../types/report-definition";
@@ -44,7 +44,8 @@ export function SnapshotViewer({ snapshotId, onClose }: SnapshotViewerProps) {
   const snapshot = useReportSnapshotQuery(snapshotId);
   const data = snapshot.data;
   const canSend = hasPermission(useAuthStore((state) => state.user), "reports", "send");
-  const pdf = useReportSnapshotPdfDownload();
+  const pdf = useReportSnapshotDownload("pdf");
+  const csv = useReportSnapshotDownload("csv");
   const [sendOpen, setSendOpen] = useState(false);
   // The report the snapshot came from carries the saved recipients (gone if it was deleted).
   const definition = useReportDefinitionQuery(data?.definition_id ?? null);
@@ -77,6 +78,20 @@ export function SnapshotViewer({ snapshotId, onClose }: SnapshotViewerProps) {
               )}
               PDF
             </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={csv.isPending}
+              onClick={() => csv.mutate(data.id)}
+            >
+              {csv.isPending ? (
+                <Loader2 className="mr-1 size-4 animate-spin" />
+              ) : (
+                <Download className="mr-1 size-4" />
+              )}
+              Data (CSV)
+            </Button>
             {canSend ? (
               <Button type="button" size="sm" variant="outline" onClick={() => setSendOpen(true)}>
                 <Send className="mr-1 size-4" /> Send by email…
@@ -84,6 +99,9 @@ export function SnapshotViewer({ snapshotId, onClose }: SnapshotViewerProps) {
             ) : null}
             {pdf.isError ? (
               <span className="text-xs text-destructive">{pdf.error.message}</span>
+            ) : null}
+            {csv.isError ? (
+              <span className="text-xs text-destructive">{csv.error.message}</span>
             ) : null}
           </div>
         ) : null}

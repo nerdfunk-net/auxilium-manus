@@ -585,6 +585,42 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
     ],
   },
   {
+    id: "reports",
+    title: "Reports",
+    summary:
+      "Ask for a report in plain words. The assistant builds it from Nautobot or from data your workflows collected, optionally in one of your report layouts, and shows a card. Nothing is generated until you click Generate; then you can open it and download it as PDF or as raw data (CSV).",
+    requirement:
+      "Needs permission to read reports (and to write reports to generate one). Reports from Nautobot also need permission to read the Nautobot source. The assistant sees report rows only if you allow the matching data in your assistant settings, but it can propose a report without seeing any row.",
+    tools: [
+      {
+        name: "list_report_sources / list_report_datasets",
+        description:
+          "Shows where a report can read from (Nautobot, or the data collected by workflows) and which datasets and fields each has. No values.",
+        questions: [
+          "What can I put in a report?",
+          "Which fields does the Nautobot device dataset have?",
+        ],
+      },
+      {
+        name: "list_report_templates",
+        description:
+          "Lists your organisation's report layouts and the sections each one expects, so a report can be written to fit one.",
+        questions: ["Which report layouts do we have?"],
+      },
+      {
+        name: "propose_report / preview_report_query",
+        description:
+          "Proposes a report with sections (a list, or a summary such as a count per group). Serial numbers and addresses are only shown to the assistant if you allow addresses; the generated report is never read by the assistant.",
+        questions: [
+          "Write a report that lists the serial numbers of the network devices.",
+          "Write a report that lists the device type of the network devices grouped by the location.",
+          "Write a report that summarizes the used software grouped by the device type.",
+          "Write a report of the devices that run software 15.0.0.",
+        ],
+      },
+    ],
+  },
+  {
     id: "workflows",
     title: "Released workflows",
     summary:

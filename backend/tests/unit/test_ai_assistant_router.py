@@ -1498,3 +1498,93 @@ def test_the_users_token_cap_does_not_add_a_budget_to_a_surface_without_one(
     )
 
     assert seen["budget"].max_total_tokens is None  # type: ignore[attr-defined]
+
+
+# -- confirmed reports ---------------------------------------------------------------------------
+
+
+class _FakeReportExecutor:
+    def __init__(self, error: Exception | None = None) -> None:
+        self.error, self.calls = error, []
+
+    def execute(self, *, user_id, actor_name, token):
+        self.calls.append((user_id, actor_name, token))
+        if self.error:
+            raise self.error
+        from services.ai_assistant.report_run_exec import GeneratedReport
+
+        return GeneratedReport(
+            snapshot_id=9, name="Serials - now", status="partial", sections_failed=1
+        )
+
+
+def _report_client(client: TestClient, error: Exception | None = None) -> _FakeReportExecutor:
+    _register_domain_error_handler(client)
+    _configure(client)
+    executor = _FakeReportExecutor(error)
+    client.app.dependency_overrides[ai_router_module.get_report_run_executor] = lambda: executor
+    return executor
+
+
+def test_confirming_a_report_generates_it_as_the_calling_user(client: TestClient) -> None:
+    executor = _report_client(client)
+
+    response = client.post("/api/ai/exec/report-generate", json={"token": "signed.token"})
+
+    assert response.status_code == 200, response.text
+    assert response.json() == {
+        "snapshot_id": 9,
+        "name": "Serials - now",
+        "status": "partial",
+        "sections_failed": 1,
+    }
+    assert executor.calls[0][0] == 1 and executor.calls[0][2] == "signed.token"
+
+
+def test_a_bad_report_token_is_a_400(client: TestClient) -> None:
+    from services.ai_assistant.report_run_token import InvalidReportTokenError
+
+    _report_client(client, InvalidReportTokenError())
+
+    response = client.post("/api/ai/exec/report-generate", json={"token": "x.y"})
+
+    assert response.status_code == 400
+    assert response.json()["detail"]["code"] == "invalid_confirmation"
+
+
+def test_a_report_that_cannot_be_generated_is_a_400_with_our_message(client: TestClient) -> None:
+    from services.reports.report_service import InvalidReportError
+
+    _report_client(client, InvalidReportError("template 4 is not an active report template"))
+
+    response = client.post("/api/ai/exec/report-generate", json={"token": "x.y"})
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == {
+        "code": "invalid_report",
+        "message": "template 4 is not an active report template",
+    }
+
+
+def test_an_unexpected_failure_is_a_sanitized_500(client: TestClient) -> None:
+    _report_client(client, RuntimeError("secret detail"))
+
+    response = client.post("/api/ai/exec/report-generate", json={"token": "x.y"})
+
+    assert response.status_code == 500
+    assert "secret detail" not in response.text
+
+
+@pytest.mark.parametrize("missing", [("ai_assistant", "use"), ("reports", "write")])
+def test_generating_a_report_needs_both_permissions(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch, missing: tuple[str, str]
+) -> None:
+    executor = _report_client(client)
+    monkeypatch.setattr(
+        RBACService,
+        "has_permission",
+        lambda self, _uid, resource, action: (resource, action) != missing,
+    )
+
+    assert client.post("/api/ai/exec/report-generate", json={"token": "x.y"}).status_code == 403
+    assert executor.calls == []

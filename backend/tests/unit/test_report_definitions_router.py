@@ -277,6 +277,33 @@ def _snapshot(client: TestClient) -> int:
     return client.post(f"/api/reports/definitions/{created['id']}/generate").json()["id"]
 
 
+def test_csv_download(client: TestClient, granted: set[str]) -> None:
+    snapshot_id = _snapshot(client)
+
+    response = client.get(f"/api/reports/snapshots/{snapshot_id}/csv")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/csv")
+    assert response.headers["content-disposition"].startswith('attachment; filename="Fleet')
+    assert response.content.decode("utf-8-sig").splitlines() == ["location,devices", "dc1,1"]
+    assert client.get("/api/reports/snapshots/99/csv").status_code == 404
+    granted.discard("reports:read")
+    assert client.get(f"/api/reports/snapshots/{snapshot_id}/csv").status_code == 403
+
+
+def test_csv_of_a_snapshot_without_data_is_422(client: TestClient) -> None:
+    created = client.post(
+        "/api/reports/definitions",
+        json={
+            "name": "Broken",
+            "sections": [{**SECTION, "query": {**SECTION["query"], "dataset": "missing"}}],
+        },
+    ).json()
+    snapshot_id = client.post(f"/api/reports/definitions/{created['id']}/generate").json()["id"]
+
+    assert client.get(f"/api/reports/snapshots/{snapshot_id}/csv").status_code == 422
+
+
 def test_pdf_download(client: TestClient, granted: set[str]) -> None:
     snapshot_id = _snapshot(client)
 
@@ -409,3 +436,68 @@ def test_a_report_name_cannot_contain_a_line_break(client: TestClient) -> None:
     response = client.post("/api/reports/definitions", json={"name": "a\nb", "sections": []})
 
     assert response.status_code == 422
+
+
+# -- stored Nautobot data needs the Nautobot permission too (review) ------------
+
+
+def _nautobot_snapshot(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> int:
+    from models.reports import QueryResult, ResultColumn
+    from services.reports.sources.nautobot_source import NautobotReportSource
+
+    def fake_run(self, query):
+        return QueryResult(
+            columns=[
+                ResultColumn(key="device_name", label="device_name", type="string"),
+                ResultColumn(key="serial", label="serial", type="string"),
+            ],
+            rows=[["sw1", "S1"]],
+        )
+
+    monkeypatch.setattr(NautobotReportSource, "run", fake_run)
+    created = client.post(
+        "/api/reports/definitions",
+        json={
+            "name": "Serials",
+            "sections": [
+                {
+                    "id": "s1",
+                    "title": "Serials",
+                    "query": {
+                        "source": "nautobot",
+                        "dataset": "devices",
+                        "select": ["device_name", "serial"],
+                    },
+                }
+            ],
+        },
+    ).json()
+    return client.post(f"/api/reports/definitions/{created['id']}/generate").json()["id"]
+
+
+def test_a_nautobot_snapshot_is_refused_without_the_nautobot_permission(
+    client: TestClient, granted: set[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    snapshot_id = _nautobot_snapshot(client, monkeypatch)
+    base = f"/api/reports/snapshots/{snapshot_id}"
+    calls = [
+        lambda: client.get(base),
+        lambda: client.get(f"{base}/pdf"),
+        lambda: client.get(f"{base}/csv"),
+        lambda: client.post(f"{base}/preview-template", json={"content": "x"}),
+        lambda: client.post(f"{base}/send", json={"to": ["a@example.com"]}),
+    ]
+
+    for call in calls:
+        assert call().status_code == 403
+    granted.add("sources.nautobot:read")
+    assert client.get(base).status_code == 200
+    assert client.get(f"{base}/csv").status_code == 200
+    assert client.get(f"{base}/pdf").status_code == 200
+
+
+def test_a_report_database_snapshot_needs_no_nautobot_permission(client: TestClient) -> None:
+    snapshot_id = _snapshot(client)
+
+    assert client.get(f"/api/reports/snapshots/{snapshot_id}").status_code == 200
+    assert client.get(f"/api/reports/snapshots/{snapshot_id}/csv").status_code == 200

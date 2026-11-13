@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from core.auth import get_current_user, require_permission
 from core.database import get_db
+from core.models.users import User
 from core.rate_limit import rate_limited
 from models.reports import DatasetInfo, QueryResult, ReportQuery, SourceInfo
 from services.reports.errors import ReportQueryError, UnknownSourceError
@@ -24,8 +25,10 @@ _QUERY_BUDGET = rate_limited("reports-query", attempts=60, window_seconds=60)
 _CATALOG_BUDGET = rate_limited("reports-catalog", attempts=120, window_seconds=60)
 
 
-def get_report_query_service(db: Session = Depends(get_db)) -> ReportQueryService:
-    return ReportQueryService(db)
+def get_report_query_service(
+    db: Session = Depends(get_db), current_user: User = Depends(get_current_user)
+) -> ReportQueryService:
+    return ReportQueryService(db, actor_user_id=current_user.id)
 
 
 def _unknown_source(source_id: str) -> HTTPException:

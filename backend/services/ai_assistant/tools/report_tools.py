@@ -13,12 +13,12 @@ import json
 from dataclasses import dataclass
 from typing import Any, Protocol
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from models.report_definitions import MAX_SECTION_TEXT, MAX_SECTIONS, Presentation
 from models.reports import DatasetInfo, QueryResult, ReportQuery
-from services.ai_assistant.data_sharing import DataClass, gated
 from services.ai_assistant.tools.base import Tool, ToolContext, ToolOutput
+from services.ai_assistant.tools.report_gating import blocked_by_sharing
 from services.reports.errors import ReportQueryError
 
 MAX_ROWS_SHOWN = 100
@@ -184,10 +184,10 @@ async def _describe_dataset(ctx: ToolContext, args: DescribeInput) -> ToolOutput
 
 
 async def _run_query(ctx: ToolContext, args: RunQueryInput) -> ToolOutput:
-    blocked = gated(ctx.sharing, DataClass.REPORT_DATA, True)
-    if blocked is not True:
+    blocked = blocked_by_sharing(ctx.sharing, args.query)
+    if blocked is not None:
         return ToolOutput(_json(blocked))
-    ctx.audit_refs.add(f"report_source:{_state(ctx).source_id}")
+    ctx.audit_refs.add(f"report_source:{args.query.source}")
     try:
         result = await _state(ctx).reader.run_query(args.query)
     except ReportAccessError:
@@ -252,10 +252,15 @@ def _section_view(entry: dict[str, Any]) -> dict[str, Any]:
     return view
 
 
+def _section_query(entry: dict[str, Any]) -> ReportQuery | None:
+    """The query a stored section answered; None when it cannot be read (judged as report data)."""
+    try:
+        return ReportQuery.model_validate(entry["section"]["query"])
+    except (KeyError, TypeError, ValidationError):
+        return None
+
+
 async def _get_report_results(ctx: ToolContext, args: ResultsInput) -> ToolOutput:
-    blocked = gated(ctx.sharing, DataClass.REPORT_DATA, True)
-    if blocked is not True:
-        return ToolOutput(_json(blocked))
     try:
         snapshot = await _state(ctx).reader.get_snapshot(args.snapshot_id)
     except ReportAccessError:
@@ -263,10 +268,30 @@ async def _get_report_results(ctx: ToolContext, args: ResultsInput) -> ToolOutpu
     except ReportNotFoundError:
         return ToolOutput("That snapshot does not exist.", is_error=True)
     content = snapshot["content"]
-    payload = {
-        "snapshot": {k: snapshot.get(k) for k in ("id", "name")},
-        "sections": [_section_view(e) for e in content["sections"]],
-    }
+    # Each section is judged by its own query: a snapshot can mix Nautobot and report-database
+    # sections, and its rows are the answer to those queries (report_gating).
+    verdicts = [
+        (entry, blocked_by_sharing(ctx.sharing, _section_query(entry)))
+        for entry in content["sections"]
+    ]
+    with_rows = [(e, b) for e, b in verdicts if e.get("result")]
+    if with_rows and all(marker is not None for _, marker in with_rows):
+        return ToolOutput(_json(with_rows[0][1]))
+    sections = []
+    for entry, marker in verdicts:
+        if marker is None:
+            sections.append(_section_view(entry))
+        else:
+            # Title and status are structure; the rows are withheld.
+            sections.append(
+                {
+                    "id": entry["section"]["id"],
+                    "title": entry["section"]["title"],
+                    "status": entry["status"],
+                    **marker,
+                }
+            )
+    payload = {"snapshot": {k: snapshot.get(k) for k in ("id", "name")}, "sections": sections}
     return ToolOutput(_json(_cap(ctx.redactor.redact_data(payload))))
 
 

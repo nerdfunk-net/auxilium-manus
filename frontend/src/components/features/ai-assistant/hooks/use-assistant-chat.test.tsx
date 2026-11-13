@@ -390,6 +390,124 @@ describe("useAssistantChat", () => {
     expect(result.current.messages[1].error).toMatch(/workflow run/);
   });
 
+  it("keeps a report proposal with its sections and layout, pending", async () => {
+    fetchMock.mockResolvedValue(
+      sseResponse([
+        frame("proposal", {
+          kind: "report_run",
+          token: "signed.token",
+          expires_at: 1_800_000_600,
+          name: "Serial numbers",
+          description: null,
+          summary: "All serials",
+          template: { id: 4, name: "Inventory layout" },
+          sections: [
+            {
+              id: "s1",
+              title: "Serials",
+              source: "nautobot",
+              dataset: "devices",
+              presentation: "table",
+            },
+          ],
+        }),
+        frame("done", {}),
+      ]),
+    );
+    const { result } = renderHook(() => useAssistantChat({ sessionKey: KEY }));
+
+    await send(result, "write a report");
+
+    expect(result.current.messages[1].proposal).toEqual({
+      kind: "report_run",
+      summary: "Generate Serial numbers",
+      token: "signed.token",
+      expiresAt: 1_800_000_600,
+      name: "Serial numbers",
+      description: null,
+      template: { id: 4, name: "Inventory layout" },
+      sections: [
+        {
+          id: "s1",
+          title: "Serials",
+          source: "nautobot",
+          dataset: "devices",
+          presentation: "table",
+        },
+      ],
+      state: "pending",
+    });
+  });
+
+  it("shows an error for a report proposal whose payload is malformed", async () => {
+    fetchMock.mockResolvedValue(
+      sseResponse([
+        frame("proposal", {
+          kind: "report_run",
+          token: "signed.token",
+          expires_at: 1_800_000_600,
+          name: "x",
+          template: null,
+          sections: [{ id: "s1", title: "no source" }],
+        }),
+        frame("done", {}),
+      ]),
+    );
+    const { result } = renderHook(() => useAssistantChat({ sessionKey: KEY }));
+
+    await send(result, "write a report");
+
+    expect(result.current.messages[1].proposal).toBeUndefined();
+    expect(result.current.messages[1].error).toMatch(
+      /report that could not be read/,
+    );
+  });
+
+  it("marks a confirmed report as applied with its snapshot", async () => {
+    fetchMock.mockResolvedValue(
+      sseResponse([
+        frame("proposal", {
+          kind: "report_run",
+          token: "signed.token",
+          expires_at: 1_800_000_600,
+          name: "R",
+          template: null,
+          sections: [
+            {
+              id: "s1",
+              title: "T",
+              source: "nautobot",
+              dataset: "devices",
+              presentation: "table",
+            },
+          ],
+        }),
+        frame("done", {}),
+      ]),
+    );
+    const { result } = renderHook(() => useAssistantChat({ sessionKey: KEY }));
+    await send(result, "write a report");
+    const generated = {
+      snapshotId: 9,
+      name: "R - now",
+      status: "complete",
+      sectionsFailed: 0,
+    };
+
+    act(() =>
+      result.current.completeReportRun(
+        result.current.messages[1].id,
+        generated,
+      ),
+    );
+
+    expect(result.current.messages[1].proposal).toMatchObject({
+      kind: "report_run",
+      state: "applied",
+      result: generated,
+    });
+  });
+
   it("keeps a query proposal with its query, pending", async () => {
     const query = {
       source: "report_data",

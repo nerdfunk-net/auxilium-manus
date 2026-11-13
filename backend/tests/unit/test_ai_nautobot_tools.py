@@ -794,6 +794,29 @@ def test_context_builds_a_client_and_a_shared_vocabulary_cache() -> None:
     assert first.vocabularies is second.vocabularies
 
 
+def test_an_isolated_context_shares_nothing_with_the_main_event_loop() -> None:
+    """A report runs in its own event loop (a worker thread). The app's Nautobot service and the
+    process-wide vocabulary cache hold connections of the main loop, so neither may be used."""
+    reader = DbNautobotQueryReader(user_id=5)
+    shared = object()
+    with (
+        patch.dict(reader_module._vocabularies, clear=True),
+        patch.object(reader, "_credentials", return_value=CREDENTIALS),
+        patch.object(
+            reader_module.service_factory, "get_nautobot_app_service", return_value=shared
+        ),
+    ):
+        first = asyncio.run(reader.context(isolated=True))
+        second = asyncio.run(reader.context(isolated=True))
+        assert not reader_module._vocabularies  # nothing was put into the shared cache
+
+    assert isinstance(first.client, NautobotServiceClient)
+    assert first.client._service is not shared  # noqa: SLF001
+    # A service that was never started: it makes a client per request, in whatever loop runs it.
+    assert first.client._service._client_verify is None  # noqa: SLF001
+    assert first.vocabularies is not second.vocabularies
+
+
 # -- the general surface ---------------------------------------------------------------------
 
 

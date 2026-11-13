@@ -20,15 +20,18 @@ from models.report_definitions import (
     ReportDefinitionUpdate,
     ReportSnapshotResponse,
     ReportSnapshotSummary,
+    SnapshotContent,
     TemplatePreviewRequest,
     TemplatePreviewResponse,
 )
+from services.auth.rbac_service import RBACService
 from services.mail.errors import (
     MailCredentialError,
     MailNotConfiguredError,
     MailRecipientNotAllowedError,
     MailSendError,
 )
+from services.reports.csv_export import NothingToExportError, snapshot_csv
 from services.reports.pdf_renderer import PdfRenderError, PdfTooLargeError
 from services.reports.report_mailer import AttachmentTooLargeError, ReportMailer
 from services.reports.report_service import (
@@ -55,11 +58,14 @@ _GENERATE_BUDGET = Depends(rate_limited("reports-generate", attempts=10, window_
 # A preview starts a render process per request.
 _PREVIEW_BUDGET = Depends(rate_limited("reports-template-preview", attempts=30, window_seconds=60))
 _PDF_BUDGET = Depends(rate_limited("reports-pdf", attempts=20, window_seconds=60))
+_CSV_BUDGET = Depends(rate_limited("reports-csv", attempts=20, window_seconds=60))
 _SEND_BUDGET = Depends(rate_limited("reports-send", attempts=10, window_seconds=60))
 
 
-def get_report_service(db: Session = Depends(get_db)) -> ReportService:
-    return ReportService(db)
+def get_report_service(
+    db: Session = Depends(get_db), current_user: User = Depends(get_current_user)
+) -> ReportService:
+    return ReportService(db, actor_user_id=current_user.id)
 
 
 def get_report_mailer(db: Session = Depends(get_db)) -> ReportMailer:
@@ -68,6 +74,27 @@ def get_report_mailer(db: Session = Depends(get_db)) -> ReportMailer:
 
 def _not_found(exc: ReportNotFoundError) -> HTTPException:
     return HTTPException(status.HTTP_404_NOT_FOUND, str(exc))
+
+
+def _require_snapshot_access(db: Session, snapshot_id: int, user: User) -> None:
+    """Reading a snapshot needs the permission of every source it was generated from.
+
+    ``reports:read`` is org-wide on purpose, but a section read from Nautobot holds serials and
+    addresses that came from a permission the reader may not have. Call it before the work (not
+    inside a ``try`` that turns every exception into a 500).
+    """
+    service = ReportService(db)
+    try:
+        snapshot = service.get_snapshot(snapshot_id)
+    except ReportNotFoundError as exc:
+        raise _not_found(exc) from exc
+    rbac = RBACService(db)
+    for resource, action in service.required_source_permissions(snapshot):
+        if not rbac.has_permission(user.id, resource, action):
+            raise HTTPException(
+                status.HTTP_403_FORBIDDEN,
+                f"This report holds data from a source you may not read ({resource}:{action}).",
+            )
 
 
 # -- definitions --------------------------------------------------------------------------------
@@ -171,11 +198,17 @@ def list_snapshots(
 
 
 @router.get("/snapshots/{snapshot_id}", response_model=ReportSnapshotResponse, dependencies=[_READ])
-def get_snapshot(snapshot_id: int, service: ReportService = Depends(get_report_service)):
+def get_snapshot(
+    snapshot_id: int,
+    current_user: User = Depends(get_current_user),
+    service: ReportService = Depends(get_report_service),
+):
     try:
-        return service.get_snapshot(snapshot_id)
+        snapshot = service.get_snapshot(snapshot_id)
     except ReportNotFoundError as exc:
         raise _not_found(exc) from exc
+    _require_snapshot_access(service.db, snapshot_id, current_user)
+    return snapshot
 
 
 @router.post(
@@ -186,8 +219,10 @@ def get_snapshot(snapshot_id: int, service: ReportService = Depends(get_report_s
 def preview_template(
     snapshot_id: int,
     body: TemplatePreviewRequest,
+    current_user: User = Depends(get_current_user),
     service: ReportService = Depends(get_report_service),
 ):
+    _require_snapshot_access(service.db, snapshot_id, current_user)
     try:
         outcome = service.preview_template(snapshot_id, body.content)
     except ReportNotFoundError as exc:
@@ -195,8 +230,37 @@ def preview_template(
     return TemplatePreviewResponse(markdown=outcome.markdown, error=outcome.error)
 
 
+@router.get("/snapshots/{snapshot_id}/csv", dependencies=[_READ, _CSV_BUDGET])
+def download_snapshot_csv(
+    snapshot_id: int,
+    current_user: User = Depends(get_current_user),
+    service: ReportService = Depends(get_report_service),
+):
+    """The raw data of the snapshot: one CSV file, or a zip with one CSV per section."""
+    _require_snapshot_access(service.db, snapshot_id, current_user)
+    try:
+        snapshot = service.get_snapshot(snapshot_id)
+        export = snapshot_csv(SnapshotContent.model_validate(snapshot.content))
+    except ReportNotFoundError as exc:
+        raise _not_found(exc) from exc
+    except NothingToExportError as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc)) from exc
+    except Exception as exc:
+        raise_internal_server_error(logger, "Failed to export the report data", exc)
+    return Response(
+        content=export.data,
+        media_type=export.media_type,
+        headers={"Content-Disposition": f'attachment; filename="{export.filename}"'},
+    )
+
+
 @router.get("/snapshots/{snapshot_id}/pdf", dependencies=[_READ, _PDF_BUDGET])
-def download_snapshot_pdf(snapshot_id: int, mailer: ReportMailer = Depends(get_report_mailer)):
+def download_snapshot_pdf(
+    snapshot_id: int,
+    current_user: User = Depends(get_current_user),
+    mailer: ReportMailer = Depends(get_report_mailer),
+):
+    _require_snapshot_access(mailer.db, snapshot_id, current_user)
     try:
         filename, data = mailer.pdf(snapshot_id)
     except ReportNotFoundError as exc:
@@ -223,6 +287,7 @@ def send_snapshot(
     current_user: User = Depends(get_current_user),
     mailer: ReportMailer = Depends(get_report_mailer),
 ):
+    _require_snapshot_access(mailer.db, snapshot_id, current_user)
     try:
         return mailer.send(snapshot_id, body, actor_id=current_user.id)
     except ReportNotFoundError as exc:

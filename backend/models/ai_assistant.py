@@ -290,6 +290,25 @@ class WorkflowRunConfirmResponse(BaseModel):
     workflow_id: int
 
 
+class ReportGenerateRequest(BaseModel):
+    """The user's click on a proposed report: only the signed token.
+
+    The report (sections, queries, template) is in the token, signed when the model proposed it,
+    never in the body, so a request cannot generate anything the user was not shown.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    token: str = Field(min_length=1, max_length=65536)
+
+
+class ReportGenerateResponse(BaseModel):
+    snapshot_id: int
+    name: str
+    status: str
+    sections_failed: int
+
+
 class CommandParseError(BaseModel):
     """One command whose output could not be parsed; the text is fixed, never device output."""
 

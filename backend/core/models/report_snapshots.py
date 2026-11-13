@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import JSON, DateTime, ForeignKey, Index, Integer, String, func
+from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Index, Integer, String, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -31,6 +31,11 @@ class ReportSnapshot(Base):
     content: Mapped[dict[str, Any]] = mapped_column(
         JSON().with_variant(JSONB(), "postgresql"), nullable=False
     )
+    # Generated from an Ask the Net proposal without a saved report. Only these are pruned (the
+    # newest few per user are kept); a snapshot whose report was deleted keeps ``definition_id``
+    # NULL too but is retained on purpose, so NULL alone cannot tell them apart. Scalar default:
+    # the startup schema sync back-fills existing rows with False.
+    is_adhoc: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     generated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

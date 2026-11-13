@@ -3902,3 +3902,75 @@ workflow does the walk in the worker; the playbook starts it and explains the re
   result); how large a record the model copes with (rows are capped at 50 per list, the stored record at 500 / 1000);
   whether the designated step's 20-devices-per-outcome limit is enough (the tool says how many are not shown; ask for one
   device with `get_step_result`).
+
+## 53. Reports from Ask the Net: `propose_report` (2026-11-13)
+
+Built **unit-tested only, not run with a real model or a live Nautobot** (see "Not verified"). "Write a report that lists the
+serial numbers of the network devices" is answered from the Reports engine, so the result is an ordinary report snapshot: it
+can use a report template, be opened in the Reports app and downloaded as PDF and as raw data (CSV).
+
+* **Two report sources** (`services/reports/sources/`, `doc/REPORTS.md`). `report_data` is the report database (facts that
+  *Store for Report* steps collected). `nautobot` is new: the configured Nautobot source (Settings -> Sources) read live as the
+  calling user through `libs/nautobot_read`, with the datasets `devices` (grain device: role, status, device type,
+  manufacturer, platform, location, primary IP, serial, tags, `software_version`, `software_lts`, `software_images`) and
+  `software_versions` (grain items: version, platform, manufacturer, `long_term_support`, `device_count`, `image_files`;
+  includes versions no device runs). It is an adapter, not a second connection: no new setting. The query is the same
+  declarative `ReportQuery`; `row_evaluator.py` applies it to the fetched rows with the rules of the SQL compiler (only scope
+  `latest`; no history). At most 5000 rows of one table are read, more is an error, never a cut list.
+* **Tools** (`tools/report_general_tools.py`, offered with `reports:read`; `propose_report` only with `reports:write`):
+  `list_report_sources`, `list_report_datasets`, `preview_report_query`, `list_report_templates`, `propose_report`. The query
+  tool is called *preview* because the playbook test forbids names starting with `run` or `execute`.
+* **Gating (what the model may read).** The catalog (names, types) is always visible, sample values never. Rows of `nautobot`
+  need the inventory switch, and the addresses switch as soon as `serial` or `primary_ip4` is selected, grouped, filtered or
+  counted, or when a list has no `select` (that returns every field). Rows of `report_data`, and of any source not classified
+  yet (fail closed), need the report-data switch. `propose_report` needs no switch: the model does not have to read a row to
+  propose a report. The generated report goes from the server to the user, never through the model; after the click the model
+  does not see the rows either, and the prompt says so.
+* **Templates.** `list_report_templates` lists active `category=report` templates (needs `templates:read` as well): id, name,
+  description and the section ids the template reads (`services/reports/template_sections.py` scans `sections["id"]`,
+  `sections.id` and `section_list`). The template text is not shown. `propose_report` with a `template_id` is refused unless
+  every id the template reads is among the proposed section ids (otherwise strict rendering would fail on the missing one).
+* **Proposal -> click -> snapshot.** `propose_report` validates every query, then signs the whole report
+  (`report_run_token.py`: user-bound, 10 minutes, HMAC) and returns a `report_run` card. Nothing is generated before the
+  click. The click calls `POST /ai/exec/report-generate` (`ai_assistant:use` and `reports:write`, 10 per minute), which runs
+  `ReportService.generate_adhoc` as the user: a snapshot with `definition_id = NULL`; only the newest 50 of each user are kept
+  (`MAX_ADHOC_SNAPSHOTS_PER_USER`). A section that fails (Nautobot down, no `sources.nautobot:read`) makes the snapshot
+  `partial`, it does not fail the click. **The token is not single-use** (unlike §16): generating a report only reads and
+  stores a snapshot, so a second click is a second snapshot, bounded by the rate limit and the cap; this also means no
+  dependency on Redis for a report.
+* **Downloads.** The card offers *Open* (the snapshot viewer), *PDF* (`GET /reports/snapshots/{id}/pdf`) and *Data (CSV)*
+  (`GET /reports/snapshots/{id}/csv`, `reports:read`, 20 per minute; `services/reports/csv_export.py`): one CSV for a report
+  with one section, a zip with one CSV per section (named after the section id), UTF-8 with a byte order mark, text cells that
+  a spreadsheet would read as a formula get a leading apostrophe. The snapshot viewer in the Reports app has the same button.
+* **Event loop.** `ReportSource.run` is synchronous and called from a worker thread; the Nautobot source runs its async reads
+  with `asyncio.run`. The app's `NautobotService` keeps connection pools that belong to the main event loop, so the source
+  uses `DbNautobotQueryReader.context(isolated=True)`: a service that was never started (a connection per request) and a fresh
+  vocabulary cache. Never call a Nautobot source from a thread that runs an event loop.
+* **Review fixes (`doc/analysis/REVIEW.md`).** One gating rule for every report tool (`tools/report_gating.py`): the Reports-page
+  assistant's `run_query` and `get_report_results` now apply the Nautobot rule too (a stored snapshot is judged section by
+  section by its own query; a mixed snapshot withholds only the sections the switches do not cover), and that assistant's reader
+  is pinned to the page's source (`DbReportReader(..., pin_source=True)`), so it can neither query nor propose a query for
+  another source. A stored snapshot with a Nautobot section needs `sources.nautobot:read` to be read (routes and
+  `get_snapshot`). Ad-hoc pruning uses the new `report_snapshots.is_adhoc` column. Nautobot rows are shaped tolerantly,
+  `device_count` is only a count of a list, `eq`/`in` on a device name or a version are sent to Nautobot, descending order puts
+  missing values first as PostgreSQL does, a template whose section ids cannot be known (`sections[variable]`) is refused at
+  proposal time (literal `sections.get("x")` ids are now read, a loop over `sections.items()` needs no ids), and the card also
+  warns when only the layout failed.
+* **Side fix.** `models/ai_conversations.py::StoredProposal.kind` lacked `workflow_run` (and now `report_run`), so saving a chat
+  that contained such a card was refused with a validation error.
+* **Files.** `services/reports/sources/{nautobot_source,row_evaluator}.py`, `services/reports/{csv_export,template_sections}.py`,
+  `services/ai_assistant/{report_run_token,report_run_exec}.py`, `tools/report_general_tools.py`, `report_reader.py`
+  (sources, templates; a query now runs against the source named in the query), `surfaces.py::build_general_session`
+  (`report_reader`, `can_propose_reports`), `routers/ai_assistant.py` (`/exec/report-generate`), frontend
+  `ai-assistant/components/report-run-proposal-card.tsx`, `hooks/use-report-generate-confirm.ts`,
+  `hooks/queries/use-report-snapshot-download.ts`. Tests: `test_report_row_evaluator.py`, `test_report_nautobot_source.py`,
+  `test_report_csv_export.py`, `test_report_template_sections.py`, `test_ai_report_run_token.py`, `test_ai_report_run_exec.py`,
+  `test_ai_report_general_tools.py`, `test_ai_report_general_session.py`, `test_ai_report_reader_templates.py`, the router tests,
+  and the frontend card, hook and chat tests.
+* **Not verified / open.** A real model choosing sources, fields and templates; the Nautobot GraphQL selection against a live
+  instance (`software_version { version long_term_support software_image_files { image_file_name } }` and
+  `software_versions { ... devices { id } }` are from the Nautobot 2.2+ schema as the user showed it; on an older Nautobot
+  the Nautobot report source fails as a whole, Ask the Net's own device tools do not); the browser flow (card, Open, PDF,
+  CSV); a Nautobot with more than 5000 devices (the read stops with an error; filters are applied after the read, not pushed
+  down to Nautobot). Later: more Nautobot datasets (interfaces, IP addresses, locations), pushing filters down to Nautobot,
+  an XLSX download, saved reports as a tool target (`propose_report` only drafts a new one-off report).

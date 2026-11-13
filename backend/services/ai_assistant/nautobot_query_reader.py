@@ -26,6 +26,7 @@ import service_factory
 from core.database import SessionLocal
 from dependencies import nautobot_credentials_from_source_id
 from services.auth.rbac_service import RBACService
+from services.nautobot.client import NautobotService
 from services.nautobot.credentials import NautobotCredentials
 from services.nautobot.graphql_client import NautobotServiceClient
 from services.settings.settings_service import SettingsService
@@ -92,8 +93,19 @@ class DbNautobotQueryReader:
             logger.info("AI assistant: no Nautobot source is configured")
         raise NautobotAccessError
 
-    async def context(self) -> QueryContext:
+    async def context(self, *, isolated: bool = False) -> QueryContext:
+        """The query context for this user.
+
+        ``isolated`` is for a caller that runs in an event loop of its own (a report generated in
+        a worker thread). The app's Nautobot service keeps connection pools that belong to the
+        main event loop, and the process-wide vocabulary cache holds a client built on them, so an
+        isolated context uses neither: a service that was never started (it opens a connection per
+        request, in whatever loop runs it) and a fresh vocabulary cache.
+        """
         credentials = await asyncio.to_thread(self._credentials)
+        if isolated:
+            client = NautobotServiceClient(NautobotService(), credentials)
+            return QueryContext(client=client, vocabularies=VocabularyCache(client))
         client = NautobotServiceClient(service_factory.get_nautobot_app_service(), credentials)
         return QueryContext(
             client=client, vocabularies=vocabularies_for(credentials.cache_scope, client)

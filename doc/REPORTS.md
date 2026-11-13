@@ -14,7 +14,7 @@ status and next steps are in `doc/plans/REPORT_APP.md`.
 |-------|---------|
 | `report_data_records` | Append-only facts. One row per device (device datasets) or per list element (item datasets). `data` is JSONB with flat scalar values. |
 | `report_definitions` | Saved reports: unique `name`, `description`, `sections` JSONB (list of `ReportSection`: `id`, `title`, `query`, `presentation` table/number/bar/line, `text`), `created_by`. |
-| `report_snapshots` | Immutable generated copies: `definition_id` (set to NULL when the report is deleted), `name`, `generated_by` (username), `status` complete/partial, `content` JSONB (the definition copy plus each section's result or error). |
+| `report_snapshots` | Immutable generated copies: `definition_id` (set to NULL when the report is deleted), `name`, `generated_by` (username), `is_adhoc` (made from an Ask the Net proposal without a saved report; only these are pruned per user), `status` complete/partial, `content` JSONB (the definition copy plus each section's result or error). |
 | `report_datasets` | Catalog: one row per dataset with its grain (`device` or `items`), field names and last collection time. Written by the Store for Report step after each collection (best effort, never fails the step). |
 
 A **collection** is everything one step execution wrote for one (dataset, device), sharing a
@@ -43,7 +43,7 @@ A query is a declarative JSON object (`models/reports.py::ReportQuery`); there i
 
 | Part | Meaning |
 |------|---------|
-| `source` | `report_data` (the only source today). Sources implement `describe()` and `run(query)`; see `services/reports/sources/`. |
+| `source` | `report_data` (the report database) or `nautobot` (live Nautobot, below). Sources implement `describe()`, `validate(query)` and `run(query)`; see `services/reports/sources/`. |
 | `dataset` | A catalog dataset. |
 | `scope` | `latest` (default) or `history` with optional `since`, `until` and `bucket` (`day`/`week`). |
 | `filters` | AND-ed. Operators: `eq`, `ne`, `in`, `contains`, `gt`, `gte`, `lt`, `lte`, `is_null`, `not_null`. `gt..lte` need a number field, `contains` a text field. `ne` also matches rows where the field is missing. |
@@ -62,6 +62,34 @@ Examples (see `tests/unit/test_report_query_compiler.py`, `tests/integration/tes
 * devices per location: `group_by: [location]`, `metrics: [{op: count, alias: devices}]`
 * shutdown interfaces per device (item dataset): filter `status eq disabled`, `group_by: [device_name]`, count
 * trend: `scope: {kind: history, bucket: day}`, `group_by: [time_bucket]`, `avg ports`
+
+## The Nautobot source
+
+`nautobot` reads the configured Nautobot source (Settings -> Sources) live, as the calling user, through `libs/nautobot_read`;
+it is an adapter, not a second connection. Datasets: `devices` (grain device: `role`, `status`, `device_type`,
+`manufacturer`, `platform`, `location`, `primary_ip4`, `serial`, `tags`, `software_version`, `software_lts`,
+`software_images`) and `software_versions` (grain items, one row per version: `version`, `platform`, `manufacturer`,
+`long_term_support`, `device_count`, `image_files`; versions that no device runs have `device_count` 0). The row name
+(`device_name`) of a software version is `<platform> <version>`. The query spec is the same; only scope `latest` exists
+(no history, no `time_bucket`, no `collected_at`), and `count_devices` / `count_items` count rows. The query is applied in
+memory (`services/reports/sources/row_evaluator.py`) to at most 5000 rows of the table (more is an error); every
+query or generated snapshot is a fresh read, so a snapshot is the state of Nautobot when it was generated. Reading
+needs `reports:read` and `sources.nautobot:read` (a section fails with a clear message otherwise). The software fields need
+Nautobot 2.2 or later. The catalog is static and shows no values.
+
+* **Reading a stored snapshot needs the source's permission too.** `GET /snapshots/{id}`, `/pdf`, `/csv`, `/send` and the
+  template preview answer 403 for a snapshot with a Nautobot section unless the user holds `sources.nautobot:read`
+  (`SOURCE_PERMISSIONS` in `sources/registry.py`, `ReportService.required_source_permissions`); the assistant's
+  `get_report_results` applies it too. `reports:read` alone still lists snapshots (name, time, status, no content).
+* **Filters are pushed down where Nautobot can apply them exactly:** `eq` / `in` on `devices.device_name` (Nautobot `name`)
+  and `software_versions.version`. Every filter is applied again in memory, so a looser server filter cannot add a row. Other
+  filters (location, tags, software version of a device, ...) are applied after the read, so they do not avoid the 5000-row
+  limit: add a device name or a version where you can.
+* **Odd values are left out, not fatal.** A nested value of an unexpected shape (a null tag name, a non-list) is skipped. A
+  `device_count` is the number of ids Nautobot returned in the nested `devices` list, or empty when that is not a list; that
+  nested list is not paged, so for a version used by a very large number of devices the count is a lower bound (not yet
+  checked against a live Nautobot).
+* Missing values sort as in PostgreSQL: last when ascending, first when descending, in both sources.
 
 ## API and permissions
 
@@ -92,6 +120,23 @@ longer fits is recorded as failed), the newest 50 snapshots per report are kept
 (`MAX_SNAPSHOTS_PER_DEFINITION`, older ones are deleted on generate). NaN/Infinity cells are stored as null.
 Deleting a report keeps its snapshots. Section queries are only checked statically on save (known
 source); the dataset and fields are checked when the report is generated.
+
+## Raw data (CSV)
+
+`GET /api/reports/snapshots/{id}/csv` (`reports:read`, 20/min, `services/reports/csv_export.py`) returns the data of the
+snapshot's sections: one CSV file for a report with one section, a zip with one CSV per section (named after the section
+id) otherwise. A failed section has no data and is left out (422 when none has data). UTF-8 with a byte order mark (Excel);
+text cells that start with `=`, `+`, `-`, `@`, a tab or a carriage return get a leading apostrophe so a spreadsheet does not
+run them as a formula. The snapshot viewer has a **Data (CSV)** button next to **PDF**.
+
+## Ad-hoc snapshots
+
+A report that Ask the Net proposed and the user confirmed (`doc/AI_TOOL_CHAIN.md` §53) is generated as a snapshot **without
+a saved report** (`definition_id` NULL, `is_adhoc` true, `ReportService.generate_adhoc`); it shows in the Snapshots tab and
+can be sent and downloaded like any other. Only each user's newest 50 ad-hoc snapshots are kept
+(`MAX_ADHOC_SNAPSHOTS_PER_USER`); to keep one, save the report from the report editor. Pruning looks at `is_adhoc`, never
+at `definition_id`: a snapshot whose saved report was deleted also has no `definition_id` but is kept on purpose. The column
+is added by the startup schema sync (existing rows are `false`, so nothing that exists today is ever pruned).
 
 ## Report templates
 
@@ -241,4 +286,4 @@ field-based metrics; run those as a separate query.
 Unit (SQLite): `test_report_query_compiler.py`, `test_report_sources.py`, `test_reports_router.py`,
 `test_report_field_stats.py`, `test_report_datasets_repository.py`, `test_report_service.py`, `test_report_definitions_router.py`, `test_report_definitions_repository.py`. PostgreSQL (needs
 `backend/.env.test`): `tests/integration/test_reports_pg.py`, `test_report_data_records_pg.py`, `test_report_definitions_pg.py`.
-Frontend: `utils/query-spec.test.ts`, `utils/report-sections.test.ts`, `components/ui/markdown-view.test.tsx`. Report templates: `test_report_renderer.py`, `test_templates_report_category.py` and the template cases in `test_report_service.py` / `test_report_definitions_router.py`. PDF and mail: `test_report_pdf.py`, `test_report_mailer.py`, `test_mail_settings.py`, `test_mail_router.py`.
+Frontend: `utils/query-spec.test.ts`, `utils/report-sections.test.ts`, `components/ui/markdown-view.test.tsx`. Report templates: `test_report_renderer.py`, `test_templates_report_category.py` and the template cases in `test_report_service.py` / `test_report_definitions_router.py`. PDF and mail: `test_report_pdf.py`, `test_report_mailer.py`, `test_mail_settings.py`, `test_mail_router.py`. Nautobot source and CSV: `test_report_row_evaluator.py`, `test_report_nautobot_source.py`, `test_report_csv_export.py`, `test_report_template_sections.py`.

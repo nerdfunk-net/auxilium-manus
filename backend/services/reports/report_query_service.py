@@ -11,14 +11,16 @@ from services.reports.sources.registry import get_source, list_sources
 
 
 class ReportQueryService:
-    def __init__(self, db: Session) -> None:
+    def __init__(self, db: Session, *, actor_user_id: int | None = None) -> None:
         self.db = db
+        # The user a source that reads an external system (Nautobot) acts as.
+        self.actor_user_id = actor_user_id
 
     def list_sources(self) -> list[SourceInfo]:
         return list_sources()
 
     def catalog(self, source_id: str) -> list[DatasetInfo]:
-        return get_source(source_id, db=self.db).describe()
+        return get_source(source_id, db=self.db, actor_user_id=self.actor_user_id).describe()
 
     def validate(self, source_id: str, query: ReportQuery) -> None:
         """Check a query against the catalog without running it (raises ``ReportQueryError``)."""
@@ -28,7 +30,7 @@ class ReportQueryService:
         return self._source_for(source_id, query).run(query)
 
     def _source_for(self, source_id: str, query: ReportQuery) -> ReportSource:
-        source = get_source(source_id, db=self.db)
+        source = get_source(source_id, db=self.db, actor_user_id=self.actor_user_id)
         if query.source != source_id:
             raise ReportQueryError(
                 f"query source {query.source!r} does not match the requested source {source_id!r}"

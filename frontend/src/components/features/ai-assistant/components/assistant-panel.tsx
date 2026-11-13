@@ -36,6 +36,7 @@ import {
   type AssistantContext,
   type ConversationScope,
   type DeviceCommandResult,
+  type ReportRunResult,
   type WorkflowRunResult,
   type DisplayMessage,
   type InventoryProposal,
@@ -54,6 +55,7 @@ import { AssistantMessageText } from "./assistant-message-text";
 import { SavedConversationsDialog } from "./saved-conversations-dialog";
 import { ConfigDownloadCard } from "./config-download-card";
 import { DeviceCommandProposalCard } from "./device-command-proposal-card";
+import { ReportRunProposalCard } from "./report-run-proposal-card";
 import { WorkflowRunProposalCard } from "./workflow-run-proposal-card";
 import { InventoryProposalCard } from "./inventory-proposal-card";
 import { QueryProposalCard } from "./query-proposal-card";
@@ -159,6 +161,11 @@ const TOOL_LABELS: Record<string, string> = {
   list_released_workflows: "Looking for released workflows",
   describe_workflow: "Reading a released workflow",
   propose_workflow_run: "Preparing a workflow run",
+  list_report_sources: "Looking for report sources",
+  list_report_datasets: "Reading report datasets",
+  preview_report_query: "Checking a report query",
+  list_report_templates: "Looking for report layouts",
+  propose_report: "Preparing a report",
   get_run_result: "Reading the run result",
   list_config_backups: "Looking for config backups",
   get_config_backup: "Reading a config backup",
@@ -253,6 +260,7 @@ export function AssistantPanel({
     setProposalState,
     completeDeviceCommand,
     completeWorkflowRun,
+    completeReportRun,
   } = useAssistantChat({
     sessionKey,
     getContext,
@@ -349,6 +357,15 @@ export function AssistantPanel({
       completeWorkflowRun(messageId, result);
     },
     [completeWorkflowRun],
+  );
+  const handleReportGenerated = useCallback(
+    (messageId: string, result: ReportRunResult) => {
+      if (!messageIdsRef.current.has(messageId)) {
+        return;
+      }
+      completeReportRun(messageId, result);
+    },
+    [completeReportRun],
   );
   const handleAskRunResult = useCallback(
     (result: WorkflowRunResult, workflowName: string) => {
@@ -563,6 +580,14 @@ export function AssistantPanel({
           busy={isStreaming}
           onResult={(result) => handleWorkflowRunStarted(message.id, result)}
           onAskResult={handleAskRunResult}
+          onReject={() => setProposalState(message.id, "rejected")}
+        />
+      )}
+      {message.proposal?.kind === "report_run" && (
+        <ReportRunProposalCard
+          proposal={message.proposal}
+          busy={isStreaming}
+          onResult={(result) => handleReportGenerated(message.id, result)}
           onReject={() => setProposalState(message.id, "rejected")}
         />
       )}

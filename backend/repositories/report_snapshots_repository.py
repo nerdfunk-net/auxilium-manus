@@ -76,6 +76,30 @@ class ReportSnapshotsRepository:
             self.db.commit()
         return len(stale)
 
+    def prune_adhoc(self, generated_by: str | None, keep: int) -> int:
+        """Delete all but the newest ``keep`` ad-hoc snapshots that one user made.
+
+        Only snapshots marked ``is_adhoc`` count: a snapshot whose saved report was deleted has no
+        ``definition_id`` either, but it was kept on purpose and is never touched here.
+        """
+        owner = (
+            ReportSnapshot.generated_by.is_(None)
+            if generated_by is None
+            else ReportSnapshot.generated_by == generated_by
+        )
+        stale = list(
+            self.db.scalars(
+                select(ReportSnapshot.id)
+                .where(ReportSnapshot.is_adhoc.is_(True), owner)
+                .order_by(ReportSnapshot.generated_at.desc(), ReportSnapshot.id.desc())
+                .offset(keep)
+            )
+        )
+        if stale:
+            self.db.execute(delete(ReportSnapshot).where(ReportSnapshot.id.in_(stale)))
+            self.db.commit()
+        return len(stale)
+
     def delete(self, snapshot: ReportSnapshot) -> None:
         self.db.delete(snapshot)
         self.db.commit()

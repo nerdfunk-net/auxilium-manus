@@ -52,7 +52,8 @@ def client(allowed: dict[str, bool]) -> TestClient:
 
 def test_sources_catalog_and_query(client: TestClient) -> None:
     assert client.get("/api/reports/sources").json() == [
-        {"id": "report_data", "label": "Report database"}
+        {"id": "report_data", "label": "Report database"},
+        {"id": "nautobot", "label": "Nautobot"},
     ]
 
     catalog = client.get("/api/reports/sources/report_data/catalog").json()

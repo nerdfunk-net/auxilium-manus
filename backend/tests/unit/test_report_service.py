@@ -401,3 +401,72 @@ def test_a_template_that_is_no_longer_a_report_template_is_not_rendered(db: Sess
     assert body is not None and body.markdown is not None
     assert "SECRET-DEVICE-TEXT" not in body.markdown
     assert "no longer" in (body.error or "")
+
+
+# -- ad-hoc reports (generated from an Ask the Net proposal, nothing saved) ---------------------
+
+
+def _adhoc(service: ReportService, name: str = "Quick", **kw):
+    return service.generate_adhoc(
+        ReportDefinitionCreate(name=name, sections=kw.pop("sections", [_section()]), **kw),
+        actor_name="alice",
+    )
+
+
+def test_adhoc_snapshot_has_no_definition_and_the_results(db: Session) -> None:
+    service = ReportService(db)
+
+    snap = _adhoc(service)
+
+    assert snap.definition_id is None
+    assert snap.status == "complete"
+    assert snap.generated_by == "alice"
+    assert snap.name.startswith("Quick - ")
+    assert service.list_definitions() == []
+    section = ReportSnapshotResponse.model_validate(snap).content.sections[0]
+    assert sorted(section.result.rows) == [["dc1", 2], ["dc2", 1]]  # type: ignore[union-attr]
+
+
+def test_adhoc_checks_source_and_template_like_a_saved_report(db: Session) -> None:
+    service = ReportService(db)
+    bad_source = _section()
+    bad_source.query.source = "nope"
+
+    with pytest.raises(InvalidReportError):
+        _adhoc(service, sections=[bad_source])
+    with pytest.raises(InvalidReportError):
+        _adhoc(service, template_id=99)
+
+
+def test_adhoc_snapshots_are_pruned_per_user(db: Session, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("services.reports.report_service.MAX_ADHOC_SNAPSHOTS_PER_USER", 2)
+    service = ReportService(db)
+    saved = service.generate(_create(service).id, actor_name="alice")
+
+    ids = [_adhoc(service, name=f"R{i}").id for i in range(3)]
+    other = service.generate_adhoc(
+        ReportDefinitionCreate(name="Bob", sections=[_section()]), actor_name="bob"
+    )
+
+    remaining = {s.id for s in service.list_snapshots()}
+    assert remaining == {saved.id, ids[1], ids[2], other.id}
+
+
+def test_adhoc_pruning_never_touches_snapshots_kept_when_their_report_was_deleted(
+    db: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Review: a deleted report's snapshots also have no definition; they were kept on purpose."""
+    monkeypatch.setattr("services.reports.report_service.MAX_ADHOC_SNAPSHOTS_PER_USER", 1)
+    service = ReportService(db)
+    definition = _create(service)
+    kept = [service.generate(definition.id, actor_name="alice").id for _ in range(3)]
+    service.delete_definition(definition.id)  # detaches: definition_id becomes NULL
+
+    first_id = _adhoc(service, name="A1").id
+    second_id = _adhoc(service, name="A2").id
+
+    remaining = {s.id for s in service.list_snapshots()}
+    assert set(kept) <= remaining  # all retained snapshots survive
+    assert second_id in remaining and first_id not in remaining  # the ad-hoc cap still works
+    assert service.get_snapshot(second_id).is_adhoc is True
+    assert service.get_snapshot(kept[0]).is_adhoc is False

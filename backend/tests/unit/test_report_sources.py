@@ -48,8 +48,11 @@ class _Base(unittest.TestCase):
 
 
 class RegistryTests(unittest.TestCase):
-    def test_lists_the_report_data_source(self) -> None:
-        assert [(s.id, s.label) for s in list_sources()] == [("report_data", "Report database")]
+    def test_lists_the_report_data_and_nautobot_sources(self) -> None:
+        assert [(s.id, s.label) for s in list_sources()] == [
+            ("report_data", "Report database"),
+            ("nautobot", "Nautobot"),
+        ]
 
     def test_unknown_source(self) -> None:
         with self.assertRaises(UnknownSourceError):
@@ -111,7 +114,7 @@ class ReportQueryServiceTests(_Base):
         self.rows("sw1", "inventory", [{"location": "dc1"}])
         service = ReportQueryService(self.db)
 
-        assert [s.id for s in service.list_sources()] == ["report_data"]
+        assert [s.id for s in service.list_sources()] == ["report_data", "nautobot"]
         assert [d.name for d in service.catalog("report_data")] == ["inventory"]
         result = service.run("report_data", ReportQuery(dataset="inventory"))
         assert result.rows == [["sw1", "dc1"]]

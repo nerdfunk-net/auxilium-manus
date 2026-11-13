@@ -39,6 +39,8 @@ from models.ai_assistant import (
     GeneralContext,
     InventoryContext,
     ParsedRowsResponse,
+    ReportGenerateRequest,
+    ReportGenerateResponse,
     ReportsContext,
     RunViewerContext,
     TemplateEditorContext,
@@ -97,6 +99,8 @@ from services.ai_assistant.released_workflow_reader import (
     ReleasedWorkflowAccessError,
 )
 from services.ai_assistant.report_reader import DbReportReader
+from services.ai_assistant.report_run_exec import ReportRunExecutor
+from services.ai_assistant.report_run_token import InvalidReportTokenError
 from services.ai_assistant.results.factory import get_result_store
 from services.ai_assistant.results.store import (
     ResultStore,
@@ -126,6 +130,7 @@ from services.ai_assistant.workflow_reader import (
 from services.ai_assistant.workflow_run_exec import WorkflowRunExecutor
 from services.ai_assistant.workflow_run_token import InvalidRunTokenError
 from services.auth.rbac_service import RBACService
+from services.reports.report_service import InvalidReportError
 from services.settings.settings_service import SettingsService
 
 logger = logging.getLogger(__name__)
@@ -190,6 +195,8 @@ def _session_for(
     can_read_client_data: bool = False,
     can_read_runs: bool = False,
     can_start_released: bool = False,
+    can_read_reports: bool = False,
+    can_write_reports: bool = False,
     workflow_notes: str | None = None,
 ) -> AssistantSession:
     sharing = config.sharing
@@ -250,12 +257,16 @@ def _session_for(
             run_reader=DbRunReader(user.id) if can_read_runs else None,
             # Released workflows: the reader checks workflows:execute and visibility per call.
             released_reader=DbReleasedWorkflowReader(user.id) if can_start_released else None,
+            # Reports (doc/AI_TOOL_CHAIN.md §53): the reader checks reports:read per call; a
+            # proposal is offered only to someone who can generate it (reports:write).
+            report_reader=DbReportReader(user.id, "report_data") if can_read_reports else None,
+            can_propose_reports=can_write_reports,
         )
     if isinstance(context, ReportsContext):
         return build_reports_session(
             user_id=user.id,
             context=context,
-            reader=DbReportReader(user.id, context.source_id),
+            reader=DbReportReader(user.id, context.source_id, pin_source=True),
             sharing=sharing,
         )
     if isinstance(context, InventoryContext):
@@ -421,6 +432,8 @@ def chat(
     can_read_client_data = False
     can_read_runs = False
     can_start_released = False
+    can_read_reports = False
+    can_write_reports = False
     workflow_notes: str | None = None
     try:
         config: AiRuntimeConfig = service.require_runtime_config(current_user.id)
@@ -450,6 +463,8 @@ def chat(
             can_read_client_data = rbac.has_permission(current_user.id, "client_data", "read")
             can_read_runs = rbac.has_permission(current_user.id, "workflow_runs", "read")
             can_start_released = rbac.has_permission(current_user.id, "workflows", "execute")
+            can_read_reports = rbac.has_permission(current_user.id, "reports", "read")
+            can_write_reports = rbac.has_permission(current_user.id, "reports", "write")
         if isinstance(body.context, WorkflowCanvasContext):
             # S5-08: the editor tools list real credentials / sources / inventories, so they
             # need the same permission the workflow list does; proposing needs write.
@@ -496,6 +511,8 @@ def chat(
                 can_read_client_data=can_read_client_data,
                 can_read_runs=can_read_runs,
                 can_start_released=can_start_released,
+                can_read_reports=can_read_reports,
+                can_write_reports=can_write_reports,
                 workflow_notes=workflow_notes,
             )
         except RedactionBudgetExceeded as exc:
@@ -851,3 +868,66 @@ async def confirm_workflow_run(
     except Exception as exc:
         raise_internal_server_error(logger, "Failed to start the workflow run", exc)
     return WorkflowRunConfirmResponse(run_id=started.run_id, workflow_id=started.workflow_id)
+
+
+# -- confirmed reports (doc/AI_TOOL_CHAIN.md §53) ----------------------------------------------
+
+# Each confirmed report runs its queries (Nautobot reads can take seconds); bound a click loop.
+_REPORT_GENERATE_BUDGET = rate_limited("ai-report-generate", attempts=10, window_seconds=60)
+
+
+def get_report_run_executor() -> ReportRunExecutor:
+    return ReportRunExecutor()
+
+
+@router.post(
+    "/exec/report-generate",
+    response_model=ReportGenerateResponse,
+    dependencies=[
+        _OPERATOR,
+        _USE,
+        Depends(require_permission("reports", "write")),
+        Depends(_REPORT_GENERATE_BUDGET),
+    ],
+)
+async def confirm_report_generate(
+    body: ReportGenerateRequest,
+    current_user: User = Depends(get_current_user),
+    executor: ReportRunExecutor = Depends(get_report_run_executor),
+) -> ReportGenerateResponse:
+    """The user clicked Generate on a proposed report.
+
+    The report comes from the signed token. It runs as the user and is stored as a snapshot
+    without a saved report; the card then offers the snapshot, its PDF and its data.
+    """
+    try:
+        generated = await asyncio.to_thread(
+            executor.execute,
+            user_id=current_user.id,
+            actor_name=current_user.username,
+            token=body.token,
+        )
+    except InvalidReportTokenError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "code": "invalid_confirmation",
+                "message": "This confirmation expired or is not valid. Ask the assistant again.",
+            },
+        ) from exc
+    except InvalidReportError as exc:
+        # The message is written by the report service (no exception text from a deeper layer).
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"code": "invalid_report", "message": str(exc)},
+        ) from exc
+    except DomainError:
+        raise
+    except Exception as exc:
+        raise_internal_server_error(logger, "Failed to generate the report", exc)
+    return ReportGenerateResponse(
+        snapshot_id=generated.snapshot_id,
+        name=generated.name,
+        status=generated.status,
+        sections_failed=generated.sections_failed,
+    )

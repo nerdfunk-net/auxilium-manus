@@ -410,6 +410,42 @@ export interface WorkflowRunProposal {
   state: ProposalState;
 }
 
+/** The snapshot a confirmed report proposal generated. */
+export interface ReportRunResult {
+  snapshotId: number;
+  name: string;
+  /** "partial" when a section (or the layout) failed; the snapshot still exists. */
+  status: string;
+  sectionsFailed: number;
+}
+
+export interface ReportRunSection {
+  id: string;
+  title: string;
+  source: string;
+  dataset: string;
+  presentation: string;
+}
+
+/**
+ * A report the assistant wants generated: sections with their queries and an optional layout.
+ * Nothing is generated until the user clicks Generate; the token (signed by the server) carries
+ * the whole report, so what is generated is what the card shows.
+ */
+export interface ReportRunProposal {
+  kind: "report_run";
+  summary: string;
+  token: string;
+  /** Unix seconds; the server refuses the token after this. */
+  expiresAt: number;
+  name: string;
+  description: string | null;
+  template: { id: number; name: string } | null;
+  sections: ReportRunSection[];
+  result?: ReportRunResult;
+  state: ProposalState;
+}
+
 export type AssistantProposal =
   | TemplateProposal
   | WorkflowProposal
@@ -420,7 +456,8 @@ export type AssistantProposal =
   | InventoryProposal
   | DeviceCommandProposal
   | ConfigDownloadProposal
-  | WorkflowRunProposal;
+  | WorkflowRunProposal
+  | ReportRunProposal;
 
 /** A message in the panel; `error` is set on an assistant turn that failed. */
 export interface DisplayMessage extends ChatMessage {
@@ -457,6 +494,7 @@ export interface SavedProposal {
     | "device_command"
     | "config_download"
     | "workflow_run"
+    | "report_run"
     | "workflow_notes";
   summary: string;
 }

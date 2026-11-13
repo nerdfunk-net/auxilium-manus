@@ -43,6 +43,7 @@ from services.ai_assistant.prompts import (
     PROBE_PROMPT,
     RELEASED_WORKFLOWS_PROMPT,
     REPORT_TEMPLATE_PROMPT,
+    REPORTS_GENERAL_PROMPT,
     REPORTS_PROMPT,
     RUN_EXPLAIN_PROMPT,
     RUN_VIEWER_PROMPT,
@@ -109,6 +110,12 @@ from services.ai_assistant.tools.probe_tools import build_probe_tools
 from services.ai_assistant.tools.released_workflow_tools import (
     RELEASED_WORKFLOWS_KEY,
     build_released_workflow_tools,
+)
+from services.ai_assistant.tools.report_general_tools import (
+    REPORTS_GENERAL_KEY,
+    GeneralReportReader,
+    GeneralReportsState,
+    build_report_tools,
 )
 from services.ai_assistant.tools.report_tools import REPORT_TOOLS, ReportReader, ReportsState
 from services.ai_assistant.tools.result_tools import RESULT_STORE_KEY, build_result_tools
@@ -430,6 +437,8 @@ def build_general_session(
     genie_parser: GenieParser | None = None,
     client_data_reader: ClientDataReader | None = None,
     dns_resolver: DnsResolver | None = None,
+    report_reader: GeneralReportReader | None = None,
+    can_propose_reports: bool = False,
 ) -> AssistantSession:
     """Ask the Net: read-only questions about the network (doc/AI_TOOL_CHAIN.md §10a, §20.3).
 
@@ -516,6 +525,12 @@ def build_general_session(
     if released_reader is not None and run_reader is not None:
         extras[RELEASED_WORKFLOWS_KEY] = released_reader
         tools.extend(build_released_workflow_tools())
+    # Reports (doc/AI_TOOL_CHAIN.md §53): read the report sources and propose a report the user
+    # then generates with a click. Independent of Batfish; each query is gated by the data
+    # switches inside the tools.
+    if report_reader is not None:
+        extras[REPORTS_GENERAL_KEY] = GeneralReportsState(report_reader)
+        tools.extend(build_report_tools(can_propose=can_propose_reports))
     if may_query_batfish and nautobot_reader is not None:
         # The two systems name a device differently (config hostname vs full name); this is the
         # explicit lookup between them (doc/AI_TOOL_CHAIN.md §33). Only useful with both.
@@ -552,6 +567,8 @@ def build_general_session(
         parts.append(RUN_EXPLAIN_PROMPT)
     if released_reader is not None and run_reader is not None:
         parts.append(RELEASED_WORKFLOWS_PROMPT)
+    if report_reader is not None:
+        parts.append(REPORTS_GENERAL_PROMPT)
     if not may_query_batfish:
         offered = [
             name
@@ -562,6 +579,7 @@ def build_general_session(
                 ("client data", client_data_reader),
                 ("DNS", dns_resolver),
                 ("run", run_reader),
+                ("report", report_reader),
             )
             if reader_ is not None
         ]

@@ -12,23 +12,41 @@ from typing import Any
 from core.database import SessionLocal
 from models.report_definitions import ReportSection
 from models.reports import DatasetInfo, QueryResult, ReportQuery
+from repositories.templates_repository import TemplatesRepository
 from services.ai_assistant.tools.report_tools import ReportAccessError, ReportNotFoundError
 from services.auth.rbac_service import RBACService
-from services.reports.errors import UnknownSourceError
+from services.reports.errors import ReportQueryError, UnknownSourceError
 from services.reports.report_query_service import ReportQueryService
 from services.reports.report_service import ReportNotFoundError as SnapshotMissing
 from services.reports.report_service import ReportService
+from services.reports.template_sections import referenced_sections
+from services.templates.categories import CATEGORY_REPORT
 
 RECENT_SNAPSHOTS = 5
 
 
 class DbReportReader:
-    def __init__(self, user_id: int, source_id: str) -> None:
+    def __init__(self, user_id: int, source_id: str, *, pin_source: bool = False) -> None:
         self._user_id = user_id
         self._source_id = source_id
+        # The Reports page works on one source; its assistant may not query another one.
+        self._pin_source = pin_source
+
+    def _check_source(self, query: ReportQuery) -> None:
+        if self._pin_source and query.source != self._source_id:
+            raise ReportQueryError(
+                f"this assistant works on the source {self._source_id!r}; "
+                f"the query names {query.source!r}"
+            )
 
     def _check(self, db: Any) -> None:
         if not RBACService(db).has_permission(self._user_id, "reports", "read"):
+            raise ReportAccessError
+
+    def _check_templates(self, db: Any) -> None:
+        """Report templates are read through the Templates feature, so its permission counts."""
+        self._check(db)
+        if not RBACService(db).has_permission(self._user_id, "templates", "read"):
             raise ReportAccessError
 
     async def catalog(self, source_id: str) -> list[DatasetInfo]:
@@ -38,7 +56,7 @@ class DbReportReader:
         with SessionLocal() as db:
             self._check(db)
             try:
-                return ReportQueryService(db).catalog(source_id)
+                return ReportQueryService(db, actor_user_id=self._user_id).catalog(source_id)
             except UnknownSourceError as exc:
                 raise ReportAccessError from exc
 
@@ -46,10 +64,12 @@ class DbReportReader:
         return await asyncio.to_thread(self._run, query)
 
     def _run(self, query: ReportQuery) -> QueryResult:
+        self._check_source(query)
         with SessionLocal() as db:
             self._check(db)
             try:
-                return ReportQueryService(db).run(self._source_id, query)
+                service = ReportQueryService(db, actor_user_id=self._user_id)
+                return service.run(query.source, query)
             except UnknownSourceError as exc:
                 raise ReportAccessError from exc
 
@@ -57,10 +77,11 @@ class DbReportReader:
         await asyncio.to_thread(self._validate, query)
 
     def _validate(self, query: ReportQuery) -> None:
+        self._check_source(query)
         with SessionLocal() as db:
             self._check(db)
             try:
-                ReportQueryService(db).validate(self._source_id, query)
+                ReportQueryService(db, actor_user_id=self._user_id).validate(query.source, query)
             except UnknownSourceError as exc:
                 raise ReportAccessError from exc
 
@@ -115,8 +136,57 @@ class DbReportReader:
     def _get_snapshot(self, snapshot_id: int) -> dict[str, Any]:
         with SessionLocal() as db:
             self._check(db)
+            service = ReportService(db)
             try:
-                snapshot = ReportService(db).get_snapshot(snapshot_id)
+                snapshot = service.get_snapshot(snapshot_id)
             except SnapshotMissing as exc:
                 raise ReportNotFoundError from exc
+            rbac = RBACService(db)
+            for resource, action in service.required_source_permissions(snapshot):
+                if not rbac.has_permission(self._user_id, resource, action):
+                    raise ReportAccessError
             return {"id": snapshot.id, "name": snapshot.name, "content": snapshot.content}
+
+    # -- sources and report templates (Ask the Net) ---------------------------------------
+
+    async def list_sources(self) -> list[dict[str, str]]:
+        return await asyncio.to_thread(self._list_sources)
+
+    def _list_sources(self) -> list[dict[str, str]]:
+        with SessionLocal() as db:
+            self._check(db)
+            return [s.model_dump() for s in ReportQueryService(db).list_sources()]
+
+    async def list_templates(self) -> list[dict[str, Any]]:
+        return await asyncio.to_thread(self._list_templates)
+
+    def _list_templates(self) -> list[dict[str, Any]]:
+        with SessionLocal() as db:
+            self._check_templates(db)
+            rows = TemplatesRepository(db).list_templates(category=CATEGORY_REPORT)
+            return [_template_info(t) for t in rows]
+
+    async def get_template(self, template_id: int) -> dict[str, Any]:
+        return await asyncio.to_thread(self._get_template, template_id)
+
+    def _get_template(self, template_id: int) -> dict[str, Any]:
+        with SessionLocal() as db:
+            self._check_templates(db)
+            template = TemplatesRepository(db).get_by_id(template_id)
+            if template is None or not template.is_active or template.category != CATEGORY_REPORT:
+                raise ReportNotFoundError
+            return _template_info(template)
+
+
+def _template_info(template: Any) -> dict[str, Any]:
+    """What the model may know about a report template: its name and which sections it reads.
+    The template text itself stays out."""
+    refs = referenced_sections(template.content)
+    return {
+        "id": template.id,
+        "name": template.name,
+        "description": template.description,
+        "section_ids": list(refs.ids),
+        "uses_section_list": refs.uses_section_list,
+        "dynamic_lookup": refs.dynamic,
+    }

@@ -40,13 +40,16 @@ from services.reports.report_renderer import (
     build_render_context,
     render_report_body,
 )
-from services.reports.sources.registry import list_sources
+from services.reports.sources.registry import SOURCE_PERMISSIONS, list_sources
 from services.templates.categories import CATEGORY_REPORT
 
 logger = logging.getLogger(__name__)
 
 # Snapshots are kept per report; older ones are pruned when a new one is generated.
 MAX_SNAPSHOTS_PER_DEFINITION = 50
+# A report made from an Ask the Net proposal has no definition to hang its snapshots on; the
+# newest ones of each user are kept. A snapshot that is still wanted belongs in a saved report.
+MAX_ADHOC_SNAPSHOTS_PER_USER = 50
 # Serialized size a whole snapshot may reach; a section that would exceed it is recorded as failed.
 MAX_SNAPSHOT_BYTES = 8 * 1024 * 1024
 _SIZE_ERROR = "Not stored: the snapshot size limit was reached. Narrow the query or add filters."
@@ -70,11 +73,12 @@ class InvalidReportError(ValueError):
 
 
 class ReportService:
-    def __init__(self, db: Session) -> None:
+    def __init__(self, db: Session, *, actor_user_id: int | None = None) -> None:
         self.db = db
         self.definitions = ReportDefinitionsRepository(db)
         self.snapshots = ReportSnapshotsRepository(db)
-        self.queries = ReportQueryService(db)
+        # The acting user matters for sources that read an external system (Nautobot).
+        self.queries = ReportQueryService(db, actor_user_id=actor_user_id)
         self.templates = TemplatesRepository(db)
 
     # -- definitions ----------------------------------------------------------------------
@@ -162,6 +166,52 @@ class ReportService:
         def_id, def_name, def_description = definition.id, definition.name, definition.description
         def_template_id = definition.template_id
         sections = [ReportSection.model_validate(raw) for raw in definition.sections]
+        snapshot = self._snapshot(
+            definition_id=def_id,
+            name=def_name,
+            description=def_description,
+            template_id=def_template_id,
+            sections=sections,
+            actor_name=actor_name,
+        )
+        self.snapshots.prune(def_id, MAX_SNAPSHOTS_PER_DEFINITION)
+        return snapshot
+
+    def generate_adhoc(
+        self, payload: ReportDefinitionCreate, *, actor_name: str | None
+    ) -> ReportSnapshot:
+        """A snapshot of a report that is not saved (``definition_id`` is NULL).
+
+        Used for a report the assistant proposed and the user confirmed. The same checks as for
+        saving apply (known sources, an active report template); nothing is stored but the
+        snapshot, and only the user's newest ``MAX_ADHOC_SNAPSHOTS_PER_USER`` are kept.
+        """
+        self._check_sources(payload.sections)
+        self._check_template(payload.template_id)
+        snapshot = self._snapshot(
+            definition_id=None,
+            name=payload.name,
+            description=payload.description,
+            template_id=payload.template_id,
+            sections=payload.sections,
+            actor_name=actor_name,
+            is_adhoc=True,
+        )
+        self.snapshots.prune_adhoc(actor_name, MAX_ADHOC_SNAPSHOTS_PER_USER)
+        return snapshot
+
+    def _snapshot(
+        self,
+        *,
+        definition_id: int | None,
+        name: str,
+        description: str | None,
+        template_id: int | None,
+        sections: list[ReportSection],
+        actor_name: str | None,
+        is_adhoc: bool = False,
+    ) -> ReportSnapshot:
+        """Run every section, render the report text and store the result."""
         results: list[SnapshotSection] = []
         used_bytes = 0
         for section in sections:
@@ -174,28 +224,25 @@ class ReportService:
             results.append(outcome)
         generated_at = datetime.now(UTC)
         body = self._render_body(
-            template_id=def_template_id,
-            name=def_name,
-            description=def_description,
+            template_id=template_id,
+            name=name,
+            description=description,
             generated_at=generated_at,
             generated_by=actor_name,
             sections=results,
         )
-        content = SnapshotContent(
-            name=def_name, description=def_description, sections=results, body=body
-        )
+        content = SnapshotContent(name=name, description=description, sections=results, body=body)
         all_ok = all(r.status == "ok" for r in results) and body.error is None
         stamp = generated_at.strftime(_NAME_SUFFIX_FORMAT)
-        snapshot = self.snapshots.create(
-            definition_id=def_id,
-            name=f"{def_name} - {stamp}",
+        return self.snapshots.create(
+            definition_id=definition_id,
+            is_adhoc=is_adhoc,
+            name=f"{name} - {stamp}",
             generated_by=actor_name,
             generated_at=generated_at,
             status="complete" if all_ok else "partial",
             content=content.model_dump(mode="json"),
         )
-        self.snapshots.prune(def_id, MAX_SNAPSHOTS_PER_DEFINITION)
-        return snapshot
 
     def list_snapshots(self, *, definition_id: int | None = None) -> list[ReportSnapshot]:
         return self.snapshots.list_snapshots(definition_id=definition_id)
@@ -205,6 +252,16 @@ class ReportService:
         if snapshot is None:
             raise ReportNotFoundError(f"snapshot {snapshot_id} not found")
         return snapshot
+
+    def required_source_permissions(self, snapshot: ReportSnapshot) -> list[tuple[str, str]]:
+        """The permissions, beyond ``reports:read``, that reading this snapshot needs: one for
+        each source with its own permission that one of its sections was generated from."""
+        sources = {
+            section.get("section", {}).get("query", {}).get("source")
+            for section in snapshot.content.get("sections", [])
+            if isinstance(section, dict)
+        }
+        return sorted({SOURCE_PERMISSIONS[s] for s in sources if s in SOURCE_PERMISSIONS})
 
     def preview_template(self, snapshot_id: int, template_content: str) -> BodyOutcome:
         """Render unsaved template text against a stored snapshot (the template editor's preview).

@@ -15,6 +15,8 @@ import type {
   CommandParser,
   ConfigDownloadProposal,
   DeviceCommandResult,
+  ReportRunResult,
+  ReportRunSection,
   WorkflowRunDevice,
   WorkflowRunResult,
   DisplayMessage,
@@ -88,6 +90,7 @@ interface ProposalPayload {
   inputs?: unknown;
   devices?: unknown;
   credential_inputs?: unknown;
+  template?: unknown;
 }
 
 export interface UseAssistantChatOptions {
@@ -127,6 +130,85 @@ interface ParsedWorkflowRun {
   devices: WorkflowRunDevice[];
   credentialInputs: string[];
   driverChoices: string[];
+}
+
+interface ParsedReportRun {
+  token: string;
+  expiresAt: number;
+  name: string;
+  description: string | null;
+  template: { id: number; name: string } | null;
+  sections: ReportRunSection[];
+}
+
+function parseReportSection(raw: unknown): ReportRunSection | null {
+  const entry = raw as Record<string, unknown> | null;
+  if (
+    !entry ||
+    typeof entry.id !== "string" ||
+    typeof entry.title !== "string" ||
+    typeof entry.source !== "string" ||
+    typeof entry.dataset !== "string" ||
+    typeof entry.presentation !== "string"
+  ) {
+    return null;
+  }
+  return {
+    id: entry.id,
+    title: entry.title,
+    source: entry.source,
+    dataset: entry.dataset,
+    presentation: entry.presentation,
+  };
+}
+
+/** The report payload, or null when anything the card needs is missing or mistyped. */
+function parseReportRun(payload: ProposalPayload): ParsedReportRun | null {
+  const {
+    token,
+    expires_at: expiresAt,
+    name,
+    description,
+    template,
+    sections,
+  } = payload;
+  if (
+    typeof token !== "string" ||
+    !token ||
+    typeof expiresAt !== "number" ||
+    typeof name !== "string" ||
+    !Array.isArray(sections) ||
+    sections.length === 0
+  ) {
+    return null;
+  }
+  if (description != null && typeof description !== "string") {
+    return null;
+  }
+  let parsedTemplate: { id: number; name: string } | null = null;
+  if (template != null) {
+    const entry = template as Record<string, unknown>;
+    if (typeof entry.id !== "number" || typeof entry.name !== "string") {
+      return null;
+    }
+    parsedTemplate = { id: entry.id, name: entry.name };
+  }
+  const parsedSections: ReportRunSection[] = [];
+  for (const raw of sections) {
+    const section = parseReportSection(raw);
+    if (!section) {
+      return null;
+    }
+    parsedSections.push(section);
+  }
+  return {
+    token,
+    expiresAt,
+    name,
+    description: description ?? null,
+    template: parsedTemplate,
+    sections: parsedSections,
+  };
 }
 
 function isStringList(value: unknown): value is string[] {
@@ -509,6 +591,21 @@ export function useAssistantChat({
                     state: "pending",
                   },
                 }));
+              } else if (proposal.kind === "report_run") {
+                const parsed = parseReportRun(proposal);
+                if (!parsed) {
+                  fail("The assistant sent a report that could not be read.");
+                  continue;
+                }
+                patchAssistant(assistantId, (m) => ({
+                  ...m,
+                  proposal: {
+                    kind: "report_run",
+                    summary: `Generate ${parsed.name}`,
+                    ...parsed,
+                    state: "pending",
+                  },
+                }));
               } else if (proposal.kind === "inventory") {
                 const tree = parseProposedConditionTree(proposal.tree);
                 if (!tree) {
@@ -690,6 +787,21 @@ export function useAssistantChat({
     [sessionKey],
   );
 
+  const completeReportRun = useCallback(
+    (messageId: string, result: ReportRunResult) => {
+      useAssistantSessionStore
+        .getState()
+        .updateMessages(sessionKey, (prev) =>
+          prev.map((m) =>
+            m.id === messageId && m.proposal?.kind === "report_run"
+              ? { ...m, proposal: { ...m.proposal, state: "applied", result } }
+              : m,
+          ),
+        );
+    },
+    [sessionKey],
+  );
+
   // Null the ref synchronously so a send right after stop/clear is not dropped while the
   // aborted request's `finally` has not run yet.
   const stop = useCallback(() => {
@@ -713,6 +825,7 @@ export function useAssistantChat({
       setProposalState,
       completeDeviceCommand,
       completeWorkflowRun,
+      completeReportRun,
     }),
     [
       messages,
@@ -723,6 +836,7 @@ export function useAssistantChat({
       setProposalState,
       completeDeviceCommand,
       completeWorkflowRun,
+      completeReportRun,
     ],
   );
 }

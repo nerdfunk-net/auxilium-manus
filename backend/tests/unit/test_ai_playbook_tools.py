@@ -93,6 +93,7 @@ def test_known_general_tool_names_cover_the_batfish_result_and_playbook_tools() 
         "propose_bgp_neighbor_detail",
         "propose_ping_traceroute",
         "propose_workflow_run",  # a card for a released workflow; nothing runs until the click
+        "propose_report",  # a card for a report; nothing is generated until the click
     }
     assert {"get_discovery_result", "get_modelled_neighbors", "get_neighbor_sources"} <= names
     assert "get_bgp_learn_result" in names

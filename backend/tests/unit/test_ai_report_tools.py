@@ -6,6 +6,8 @@ import asyncio
 import json
 from typing import Any
 
+import pytest
+
 from models.ai_assistant import ReportsContext
 from models.reports import DatasetInfo, FieldInfo, QueryResult, ReportQuery, ResultColumn
 from services.ai_assistant.data_sharing import SharingPolicy
@@ -433,3 +435,125 @@ def test_db_reader_checks_reports_read(monkeypatch) -> None:
             continue
         raise AssertionError("expected ReportAccessError")
     assert len(opened) == 5  # a session per call, each closed by its context manager
+
+
+# -- Nautobot rows on the Reports page (review: they bypassed the inventory/addresses switches) ----
+
+NAUTOBOT_QUERY = {"source": "nautobot", "dataset": "devices", "select": ["device_name", "serial"]}
+
+
+def test_run_query_of_a_nautobot_dataset_needs_the_inventory_and_addresses_switches() -> None:
+    for sharing in (
+        SharingPolicy(report_data=True),  # report data alone is not enough
+        SharingPolicy(report_data=True, inventory=True),  # serials need addresses too
+    ):
+        reader = FakeReportReader()
+        session = build_reports_session(
+            user_id=1,
+            context=ReportsContext(surface="reports", source_id="report_data"),
+            reader=reader,
+            sharing=sharing,
+        )
+        out = _call(session, "run_query", query=NAUTOBOT_QUERY)
+        assert "not_shared" in out.content
+        assert reader.ran == []
+
+
+def test_run_query_of_a_nautobot_dataset_works_with_both_switches() -> None:
+    reader = FakeReportReader()
+    session = build_reports_session(
+        user_id=1,
+        context=ReportsContext(surface="reports", source_id="report_data"),
+        reader=reader,
+        sharing=SharingPolicy(inventory=True, addresses=True),
+    )
+    out = _call(session, "run_query", query=NAUTOBOT_QUERY)
+    assert "not_shared" not in out.content
+    assert len(reader.ran) == 1
+
+
+def _nautobot_snapshot(select: list[str]) -> dict:
+    section = {
+        "id": "s1",
+        "title": "Serials",
+        "text": None,
+        "presentation": "table",
+        "query": {"source": "nautobot", "dataset": "devices", "select": select},
+    }
+    return {
+        "id": 7,
+        "name": "Nautobot report",
+        "content": {
+            "name": "N",
+            "description": None,
+            "sections": [
+                {
+                    "section": section,
+                    "status": "ok",
+                    "result": RESULT.model_dump(mode="json"),
+                    "error": None,
+                    "truncated": False,
+                }
+            ],
+        },
+    }
+
+
+@pytest.mark.parametrize(
+    ("sharing", "shown"),
+    [
+        (SharingPolicy(report_data=True), False),  # the report-data switch does not cover Nautobot
+        (SharingPolicy(inventory=True), False),  # serials are an address-class field
+        (SharingPolicy(inventory=True, addresses=True), True),
+    ],
+)
+def test_a_stored_nautobot_snapshot_follows_the_nautobot_switches(sharing, shown) -> None:
+    reader = FakeReportReader()
+    reader.get_snapshot = lambda _id: _async(_nautobot_snapshot(["device_name", "serial"]))
+    session = build_reports_session(
+        user_id=1,
+        context=ReportsContext(surface="reports", source_id="report_data"),
+        reader=reader,
+        sharing=sharing,
+    )
+    out = _call(session, "get_report_results", snapshot_id=7)
+    assert ("dc1" in out.content) is shown
+    assert ("not_shared" in out.content) is not shown
+
+
+def test_a_mixed_snapshot_withholds_only_the_sections_the_switches_do_not_cover() -> None:
+    snapshot = _nautobot_snapshot(["device_name", "serial"])
+    stored = json.loads(json.dumps(SNAPSHOT["content"]["sections"][0]))
+    stored["section"]["query"] = {"source": "report_data", "dataset": "inventory"}
+    snapshot["content"]["sections"].append(stored)
+    reader = FakeReportReader()
+    reader.get_snapshot = lambda _id: _async(snapshot)
+    session = build_reports_session(
+        user_id=1,
+        context=ReportsContext(surface="reports", source_id="report_data"),
+        reader=reader,
+        sharing=SharingPolicy(report_data=True),
+    )
+    sections = json.loads(_call(session, "get_report_results", snapshot_id=7).content)["sections"]
+    assert sections[0]["not_shared"] == "inventory_data" and "rows" not in sections[0]
+    assert sections[1]["rows"]  # the report-database section is shared
+
+
+async def _async(value):
+    return value
+
+
+def test_the_reports_page_reader_does_not_leave_its_source(monkeypatch) -> None:
+    import contextlib
+
+    from services.ai_assistant import report_reader
+    from services.auth.rbac_service import RBACService
+
+    monkeypatch.setattr(report_reader, "SessionLocal", contextlib.nullcontext)
+    monkeypatch.setattr(RBACService, "has_permission", lambda self, *_a: True)
+    pinned = report_reader.DbReportReader(1, "report_data", pin_source=True)
+    foreign = ReportQuery(source="nautobot", dataset="devices")
+
+    for call in (pinned.run_query(foreign), pinned.validate_query(foreign)):
+        with pytest.raises(ReportQueryError, match="works on the source 'report_data'"):
+            asyncio.run(call)

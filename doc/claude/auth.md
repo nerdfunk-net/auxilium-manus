@@ -183,6 +183,13 @@ confirmed with parser `genie`. Two readings are compared only when they came fro
 `compare_bgp_learns(detail=true)` sends the redacted outputs to the shim's `POST /v1/learn-replay`; the replay request carries no device
 credentials and the diff text is redacted again before it reaches the model.
 
+**Ask the Net reports** (`list_report_sources`, `list_report_datasets`, `preview_report_query`, `list_report_templates`, `propose_report`, `doc/AI_TOOL_CHAIN.md` §53).
+Offered with `reports:read` (checked on every call); `propose_report` only with `reports:write`; the template list also needs `templates:read`.
+The Nautobot report source also needs `sources.nautobot:read` (a failed section otherwise). What the model reads is gated by the user's switches
+(Nautobot rows: inventory, plus addresses for serials and addresses; `report_data` rows: report data). The user's click calls
+`POST /ai/exec/report-generate` (`ai_assistant:use` + `reports:write`, signed user-bound token, 10 minutes, not single-use) and the report is generated **as that user**. A stored snapshot with a Nautobot section needs `sources.nautobot:read` to be read (REST and the assistant),
+and the Reports-page assistant applies the same data-switch rule to Nautobot rows (`doc/AI_TOOL_CHAIN.md` §53).
+
 **Contact the AI step** (`contact-the-ai`, `doc/WORKFLOW-STEPS.md`). No RBAC permission of its own: whoever may edit and run the workflow may use it. It runs as the
 operator-designated service user `WORKFLOW_AI_USER`, so that user's AI key, provider and sharing switches (and the operator's `AI_ALLOWED_DATA`) decide
 what the prompt may contain (each placeholder is checked with the assistant's data-sharing rules before it is read); the triggering user's own settings are never used. Every prompt is redacted; an unset, unknown or inactive user (looked up case-insensitively) or a withheld placeholder ends the step on `failure`.
