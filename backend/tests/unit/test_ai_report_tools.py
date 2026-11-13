@@ -557,3 +557,68 @@ def test_the_reports_page_reader_does_not_leave_its_source(monkeypatch) -> None:
     for call in (pinned.run_query(foreign), pinned.validate_query(foreign)):
         with pytest.raises(ReportQueryError, match="works on the source 'report_data'"):
             asyncio.run(call)
+
+
+# -- the Reports page on the Nautobot source (the assistant follows the picker) ------------
+
+
+class SourceRecordingReader(FakeReportReader):
+    def __init__(self) -> None:
+        super().__init__()
+        self.catalog_sources: list[str] = []
+
+    async def catalog(self, source_id):
+        self.catalog_sources.append(source_id)
+        return CATALOG
+
+
+def _nautobot_page(sharing: SharingPolicy):
+    reader = SourceRecordingReader()
+    session = build_reports_session(
+        user_id=1,
+        context=ReportsContext(surface="reports", source_id="nautobot"),
+        reader=reader,
+        sharing=sharing,
+    )
+    return session, reader
+
+
+def test_the_catalog_of_the_selected_source_is_what_the_assistant_reads() -> None:
+    session, reader = _nautobot_page(SharingPolicy())
+
+    _call(session, "list_datasets")
+    _call(session, "describe_dataset", dataset="inventory")
+
+    assert reader.catalog_sources == ["nautobot", "nautobot"]
+
+
+def test_a_nautobot_page_tells_the_model_what_that_source_is() -> None:
+    session, _ = _nautobot_page(SharingPolicy())
+
+    assert "Nautobot" in session.system
+    assert "no history" in session.system
+    assert "software_versions" in session.system
+    # The report-database wording about collected facts does not describe this page.
+    assert "only the catalog" in session.system
+
+
+def test_the_data_line_names_the_switches_that_apply_to_nautobot() -> None:
+    cases = [
+        (SharingPolicy(report_data=True), "no Nautobot values (only the catalog)"),
+        (SharingPolicy(inventory=True), "Nautobot device and software values"),
+        (
+            SharingPolicy(inventory=True, addresses=True),
+            "Nautobot device and software values, serial numbers and addresses",
+        ),
+    ]
+    for sharing, expected in cases:
+        session, _ = _nautobot_page(sharing)
+        assert f"Data the user shares with you: {expected}." in session.system
+
+
+def test_the_report_database_page_keeps_its_wording() -> None:
+    session, _ = _session(report_data=False)
+    assert "no report values (only the catalog)" in session.system
+    assert "Nautobot is the documented network" not in session.system
+    session, _ = _session(report_data=True)
+    assert "Data the user shares with you: report values." in session.system

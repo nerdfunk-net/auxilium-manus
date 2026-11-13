@@ -244,10 +244,14 @@ snapshots, a broken template) falls back to the default template rendered from t
 
 ## AI assistant
 
-The reports page has an AI Assistant panel (when the assistant is enabled for the user). It always sees the
-catalog (dataset, field names, types) and can propose a query, which the user applies to the Explore builder
-and runs. It reads query results and snapshot contents only if the user switched on **Report data** under
-Settings -> AI Assistant -> Data sent to the model. Details and enforcement: `doc/ai_integration/AI_ASSISTANT.md` §20.
+The reports page has an AI Assistant panel (when the assistant is enabled for the user). It works on the
+**source selected in Explore** (the report database or Nautobot): the page sends the picked source with every
+message, each source has its own conversation, and switching source keeps the panel open. It always sees the
+catalog of that source (dataset, field names, types) and can propose a query, which the user applies to the
+Explore builder and runs; it cannot query or propose for another source (`DbReportReader(..., pin_source=True)`). It reads query results and snapshot contents only if the user switched on the matching setting under
+Settings -> AI Assistant -> Data sent to the model: **Report data** for the report database; for Nautobot rows
+**Inventory** and, for serial numbers and addresses, **Addresses** (`tools/report_gating.py`, one rule for every
+report tool). Details and enforcement: `doc/ai_integration/AI_ASSISTANT.md` §20.
 
 ## Zero items
 

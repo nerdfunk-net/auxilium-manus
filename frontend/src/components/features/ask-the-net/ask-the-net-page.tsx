@@ -45,9 +45,11 @@ export function AskTheNetPage() {
         </div>
         {canQueryBatfish ? (
           <p className="text-sm text-muted-foreground">
-            Ask questions about your network. Answers come from a Batfish
-            snapshot of your device configurations, not the live network, and
-            always say which snapshot they used.
+            Ask questions about your network and get answers from your own data:
+            the Batfish model of your device configurations, the documented
+            network in Nautobot, workflow runs and, when you confirm, live
+            read-only device commands. It can also write reports. The Batfish
+            model is a snapshot of your configurations, not the live network.
           </p>
         ) : null}
       </div>

@@ -540,7 +540,10 @@ class BatfishPreviewServiceTracerouteTests(unittest.IsolatedAsyncioTestCase):
         service, _, batfish = _make_service()
         batfish.traceroute = AsyncMock()
 
-        for bad in ({"start_node": " ", "dst_ips": "10.0.0.1"}, {"start_node": "r1", "dst_ips": ""}):
+        for bad in (
+            {"start_node": " ", "dst_ips": "10.0.0.1"},
+            {"start_node": "r1", "dst_ips": ""},
+        ):
             with self.subTest(bad):
                 with self.assertRaises(ValueError):
                     await service.run_traceroute(

@@ -10,9 +10,9 @@ Five independent tasks run on the same cron:
   AI_CONVERSATION_RETENTION_DAYS (0 keeps them). Not gated on RUN_RETENTION_ENABLED.
 * ``purge_report_data`` — deletes report_data_records older than REPORT_DATA_RETENTION_DAYS
   (0 keeps them), always keeping each device's newest collection per dataset.
-* ``purge_client_data`` — deletes client data collections (client_ip_addresses, client_mac_addresses,
-  client_hostnames, client_data_collections) older than CLIENT_DATA_RETENTION_DAYS (0 keeps them),
-  always keeping each device's newest collection.
+* ``purge_client_data`` — deletes client data collections (client_ip_addresses,
+  client_mac_addresses, client_hostnames, client_data_collections) older than
+  CLIENT_DATA_RETENTION_DAYS (0 keeps them), always keeping each device's newest collection.
 * ``reconcile_change_requests`` — expires stale ``staged`` change requests past
   their TTL and finalises any ``deploying`` change request whose deploy run
   already reached a terminal status but whose detail page nobody opened (the

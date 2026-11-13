@@ -25,6 +25,8 @@ import { SnapshotsTab } from "./snapshots-tab";
 import type { ReportQuerySpec } from "./types/report-query";
 
 const DEFAULT_SOURCE_ID = "report_data";
+// Open/closed state of the assistant panel; one for the page, not one per source.
+const ASSISTANT_PANEL_KEY = "reports";
 
 /**
  * The dashboard shell is `h-screen overflow-hidden`, so a page must bring its own scrolling:
@@ -46,7 +48,14 @@ export function ReportsPage() {
   // AI assistant: explains the catalog and proposes queries; values only with the user's opt-in.
   const assistantAvailable = useAiAssistantAvailable();
   const sources = useReportSourcesQuery();
-  const sourceId = sources.data?.[0]?.id ?? DEFAULT_SOURCE_ID;
+  // The assistant works on the source the user picked in Explore (the first one until they pick
+  // another). Each source has its own conversation, because its datasets and the data it may
+  // read differ; the open/closed state of the panel is shared, or it would close on every switch.
+  const [pickedSourceId, setPickedSourceId] = useState<string | null>(null);
+  const sourceId =
+    sources.data?.find((source) => source.id === pickedSourceId)?.id ??
+    sources.data?.[0]?.id ??
+    DEFAULT_SOURCE_ID;
   const assistantSessionKey = `reports:${sourceId}`;
   const conversationScope = useMemo<ConversationScope>(
     () => ({ surface: "reports", subjectKey: sourceId }),
@@ -56,7 +65,7 @@ export function ReportsPage() {
     open: assistantOpen,
     setOpen: setAssistantOpen,
     toggle: toggleAssistant,
-  } = useAssistantSessionOpen(assistantSessionKey);
+  } = useAssistantSessionOpen(ASSISTANT_PANEL_KEY);
   const getAssistantContext = useCallback(
     (): AssistantContext => ({ surface: "reports", source_id: sourceId }),
     [sourceId],
@@ -138,7 +147,10 @@ export function ReportsPage() {
             <TabsTrigger value="snapshots">Snapshots</TabsTrigger>
           </TabsList>
           <TabsContent value="explore" className="min-h-0 flex-1">
-            <ExploreTab loadRequest={loadRequest} />
+            <ExploreTab
+              loadRequest={loadRequest}
+              onSourceChange={setPickedSourceId}
+            />
           </TabsContent>
           <TabsContent
             value="reports"
@@ -179,7 +191,7 @@ export function ReportsPage() {
             <AssistantPanel
               sessionKey={assistantSessionKey}
               conversationScope={conversationScope}
-              placeholder="Ask about your report data, e.g. how many devices per location?"
+              placeholder="Ask about the data of the selected source, e.g. how many devices per location?"
               getContext={getAssistantContext}
               queryTarget={queryTarget}
               reportTarget={reportTarget}

@@ -59,7 +59,9 @@ export function SnapshotViewer({ snapshotId, onClose }: SnapshotViewerProps) {
           <DialogDescription>
             {data
               ? `Generated ${formatTimestamp(data.generated_at)}${data.generated_by ? ` by ${data.generated_by}` : ""}`
-              : "Loading…"}
+              : snapshot.isError
+                ? "This snapshot cannot be shown."
+                : "Loading…"}
           </DialogDescription>
         </DialogHeader>
         {data ? (

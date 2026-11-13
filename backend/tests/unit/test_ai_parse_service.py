@@ -6,8 +6,8 @@ import asyncio
 import json
 
 from services.ai_assistant import parse_service as ps
-from services.ai_assistant.device_exec_service import _shape_blocks
 from services.ai_assistant.data_sharing import DataClass
+from services.ai_assistant.device_exec_service import _shape_blocks
 from services.ai_assistant.output_parser import ParsedCommand
 from services.ai_assistant.results.store import (
     InMemoryResultBackend,

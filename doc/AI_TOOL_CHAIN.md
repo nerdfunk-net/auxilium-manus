@@ -3980,8 +3980,11 @@ can use a report template, be opened in the Reports app and downloaded as PDF an
   Open showed the live tables, **PDF** and **Data (CSV)** downloaded (single section: one UTF-8 CSV with a byte order mark; two
   sections: a zip named `s1.csv`, `s2.csv`), a report in an organisation layout (`list_report_templates`, section ids matched)
   rendered the template text above the live table, the three snapshots appeared in the Reports app (Snapshots tab, status
-  Complete), and Explore offered the Nautobot source with both datasets. Not checked in the browser: the 403 for a user
-  without `sources.nautobot:read` (unit-tested only).
+  Complete), and Explore offered the Nautobot source with both datasets. **Permission check (2026-11-13, REST and browser):** a user with
+  `reports:read` but without `sources.nautobot:read` gets 403 on the Nautobot snapshot (view, PDF, CSV, template preview, send)
+  and 200 on a report-database snapshot; the same user with the permission gets 200 on all of them (send answers 409 only because
+  mail was not configured). The viewer shows "This report holds data from a source you may not read (sources.nautobot:read)."
+  instead of data.
 * **Not verified / open.** A real model choosing sources, fields and templates; Nautobot versions older than 2.2 (the software fields would fail the whole source); a Nautobot with more than 5000
   devices, and a software version used by very many devices (the nested `devices` list is not paged, so `device_count` could be
   a lower bound). Filters other than a device name or a version are applied after the read. Later: more Nautobot datasets

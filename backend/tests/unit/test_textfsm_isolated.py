@@ -69,7 +69,8 @@ def test_the_child_gets_no_environment(monkeypatch, tmp_path) -> None:
     probe.write_text(
         "import json, os, sys\n"
         "sys.stdin.read()\n"
-        "print(json.dumps({'ok': True, 'result': [{'rows': [{'leaked': 'SECRET_KEY' in os.environ}], 'error': None}]}))\n"
+        "print(json.dumps({'ok': True, 'result': "
+        "[{'rows': [{'leaked': 'SECRET_KEY' in os.environ}], 'error': None}]}))\n"
     )
     monkeypatch.setattr(ti, "_WORKER", probe)
     monkeypatch.setenv("SECRET_KEY", "must-not-leak")

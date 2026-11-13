@@ -60,8 +60,8 @@ def known_general_tool_names() -> frozenset[str]:
     from services.ai_assistant.tools.client_data_tools import build_client_data_tools
     from services.ai_assistant.tools.config_backup_tools import build_config_backup_tools
     from services.ai_assistant.tools.device_name_tools import build_device_name_tools
-    from services.ai_assistant.tools.dns_tools import build_dns_tools
     from services.ai_assistant.tools.device_tools import build_device_tools
+    from services.ai_assistant.tools.dns_tools import build_dns_tools
     from services.ai_assistant.tools.host_lookup_tools import build_host_lookup_tools
     from services.ai_assistant.tools.learn_tools import build_learn_tools
     from services.ai_assistant.tools.nautobot_tools import build_nautobot_tools

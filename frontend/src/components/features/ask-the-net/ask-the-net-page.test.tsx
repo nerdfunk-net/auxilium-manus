@@ -173,6 +173,18 @@ describe("AskTheNetPage", () => {
     expect(screen.queryByTestId("assistant-panel")).toBeNull();
     expect(screen.queryByTestId("sharing-notice")).toBeNull();
     expect(screen.getByText(/permission to query batfish/i)).toBeTruthy();
-    expect(screen.queryByText(/not the live network/i)).toBeNull();
+    expect(screen.queryByText(/ask questions about your network/i)).toBeNull();
+  });
+
+  it("tells a user who may use it where the answers come from", () => {
+    render(<AskTheNetPage />);
+
+    const subtitle = screen.getByText(/ask questions about your network/i);
+    expect(subtitle.textContent).toMatch(/Batfish/);
+    expect(subtitle.textContent).toMatch(/Nautobot/);
+    expect(subtitle.textContent).toMatch(/live read-only device commands/);
+    expect(subtitle.textContent).toMatch(/write reports/);
+    // The Batfish model is still said to be a snapshot, not the live network.
+    expect(subtitle.textContent).toMatch(/not the live network/);
   });
 });

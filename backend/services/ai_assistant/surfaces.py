@@ -44,6 +44,7 @@ from services.ai_assistant.prompts import (
     RELEASED_WORKFLOWS_PROMPT,
     REPORT_TEMPLATE_PROMPT,
     REPORTS_GENERAL_PROMPT,
+    REPORTS_NAUTOBOT_PROMPT,
     REPORTS_PROMPT,
     RUN_EXPLAIN_PROMPT,
     RUN_VIEWER_PROMPT,
@@ -412,11 +413,25 @@ def build_reports_session(
         extras={"reports": ReportsState(reader=reader, source_id=context.source_id)},
         sharing=sharing,
     )
-    shared = "report values" if sharing.report_data else "no report values (only the catalog)"
-    system = "\n\n".join(
-        [BASE_SYSTEM_PROMPT, REPORTS_PROMPT, f"Data the user shares with you: {shared}."]
-    )
-    return AssistantSession(system=system, toolbox=Toolbox(REPORT_TOOLS, tool_context))
+    parts = [BASE_SYSTEM_PROMPT, REPORTS_PROMPT]
+    if context.source_id == "nautobot":
+        # The page's source picker is on Nautobot: other datasets, other data switches
+        # (report_gating), and no history.
+        parts.append(REPORTS_NAUTOBOT_PROMPT)
+        shared = _nautobot_report_data_line(sharing)
+    else:
+        shared = "report values" if sharing.report_data else "no report values (only the catalog)"
+    parts.append(f"Data the user shares with you: {shared}.")
+    return AssistantSession(system="\n\n".join(parts), toolbox=Toolbox(REPORT_TOOLS, tool_context))
+
+
+def _nautobot_report_data_line(sharing: SharingPolicy) -> str:
+    """What the user's switches let the model read from Nautobot rows (``report_gating``)."""
+    if not sharing.allows(DataClass.INVENTORY):
+        return "no Nautobot values (only the catalog)"
+    if sharing.allows(DataClass.ADDRESSES):
+        return "Nautobot device and software values, serial numbers and addresses"
+    return "Nautobot device and software values"
 
 
 def build_general_session(

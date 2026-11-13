@@ -21,10 +21,12 @@ const NO_SOURCES: never[] = [];
 interface ExploreTabProps {
   /** A query to load into the builder, for example an applied assistant proposal. */
   loadRequest?: { id: number; query: ReportQuerySpec } | null;
+  /** The source the user is working on, reported whenever the picker changes (stable function). */
+  onSourceChange?: (sourceId: string) => void;
 }
 
 /** Builder on the left, result on the right (stacked on small screens). */
-export function ExploreTab({ loadRequest = null }: ExploreTabProps) {
+export function ExploreTab({ loadRequest = null, onSourceChange }: ExploreTabProps) {
   const sourcesQuery = useReportSourcesQuery();
   const runQuery = useReportQueryMutation();
   const canWrite = hasPermission(useAuthStore((state) => state.user), "reports", "write");
@@ -55,6 +57,7 @@ export function ExploreTab({ loadRequest = null }: ExploreTabProps) {
           onRun={runQuery.mutate}
           onSave={canWrite ? setQueryToSave : undefined}
           saveLabel="Add to report…"
+          onSourceChange={onSourceChange}
           key={loadRequest?.id ?? 0}
           initialState={loadRequest ? queryToBuilderState(loadRequest.query) : undefined}
         />

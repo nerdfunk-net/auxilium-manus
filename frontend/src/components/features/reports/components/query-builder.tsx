@@ -39,6 +39,11 @@ interface QueryBuilderProps {
   /** When set, a second button hands the validated query over (e.g. "Add to report"). */
   onSave?: (query: ReportQuerySpec) => void;
   saveLabel?: string;
+  /**
+   * Called with the chosen source when the builder starts and whenever the user picks another
+   * one, so a neighbour (the page's AI assistant) can follow the picker. Pass a stable function.
+   */
+  onSourceChange?: (sourceId: string) => void;
 }
 
 const EMPTY_DATASETS: DatasetInfo[] = [];
@@ -83,6 +88,7 @@ export function QueryBuilder({
   initialState = DEFAULT_BUILDER_STATE,
   onSave,
   saveLabel = "Save",
+  onSourceChange,
 }: QueryBuilderProps) {
   const { control, setValue, getValues } = useForm<BuilderState>({
     defaultValues: initialState,
@@ -95,6 +101,10 @@ export function QueryBuilder({
     if (!getValues("sourceId") && sources.length > 0)
       setValue("sourceId", sources[0].id);
   }, [getValues, setValue, sources]);
+
+  useEffect(() => {
+    if (values.sourceId) onSourceChange?.(values.sourceId);
+  }, [values.sourceId, onSourceChange]);
 
   const catalog = useReportCatalogQuery(values.sourceId ?? "");
   const datasets = catalog.data ?? EMPTY_DATASETS;

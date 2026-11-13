@@ -408,8 +408,9 @@ REPORT_TOOLS: tuple[Tool, ...] = (
     Tool(
         "run_query",
         "Run a report query and read its result rows (up to 100). Returns not_shared unless the "
-        "user enabled 'Report data'. For counts and totals use group_by + metrics, not row "
-        "counting.",
+        "user enabled the matching data setting ('Report data' for stored report data; inventory, "
+        "and addresses for serial numbers and addresses, for Nautobot). For counts and totals "
+        "use group_by + metrics, not row counting.",
         RunQueryInput,
         _run_query,
     ),
@@ -421,8 +422,9 @@ REPORT_TOOLS: tuple[Tool, ...] = (
     ),
     Tool(
         "get_report_results",
-        "The stored results of one report snapshot, section by section. Returns not_shared unless "
-        "the user enabled 'Report data'.",
+        "The stored results of one report snapshot, section by section. A section is returned "
+        "only when the user enabled the data setting that covers its source ('Report data', or "
+        "inventory and addresses for Nautobot); others come back as not_shared.",
         ResultsInput,
         _get_report_results,
     ),
