@@ -10,10 +10,19 @@ import {
   Trash2,
   Wrench,
 } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  INITIAL_INPUT_HISTORY,
+  caretOnFirstLine,
+  caretOnLastLine,
+  stepNewer,
+  stepOlder,
+  type InputHistoryState,
+  type InputHistoryStep,
+} from "../utils/input-history";
 import { useAiConversationsMutations } from "@/hooks/queries/use-ai-conversations-mutations";
 
 import { dataClassLabel } from "../constants/data-classes";
@@ -414,23 +423,73 @@ export function AssistantPanel({
     [sessionKey],
   );
 
+  const historyRef = useRef<InputHistoryState>(INITIAL_INPUT_HISTORY);
+
   const handleSend = useCallback(() => {
     if (!draft.trim() || isStreaming) {
       return;
     }
+    historyRef.current = INITIAL_INPUT_HISTORY;
     followRef.current = true;
     void send(draft);
     setDraft("");
   }, [draft, isStreaming, send, setDraft]);
+
+  // Cursor Up / Down on the first / last line browse the questions sent in this session.
+  const sentQuestions = useMemo(
+    () =>
+      messages
+        .filter((message) => message.role === "user")
+        .map((message) => message.content),
+    [messages],
+  );
 
   const handleKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
       if (event.key === "Enter" && !event.shiftKey) {
         event.preventDefault();
         handleSend();
+        return;
       }
+      if (event.shiftKey || event.altKey || event.ctrlKey || event.metaKey) {
+        return;
+      }
+      const target = event.currentTarget;
+      const { selectionStart, selectionEnd, value } = target;
+      let step: InputHistoryStep | null = null;
+      let caretAtStart = false;
+      if (
+        event.key === "ArrowUp" &&
+        caretOnFirstLine(value, selectionStart, selectionEnd)
+      ) {
+        step = stepOlder(historyRef.current, sentQuestions, value);
+        caretAtStart = true;
+      } else if (
+        event.key === "ArrowDown" &&
+        caretOnLastLine(value, selectionStart, selectionEnd)
+      ) {
+        step = stepNewer(historyRef.current, sentQuestions);
+      }
+      if (!step || step.value === null) {
+        return;
+      }
+      event.preventDefault();
+      historyRef.current = step.state;
+      const next = step.value;
+      setDraft(next);
+      // Up lands on the first line so another Up keeps going; Down lands on the last.
+      const caret = caretAtStart ? 0 : next.length;
+      requestAnimationFrame(() => target.setSelectionRange(caret, caret));
     },
-    [handleSend],
+    [handleSend, sentQuestions, setDraft],
+  );
+
+  const handleDraftChange = useCallback(
+    (value: string) => {
+      historyRef.current = INITIAL_INPUT_HISTORY;
+      setDraft(value);
+    },
+    [setDraft],
   );
 
   const renderMessage = (message: DisplayMessage) => (
@@ -653,7 +712,7 @@ export function AssistantPanel({
       <div className="flex items-end gap-2">
         <Textarea
           value={draft}
-          onChange={(event) => setDraft(event.target.value)}
+          onChange={(event) => handleDraftChange(event.target.value)}
           onKeyDown={handleKeyDown}
           placeholder={placeholder}
           rows={2}
