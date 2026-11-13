@@ -183,6 +183,15 @@ confirmed with parser `genie`. Two readings are compared only when they came fro
 `compare_bgp_learns(detail=true)` sends the redacted outputs to the shim's `POST /v1/learn-replay`; the replay request carries no device
 credentials and the diff text is redacted again before it reaches the model.
 
+**Ask the Net access.** The page and its sidebar entry need `ai_assistant:use` only (and the user's own assistant settings; the AI status says why it is
+unavailable). There is no separate "Ask the Net" permission and Batfish access is not required: `POST /ai/chat` needs `ai_assistant:use`, and the general
+surface offers each tool group only to a user who holds that group's permission (`sources.batfish:query`, `sources.nautobot:read`, `reports:read`, ...),
+checked again on every call. Three things are **not** a permission: the DNS lookup (`get_dns_lookup`, `doc/AI_TOOL_CHAIN.md` §50) is offered by the operator switch
+`AI_DNS_LOOKUP_ENABLED` alone and is limited by the user's inventory and addresses switches; config backups and released workflows only come with the Batfish tools or the
+run tools (`git.files:read` or `workflows:execute` held alone attach nothing); and `sources.nautobot:read` attaches the Nautobot tools only when a Nautobot source is
+configured. A user with the assistant and none of the permissions that attach tools alone (`ASK_THE_NET_DATA_PERMISSIONS`) sees a note that Ask the Net cannot look
+anything up in Batfish, Nautobot, runs or reports for them; the note does not claim "general knowledge only", because the DNS tool may still be there.
+
 **Ask the Net reports** (`list_report_sources`, `list_report_datasets`, `preview_report_query`, `list_report_templates`, `propose_report`, `doc/AI_TOOL_CHAIN.md` §53).
 Offered with `reports:read` (checked on every call); `propose_report` only with `reports:write`; the template list also needs `templates:read`.
 The Nautobot report source also needs `sources.nautobot:read` (a failed section otherwise). What the model reads is gated by the user's switches

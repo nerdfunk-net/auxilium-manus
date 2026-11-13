@@ -32,7 +32,9 @@ the **Nautobot MCP server** (`mcp/nautobot/`) and the Nautobot reads of Ask the 
 `doc/WORKFLOW-STEPS.md` "Asking the AI" and `doc/ai_integration/AI_ASSISTANT.md` §21 before changing `workflow_steps/contact_the_ai/` or its sharing rules;
 **network discovery** (the `discover-network` step, `DeviceSessionPool.close_host`, the Ask the Net playbook `walk-the-network` and `include=['discovery']`) — read
 `doc/WORKFLOW-STEPS.md` "Discovering the network" and `doc/AI_TOOL_CHAIN.md` §52 before changing it;
-**client data** (the `collect-client-data` step, tables `client_*`, `GET /client-data`, the Ask the Net tools `find_client` & co, permission `client_data:read`) — read `doc/CLIENT_DATA.md` and §48 of `doc/AI_TOOL_CHAIN.md` before changing it
+**client data** (the `collect-client-data` step, tables `client_*`, `GET /client-data`, the Ask the Net tools `find_client` & co, permission `client_data:read`) — read `doc/CLIENT_DATA.md` and §48 of `doc/AI_TOOL_CHAIN.md` before changing it;
+**reports from Ask the Net** (the `nautobot` report source, `propose_report` and its signed confirm token, ad-hoc snapshots, CSV export, the Reports-page assistant following the source picker) —
+read §53 of `doc/AI_TOOL_CHAIN.md` and `doc/REPORTS.md` before changing `services/reports/sources/`, `services/reports/csv_export.py`, `services/ai_assistant/tools/report_*`, `report_run_*` or `report_reader.py`
 
 ## Architecture
 

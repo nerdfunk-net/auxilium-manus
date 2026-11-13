@@ -35,18 +35,10 @@ const EXPLANATIONS: Record<Exclude<AiStatus["reason"], "ok">, Explanation> = {
   },
 };
 
-const BATFISH_PERMISSION_EXPLANATION: Explanation = {
-  message:
-    "You do not have permission to query Batfish, which this page needs. Ask an administrator for sources.batfish:query.",
-  inSettings: false,
-};
-
 interface AssistantUnavailableProps {
   /** `undefined` while the status is loading or when it could not be read. */
   status: AiStatus | undefined;
   isLoading: boolean;
-  /** The assistant works, but the user may not query Batfish (the tools of this page). */
-  missingBatfishPermission?: boolean;
 }
 
 /**
@@ -56,7 +48,6 @@ interface AssistantUnavailableProps {
 export function AssistantUnavailable({
   status,
   isLoading,
-  missingBatfishPermission = false,
 }: AssistantUnavailableProps) {
   if (isLoading) {
     return (
@@ -66,11 +57,8 @@ export function AssistantUnavailable({
       </p>
     );
   }
-  const explanation = missingBatfishPermission
-    ? BATFISH_PERMISSION_EXPLANATION
-    : status && status.reason !== "ok"
-      ? EXPLANATIONS[status.reason]
-      : undefined;
+  const explanation =
+    status && status.reason !== "ok" ? EXPLANATIONS[status.reason] : undefined;
   return (
     <div className="flex items-start gap-2 rounded-md border bg-muted/40 p-4 text-sm">
       <Info className="mt-0.5 size-4 shrink-0" aria-hidden />

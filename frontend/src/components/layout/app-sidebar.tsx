@@ -69,10 +69,9 @@ const navigationItems: NavigationItem[] = [
     icon: MessageCircleQuestion,
     href: "/ask-the-net",
     isActive: (pathname) => pathname.startsWith("/ask-the-net"),
-    // The assistant, and the Batfish query permission its tools need (the backend checks both).
-    canShow: (user) =>
-      hasPermission(user, "ai_assistant", "use") &&
-      hasPermission(user, "sources.batfish", "query"),
+    // The assistant only. What it can read depends on the user's other permissions: every tool
+    // group (Batfish, Nautobot, runs, reports, ...) checks its own on each call in the backend.
+    canShow: (user) => hasPermission(user, "ai_assistant", "use"),
   },
   {
     label: "Templates",

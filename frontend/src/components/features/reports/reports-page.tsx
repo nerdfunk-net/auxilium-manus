@@ -126,8 +126,9 @@ export function ReportsPage() {
           <div>
             <h1 className="text-xl font-semibold">Reports</h1>
             <p className="text-sm text-muted-foreground">
-              Query the data collected by Store for Report steps across all
-              devices, and turn queries into stored reports.
+              Query live Nautobot data or the facts your workflows collected
+              with Store for Report steps, and turn queries into stored
+              reports.
             </p>
           </div>
           {assistantAvailable ? (

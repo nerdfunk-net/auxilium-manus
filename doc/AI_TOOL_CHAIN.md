@@ -2518,8 +2518,15 @@ Test with two snapshots of the lab that differ in one ACL line.
 - The page reuses `AssistantPanel` full-page with `context = {surface: "general"}`, the session key `general`
   and the conversation scope `{surface: "general", subjectKey: "ask-the-net"}` (Save / Saved work). It has no
   proposal targets: this surface proposes nothing.
-- Sidebar entry **Ask the Net** (`app-sidebar.tsx`), shown only with both `ai_assistant:use` and
-  `sources.batfish:query`. The sidebar is a flat list, so "submenu" (§26) is implemented as a menu entry.
+- Sidebar entry **Ask the Net** (`app-sidebar.tsx`), shown with `ai_assistant:use` alone (changed 2026-11-13: it used to need
+  `sources.batfish:query` as well, which the backend never required for the chat). The page opens for every user the AI status
+  allows; what Ask the Net can read depends on the user's other permissions, which each tool group checks on every call
+  (`sources.batfish:query`, `sources.nautobot:read`, `reports:read`, `workflow_runs:read`, ...). A user who holds none of them
+  (`ASK_THE_NET_DATA_PERMISSIONS` in `constants/ask-the-net.ts`) sees a note that Ask the Net cannot look anything up in Batfish, Nautobot, runs or reports for them
+  (it does not say "general knowledge only": the DNS tool has no permission, §50). The list names only permissions that attach tools **alone**, and
+  `backend/tests/unit/test_ask_the_net_data_permissions.py` pins it to what `build_general_session` attaches and fails when the two drift; `git.files:read` (config
+  backups sit inside the Batfish tools) and `workflows:execute` (released workflows also need the run reader) attach nothing alone and are not listed, and
+  `sources.nautobot:read` counts only with a configured Nautobot source (`utils/data-access.ts`, the configured-sources query). Checked live (2026-11-13, isolated stack): a user with `ai_assistant:use`, `sources.nautobot:read` and `reports:*` but no Batfish permission sees the entry, gets the chat and generates a Nautobot report; a user with `ai_assistant:use` alone sees the entry and the note, is offered no report tools (no card), and `POST /ai/exec/report-generate` answers 403 (`reports:write` required). Saving a custom model server URL stays admin-only, so test users need their settings set by an administrator. The sidebar is a flat list, so "submenu" (§26) is implemented as a menu entry.
 - Unlike the side panels, which stay hidden when the assistant is off, this page explains why it is
   unavailable (`assistant-unavailable.tsx`: operator switch, permission, user switch, no key, provider not allowed).
 - Example questions fill the message box and are not sent; the data-sharing notice is shown above the chat;

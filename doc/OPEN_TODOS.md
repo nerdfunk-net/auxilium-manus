@@ -1011,3 +1011,29 @@ users, git repositories) beyond loading them. The isolated stack has no Nautobot
   fallback for devices whose CDP gives no software text, a UI for the per-device `parsed.<node>.discovery` neighbour lists.
 - **Released-workflow free IPv4** (`doc/AI_TOOL_CHAIN.md` §16.10) still needs `allow_netmiko_arbitrary_hosts`, which startup refuses outside
   development: that path cannot work in production (the same trap the first version of the step fell into).
+
+---
+
+## Reports from Ask the Net (`nautobot` report source, `propose_report`, CSV)
+
+**Handoff with the full list of not-built items and the live-check recipe: `doc/plans/AI_REPORT_CONTINUE.md`.**
+
+**Added:** 2026-11-13 · **Area:** `backend/services/reports/sources/`, `backend/services/ai_assistant/tools/report_general_tools.py`,
+`report_gating.py`, `report_run_*`, `frontend/.../ai-assistant/components/report-run-proposal-card.tsx`, `doc/AI_TOOL_CHAIN.md` §53, `doc/REPORTS.md`
+
+- **Checked live (lab Nautobot 3.2.7, isolated browser stack with a scripted stand-in for the model):** six report sections, snapshot, PDF, CSV (single file and
+  zip), a report in an organisation layout, the 403 without `sources.nautobot:read`, the Reports-page assistant following the source picker.
+  The maintainer confirmed report writing with a real model in their own system.
+- **Large Nautobot (maintainer tests on production).** More than 5000 rows of one table is an error, not a cut list. A software version used by very many
+  devices may show a `device_count` that is a lower bound: the nested `devices { id }` list is not paged.
+- **Nautobot older than 2.2.** The software fields (`software_version`, `software_versions`) do not exist there, so the whole Nautobot report source fails, not only
+  those columns. A fallback that drops the software selection is small; do it if a target Nautobot is that old.
+- **Filters are read first, filtered after.** Only `eq` / `in` on a device name and on a software version are sent to Nautobot (`_server_filters`). Location, tag,
+  role, status and the software version of a device are applied after the read, so they do not avoid the 5000-row limit. Each needs a Nautobot filter of the same
+  meaning, checked live.
+- **Not built.** Datasets for interfaces, IP addresses and locations; an XLSX download; saved reports as a target of the assistant (`propose_report` only drafts a
+  new one-off report); scheduled reports; a report from several Nautobot instances.
+- **Ad-hoc snapshot cap per username.** `MAX_ADHOC_SNAPSHOTS_PER_USER` counts by `generated_by` (a username), so a renamed user starts again at zero.
+  The snapshot has no user id; add one only if renames matter.
+- **The confirm token is not single-use** (decided: generating a report only reads and stores a snapshot; bounded by the rate limit and the cap).
+

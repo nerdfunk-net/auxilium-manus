@@ -9,7 +9,10 @@ import type {
 } from "@/components/features/ai-assistant/types/ai-assistant";
 
 import { AskTheNetPage } from "./ask-the-net-page";
-import { ASK_THE_NET_SESSION_KEY } from "./constants/ask-the-net";
+import {
+  ASK_THE_NET_DATA_PERMISSIONS,
+  ASK_THE_NET_SESSION_KEY,
+} from "./constants/ask-the-net";
 
 let status: { data?: AiStatus; isLoading: boolean } = {
   data: { available: true, reason: "ok" },
@@ -28,6 +31,11 @@ vi.mock("@/lib/auth-store", () => ({
 }));
 vi.mock("@/hooks/queries/use-ai-status-query", () => ({
   useAiStatusQuery: () => status,
+}));
+// `undefined` data: not known yet (loading or failed), like a query that has not answered.
+let nautobotSources: { data?: { source_id: string }[] } = {};
+vi.mock("@/hooks/queries/use-nautobot-configured-sources-query", () => ({
+  useNautobotConfiguredSourcesQuery: () => nautobotSources,
 }));
 vi.mock(
   "@/components/features/ai-assistant/components/assistant-panel",
@@ -48,6 +56,7 @@ afterEach(cleanup);
 beforeEach(() => {
   useAssistantSessionStore.getState().resetAll();
   panelProps = null;
+  nautobotSources = {};
   status = { data: { available: true, reason: "ok" }, isLoading: false };
   permissions = ["ai_assistant:use", "sources.batfish:query"];
 });
@@ -166,25 +175,106 @@ describe("AskTheNetPage", () => {
     expect(screen.queryByRole("button", { name: /help/i })).toBeNull();
   });
 
-  it("does not offer the chat to a user who may not query Batfish", () => {
+  it("offers the chat to a user without Batfish access: the assistant is the door", () => {
+    permissions = ["ai_assistant:use", "sources.nautobot:read"];
+    render(<AskTheNetPage />);
+
+    expect(screen.getByTestId("assistant-panel")).toBeTruthy();
+    expect(screen.getByTestId("sharing-notice")).toBeTruthy();
+    expect(screen.queryByTestId("no-data-permission")).toBeNull();
+    expect(screen.queryByText(/permission to query batfish/i)).toBeNull();
+  });
+
+  it.each(ASK_THE_NET_DATA_PERMISSIONS)(
+    "does not warn a user who holds %s",
+    (resource, action) => {
+      permissions = ["ai_assistant:use", `${resource}:${action}`];
+      render(<AskTheNetPage />);
+
+      expect(screen.getByTestId("assistant-panel")).toBeTruthy();
+      expect(screen.queryByTestId("no-data-permission")).toBeNull();
+    },
+  );
+
+  it("tells a user with the assistant but nothing to read what to expect", () => {
     permissions = ["ai_assistant:use"];
     render(<AskTheNetPage />);
 
-    expect(screen.queryByTestId("assistant-panel")).toBeNull();
-    expect(screen.queryByTestId("sharing-notice")).toBeNull();
-    expect(screen.getByText(/permission to query batfish/i)).toBeTruthy();
-    expect(screen.queryByText(/ask questions about your network/i)).toBeNull();
+    // Still usable (general knowledge, and tools that need no permission); not blocked.
+    expect(screen.getByTestId("assistant-panel")).toBeTruthy();
+    const note = screen.getByTestId("no-data-permission").textContent;
+    expect(note).toMatch(/cannot look anything up/);
+    // Not "general knowledge only": a DNS lookup has no permission and may be switched on.
+    expect(note).toMatch(/DNS lookup/);
+    expect(note).not.toMatch(/general knowledge/);
   });
 
-  it("tells a user who may use it where the answers come from", () => {
+  it.each([["git.files:read"], ["workflows:execute"], ["netmiko:execute"], ["reports:write"]])(
+    "does not treat %s as data to read: held alone it gives no tool",
+    (permission) => {
+      permissions = ["ai_assistant:use", permission];
+      render(<AskTheNetPage />);
+
+      expect(screen.getByTestId("no-data-permission")).toBeTruthy();
+    },
+  );
+
+  it("does not count sources.nautobot:read while no Nautobot source is configured", () => {
+    permissions = ["ai_assistant:use", "sources.nautobot:read"];
+    nautobotSources = { data: [] };
     render(<AskTheNetPage />);
 
-    const subtitle = screen.getByText(/ask questions about your network/i);
-    expect(subtitle.textContent).toMatch(/Batfish/);
-    expect(subtitle.textContent).toMatch(/Nautobot/);
-    expect(subtitle.textContent).toMatch(/live read-only device commands/);
-    expect(subtitle.textContent).toMatch(/write reports/);
-    // The Batfish model is still said to be a snapshot, not the live network.
-    expect(subtitle.textContent).toMatch(/not the live network/);
+    expect(screen.getByTestId("no-data-permission")).toBeTruthy();
+  });
+
+  it("counts sources.nautobot:read once a Nautobot source is configured", () => {
+    permissions = ["ai_assistant:use", "sources.nautobot:read"];
+    nautobotSources = { data: [{ source_id: "lab" }] };
+    render(<AskTheNetPage />);
+
+    expect(screen.queryByTestId("no-data-permission")).toBeNull();
+  });
+
+  it("gives sources.nautobot:read the benefit of the doubt while the sources are unknown", () => {
+    permissions = ["ai_assistant:use", "sources.nautobot:read"];
+    nautobotSources = {};
+    render(<AskTheNetPage />);
+
+    expect(screen.queryByTestId("no-data-permission")).toBeNull();
+  });
+
+  it("counts another permission even when no Nautobot source is configured", () => {
+    permissions = ["ai_assistant:use", "sources.nautobot:read", "reports:read"];
+    nautobotSources = { data: [] };
+    render(<AskTheNetPage />);
+
+    expect(screen.queryByTestId("no-data-permission")).toBeNull();
+  });
+
+  it("still explains an unavailable assistant instead of the permission note", () => {
+    permissions = ["ai_assistant:use"];
+    status = { data: { available: false, reason: "disabled" }, isLoading: false };
+    render(<AskTheNetPage />);
+
+    expect(screen.queryByTestId("assistant-panel")).toBeNull();
+    expect(screen.queryByTestId("no-data-permission")).toBeNull();
+    expect(screen.getByText(/switched the assistant off/i)).toBeTruthy();
+  });
+
+  it("tells every user who may use it where the answers come from", () => {
+    for (const held of [["ai_assistant:use"], ["ai_assistant:use", "sources.batfish:query"]]) {
+      cleanup();
+      permissions = held;
+      render(<AskTheNetPage />);
+
+      const subtitle = screen.getByText(/ask questions about your network/i);
+      expect(subtitle.textContent).toMatch(/Batfish/);
+      expect(subtitle.textContent).toMatch(/Nautobot/);
+      expect(subtitle.textContent).toMatch(/live read-only device commands/);
+      expect(subtitle.textContent).toMatch(/write reports/);
+      expect(subtitle.textContent).toMatch(/your permissions/);
+      // The Batfish model is still said to be a snapshot, not the live network.
+      expect(subtitle.textContent).toMatch(/not the live network/);
+    }
   });
 });

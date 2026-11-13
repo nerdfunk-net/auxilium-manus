@@ -31,24 +31,34 @@ afterEach(() => {
 });
 
 describe("AppSidebar: Ask the Net", () => {
-  it("lists Ask the Net for a user who may use the assistant and query Batfish", () => {
-    withPermissions("ai_assistant:use", "sources.batfish:query");
-    render(<AppSidebar />);
-
-    const link = screen.getByRole("link", { name: "Ask the Net" });
-    expect(link.getAttribute("href")).toBe("/ask-the-net");
-    expect(link.getAttribute("aria-current")).toBe("page");
-  });
-
   it.each([
     [["ai_assistant:use"]],
+    [["ai_assistant:use", "sources.batfish:query"]],
+    [["ai_assistant:use", "sources.nautobot:read", "reports:read"]],
+  ])(
+    "lists Ask the Net for a user who may use the assistant: %j",
+    (permissions) => {
+      withPermissions(...permissions);
+      render(<AppSidebar />);
+
+      const link = screen.getByRole("link", { name: "Ask the Net" });
+      expect(link.getAttribute("href")).toBe("/ask-the-net");
+      expect(link.getAttribute("aria-current")).toBe("page");
+    },
+  );
+
+  it.each([
     [["sources.batfish:query"]],
+    [["sources.nautobot:read", "reports:read"]],
     [["sources.batfish:read", "workflows:read"]],
     [[]],
-  ])("hides it without both permissions: %j", (permissions) => {
-    withPermissions(...permissions);
-    render(<AppSidebar />);
+  ])(
+    "hides it without ai_assistant:use, whatever else the user holds: %j",
+    (permissions) => {
+      withPermissions(...permissions);
+      render(<AppSidebar />);
 
-    expect(screen.queryByRole("link", { name: "Ask the Net" })).toBeNull();
-  });
+      expect(screen.queryByRole("link", { name: "Ask the Net" })).toBeNull();
+    },
+  );
 });
