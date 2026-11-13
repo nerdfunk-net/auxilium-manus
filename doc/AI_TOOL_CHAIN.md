@@ -3905,7 +3905,7 @@ workflow does the walk in the worker; the playbook starts it and explains the re
 
 ## 53. Reports from Ask the Net: `propose_report` (2026-11-13)
 
-Built **unit-tested only, not run with a real model or a live Nautobot** (see "Not verified"). "Write a report that lists the
+Built and unit-tested; the Nautobot source was checked against a lab Nautobot, a real model and the browser flow were not (see "Not verified"). "Write a report that lists the
 serial numbers of the network devices" is answered from the Reports engine, so the result is an ordinary report snapshot: it
 can use a report template, be opened in the Reports app and downloaded as PDF and as raw data (CSV).
 
@@ -3967,10 +3967,23 @@ can use a report template, be opened in the Reports app and downloaded as PDF an
   `test_report_csv_export.py`, `test_report_template_sections.py`, `test_ai_report_run_token.py`, `test_ai_report_run_exec.py`,
   `test_ai_report_general_tools.py`, `test_ai_report_general_session.py`, `test_ai_report_reader_templates.py`, the router tests,
   and the frontend card, hook and chat tests.
-* **Not verified / open.** A real model choosing sources, fields and templates; the Nautobot GraphQL selection against a live
-  instance (`software_version { version long_term_support software_image_files { image_file_name } }` and
-  `software_versions { ... devices { id } }` are from the Nautobot 2.2+ schema as the user showed it; on an older Nautobot
-  the Nautobot report source fails as a whole, Ask the Net's own device tools do not); the browser flow (card, Open, PDF,
-  CSV); a Nautobot with more than 5000 devices (the read stops with an error; filters are applied after the read, not pushed
-  down to Nautobot). Later: more Nautobot datasets (interfaces, IP addresses, locations), pushing filters down to Nautobot,
-  an XLSX download, saved reports as a tool target (`propose_report` only drafts a new one-off report).
+* **Verified live (2026-11-13, lab Nautobot 3.2.7, 6 devices, 1 software version).** The Nautobot report source through the app's own
+  client: all six example sections ran (serial numbers, device types by location, software by device type, devices on
+  `15.0.0`, `software_versions` with `device_count` and image files, one device by name), the snapshot was `complete`, and the
+  CSV (zip) and PDF rendered. The GraphQL selections (`software_version { version long_term_support software_image_files {
+  image_file_name } }` on devices, `software_versions { ... devices { id } }`) and the pushed-down filters (`devices(name: [..])`,
+  `software_versions(version: [..])`) are valid on that version. Note for a local check: the app refuses a loopback Nautobot URL
+  unless `ALLOW_LOOPBACK_SOURCE_URLS=true` (`core/safe_urls.py`).
+* **Browser flow verified (2026-11-13, isolated stack, scripted stand-in for the model).** A scripted OpenAI-compatible server
+  made the assistant call the report tools, so everything after the model was the real code: Ask the Net showed the `report_run`
+  card (with no data switch on: "definitions only"), Generate created the snapshot as the signed-in user from the lab Nautobot,
+  Open showed the live tables, **PDF** and **Data (CSV)** downloaded (single section: one UTF-8 CSV with a byte order mark; two
+  sections: a zip named `s1.csv`, `s2.csv`), a report in an organisation layout (`list_report_templates`, section ids matched)
+  rendered the template text above the live table, the three snapshots appeared in the Reports app (Snapshots tab, status
+  Complete), and Explore offered the Nautobot source with both datasets. Not checked in the browser: the 403 for a user
+  without `sources.nautobot:read` (unit-tested only).
+* **Not verified / open.** A real model choosing sources, fields and templates; Nautobot versions older than 2.2 (the software fields would fail the whole source); a Nautobot with more than 5000
+  devices, and a software version used by very many devices (the nested `devices` list is not paged, so `device_count` could be
+  a lower bound). Filters other than a device name or a version are applied after the read. Later: more Nautobot datasets
+  (interfaces, IP addresses, locations), more filters pushed down, an XLSX download, saved reports as a tool target
+  (`propose_report` only drafts a new one-off report).

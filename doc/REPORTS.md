@@ -87,8 +87,8 @@ Nautobot 2.2 or later. The catalog is static and shows no values.
   limit: add a device name or a version where you can.
 * **Odd values are left out, not fatal.** A nested value of an unexpected shape (a null tag name, a non-list) is skipped. A
   `device_count` is the number of ids Nautobot returned in the nested `devices` list, or empty when that is not a list; that
-  nested list is not paged, so for a version used by a very large number of devices the count is a lower bound (not yet
-  checked against a live Nautobot).
+  nested list is not paged, so for a version used by a very large number of devices the count is a lower bound (the
+  lab Nautobot 3.2.7 returned the right count for one device; a very large count is unchecked).
 * Missing values sort as in PostgreSQL: last when ascending, first when descending, in both sources.
 
 ## API and permissions
