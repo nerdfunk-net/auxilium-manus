@@ -90,7 +90,7 @@ class CatalogTests(unittest.TestCase):
         with self.assertRaises(ReportQueryError):
             src.validate(devices(select=["nope"]))
         with self.assertRaises(ReportQueryError):
-            src.validate(ReportQuery(source="nautobot", dataset="interfaces"))
+            src.validate(ReportQuery(source="nautobot", dataset="nope"))
         self.assertEqual(client.calls, [])
 
 
@@ -197,10 +197,13 @@ class SoftwareVersionDatasetTests(unittest.TestCase):
         },
     ]
 
-    def test_catalog_lists_both_datasets(self) -> None:
+    def test_catalog_lists_all_datasets(self) -> None:
         src, _, _ = source([])
         by_name = {d.name: d for d in src.describe()}
-        self.assertEqual(list(by_name), ["devices", "software_versions"])
+        self.assertEqual(
+            list(by_name),
+            ["devices", "software_versions", "interfaces", "ip_addresses", "prefixes", "locations"],
+        )
         self.assertEqual(by_name["software_versions"].mode, "items")
 
     def test_versions_with_device_counts_including_unused(self) -> None:
@@ -382,17 +385,51 @@ class FailureTests(unittest.TestCase):
             src.run(devices())
 
 
+class PrefixQuestionTests(unittest.TestCase):
+    def test_free_addresses_of_the_prefixes_of_a_location(self) -> None:
+        rows = [
+            {"prefix": "10.0.0.0/24", "locations": [{"name": "City A"}],
+             "ip_addresses": [{"id": "1"}, {"id": "2"}]},
+            {"prefix": "10.0.1.0/24", "locations": [{"name": "City B"}], "ip_addresses": []},
+        ]
+        src, _, _ = source(rows)
+        result = src.run(
+            ReportQuery(
+                source="nautobot",
+                dataset="prefixes",
+                select=["device_name", "free_ip_count"],
+                filters=[{"field": "locations", "op": "contains", "value": "City A"}],
+            )
+        )
+        self.assertEqual(result.rows, [["10.0.0.0/24", 252]])
+
+    def test_count_of_the_prefixes_of_a_location(self) -> None:
+        rows = [
+            {"prefix": "10.0.0.0/24", "locations": [{"name": "City A"}]},
+            {"prefix": "10.0.1.0/24", "locations": [{"name": "City A"}, {"name": "City B"}]},
+            {"prefix": "10.0.2.0/24", "locations": [{"name": "City B"}]},
+        ]
+        src, _, _ = source(rows)
+        result = src.run(
+            ReportQuery(
+                source="nautobot",
+                dataset="prefixes",
+                metrics=[{"op": "count", "alias": "n"}],
+                filters=[{"field": "locations", "op": "contains", "value": "City A"}],
+            )
+        )
+        self.assertEqual(result.rows, [[2]])
+
+
 class ServiceTests(unittest.TestCase):
     def test_query_service_passes_the_acting_user_to_the_source(self) -> None:
         service = ReportQueryService(None, actor_user_id=42)  # type: ignore[arg-type]
         self.assertEqual(
-            [d.name for d in service.catalog("nautobot")], ["devices", "software_versions"]
+            [d.name for d in service.catalog("nautobot")],
+            ["devices", "software_versions", "interfaces", "ip_addresses", "prefixes", "locations"],
         )
         self.assertEqual(service.actor_user_id, 42)
 
-
-if __name__ == "__main__":
-    unittest.main()
 
 
 class DefaultContextTests(unittest.TestCase):
@@ -413,3 +450,101 @@ class DefaultContextTests(unittest.TestCase):
             self.assertEqual(asyncio.run(nautobot_source._default_context(3)), "ctx")
 
         self.assertEqual(seen, [True])
+
+
+class MoreDatasetsTests(unittest.TestCase):
+    def test_interfaces_name_their_device_and_peer(self) -> None:
+        raw = {
+            "name": "Gi1/0/1",
+            "type": "1000base-t",
+            "enabled": True,
+            "mac_address": "aa:bb",
+            "description": "uplink",
+            "status": {"name": "Active"},
+            "ip_addresses": [{"address": "10.0.0.1/24"}],
+            "cable": {"id": "c1"},
+            "device": {"name": "sw1"},
+            "connected_endpoint": {
+                "__typename": "InterfaceType",
+                "name": "Te1/1",
+                "device": {"name": "sw2"},
+            },
+        }
+        bare = {"name": "Gi1/0/2", "device": {"name": "sw1"}, "cable": None}
+        src, client, _ = source([raw, bare])
+        result = src.run(
+            ReportQuery(
+                source="nautobot",
+                dataset="interfaces",
+                select=["device_name", "interface", "cabled", "connected_device", "ip_addresses"],
+            )
+        )
+        self.assertEqual(
+            result.rows,
+            [
+                ["sw1", "Gi1/0/1", True, "sw2", "10.0.0.1/24"],
+                ["sw1", "Gi1/0/2", False, None, None],
+            ],
+        )
+        self.assertIn("device { name }", client.selections[0])
+
+    def test_ip_addresses_and_locations(self) -> None:
+        src, _, _ = source(
+            [{"address": "10.0.0.1/24", "interfaces": [{"name": "Gi1", "device": {"name": "sw1"}}]}]
+        )
+        result = src.run(
+            ReportQuery(source="nautobot", dataset="ip_addresses", select=["assigned_to"])
+        )
+        self.assertEqual(result.rows, [["sw1:Gi1"]])
+        src, _, _ = source([{"name": "Berlin", "location_type": {"name": "Site"}, "parent": None}])
+        result = src.run(
+            ReportQuery(source="nautobot", dataset="locations", select=["device_name", "parent"])
+        )
+        self.assertEqual(result.rows, [["Berlin", None]])
+
+
+class GatingTests(unittest.TestCase):
+    def test_new_datasets_need_their_switches(self) -> None:
+        from services.ai_assistant.data_sharing import SharingPolicy
+        from services.ai_assistant.tools.report_gating import blocked_by_sharing
+
+        def q(dataset: str, **spec: Any) -> ReportQuery:
+            return ReportQuery(source="nautobot", dataset=dataset, **spec)
+
+        inv = SharingPolicy(inventory=True)
+        addr = SharingPolicy(inventory=True, addresses=True)
+        full = SharingPolicy(inventory=True, addresses=True, content=True)
+        self.assertIsNone(blocked_by_sharing(inv, q("locations")))
+        self.assertIsNotNone(blocked_by_sharing(inv, q("interfaces", select=["interface"])))
+        self.assertIsNotNone(blocked_by_sharing(inv, q("ip_addresses", select=["address"])))
+        self.assertIsNone(blocked_by_sharing(addr, q("interfaces", select=["interface"])))
+        self.assertIsNotNone(blocked_by_sharing(addr, q("interfaces", select=["description"])))
+        self.assertIsNotNone(blocked_by_sharing(addr, q("ip_addresses")))
+        self.assertIsNone(blocked_by_sharing(full, q("ip_addresses")))
+        self.assertIsNotNone(blocked_by_sharing(inv, q("mystery", select=["x"])))
+
+
+class PrefixTests(unittest.TestCase):
+    def test_prefixes(self) -> None:
+        raw = {
+            "prefix": "10.0.0.0/24",
+            "namespace": {"name": "Global"},
+            "vlan": {"vid": 10, "name": "users"},
+            "locations": [{"name": "Berlin"}],
+            "parent": {"prefix": "10.0.0.0/8"},
+        }
+        src, _, _ = source([raw])
+        result = src.run(
+            ReportQuery(
+                source="nautobot",
+                dataset="prefixes",
+                select=["device_name", "namespace", "vlan", "locations", "parent", "tags"],
+            )
+        )
+        self.assertEqual(
+            result.rows, [["10.0.0.0/24", "Global", "10 users", "Berlin", "10.0.0.0/8", None]]
+        )
+
+
+if __name__ == "__main__":
+    unittest.main()

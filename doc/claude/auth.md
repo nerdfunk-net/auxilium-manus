@@ -195,7 +195,7 @@ anything up in Batfish, Nautobot, runs or reports for them; the note does not cl
 **Ask the Net reports** (`list_report_sources`, `list_report_datasets`, `preview_report_query`, `list_report_templates`, `propose_report`, `doc/AI_TOOL_CHAIN.md` §53).
 Offered with `reports:read` (checked on every call); `propose_report` only with `reports:write`; the template list also needs `templates:read`.
 The Nautobot report source also needs `sources.nautobot:read` (a failed section otherwise). What the model reads is gated by the user's switches
-(Nautobot rows: inventory, plus addresses for serials and addresses; `report_data` rows: report data). The user's click calls
+(Nautobot rows: inventory, plus addresses for serials and for the `interfaces`, `ip_addresses` and `prefixes` datasets, plus content for their `description`; `report_data` rows: report data). The user's click calls
 `POST /ai/exec/report-generate` (`ai_assistant:use` + `reports:write`, signed user-bound token, 10 minutes, not single-use) and the report is generated **as that user**. A stored snapshot with a Nautobot section needs `sources.nautobot:read` to be read (REST and the assistant),
 and the Reports-page assistant applies the same data-switch rule to Nautobot rows (`doc/AI_TOOL_CHAIN.md` §53).
 

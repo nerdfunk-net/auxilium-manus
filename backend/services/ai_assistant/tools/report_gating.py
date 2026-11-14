@@ -17,6 +17,15 @@ from services.ai_assistant.data_sharing import DataClass, SharingPolicy, gated
 
 # Fields of the Nautobot datasets that need the addresses switch on top of the inventory switch.
 NAUTOBOT_ADDRESS_FIELDS = frozenset({"primary_ip4", "serial"})
+# Datasets whose rows are addresses or interfaces as a whole: the addresses switch always applies.
+NAUTOBOT_ADDRESS_DATASETS = frozenset({"interfaces", "ip_addresses", "prefixes"})
+# Datasets that are only inventory names (no address, no free text).
+NAUTOBOT_INVENTORY_ONLY_DATASETS = frozenset({"locations"})
+# Free-text fields (descriptions): the content switch applies, as for the Ask the Net tools.
+NAUTOBOT_CONTENT_FIELDS = frozenset({"description"})
+
+
+_DEVICE_DATASETS = frozenset({"devices", "software_versions"})
 
 
 def _fields_used(query: ReportQuery) -> set[str]:
@@ -35,9 +44,24 @@ def blocked_by_sharing(sharing: SharingPolicy, query: ReportQuery | None) -> dic
         marker = gated(sharing, DataClass.INVENTORY, True)
         if marker is not True:
             return marker
+        if query.dataset in NAUTOBOT_INVENTORY_ONLY_DATASETS:
+            return None
         everything = not query.metrics and not query.select
-        if everything or _fields_used(query) & NAUTOBOT_ADDRESS_FIELDS:
+        used = _fields_used(query)
+        # A dataset that is not classified is treated like the strictest one (fail closed).
+        known = query.dataset in NAUTOBOT_ADDRESS_DATASETS or query.dataset in _DEVICE_DATASETS
+        if (
+            everything
+            or not known
+            or query.dataset in NAUTOBOT_ADDRESS_DATASETS
+            or used & NAUTOBOT_ADDRESS_FIELDS
+        ):
             marker = gated(sharing, DataClass.ADDRESSES, True)
+            if marker is not True:
+                return marker
+        wants_text = everything or used & NAUTOBOT_CONTENT_FIELDS
+        if query.dataset in NAUTOBOT_ADDRESS_DATASETS and wants_text:
+            marker = gated(sharing, DataClass.CONTENT, True)
             if marker is not True:
                 return marker
         return None

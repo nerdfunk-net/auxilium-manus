@@ -3921,7 +3921,8 @@ can use a report template, be opened in the Reports app and downloaded as PDF an
   calling user through `libs/nautobot_read`, with the datasets `devices` (grain device: role, status, device type,
   manufacturer, platform, location, primary IP, serial, tags, `software_version`, `software_lts`, `software_images`) and
   `software_versions` (grain items: version, platform, manufacturer, `long_term_support`, `device_count`, `image_files`;
-  includes versions no device runs). It is an adapter, not a second connection: no new setting. The query is the same
+  includes versions no device runs), plus `interfaces`, `ip_addresses`, `prefixes` (with `size`, `used_ip_count`, `free_ip_count`:
+"free addresses in the prefixes of City A") and `locations` (all grain items; fields in `doc/REPORTS.md`). It is an adapter, not a second connection: no new setting. The query is the same
   declarative `ReportQuery`; `row_evaluator.py` applies it to the fetched rows with the rules of the SQL compiler (only scope
   `latest`; no history). At most 5000 rows of one table are read, more is an error, never a cut list.
 * **Tools** (`tools/report_general_tools.py`, offered with `reports:read`; `propose_report` only with `reports:write`):
@@ -3929,7 +3930,9 @@ can use a report template, be opened in the Reports app and downloaded as PDF an
   tool is called *preview* because the playbook test forbids names starting with `run` or `execute`.
 * **Gating (what the model may read).** The catalog (names, types) is always visible, sample values never. Rows of `nautobot`
   need the inventory switch, and the addresses switch as soon as `serial` or `primary_ip4` is selected, grouped, filtered or
-  counted, or when a list has no `select` (that returns every field). Rows of `report_data`, and of any source not classified
+  counted, or when a list has no `select` (that returns every field). The datasets `interfaces`, `ip_addresses` and `prefixes`
+  always need the addresses switch, and the content switch when `description` is read or the list has no `select`; `locations`
+  needs the inventory switch only; an unknown Nautobot dataset needs the strictest. Rows of `report_data`, and of any source not classified
   yet (fail closed), need the report-data switch. `propose_report` needs no switch: the model does not have to read a row to
   propose a report. The generated report goes from the server to the user, never through the model; after the click the model
   does not see the rows either, and the prompt says so.

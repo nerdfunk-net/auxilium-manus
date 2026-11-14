@@ -16,6 +16,7 @@ called from a thread that runs an event loop.
 from __future__ import annotations
 
 import asyncio
+import ipaddress
 import logging
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
@@ -23,7 +24,7 @@ from typing import Any
 
 from nautobot_read.client import NautobotError, TooManyRowsError
 from nautobot_read.context import QueryContext
-from nautobot_read.queries.dcim import DEVICE_SELECTION, device_item
+from nautobot_read.queries.dcim import DEVICE_SELECTION, INTERFACE_SELECTION, device_item
 from nautobot_read.queries.locations import directory_or_none
 from sqlalchemy.orm import Session
 
@@ -73,6 +74,64 @@ SOFTWARE_VERSION_SELECTION = (
     "id version long_term_support platform { name manufacturer { name } } "
     "software_image_files { image_file_name } devices { id }"
 )
+_INTERFACE_FIELDS: tuple[tuple[str, FieldType], ...] = (
+    ("interface", "string"),
+    ("type", "string"),
+    ("enabled", "boolean"),
+    ("status", "string"),
+    ("mac_address", "string"),
+    ("description", "string"),
+    ("ip_addresses", "string"),
+    ("cabled", "boolean"),
+    ("connected_device", "string"),
+    ("connected_interface", "string"),
+)
+# Interfaces are read from the top level (one list, not nested per device) and name their device.
+REPORT_INTERFACE_SELECTION = f"device {{ name }} {INTERFACE_SELECTION}"
+_IP_ADDRESS_FIELDS: tuple[tuple[str, FieldType], ...] = (
+    ("address", "string"),
+    ("prefix", "string"),
+    ("namespace", "string"),
+    ("status", "string"),
+    ("role", "string"),
+    ("type", "string"),
+    ("dns_name", "string"),
+    ("description", "string"),
+    ("tenant", "string"),
+    ("tags", "string"),
+    ("assigned_to", "string"),
+)
+IP_ADDRESS_SELECTION = (
+    "address dns_name type description status { name } role { name } "
+    "parent { prefix namespace { name } } tenant { name } tags { name } "
+    "interfaces { name device { name } }"
+)
+_PREFIX_FIELDS: tuple[tuple[str, FieldType], ...] = (
+    ("prefix", "string"),
+    ("type", "string"),
+    ("namespace", "string"),
+    ("status", "string"),
+    ("role", "string"),
+    ("description", "string"),
+    ("tenant", "string"),
+    ("vlan", "string"),
+    ("locations", "string"),
+    ("parent", "string"),
+    ("tags", "string"),
+    ("size", "number"),
+    ("used_ip_count", "number"),
+    ("free_ip_count", "number"),
+)
+PREFIX_REPORT_SELECTION = (
+    "prefix type status { name } role { name } namespace { name } description "
+    "tenant { name } vlan { vid name } locations { name } tags { name } parent { prefix } "
+    "ip_addresses { id }"
+)
+_LOCATION_FIELDS: tuple[tuple[str, FieldType], ...] = (
+    ("location_type", "string"),
+    ("parent", "string"),
+)
+LOCATION_SELECTION = "name location_type { name } parent { name }"
 
 
 def _dataset(name: str, mode: Any, fields: tuple[tuple[str, FieldType], ...]) -> DatasetInfo:
@@ -179,6 +238,117 @@ def _software_version_row(raw: dict[str, Any], _directory: Any) -> Row:
     }
 
 
+def _name_of(value: Any) -> str | None:
+    name = _dict(value).get("name")
+    return name if isinstance(name, str) and name else None
+
+
+def _text(value: Any) -> str | None:
+    return value if isinstance(value, str) and value else None
+
+
+def _interface_row(raw: dict[str, Any], _directory: Any) -> Row:
+    """One interface as a report row; ``device_name`` is its device."""
+    cable = raw.get("cable")
+    endpoint = _dict(raw.get("connected_endpoint"))
+    peer = endpoint if endpoint.get("__typename") == "InterfaceType" else {}
+    addresses = raw.get("ip_addresses")
+    enabled = raw.get("enabled")
+    return {
+        "device_name": _name_of(raw.get("device")) or "",
+        "interface": _text(raw.get("name")),
+        "type": _text(raw.get("type")),
+        "enabled": enabled if isinstance(enabled, bool) else None,
+        "status": _name_of(raw.get("status")),
+        "mac_address": _text(raw.get("mac_address")),
+        "description": _text(raw.get("description")),
+        "ip_addresses": _texts(addresses, "address") or None,
+        "cabled": bool(cable),
+        "connected_device": _name_of(peer.get("device")),
+        "connected_interface": _text(peer.get("name")),
+    }
+
+
+def _ip_address_row(raw: dict[str, Any], _directory: Any) -> Row:
+    """One IP address as a report row; its name is the address itself."""
+    parent = _dict(raw.get("parent"))
+    interfaces = raw.get("interfaces")
+    assigned = None
+    if isinstance(interfaces, list):
+        parts = [
+            f"{_name_of(i.get('device')) or '?'}:{i['name']}"
+            for i in interfaces
+            if isinstance(i, dict) and isinstance(i.get("name"), str)
+        ]
+        assigned = ", ".join(parts) or None
+    address = _text(raw.get("address"))
+    return {
+        "device_name": address or "",
+        "address": address,
+        "prefix": _text(parent.get("prefix")),
+        "namespace": _name_of(parent.get("namespace")),
+        "status": _name_of(raw.get("status")),
+        "role": _name_of(raw.get("role")),
+        "type": _text(raw.get("type")),
+        "dns_name": _text(raw.get("dns_name")),
+        "description": _text(raw.get("description")),
+        "tenant": _name_of(raw.get("tenant")),
+        "tags": _texts(raw.get("tags"), "name") or None,
+        "assigned_to": assigned,
+    }
+
+
+def _usable_hosts(prefix: str | None) -> tuple[int | None, int | None]:
+    """``(addresses, usable host addresses)`` of a prefix; ``None`` when it cannot be read."""
+    try:
+        network = ipaddress.ip_network(prefix or "", strict=False)
+    except ValueError:
+        return None, None
+    size = network.num_addresses
+    if network.version == 4 and network.prefixlen < 31:
+        return size, size - 2  # network and broadcast address are not for hosts
+    return size, size
+
+
+def _prefix_row(raw: dict[str, Any], _directory: Any) -> Row:
+    """One prefix as a report row; its name is the prefix itself."""
+    vlan = _dict(raw.get("vlan"))
+    vid, vlan_name = vlan.get("vid"), _text(vlan.get("name"))
+    vlan_text = " ".join(p for p in (str(vid) if isinstance(vid, int) else "", vlan_name) if p)
+    prefix = _text(raw.get("prefix"))
+    size, usable = _usable_hosts(prefix)
+    addresses = raw.get("ip_addresses")
+    # Only addresses whose own prefix is this one are counted: those inside a child prefix belong
+    # to the child, so for a prefix with children the free number is an upper bound.
+    used = len(addresses) if isinstance(addresses, list) else None
+    free = max(usable - used, 0) if usable is not None and used is not None else None
+    return {
+        "device_name": prefix or "",
+        "prefix": prefix,
+        "type": _text(raw.get("type")),
+        "namespace": _name_of(raw.get("namespace")),
+        "status": _name_of(raw.get("status")),
+        "role": _name_of(raw.get("role")),
+        "description": _text(raw.get("description")),
+        "tenant": _name_of(raw.get("tenant")),
+        "vlan": vlan_text or None,
+        "locations": _texts(raw.get("locations"), "name") or None,
+        "parent": _text(_dict(raw.get("parent")).get("prefix")),
+        "tags": _texts(raw.get("tags"), "name") or None,
+        "size": size,
+        "used_ip_count": used,
+        "free_ip_count": free,
+    }
+
+
+def _location_row(raw: dict[str, Any], _directory: Any) -> Row:
+    return {
+        "device_name": _text(raw.get("name")) or "",
+        "location_type": _name_of(raw.get("location_type")),
+        "parent": _name_of(raw.get("parent")),
+    }
+
+
 @dataclass(frozen=True)
 class _Table:
     """A report dataset and how its rows are read from Nautobot (GraphQL root, selection)."""
@@ -210,6 +380,30 @@ _TABLES = {
             SOFTWARE_VERSION_SELECTION,
             _software_version_row,
             pushdown={"version": "version"},
+        ),
+        _Table(
+            _dataset("interfaces", "items", _INTERFACE_FIELDS),
+            "interfaces",
+            REPORT_INTERFACE_SELECTION,
+            _interface_row,
+        ),
+        _Table(
+            _dataset("ip_addresses", "items", _IP_ADDRESS_FIELDS),
+            "ip_addresses",
+            IP_ADDRESS_SELECTION,
+            _ip_address_row,
+        ),
+        _Table(
+            _dataset("prefixes", "items", _PREFIX_FIELDS),
+            "prefixes",
+            PREFIX_REPORT_SELECTION,
+            _prefix_row,
+        ),
+        _Table(
+            _dataset("locations", "items", _LOCATION_FIELDS),
+            "locations",
+            LOCATION_SELECTION,
+            _location_row,
         ),
     )
 }

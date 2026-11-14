@@ -70,7 +70,17 @@ it is an adapter, not a second connection. Datasets: `devices` (grain device: `r
 `manufacturer`, `platform`, `location`, `primary_ip4`, `serial`, `tags`, `software_version`, `software_lts`,
 `software_images`) and `software_versions` (grain items, one row per version: `version`, `platform`, `manufacturer`,
 `long_term_support`, `device_count`, `image_files`; versions that no device runs have `device_count` 0). The row name
-(`device_name`) of a software version is `<platform> <version>`. The query spec is the same; only scope `latest` exists
+(`device_name`) of a software version is `<platform> <version>`. Further grain-items datasets: `interfaces` (row name = the device;
+`interface`, `type`, `enabled`, `status`, `mac_address`, `description`, `ip_addresses`, `cabled`, `connected_device`,
+`connected_interface`), `ip_addresses` (row name = the address; prefix, namespace, status, role, type, `dns_name`, `description`,
+tenant, tags, `assigned_to`), `prefixes` (row name = the prefix; type, namespace, status, role, `description`, tenant, `vlan`,
+`locations`, `parent`, tags, `size`, `used_ip_count`, `free_ip_count`) and `locations` (`location_type`, `parent`). "Free IP
+addresses in the prefixes of City A" = `sum(free_ip_count)` with filter `locations contains "City A"`; "how many prefixes" = `count`.
+`used_ip_count` counts the addresses whose own prefix is that prefix (those inside a child prefix are not counted, so
+`free_ip_count` is an upper bound for a prefix with children); `locations contains` also matches a longer name. Gating
+(`report_gating.py`): `interfaces`, `ip_addresses` and `prefixes` need the addresses switch, and the content switch when
+`description` is read (or the list has no `select`); `locations` only the inventory switch. No filter is pushed down for them
+yet, and the new selections were not run against a live Nautobot. The query spec is the same; only scope `latest` exists
 (no history, no `time_bucket`, no `collected_at`), and `count_devices` / `count_items` count rows. The query is applied in
 memory (`services/reports/sources/row_evaluator.py`) to at most 5000 rows of the table (more is an error); every
 query or generated snapshot is a fresh read, so a snapshot is the state of Nautobot when it was generated. Reading
