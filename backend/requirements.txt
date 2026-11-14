@@ -17,6 +17,7 @@ SQLAlchemy==2.1.5
 cryptography==50.0.2
 netmiko==4.8.0
 paramiko>=4.0,<5.0  # netmiko only requires >=3.5.1; 5.x has breaking changes, keep below 5
+textfsm==2.1.0  # transitive (netmiko, ntc_templates); 2.1.1 installs a top-level `tests` package that shadows backend/tests (ModuleNotFoundError: tests.unit). Recheck 2.1.2+
 network-secret==0.4.0  # Cisco type 7/8/9 for encrypt/decrypt-attribute (core/cisco_secret.py)
 icmplib==3.0.4
 jinja2==3.1.6
