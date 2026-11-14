@@ -43,6 +43,30 @@ export function BatfishExtractFactsHelpPanel() {
         </p>
       </HelpSection>
 
+      <HelpSection title="HSRP groups">
+        <p>
+          The interface facts only list the HSRP group ids (<HelpCode>HSRP_Groups</HelpCode>).
+          This step therefore also asks Batfish&apos;s <HelpCode>hsrpProperties</HelpCode>{" "}
+          question and adds <HelpCode>HSRP_Details</HelpCode> to each interface that has
+          groups: group id, virtual addresses, priority, preempt and active. Config to
+          Attributes (Batfish format) builds the redundancy groups from it.
+        </p>
+        <ul className="list-disc space-y-1 pl-4">
+          <li>
+            Batfish does not parse the <HelpCode>standby</HelpCode> group name, so there is no
+            name; the write step names a new group by its schema.
+          </li>
+          <li>
+            VRRP is not read (<HelpCode>vrrpProperties</HelpCode> is not used yet).
+          </li>
+          <li>
+            If that question fails, the facts are still returned, but the node gets{" "}
+            <HelpCode>HSRP_Details_Error</HelpCode> and the step summary says &quot;HSRP groups not
+            added&quot;; the step does not fail.
+          </li>
+        </ul>
+      </HelpSection>
+
       <HelpSection title="Available fact keys">
         <p className="leading-5">{BATFISH_FACT_KEYS.join(", ")}</p>
       </HelpSection>

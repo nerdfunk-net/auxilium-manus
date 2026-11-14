@@ -71,7 +71,9 @@ export function ConfigToAttributesHelpPanel() {
             <HelpCode>hsrpProperties</HelpCode>) and land in{" "}
             <HelpCode>interface_redundancy_groups</HelpCode>. Batfish does not parse the{" "}
             <HelpCode>standby</HelpCode> group name, so these groups have no name; the
-            write step names a new group by its schema. VRRP is not read for this format.
+            write step names a new group by its schema. VRRP is not read for this format. If an
+            interface has group ids but no <HelpCode>HSRP_Details</HelpCode> (the Extract Facts
+            question failed, or it is an older Extract Facts), the step summary names it.
           </li>
           <li>
             <span className="font-medium text-foreground">Cisco Catalyst Details</span>{" "}
