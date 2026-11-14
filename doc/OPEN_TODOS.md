@@ -1037,3 +1037,13 @@ users, git repositories) beyond loading them. The isolated stack has no Nautobot
   The snapshot has no user id; add one only if renames matter.
 - **The confirm token is not single-use** (decided: generating a report only reads and stores a snapshot; bounded by the rate limit and the cap).
 
+
+## `anthropic` SDK 2.x — DONE (verified live)
+
+**Added:** 2026-11-14 · **Area:** `backend/requirements.txt`, `backend/services/ai_assistant/providers/anthropic_provider.py`
+
+- **Done:** bumped `anthropic` 1.17.0 → 2.1.0 (Dependabot PR #42). The adapter and chat-service unit tests (17) and pyright pass against 2.1.0; the adapter
+  uses none of the changed types (`MessageParam` is now a union alias, `Message.to_param()` returns `AssistantMessageParam`).
+- **Verified live (2026-11-14, maintainer):** Ask the Net still works against `api.anthropic.com` with 2.1.0, although the SDK now sends the API key as
+  `Authorization: Bearer …` (1.17.0 sent `X-Api-Key`).
+- **Only if a gateway is ever added:** a LiteLLM-style gateway (`ANTHROPIC_BASE_URL`) or a TLS-intercepting proxy that reads `X-Api-Key` must be tested again.
