@@ -191,3 +191,51 @@ class ExecuteTests(unittest.IsolatedAsyncioTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class InterfaceRedundancyGroupTests(unittest.TestCase):
+    def test_query_selects_redundancy_groups_inside_interfaces(self) -> None:
+        from services.nautobot.devices.attribute_bag import build_device_attributes_query
+
+        query = build_device_attributes_query()
+        start = query.index("interfaces @include(if: $get_interfaces)")
+        end = query.index("console_ports @include")
+        block = query[start:end]
+        self.assertIn("interface_redundancy_groups {", block)
+        for field in ("protocol_group_id", "virtual_ip {", "description"):
+            self.assertIn(field, block)
+        # The secrets group is never read by a write step: it must not land in the run data.
+        self.assertNotIn("secrets_group", block)
+        self.assertIn("interface_redundancy_group_associations", block)
+        self.assertIn("namespace {", block)
+
+    def test_association_priority_is_merged_into_the_groups(self) -> None:
+        from services.nautobot.devices.attribute_bag import attributes_from_detail
+
+        bag = attributes_from_detail(
+            {
+                "interfaces": [
+                    {
+                        "name": "Vlan200",
+                        "interface_redundancy_groups": [{"id": "g1", "name": "hsrp-1"}],
+                        "interface_redundancy_group_associations": [
+                            {"priority": 110, "interface_redundancy_group": {"id": "g1"}}
+                        ],
+                    },
+                    {"name": "Vlan100", "interface_redundancy_groups": []},
+                ]
+            }
+        )
+        vlan = bag["interfaces"][0]
+        self.assertEqual(vlan["interface_redundancy_groups"][0]["priority"], 110)
+        self.assertNotIn("interface_redundancy_group_associations", vlan)
+        self.assertNotIn("priority", str(bag["interfaces"][1]))
+
+    def test_redundancy_groups_pass_through_the_bag(self) -> None:
+        from services.nautobot.devices.attribute_bag import attributes_from_detail
+
+        groups = [{"id": "g1", "name": "HSRP-1", "virtual_ip": {"address": "10.0.0.30/27"}}]
+        bag = attributes_from_detail(
+            {"interfaces": [{"name": "Ethernet0/0", "interface_redundancy_groups": groups}]}
+        )
+        self.assertEqual(bag["interfaces"][0]["interface_redundancy_groups"], groups)

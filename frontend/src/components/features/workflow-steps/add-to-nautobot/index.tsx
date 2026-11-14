@@ -139,6 +139,11 @@ function AddToNautobotConfigPanel({ config, onChange, nodeId }: PluginConfigPane
             {interfacesSource === "nautobot_origin"
               ? "all interfaces from Nautobot origin"
               : `${interfaceCount} interface${interfaceCount === 1 ? "" : "s"}`}
+            {interfacesSource === "nautobot_origin"
+              ? addConfig.redundancy_groups?.enabled === true
+                ? ", HSRP/VRRP groups on"
+                : ", HSRP/VRRP groups off"
+              : ""}
             {customFieldsSource === "nautobot_origin" ? ", all custom fields from Nautobot origin" : ""}
           </p>
         ) : (

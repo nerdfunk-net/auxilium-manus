@@ -397,6 +397,79 @@ class UpdateOneDeviceTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(kwargs["device_location_id"])
 
 
+class RedundancyGroupsConfigTests(unittest.IsolatedAsyncioTestCase):
+    _BASE = {"nautobot_source_id": "src-1", "interfaces_source": "nautobot_origin"}
+
+    def test_off_by_default(self) -> None:
+        parsed = mod._parse_config(self._BASE)
+        self.assertIsNone(parsed.redundancy_name_pattern)
+
+    def test_enabled_uses_pattern_and_status(self) -> None:
+        parsed = mod._parse_config(
+            {
+                **self._BASE,
+                "redundancy_groups": {
+                    "enabled": True,
+                    "name_pattern": " grp-{next} ",
+                    "status": "Planned",
+                },
+            }
+        )
+        self.assertEqual(parsed.redundancy_name_pattern, "grp-{next}")
+        self.assertEqual(parsed.redundancy_group_status, "Planned")
+
+    def test_enabled_defaults(self) -> None:
+        parsed = mod._parse_config({**self._BASE, "redundancy_groups": {"enabled": True}})
+        self.assertEqual(parsed.redundancy_name_pattern, "hsrp-{next}")
+        self.assertEqual(parsed.redundancy_group_status, "Active")
+
+    def test_disabled_ignores_a_bad_pattern(self) -> None:
+        parsed = mod._parse_config(
+            {**self._BASE, "redundancy_groups": {"enabled": False, "name_pattern": "bad"}}
+        )
+        self.assertIsNone(parsed.redundancy_name_pattern)
+
+    def test_bad_pattern_is_rejected(self) -> None:
+        with self.assertRaisesRegex(ValueError, r"\{next\}"):
+            mod._parse_config(
+                {**self._BASE, "redundancy_groups": {"enabled": True, "name_pattern": "hsrp"}}
+            )
+
+    def test_only_with_nautobot_origin(self) -> None:
+        cfg = {
+            "nautobot_source_id": "src-1",
+            "interfaces_source": "manual",
+            "interfaces": [{"name": "Vlan1"}],
+            "redundancy_groups": {"enabled": True},
+        }
+        with self.assertRaisesRegex(ValueError, "nautobot_origin"):
+            mod._parse_config(cfg)
+
+    def test_not_an_object_is_rejected(self) -> None:
+        with self.assertRaisesRegex(ValueError, "redundancy_groups"):
+            mod._parse_config({**self._BASE, "redundancy_groups": "yes"})
+
+    async def test_settings_reach_the_update_service(self) -> None:
+        cfg = {**self._BASE, "redundancy_groups": {"enabled": True, "status": "Planned"}}
+        update_service = MagicMock()
+        update_service.update_device = AsyncMock(
+            return_value={"device_id": "nb-1", "device_name": "r1", "interfaces_failed": 0}
+        )
+        with (
+            patch.object(mod, "resolve_nautobot_device_id", AsyncMock(return_value="nb-1")),
+            patch.object(mod, "build_resolved_update_data", return_value={}),
+        ):
+            await _update_one_device(
+                device_key="d1", device=_device("d1"), config=cfg,
+                context=WorkflowContext(run_id="r", workflow_id="w", devices={}),
+                node_id="n", nautobot_service=MagicMock(), credentials=MagicMock(),
+                update_service=update_service, parsed=mod._parse_config(cfg),
+            )
+        _, kwargs = update_service.update_device.call_args
+        self.assertEqual(kwargs["redundancy_name_pattern"], "hsrp-{next}")
+        self.assertEqual(kwargs["redundancy_group_status"], "Planned")
+
+
 class ExecuteTests(unittest.IsolatedAsyncioTestCase):
     async def test_no_db_session_raises(self) -> None:
         with patch.object(mod, "object_session", return_value=None):

@@ -14,13 +14,14 @@ from services.nautobot.devices.common import DeviceCommonService
 from services.nautobot.devices.interface_workflow.ip_ops import InterfaceIpOps
 from services.nautobot.devices.interface_workflow.payload import normalize_interface_ip_list
 from services.nautobot.devices.interface_workflow.record_ops import InterfaceRecordOps
+from services.nautobot.devices.interface_workflow.redundancy_ops import InterfaceRedundancyOps
 from services.nautobot.devices.interface_workflow.state import InterfaceUpdateState
 from services.nautobot.devices.types import InterfaceUpdateResult
 
 logger = logging.getLogger(__name__)
 
 
-class InterfaceManagerService(InterfaceIpOps, InterfaceRecordOps):
+class InterfaceManagerService(InterfaceIpOps, InterfaceRecordOps, InterfaceRedundancyOps):
     """
     Service for managing device interfaces and IP addresses in Nautobot.
 
@@ -30,6 +31,7 @@ class InterfaceManagerService(InterfaceIpOps, InterfaceRecordOps):
     3. Assigning IP addresses to interfaces
     4. Setting primary IPv4 addresses
     5. Cleaning up old IP assignments
+    6. Optionally writing HSRP/VRRP redundancy groups (``redundancy_name_pattern``)
     """
 
     def __init__(self, nautobot_service: NautobotApi):
@@ -49,6 +51,8 @@ class InterfaceManagerService(InterfaceIpOps, InterfaceRecordOps):
         add_prefixes_automatically: bool = False,
         sync_interfaces: bool = False,
         device_location_id: str | None = None,
+        redundancy_name_pattern: str | None = None,
+        redundancy_group_status: str = "Active",
     ) -> InterfaceUpdateResult:
         """Create or update interfaces: IPs → interfaces → assign → optional primary."""
         logger.info(
@@ -93,6 +97,14 @@ class InterfaceManagerService(InterfaceIpOps, InterfaceRecordOps):
             device_id=device_id,
             interfaces=interfaces,
             state=state,
+        )
+
+        await self._apply_redundancy_groups(
+            interfaces=interfaces,
+            state=state,
+            name_pattern=redundancy_name_pattern,
+            group_status=redundancy_group_status,
+            add_prefixes_automatically=add_prefixes_automatically,
         )
 
         if state.primary_ipv4_id:

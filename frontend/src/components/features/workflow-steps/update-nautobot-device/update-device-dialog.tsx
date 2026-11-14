@@ -17,6 +17,7 @@ import { Switch } from "@/components/ui/switch";
 import { AttributePathPicker } from "@/components/features/workflow-steps/shared/attribute-path-picker";
 import { InterfacesSourceSection } from "@/components/features/workflow-steps/shared/interfaces-source-section";
 import { ParsedListSection } from "./parsed-list-section";
+import { RedundancyGroupsSection } from "@/components/features/workflow-steps/shared/redundancy-groups-section";
 import type {
   PersistedCanvasNode,
   WorkflowCanvasEdge,
@@ -47,6 +48,12 @@ import {
   parseUpdateFieldsConfig,
   patchDeviceFieldSpec,
 } from "./update-device-config";
+import {
+  parseRedundancyGroupsConfig,
+  redundancyGroupsForSave,
+  redundancyPatternProblem,
+  type RedundancyGroupsConfig,
+} from "@/components/features/workflow-steps/shared/redundancy-groups";
 
 interface UpdateDeviceDialogProps {
   open: boolean;
@@ -148,9 +155,15 @@ function UpdateDeviceDialogForm({
   const sourceProblem = interfaceSourceProblem(interfacesSource, deviceIdentifier.mode, {
     sync_interfaces: draft.sync_interfaces,
   });
+  const redundancyGroups: RedundancyGroupsConfig = parseRedundancyGroupsConfig(
+    draft.redundancy_groups,
+  );
   const saveBlocked =
     sourceProblem !== null ||
-    (interfacesSource === "parsed_list" && parsedListProblem(parsedList) !== null);
+    (interfacesSource === "parsed_list" && parsedListProblem(parsedList) !== null) ||
+    (interfacesSource === "nautobot_origin" &&
+      redundancyGroups.enabled &&
+      redundancyPatternProblem(redundancyGroups.name_pattern) !== null);
 
   const handleSave = () => {
     onChange({
@@ -163,6 +176,7 @@ function UpdateDeviceDialogForm({
       interfaces_source: interfacesSource,
       interfaces: interfaces.map(interfaceForSave),
       parsed_list: parsedListForSave(parsedList),
+      redundancy_groups: redundancyGroupsForSave(redundancyGroups, interfacesSource),
       add_prefix: draft.add_prefix ?? true,
       default_prefix_length: draft.default_prefix_length ?? "/24",
       sync_interfaces: draft.sync_interfaces ?? false,
@@ -228,6 +242,10 @@ function UpdateDeviceDialogForm({
     setCustomFieldRows((rows) => rows.filter((row) => row.id !== id));
   };
 
+  const setRedundancyGroups = (next: RedundancyGroupsConfig) => {
+    setDraft((current) => ({ ...current, redundancy_groups: next }));
+  };
+
   const setParsedList = (next: ParsedListConfig) => {
     setDraft((current) => ({ ...current, parsed_list: next }));
   };
@@ -288,6 +306,10 @@ function UpdateDeviceDialogForm({
               />
             }
           />
+
+          {interfacesSource === "nautobot_origin" ? (
+            <RedundancyGroupsSection value={redundancyGroups} onChange={setRedundancyGroups} />
+          ) : null}
 
           <section className="space-y-3 rounded-xl border border-border bg-card p-3 shadow-sm">
             <div className="flex items-center justify-between">

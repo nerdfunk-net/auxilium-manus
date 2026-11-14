@@ -308,6 +308,46 @@ export function UpdateNautobotDeviceHelpPanel() {
         </HelpExample>
       </HelpSection>
 
+      <HelpSection title="Redundancy groups (HSRP / VRRP)">
+        <p>
+          With the <HelpCode>nautobot_origin</HelpCode> interface source, switch on{" "}
+          <HelpCode>redundancy_groups</HelpCode> to also write the HSRP groups
+          of the interfaces (<HelpCode>interface_redundancy_groups</HelpCode>, built
+          by Config to Attributes from the <HelpCode>standby</HelpCode> lines of a Genie
+          running config or from Batfish facts). VRRP is written only when it is legacy{" "}
+          <HelpCode>vrrp &lt;n&gt; ip</HelpCode> lines in a Genie running config; the IOS-XE{" "}
+          <HelpCode>address-family</HelpCode> form is not read.
+        </p>
+        <ul className="list-disc space-y-1 pl-4">
+          <li>
+            A group is found by protocol, group id and virtual IP. If it exists
+            (for example created by the HSRP peer) it is reused and only this
+            interface is added, with its own priority (default 100). Re-running
+            the step changes nothing.
+          </li>
+          <li>
+            Only a new group is named by the schema:{" "}
+            <HelpCode>{"hsrp-{next}"}</HelpCode> gives <HelpCode>hsrp-1</HelpCode>,{" "}
+            <HelpCode>hsrp-2</HelpCode>, … where <HelpCode>{"{next}"}</HelpCode> is the
+            lowest free number. <HelpCode>{"{protocol}"}</HelpCode> is{" "}
+            <HelpCode>hsrp</HelpCode> or <HelpCode>vrrp</HelpCode>. The name from the
+            device config becomes the group description.
+          </li>
+          <li>
+            The virtual IP is created as an IP address when missing, in the namespace of the
+            interface address it belongs to, but is not assigned to the interface. An address
+            without a prefix length is only looked up in Nautobot (never given a guessed
+            length) and the group fails if it is not there. A priority the bag does not carry
+            never overwrites the one stored in Nautobot. Nothing is deleted: groups or
+            associations not in the attribute bag stay as they are.
+          </li>
+          <li>
+            If one group cannot be written, the device leaves through the failure
+            outcome with the reason in its warnings.
+          </li>
+        </ul>
+      </HelpSection>
+
       <HelpSection title="IP prefix options">
         <p>
           When assigning IP addresses to interfaces:

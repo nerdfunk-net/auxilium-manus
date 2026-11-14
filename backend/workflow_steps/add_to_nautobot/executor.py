@@ -32,6 +32,10 @@ from workflow_steps.common.nautobot_interfaces import (
 )
 from workflow_steps.common.nautobot_source import resolve_nautobot_credentials
 from workflow_steps.common.nautobot_update_fields import extract_update_fields_from_nautobot_bag
+from workflow_steps.common.redundancy_groups_config import (
+    DEFAULT_REDUNDANCY_STATUS,
+    parse_redundancy_groups,
+)
 from workflow_steps.common.step_flags import parse_bool_flag
 from workflow_steps.common.update_field_expression import build_resolved_update_data
 
@@ -57,6 +61,9 @@ class _ParsedConfig:
     default_prefix_length: str
     manual_interfaces: list[dict[str, Any]]
     refresh_attributes_after_create: bool
+    # None = redundancy groups are not written; otherwise the name schema, e.g. "hsrp-{next}".
+    redundancy_name_pattern: str | None = None
+    redundancy_group_status: str = DEFAULT_REDUNDANCY_STATUS
 
 
 def _all_custom_fields_from_bag(device: DeviceContext) -> dict[str, str] | None:
@@ -91,6 +98,8 @@ def _build_request(
     resolved: dict[str, Any],
     config: dict[str, Any],
     interfaces: list[dict[str, Any]],
+    redundancy_name_pattern: str | None = None,
+    redundancy_group_status: str = DEFAULT_REDUNDANCY_STATUS,
 ) -> AddDeviceRequest:
     virtual_chassis = config.get("virtual_chassis") or {}
     vc_mode = str(virtual_chassis.get("mode") or "none").strip()
@@ -112,6 +121,8 @@ def _build_request(
         face=resolved.get("face"),
         position=_position_as_int(resolved.get("position")),
         interfaces=interfaces,
+        redundancy_name_pattern=redundancy_name_pattern,
+        redundancy_group_status=redundancy_group_status,
         add_prefix=parse_bool_flag(config, "add_prefix", default=True),
         default_prefix_length=str(config.get("default_prefix_length") or "/24"),
         virtual_chassis_id=str(virtual_chassis.get("id") or "").strip() or None
@@ -153,6 +164,10 @@ def _parse_config(config: dict[str, Any]) -> _ParsedConfig:
         default_prefix_length,
     )
 
+    redundancy_name_pattern, redundancy_group_status = parse_redundancy_groups(
+        config, step_id=_STEP_ID, interfaces_source=interfaces_source
+    )
+
     return _ParsedConfig(
         source_id=source_id,
         raw_device_fields=raw_device_fields,
@@ -163,6 +178,8 @@ def _parse_config(config: dict[str, Any]) -> _ParsedConfig:
         refresh_attributes_after_create=parse_bool_flag(
             config, "refresh_attributes_after_create", default=True
         ),
+        redundancy_name_pattern=redundancy_name_pattern,
+        redundancy_group_status=redundancy_group_status,
     )
 
 
@@ -256,7 +273,13 @@ async def _create_one_device(
                 message=(f"Required field(s) could not be resolved: {', '.join(missing)}"),
             )
 
-        request = _build_request(resolved=resolved, config=config, interfaces=interfaces)
+        request = _build_request(
+            resolved=resolved,
+            config=config,
+            interfaces=interfaces,
+            redundancy_name_pattern=parsed.redundancy_name_pattern,
+            redundancy_group_status=parsed.redundancy_group_status,
+        )
         result = await creation_service.create_device(request)
 
         if request.dry_run:

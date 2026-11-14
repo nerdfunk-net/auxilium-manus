@@ -51,6 +51,13 @@ export function ConfigToAttributesHelpPanel() {
             <HelpCode>show running-config</HelpCode> tree, keyed by literal config
             lines). Only <HelpCode>config_source: running</HelpCode> is supported
             for this format — Get &amp; Parse Config never captures startup-config.
+            HSRP (<HelpCode>standby</HelpCode> lines) and VRRP (legacy{" "}
+            <HelpCode>vrrp</HelpCode> lines; the IOS-XE <HelpCode>address-family</HelpCode>{" "}
+            form is not read and is reported in the step summary) groups are added to each interface
+            as <HelpCode>interface_redundancy_groups</HelpCode>: name, protocol,{" "}
+            <HelpCode>protocol_group_id</HelpCode>, <HelpCode>virtual_ip</HelpCode>,
+            priority and preempt. Authentication keys are never copied. This step
+            only reads them; writing them to Nautobot needs a separate step.
           </li>
           <li>
             <span className="font-medium text-foreground">Batfish</span> — output
@@ -58,7 +65,13 @@ export function ConfigToAttributesHelpPanel() {
             Extract Facts</span> step (Batfish&apos;s extracted per-node facts,
             keyed by interface name). Only <HelpCode>config_source: running</HelpCode>{" "}
             is supported for this format too — Batfish facts have no
-            running/startup distinction.
+            running/startup distinction. HSRP groups come from the{" "}
+            <HelpCode>HSRP_Details</HelpCode> that Extract Facts adds to each interface
+            (virtual IP, priority and preempt from Batfish&apos;s{" "}
+            <HelpCode>hsrpProperties</HelpCode>) and land in{" "}
+            <HelpCode>interface_redundancy_groups</HelpCode>. Batfish does not parse the{" "}
+            <HelpCode>standby</HelpCode> group name, so these groups have no name; the
+            write step names a new group by its schema. VRRP is not read for this format.
           </li>
           <li>
             <span className="font-medium text-foreground">Cisco Catalyst Details</span>{" "}

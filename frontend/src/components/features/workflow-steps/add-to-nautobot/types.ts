@@ -1,3 +1,5 @@
+import type { RedundancyGroupsConfig } from "@/components/features/workflow-steps/shared/redundancy-groups";
+
 export type DeviceFieldKey =
   | "name"
   | "role"
@@ -58,6 +60,7 @@ export interface AddToNautobotConfig {
   custom_fields_source?: CustomFieldsSource;
   interfaces?: InterfaceCreateConfig[];
   interfaces_source?: InterfacesSource;
+  redundancy_groups?: RedundancyGroupsConfig;
   add_prefix?: boolean;
   default_prefix_length?: string;
   virtual_chassis?: VirtualChassisConfig;

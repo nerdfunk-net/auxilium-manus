@@ -787,6 +787,18 @@ default silently produced a zero-node filter — and therefore zero extracted
 facts and a `post_step_guard` failure (`produces={parsed}` unmet) — for
 every multi-device run.
 
+**HSRP groups (`Interfaces.<name>.HSRP_Details`).** `extract_facts` (interfaceProperties) lists only the
+group ids of an interface (`HSRP_Groups: ["0"]`), never the virtual IP. The step therefore also asks the separate
+`hsrpProperties` question for the same `nodes_filter` (`BatfishService.hsrp_properties`; rows `{Interface:
+{hostname, interface}, Group_Id (int), Virtual_Addresses, Source_Address, Priority, Preempt, Active}`, verified
+live on Batfish 2026.09) and merges the rows into a copy of the facts
+(`workflow_steps/batfish_extract_facts/hsrp.py`): `Interfaces.Vlan200.HSRP_Details = [{Group_Id: "0",
+Virtual_Addresses: [...], Priority, Preempt, Active}]`, ordered by group id. A failing question is only logged:
+the facts stay as `extract_facts` returned them, but the nodes that have HSRP groups get `HSRP_Details_Error`, the outcome summary and the step's metadata (`warnings`) say "HSRP groups not added", and `config-to-attributes` names the interfaces that have group ids and no details. **Batfish does not parse `standby <n> name <x>`** (a parse
+*warning*, snapshot status `PARTIALLY_UNRECOGNIZED`, not an error), so there is no group name; `config-to-attributes`
+(Batfish) builds `interface_redundancy_groups` from `HSRP_Details` (VIP gets the interface's prefix length when it
+lies in it) and the write steps name a new group by their schema. VRRP is not built yet: Batfish has a `vrrpProperties` question with the same columns (it returned 0 rows on the lab snapshot, which has no VRRP), so it can be added the same way.
+
 **Enriches every device directly, unlike the three query steps below.**
 `device.parsed[output_key] = {"parsed": <node's facts>, "error": None}` for
 a node Batfish returned, or `{"parsed": None, "error": "no facts found for

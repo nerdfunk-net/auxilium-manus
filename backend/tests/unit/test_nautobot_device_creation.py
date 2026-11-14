@@ -328,6 +328,27 @@ class PreflightTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["device_id"], "dev-1")
 
 
+class RedundancyGroupPassThroughTests(unittest.IsolatedAsyncioTestCase):
+    async def test_settings_reach_the_interface_manager(self) -> None:
+        svc = _service(_preflight_dispatch())
+        await svc.create_device(
+            _request(
+                interfaces=[_iface()],
+                redundancy_name_pattern="hsrp-{next}",
+                redundancy_group_status="Planned",
+            )
+        )
+        _, kwargs = svc.interface_manager.update_device_interfaces.await_args
+        self.assertEqual(kwargs["redundancy_name_pattern"], "hsrp-{next}")
+        self.assertEqual(kwargs["redundancy_group_status"], "Planned")
+
+    async def test_default_is_off(self) -> None:
+        svc = _service(_preflight_dispatch())
+        await svc.create_device(_request(interfaces=[_iface()]))
+        _, kwargs = svc.interface_manager.update_device_interfaces.await_args
+        self.assertIsNone(kwargs["redundancy_name_pattern"])
+
+
 class InterfaceStageFailureTests(unittest.IsolatedAsyncioTestCase):
     async def test_api_error_after_creation_keeps_the_device_id(self) -> None:
         svc = _service(_preflight_dispatch())

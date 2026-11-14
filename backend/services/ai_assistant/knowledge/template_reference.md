@@ -35,7 +35,7 @@ nautobot.role.name  nautobot.status.name  nautobot.platform.name / .network_driv
 nautobot.location.name / .parent.name  nautobot.device_type.model / .manufacturer.name
 ```
 Optional groups appear only when selected in the editor's Attributes dialog:
-`interfaces`, `custom_fields`, `tags`, `config_context`, `secret_groups`, `console_ports`,
+`interfaces` (also carries `nautobot.interfaces[].interface_redundancy_groups[]`: HSRP/VRRP `name`, `protocol`, `protocol_group_id`, `virtual_ip.address`), `custom_fields`, `tags`, `config_context`, `secret_groups`, `console_ports`,
 `power_ports`, `cables` (per-interface cable; Nautobot < 3.2: `nautobot.interfaces[].cable.{type,label,status,tags}` and `.connected_endpoint.device.name`; 3.2+: `nautobot.interfaces[].cable.{type,label,status,tags,interfaces[].device.name}`; the `interfaces` group carries no cable data; with the step option `normalize_cables`, both versions also get `cable.interfaces` and `cable.far_end`) (e.g. `nautobot.config_context`, `nautobot.custom_fields.<name>`).
 
 Example:

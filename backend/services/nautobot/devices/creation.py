@@ -87,6 +87,8 @@ class DeviceCreationService:
                     device_id=device_id,
                     interfaces=request.interfaces,
                     add_prefixes_automatically=request.add_prefix,
+                    redundancy_name_pattern=request.redundancy_name_pattern,
+                    redundancy_group_status=request.redundancy_group_status,
                 )
             except NautobotAPIError as exc:
                 # The device exists now: report an incomplete device (id kept, so a repair or

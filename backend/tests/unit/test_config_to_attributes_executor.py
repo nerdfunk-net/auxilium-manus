@@ -1068,5 +1068,54 @@ class PrimaryIpv4SelectionTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("is_primary", interfaces[0]["ip_addresses"][0])
 
 
+class RedundancyNotesTests(unittest.IsolatedAsyncioTestCase):
+    async def _summary(
+        self, source_format: str, parsed: dict, key: str = "cisco_config"
+    ) -> str | None:
+        device = _device("dev-1", parsed={key: parsed})
+        outcomes = await execute(
+            config={**_BASE_CONFIG, "source_format": source_format, "parsed_key": key},
+            context=_context({"dev-1": device}),
+            run=_run(),
+            artifact_service=MagicMock(),
+            node_id="node-1",
+            device_sessions=MagicMock(),
+        )
+        return outcomes[0].summary
+
+    async def test_genie_vrrp_address_family_is_reported(self) -> None:
+        running = {
+            "interface Vlan30": {
+                "ip address 10.30.0.2 255.255.255.0": {},
+                "vrrp 3 address-family ipv4": {"address 10.30.0.1 primary": {}},
+            }
+        }
+        summary = await self._summary("genie", {"running": running})
+        self.assertIn("Vlan30", summary)
+        self.assertIn("VRRP", summary)
+
+    async def test_no_summary_when_everything_was_read(self) -> None:
+        running = {"interface Vlan30": {"ip address 10.30.0.2 255.255.255.0": {}}}
+        self.assertIsNone(await self._summary("genie", {"running": running}))
+
+    async def test_batfish_group_ids_without_details_are_reported(self) -> None:
+        node = {
+            "Interfaces": {
+                "Vlan200": {
+                    "Admin_Up": True,
+                    "Primary_Address": "10.0.0.2/24",
+                    "All_Prefixes": ["10.0.0.2/24"],
+                    "HSRP_Groups": ["0"],
+                }
+            },
+            "HSRP_Details_Error": "hsrpProperties failed: batfish down",
+        }
+        summary = await self._summary(
+            "batfish", {"parsed": node, "error": None}, key="batfish_extract_facts"
+        )
+        self.assertIn("Vlan200", summary)
+        self.assertIn("batfish down", summary)
+
+
 if __name__ == "__main__":
     unittest.main()

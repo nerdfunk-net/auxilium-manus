@@ -1,3 +1,5 @@
+import type { RedundancyGroupsConfig } from "@/components/features/workflow-steps/shared/redundancy-groups";
+
 export type DeviceIdentifierMode = "from_context" | "explicit";
 
 export interface DeviceIdentifierConfig {
@@ -103,6 +105,7 @@ export interface UpdateNautobotDeviceConfig {
   interfaces_source?: InterfacesSource;
   interfaces?: InterfaceUpdateConfig[];
   parsed_list?: ParsedListConfig;
+  redundancy_groups?: RedundancyGroupsConfig;
   add_prefix?: boolean;
   default_prefix_length?: string;
   sync_interfaces?: boolean;

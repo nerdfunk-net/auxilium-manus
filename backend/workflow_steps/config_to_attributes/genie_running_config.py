@@ -17,6 +17,7 @@ from workflow_steps.common.nautobot_interfaces import (
     cidr_from_ip_and_mask,
     infer_interface_type_from_name,
 )
+from workflow_steps.config_to_attributes.genie_redundancy import find_redundancy_groups
 
 _INTERFACE_PREFIX = "interface "
 _DESCRIPTION_RE = re.compile(r"^description\s+(.*)$", re.IGNORECASE)
@@ -101,6 +102,12 @@ def _build_interface(name: str, children: Any) -> dict[str, Any] | None:
     ip_addresses = _find_ip_addresses(children)
     if ip_addresses:
         iface["ip_addresses"] = ip_addresses
+
+    redundancy_groups = find_redundancy_groups(
+        name, children, [str(item["address"]) for item in ip_addresses]
+    )
+    if redundancy_groups:
+        iface["interface_redundancy_groups"] = redundancy_groups
 
     return iface
 

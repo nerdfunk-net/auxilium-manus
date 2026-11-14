@@ -89,7 +89,9 @@ export function GetNautobotAttributesHelpPanel() {
           <li>
             <HelpCode>interfaces</HelpCode> — all interfaces on the device:
             name, type, enabled, <HelpCode>mac_address</HelpCode>, mtu,
-            description, status, IP assignments and VLANs. They land in{" "}
+            description, status, IP assignments, VLANs and redundancy groups
+            (HSRP/VRRP: name, protocol, group id and virtual IP, in{" "}
+            <HelpCode>interface_redundancy_groups</HelpCode>). They land in{" "}
             <HelpCode>nautobot.interfaces</HelpCode> as a list; read one
             interface&apos;s MAC with{" "}
             <HelpCode>nautobot.interfaces[name=Ethernet0/0].mac_address</HelpCode>{" "}

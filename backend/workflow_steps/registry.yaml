@@ -2083,6 +2083,9 @@ plugins:
       device.parsed[output_key] for downstream steps to read, in addition to
       one workflow-level artifact covering every extracted node. A device
       whose name matches no node in the snapshot leaves through "failure".
+      Each interface with HSRP groups also gets HSRP_Details (group id, virtual
+      addresses, priority, preempt) from Batfish's hsrpProperties question,
+      because the interface facts alone list only the group ids.
     artifact_type: configuration_management
     palette_category: batfish
     directory: batfish_extract_facts
@@ -3296,6 +3299,23 @@ plugins:
           data_type: string
           required: false
           default: manual
+        - name: redundancy_groups
+          description: >
+            Also create the HSRP groups of the interfaces (interface_redundancy_groups in the
+            nautobot attribute bag, built by Config to Attributes from a Genie running config or
+            from Batfish facts; VRRP only as legacy "vrrp <n> ip" lines of a Genie running config)
+            once the device and its interfaces exist. Only with interfaces_source nautobot_origin. enabled turns it on. A group is found by protocol + group id + virtual
+            IP and reused (an HSRP peer already created it); otherwise it is created, named by
+            name_pattern ({next} = the lowest free integer, e.g. hsrp-1, hsrp-2) with the given
+            status (default Active). Every interface gets its own association with its priority
+            (default 100). The virtual IP is created as an IP address but not assigned. A group
+            that cannot be written routes the device (already created) to failure.
+          data_type: object
+          required: false
+          example:
+            enabled: true
+            name_pattern: hsrp-{next}
+            status: Active
         - name: add_prefix
           description: Automatically create missing IP prefixes when assigning addresses.
           data_type: boolean
@@ -3503,6 +3523,29 @@ plugins:
               ip_address: 10.0.0.1/24
               namespace: Global
               mac_address: aabb.cc00.0100
+        - name: redundancy_groups
+          description: >
+            Write the HSRP groups of the interfaces (interface_redundancy_groups in the
+            nautobot attribute bag, built by Config to Attributes with the Genie or Batfish format
+            or read by Get Nautobot Attributes) to Nautobot; VRRP only as legacy "vrrp <n> ip"
+            lines of a Genie running config (the IOS-XE address-family form is not read). Only
+            with interfaces_source nautobot_origin.
+            enabled turns it on. A group is found by protocol + group id + virtual IP and reused
+            (peers share one group); only when none exists it is created, named by name_pattern
+            ({next} = the lowest free integer, e.g. hsrp-1, hsrp-2; {protocol} = hsrp/vrrp) with
+            the given status (default Active) and the device-config name as description. Every
+            interface gets its own association with its priority (default 100 for a new one; a
+            priority the bag does not carry never changes a stored one). The virtual IP is
+            created as an IP address when missing (in the namespace of the interface address it
+            belongs to) but never assigned to the interface; an address without a prefix length is
+            only looked up, never given a guessed one. Nothing is deleted: groups or associations
+            not in the bag stay as they are.
+          data_type: object
+          required: false
+          example:
+            enabled: true
+            name_pattern: hsrp-{next}
+            status: Active
         - name: add_prefix
           description: Automatically create missing IP prefixes when assigning addresses.
           data_type: boolean

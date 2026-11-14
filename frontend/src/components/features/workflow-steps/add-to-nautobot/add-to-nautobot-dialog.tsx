@@ -29,6 +29,13 @@ import {
   RequiredDeviceFieldsSection,
 } from "./device-fields-section";
 import { InterfacesSourceSection as InterfacesSection } from "@/components/features/workflow-steps/shared/interfaces-source-section";
+import {
+  parseRedundancyGroupsConfig,
+  redundancyGroupsForSave,
+  redundancyPatternProblem,
+  type RedundancyGroupsConfig,
+} from "@/components/features/workflow-steps/shared/redundancy-groups";
+import { RedundancyGroupsSection } from "@/components/features/workflow-steps/shared/redundancy-groups-section";
 import type {
   AddToNautobotConfig,
   CustomFieldRow,
@@ -111,6 +118,13 @@ function AddToNautobotDialogForm({
   const virtualChassis = draft.virtual_chassis ?? DEFAULT_VIRTUAL_CHASSIS;
   const customFieldsSource = draft.custom_fields_source ?? "manual";
   const interfacesSource = draft.interfaces_source ?? "manual";
+  const redundancyGroups: RedundancyGroupsConfig = parseRedundancyGroupsConfig(
+    draft.redundancy_groups,
+  );
+  const saveBlocked =
+    interfacesSource === "nautobot_origin" &&
+    redundancyGroups.enabled &&
+    redundancyPatternProblem(redundancyGroups.name_pattern) !== null;
 
   const handleSave = () => {
     onChange({
@@ -122,6 +136,7 @@ function AddToNautobotDialogForm({
       custom_fields_source: customFieldsSource,
       interfaces: interfaces.map(interfaceForSave),
       interfaces_source: interfacesSource,
+      redundancy_groups: redundancyGroupsForSave(redundancyGroups, interfacesSource),
       add_prefix: draft.add_prefix ?? true,
       default_prefix_length: draft.default_prefix_length ?? "/24",
       virtual_chassis: virtualChassis,
@@ -247,6 +262,13 @@ function AddToNautobotDialogForm({
           }
         />
 
+        {interfacesSource === "nautobot_origin" ? (
+          <RedundancyGroupsSection
+            value={redundancyGroups}
+            onChange={(next) => setDraft((current) => ({ ...current, redundancy_groups: next }))}
+          />
+        ) : null}
+
         <section className="space-y-3 rounded-xl border border-border bg-card p-3 shadow-sm">
           <div className="flex items-center justify-between">
             <Label className="font-mono text-xs font-medium">add_prefix</Label>
@@ -310,7 +332,12 @@ function AddToNautobotDialogForm({
         <Button type="button" variant="outline" onClick={onClose}>
           Cancel
         </Button>
-        <Button className="bg-step text-step-foreground hover:bg-step-hover" type="button" onClick={handleSave}>
+        <Button
+          className="bg-step text-step-foreground hover:bg-step-hover"
+          disabled={saveBlocked}
+          type="button"
+          onClick={handleSave}
+        >
           Save
         </Button>
       </DialogFooter>

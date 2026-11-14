@@ -63,6 +63,121 @@ class InferInterfaceTypeFromNameTests(unittest.TestCase):
         self.assertEqual(infer_interface_type_from_name("1/1"), "other")
 
 
+class RedundancyGroupsFromBagTests(unittest.TestCase):
+    def _read(self, groups: object) -> list[dict]:
+        out = interfaces_from_nautobot_bag(
+            {"interfaces": [{"name": "Vlan1", "interface_redundancy_groups": groups}]},
+            default_prefix_length="/24",
+        )
+        return out[0].get("interface_redundancy_groups", [])
+
+    def test_nautobot_read_shape_round_trips(self) -> None:
+        groups = self._read(
+            [
+                {
+                    "id": "g1",
+                    "name": "HSRP-1",
+                    "protocol": "HSRP",
+                    "protocol_group_id": 0,
+                    "description": "HSRP-1",
+                    "virtual_ip": {
+                        "id": "ip1",
+                        "address": "10.0.0.30/27",
+                        "parent": {"namespace": {"name": "Global"}},
+                    },
+                }
+            ]
+        )
+        self.assertEqual(
+            groups,
+            [
+                {
+                    "protocol": "hsrp",
+                    "protocol_group_id": "0",
+                    "virtual_ip": {"address": "10.0.0.30/27"},
+                    "description": "HSRP-1",
+                    "namespace": "Global",
+                }
+            ],
+        )
+
+    def test_bare_vip_is_not_given_a_guessed_prefix_length(self) -> None:
+        groups = self._read(
+            [{"protocol": "vrrp", "protocol_group_id": "3", "virtual_ip": "10.0.0.1"}]
+        )
+        self.assertEqual(groups[0]["virtual_ip"], {"address": "10.0.0.1"})
+
+    def test_inventory_name_is_not_written_back_as_the_description(self) -> None:
+        groups = self._read(
+            [
+                {
+                    "name": "hsrp-1",
+                    "protocol": "hsrp",
+                    "protocol_group_id": "0",
+                    "virtual_ip": {"address": "10.0.0.1/24"},
+                }
+            ]
+        )
+        self.assertNotIn("description", groups[0])
+
+    def test_priority_is_kept_when_the_bag_has_it(self) -> None:
+        groups = self._read(
+            [
+                {
+                    "protocol": "hsrp",
+                    "protocol_group_id": "0",
+                    "priority": 95,
+                    "virtual_ip": {"address": "10.0.0.1/24"},
+                }
+            ]
+        )
+        self.assertEqual(groups[0]["priority"], 95)
+
+    def test_namespace_follows_the_interface_address_that_contains_the_vip(self) -> None:
+        out = interfaces_from_nautobot_bag(
+            {
+                "interfaces": [
+                    {
+                        "name": "Vlan1",
+                        "ip_addresses": [
+                            {"address": "10.0.0.2/24", "parent": {"namespace": {"name": "black"}}}
+                        ],
+                        "interface_redundancy_groups": [
+                            {
+                                "protocol": "hsrp",
+                                "protocol_group_id": "0",
+                                "virtual_ip": {"address": "10.0.0.1/24"},
+                            }
+                        ],
+                    }
+                ]
+            },
+            default_prefix_length="/24",
+        )
+        self.assertEqual(out[0]["interface_redundancy_groups"][0]["namespace"], "black")
+
+    def test_unusable_entries_are_dropped(self) -> None:
+        self.assertEqual(
+            self._read(
+                [
+                    {"protocol": "hsrp", "protocol_group_id": "0"},
+                    {"protocol": "foo", "protocol_group_id": "0", "virtual_ip": "10.0.0.1"},
+                    {"protocol": "hsrp", "virtual_ip": "10.0.0.1"},
+                    "junk",
+                ]
+            ),
+            [],
+        )
+        self.assertEqual(self._read("not a list"), [])
+
+    def test_key_absent_without_groups(self) -> None:
+        out = interfaces_from_nautobot_bag(
+            {"interfaces": [{"name": "Vlan1", "interface_redundancy_groups": []}]},
+            default_prefix_length="/24",
+        )
+        self.assertNotIn("interface_redundancy_groups", out[0])
+
+
 class InterfacesFromNautobotBagTests(unittest.TestCase):
     def test_ip_namespace_from_parent_namespace_name(self) -> None:
         interfaces = interfaces_from_nautobot_bag(

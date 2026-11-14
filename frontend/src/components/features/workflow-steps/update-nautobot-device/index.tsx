@@ -125,6 +125,11 @@ function UpdateNautobotDeviceConfigPanel({
                 ? `interfaces from ${updateConfig.parsed_list?.source_path || "a parsed list"}`
                 : `${interfaceCount} interface${interfaceCount === 1 ? "" : "s"}`}
             , {identifierMode === "explicit" ? "explicit device" : "from context"}
+            {interfacesSource === "nautobot_origin"
+              ? updateConfig.redundancy_groups?.enabled === true
+                ? ", HSRP/VRRP groups on"
+                : ", HSRP/VRRP groups off"
+              : ""}
           </p>
         ) : (
           <p className="text-[11px] text-warning-foreground">No enabled update fields configured</p>

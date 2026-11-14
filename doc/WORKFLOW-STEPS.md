@@ -346,6 +346,25 @@ become `<key>#2`), `config-to-attributes` (devices without parsed data fail), `g
   that matters.
 - **`get-nautobot-attributes` replaces the whole `nautobot` bag** of a device with what it fetched; a step that
   wrote `nautobot.*` keys earlier must run after it, not before.
+- **`config-to-attributes` redundancy groups, Batfish format**: from `Interfaces.<name>.HSRP_Details` that `batfish-extract-facts` merges in from `hsrpProperties` (`doc/BATFISH_INTEGRATION.md`); same output shape, but no `name` (Batfish does not parse `standby <n> name`) and HSRP only for now (`vrrpProperties` exists but is not used yet).
+- **`config-to-attributes` redundancy groups** (`source_format: genie`, "Add Interfaces"): `standby [G] ip|priority|preempt|name`
+  and legacy `vrrp G ip|priority|preempt|description` lines become `interface_redundancy_groups[]` on the interface:
+  `{name, protocol, protocol_group_id ("0"), virtual_ip: {address}, priority?, preempt, description?}`. `description` is
+  the device's own text (the HSRP `standby <n> name`, or the VRRP description); `name` (that HSRP name, else
+  `<interface>-<PROTOCOL>-<group>`) is for display only and is never written to Nautobot. The VIP gets `/len` when it
+  lies in the interface's own subnet, else stays bare (the write step then only looks it up). A group without a VIP is
+  dropped; authentication lines are never read; IPv6, timers and tracking are not. The IOS-XE `vrrp G address-family`
+  form is not read either, and the step says so in its outcome summary (an interface that has it and no readable
+  group). The same summary names Batfish interfaces that have HSRP group ids but no `HSRP_Details`.
+  The step only builds the data; `update-nautobot-device` and `add-to-nautobot` write it (below).
+- **`get-nautobot-attributes` redundancy groups** (HSRP/VRRP): the `interfaces` group also selects
+  `interface_redundancy_groups { id name description protocol protocol_group_id virtual_ip { id address parent { namespace } } }`
+  and the interface's `interface_redundancy_group_associations { priority interface_redundancy_group { id } }`
+  (`nautobot.interfaces[].interface_redundancy_groups[]`, empty list when none; e.g. `...[0].virtual_ip.address`).
+  The priority belongs to the association, so `attributes_from_detail` copies it onto the matching group and drops the
+  association list: a bag read from Nautobot and written back keeps every priority. The group's `secrets_group` is not
+  selected (nothing reads it, and its name would be stored in the run data). A plain field on every version, so it is
+  in the static query, not a fragment.
 - **`get-nautobot-attributes` cables** (group `cables`, separate from `interfaces`, which carries no cable data):
   the GraphQL selection depends on the Nautobot version (`GET /api/status/`, checked only when `cables` is
   selected): before 3.2 `cable { id type label tags status }` and `connected_endpoint`; from 3.2
@@ -509,6 +528,47 @@ other fields still apply).
   `parsed_list.fixed_values`) is always patched. `new_interface_type.mode`: `none` (default, a
   missing interface is skipped with a warning), `infer` (`infer_interface_type_from_name`) or
   `fixed` (+ `value`, lower-cased). An explicit `type` on the row wins over `type_if_new` on create.
+
+**Redundancy groups (HSRP/VRRP)** — `redundancy_groups: {enabled, name_pattern, status}` on `update-nautobot-device` and `add-to-nautobot` (parsed by `workflow_steps/common/redundancy_groups_config.py`; `add-to-nautobot` writes them after the device and its interfaces exist, through `AddDeviceRequest.redundancy_name_pattern/_status`; default off;
+`interfaces_source: nautobot_origin` only, refused otherwise). The groups come from
+`nautobot.interfaces[].interface_redundancy_groups[]` (built by `config-to-attributes` from a Genie running
+config or Batfish facts, or read by `get-nautobot-attributes`). `interfaces_from_nautobot_bag` cleans them:
+protocol lower-cased and one of `hsrp|vrrp|glbp|carp`, group id as text; an entry without protocol, group id or VIP is
+dropped. Per group it keeps:
+
+- **`virtual_ip.address` as it is.** A bare address is *not* given `default_prefix_length`: a guessed length would be a
+  different IP object (and could create a prefix) and would split peers that inferred different lengths.
+- **`description`** (the device's own text); the entry's `name` is never written back as the description (from Nautobot it
+  is the inventory name, `hsrp-1`).
+- **`namespace`**: the VIP's own (`virtual_ip.parent.namespace.name` from Nautobot) or that of the interface address whose
+  network contains it; unset means `Global`.
+- **`priority`** only when the bag has one (a Nautobot read has it, copied from the association).
+
+`InterfaceRedundancyOps` (`services/nautobot/devices/interface_workflow/redundancy_ops.py`, names in
+`redundancy_naming.py`) runs after the interface and LAG steps and uses two REST endpoints (verified against
+Nautobot 3.2.7):
+
+- `dcim/interface-redundancy-groups/`: **name** and **status** are required (new group: `name_pattern`, `status`
+  default `Active`), plus `protocol`, `protocol_group_id`, `virtual_ip` (an IP address *object*, never assigned to the
+  interface) and `description`.
+- `dcim/interface-redundancy-group-associations/`: **interface**, **group** and **priority** (required). A new association
+  gets the bag's priority, else 100; an existing one is only PATCHed when the bag has a priority that differs, so a bag
+  without priorities never resets stored ones.
+- **The virtual IP** is created through `ensure_ip_address_exists` **inside the same lock as find-or-create** (devices run
+  concurrently; two peers must not both create it), and an "already exists" answer (another worker) is followed by one more
+  look-up. A bare address is only looked up by host in the namespace (`ipam/ip-addresses/?host=`); no match, or more than
+  one, fails that group with a message saying to give it a prefix length.
+- **Reuse before create:** a group is found by `protocol` + `protocol_group_id` + `virtual_ip`, so HSRP peers share one
+  group and a re-run creates nothing. The lock is one per event loop. If Nautobot answers a create with a conflict (another
+  worker), the group is looked up again and used when it is the same group; only when it is just the number that was taken
+  is a new one computed (up to three times).
+- **`name_pattern`** must contain `{next}` once (lowest free positive integer among the existing names that match the
+  pattern, looked up with `name__isw=<text before {next}>`; gaps are filled) and may use `{protocol}` (`hsrp`).
+  Default `hsrp-{next}`; at most 249 characters (the dialog checks this too).
+- A group or association that fails marks the interface failed (the device leaves through `failure`, reason in the
+  warnings). Nothing is deleted, also not with `sync_interfaces` (which, with a bag from `config-to-attributes`, deletes
+  every interface the parser did not emit: do not combine them). Not covered: IPv6 groups, removing a group when the
+  config no longer has it, and a group list longer than about 50,000 names (1000 per page, at most 50 pages) for the counter.
 
 ### IP address steps: `get-next-free-ip`, `add-ip-to-nautobot` and `update-nautobot-ip`
 

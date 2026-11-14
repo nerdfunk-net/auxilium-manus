@@ -294,6 +294,84 @@ def _ip_namespace_name(ip_item: dict[str, Any]) -> str | None:
     return namespace_name(ip_item.get("namespace"))
 
 
+REDUNDANCY_PROTOCOLS = frozenset({"hsrp", "vrrp", "glbp", "carp"})
+
+
+def _containing_namespace(vip: str, ip_addresses: list[dict[str, Any]]) -> str | None:
+    """Namespace of the interface address whose network contains ``vip``, if there is one."""
+    try:
+        vip_ip = ipaddress.ip_address(vip.split("/")[0])
+    except ValueError:
+        return None
+    for entry in ip_addresses:
+        try:
+            network = ipaddress.ip_interface(str(entry.get("address"))).network
+        except ValueError:
+            logger.debug("Ignoring unparsable interface address %r", entry.get("address"))
+            continue
+        if vip_ip in network:
+            namespace = entry.get("namespace")
+            return namespace if isinstance(namespace, str) else None
+    return None
+
+
+def _redundancy_groups_from_bag(
+    raw: Any, ip_addresses: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """Clean an interface's ``interface_redundancy_groups`` for the Nautobot write.
+
+    Accepts what ``config-to-attributes`` builds and what ``get-nautobot-attributes`` reads
+    (``virtual_ip`` as text or ``{"address": ...}``, any protocol case, an int group id). An entry
+    without a known protocol, a group id or a virtual IP cannot be matched in Nautobot and is
+    left out.
+
+    - The virtual IP keeps the length it has. A bare address is **not** given a guessed prefix
+      length: a wrong one would create a different IP object (and possibly a prefix) and split the
+      peers' group; the write step looks the address up or refuses it.
+    - ``description`` is the device's own text (Cisco group name, VRRP description). The ``name``
+      of an entry is never written back as the description: from Nautobot it is the inventory
+      name (``hsrp-1``), not text of the device.
+    - ``namespace`` is the virtual IP's own (from Nautobot) or that of the interface address whose
+      network contains it, else unset (the write step uses ``Global``).
+    - ``priority`` is kept only when the bag has one (a Nautobot read has it per association).
+    """
+    if not isinstance(raw, list):
+        return []
+    groups: list[dict[str, Any]] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        protocol = _lower_text(item.get("protocol"))
+        group_id = item.get("protocol_group_id")
+        group_id = (
+            None
+            if isinstance(group_id, bool)
+            else _strip_empty(str(group_id) if isinstance(group_id, int) else group_id)
+        )
+        vip = item.get("virtual_ip")
+        address = _strip_empty(vip.get("address") if isinstance(vip, dict) else vip)
+        if protocol not in REDUNDANCY_PROTOCOLS or not group_id or not isinstance(address, str):
+            continue
+        group: dict[str, Any] = {
+            "protocol": protocol,
+            "protocol_group_id": str(group_id),
+            "virtual_ip": {"address": address},
+        }
+        namespace = (_ip_namespace_name(vip) if isinstance(vip, dict) else None) or (
+            _containing_namespace(address, ip_addresses)
+        )
+        if namespace:
+            group["namespace"] = namespace
+        description = _strip_empty(item.get("description"))
+        if isinstance(description, str):
+            group["description"] = description
+        priority = item.get("priority")
+        if isinstance(priority, int) and not isinstance(priority, bool):
+            group["priority"] = priority
+        groups.append(group)
+    return groups
+
+
 def interfaces_from_nautobot_bag(
     bag: dict[str, Any] | None, *, default_prefix_length: str
 ) -> list[dict[str, Any]]:
@@ -393,6 +471,12 @@ def interfaces_from_nautobot_bag(
                 addresses.append(entry)
             if addresses:
                 iface["ip_addresses"] = addresses
+
+        redundancy_groups = _redundancy_groups_from_bag(
+            item.get("interface_redundancy_groups"), iface.get("ip_addresses", [])
+        )
+        if redundancy_groups:
+            iface["interface_redundancy_groups"] = redundancy_groups
 
         interfaces.append(iface)
 

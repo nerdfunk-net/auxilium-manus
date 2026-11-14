@@ -1,5 +1,7 @@
 """Default configuration for the update-nautobot-device step."""
 
+from workflow_steps.common.redundancy_groups_config import default_redundancy_groups
+
 
 def get_config() -> dict:
     return {
@@ -20,6 +22,9 @@ def get_config() -> dict:
             # mode none (skip them), infer (guess from the name) or fixed (+ value).
             "new_interface_type": {"mode": "none", "value": ""},
         },
+        # HSRP/VRRP groups of the interfaces (interfaces_source "nautobot_origin" only). A new group
+        # is named by name_pattern; {next} = the lowest free integer, {protocol} = e.g. "hsrp".
+        "redundancy_groups": default_redundancy_groups(),
         "add_prefix": True,
         "default_prefix_length": "/24",
         "sync_interfaces": False,

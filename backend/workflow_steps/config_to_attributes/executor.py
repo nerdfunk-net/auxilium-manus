@@ -30,12 +30,16 @@ from workflow_steps.config_to_attributes.aci_details import (
 )
 from workflow_steps.config_to_attributes.batfish_facts import (
     build_interfaces_from_batfish_facts,
+    interfaces_missing_hsrp_details,
 )
 from workflow_steps.config_to_attributes.catalyst_details import (
     build_device_fields_from_catalyst_details,
     build_interfaces_from_catalyst_details,
 )
 from workflow_steps.config_to_attributes.config import get_config
+from workflow_steps.config_to_attributes.genie_redundancy import (
+    interfaces_with_unsupported_redundancy,
+)
 from workflow_steps.config_to_attributes.genie_running_config import (
     build_interfaces_from_genie_running_config,
 )
@@ -383,6 +387,29 @@ def _build_interfaces_cisco_config_parser(
     return list(interfaces.values())
 
 
+def _redundancy_note(
+    device: DeviceContext, parsed_entry: dict[str, Any], source_format: str
+) -> str | None:
+    """Why this device's HSRP/VRRP configuration could not be turned into groups, if it could not.
+
+    Nothing is written for such an interface; saying so on the step is better than a success that
+    looks complete.
+    """
+    if source_format == "genie":
+        names = interfaces_with_unsupported_redundancy(parsed_entry)
+        if names:
+            return (
+                f"{device.name}: VRRP configuration in the 'address-family' form on "
+                f"{', '.join(names)} is not supported, no redundancy group was built"
+            )
+    elif source_format == "batfish":
+        names = interfaces_missing_hsrp_details(parsed_entry)
+        if names:
+            reason = str(parsed_entry.get("HSRP_Details_Error") or "no HSRP details in the facts")
+            return f"{device.name}: HSRP groups on {', '.join(names)} were not built ({reason})"
+    return None
+
+
 def _parsed_location(parsed_key: str, config_source: str, source_format: str) -> str:
     """Where the upstream data is: fact formats use ``<key>.<fact>``, not ``running``."""
     if source_format in _FACT_DICT_FORMATS:
@@ -513,6 +540,7 @@ async def execute(
     failed_devices: dict[str, DeviceContext] = {}
     no_data_devices: list[str] = []
     devices_with_data = 0
+    redundancy_notes: list[str] = []
     interfaces_written = 0
     primary_ipv4_failures = 0
 
@@ -543,6 +571,10 @@ async def execute(
 
         devices_with_data += 1
         interfaces_written += len(interfaces)
+        if "interfaces" in attributes:
+            note = _redundancy_note(device, parsed_entry, source_format)
+            if note:
+                redundancy_notes.append(note)
 
         primary_ok, failure_message = True, ""
         if interfaces:
@@ -620,6 +652,7 @@ async def execute(
         StepOutcome(
             name="success",
             context=context.model_copy(update={"devices": success_devices}),
+            summary="; ".join(redundancy_notes) or None,
         )
     ]
     if failed_devices:

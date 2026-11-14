@@ -133,6 +133,28 @@ _DEVICE_FIELDS = """
         name
         vid
       }
+      interface_redundancy_groups {
+        id
+        name
+        description
+        protocol
+        protocol_group_id
+        virtual_ip {
+          id
+          address
+          parent {
+            namespace {
+              name
+            }
+          }
+        }
+      }
+      interface_redundancy_group_associations {
+        priority
+        interface_redundancy_group {
+          id
+        }
+      }
     }
     console_ports @include(if: $get_console_port) {
       id
@@ -338,4 +360,40 @@ def attributes_from_detail(detail: dict[str, Any]) -> dict[str, Any]:
     custom_fields = attributes.pop("_custom_field_data", None)
     if custom_fields is not None:
         attributes["custom_fields"] = custom_fields
+    if isinstance(attributes.get("interfaces"), list):
+        attributes["interfaces"] = [
+            _with_association_priorities(item) for item in attributes["interfaces"]
+        ]
     return attributes
+
+
+def _with_association_priorities(interface: Any) -> Any:
+    """Move each association's priority onto the matching redundancy group.
+
+    The priority belongs to the interface's association with the group, not to the group, so
+    Nautobot returns it next to the groups. The bag carries it on the group (where the write
+    steps read it) and drops the association list. The secrets group of a redundancy group is
+    deliberately not fetched: nothing reads it, and its name would end up in the run data.
+    """
+    if (
+        not isinstance(interface, dict)
+        or "interface_redundancy_group_associations" not in interface
+    ):
+        return interface
+    priorities: dict[str, Any] = {}
+    for association in interface["interface_redundancy_group_associations"] or []:
+        group = (
+            association.get("interface_redundancy_group") if isinstance(association, dict) else None
+        )
+        if isinstance(group, dict) and group.get("id") is not None:
+            priorities[str(group["id"])] = association.get("priority")
+    cleaned = {k: v for k, v in interface.items() if k != "interface_redundancy_group_associations"}
+    groups = cleaned.get("interface_redundancy_groups")
+    if isinstance(groups, list):
+        cleaned["interface_redundancy_groups"] = [
+            {**group, "priority": priorities[str(group["id"])]}
+            if isinstance(group, dict) and str(group.get("id")) in priorities
+            else group
+            for group in groups
+        ]
+    return cleaned

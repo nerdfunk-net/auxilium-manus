@@ -170,6 +170,14 @@ class AddDeviceRequest(BaseModel):
         default="/24", description="Default prefix length for bare IP addresses"
     )
 
+    redundancy_name_pattern: str | None = Field(
+        None,
+        description="Name schema of a new HSRP/VRRP group (e.g. hsrp-{next}); None = groups off",
+    )
+    redundancy_group_status: str = Field(
+        default="Active", description="Nautobot status of a new redundancy group"
+    )
+
     virtual_chassis_id: str | None = Field(
         None, description="Existing virtual chassis UUID to join"
     )

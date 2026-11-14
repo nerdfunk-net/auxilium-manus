@@ -1,5 +1,7 @@
 """Default configuration for the add-to-nautobot step."""
 
+from workflow_steps.common.redundancy_groups_config import default_redundancy_groups
+
 
 def get_config() -> dict:
     return {
@@ -21,6 +23,8 @@ def get_config() -> dict:
         "custom_fields_source": "manual",
         "interfaces": [],
         "interfaces_source": "manual",
+        # HSRP/VRRP groups of the interfaces (interfaces_source "nautobot_origin" only).
+        "redundancy_groups": default_redundancy_groups(),
         "add_prefix": True,
         "default_prefix_length": "/24",
         "virtual_chassis": {"mode": "none", "id": "", "name": ""},

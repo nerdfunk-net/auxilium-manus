@@ -183,6 +183,32 @@ export function AddToNautobotHelpPanel() {
         </HelpExample>
       </HelpSection>
 
+      <HelpSection title="Redundancy groups (HSRP / VRRP)">
+        <p>
+          With <HelpCode>All from Nautobot origin</HelpCode>, switch on{" "}
+          <HelpCode>redundancy_groups</HelpCode> to also create the HSRP groups of the interfaces
+          (<HelpCode>interface_redundancy_groups</HelpCode> in the bag, built by Config to
+          Attributes from a Genie running config or from Batfish facts) once the device and its
+          interfaces exist. VRRP is written only as legacy <HelpCode>vrrp &lt;n&gt; ip</HelpCode>{" "}
+          lines from a Genie running config.
+        </p>
+        <ul className="list-disc space-y-1 pl-4">
+          <li>
+            A group is found by protocol, group id and virtual IP and reused (an HSRP peer already
+            created it); only this interface is added, with its priority (default 100).
+          </li>
+          <li>
+            A new group is named by the schema: <HelpCode>{"hsrp-{next}"}</HelpCode> gives{" "}
+            <HelpCode>hsrp-1</HelpCode>, <HelpCode>hsrp-2</HelpCode>, … (the lowest free number).
+            The virtual IP is created as an IP address but not assigned to the interface.
+          </li>
+          <li>
+            If a group cannot be written, the device leaves through the failure outcome (it exists
+            in Nautobot, with its id kept) and the reason is in its warnings.
+          </li>
+        </ul>
+      </HelpSection>
+
       <HelpSection title="Refresh attributes after create">
         <p>
           On by default. After creating the device, merges its real Nautobot UUID and resolved

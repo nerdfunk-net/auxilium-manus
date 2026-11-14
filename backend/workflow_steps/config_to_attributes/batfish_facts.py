@@ -19,6 +19,7 @@ from __future__ import annotations
 from typing import Any
 
 from workflow_steps.common.nautobot_interfaces import infer_interface_type_from_name
+from workflow_steps.config_to_attributes.genie_redundancy import vip_with_prefix
 
 
 def _build_ip_addresses(iface: dict[str, Any]) -> list[dict[str, Any]]:
@@ -46,6 +47,40 @@ def _build_ip_addresses(iface: dict[str, Any]) -> list[dict[str, Any]]:
             entry["ip_role"] = "secondary"
         ip_addresses.append(entry)
     return ip_addresses
+
+
+def _build_redundancy_groups(
+    iface: dict[str, Any], ip_addresses: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """HSRP groups from ``HSRP_Details`` (added by batfish-extract-facts from hsrpProperties).
+
+    Batfish has no group name (``standby <n> name`` is a parse warning), so none is set; the
+    Nautobot name comes from the name schema of the write step. Only the first virtual address
+    of a group is the group's virtual IP. A group without one is dropped.
+    """
+    raw = iface.get("HSRP_Details")
+    if not isinstance(raw, list):
+        return []
+    cidrs = [str(item["address"]) for item in ip_addresses]
+    groups: list[dict[str, Any]] = []
+    for item in raw:
+        if not isinstance(item, dict) or item.get("Group_Id") in (None, ""):
+            continue
+        addresses = item.get("Virtual_Addresses")
+        vip = str(addresses[0]).strip() if isinstance(addresses, list) and addresses else ""
+        if not vip:
+            continue
+        group: dict[str, Any] = {
+            "protocol": "HSRP",
+            "protocol_group_id": str(item["Group_Id"]),
+            "virtual_ip": {"address": vip_with_prefix(vip, cidrs)},
+            "preempt": item.get("Preempt") is True,
+        }
+        priority = item.get("Priority")
+        if isinstance(priority, int) and not isinstance(priority, bool):
+            group["priority"] = priority
+        groups.append(group)
+    return groups
 
 
 def _build_interface(name: str, iface: dict[str, Any]) -> dict[str, Any] | None:
@@ -86,7 +121,27 @@ def _build_interface(name: str, iface: dict[str, Any]) -> dict[str, Any] | None:
     if ip_addresses:
         built["ip_addresses"] = ip_addresses
 
+    redundancy_groups = _build_redundancy_groups(iface, ip_addresses)
+    if redundancy_groups:
+        built["interface_redundancy_groups"] = redundancy_groups
+
     return built
+
+
+def interfaces_missing_hsrp_details(node_facts: dict[str, Any]) -> list[str]:
+    """Interfaces that have HSRP group ids but no ``HSRP_Details`` (so no group can be built).
+
+    Happens when ``hsrpProperties`` failed in the Extract Facts step, or when the facts come from
+    an older Extract Facts that did not ask for it.
+    """
+    interfaces = node_facts.get("Interfaces") if isinstance(node_facts, dict) else None
+    if not isinstance(interfaces, dict):
+        return []
+    return [
+        str(name)
+        for name, iface in interfaces.items()
+        if isinstance(iface, dict) and iface.get("HSRP_Groups") and not iface.get("HSRP_Details")
+    ]
 
 
 def build_interfaces_from_batfish_facts(

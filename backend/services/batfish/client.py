@@ -255,6 +255,15 @@ class BatfishService:
             connection, batfish_network, snapshot, "interfaceProperties", params
         )
 
+    async def hsrp_properties(
+        self, connection: BatfishConnection, *, batfish_network: str, snapshot: str, **params: Any
+    ) -> list[dict[str, Any]]:
+        # One row per HSRP group: Interface (identity at row["Interface"]["hostname"] /
+        # ["interface"], like interfaceProperties), Group_Id, Virtual_Addresses, Source_Address,
+        # Priority, Preempt, Active. interfaceProperties lists only the group ids
+        # (HSRP_Groups), so the virtual IP has to come from here.
+        return await self._answer(connection, batfish_network, snapshot, "hsrpProperties", params)
+
     async def ospf_process_configuration(
         self, connection: BatfishConnection, *, batfish_network: str, snapshot: str, **params: Any
     ) -> list[dict[str, Any]]:

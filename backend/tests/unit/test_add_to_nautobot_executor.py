@@ -854,5 +854,86 @@ class AddToNautobotExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(failed.errors[-1].code, "nautobotapierror")
 
 
+class RedundancyGroupsTests(unittest.IsolatedAsyncioTestCase):
+    _OK = {
+        "success": True,
+        "dry_run": False,
+        "device_id": "nb-1",
+        "device_name": "r1",
+        "device": {"id": "nb-1"},
+        "interfaces_created": 1,
+        "interfaces_failed": 0,
+        "warnings": [],
+        "errors": [],
+    }
+    _BAG = {
+        "interfaces": [
+            {
+                "name": "Vlan200",
+                "interface_redundancy_groups": [
+                    {
+                        "protocol": "HSRP",
+                        "protocol_group_id": "0",
+                        "virtual_ip": {"address": "192.168.180.100/24"},
+                        "priority": 110,
+                    }
+                ],
+            }
+        ]
+    }
+
+    async def _run(self, config: dict) -> AsyncMock:
+        create_device = AsyncMock(return_value=self._OK)
+        p1, p2, p3, p4, p5 = _patches(
+            setting=_setting(), creation_service_instance=_creation_service(create_device)
+        )
+        with p1, p2, p3, p4, p5:
+            await execute(
+                config=config,
+                context=_context({"d": _device("d", name="r1", nautobot_bag=self._BAG)}),
+                run=_run(),
+                artifact_service=MagicMock(),
+                node_id="node-1",
+                device_sessions=MagicMock(),
+            )
+        return create_device
+
+    async def test_off_by_default(self) -> None:
+        create = await self._run({**_BASE_CONFIG, "interfaces_source": "nautobot_origin"})
+        request = create.await_args.args[0]
+        self.assertIsNone(request.redundancy_name_pattern)
+
+    async def test_enabled_reaches_the_request_with_the_groups(self) -> None:
+        config = {
+            **_BASE_CONFIG,
+            "interfaces_source": "nautobot_origin",
+            "redundancy_groups": {
+                "enabled": True,
+                "name_pattern": "grp-{next}",
+                "status": "Planned",
+            },
+        }
+        request = (await self._run(config)).await_args.args[0]
+        self.assertEqual(request.redundancy_name_pattern, "grp-{next}")
+        self.assertEqual(request.redundancy_group_status, "Planned")
+        group = request.interfaces[0]["interface_redundancy_groups"][0]
+        self.assertEqual(group["protocol"], "hsrp")
+        self.assertEqual(group["virtual_ip"], {"address": "192.168.180.100/24"})
+
+    async def test_enabled_with_manual_source_is_refused(self) -> None:
+        config = {**_BASE_CONFIG, "redundancy_groups": {"enabled": True}}
+        with self.assertRaisesRegex(ValueError, "nautobot_origin"):
+            await self._run(config)
+
+    async def test_bad_pattern_is_refused(self) -> None:
+        config = {
+            **_BASE_CONFIG,
+            "interfaces_source": "nautobot_origin",
+            "redundancy_groups": {"enabled": True, "name_pattern": "nope"},
+        }
+        with self.assertRaisesRegex(ValueError, r"\{next\}"):
+            await self._run(config)
+
+
 if __name__ == "__main__":
     unittest.main()

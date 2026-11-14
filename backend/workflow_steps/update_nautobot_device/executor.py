@@ -34,6 +34,10 @@ from workflow_steps.common.nautobot_interfaces import (
 )
 from workflow_steps.common.nautobot_resolve import resolve_nautobot_device_id
 from workflow_steps.common.nautobot_source import resolve_nautobot_credentials
+from workflow_steps.common.redundancy_groups_config import (
+    DEFAULT_REDUNDANCY_STATUS,
+    parse_redundancy_groups,
+)
 from workflow_steps.common.step_flags import parse_bool_flag
 from workflow_steps.common.update_field_expression import (
     build_resolved_update_data,
@@ -81,6 +85,9 @@ class _ParsedConfig:
     parsed_list_fixed_values: dict[str, str] | None = None
     parsed_list_new_type_mode: str = "none"
     parsed_list_new_type_value: str = ""
+    # None = redundancy groups are not written; otherwise the name schema, e.g. "hsrp-{next}".
+    redundancy_name_pattern: str | None = None
+    redundancy_group_status: str = DEFAULT_REDUNDANCY_STATUS
 
 
 def _strip_empty(value: Any) -> Any:
@@ -234,6 +241,10 @@ def _parse_config(config: dict[str, Any]) -> _ParsedConfig:
             new_type_value,
         ) = _parse_parsed_list(config)
 
+    redundancy_name_pattern, redundancy_group_status = parse_redundancy_groups(
+        config, step_id=_STEP_ID, interfaces_source=interfaces_source
+    )
+
     has_interfaces = interfaces_source in {"nautobot_origin", "parsed_list"} or bool(
         manual_interfaces
     )
@@ -257,6 +268,8 @@ def _parse_config(config: dict[str, Any]) -> _ParsedConfig:
         parsed_list_fixed_values=parsed_list_fixed_values,
         parsed_list_new_type_mode=new_type_mode,
         parsed_list_new_type_value=new_type_value,
+        redundancy_name_pattern=redundancy_name_pattern,
+        redundancy_group_status=redundancy_group_status,
     )
 
 
@@ -463,6 +476,8 @@ async def _update_one_device(
             default_prefix_length=parsed.default_prefix_length,
             sync_interfaces=parsed.sync_interfaces,
             device_location_id=device_location_id,
+            redundancy_name_pattern=parsed.redundancy_name_pattern,
+            redundancy_group_status=parsed.redundancy_group_status,
         )
         if int(result.get("interfaces_failed") or 0) > 0:
             raise RuntimeError(

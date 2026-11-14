@@ -36,6 +36,7 @@ from models.workflow_context import (
 )
 from services.artifacts import ArtifactService
 from workflow_steps.batfish_extract_facts.config import get_config
+from workflow_steps.batfish_extract_facts.hsrp import mark_hsrp_error, merge_hsrp_into_facts
 from workflow_steps.common.batfish_context import resolve_batfish_snapshot_ref
 
 if TYPE_CHECKING:
@@ -64,6 +65,29 @@ def _default_nodes_filter(context: WorkflowContext) -> str:
         {device.name.strip().lower() for device in context.devices.values() if device.name.strip()}
     )
     return ",".join(names) if names else "/.*/"
+
+
+async def _with_hsrp_groups(
+    facts: dict[str, Any], batfish: Any, snap: Any, nodes_filter: str
+) -> tuple[dict[str, Any], str | None]:
+    """Add ``Interfaces.<name>.HSRP_Details`` (virtual IP, priority, preempt) to the facts.
+
+    interfaceProperties only has the group ids. A failing question must not fail the step (the
+    other facts are fine), but it must not pass unnoticed either: the nodes that have HSRP groups
+    get ``HSRP_Details_Error`` and the message is returned for the outcome summary.
+    """
+    try:
+        rows = await batfish.hsrp_properties(
+            snap.connection,
+            batfish_network=snap.network,
+            snapshot=snap.snapshot,
+            nodes=nodes_filter,
+        )
+    except Exception as exc:
+        logger.warning("%s: hsrpProperties failed, HSRP groups not added: %s", _STEP_ID, exc)
+        message = f"hsrpProperties failed: {exc}"
+        return mark_hsrp_error(facts, message), message
+    return merge_hsrp_into_facts(facts, rows), None
 
 
 async def execute(
@@ -107,6 +131,7 @@ async def execute(
         nodes=nodes_filter,
         snapshot=snap.snapshot,
     )
+    facts, hsrp_error = await _with_hsrp_groups(facts, batfish, snap, nodes_filter)
     raw_node_facts = facts.get("nodes") if isinstance(facts, dict) else None
     node_facts: dict[str, Any] = raw_node_facts if isinstance(raw_node_facts, dict) else {}
 
@@ -157,6 +182,8 @@ async def execute(
         "artifact_ref": artifact_ref.model_dump(mode="json"),
         "row_count": len(node_facts),
     }
+    if hsrp_error:
+        metadata[f"{node_id}.{output_key}"]["warnings"] = [f"HSRP groups not added: {hsrp_error}"]
 
     logger.info("%s finished run_id=%s nodes_extracted=%d", _STEP_ID, run.id, len(node_facts))
 
@@ -164,7 +191,8 @@ async def execute(
         StepOutcome(
             name="success",
             context=context.model_copy(update={"devices": found, "metadata": metadata}),
-            summary=f"Extracted facts for {len(node_facts)} node(s)",
+            summary=f"Extracted facts for {len(node_facts)} node(s)"
+            + (f"; HSRP groups not added: {hsrp_error}" if hsrp_error else ""),
         )
     ]
     if missing:
