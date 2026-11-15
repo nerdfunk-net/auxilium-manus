@@ -274,3 +274,4 @@ agent/*/state/
 
 # do not add joe backups
 *~
+agent/ping-range/airgap-artifacts/

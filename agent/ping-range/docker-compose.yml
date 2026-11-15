@@ -1,0 +1,66 @@
+# Run the ping agent (agent/ping-range/, doc/AGENT_INTEGRATION.md) next to the application.
+#
+# This file lives here and not under docker/ on purpose: fping needs raw sockets, and every
+# compose file under docker/ must drop NET_RAW (backend/tests/unit/test_compose_networks.py).
+# The agent gets exactly that one capability back and nothing else.
+#
+# Run it on the application's Docker host, from this directory, after copying .env.example to .env:
+#
+#   docker compose up -d --build
+#
+# Reaching the agent: the port is published on the Docker host (MANUS_AGENT_HTTP_PORT, default 6667),
+# bound to 127.0.0.1 by default, so an application running outside Docker uses
+# http://127.0.0.1:6667 as the agent URL (that needs ALLOW_LOOPBACK_SOURCE_URLS=true in the
+# backend's development setup, since loopback source URLs are refused otherwise). Set
+# MANUS_AGENT_BIND to the host's LAN address (or 0.0.0.0) for an app on another machine; the
+# payload is encrypted, but put TLS in front of it if the path is not private.
+# The container uses this project's default network, which routes out to the pinged addresses and
+# the DNS server. If the app runs in Docker too, attach the "data" network instead (see the
+# commented block at the bottom) and use http://manus-ping-agent:<port> without publishing.
+#
+# Reverse DNS uses the container's resolver (Docker's, which forwards to the host's). To use
+# another server, uncomment "dns".
+# On Docker Desktop (macOS/Windows) the container sits behind NAT: pinging your LAN works, but a
+# scan only reflects what answers through that NAT. Run the agent on a Linux host for real scans.
+
+services:
+  manus-ping-agent:
+    build:
+      context: .
+      args:
+        HTTP_PROXY: "${HTTP_PROXY:-}"
+        HTTPS_PROXY: "${HTTPS_PROXY:-}"
+    image: manus-agent-ping:latest
+    container_name: manus-ping-agent
+    restart: unless-stopped
+    environment:
+      MANUS_AGENT_ID: "${MANUS_AGENT_ID:-ping-agent}"
+      # At least 32 characters: openssl rand -base64 32
+      MANUS_AGENT_SECRET: "${MANUS_AGENT_SECRET:?MANUS_AGENT_SECRET is required (openssl rand -base64 32)}"
+      MANUS_AGENT_HTTP_PORT: "${MANUS_AGENT_HTTP_PORT:-6667}"
+      # Redis transport instead of (or besides) HTTP: add the agent's user to docker/redis/agents.acl, then
+      #MANUS_AGENT_REDIS_URL: "redis://agent-${MANUS_AGENT_ID:-ping-agent}:${MANUS_AGENT_REDIS_PASSWORD}@manus-redis:6379/0"
+      MANUS_AGENT_PING_MAX_HOSTS: "${MANUS_AGENT_PING_MAX_HOSTS:-4096}"
+      MANUS_AGENT_PING_ALLOWED_NETWORKS: "${MANUS_AGENT_PING_ALLOWED_NETWORKS:-}"
+    #dns:
+    #  - 10.0.0.53
+    read_only: true
+    # NET_RAW is the one capability fping needs (ICMP). Everything else is dropped.
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_RAW
+    # No "no-new-privileges" here, deliberately: the agent runs as an unprivileged user and fping
+    # gets its raw-socket right from a file capability, which that option switches off (fping then
+    # reports 100 % loss for every host without any error; the agent detects this and says so).
+    pids_limit: 256
+    mem_limit: 256m
+    ports:
+      - "${MANUS_AGENT_BIND:-127.0.0.1}:${MANUS_AGENT_HTTP_PORT:-6667}:${MANUS_AGENT_HTTP_PORT:-6667}"
+    # App in Docker as well: replace "ports" with these networks ("data" is internal, so "egress" is
+    # needed for the route to the pinged addresses; names come from docker/docker-compose.yml):
+    #networks: [data, egress]
+    #
+    #networks:
+    #  data: {external: true, name: docker_data}
+    #  egress: {external: true, name: docker_egress}

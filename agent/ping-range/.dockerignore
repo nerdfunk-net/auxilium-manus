@@ -1,0 +1,7 @@
+tests
+.env
+**/__pycache__
+.pytest_cache
+airgap-artifacts
+docker-compose.yml
+prepare-agent-image.sh

@@ -151,7 +151,7 @@ export default function MyFeatureRoute() {
 - `/backend/core/vault.py`, `/backend/services/vault/` — OpenBao client; `/backend/services/secret_manager/` — Secret Manager connections
 - `/backend/core/dev_tools.py` — `ENABLE_DEV_TOOLS` gate
 - `/libs/nautobot_read/` — shared read-only Nautobot queries (DCIM/IPAM, vocabularies, paging), used by `mcp/nautobot/` and the Ask the Net tools (`services/ai_assistant/tools/nautobot_tools.py`); install (from `backend/`): `pip install -e ../libs/nautobot_read --config-settings editable_mode=compat`; `doc/AI_TOOL_CHAIN.md` §31
-- `/backend/services/agents/` — app ↔ agent envelope, transports, client; `/agent/<name>/` — standalone agents (`example-agent` = reference agent, `get-ip-addresses`), each an independent copy
+- `/backend/services/agents/` — app ↔ agent envelope, transports, client; `/agent/<name>/` — standalone agents (`example-agent` = reference agent, `ping-range` = fping range scan (needs `NET_RAW`), `get-ip-addresses`), each an independent copy
 
 **Frontend Core:**
 - `/frontend/src/lib/auth-store.ts` — Zustand auth state

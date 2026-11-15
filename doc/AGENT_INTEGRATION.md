@@ -9,7 +9,7 @@ Use it when the logic is too complex for expressions, filters or Jinja: for exam
 Nautobot attributes of a device and derive a location name from a naming convention.
 
 Read this file before changing anything under `backend/services/agents/`,
-`backend/workflow_steps/route_to_agent/`, `backend/routers/sources/agent/`, `agent/` (each agent is an independent directory: `example-agent`, `get-ip-addresses`) or
+`backend/workflow_steps/route_to_agent/`, `backend/routers/sources/agent/`, `agent/` (each agent is an independent directory: `example-agent`, `get-ip-addresses`, `ping-range`) or
 `docker/redis/`. The operator-facing guide for writing handlers is `agent/example-agent/README.md`.
 
 ## Contents
@@ -320,6 +320,33 @@ when the device has none) and `problems` for that device only; an unknown device
   `device_grouping.py` and `csv_device_reader.py`, limited to names, interfaces and the primary flag. A change to the
   primary-IP rules there should be mirrored in the agent.
 
+### `agent/ping-range`
+
+Pings an IPv4 range with `fping` and answers per host: `reachable`, `rtt_ms`, `loss_percent` and, with
+`resolve_dns`, the reverse-DNS `hostname` (`agent/ping-range/README.md`). Independent copy of the example agent plus the
+handler `ping_range`; it ships its own Dockerfile (fping from apt) and `docker-compose.yml`.
+
+- The range is **input data**, not a param: the step sends it from an attribute path (`input_paths`; the only path sent is used, with
+  several `params.range_attribute` names it). The step calls once per device, so one device is one scan.
+- Options in `params`: `resolve_dns`, `count`, `timeout_ms`, `include_unreachable`, `dns_timeout_seconds`. Output keys:
+  `hosts`, `total`, `reachable`, `truncated`. `hosts` lists reachable hosts only (unless `include_unreachable`) and is cut
+  at ~60 KB (`truncated: true`) so it stays under `STEP_OUTPUT_VALUE_MAX_BYTES`.
+- The **agent operator** bounds it: `MANUS_AGENT_PING_MAX_HOSTS` (default 4096) and `MANUS_AGENT_PING_ALLOWED_NETWORKS`
+  (default: the three RFC 1918 networks only; public space needs an explicit entry such as `0.0.0.0/0`; loopback,
+  link-local, multicast and reserved ranges are never pinged). Both are validated at start (a bad value exits with code 3).
+  Hosts go to fping on stdin; nothing from the request reaches a shell or the argument list.
+- **Needs `NET_RAW`.** The compose file is in `agent/ping-range/`, not `docker/`, because every compose file under `docker/` must
+  drop `NET_RAW` (`test_compose_networks.py`). Never add `no-new-privileges` there: it disables fping's file capability and fping
+  then reports 100 % loss without an error (the handler detects it with a 127.0.0.1 probe and fails with a clear message).
+  The compose file publishes the HTTP port on the host (`MANUS_AGENT_HTTP_PORT`, default 6667, bound to 127.0.0.1) and uses the
+  default network, which routes out; if the app runs in Docker, attach `data` **and** `egress` (`data` is internal, no route to
+  the pinged addresses or DNS).
+- Time is about `count x max(addresses x 10 ms, timeout_ms)` plus `timeout_ms` (fping runs with `-p timeout_ms`); reverse DNS
+  shares one 15 s budget per scan on one process-wide pool of 32 threads. Raise the agent source's max timeout and the step's
+  `timeout_seconds` for big ranges.
+- Verified: unit suites, and a built image called over the real encrypted HTTP protocol (loopback, a Docker bridge range,
+  oversized range refused, the `no-new-privileges` failure). Not yet verified: a real LAN scan on a Linux host and the Redis transport.
+
 ## Failures and what they mean
 
 Per-device failures are `DeviceError`s with a `FailureInfo` (phase `agent`) and a `code`:
@@ -399,6 +426,6 @@ The kinds are part of the closed vocabulary in `backend/models/failure.py`
 | Failure vocabulary | `backend/models/failure.py` |
 | Permissions | `backend/services/auth/rbac_seed.py` (`sources.agent`) |
 | Frontend | `frontend/src/components/features/workflow-steps/route-to-agent/`, `frontend/src/components/features/settings/dialogs/agent-source-dialog.tsx`, `…/settings/components/agent-status-panel.tsx`, `…/settings/utils/agent-redis-acl.ts`, `frontend/src/hooks/queries/use-agent-sources-*.ts` |
-| Agent | `agent/example-agent/`, `agent/get-ip-addresses/` |
+| Agent | `agent/example-agent/`, `agent/get-ip-addresses/`, `agent/ping-range/` |
 | Redis ACL / compose | `docker/redis/`, `docker/docker-compose.yml` (`manus-redis`), `docker/docker-compose.agent.example.yml` |
 | Tests | `backend/tests/unit/test_agent_*.py`, `test_route_to_agent_*.py` (incl. `test_agent_interop.py`, `test_agent_envelope_sync.py`), `agent/*/tests/`, frontend `route-to-agent/*.test.*`, `agent-source-dialog.test.tsx` |
