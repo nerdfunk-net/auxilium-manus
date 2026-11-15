@@ -455,7 +455,7 @@ def test_every_shipped_playbook_is_valid_for_the_general_surface() -> None:
     assert all(p.source == "builtin" and p.data_class == "A" for p in result.playbooks)
 
 
-def test_where_is_this_host_playbook_orders_nautobot_client_data_then_aci() -> None:
+def test_where_is_this_host_playbook_orders_client_data_nautobot_batfish_aci_dns() -> None:
     from services.ai_assistant.tools.playbook_tools import known_general_tool_names
 
     result = pb.load_playbooks(
@@ -463,17 +463,27 @@ def test_where_is_this_host_playbook_orders_nautobot_client_data_then_aci() -> N
     )
     (playbook,) = [p for p in result.playbooks if p.name == "where-is-this-host"]
 
-    assert {"find_client", "get_client_data_coverage", "find_aci_endpoint"} <= set(playbook.tools)
+    assert {
+        "find_client",
+        "get_client_data_coverage",
+        "list_ip_addresses",
+        "get_ip_owners",
+        "find_aci_endpoint",
+        "get_dns_lookup",
+    } <= set(playbook.tools)
     body = " ".join(playbook.body.split())  # line breaks do not matter for the wording
-    # The order is the point: documented, then stored observations, then coverage, then ACI.
+    # The order is the point: stored observations (and their coverage), then Nautobot, then
+    # Batfish, then ACI, then DNS last.
     steps = body[body.index("## Steps") : body.index("## Decision points")]
     positions = [
         steps.index(tool)
         for tool in (
-            "list_ip_addresses",
             "find_client",
             "get_client_data_coverage",
+            "list_ip_addresses",
+            "get_ip_owners",
             "find_aci_endpoint",
+            "get_dns_lookup",
         )
     ]
     assert positions == sorted(positions)
@@ -488,13 +498,15 @@ def test_where_is_this_host_playbook_orders_nautobot_client_data_then_aci() -> N
     assert "find the ip address" in playbook.when.lower()
     assert "not configured on any device" in body
     assert "Batfish" in body and "Nautobot" in body
-    assert "network device" in body and "not in the model" in body
+    assert "end hosts" in body and "not in the model" in body
     assert "report both sources" in body
     assert '"Find the IP address X" is not finished by' in body
-    assert "Always call `find_client` too" in body
-    # With client data and ACI both configured, one call asks both sources.
-    assert "find_host" in playbook.tools
-    assert "If `find_host` is offered" in body
+    # The merged playbook also answers "all information about the IP address X" in one table.
+    assert "all information about the ip address" in playbook.when.lower()
+    assert "| Source | Result | Age / basis |" in body
+    # ACI is asked after Nautobot and Batfish, so one find_host call (client data and ACI
+    # together) is deliberately not part of it.
+    assert "find_host" not in body
 
 
 # -- review findings ---------------------------------------------------------------------------

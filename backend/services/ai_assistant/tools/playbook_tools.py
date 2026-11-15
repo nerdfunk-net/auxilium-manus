@@ -191,7 +191,8 @@ _LIST_DESCRIPTION = (
     "List the playbooks: reviewed step-by-step recipes for troubleshooting questions (for example "
     "'a destination is not reachable'). Each entry has name, title, when it applies, the tools it "
     "uses and which of those this user does not have. Call it first for a troubleshooting "
-    "request, then get_playbook for the one that matches."
+    "request, then get_playbook for the one that matches. Also call it when the user asks which "
+    "playbooks exist or what questions you can answer with them."
 )
 _GET_DESCRIPTION = (
     "Read one playbook by name and follow its steps in order. It is guidance, not data from the "

@@ -82,3 +82,34 @@ describe("Ask the Net help: feature learn", () => {
     expect(learn?.requirement).toMatch(/IOS-XE/);
   });
 });
+
+describe("Ask the Net help: playbooks", () => {
+  it("lists the playbooks first, because most users start there", () => {
+    expect(HELP_SECTIONS[0]?.id).toBe("playbooks");
+  });
+
+  it("says playbooks gather facts and are not only for troubleshooting", () => {
+    const summary = HELP_SECTIONS[0]?.summary ?? "";
+
+    expect(summary).toMatch(/not only for troubleshooting/i);
+    expect(summary).toMatch(/gather facts/i);
+  });
+
+  it("explains list_playbooks with a question that uses it", () => {
+    const list = byName("list_playbooks");
+
+    expect(list?.section).toBe("playbooks");
+    expect(list?.questions.some((q) => /playbooks/i.test(q))).toBe(true);
+  });
+
+  it("has the live check and the IP address playbooks with their questions", () => {
+    expect(byName("live-check-of-a-device")?.questions).toContain(
+      "Do a live check of LAB.local.zz",
+    );
+    expect(
+      byName("where-is-this-host")?.questions.some((q) =>
+        q.includes("192.168.180.2"),
+      ),
+    ).toBe(true);
+  });
+});

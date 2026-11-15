@@ -21,6 +21,106 @@ export interface HelpSection {
  */
 export const HELP_SECTIONS: readonly HelpSection[] = [
   {
+    id: "playbooks",
+    title: "Playbooks",
+    summary:
+      "Ready-made procedures that gather facts from the network in a fixed, reviewed order and sum them up in one table. They are not only for troubleshooting: use them to check a device, get an overview, find a host or read a configuration. Ask the question in your own words and the assistant picks the matching playbook; it names the playbook it used. Your organisation can add its own playbooks.",
+    requirement:
+      "Each playbook uses the tools of the sections below, so what you may ask follows your permissions. The list shows which tools you lack for a playbook. Playbooks that run commands on a device need a confirmation on the card, as described under Device commands.",
+    tools: [
+      {
+        name: "list_playbooks / get_playbook",
+        description:
+          "Lists every playbook with the questions it answers and the tools it needs, and loads the one that fits your question.",
+        questions: [
+          "Which playbooks do you have and what can you answer with them?",
+          "Which playbooks can I not use because a tool is missing?",
+        ],
+      },
+      {
+        name: "live-check-of-a-device (playbook)",
+        description:
+          "Checks a device live with read-only show commands: version, interfaces, NTP, TACACS, routing protocols, routing table and spanning tree. A deep check adds the access lists and the last log lines. You confirm each card with your SSH login. The result is one table with a status per check.",
+        questions: [
+          "Do a live check of LAB.local.zz",
+          "Check the device LAB.local.zz",
+          "Do a deep check of LAB.local.zz including the access lists and the logging.",
+        ],
+      },
+      {
+        name: "overview-of-a-device (playbook)",
+        description:
+          "Sums up one device from Nautobot (what is documented) and Batfish (what the configuration says, with the snapshot age): role, location, interfaces, routes, management servers. Nothing is run on the device.",
+        questions: [
+          "Give me an overview of LAB.local.zz",
+          "Tell me about LAB.local.zz",
+        ],
+      },
+      {
+        name: "where-is-this-host (playbook)",
+        description:
+          "Everything we know about an IP address, MAC address or host name, asked in a fixed order: client data (where it was seen), Nautobot, Batfish, ACI and DNS. One table shows what each source says and how old it is.",
+        questions: [
+          "Show me all informations about the IP address 192.168.180.2",
+          "What data do you have from 192.168.180.2",
+          "Where is the MAC address AA:BB:CC:00:01:00?",
+        ],
+      },
+      {
+        name: "neighbors-of-a-device (playbook)",
+        description:
+          "What a device is connected to: CDP and LLDP neighbours (layer 2) and routing neighbours (layer 3), compared with Nautobot cabling and the Batfish model.",
+        questions: [
+          "What is core1 connected to?",
+          "Which OSPF neighbours does core1 have?",
+        ],
+      },
+      {
+        name: "config-backup-or-live (playbook)",
+        description:
+          "Reads the running or startup configuration from the git backup, with its age, or live from the device when you ask for it.",
+        questions: [
+          "Get the running config of r1.",
+          "What is configured on r1?",
+        ],
+      },
+      {
+        name: "learn-ospf-of-a-device / learn-bgp-of-a-device (playbooks)",
+        description:
+          "Reads the full OSPF or BGP state of one device (process, areas, interfaces, neighbours, database or sessions and prefixes) with a set of reviewed commands you confirm once.",
+        questions: ["Learn OSPF of r1.", "Show me the BGP state of r1."],
+      },
+      {
+        name: "compare-with-baseline (playbook)",
+        description:
+          "Compares a device with its pyATS baseline by reading the result of a Compare Snapshot workflow run.",
+        questions: ["What changed on r1 since the baseline?"],
+      },
+      {
+        name: "target-unreachable (playbook)",
+        description:
+          "Finds out why a destination is not reachable from a device, using the Batfish model: path, routes, BGP, interfaces and ACLs.",
+        questions: ["Why is 10.1.2.3 not reachable from r1?"],
+      },
+      {
+        name: "aci-where-is-it / aci-can-a-reach-b / aci-epg-reachability (playbooks)",
+        description:
+          "Cisco ACI: where an address lives in the fabric, whether a contract allows a flow between two hosts, and which contracts connect two EPGs.",
+        questions: [
+          "Where is 10.1.1.5 in ACI?",
+          "Can 10.1.1.5 connect to 10.1.2.5 on tcp 443 in ACI?",
+          "Which contracts connect the EPGs web and db?",
+        ],
+      },
+      {
+        name: "walk-the-network (playbook)",
+        description:
+          "Walks through the network from one seed device by following CDP neighbours and lists the devices Nautobot does not know (details under Workflows).",
+        questions: ["Walk through the network starting at core1."],
+      },
+    ],
+  },
+  {
     id: "batfish",
     title: "Batfish (network model)",
     summary:
@@ -653,23 +753,6 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
         questions: [
           "Walk through the network starting at core1.",
           "Which devices reachable from core1 are not in Nautobot?",
-        ],
-      },
-    ],
-  },
-  {
-    id: "playbooks",
-    title: "Playbooks",
-    summary:
-      "Step-by-step procedures for typical troubleshooting jobs, including the ones your organisation added.",
-    tools: [
-      {
-        name: "list_playbooks / get_playbook",
-        description:
-          "Lists the playbooks and loads the one that fits the question.",
-        questions: [
-          "Which playbooks do you have?",
-          "Follow a playbook to find out why 10.1.2.3 is not reachable from r1.",
         ],
       },
     ],

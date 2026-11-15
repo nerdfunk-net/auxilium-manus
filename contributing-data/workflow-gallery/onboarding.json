@@ -1,6 +1,6 @@
 {
   "export_format": "auxilium-workflow-v1",
-  "exported_at": "2026-11-14T22:09:58.545Z",
+  "exported_at": "2026-11-15T10:22:59.555Z",
   "name": "Onboarding",
   "description": "Onboarding",
   "folder": "Gallery",
@@ -194,7 +194,7 @@
       "id": "fan-in-9",
       "type": "workflowNode",
       "position": {
-        "x": 507.4920836571753,
+        "x": 505.89191874453536,
         "y": 24.92355117822379
       },
       "zIndex": 1,
@@ -809,7 +809,7 @@
       "type": "workflowNode",
       "position": {
         "x": 405.2082595606249,
-        "y": 56.44987941007736
+        "y": 53.91032928286711
       },
       "data": {
         "kind": "start-nautobot-job",
@@ -1234,7 +1234,7 @@
       "type": "workflowNode",
       "position": {
         "x": -667.9887829888664,
-        "y": 264.0212764233565
+        "y": 261.48172629614623
       },
       "data": {
         "kind": "update-attribute",
@@ -1374,7 +1374,11 @@
               "name": "interface",
               "mac_address": "mac_address"
             },
-            "fixed_values": {}
+            "fixed_values": {},
+            "new_interface_type": {
+              "mode": "none",
+              "value": ""
+            }
           },
           "device_identifier": {
             "mode": "from_context"
@@ -1382,7 +1386,12 @@
           "add_prefix": true,
           "default_prefix_length": "/24",
           "sync_interfaces": false,
-          "dry_run": false
+          "dry_run": false,
+          "redundancy_groups": {
+            "enabled": true,
+            "name_pattern": "hsrp-{next}",
+            "status": "Active"
+          }
         },
         "disabled": false
       },
@@ -1443,7 +1452,7 @@
       "type": "workflowNode",
       "position": {
         "x": 24.664813907928306,
-        "y": 56.44987941007736
+        "y": 53.91032928286711
       },
       "data": {
         "kind": "add-to-nautobot",
@@ -1544,6 +1553,50 @@
       "selected": false,
       "dragging": false,
       "parentId": "background-19"
+    },
+    {
+      "id": "notify-mattermost-23",
+      "type": "workflowNode",
+      "position": {
+        "x": 503.89191874453536,
+        "y": 261.48172629614623
+      },
+      "zIndex": 1,
+      "data": {
+        "kind": "notify-mattermost",
+        "stepUuid": "ee3a1edb-670d-4db6-97a0-b0d348aa4535",
+        "title": "Notify Mattermost",
+        "overview": "Post a message to a Mattermost channel.",
+        "description": "Posts one message to a Mattermost channel via a configured Mattermost source, team, and channel. Supports {path.to.value} placeholders resolved against the first device in context (e.g. {device.name}, {nautobot.location.name}), plus {devices} (comma-joined device names) and {device_count} for summarizing a multi-device run. Typically wired to an upstream step's success or failure outcome handle to report a workflow's outcome. Fan-out note: place after Fan In (or at the end of a non-fanned workflow) for one summary message per run; inside fan-out children it posts once per child branch. A message longer than 15 000 characters is cut and ends with the number of characters left out.\n",
+        "artifactType": "control_flow",
+        "requires": [
+          "identity"
+        ],
+        "requiresParsed": [],
+        "produces": [],
+        "producesParsed": [],
+        "consumes": [],
+        "outcomes": [
+          {
+            "name": "success"
+          },
+          {
+            "name": "failure"
+          }
+        ],
+        "pluginConfig": {
+          "mattermost_source_id": "mattermost",
+          "team_name": "manus",
+          "channel_name": "manus",
+          "message": "Device {device.name} was onboarded successfully."
+        }
+      },
+      "measured": {
+        "width": 320,
+        "height": 128
+      },
+      "dragging": false,
+      "selected": false
     }
   ],
   "canvas_edges": [
@@ -1687,7 +1740,8 @@
       "sourceHandle": "output",
       "target": "set-default-attributes-15",
       "targetHandle": "input",
-      "id": "xy-edge__funnel-14output-set-default-attributes-15input"
+      "id": "xy-edge__funnel-14output-set-default-attributes-15input",
+      "selected": false
     },
     {
       "type": "waypoint",
@@ -1699,7 +1753,8 @@
       "sourceHandle": "success",
       "target": "fan-in-9",
       "targetHandle": "input",
-      "id": "xy-edge__update-attribute-13success-fan-in-9input"
+      "id": "xy-edge__update-attribute-13success-fan-in-9input",
+      "selected": false
     },
     {
       "type": "waypoint",
@@ -1752,6 +1807,19 @@
       "targetHandle": "input",
       "id": "xy-edge__add-to-nautobot-23failure-update-nautobot-device-21input",
       "selected": false
+    },
+    {
+      "type": "waypoint",
+      "zIndex": 0,
+      "data": {
+        "edgeStyle": "bezier"
+      },
+      "source": "start-nautobot-job-18",
+      "sourceHandle": "success",
+      "target": "notify-mattermost-23",
+      "targetHandle": "input",
+      "id": "xy-edge__start-nautobot-job-18success-notify-mattermost-23input",
+      "selected": false
     }
   ],
   "canvas_groups": [
@@ -1766,7 +1834,7 @@
       "entryNodeId": "set-default-attributes-15",
       "exitNodeId": "update-attribute-13",
       "position": {
-        "x": 507.4920836571753,
+        "x": 505.89191874453536,
         "y": -271.7962565137673
       },
       "parentGroupId": null,
