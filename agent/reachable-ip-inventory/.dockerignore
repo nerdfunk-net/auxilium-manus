@@ -1,0 +1,6 @@
+
+# Your config and secrets never belong in the build context (the image copies config.example.yaml).
+config.yaml
+*~
+.coverage
+.ruff_cache

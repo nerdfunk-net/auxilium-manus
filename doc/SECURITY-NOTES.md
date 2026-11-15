@@ -229,6 +229,17 @@ keys). **Accepted as-is**, all documented in `doc/AGENT_INTEGRATION.md`:
   `default` user to `nopass`: a bare `--aclfile` would drop the password of the app's Redis.
 - No secret rotation overlap yet: change the credential and the agent's `MANUS_AGENT_SECRET` together.
 
+## Get from Agent: the agent chooses the devices
+
+`get-from-agent` is an inventory step, so the agent does not enrich devices, it **creates** them, and the workflow's SSH
+credential is later offered to whatever hosts it returned. The step therefore fails the whole inventory on any problem
+(no partial inventory) and applies the app's host policy (`core.safe_hosts.validate_device_host`: no loopback, link-local,
+unspecified or multicast literal, no metadata name; plain IP addresses only) to every returned name and address. Attributes
+sent to the agent are fixed text or whole-value run inputs; secret-looking names and secret-type inputs are refused.
+`agent/reachable-ip-inventory` adds its own limits (allowed networks, host cap, token only to non-link-local hosts), see
+`doc/AGENT_INTEGRATION.md`. **Accepted as-is:** an agent host that is taken over decides which hosts (inside the host policy)
+receive the SSH credential, exactly as a wrong Nautobot or Git inventory would.
+
 ## DNS rebinding between the URL policy and the client
 
 The URL policy resolves a host name and the client resolves it again; a name that answers differently

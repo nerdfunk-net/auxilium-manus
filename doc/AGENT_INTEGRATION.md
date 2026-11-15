@@ -13,7 +13,7 @@ device list itself: it sends configured attributes to a handler and builds the d
 answer; any problem fails the step (`doc/WORKFLOW-STEPS.md` "Getting devices from an agent").
 
 Read this file before changing anything under `backend/services/agents/`,
-`backend/workflow_steps/route_to_agent/`, `backend/workflow_steps/get_from_agent/`, `backend/routers/sources/agent/`, `agent/` (each agent is an independent directory: `example-agent`, `get-ip-addresses`, `ping-range`) or
+`backend/workflow_steps/route_to_agent/`, `backend/workflow_steps/get_from_agent/`, `backend/routers/sources/agent/`, `agent/` (each agent is an independent directory: `example-agent`, `get-ip-addresses`, `ping-range`, `reachable-ip-inventory`) or
 `docker/redis/`. The operator-facing guide for writing handlers is `agent/example-agent/README.md`.
 
 ## Contents
@@ -333,6 +333,43 @@ when the device has none) and `problems` for that device only; an unknown device
   `device_grouping.py` and `csv_device_reader.py`, limited to names, interfaces and the primary flag. A change to the
   primary-IP rules there should be mirrored in the agent.
 
+### `agent/reachable-ip-inventory`
+
+The inventory agent for the **Get from Agent** step (`agent/reachable-ip-inventory/README.md`). Independent copy of
+`agent/ping-range` (same runtime, fping, range and reverse-DNS code) plus a Nautobot GraphQL client and a `config.yaml`.
+Handler `list_devices`: the step sends the attribute `tag`; the agent reads the IPv4 prefixes with that tag from Nautobot,
+pings each with fping, optionally resolves names and answers `{"devices": [{name, ip_address, network_driver: ""}]}` (name =
+reverse-DNS name, else the address; the empty driver becomes the step's default).
+
+- **`config.yaml`** (path in `MANUS_AGENT_CONFIG`) holds the Nautobot URL and token, the scan limits (`count`, `timeout_ms`,
+  `max_hosts`, `allowed_networks`) and `resolve_dns`; it is read when the handlers load, so a bad file stops the agent at
+  start (exit 3). The token comes from the variable named by `nautobot.token_env` (wins) or `nautobot.token`; it is never in a
+  log line, `repr` or error text, and Nautobot's answer is never echoed. Redirects are not followed (they would forward the token).
+- **No partial inventory.** An oversized or not-allowed prefix, a total above `max_hosts`, Nautobot or fping failing, or no
+  prefix with the tag fails the request. IPv6 prefixes are skipped and logged. Everything is checked before the first packet.
+- **Where the token may go.** `nautobot.url` is refused at start for link-local, multicast, unspecified or metadata hosts, and
+  the connection (`SafeResolver`) refuses a name that resolves to one; loopback stays allowed. Refused prefixes appear in the agent
+  log only, not in the error the workflow sees. A PTR name that is not a plain host name falls back to the IP address (the step
+  would otherwise fail the whole inventory on it).
+- A tagged aggregate (`/16`) is pinged including the broadcast address of each `/24` inside it; tag the real subnets.
+- Only `tag` is supported; any other attribute is refused. The tag is a GraphQL *variable*, never part of the query text.
+- Needs `NET_RAW` (compose file in the agent directory, like ping-range), port 6668.
+- **Compose.** Nautobot runs in Docker: `NAUTOBOT_DOCKER_NETWORK` (required, in `.env`) names its network; the agent joins it
+  next to its own default network, which keeps the default route (`gw_priority`) to the pinged hosts and the DNS server.
+  `./config.yaml` is bind-mounted read-only: it must exist before the first `docker compose up`, otherwise Docker creates a
+  directory of that name and the start fails with "not a directory". `config.yaml` is gitignored and in `.dockerignore`
+  (the image copies `config.example.yaml`). Tests use `tests/fixtures/test-config.yaml` (a name the gitignore rule does not match).
+- **Proxy.** `HTTP_PROXY` / `HTTPS_PROXY` are build args only (apt and pip); the running container uses no proxy.
+- **Reverse DNS.** The container uses Docker's resolver, which forwards to the host's and may not answer reverse lookups of
+  private addresses: set `dns:` in the compose file to the server that knows the LAN. Each scan logs one `reverse DNS:` line
+  (`resolved`, `no_ptr_record`, `resolver_error`, `timed_out_or_skipped`, with the first error text per kind) and a warning
+  when no host got a name; `herror` errno 1/4 is "no record", 2/3 a failed lookup. `config.yaml` is read at start: restart
+  after a change. Troubleshooting steps are in the agent's README.
+- Verified: unit suites (100 % of the new modules), the built image called over the real encrypted HTTP protocol against a
+  fake GraphQL server (tag variable, token from the environment, fping with `NET_RAW`, IPv6 skipped, errors), and the compose
+  file (`docker compose config`, route priority with two networks). Not verified: a real Nautobot (the `tags: [String]`
+  filter, token permissions) and a LAN scan from a Linux host (`doc/OPEN_TODOS.md`).
+
 ### `agent/ping-range`
 
 Pings an IPv4 range with `fping` and answers per host: `reachable`, `rtt_ms`, `loss_percent` and, with
@@ -439,6 +476,6 @@ The kinds are part of the closed vocabulary in `backend/models/failure.py`
 | Failure vocabulary | `backend/models/failure.py` |
 | Permissions | `backend/services/auth/rbac_seed.py` (`sources.agent`) |
 | Frontend | `frontend/src/components/features/workflow-steps/route-to-agent/`, `frontend/src/components/features/settings/dialogs/agent-source-dialog.tsx`, `…/settings/components/agent-status-panel.tsx`, `…/settings/utils/agent-redis-acl.ts`, `frontend/src/hooks/queries/use-agent-sources-*.ts` |
-| Agent | `agent/example-agent/`, `agent/get-ip-addresses/`, `agent/ping-range/` |
+| Agent | `agent/example-agent/`, `agent/get-ip-addresses/`, `agent/ping-range/`, `agent/reachable-ip-inventory/` |
 | Redis ACL / compose | `docker/redis/`, `docker/docker-compose.yml` (`manus-redis`), `docker/docker-compose.agent.example.yml` |
 | Tests | `backend/tests/unit/test_agent_*.py`, `test_route_to_agent_*.py` (incl. `test_agent_interop.py`, `test_agent_envelope_sync.py`), `agent/*/tests/`, frontend `route-to-agent/*.test.*`, `agent-source-dialog.test.tsx` |

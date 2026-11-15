@@ -33,6 +33,14 @@ updates:
       get-ip-addresses-minor-patch:
         update-types: [minor, patch]
   - package-ecosystem: pip
+    directory: /agent/reachable-ip-inventory
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 3
+    groups:
+      reachable-ip-inventory-minor-patch:
+        update-types: [minor, patch]
+  - package-ecosystem: pip
     directory: /pyats-shim
     schedule:
       interval: weekly

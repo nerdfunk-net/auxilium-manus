@@ -762,7 +762,8 @@ workflow's devices from the answer. Protocol, secrets and operations: `doc/AGENT
 - **Devices.** `device_context_from_entry(..., source="agent", attribute_bag_name="get_from_agent")`; metadata
   `{node_id}.total`, `.devices`, `.agent`; fan-out block identical to the other inventory steps.
 - `timeout_seconds` above the agent source's maximum is a configuration error (as in `route-to-agent`).
-- Example handler: `list_devices` in `agent/example-agent/handlers/examples.py`.
+- Example handlers: `list_devices` in `agent/example-agent/handlers/examples.py` (a fixed list) and the real inventory
+  agent `agent/reachable-ip-inventory/` (attribute `tag`: the reachable hosts of the Nautobot prefixes with that tag).
 
 ### Asking the AI: `contact-the-ai`
 

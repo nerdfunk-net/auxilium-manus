@@ -1,0 +1,84 @@
+# Run the reachable-ip-inventory agent (agent/reachable-ip-inventory/, doc/AGENT_INTEGRATION.md) next to the application.
+#
+# This file lives here and not under docker/ on purpose: fping needs raw sockets, and every
+# compose file under docker/ must drop NET_RAW (backend/tests/unit/test_compose_networks.py).
+# The agent gets exactly that one capability back and nothing else.
+#
+# Run it on the application's Docker host, from this directory, after copying .env.example to .env:
+#
+#   docker compose up -d --build
+#
+# Reaching the agent: the port is published on the Docker host (MANUS_AGENT_HTTP_PORT, default 6668),
+# bound to 127.0.0.1 by default, so an application running outside Docker uses
+# http://127.0.0.1:6668 as the agent URL (that needs ALLOW_LOOPBACK_SOURCE_URLS=true in the
+# backend's development setup, since loopback source URLs are refused otherwise). Set
+# MANUS_AGENT_BIND to the host's LAN address (or 0.0.0.0) for an app on another machine; the
+# payload is encrypted, but put TLS in front of it if the path is not private.
+# The container uses this project's default network, which routes out to the pinged addresses and
+# the DNS server. If the app runs in Docker too, attach the "data" network instead (see the
+# commented block at the bottom) and use http://manus-reachable-agent:<port> without publishing.
+#
+# Reverse DNS uses the container's resolver (Docker's, which forwards to the host's). To use
+# another server, uncomment "dns".
+# On Docker Desktop (macOS/Windows) the container sits behind NAT: pinging your LAN works, but a
+# scan only reflects what answers through that NAT. Run the agent on a Linux host for real scans.
+
+services:
+  manus-reachable-agent:
+    build:
+      context: .
+      args:
+        HTTP_PROXY: "${HTTP_PROXY:-}"
+        HTTPS_PROXY: "${HTTPS_PROXY:-}"
+    image: manus-agent-reachable:latest
+    container_name: manus-reachable-agent
+    restart: unless-stopped
+    environment:
+      MANUS_AGENT_ID: "${MANUS_AGENT_ID:-reachable-agent}"
+      # At least 32 characters: openssl rand -base64 32
+      MANUS_AGENT_SECRET: "${MANUS_AGENT_SECRET:?MANUS_AGENT_SECRET is required (openssl rand -base64 32)}"
+      MANUS_AGENT_HTTP_PORT: "${MANUS_AGENT_HTTP_PORT:-6668}"
+      # Redis transport instead of (or besides) HTTP: add the agent's user to docker/redis/agents.acl, then
+      #MANUS_AGENT_REDIS_URL: "redis://agent-${MANUS_AGENT_ID:-reachable-agent}:${MANUS_AGENT_REDIS_PASSWORD}@manus-redis:6379/0"
+      # The Nautobot token: config.yaml names this variable (nautobot.token_env).
+      NAUTOBOT_TOKEN: "${NAUTOBOT_TOKEN:-}"
+    #dns:
+    #  - 10.0.0.53
+    # config.yaml (Nautobot URL, scan limits) is yours: copy config.example.yaml to config.yaml and edit it
+    # BEFORE the first `docker compose up`. If the file is missing, Docker creates a *directory* named
+    # config.yaml here and the start fails with "not a directory": remove it (rmdir config.yaml) and copy the file.
+    volumes:
+      - ./config.yaml:/app/config.yaml:ro
+    read_only: true
+    # NET_RAW is the one capability fping needs (ICMP). Everything else is dropped.
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_RAW
+    # No "no-new-privileges" here, deliberately: the agent runs as an unprivileged user and fping
+    # gets its raw-socket right from a file capability, which that option switches off (fping then
+    # reports 100 % loss for every host without any error; the agent detects this and says so).
+    pids_limit: 256
+    mem_limit: 256m
+    ports:
+      - "${MANUS_AGENT_BIND:-127.0.0.1}:${MANUS_AGENT_HTTP_PORT:-6668}:${MANUS_AGENT_HTTP_PORT:-6668}"
+    # Two networks. "default" (this project's own bridge) routes out to the pinged addresses and the DNS
+    # server; it gets the highest gateway priority so it stays the container's default route. The
+    # Nautobot network (below) is only used to reach Nautobot by its container/service name.
+    networks:
+      default:
+        gw_priority: 100
+      nautobot: {}
+    # If the app runs in Docker as well, replace "ports" above by that app's networks (names from
+    # docker/docker-compose.yml; "data" is internal, so keep "default" for the route out) and call the
+    # agent as http://manus-reachable-agent:<port>:
+    #  data: {external: true, name: docker_data}
+
+networks:
+  # The Docker network Nautobot runs in (it must exist: start Nautobot first). Find it with
+  # `docker network ls` or `docker inspect <nautobot container> --format '{{json .NetworkSettings.Networks}}'`.
+  # In config.yaml use that container's service name and its internal port as nautobot.url,
+  # for example http://nautobot:8080.
+  nautobot:
+    external: true
+    name: "${NAUTOBOT_DOCKER_NETWORK:?NAUTOBOT_DOCKER_NETWORK is required (the Docker network Nautobot runs in, see docker network ls)}"

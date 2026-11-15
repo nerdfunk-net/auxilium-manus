@@ -1,0 +1,12 @@
+# Same rules as backend/pyproject.toml, for the standalone agent (Python 3.12, see Dockerfile).
+line-length = 100
+target-version = "py312"
+
+[lint]
+select = ["E", "F", "I", "UP", "B", "S", "ASYNC"]
+
+[lint.flake8-bandit]
+check-typed-exception = true
+
+[lint.per-file-ignores]
+"tests/**" = ["S", "ASYNC"]  # asserts, tmp paths and fixed secrets are fine in test code

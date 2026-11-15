@@ -142,6 +142,16 @@ Built 2026-10-22 (`doc/AGENT_INTEGRATION.md`); all of it is uncommitted work unt
   a black-holed nameserver (the 15 s budget is tested with fakes only), and `read_only: true` without a tmpfs (a smoke test of
   the built image is still the check). Known limit: a directed broadcast in a dash range is not recognised. The review
   review was fully addressed (the file `doc/analysis/REVIEW.md` has since been overwritten by the review of `get-from-agent`).
+- **`agent/reachable-ip-inventory` (built 2026-11-15, uncommitted).** Verified: unit suites (100 % of the new modules), the
+  built image over the real encrypted HTTP protocol against a fake GraphQL server, `docker compose config` and the route
+  priority with two networks. Review findings (host policy for the URL and resolved addresses, refused prefixes not echoed,
+  unusable PTR names fall back to the address, `.dockerignore`, Dependabot) are fixed. Not yet verified: a real Nautobot
+  (the `prefixes(tags: [String])` filter with the variable form, token permissions, paging with `limit`/`offset`), a scan
+  of a real LAN from a Linux host, a workflow run Get from Agent -> next step, and a build behind the production proxy.
+  **Reverse DNS in production:** on the user's Docker host `gethostbyaddr` of a public address works but of a LAN address
+  fails with `herror` errno 2 (a failed lookup, not "no record"); the fix to try is `dns:` in the compose file pointing at the
+  LAN's DNS server; the rebuilt agent logs the reason per scan. Known limit: a tagged `/16` is pinged including the broadcast
+  address of each `/24` inside it. `ping-range` is still missing from `.github/dependabot.yml` (not touched).
 - **Secret rotation without a gap.** Accept two secrets (current and previous) on both sides for a window;
   today the credential and `MANUS_AGENT_SECRET` must change together.
 - **Pull transport.** The agent polls the app over HTTPS, so a remote agent needs no access to Redis. Needs a

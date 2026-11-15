@@ -1,0 +1,3 @@
+nautobot:
+  url: https://nautobot.test
+  token: test-token-not-a-secret

@@ -1,0 +1,30 @@
+# Config of the reachable-ip-inventory agent. Copy to config.yaml and edit (config.yaml is gitignored).
+# Read once when the agent starts; restart the agent to load a change. A mistake stops the agent at
+# start with the reason on stderr.
+
+nautobot:
+  url: https://nautobot.example.com      # http:// or https://, no credentials in the URL; not a link-local/metadata host
+  # The API token. Preferred: name an environment variable here and put the token in it (docker:
+  # NAUTOBOT_TOKEN in .env). A token written into this file is accepted too ("token: ..."), but the
+  # environment variable wins when both are set.
+  token_env: NAUTOBOT_TOKEN
+  #token: ""
+  verify_ssl: true
+  timeout_seconds: 15                    # per request (1-120)
+  max_prefixes: 100                      # more tagged prefixes than this fail the request (1-1000)
+
+scan:
+  count: 1                               # fping packets per host (1-5)
+  timeout_ms: 500                        # wait per packet (50-5000)
+  max_hosts: 4096                        # most addresses one request may ping (1-65536); a /24 is 254
+  # Only these networks are pinged; every address of a tagged prefix must lie inside them (the request
+  # fails otherwise). Default: RFC 1918 private space. Public addresses need an explicit entry
+  # (0.0.0.0/0). Loopback, link-local, multicast and reserved ranges are never pinged.
+  allowed_networks:
+    - 10.0.0.0/8
+    - 172.16.0.0/12
+    - 192.168.0.0/16
+
+resolve_dns:
+  enabled: false                         # name the devices by reverse DNS; without a name the IP address is the name
+  timeout_seconds: 2                     # per lookup (0.5-10); all lookups share a 15 s budget

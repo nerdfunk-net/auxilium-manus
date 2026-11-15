@@ -24,7 +24,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        agent: [example-agent, get-ip-addresses, ping-range]
+        agent: [example-agent, get-ip-addresses, ping-range, reachable-ip-inventory]
     defaults:
       run:
         working-directory: agent/${{ matrix.agent }}
@@ -44,7 +44,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        agent: [example-agent, get-ip-addresses, ping-range]
+        agent: [example-agent, get-ip-addresses, ping-range, reachable-ip-inventory]
     defaults:
       run:
         working-directory: agent/${{ matrix.agent }}

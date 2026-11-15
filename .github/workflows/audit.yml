@@ -28,7 +28,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        agent: [example-agent, get-ip-addresses]
+        agent: [example-agent, get-ip-addresses, reachable-ip-inventory]
     defaults:
       run:
         working-directory: agent/${{ matrix.agent }}

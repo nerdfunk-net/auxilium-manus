@@ -94,6 +94,13 @@ class ExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(outcomes[0].context.metadata["n1.agent"], "inv")
         self.assertTrue(client.closed)
 
+    async def test_blank_driver_from_an_agent_becomes_the_default(self) -> None:
+        # The reachable-ip-inventory agent answers network_driver "" for every device.
+        answer = {"devices": [{"name": "gw", "ip_address": "10.0.0.1", "network_driver": ""}]}
+        outcomes = await _run(BASE_CONFIG, FakeClient(answer))
+        device = next(iter(outcomes[0].context.devices.values()))
+        self.assertEqual(device.network_driver, "cisco_ios")
+
     async def test_sends_attributes_and_no_params(self) -> None:
         client = FakeClient()
         await _run(BASE_CONFIG, client)
