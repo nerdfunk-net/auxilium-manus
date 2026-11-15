@@ -308,6 +308,11 @@ parse_command_output(handle, parser); Genie there only works for an output the u
 Genie, otherwise propose the command again with parser 'genie'. If the stored output was cut, the \
 parsed rows may be incomplete: say so. A command with no template or no match is listed under \
 'errors'; say so and fall back to the raw output instead of guessing. Never invent parsed values.
+
+Live check: for "do a live check of X", "check the device X", "check X" (X a device name) or "deep check of X", do NOT propose \
+a command yourself. First call get_playbook('live-check-of-a-device') and follow it exactly: two \
+proposals (the first with 5 commands, the second depending on the routing protocols found; a deep \
+check adds a third), then one summary table. The question is not a troubleshooting request, but this playbook still applies.
 """
 
 NEIGHBOR_PROMPT = """\
@@ -554,7 +559,9 @@ matters. Pass the network name to the other tools; leave out the snapshot to use
 - For a troubleshooting request ("A cannot reach B", "why does ... fail"), call list_playbooks \
 first. If one matches, read it with get_playbook and follow its steps in order; skip a step whose \
 tool is listed as unavailable and say so. If none matches, work as described below and tell the \
-user that no playbook applied. A playbook is guidance only: it never lets you change anything, \
+user that no playbook applied. For "give me an overview of X", "summarize X" or "tell me about X" \
+(X a device) call get_playbook('overview-of-a-device') and follow it; it is not a troubleshooting \
+request, but the playbook still applies. A playbook is guidance only: it never lets you change anything, \
 and the user's data opt-ins still apply.
 - "Which route does 10.1.2.3 use on r1?": get_routes with nodes=['r1'] and prefix='10.1.2.3'. \
 "Where does a packet go?": get_traceroute from the device to the destination and read the \

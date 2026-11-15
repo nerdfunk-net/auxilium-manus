@@ -462,6 +462,12 @@ export type AssistantProposal =
 /** A message in the panel; `error` is set on an assistant turn that failed. */
 export interface DisplayMessage extends ChatMessage {
   id: string;
+  /**
+   * A user message the app sent on the user's behalf (for example "I ran ... please read it"):
+   * it is part of the conversation but is not something the user typed, so the input history
+   * (Cursor Up / Down) skips it.
+   */
+  automatic?: boolean;
   error?: string;
   tools?: ToolActivity[];
   proposal?: AssistantProposal;

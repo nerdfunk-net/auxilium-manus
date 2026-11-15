@@ -239,6 +239,9 @@ const STORED_HANDLE = /^res_[0-9a-f]{12}$/;
 /** A ping or traceroute: the only kind of run whose partial result is read after a failure. */
 const PROBE_COMMAND = /^(ping|traceroute) /;
 
+/** Messages the panel sends for the user after a card ran; they are not typed text. */
+const AUTOMATIC_MESSAGE = { automatic: true } as const;
+
 export function AssistantPanel({
   sessionKey,
   conversationScope,
@@ -340,7 +343,7 @@ export function AssistantPanel({
             followUp,
           ];
         } else {
-          void send(followUp);
+          void send(followUp, AUTOMATIC_MESSAGE);
         }
       }
     },
@@ -372,6 +375,7 @@ export function AssistantPanel({
       void send(
         `I started the workflow "${workflowName}" as run ${result.runId} and it has finished. ` +
           "Please read its result and answer my request.",
+        AUTOMATIC_MESSAGE,
       );
     },
     [send],
@@ -382,7 +386,7 @@ export function AssistantPanel({
     if (!isStreaming && pendingFollowUpsRef.current.length > 0) {
       const followUp = pendingFollowUpsRef.current.join("\n");
       pendingFollowUpsRef.current = [];
-      void send(followUp);
+      void send(followUp, AUTOMATIC_MESSAGE);
     }
   }, [isStreaming, send]);
 
@@ -456,7 +460,7 @@ export function AssistantPanel({
   const sentQuestions = useMemo(
     () =>
       messages
-        .filter((message) => message.role === "user")
+        .filter((message) => message.role === "user" && !message.automatic)
         .map((message) => message.content),
     [messages],
   );
@@ -509,6 +513,11 @@ export function AssistantPanel({
     [setDraft],
   );
 
+  // The server sends a confirmation card as soon as its tool has run, and the model writes its
+  // explanation afterwards. The text is drawn above the card, so the card would sit there with
+  // text growing above it. A card of the message that is still streaming therefore waits until
+  // the answer is complete: first the text, then the card.
+  const answeringId = isStreaming ? messages[messages.length - 1]?.id : null;
   const renderMessage = (message: DisplayMessage) => (
     <div
       key={message.id}
@@ -563,14 +572,15 @@ export function AssistantPanel({
         !message.tools?.length && (
           <Loader2 className="size-4 animate-spin text-muted-foreground" />
         )}
-      {message.proposal?.kind === "device_command" && (
-        <DeviceCommandProposalCard
-          proposal={message.proposal}
-          busy={isStreaming}
-          onResult={(result) => handleDeviceResult(message.id, result)}
-          onReject={() => setProposalState(message.id, "rejected")}
-        />
-      )}
+      {message.proposal?.kind === "device_command" &&
+        message.id !== answeringId && (
+          <DeviceCommandProposalCard
+            proposal={message.proposal}
+            busy={isStreaming}
+            onResult={(result) => handleDeviceResult(message.id, result)}
+            onReject={() => setProposalState(message.id, "rejected")}
+          />
+        )}
       {message.proposal?.kind === "config_download" && (
         <ConfigDownloadCard proposal={message.proposal} />
       )}

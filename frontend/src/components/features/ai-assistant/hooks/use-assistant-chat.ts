@@ -56,6 +56,11 @@ interface ToolPayload {
   truncated?: boolean;
   withheld?: string[];
 }
+/** `automatic`: the app, not the user, wrote this message (it stays out of the input history). */
+export interface SendOptions {
+  automatic?: boolean;
+}
+
 interface ProposalPayload {
   kind?: string;
   parser?: string;
@@ -286,7 +291,10 @@ function parseWorkflowRun(payload: ProposalPayload): ParsedWorkflowRun | null {
   };
 }
 
-type ParsedConfigDownload = Omit<ConfigDownloadProposal, "kind" | "summary" | "state">;
+type ParsedConfigDownload = Omit<
+  ConfigDownloadProposal,
+  "kind" | "summary" | "state"
+>;
 
 /** The config-download payload, or null when anything the card needs is missing or mistyped. */
 function parseConfigDownload(
@@ -418,7 +426,7 @@ export function useAssistantChat({
   );
 
   const send = useCallback(
-    async (text: string) => {
+    async (text: string, options?: SendOptions) => {
       const trimmed = text.trim();
       if (!trimmed || abortRef.current) {
         return;
@@ -434,13 +442,16 @@ export function useAssistantChat({
         { role: "user", content: trimmed },
       );
       const assistantId = nextId();
-      useAssistantSessionStore
-        .getState()
-        .updateMessages(sessionKey, (prev) => [
-          ...prev,
-          { id: nextId(), role: "user", content: trimmed },
-          { id: assistantId, role: "assistant", content: "" },
-        ]);
+      useAssistantSessionStore.getState().updateMessages(sessionKey, (prev) => [
+        ...prev,
+        {
+          id: nextId(),
+          role: "user",
+          content: trimmed,
+          ...(options?.automatic ? { automatic: true } : {}),
+        },
+        { id: assistantId, role: "assistant", content: "" },
+      ]);
 
       const context = getContextRef.current?.();
       const controller = new AbortController();

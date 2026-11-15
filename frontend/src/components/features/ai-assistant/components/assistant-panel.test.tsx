@@ -549,6 +549,11 @@ describe("AssistantPanel device command proposals", () => {
         status: 200,
         headers: { "Content-Type": "text/event-stream" },
       }),
+      /** Send one server-sent event while the stream stays open. */
+      push: (event: string, data: unknown) =>
+        controller.enqueue(
+          encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`),
+        ),
       finish: () => {
         controller.enqueue(encoder.encode("event: done\ndata: {}\n\n"));
         controller.close();
@@ -565,6 +570,45 @@ describe("AssistantPanel device command proposals", () => {
 
   const runButton = () =>
     screen.getByRole("button", { name: /^run$/i }) as HTMLButtonElement;
+
+  it("shows the card of a new proposal only after its answer text is complete", async () => {
+    const stream = openStream();
+    fetchMock.mockResolvedValueOnce(stream.response);
+    render(<AssistantPanel sessionKey={KEY} />);
+    // The card of the earlier message is not affected by the new turn.
+    expect(screen.getAllByTestId("device-command-proposal")).toHaveLength(1);
+
+    startTurn("check LAB again");
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    // The server sends the card first, the explanation after it.
+    stream.push("proposal", {
+      kind: "device_command",
+      token: "signed.token.2",
+      expires_at: 4_102_444_800,
+      device: {
+        id: "dev-1",
+        name: "LAB",
+        host: "10.1.2.3",
+        platform: "cisco_ios",
+      },
+      commands: ["show version"],
+      parser: "none",
+      driver_known: true,
+      driver_choices: ["cisco_ios"],
+    });
+    stream.push("text", { text: "I asked to run show version." });
+
+    await vi.waitFor(() =>
+      expect(screen.getByText(/I asked to run show version/)).toBeTruthy(),
+    );
+    expect(screen.getAllByTestId("device-command-proposal")).toHaveLength(1);
+
+    stream.finish();
+
+    await vi.waitFor(() =>
+      expect(screen.getAllByTestId("device-command-proposal")).toHaveLength(2),
+    );
+  });
 
   it("keeps Run disabled while the assistant is still answering, with the reason", async () => {
     const stream = openStream();
@@ -711,4 +755,34 @@ describe("AssistantPanel device command proposals", () => {
       expect(fetchMock).not.toHaveBeenCalled();
     },
   );
+});
+
+describe("AssistantPanel input history", () => {
+  afterEach(() => {
+    cleanup();
+  });
+
+  it("Cursor Up skips messages the app sent for the user and shows what they typed", () => {
+    const KEY_HISTORY = "general";
+    state().updateMessages(KEY_HISTORY, () => [
+      { id: "1", role: "user", content: "do a live check of LAB" },
+      { id: "2", role: "assistant", content: "I asked to run it." },
+      {
+        id: "3",
+        role: "user",
+        automatic: true,
+        content:
+          "I ran show version on LAB. Please read it and answer my request.",
+      },
+      { id: "4", role: "assistant", content: "LAB runs 17.15.1." },
+    ]);
+    render(<AssistantPanel sessionKey={KEY_HISTORY} />);
+    const input = screen.getByLabelText(
+      "Message the assistant",
+    ) as HTMLTextAreaElement;
+
+    fireEvent.keyDown(input, { key: "ArrowUp" });
+
+    expect(input.value).toBe("do a live check of LAB");
+  });
 });
