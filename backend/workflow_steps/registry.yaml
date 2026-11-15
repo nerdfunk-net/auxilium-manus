@@ -2278,6 +2278,72 @@ plugins:
           required: false
           default: true
 
+  - id: get-from-agent
+    name: Get from Agent
+    overview: Get the devices from an external agent.
+    description: >
+      Send attributes to a handler on an agent (a Python service configured under
+      Settings -> Sources -> Agents) and use the device list it returns as workflow
+      targets. The answer has the same rows as Get from List (name, ip_address,
+      network_driver). Messages are encrypted and authenticated with a secret shared
+      between the app and the agent. An agent error or an invalid answer fails the
+      step, so a workflow never runs on a partial inventory.
+    artifact_type: inventory_selector
+    directory: get_from_agent
+    enabled: true
+    requires: []
+    produces: [identity]
+    outcomes:
+      - name: success
+    metadata:
+      configuration_input:
+        - name: agent_source_id
+          description: ID of an agent source configured under Settings -> Sources -> Agents.
+          data_type: string
+          required: true
+          example: inventory
+        - name: handler
+          description: >
+            Name of the handler the agent runs (letters, digits, "_", ".", "-").
+            The app sends data, never code. The handler returns
+            {"devices": [{"name": ..., "ip_address": ..., "network_driver": ...}]}.
+          data_type: string
+          required: true
+          example: list_devices
+        - name: attributes
+          description: >
+            Rows of name and value sent to the handler as inputs.attributes, so
+            it can decide which devices to return. A value is fixed text or a
+            whole-value run input reference such as {run_input.site}. Secrets
+            are never sent: secret-looking names and secret run inputs fail the
+            step.
+          data_type: object_list
+          required: false
+          example:
+            - name: site
+              value: berlin
+            - name: role
+              value: "{run_input.role}"
+        - name: timeout_seconds
+          description: >
+            Seconds to wait for the agent's answer (1-600, at most the maximum
+            set on the agent source).
+          data_type: integer
+          required: false
+          default: 30
+        - name: fan_out
+          description: >
+            Fan-out configuration. When enabled, each device (or chunk) is processed
+            as an independent Hatchet child workflow instead of all devices sharing
+            one workflow run.
+          data_type: object
+          required: false
+          example:
+            enabled: true
+            mode: per_device
+            chunk_size: 1
+            max_concurrency: 0
+
   - id: get-from-list
     name: Get from List
     overview: Configure a static list of devices.

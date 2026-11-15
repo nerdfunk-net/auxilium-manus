@@ -63,13 +63,17 @@ def _entry_key(entry: DeviceEntry) -> tuple[str | None, str | None, str | None]:
 
 
 def normalize_device_entries(
-    raw_devices: Any, *, default_driver: str = DEFAULT_NETWORK_DRIVER
+    raw_devices: Any,
+    *,
+    default_driver: str = DEFAULT_NETWORK_DRIVER,
+    step: str = "get-from-list",
 ) -> list[DeviceEntry]:
     """Normalize a fixed canvas ``devices`` list (``get-from-list``'s
     ``pluginConfig.devices``) — each row a bare string or a ``{name,
     ip_address, network_driver}`` dict. A row without a driver gets ``default_driver``; drivers are
     resolved to their canonical Netmiko type first, then entries are deduplicated by name, IP
-    address and driver. Raises ``ValueError`` on a malformed IP address or an unknown driver.
+    address and driver. ``step`` names the caller in error messages. Raises ``ValueError`` on a
+    malformed IP address or an unknown driver.
     """
     if not isinstance(raw_devices, list):
         return []
@@ -92,10 +96,10 @@ def normalize_device_entries(
             continue
 
         if ip_address is not None and not validate_ip_address(ip_address):
-            raise ValueError(f"get-from-list: invalid IP address '{ip_address}' (row {index + 1})")
+            raise ValueError(f"{step}: invalid IP address '{ip_address}' (row {index + 1})")
 
         driver = (
-            validated_driver(driver_raw, where=f"row {index + 1}", step="get-from-list")
+            validated_driver(driver_raw, where=f"row {index + 1}", step=step)
             or default_driver
         )
         entry = DeviceEntry(name=name, ip_address=ip_address, network_driver=driver)

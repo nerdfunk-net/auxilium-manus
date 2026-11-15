@@ -10,6 +10,7 @@ type PluginUILoader = () => Promise<PluginUIComponent>;
 
 const PLUGIN_UI_LOADERS: Record<string, PluginUILoader> = {
   "get-nautobot-devices": () => import("@/components/features/workflow-steps/get-nautobot-devices").then((m) => m.GetNautobotDevicesPlugin),
+  "get-from-agent": () => import("@/components/features/workflow-steps/get-from-agent").then((m) => m.GetFromAgentPlugin),
   "get-from-list": () => import("@/components/features/workflow-steps/get-from-list").then((m) => m.GetFromListPlugin),
   "get-from-user": () => import("@/components/features/workflow-steps/get-from-user").then((m) => m.GetFromUserPlugin),
   "get-from-config": () => import("@/components/features/workflow-steps/get-from-config").then((m) => m.GetFromConfigPlugin),

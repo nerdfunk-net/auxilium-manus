@@ -735,6 +735,35 @@ rules a step author must keep:
   the same cause. A late (expired) answer is only a timeout for its device: it says nothing about the secret.
 - Failure codes and kinds: `doc/AGENT_INTEGRATION.md` "Failures and what they mean".
 
+### Getting devices from an agent: `get-from-agent`
+
+`get-from-agent` (artifact type `inventory_selector`, `requires: []`, `produces: [identity]`, outcome `success`
+only) is the inventory counterpart of `route-to-agent`: it calls **one** handler on an agent and builds the
+workflow's devices from the answer. Protocol, secrets and operations: `doc/AGENT_INTEGRATION.md`. The rules:
+
+- **Request.** `attributes` is a list of `{name, value}` rows sent as `inputs.attributes` (`params` is `{}` and
+  `inputs.content` is empty). A value is fixed text or a whole-value `{run_input.<name>}` reference resolved from
+  `run.run_inputs` when the step runs (`get_from_agent/request.py`). There is no device yet, so no attribute paths.
+- **Secrets never leave.** A secret-looking attribute name (`is_secret_key_name`), a missing run input, a sealed
+  (secret-type) run input or a non-scalar run input is a `ValueError`.
+- **Answer.** `{"devices": [{name, ip_address, network_driver}, ...]}`, the rows of `get-from-list`, checked by
+  `normalize_device_entries(..., step="get-from-agent")` (IP syntax, canonical driver, de-duplication). No other
+  key is accepted; at most 5000 rows.
+- **No partial inventory.** An agent error (offline, auth, timeout, handler error), a malformed answer, **one**
+  invalid row (including a blank one with neither name nor IP) or an empty list fails the step
+  (`RuntimeError`/`ValueError`). The step never skips rows; only exact duplicates (same name, IP and driver) are merged.
+- **Host policy.** The agent chooses where the workflow's SSH credential goes, so every name and IP gets
+  `core.safe_hosts.validate_device_host` (no loopback, link-local, unspecified or multicast literal, no metadata name)
+  and an `ip_address` must be a plain address (no CIDR suffix, no leading zeros).
+- **Run input references** must be the whole value; a value that contains `{run_input.` but is not a whole,
+  well-formed reference fails the step instead of being sent as text.
+- `{node_id}.devices` lists at most 500 names (the persisted copy of a larger value would be replaced by a marker);
+  `{node_id}.total` is always exact.
+- **Devices.** `device_context_from_entry(..., source="agent", attribute_bag_name="get_from_agent")`; metadata
+  `{node_id}.total`, `.devices`, `.agent`; fan-out block identical to the other inventory steps.
+- `timeout_seconds` above the agent source's maximum is a configuration error (as in `route-to-agent`).
+- Example handler: `list_devices` in `agent/example-agent/handlers/examples.py`.
+
 ### Asking the AI: `contact-the-ai`
 
 Sends one prompt per step execution to the AI model (palette category Notify) and stores the answer on

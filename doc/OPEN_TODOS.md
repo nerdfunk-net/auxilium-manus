@@ -136,6 +136,12 @@ Built 2026-10-22 (`doc/AGENT_INTEGRATION.md`); all of it is uncommitted work unt
   Settings → Sources → Agents and the step panel, and a run against the real `manus-redis` with an
   `agents.acl` user (the generated ACL file in `docker/redis/start.sh` was tested in throwaway containers only,
   not by recreating the stack's `manus-redis`). Needs the isolated stack (`doc/HOWTO_TEST_THE_FRONTEND.md`).
+- **`agent/ping-range` (built 2026-11-15, uncommitted).** Verified: unit suites, a built image over the real encrypted HTTP
+  protocol, and the product owner's Test connection and a workflow run on Docker Desktop. Not yet verified: a scan of a real
+  LAN range on a Linux host (Docker Desktop is behind NAT), the Redis transport, `resolve_dns` against a real resolver with
+  a black-holed nameserver (the 15 s budget is tested with fakes only), and `read_only: true` without a tmpfs (a smoke test of
+  the built image is still the check). Known limit: a directed broadcast in a dash range is not recognised. The review
+  review was fully addressed (the file `doc/analysis/REVIEW.md` has since been overwritten by the review of `get-from-agent`).
 - **Secret rotation without a gap.** Accept two secrets (current and previous) on both sides for a window;
   today the credential and `MANUS_AGENT_SECRET` must change together.
 - **Pull transport.** The agent polls the app over HTTPS, so a remote agent needs no access to Redis. Needs a

@@ -84,6 +84,9 @@ def resolve_location(params, inputs):
   and device content out of them.
 * `echo` is built in and returns its inputs: it is what *Test connection* calls. See
   `handlers/examples.py` for a complete example.
+* A handler can also feed the *Get from Agent* inventory step: it receives the step's attributes in
+  `inputs["attributes"]` and returns `{"devices": [{"name", "ip_address", "network_driver"}]}`
+  (the `list_devices` example). Any invalid row or an empty list fails the step.
 
 ## HTTP transport
 

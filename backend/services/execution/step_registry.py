@@ -80,6 +80,7 @@ from workflow_steps.get_catalyst_center_topology.executor import (
 )
 from workflow_steps.get_device_configs.executor import execute as get_device_configs
 from workflow_steps.get_device_location.executor import execute as get_device_location
+from workflow_steps.get_from_agent.executor import execute as get_from_agent
 from workflow_steps.get_from_config.executor import execute as get_from_config
 from workflow_steps.get_from_db.executor import execute as get_from_db
 from workflow_steps.get_from_list.executor import execute as get_from_list
@@ -146,6 +147,7 @@ StepExecutor = Callable[..., Awaitable[list[StepOutcome]]]
 
 STEP_REGISTRY: dict[str, StepExecutor] = {
     "get-nautobot-devices": get_nautobot_devices,
+    "get-from-agent": get_from_agent,
     "get-from-list": get_from_list,
     "get-from-user": get_from_user,
     "get-from-config": get_from_config,

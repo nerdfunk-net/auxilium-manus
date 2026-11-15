@@ -8,8 +8,12 @@ bag, so later steps use it like any other attribute.
 Use it when the logic is too complex for expressions, filters or Jinja: for example, look at the
 Nautobot attributes of a device and derive a location name from a naming convention.
 
+The **Get from Agent** step (`get-from-agent`, an inventory step) uses the same agents and protocol to fetch the
+device list itself: it sends configured attributes to a handler and builds the devices from the `{"devices": [...]}`
+answer; any problem fails the step (`doc/WORKFLOW-STEPS.md` "Getting devices from an agent").
+
 Read this file before changing anything under `backend/services/agents/`,
-`backend/workflow_steps/route_to_agent/`, `backend/routers/sources/agent/`, `agent/` (each agent is an independent directory: `example-agent`, `get-ip-addresses`, `ping-range`) or
+`backend/workflow_steps/route_to_agent/`, `backend/workflow_steps/get_from_agent/`, `backend/routers/sources/agent/`, `agent/` (each agent is an independent directory: `example-agent`, `get-ip-addresses`, `ping-range`) or
 `docker/redis/`. The operator-facing guide for writing handlers is `agent/example-agent/README.md`.
 
 ## Contents
@@ -67,6 +71,15 @@ to anything on the path, including other users of the app's Redis.
 | One agent cannot read another's traffic | One secret per agent; on Redis, one ACL user per agent limited to `manus-agent:<id>:*` |
 | Secrets stay in the app | The step refuses secret paths and values (below) |
 | The agent cannot rewrite the device | Output keys are an allow-list; the destination cannot be `device.*`, a device field, `parsed`, `run_input` or `error` |
+
+> **Note: Get from Agent creates devices, it never rewrites them.** The row above is about **Route to Agent**,
+> which enriches devices that already exist. **Get from Agent** (`get-from-agent`) is an inventory step: the
+> devices do not exist before it runs, so the agent writes a device (name, IP address, network driver) for the
+> first time. It does not overwrite or rename an existing device: the new devices are added next to the ones in
+> the context, with their own ids (`agent-<hash>`, `source="agent"`). Because the agent decides which hosts the
+> workflow's SSH credential is later sent to, the step applies the host policy to every returned name and IP
+> (`core.safe_hosts.validate_device_host`, plain IP addresses only) and fails the whole step on any invalid or
+> blank row. See `doc/WORKFLOW-STEPS.md` "Getting devices from an agent".
 
 ### Secrets never leave through this step
 
