@@ -410,11 +410,12 @@ def build_client_data_tools() -> tuple[Tool, ...]:
             "Where is a MAC address, IP address or hostname connected? Reads the client data the "
             "Collect Client Data workflow step stored from the switches' and routers' MAC address "
             "and ARP tables (not the live network: every row has collected_at). Give one value; "
-            "it is matched as a whole. Returns every device that saw it, the likely_location "
-            "first (the access port with the fewest MACs) and the uplink observations behind "
-            "which the host sits. An empty result means no collected device saw it, never that "
-            "it does not exist: call get_client_data_coverage before saying it is absent. Needs "
-            "the inventory and addresses switches.",
+            "it is matched as a whole (a hostname without a dot also matches the first label of "
+            "a stored name: pc1 finds pc1.example.net). Returns every device that saw it, the "
+            "likely_location first (the access port with the fewest MACs) and the uplink "
+            "observations behind which the host sits. An empty result means no collected "
+            "device saw it, never that it does not exist: call get_client_data_coverage "
+            "before saying it is absent. Needs the inventory and addresses switches.",
             FindClientInput,
             find,
         ),

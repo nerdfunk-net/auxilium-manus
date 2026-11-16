@@ -1141,3 +1141,21 @@ def test_coverage_reports_the_neighbour_table_separately(db: Session) -> None:
     assert sw["neighbor_rows"] == 2
     assert sw["neighbor_collected_at"].startswith("2026-11-07T12:00")
     assert sw["mac_collected_at"].startswith("2026-11-07T13:00")  # a different run
+
+
+def test_exact_hostname_also_matches_the_short_name_of_a_stored_fqdn(lab: Session) -> None:
+    # Reverse DNS stores the fully qualified name ("pc1.example.net"); people ask for "pc1".
+    _collect(
+        lab,
+        device="core3",
+        ips=[ClientIpRow(ip_address="10.0.10.50", mac_address="aabb.ccdd.0050")],
+        hostnames=[ClientHostnameRow(ip_address="10.0.10.50", hostname="pc10.example.net")],
+    )
+    repo = ClientDataQueryRepository(lab)
+
+    short = repo.get_client_data(hostname="PC1", exact=True)[0]
+    assert {i["ip_address"] for i in short} == {"10.0.10.5"}  # pc10 is another host
+    assert repo.get_client_data(hostname="pc1.example", exact=True)[0] == []  # not a label
+    assert repo.get_client_data(hostname="pc1.example.net", exact=True)[0] != []
+    history = repo.get_client_history(hostname="pc1")
+    assert {h["hostname"] for h in history["hostname_history"]} == {"pc1.example.net"}

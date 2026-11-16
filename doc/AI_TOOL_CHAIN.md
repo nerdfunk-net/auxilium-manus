@@ -3643,7 +3643,7 @@ collected. They read **stored observations, not the live network**; every row ca
 
 * **Tools** (`tools/client_data_tools.py`, reader `client_data_reader.py::DbClientDataReader`):
   * `find_client(address)`: one MAC (any notation), IPv4 / IPv6 address (any notation) or hostname, matched as a **whole value** (`exact`:
-    `10.0.0.5` does not find `10.0.0.50`). It asks the repository for `likely_first` ordering, so the likely location is on the first page
+    `10.0.0.5` does not find `10.0.0.50`). A hostname without a dot also matches the first label of the stored name (reverse DNS stores the FQDN: `pc1` finds `pc1.example.net`, not `pc10.example.net`; `_hostname_equals` in the query repository, also used by the history; 2026-11-16). It asks the repository for `likely_first` ordering, so the likely location is on the first page
     even when 60 switches saw the host on an uplink (a test runs the real repository through the tool). Twelve hex digits without a
     separator are tried as a MAC and, if nothing is found, as a hostname (`query.kind` says which matched). Returns every device that saw it, ordered `likely_location` first, then access ports, then uplinks, with a top-level
     `likely_location` (device, port, VLAN, VRF, IP, hostname) or `null`. A value that is neither an address nor a hostname (`10.0.0.999`) is an

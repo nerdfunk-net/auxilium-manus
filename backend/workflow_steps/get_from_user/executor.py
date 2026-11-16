@@ -20,6 +20,8 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
+from sqlalchemy.orm import object_session
+
 from core.models.runs import WorkflowRun
 from models.workflow_context import StepOutcome, WorkflowContext
 from services.artifacts import ArtifactService
@@ -30,6 +32,10 @@ from workflow_steps.common.device_list import (
     validated_driver,
 )
 from workflow_steps.common.fan_out import build_fan_out_metadata
+from workflow_steps.get_from_user.inventory_reference import (
+    inventory_device_text,
+    is_inventory_reference,
+)
 
 if TYPE_CHECKING:
     from services.network.netmiko.session_pool import DeviceSessionPool
@@ -68,7 +74,13 @@ async def execute(
         )
         or DEFAULT_NETWORK_DRIVER
     )
-    device_entries = parse_device_list_text(run_inputs[param_name], default_driver=default_driver)
+    raw_value = run_inputs[param_name]
+    db = object_session(run)
+    # An inventory reference carries an inventory id; read that inventory's devices.
+    if db is not None and is_inventory_reference(db, run, param_name):
+        raw_value = await inventory_device_text(run, config, raw_value)
+
+    device_entries = parse_device_list_text(raw_value, default_driver=default_driver)
     if not device_entries:
         raise ValueError("get-from-user: no devices were entered for this run")
 

@@ -1,8 +1,8 @@
 ---
 name: where-is-this-host
 title: Where is this host, and everything we know about it (MAC, IP address or hostname)
-when: "all information about the IP address X; what data do you have from X; everything about X; where is this MAC; where is 10.1.1.5; which switch and port is host X on; where was this address last seen; find a host by MAC, IP or hostname; who has this IP; find the IP address X; is this address in use"
-tools: [find_client, get_client_data_coverage, get_client_history, list_ip_addresses, list_devices, list_prefixes, list_batfish_networks, list_batfish_snapshots, get_ip_owners, find_aci_endpoint, list_aci_subnets, get_dns_lookup]
+when: "all information about the IP address X; what data do you have from X; everything about X; what information do you have about X; tell me about the client X; where is this MAC; where is 10.1.1.5; which switch and port is host X on; where was this address last seen; find a host by MAC, IP or hostname; who has this IP; find the IP address X; is this address in use"
+tools: [find_client, list_clients, get_client_data_coverage, get_client_history, list_ip_addresses, list_devices, list_prefixes, list_batfish_networks, list_batfish_snapshots, get_ip_owners, find_aci_endpoint, list_aci_subnets, get_dns_lookup]
 scope: read-only
 ---
 # Where is this host, and everything we know about it
@@ -44,7 +44,10 @@ address (2 to 5); if none was found, say those steps were skipped.
    MAC on an uplink: the host is behind them, so do not name them as its location. If `rows` is
    empty, call `get_client_data_coverage` and say which devices were collected, when, and which
    tables were not (`skipped`, `not_supported`). An empty answer means "not in the stored data",
-   never "the host does not exist". If the user needs the history of an address that moved, call
+   never "the host does not exist". For a hostname, `find_client` matches the whole name or its
+   first label (`pc1` finds `pc1.example.net`, not `pc10.example.net`); if it finds nothing, also
+   call `list_clients` with `hostname_contains` set to the name before giving up, because the
+   stored name can differ in spelling. If the user needs the history of an address that moved, call
    `get_client_history` (it only holds the retained collections, so it is short).
 2. **Nautobot.** Call `list_ip_addresses` with `address` = the IP address, and `list_prefixes` with
    `contains` = the IP address. For a hostname that is a device, `list_devices`. Report whether the

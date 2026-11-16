@@ -74,6 +74,20 @@ def _matches(column: Any, value: str, *, exact: bool, lowercase: bool = True) ->
     return func.lower(column) == value.strip().lower() if lowercase else column == value.strip()
 
 
+def _hostname_equals(column: Any, value: str) -> Any:
+    """Whole-name equality ignoring case; a name without a dot also matches the first label.
+
+    Reverse DNS stores the fully qualified name (``pc1.example.net``) while people ask for
+    ``pc1``. ``pc1`` matches ``pc1.example.net`` but never ``pc10.example.net``.
+    """
+    name = value.strip().lower().rstrip(".")
+    lowered = func.lower(column)
+    if "." in name:
+        return lowered == name
+    escaped = name.replace(_LIKE_ESCAPE, _LIKE_ESCAPE * 2).replace("%", r"\%").replace("_", r"\_")
+    return or_(lowered == name, lowered.like(f"{escaped}.%", escape=_LIKE_ESCAPE))
+
+
 def _canonical_ip(value: str) -> str:
     """The stored notation of an address (``str(ip_address(...))``): IPv6 is compressed and
     lower case. Text that is no address is returned stripped."""
@@ -195,7 +209,11 @@ def _predicates(
         ("vrf", vrf),
         ("hostname", hostname),
     ):
-        if value:
+        if not value:
+            continue
+        if key == "hostname" and exact:
+            found[key] = lambda column, value=value: _hostname_equals(column, value)
+        else:
             found[key] = lambda column, value=value: _matches(column, value, exact=exact)
     if ip_address:
         if exact:
@@ -901,7 +919,7 @@ class ClientDataQueryRepository:
             h.device_name,
             h.collected_at,
             h.id.label("row_id"),
-        ).where(func.lower(h.hostname) == hostname.strip().lower())
+        ).where(_hostname_equals(h.hostname, hostname))
         rows = self._collapsed(
             stmt,
             partition=(h.session_id, h.ip_address, h.hostname),

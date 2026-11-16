@@ -9,7 +9,13 @@ from typing import Any
 import pytest
 from sqlalchemy.orm import Session
 
-from models.client_data import ClientCollectionStatus, ClientMacRow, ClientNeighborRow
+from models.client_data import (
+    ClientCollectionStatus,
+    ClientHostnameRow,
+    ClientIpRow,
+    ClientMacRow,
+    ClientNeighborRow,
+)
 from repositories.client_data_query_repository import ClientDataQueryRepository
 from services.ai_assistant.data_sharing import SharingPolicy
 from services.ai_assistant.providers.base import ToolCall
@@ -123,3 +129,38 @@ def test_find_client_uses_the_lldp_neighbour_to_find_the_access_port_through_the
     by_device = {r["device"]: r for r in data["rows"]}
     assert (by_device["swA"]["is_uplink"], by_device["swA"]["uplink_reason"]) == (True, "neighbor")
     assert by_device["swA"]["uplink_to"] == "core1"
+
+
+def test_find_client_finds_a_client_by_its_short_hostname_over_the_real_query(
+    db: Session,  # noqa: F811
+) -> None:
+    # The lab case: an access switch (MAC table) and a router (ARP + reverse-DNS name, stored
+    # as the FQDN). The user asks for "pc-marc", the stored name is "pc-marc.lab.example.com".
+    _collect(
+        db,
+        device="acc1",
+        macs=[ClientMacRow(mac_address="aabb.ccdd.0101", vlan="10", port="Gi1/0/7")],
+    )
+    _collect(
+        db,
+        device="core1",
+        ips=[
+            ClientIpRow(
+                ip_address="10.0.10.77", mac_address="aabb.ccdd.0101", interface="Vlan10", vlan="10"
+            )
+        ],
+        hostnames=[ClientHostnameRow(ip_address="10.0.10.77", hostname="pc-marc.lab.example.com")],
+    )
+
+    data = _run(RepositoryReader(db, threshold=10), "find_client", address="PC-Marc")
+
+    assert data["query"] == {"kind": "hostname", "value": "PC-Marc"}
+    assert data["likely_location"] == {
+        "device": "acc1",
+        "port": "Gi1/0/7",
+        "vlan": "10",
+        "vrf": None,
+        "ip_address": "10.0.10.77",
+        "hostname": "pc-marc.lab.example.com",
+    }
+    assert _run(RepositoryReader(db, threshold=10), "find_client", address="pc")["rows"] == []
