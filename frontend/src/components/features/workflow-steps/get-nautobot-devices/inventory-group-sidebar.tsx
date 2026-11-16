@@ -1,13 +1,12 @@
 "use client";
 
-import { useMemo } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { ChevronDown, ChevronRight, Folder, Plus } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 import type { InventoryGroupNode, SavedInventory } from "./types/saved-inventory";
-import { ROOT_GROUP_ID } from "./types/saved-inventory";
 import { buildGroupTree, countInventoriesInGroup } from "./utils/inventory-groups";
 
 interface InventoryGroupSidebarProps {
@@ -26,7 +25,8 @@ interface GroupRowProps {
   inventories: SavedInventory[];
   selectedGroupId: string;
   onSelectGroup: (node: InventoryGroupNode) => void;
-  expandedIds: Set<string>;
+  collapsedIds: ReadonlySet<string>;
+  onToggleCollapse: (id: string) => void;
 }
 
 function GroupRow({
@@ -35,12 +35,13 @@ function GroupRow({
   inventories,
   selectedGroupId,
   onSelectGroup,
-  expandedIds,
+  collapsedIds,
+  onToggleCollapse,
 }: GroupRowProps) {
   const count = countInventoriesInGroup(inventories, node.path);
   const isSelected = selectedGroupId === node.id;
   const hasChildren = node.children.length > 0;
-  const isExpanded = expandedIds.has(node.id) || isSelected;
+  const isExpanded = !collapsedIds.has(node.id);
 
   return (
     <div>
@@ -55,9 +56,23 @@ function GroupRow({
       >
         {hasChildren ? (
           isExpanded ? (
-            <ChevronDown className="h-3 w-3 shrink-0 text-muted-foreground" aria-hidden />
+            <ChevronDown
+              className="h-3 w-3 shrink-0 text-muted-foreground"
+              aria-hidden
+              onClick={(event) => {
+                event.stopPropagation();
+                onToggleCollapse(node.id);
+              }}
+            />
           ) : (
-            <ChevronRight className="h-3 w-3 shrink-0 text-muted-foreground" aria-hidden />
+            <ChevronRight
+              className="h-3 w-3 shrink-0 text-muted-foreground"
+              aria-hidden
+              onClick={(event) => {
+                event.stopPropagation();
+                onToggleCollapse(node.id);
+              }}
+            />
           )
         ) : (
           <span className="inline-block w-3 shrink-0" />
@@ -75,7 +90,8 @@ function GroupRow({
               inventories={inventories}
               selectedGroupId={selectedGroupId}
               onSelectGroup={onSelectGroup}
-              expandedIds={expandedIds}
+              collapsedIds={collapsedIds}
+              onToggleCollapse={onToggleCollapse}
             />
           ))
         : null}
@@ -94,17 +110,17 @@ export function InventoryGroupSidebar({
 }: InventoryGroupSidebarProps) {
   const tree = useMemo(() => buildGroupTree(groupPaths), [groupPaths]);
 
-  const expandedIds = useMemo(() => {
-    const ids = new Set<string>();
-    if (selectedGroupId === ROOT_GROUP_ID) return ids;
-    const segments = selectedGroupId.split("/").filter(Boolean);
-    let path = "";
-    for (const segment of segments) {
-      path = path ? `${path}/${segment}` : segment;
-      ids.add(path);
-    }
-    return ids;
-  }, [selectedGroupId]);
+  // Folders are expanded by default; selecting a folder never changes the
+  // tree. Only the chevron collapses/expands a folder.
+  const [collapsedIds, setCollapsedIds] = useState<ReadonlySet<string>>(() => new Set());
+  const onToggleCollapse = useCallback((id: string) => {
+    setCollapsedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
 
   return (
     <div className={cn("flex min-h-0 flex-col border-r border-border bg-card", className)}>
@@ -120,7 +136,8 @@ export function InventoryGroupSidebar({
           inventories={inventories}
           selectedGroupId={selectedGroupId}
           onSelectGroup={onSelectGroup}
-          expandedIds={expandedIds}
+          collapsedIds={collapsedIds}
+          onToggleCollapse={onToggleCollapse}
         />
       </div>
       {showNewGroupButton && onNewGroup ? (
