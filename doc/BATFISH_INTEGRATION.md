@@ -787,6 +787,15 @@ default silently produced a zero-node filter — and therefore zero extracted
 facts and a `post_step_guard` failure (`produces={parsed}` unmet) — for
 every multi-device run.
 
+**`use_short_hostname` (bool, default on).** Batfish names a node after the `hostname` line of the
+config, lowercased, and never appends `ip domain name` (verified 2026-11-16: `hostname R1` +
+`ip domain name example.com` -> node `r1`; `hostname R2.Example.com` -> node `r2.example.com`; run 582:
+Nautobot `LAB.local.zz`, config `hostname LAB`, node `lab`, so `node_not_found`). With the flag on, the
+device name is cut at the first dot for both the default `nodes_filter` and the per-device lookup
+(`_node_name` in the executor; an IPv4-address name is left alone). Off: the full lowercased name, which is
+needed when the config hostname is the FQDN (default on because most configs carry the short hostname). Only this step has the option; `batfish-validate-facts` still
+looks up the full lowercased name.
+
 **HSRP groups (`Interfaces.<name>.HSRP_Details`).** `extract_facts` (interfaceProperties) lists only the
 group ids of an interface (`HSRP_Groups: ["0"]`), never the virtual IP. The step therefore also asks the separate
 `hsrpProperties` question for the same `nodes_filter` (`BatfishService.hsrp_properties`; rows `{Interface:

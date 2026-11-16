@@ -2113,6 +2113,18 @@ plugins:
           data_type: string
           required: false
           default: batfish_extract_facts
+        - name: use_short_hostname
+          description: >
+            Look each device up in the snapshot by the part of its name before
+            the first dot (lab.local.zz -> lab). Batfish names a node after the
+            hostname line of its config, lowercased, and never adds the domain;
+            on by default, since the usual config has only the short hostname
+            while the inventory (Nautobot) stores the FQDN. Turn it off when
+            the device configs use the FQDN as hostname: the full lowercased
+            name is then used. IPv4-address names are left alone.
+          data_type: boolean
+          required: false
+          default: true
         - name: batfish_source_id
           description: >
             Configured Batfish source to query directly, bypassing this

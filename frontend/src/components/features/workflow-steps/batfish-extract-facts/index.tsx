@@ -3,6 +3,7 @@
 import { useCallback } from "react";
 
 import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import type {
   PluginConfigPanelProps,
@@ -17,9 +18,20 @@ function stringFromConfig(config: Record<string, unknown>, key: string): string 
   return typeof raw === "string" ? raw : "";
 }
 
+const USE_SHORT_HOSTNAME_KEY = "use_short_hostname";
+
 function BatfishExtractFactsConfigPanel({ config, onChange }: PluginConfigPanelProps) {
   const nodesFilter = stringFromConfig(config, "nodes_filter");
   const outputKey = stringFromConfig(config, "output_key");
+
+  const useShortHostname = config[USE_SHORT_HOSTNAME_KEY] !== false;
+
+  const handleShortHostnameChange = useCallback(
+    (checked: boolean) => {
+      onChange({ ...config, [USE_SHORT_HOSTNAME_KEY]: checked });
+    },
+    [config, onChange],
+  );
 
   const handleFieldChange = useCallback(
     (key: string) => (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -49,6 +61,24 @@ function BatfishExtractFactsConfigPanel({ config, onChange }: PluginConfigPanelP
           extract every node in the snapshot.
         </p>
       </div>
+
+      <label className="flex items-start gap-1.5 text-xs font-medium">
+        <Checkbox
+          className="mt-0.5"
+          checked={useShortHostname}
+          onCheckedChange={(checked) => handleShortHostnameChange(checked === true)}
+        />
+        <span>
+          <span className="font-mono">{USE_SHORT_HOSTNAME_KEY}</span>
+          <span className="block text-[11px] font-normal leading-4 text-muted-foreground">
+            Look devices up by the part of their name before the first dot (
+            <span className="font-mono">lab.local.zz</span> →{" "}
+            <span className="font-mono">lab</span>). On (default) suits configs with a short{" "}
+            <span className="font-mono">hostname</span> while the inventory stores FQDNs. Turn off
+            when the configs use the FQDN as hostname: the full lowercased name is used.
+          </span>
+        </span>
+      </label>
 
       <div className="space-y-1.5">
         <div className="flex items-center gap-1.5">

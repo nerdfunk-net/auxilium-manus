@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from typing import TYPE_CHECKING, Any
 
 import service_factory
@@ -38,6 +39,7 @@ from services.artifacts import ArtifactService
 from workflow_steps.batfish_extract_facts.config import get_config
 from workflow_steps.batfish_extract_facts.hsrp import mark_hsrp_error, merge_hsrp_into_facts
 from workflow_steps.common.batfish_context import resolve_batfish_snapshot_ref
+from workflow_steps.common.step_flags import parse_bool_flag
 
 if TYPE_CHECKING:
     from services.network.netmiko.session_pool import DeviceSessionPool
@@ -45,9 +47,25 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _STEP_ID = "batfish-extract-facts"
+_IPV4_RE = re.compile(r"\d{1,3}(\.\d{1,3}){3}")
 
 
-def _default_nodes_filter(context: WorkflowContext) -> str:
+def _node_name(device_name: str, *, short_hostname: bool) -> str:
+    """Name Batfish knows this device by: the lowercased device name.
+
+    Batfish takes a node's name from the ``hostname`` line of its config, lowercased, and never
+    appends ``ip domain name``. With ``short_hostname`` (the step default) the name is cut at the
+    first dot, for inventories that store the FQDN (``lab.local.zz``) while the config only says
+    ``hostname LAB``.
+    A bare IPv4 address is left alone: its dots are not a domain.
+    """
+    name = device_name.strip().lower()
+    if short_hostname and not _IPV4_RE.fullmatch(name):
+        return name.split(".", 1)[0] or name
+    return name
+
+
+def _default_nodes_filter(context: WorkflowContext, *, short_hostname: bool = False) -> str:
     """Default to just this run's devices (lowercased, comma-joined nodeSpec
     union) rather than Batfish's own "/.*/" default -- so an unconfigured
     step scopes to the workflow's own selected devices instead of every node
@@ -62,7 +80,11 @@ def _default_nodes_filter(context: WorkflowContext) -> str:
     every multi-device run.
     """
     names = sorted(
-        {device.name.strip().lower() for device in context.devices.values() if device.name.strip()}
+        {
+            _node_name(device.name, short_hostname=short_hostname)
+            for device in context.devices.values()
+            if device.name.strip()
+        }
     )
     return ",".join(names) if names else "/.*/"
 
@@ -105,8 +127,9 @@ async def execute(
     output_key = str(merged_config.get("output_key") or "batfish_extract_facts").strip() or (
         "batfish_extract_facts"
     )
+    short_hostname = parse_bool_flag(merged_config, "use_short_hostname", default=True)
     nodes_filter = str(merged_config.get("nodes_filter") or "").strip() or _default_nodes_filter(
-        context
+        context, short_hostname=short_hostname
     )
 
     batfish = service_factory.get_batfish_app_service()
@@ -138,7 +161,7 @@ async def execute(
     found: dict[str, DeviceContext] = {}
     missing: dict[str, DeviceContext] = {}
     for device_id, device in context.devices.items():
-        node_name = device.name.strip().lower()
+        node_name = _node_name(device.name, short_hostname=short_hostname)
         parsed = dict(device.parsed)
         if node_name in node_facts:
             parsed[output_key] = {"parsed": node_facts[node_name], "error": None}

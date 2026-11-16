@@ -121,6 +121,35 @@ class BatfishExtractFactsExecutorTests(unittest.IsolatedAsyncioTestCase):
         _, kwargs = batfish.extract_facts.call_args
         self.assertEqual(kwargs["nodes"], "/.*/")
 
+    async def test_use_short_hostname_false_keeps_full_name(self) -> None:
+        devices = {"device-1": _device("device-1", "LAB.local.zz")}
+        outcomes, batfish = await self._run(
+            facts={"nodes": {"lab": {"Hostname": "lab"}}},
+            devices=devices,
+            config={"use_short_hostname": False},
+        )
+        self.assertEqual(batfish.extract_facts.call_args.kwargs["nodes"], "lab.local.zz")
+        self.assertEqual([o.name for o in outcomes], ["success", "failure"])
+
+    async def test_default_matches_fqdn_device_to_short_node(self) -> None:
+        devices = {"device-1": _device("device-1", "LAB.local.zz")}
+        outcomes, batfish = await self._run(
+            facts={"nodes": {"lab": {"Hostname": "lab"}}}, devices=devices
+        )
+        self.assertEqual(batfish.extract_facts.call_args.kwargs["nodes"], "lab")
+        self.assertEqual([o.name for o in outcomes], ["success"])
+        found = outcomes[0].context.devices["device-1"]
+        self.assertEqual(found.parsed["batfish_extract_facts"]["parsed"], {"Hostname": "lab"})
+
+    async def test_use_short_hostname_dedups_and_keeps_ip_names(self) -> None:
+        devices = {
+            "d1": _device("d1", "r1.a.example"),
+            "d2": _device("d2", "R1.b.example"),
+            "d3": _device("d3", "10.0.0.1"),
+        }
+        _, batfish = await self._run(facts={"nodes": {}}, devices=devices)
+        self.assertEqual(batfish.extract_facts.call_args.kwargs["nodes"], "10.0.0.1,r1")
+
     async def test_metadata_records_row_count(self) -> None:
         devices = {"device-1": _device("device-1", "R1")}
         outcomes, _ = await self._run(facts={"nodes": {"r1": {}, "r2": {}}}, devices=devices)

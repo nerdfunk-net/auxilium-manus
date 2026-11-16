@@ -30,6 +30,17 @@ export function BatfishExtractFactsHelpPanel() {
         </p>
       </HelpSection>
 
+      <HelpSection title="use_short_hostname">
+        <p>
+          Batfish names a node after the <HelpCode>hostname</HelpCode> line of the device&apos;s
+          config, lowercased; it never appends <HelpCode>ip domain name</HelpCode>. If your
+          inventory stores FQDNs (<HelpCode>lab.local.zz</HelpCode>) but the config only says{" "}
+          <HelpCode>hostname LAB</HelpCode>, the device is not found. On by default: the device is looked
+          up by the part before the first dot (<HelpCode>lab</HelpCode>). Turn it off when the
+          config hostname is the FQDN. Names that are IPv4 addresses are left alone.
+        </p>
+      </HelpSection>
+
       <HelpSection title="Reading the result downstream">
         <p>
           Each device that Batfish returned facts for gets{" "}
