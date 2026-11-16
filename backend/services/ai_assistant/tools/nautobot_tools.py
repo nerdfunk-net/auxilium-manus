@@ -29,12 +29,17 @@ from typing import Annotated, Any, Protocol
 from nautobot_read.context import QueryContext
 from nautobot_read.errors import EXPECTED_ERRORS
 from nautobot_read.queries import dcim, free_ip, ipam, organization, virtual_chassis
-from nautobot_read.queries.common import ContentType
+from nautobot_read.queries.common import MAX_LIMIT, ContentType
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
 from services.ai_assistant.data_sharing import DataClass, SharingPolicy, not_shared_marker
 from services.ai_assistant.nautobot_query_reader import NautobotAccessError
 from services.ai_assistant.tools.base import Tool, ToolContext, ToolOutput
+from services.network.interface_names import (
+    interface_name_variants,
+    is_complete_interface_name,
+    same_interface,
+)
 
 # Key of the ``NautobotQueryReader`` in ``ToolContext.extras``; the surface builder puts it there.
 NAUTOBOT_READER_KEY = "nautobot_query_reader"
@@ -440,6 +445,75 @@ def _tool(
     return Tool(name, description, model, handler)
 
 
+async def _exact_interface(
+    ctx: Any, kwargs: dict[str, Any], typed: str, variants: tuple[str, ...]
+) -> dict[str, Any] | None:
+    """The interface that is the same port as ``typed``, under whichever spelling Nautobot has.
+
+    Nautobot matches the filter as text, so a spelling can also return other ports whose name
+    merely contains it (``Gi1/0/1`` -> ``Gi1/0/10``). Only a name that canonicalises to ``typed``
+    is kept; the spellings are tried one after the other because a stored ``Po510`` satisfies
+    ``Po51`` and must not hide ``Port-channel51``.
+    """
+    for variant in variants:
+        result = await dcim.list_interfaces(
+            ctx, **{**kwargs, "name_contains": variant, "limit": MAX_LIMIT, "offset": 0}
+        )
+        rows = [row for row in result["items"] if same_interface(row["name"], typed)]
+        if not rows:
+            continue
+        spelled = "" if rows[0]["name"] == typed else f" (documented as '{rows[0]['name']}')"
+        return {
+            **result,
+            "items": rows,
+            "returned": len(rows),
+            "has_more": False,
+            "total": len(rows),
+            "total_exact": True,
+            "applied_filters": {**result["applied_filters"], "name_contains": typed},
+            "note": f"Only the interface named '{typed}'{spelled} is listed, under any spelling "
+            "(Po = Port-channel, Gi = GigabitEthernet); other names that merely contain the "
+            "text are left out.",
+        }
+    return None
+
+
+async def _list_interfaces_any_spelling(ctx: Any, **kwargs: Any) -> dict[str, Any]:
+    """``list_interfaces`` that knows ``Po51`` and ``Port-channel51`` are one interface.
+
+    A whole interface name (``Po51``, ``Gi1/0/1``) lists that one interface under any spelling
+    (``_exact_interface``); when none is documented the plain text match runs as asked and the
+    other spellings are not tried. Part of a name (``Gi1/0/``) is text to look for: as typed
+    first, and when that finds nothing the other spellings of the text, with a note that the
+    rows are a text match and not one interface.
+    """
+    typed = kwargs.get("name_contains")
+    variants = interface_name_variants(typed) if typed else ()
+    if typed is None or len(variants) < 2:
+        return await dcim.list_interfaces(ctx, **kwargs)
+    result: dict[str, Any] = {}
+    if is_complete_interface_name(typed):
+        if not kwargs.get("offset"):
+            exact = await _exact_interface(ctx, kwargs, typed, variants)
+            if exact is not None:
+                return exact
+        # No such port under any spelling: the plain text match, never another port's rows.
+        return await dcim.list_interfaces(ctx, **kwargs)
+    result = await dcim.list_interfaces(ctx, **kwargs)
+    if result.get("items"):
+        return result
+    for variant in variants[1:]:
+        other = await dcim.list_interfaces(ctx, **{**kwargs, "name_contains": variant})
+        if other.get("items"):
+            return {
+                **other,
+                "note": f"No interface name contains '{typed}'. These contain '{variant}', "
+                "another spelling of the same text: a text match, not necessarily the "
+                "interface you asked for.",
+            }
+    return result
+
+
 def build_nautobot_tools() -> tuple[Tool, ...]:
     """The Nautobot read tools; the surface offers them only with a ``NautobotQueryReader``."""
     return (
@@ -537,7 +611,7 @@ def build_nautobot_tools() -> tuple[Tool, ...]:
             "Needs the addresses data switch; interface descriptions and cable labels also "
             "need the content switch.",
             ListInterfacesInput,
-            dcim.list_interfaces,
+            _list_interfaces_any_spelling,
             gate=DataClass.ADDRESSES,
             shape=_withhold_interface_descriptions,
         ),

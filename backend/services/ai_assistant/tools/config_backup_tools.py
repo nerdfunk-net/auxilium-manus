@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 from datetime import UTC, datetime
 from typing import Annotated, Literal, Self
 
@@ -50,6 +51,7 @@ from services.ai_assistant.results.store import (
 )
 from services.ai_assistant.tools.base import Tool, ToolContext, ToolOutput
 from services.ai_assistant.tools.result_tools import RESULT_STORE_KEY
+from services.network.interface_names import is_complete_interface_name, same_interface
 
 logger = logging.getLogger(__name__)
 
@@ -362,12 +364,35 @@ SECTION_TEXT_BUDGET = 14_000
 OUTLINE_MAX_ENTRIES = 150
 
 
+_INTERFACE_HEADER = re.compile(r"^(?P<keyword>interface)\s+(?P<name>\S.*)$", re.IGNORECASE)
+
+
+def _select_by_prefix_any_spelling(sections: list[Section], prefix: str) -> list[Section]:
+    """``select_by_prefix``; ``interface Po51`` also finds ``interface Port-channel51``.
+
+    A config spells the interface one way (``Port-channel51``), people and other tools another
+    (``Po51``, ``port-channel 51``). For a whole interface name only the same interface counts:
+    ``select_by_prefix`` would fall back to a longer name (``Gi1/0/1`` -> ``Gi1/0/10``), which is
+    another port. A part of a name (``interface Loopback``) keeps the prefix match.
+    """
+    match = _INTERFACE_HEADER.match(prefix)
+    if match is None or not is_complete_interface_name(match.group("name")):
+        return select_by_prefix(sections, prefix)
+    wanted = match.group("name")
+    found = []
+    for section in sections:
+        header = _INTERFACE_HEADER.match(" ".join(section.header.split()))
+        if header and same_interface(header.group("name"), wanted):
+            found.append(section)
+    return found
+
+
 def _select(sections: list[Section], args: GetConfigSectionInput) -> list[Section] | None:
     """The sections the arguments ask for; ``None`` when no selector was given."""
     if args.topic:
         return select_by_topic(sections, args.topic)
     if args.starts_with and args.starts_with.strip():
-        return select_by_prefix(sections, args.starts_with.strip())
+        return _select_by_prefix_any_spelling(sections, args.starts_with.strip())
     if args.header_regex:
         return select_by_regex(sections, args.header_regex)
     return None

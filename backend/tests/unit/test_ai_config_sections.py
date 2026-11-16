@@ -275,3 +275,37 @@ def test_needs_the_content_opt_in() -> None:
 def test_only_one_selector_is_allowed() -> None:
     with pytest.raises(ValidationError):
         _call(_ctx(CONFIG), topic="ospf", starts_with="router ospf")
+
+
+def test_an_interface_is_found_under_another_spelling_of_its_name() -> None:
+    config = (
+        "hostname LAB\n!\ninterface Port-channel51\n description uplink\n!\ninterface Vlan10\n!\n"
+    )
+    sections = split_sections(config)
+
+    for typed in ("interface Po51", "interface port-channel 51", "interface Port-channel51"):
+        found = tools._select_by_prefix_any_spelling(sections, typed)
+        assert [s.header for s in found] == ["interface Port-channel51"], typed
+    assert tools._select_by_prefix_any_spelling(sections, "interface Po52") == []
+    assert tools._select_by_prefix_any_spelling(sections, "router ospf 1") == []
+
+
+def test_a_whole_interface_name_never_falls_back_to_a_longer_one() -> None:
+    config = (
+        "interface Port-channel510\n!\ninterface Port-channel51.100\n!\n"
+        "interface GigabitEthernet1/0/10\n!\ninterface Ethernet1/5\n!\n"
+    )
+    sections = split_sections(config)
+
+    assert tools._select_by_prefix_any_spelling(sections, "interface Po51") == []
+    assert tools._select_by_prefix_any_spelling(sections, "interface Gi1/0/1") == []
+    found = tools._select_by_prefix_any_spelling(sections, "interface Et1/5")
+    assert [s.header for s in found] == ["interface Ethernet1/5"]
+
+
+def test_a_part_of_an_interface_name_keeps_the_prefix_match() -> None:
+    sections = split_sections("interface Loopback0\n!\ninterface Loopback10\n!\n")
+
+    found = tools._select_by_prefix_any_spelling(sections, "interface Loopback")
+
+    assert [s.header for s in found] == ["interface Loopback0", "interface Loopback10"]

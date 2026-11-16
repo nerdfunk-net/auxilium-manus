@@ -20,7 +20,7 @@ _PREFIXES: tuple[tuple[tuple[str, ...], str], ...] = (
     (("twentyfivegige", "twe"), "TwentyFiveGigE"),
     (("fortygigabitethernet", "fortygige", "fo"), "FortyGigabitEthernet"),
     (("hundredgige", "hu"), "HundredGigE"),
-    (("ethernet", "eth"), "Ethernet"),
+    (("ethernet", "eth", "et"), "Ethernet"),
     (("port-channel", "portchannel", "po"), "Port-channel"),
     (("loopback", "lo"), "Loopback"),
     (("vlan", "vl"), "Vlan"),
@@ -54,3 +54,55 @@ def same_interface(first: str, second: str) -> bool:
     left = canonical_interface_name(first).lower()
     right = canonical_interface_name(second).lower()
     return bool(left) and left == right
+
+
+# The short forms people and tables (MAC table, client data) use for a canonical long name. IOS
+# prints ``Et1/5`` and NX-OS ``Eth1/5`` for ``Ethernet1/5``.
+_SHORT_NAMES: dict[str, tuple[str, ...]] = {
+    "GigabitEthernet": ("Gi",),
+    "FastEthernet": ("Fa",),
+    "TenGigabitEthernet": ("Te",),
+    "TwentyFiveGigE": ("Twe",),
+    "FortyGigabitEthernet": ("Fo",),
+    "HundredGigE": ("Hu",),
+    "Ethernet": ("Eth", "Et"),
+    "Port-channel": ("Po",),
+    "Loopback": ("Lo",),
+    "Vlan": ("Vl",),
+}
+
+
+def is_complete_interface_name(raw: str) -> bool:
+    """True for a whole interface name of a known kind (``Po51``, ``Gi1/0/1``), not for a part.
+
+    ``Gi1/0/``, ``Gi`` and ``mgmt0`` are not: a tool treats them as text to look for.
+    """
+    match = _NAME.fullmatch(raw.strip())
+    if match is None or not match.group("rest")[-1].isdigit():
+        return False
+    prefix = match.group("prefix").lower()
+    return any(prefix == alias for alias, _ in _ALIASES)
+
+
+def interface_name_variants(raw: str) -> tuple[str, ...]:
+    """The spellings to try for ``raw``: as typed, the canonical long name and the short forms.
+
+    ``Po51`` -> ``Po51``, ``Port-channel51``; ``port-channel 51`` -> ``port-channel 51``,
+    ``Port-channel51``, ``Po51``. A name that is not one interface name (an unknown prefix, or
+    trailing text) has only the form as typed.
+    """
+    typed = raw.strip()
+    if _NAME.fullmatch(typed) is None:
+        return (typed,) if typed else ()
+    canonical = canonical_interface_name(typed)
+    variants = [typed, canonical]
+    for long_name, shorts in _SHORT_NAMES.items():
+        if canonical.startswith(long_name) and canonical[len(long_name) :][:1].isdigit():
+            variants.extend(f"{short}{canonical[len(long_name) :]}" for short in shorts)
+    seen: set[str] = set()
+    unique: list[str] = []
+    for name in variants:
+        if name.lower() not in seen:
+            seen.add(name.lower())
+            unique.append(name)
+    return tuple(unique)

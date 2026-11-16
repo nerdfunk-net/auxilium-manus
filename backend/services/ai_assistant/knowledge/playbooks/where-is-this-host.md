@@ -81,6 +81,10 @@ address (2 to 5); if none was found, say those steps were skipped.
   busy access port, such as a hypervisor, can look like an uplink. Say so when the port is a
   hypervisor, access point or port channel, and that neighbour data is collected only where the
   `collect_neighbors` option of the collection step was on (`get_client_data_coverage` shows it).
+- The port in the client data is a short name (`Po51`, `Gi1/0/5`). Nautobot, Batfish and the
+  configs spell it long (`Port-channel51`, `GigabitEthernet1/0/5`): it is the same interface. When
+  you look the port up in another source, use the long spelling too, and never write "not
+  documented" for a port before you tried both.
 - Several rows for one IP (different VRFs or devices) are all reported; never pick one silently.
 - Sources disagree (another hostname, another device, Nautobot says unassigned while client data
   or ACI sees the address): report both sides and name the sources. Client data and ACI show what

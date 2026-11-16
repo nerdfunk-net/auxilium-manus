@@ -47,3 +47,48 @@ def test_same_interface_compares_canonical_forms() -> None:
     assert same_interface("Eth1/1", "ethernet1/1")
     assert not same_interface("Gi1/0/1", "Gi1/0/2")
     assert not same_interface("", "")
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ("Po51", ("Po51", "Port-channel51")),
+        ("port-channel 51", ("port-channel 51", "Port-channel51", "Po51")),
+        ("Port-channel51", ("Port-channel51", "Po51")),
+        ("Gi1/0/1", ("Gi1/0/1", "GigabitEthernet1/0/1")),
+        ("mgmt0", ("mgmt0",)),
+    ],
+)
+def test_interface_name_variants_cover_the_spellings_of_one_port(
+    raw: str, expected: tuple[str, ...]
+) -> None:
+    from services.network.interface_names import interface_name_variants
+
+    assert interface_name_variants(raw) == expected
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ("Et1/5", ("Et1/5", "Ethernet1/5", "Eth1/5")),
+        ("Eth1/5", ("Eth1/5", "Ethernet1/5", "Et1/5")),
+        ("GigabitEthernet1/0/1 extra", ("GigabitEthernet1/0/1 extra",)),
+        ("", ()),
+    ],
+)
+def test_variants_cover_ios_et_and_ignore_text_that_is_not_a_name(
+    raw: str, expected: tuple[str, ...]
+) -> None:
+    from services.network.interface_names import interface_name_variants
+
+    assert interface_name_variants(raw) == expected
+
+
+@pytest.mark.parametrize(
+    ("raw", "complete"),
+    [("Po51", True), ("Gi1/0/1", True), ("Gi1/0/", False), ("Gi", False), ("mgmt0", False)],
+)
+def test_is_complete_interface_name(raw: str, complete: bool) -> None:
+    from services.network.interface_names import is_complete_interface_name
+
+    assert is_complete_interface_name(raw) is complete

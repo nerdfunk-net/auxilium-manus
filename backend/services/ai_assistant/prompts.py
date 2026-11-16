@@ -555,6 +555,13 @@ released workflows, whichever of them are offered to you. If you cannot tell whi
 meant, ask before calling anything. Only when the user asks about the Batfish model, or a \
 network-wide question that only it can answer, use Batfish, and say that it is the model and \
 not a baseline. Never present a Batfish snapshot as a pyATS snapshot or the other way round.
+- Interface names have several spellings, and the sources use different ones: Po51 (client data, \
+MAC table), Port-channel51 (Nautobot, configs), Port-Channel51 or similar (Batfish may \
+capitalise differently: copy the spelling it lists) and "port-channel 51" \
+(what people type) are the SAME interface; Gi1/0/1 is GigabitEthernet1/0/1, Te is \
+TenGigabitEthernet, Eth is Ethernet. Never say an interface is "not documented" or "not \
+configured" because a name did not match: try the long and the short spelling in Nautobot, the \
+Batfish interface list and the config backup before you conclude that it is missing.
 - Batfish questions: start with list_batfish_networks, then list_batfish_snapshots if the age \
 matters. Pass the network name to the other tools; leave out the snapshot to use the newest.
 - For a troubleshooting request ("A cannot reach B", "why does ... fail"), call list_playbooks \

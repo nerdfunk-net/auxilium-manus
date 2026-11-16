@@ -347,6 +347,85 @@ def test_list_interfaces_pages_and_filters_the_device_interfaces() -> None:
     assert data["offset"] == 60 and data["has_more"] is False
 
 
+class _TextMatchingNautobot(FakeNautobot):
+    """Matches ``name__ic`` as Nautobot does: the stored name CONTAINS the text."""
+
+    def __init__(self, names: list[str]) -> None:
+        super().__init__()
+        self.rows["interfaces"] = [{**INTERFACES[0], "name": name} for name in names]
+
+    async def list_page(self, root, selection, filters, *, limit, offset):
+        self.page_calls.append({"root": root, "filters": dict(filters), "limit": limit})
+        if root != "interfaces":
+            return Page(items=tuple(self.rows.get(root, [])), has_more=False)
+        text = filters["name__ic"][0].lower()
+        hits = [r for r in self.rows["interfaces"] if text in r["name"].lower()]
+        return Page(items=tuple(hits[offset : offset + limit]), has_more=False)
+
+
+def _interface_names(nautobot_names: list[str], **args: Any) -> tuple[list[str], dict[str, Any]]:
+    box, _ = _toolbox(_TextMatchingNautobot(nautobot_names), sharing=FULL)
+    data = _data(_call(box, "list_interfaces", device=UUID_DEV, **args))
+    return [item["name"] for item in data["items"]], data
+
+
+PORTS = [
+    "Port-channel5", "Port-channel51", "Port-channel510", "Port-channel51.100",
+    "GigabitEthernet1/0/1", *(f"GigabitEthernet1/0/{n}" for n in range(10, 20)),
+    "Ethernet1/5", "Ethernet1/50", "GigabitEthernet1/5", "Vlan1", "Vlan10", "Vlan100",
+]
+
+
+@pytest.mark.parametrize(
+    ("asked", "expected"),
+    [
+        ("Po51", ["Port-channel51"]),
+        ("port-channel 51", ["Port-channel51"]),
+        ("Gi1/0/1", ["GigabitEthernet1/0/1"]),
+        ("Eth1/5", ["Ethernet1/5"]),
+        ("Et1/5", ["Ethernet1/5"]),
+        ("Vl1", ["Vlan1"]),
+    ],
+)
+def test_list_interfaces_returns_only_the_same_port_under_another_spelling(
+    asked: str, expected: list[str]
+) -> None:
+    names, data = _interface_names(PORTS, name_contains=asked)
+
+    assert names == expected
+    assert data["total"] == 1 and data["has_more"] is False
+    assert data["applied_filters"]["name_contains"] == asked
+    assert expected[0] in data["note"]
+
+
+def test_a_stored_name_that_contains_the_text_does_not_hide_the_real_port() -> None:
+    names, _ = _interface_names(["Po510", "Port-channel51"], name_contains="Po51")
+
+    assert names == ["Port-channel51"]
+
+
+def test_a_longer_name_is_never_returned_for_a_port_that_is_not_documented() -> None:
+    # Only Gi1/0/10 exists: asking for Gi1/0/1 must not answer with it.
+    names, data = _interface_names(["GigabitEthernet1/0/10"], name_contains="Gi1/0/1")
+
+    assert names == []
+    assert "note" not in data
+
+
+def test_a_part_of_a_name_is_a_text_match_and_the_note_says_so() -> None:
+    names, data = _interface_names(PORTS, name_contains="Gi1/0/")
+
+    assert "GigabitEthernet1/0/1" in names and len(names) == 11
+    assert "text match" in data["note"]
+    assert "same interface" not in data["note"]
+
+
+def test_an_interface_name_with_an_exact_stored_spelling_lists_only_that_port() -> None:
+    names, _ = _interface_names(PORTS, name_contains="Port-channel51")
+
+    assert names == ["Port-channel51"]
+
+
 def test_list_interfaces_inputs_are_bounded() -> None:
     box, nautobot = _toolbox(sharing=FULL)
 

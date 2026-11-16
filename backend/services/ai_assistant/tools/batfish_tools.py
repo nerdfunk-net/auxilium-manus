@@ -336,7 +336,11 @@ class InterfacesInput(Target):
         description="Device names; empty means every device",
     )
     interface: InterfaceName | None = Field(
-        default=None, description="Interface name, e.g. 'GigabitEthernet0/1'"
+        default=None,
+        description="Interface name as the snapshot lists it: the long form, never 'Gi0/1' or "
+        "'Po51' (e.g. 'GigabitEthernet0/1'; a port channel is 'Port-Channel51' or "
+        "'Port-channel51': copy the capitals get_interface_properties shows). If unsure, leave "
+        "it out and read the names from the nodes' interface list",
     )
     status: InterfaceStatus = Field(
         default="all",

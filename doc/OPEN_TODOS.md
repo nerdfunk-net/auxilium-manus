@@ -1063,3 +1063,37 @@ users, git repositories) beyond loading them. The isolated stack has no Nautobot
 - **Verified live (2026-11-14, maintainer):** Ask the Net still works against `api.anthropic.com` with 2.1.0, although the SDK now sends the API key as
   `Authorization: Bearer …` (1.17.0 sent `X-Api-Key`).
 - **Only if a gateway is ever added:** a LiteLLM-style gateway (`ANTHROPIC_BASE_URL`) or a TLS-intercepting proxy that reads `X-Api-Key` must be tested again.
+
+
+## Ask the Net: hostname, network and interface-spelling lookups — production check
+
+**Added:** 2026-11-16 · **Area:** `repositories/client_data_query_repository.py`, `services/ai_assistant/knowledge/playbooks/where-is-this-{host,network}.md`,
+`services/network/interface_names.py`, `tools/nautobot_tools.py` (`list_interfaces`), `tools/config_backup_tools.py` (`get_config_section`), `tools/batfish_tools.py`
+· `doc/AI_TOOL_CHAIN.md` §48 and the paragraphs before §49
+
+Built and unit-tested on 2026-11-16, checked live in the lab only for the hostname fix (the seeded client was found). The rest was **not** run against a real
+Nautobot, Batfish or model. The maintainer checks it on the production system and reports what has to change.
+
+- **Hostname (`find_client`).** A name without a dot also matches the first label of the stored FQDN (`pc1` finds `pc1.example.net`, not `pc10.example.net`).
+  Check with a real client name. If the stored name has another spelling than `<name>.<domain>`, the fix does not help: look at `client_hostnames` for that client.
+  The lab example rows come from `scripts/seed_example_client.py` (`--remove` deletes them).
+- **Playbook `where-is-this-network`.** Check that the local model reads it first (`Reading a playbook`), asks all four sources and builds the table. Seen in the lab:
+  all four sources were asked, the ACI call failed (no ACI source there, expected). Not seen: the search text (`192.168.178.`), the backup age in the answer.
+  Known limits: a prefix that is not on an octet boundary (/25-/31) returns the hits of the whole /24 and the model has to filter them; no text-search rule for IPv6.
+  The config-backup tools are offered only with the Batfish tools, the content switch and `git.files:read`; without them the playbook says "config backups: not available".
+- **Order of the host playbook.** The playbook says client data first; in the lab the model asked Nautobot and Batfish first and client data last. The answer was still right.
+  Not investigated: which playbook was selected and why the order differed. Strengthen the `when:` line or the prompt only if it causes a wrong answer.
+- **Interface spellings (`Po51` = `Port-channel51` = `Port-Channel51` = "port-channel 51").** A whole name (`Po51`, `Gi1/0/1`) now lists only the same port under any
+  spelling in `list_interfaces` and `get_config_section(starts_with='interface ...')`; a part of a name (`Gi1/0/`) stays a text match with an honest note.
+  **Behaviour change:** `list_interfaces(name_contains='Gi1/0/1')` used to return `Gi1/0/1x` as well; use `Gi1/0/` for that. A whole-name lookup can make up to three
+  Nautobot requests (one before). Check on production: a port channel asked as `Po51` and as `port-channel 51`, a port that is not documented (must give an empty
+  list, never a longer name), and an IOS `Et1/5` port from the client data.
+- **Batfish `interface` argument: not retried, decision open.** `get_interface_properties(nodes, interface)` passes the string unchanged to `interfaceProperties`
+  (`interfaces=`). The query helper itself says that parameter was never exercised against a live coordinator. Unknown: whether Batfish matches case-insensitively or
+  as a regex, which name it gives a Cisco port channel (`Port-Channel51`?) and whether a miss is an empty table or the "does not exist" error (which
+  `batfish_reader.py` turns into a sentence that sends the model towards "not configured"). **Check:** ask for one port channel in three spellings (`Po51`,
+  `Port-channel51`, `Port-Channel51`) and note rows, empty or error. If only one works, implement the fix that needs no Batfish rules: with `nodes` set and a whole
+  interface name, query the node without `interfaces=`, keep the rows whose `Interface` is `same_interface(...)` (as for Nautobot), compute the summary from all
+  rows. Without `nodes` keep today's behaviour (a network-wide interface list is too large to filter client-side).
+- **Other gaps.** `search_config_backups` is a free-text search: the model has to search `Port-channel51` itself (the prompt says so). `name_contains` is still a
+  substring match (`Port-channel51` also matches `Port-channel510` in the partial-name path).
