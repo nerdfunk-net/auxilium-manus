@@ -88,7 +88,7 @@ and does supersede the older rows, which is why every device writes a collection
 
 Every observation has two times: `collected_at` is the port (MAC table) or the ARP entry, `ip_collected_at` is the ARP collection that gave the
 `ip_address` (none without an IP). They differ when the MAC table was read later than ARP or the IP came from another device. An IPv6 address
-matches in any notation (`2001:DB8::5`, the expanded form), as a MAC does. Exact matching of a hostname ignores case.
+matches in any notation (`2001:DB8::5`, the expanded form), as a MAC does. Exact matching of a hostname ignores case, and a name without a dot also matches the first label of the stored name (reverse DNS stores the FQDN: `pc1` finds `pc1.example.net`, not `pc10.example.net`; a name with a dot must match whole).
 
 Observations are ordered by IP address (on PostgreSQL numerically and IPv4 before IPv6: `10.0.0.2` before `10.0.0.10`; SQLite, used in unit tests,
 sorts the text), then MAC and device. With `likely_first` the likely location and access ports come before that order.
@@ -96,7 +96,7 @@ sorts the text), then MAC and device. With `likely_first` the likely location an
 Each fallback is a single row per key, so joins never multiply rows (a MAC in two VLANs with two ARP entries is
 four observations, not a product). Filters are case-insensitive substrings; the MAC filter accepts
 `aa:bb:cc...`, `aa-bb-cc...` and `aabbcc...` as well as the stored form. `page` must be at least 1 and
-`page_size` at most 500. `get_client_history` takes any MAC notation, any hostname case, and returns at most
+`page_size` at most 500. `get_client_history` takes any MAC notation, any hostname case (and the short name, as above), and returns at most
 `limit` (default 500, max 1000) rows per list.
 
 
@@ -199,7 +199,7 @@ A MAC seen only on uplinks has no `likely_location`. `hide_uplinks` leaves uplin
 
 | Route | Returns |
 |---|---|
-| `GET /client-data` | observations; filters `device_name`, `ip_address`, `mac_address`, `port`, `vlan`, `vrf`, `hostname` (substrings, or whole values with `exact=true`), `ip_prefix` (the start of the address, `10.1.` does not match `110.1.2.3`; digits, hex letters, `.` and `:` only), `hide_uplinks`, `page` (>= 1), `page_size` (1-500) |
+| `GET /client-data` | observations; filters `device_name`, `ip_address`, `mac_address`, `port`, `vlan`, `vrf`, `hostname` (substrings, or whole values with `exact=true`; a dotless name also matches the first label of a stored FQDN), `ip_prefix` (the start of the address, `10.1.` does not match `110.1.2.3`; digits, hex letters, `.` and `:` only), `hide_uplinks`, `page` (>= 1), `page_size` (1-500) |
 | `GET /client-data/history` | **exactly one** of `ip_address`, `mac_address`, `hostname` (400 for none or several), `limit` (1-1000) |
 | `GET /client-data/devices` | each device's newest collection: age and the status of its commands (coverage) |
 

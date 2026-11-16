@@ -112,4 +112,12 @@ describe("Ask the Net help: playbooks", () => {
       ),
     ).toBe(true);
   });
+
+  it("has the network playbook with a prefix question", () => {
+    expect(
+      byName("where-is-this-network")?.questions.some((q) =>
+        q.includes("192.168.178.0/24"),
+      ),
+    ).toBe(true);
+  });
 });

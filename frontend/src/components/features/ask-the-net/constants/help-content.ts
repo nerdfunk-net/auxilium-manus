@@ -67,6 +67,15 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
         ],
       },
       {
+        name: "where-is-this-network (playbook)",
+        description:
+          "Where a network (prefix) is configured: Nautobot (documented), Batfish (interfaces and routes of the snapshot), the git config backups (every device in one search) and ACI. One table shows what each source says and how old it is.",
+        questions: [
+          "Where is the prefix 192.168.178.0/24 configured?",
+          "Where do you see the network 192.168.178.0/24?",
+        ],
+      },
+      {
         name: "neighbors-of-a-device (playbook)",
         description:
           "What a device is connected to: CDP and LLDP neighbours (layer 2) and routing neighbours (layer 3), compared with Nautobot cabling and the Batfish model.",

@@ -617,3 +617,32 @@ def test_a_tool_like_word_inside_a_longer_word_is_not_a_tool_name() -> None:
     body = "## Steps\n1. Do not forget_me_not or IPget_things here.\n"
 
     assert isinstance(_parse(_text(body=body)), pb.Playbook)
+
+
+def test_where_is_this_network_playbook_asks_nautobot_batfish_git_then_aci() -> None:
+    from services.ai_assistant.tools.playbook_tools import known_general_tool_names
+
+    result = pb.load_playbooks(
+        known_tools=known_general_tool_names(), local_dir=Path("/nonexistent/playbooks")
+    )
+    (playbook,) = [p for p in result.playbooks if p.name == "where-is-this-network"]
+
+    assert {"list_prefixes", "get_ip_owners", "get_routes", "search_config_backups"} <= set(
+        playbook.tools
+    )
+    body = " ".join(playbook.body.split())
+    steps = body[body.index("## Steps") : body.index("## Decision points")]
+    # Step by step: Nautobot, Batfish, the git config backups, then ACI.
+    positions = [
+        steps.index(heading)
+        for heading in (
+            "**Nautobot, the documentation.**",
+            "**Batfish, the modelled configuration.**",
+            "**Config backups in git.**",
+            "**ACI, the fabric.**",
+        )
+    ]
+    assert positions == sorted(positions)
+    # The git backups are searched once for all devices, never device by device.
+    assert "Never call `get_config_backup` for each" in body
+    assert "prefix_match_type` = `exact`" in steps
