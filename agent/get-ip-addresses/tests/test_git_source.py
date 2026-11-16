@@ -199,3 +199,17 @@ def test_a_symlink_out_of_the_checkout_is_not_read(tmp_path):
     outside.write_text("x")
     (root / "link.csv").symlink_to(outside)
     assert list_source_files(root, "", "*.csv") == []
+
+
+def test_proxy_settings_reach_git_and_other_variables_do_not(tmp_path):
+    proxy = {
+        "HTTPS_PROXY": "http://proxy.example:3128",
+        "https_proxy": "http://proxy.example:3128",
+        "NO_PROXY": "gitea.internal",
+        "no_proxy": "gitea.internal",
+    }
+    env, _ = _git_env(
+        settings(tmp_path, tmp_path / "s" / "r"), {**proxy, "MANUS_AGENT_SECRET": "x" * 32}
+    )
+    assert {key: env[key] for key in proxy} == proxy
+    assert "MANUS_AGENT_SECRET" not in env

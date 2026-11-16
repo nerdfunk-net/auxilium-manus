@@ -1,5 +1,11 @@
 FROM python:3.12-slim
 
+# Build-time proxy for apt and pip (optional; docker-compose.yml forwards HTTP_PROXY / HTTPS_PROXY / NO_PROXY
+# from .env). Build args are not kept in the image: the running container gets its proxy from the environment.
+ARG HTTP_PROXY
+ARG HTTPS_PROXY
+ARG NO_PROXY
+
 WORKDIR /app
 
 # Optional company root CAs (TLS-inspecting proxy / private PKI): put PEM files named *.crt (or *.pem)

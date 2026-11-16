@@ -1,5 +1,11 @@
 FROM python:3.12-slim
 
+# Build-time proxy for apt and pip (optional; docker-compose.yml forwards HTTP_PROXY / HTTPS_PROXY / NO_PROXY
+# from .env). Build args are not kept in the image: the running container gets its proxy from the environment.
+ARG HTTP_PROXY
+ARG HTTPS_PROXY
+ARG NO_PROXY
+
 WORKDIR /app
 
 # Optional company root CAs (TLS-inspecting proxy / private PKI): put PEM files named *.crt (or *.pem)
@@ -22,9 +28,14 @@ RUN set -e; \
     rm -rf /tmp/certs
 
 # git pulls the repository at startup; openssh-client is for git over ssh.
-RUN apt-get update \
+RUN if [ -n "$HTTP_PROXY" ] || [ -n "$HTTPS_PROXY" ]; then \
+      echo "Acquire::http::Proxy \"${HTTP_PROXY}\";" > /etc/apt/apt.conf.d/01proxy; \
+      echo "Acquire::https::Proxy \"${HTTPS_PROXY}\";" >> /etc/apt/apt.conf.d/01proxy; \
+    fi \
+ && apt-get update \
  && apt-get install -y --no-install-recommends git openssh-client \
- && rm -rf /var/lib/apt/lists/*
+ && rm -rf /var/lib/apt/lists/* \
+ && rm -f /etc/apt/apt.conf.d/01proxy
 
 COPY --chmod=755 entrypoint.sh /usr/local/bin/entrypoint.sh
 

@@ -1,0 +1,47 @@
+# Run the reference agent (agent/example-agent/, doc/AGENT_INTEGRATION.md) next to the application.
+#
+# From this directory, after copying .env.example to .env and setting MANUS_AGENT_SECRET:
+#
+#   docker compose up -d --build
+#
+# Proxy: HTTP_PROXY / HTTPS_PROXY / NO_PROXY from .env (or your shell) are used for apt and pip while the
+# image is built. The running container needs no proxy (the shipped handlers make no outbound calls), so
+# they are not passed to it; add them under "environment" if a handler of yours calls out.
+#
+# Reaching the agent: the port is published on the Docker host (MANUS_AGENT_HTTP_PORT, default 8080), bound
+# to 127.0.0.1 by default. Set MANUS_AGENT_BIND to the host's LAN address for an app on another machine; the
+# payload is encrypted, but put TLS in front of it if the path is not private. If the app runs in Docker too,
+# attach its "data" network (commented block at the bottom) and use http://manus-example-agent:<port>.
+
+services:
+  manus-example-agent:
+    build:
+      context: .
+      args:
+        HTTP_PROXY: "${HTTP_PROXY:-}"
+        HTTPS_PROXY: "${HTTPS_PROXY:-}"
+        NO_PROXY: "${NO_PROXY:-}"
+    image: manus-agent:latest
+    container_name: manus-example-agent
+    restart: unless-stopped
+    environment:
+      MANUS_AGENT_ID: "${MANUS_AGENT_ID:-geo-agent}"
+      # At least 32 characters: openssl rand -base64 32
+      MANUS_AGENT_SECRET: "${MANUS_AGENT_SECRET:?MANUS_AGENT_SECRET is required (openssl rand -base64 32)}"
+      MANUS_AGENT_HTTP_PORT: "${MANUS_AGENT_HTTP_PORT:-8080}"
+      # Redis transport instead of (or besides) HTTP: add the agent's user to docker/redis/agents.acl, then
+      #MANUS_AGENT_REDIS_URL: "redis://agent-${MANUS_AGENT_ID:-geo-agent}:${MANUS_AGENT_REDIS_PASSWORD}@manus-redis:6379/0"
+    # Your own handlers: mount a directory over the shipped examples.
+    #volumes:
+    #  - ./handlers:/app/handlers:ro
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 256
+    mem_limit: 256m
+    ports:
+      - "${MANUS_AGENT_BIND:-127.0.0.1}:${MANUS_AGENT_HTTP_PORT:-8080}:${MANUS_AGENT_HTTP_PORT:-8080}"
+    #networks:
+    #  data: {external: true, name: docker_data}

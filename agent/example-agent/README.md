@@ -127,6 +127,12 @@ docker run --rm --env-file .env -p 8080:8080 -v "$PWD/handlers:/app/handlers:ro"
 
 On the app's Docker network use `http://<container-name>:8080` as the agent URL.
 
+With Docker Compose (`cp .env.example .env`, set `MANUS_AGENT_SECRET`, then `docker compose up -d --build`) the
+port is published on `MANUS_AGENT_BIND` (default `127.0.0.1`). Behind a proxy set `HTTP_PROXY` / `HTTPS_PROXY` /
+`NO_PROXY` in `.env` or your shell: they are used for apt and pip while the image is built. The running container
+needs no proxy (the shipped handlers make no outbound calls); add the variables under `environment` in
+`docker-compose.yml` if a handler of yours calls out.
+
 ### Company root certificates (TLS-inspecting proxy / private PKI)
 
 If your network re-signs TLS traffic with a company CA, `pip install` fails during the build with

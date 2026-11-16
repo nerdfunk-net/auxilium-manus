@@ -14,6 +14,7 @@ mkdir -p "${ARTIFACT_DIR}"
 proxy_args=()
 [ -n "${HTTP_PROXY:-}" ] && proxy_args+=(--build-arg "HTTP_PROXY=${HTTP_PROXY}")
 [ -n "${HTTPS_PROXY:-}" ] && proxy_args+=(--build-arg "HTTPS_PROXY=${HTTPS_PROXY}")
+[ -n "${NO_PROXY:-}" ] && proxy_args+=(--build-arg "NO_PROXY=${NO_PROXY}")
 
 echo "Building ${IMAGE}"
 docker build -t "${IMAGE}" --no-cache ${proxy_args[@]+"${proxy_args[@]}"} .

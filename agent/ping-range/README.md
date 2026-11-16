@@ -32,7 +32,7 @@ host without an error. The agent notices (nothing answered and 127.0.0.1 does no
 with a message naming `NET_RAW`.
 
 Air-gapped hosts: `./prepare-agent-image.sh` builds the image and saves `airgap-artifacts/manus-agent-ping.tar.gz`
-(`docker load` it on the target). Behind a proxy set `HTTP_PROXY` / `HTTPS_PROXY` (used for apt at build time).
+(`docker load` it on the target). Behind a proxy set `HTTP_PROXY` / `HTTPS_PROXY` / `NO_PROXY` (used for apt and pip at build time; the container itself does not use a proxy).
 
 Without Docker: `apt install fping`, then run as in `agent/example-agent/README.md`; the sample
 `manus-agent.service` grants `CAP_NET_RAW` as an ambient capability.

@@ -3,6 +3,7 @@ FROM python:3.12-slim
 # Build-time proxy for apt (optional; forwarded by prepare-agent-image.sh / build-with-proxy).
 ARG HTTP_PROXY
 ARG HTTPS_PROXY
+ARG NO_PROXY
 
 # fping is the only system package: the agent pings whole ranges with it.
 RUN if [ -n "$HTTP_PROXY" ] || [ -n "$HTTPS_PROXY" ]; then \

@@ -1,0 +1,73 @@
+# Run the get-ip-addresses agent (agent/get-ip-addresses/, doc/AGENT_INTEGRATION.md) next to the application.
+#
+# From this directory, after copying .env.example to .env and config.example.yaml to config.yaml:
+#
+#   docker compose up -d --build
+#
+# Proxy (.env or your shell): HTTP_PROXY / HTTPS_PROXY / NO_PROXY are used
+#   - while the image is built (apt, pip), and
+#   - by the running container, because git pulls config.yaml's repository over https through them.
+# Put the git host in NO_PROXY if it is reached directly. A TLS-inspecting proxy needs its root CA in certs/
+# (README.md). git over ssh does not use these variables; it needs an ssh ProxyCommand of its own.
+# Lower-case copies are set too: git's HTTP client (libcurl) ignores an upper-case HTTP_PROXY.
+#
+# config.yaml is yours: copy config.example.yaml to config.yaml and edit it BEFORE the first `docker compose up`.
+# If it is missing, Docker creates a *directory* of that name and the start fails: rmdir config.yaml, copy the file.
+#
+# Reaching the agent: the port is published on the Docker host (MANUS_AGENT_HTTP_PORT, default 8080), bound to
+# 127.0.0.1 by default; MANUS_AGENT_BIND widens that. If the app runs in Docker too, attach its "data" network
+# (commented block at the bottom) and use http://manus-ip-agent:<port>.
+
+services:
+  manus-ip-agent:
+    build:
+      context: .
+      args:
+        HTTP_PROXY: "${HTTP_PROXY:-}"
+        HTTPS_PROXY: "${HTTPS_PROXY:-}"
+        NO_PROXY: "${NO_PROXY:-}"
+    image: manus-ip-agent:latest
+    container_name: manus-ip-agent
+    restart: unless-stopped
+    environment:
+      MANUS_AGENT_ID: "${MANUS_AGENT_ID:-ip-agent}"
+      # At least 32 characters: openssl rand -base64 32
+      MANUS_AGENT_SECRET: "${MANUS_AGENT_SECRET:?MANUS_AGENT_SECRET is required (openssl rand -base64 32)}"
+      MANUS_AGENT_HTTP_PORT: "${MANUS_AGENT_HTTP_PORT:-8080}"
+      # Redis transport instead of (or besides) HTTP: add the agent's user to docker/redis/agents.acl, then
+      #MANUS_AGENT_REDIS_URL: "redis://agent-${MANUS_AGENT_ID:-ip-agent}:${MANUS_AGENT_REDIS_PASSWORD}@manus-redis:6379/0"
+      # The git token: config.yaml names this variable (git.auth.token_env).
+      GIT_TOKEN: "${GIT_TOKEN:-}"
+      HTTP_PROXY: "${HTTP_PROXY:-}"
+      HTTPS_PROXY: "${HTTPS_PROXY:-}"
+      NO_PROXY: "${NO_PROXY:-}"
+      http_proxy: "${HTTP_PROXY:-}"
+      https_proxy: "${HTTPS_PROXY:-}"
+      no_proxy: "${NO_PROXY:-}"
+    volumes:
+      - ./config.yaml:/app/config.yaml:ro
+      # The checkout and SSH host keys. A named volume keeps them across re-creation; without it the
+      # repository is cloned again at every start (the container filesystem below is read-only).
+      - manus-ip-agent-data:/data
+    read_only: true
+    tmpfs:
+      - /tmp
+    # The entrypoint starts as root only to chown /data and then drops to the agent user:
+    # it needs CHOWN, SETUID and SETGID (setpriv) and nothing else.
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETUID
+      - SETGID
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 256
+    mem_limit: 512m
+    ports:
+      - "${MANUS_AGENT_BIND:-127.0.0.1}:${MANUS_AGENT_HTTP_PORT:-8080}:${MANUS_AGENT_HTTP_PORT:-8080}"
+    #networks:
+    #  data: {external: true, name: docker_data}
+
+volumes:
+  manus-ip-agent-data:

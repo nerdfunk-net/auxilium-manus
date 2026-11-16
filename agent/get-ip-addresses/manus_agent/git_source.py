@@ -46,11 +46,31 @@ def _origin(url: str) -> str:
     return f"{parts.scheme}://{parts.netloc}/"
 
 
+# Proxy settings git (libcurl) reads; both spellings, because curl ignores upper-case HTTP_PROXY.
+_PROXY_VARIABLES = (
+    "HTTP_PROXY",
+    "HTTPS_PROXY",
+    "ALL_PROXY",
+    "NO_PROXY",
+    "http_proxy",
+    "https_proxy",
+    "all_proxy",
+    "no_proxy",
+)
+
+
 def _git_env(git: GitSettings, env: Mapping[str, str]) -> tuple[dict[str, str], tuple[str, ...]]:
     """The environment for git and the secret values to scrub from its output."""
     child = {
         key: env[key]
-        for key in ("PATH", "HOME", "LANG", "SSL_CERT_FILE", "REQUESTS_CA_BUNDLE")
+        for key in (
+            "PATH",
+            "HOME",
+            "LANG",
+            "SSL_CERT_FILE",
+            "REQUESTS_CA_BUNDLE",
+            *_PROXY_VARIABLES,
+        )
         if key in env
     }
     child["GIT_TERMINAL_PROMPT"] = "0"

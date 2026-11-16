@@ -30,6 +30,7 @@ services:
       args:
         HTTP_PROXY: "${HTTP_PROXY:-}"
         HTTPS_PROXY: "${HTTPS_PROXY:-}"
+        NO_PROXY: "${NO_PROXY:-}"
     image: manus-agent-ping:latest
     container_name: manus-ping-agent
     restart: unless-stopped

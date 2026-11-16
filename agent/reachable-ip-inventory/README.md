@@ -23,7 +23,7 @@ first, the network must exist) and use Nautobot's container/service name and int
 (gateway priority) to the pinged addresses and the DNS server. Nautobot outside Docker: remove the `nautobot` network from
 the compose file.
 
-Behind a proxy, set `HTTP_PROXY` / `HTTPS_PROXY` (in `.env` or your shell) before `docker compose up -d --build`: they are used
+Behind a proxy, set `HTTP_PROXY` / `HTTPS_PROXY` / `NO_PROXY` (in `.env` or your shell) before `docker compose up -d --build`: they are used
 for apt and pip **while the image is built** and are not part of the running container, which never uses a proxy (Nautobot
 and the pinged hosts are reached directly).
 

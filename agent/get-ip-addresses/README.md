@@ -157,6 +157,24 @@ docker run --rm --env-file .env -p 8080:8080 \
 
 The image contains git and a copy of `config.example.yaml`; mount your own `config.yaml` over it. The state directory is `/data` (checkout in `/data/repo`, SSH host keys in `/data/known_hosts`); mount a volume on `/data` only if you want to keep it across container re-creation, otherwise the repository is cloned again. The entrypoint starts as root, makes `/data` writable for the `agent` user and drops privileges, so a fresh volume works. On the app's Docker network use `http://<container-name>:8080` as the agent URL.
 
+### Docker Compose and proxy
+
+```bash
+cp .env.example .env && cp config.example.yaml config.yaml   # secret, GIT_TOKEN, config
+docker compose up -d --build
+```
+
+`docker-compose.yml` mounts `./config.yaml` read-only, keeps the checkout in a named volume on `/data`, publishes
+`MANUS_AGENT_HTTP_PORT` (default 8080) on `MANUS_AGENT_BIND` (default `127.0.0.1`) and drops all capabilities except
+those the entrypoint needs to hand `/data` to the unprivileged user. If `config.yaml` does not exist when you run
+`up`, Docker creates a directory of that name: `rmdir config.yaml` and copy the file.
+
+Behind a proxy set `HTTP_PROXY` / `HTTPS_PROXY` / `NO_PROXY` in `.env` or your shell. They are used for apt and pip
+during the build **and** by the running container: git (https remotes) pulls the repository through them. Put the git
+host in `NO_PROXY` when it is reached directly. The agent passes only these variables (upper and lower case) to git, no
+other environment. A proxy that re-signs TLS needs its root CA in `certs/` (next section). git over **ssh** ignores the
+proxy variables; configure an ssh `ProxyCommand` in the image if you need that.
+
 ### Company root certificates (TLS-inspecting proxy / private PKI)
 
 If your network re-signs TLS traffic with a company CA, `pip install` fails during the build with
