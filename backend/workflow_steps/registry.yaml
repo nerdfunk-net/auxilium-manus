@@ -751,6 +751,44 @@ plugins:
           required: false
           default: catalyst_health
 
+  - id: get-catalyst-center-client-data
+    name: Get Client Data from CC
+    overview: Record which wired MAC and IP addresses Cisco Catalyst Center saw on which switch port and VLAN.
+    description: >
+      Read the wired clients of each switch from the Cisco Catalyst Center Clients API
+      (POST /dna/data/api/v1/clients/query, release 3.1 or newer), without SSH access, and store
+      them for later lookups ("where is this MAC or IP?") in the same tables as Collect Client Data:
+      client_mac_addresses (MAC, VLAN, port), client_ip_addresses (IP, MAC, VLAN) and one row per
+      device and run in client_data_collections. The controller is asked for the connected clients it saw
+      within the look-back window on the device (by its controller id; an assurance view, not the live
+      MAC table) and reports no VRF, so the VRF stays empty. A switch without clients is a success
+      with no rows; it supersedes the older rows of that device. A device fails only when the
+      controller call fails, when it did not come from a Catalyst Center source
+      (not_catalyst_center_device), when clients came back and none could be stored
+      (no_usable_clients), when a table has more rows than CLIENT_DATA_MAX_ROWS_PER_TABLE, or when
+      its name is used twice in the run (duplicate_key). Per device and table the newest collection wins, so data from this step and
+      from Collect Client Data for the same device name supersede each other. A summary lands on
+      each device under parsed.<node id>.client_data (arp_entries, mac_entries, lookback_hours).
+    artifact_type: persistent_artifact
+    palette_category: cisco
+    directory: get_catalyst_center_client_data
+    enabled: true
+    requires: [identity]
+    produces: [parsed]
+    outcomes:
+      - name: success
+      - name: failure
+    metadata:
+      configuration_input:
+        - name: lookback_hours
+          description: >
+            How many hours back the controller looks for wired clients (1-168). A client not seen
+            within the window is not reported.
+          data_type: integer
+          required: false
+          default: 24
+          example: 48
+
   - id: get-ise-tacacs-key
     name: Get TACACS+ Key from ISE
     overview: Look up a device's TACACS+ shared secret in Cisco ISE.

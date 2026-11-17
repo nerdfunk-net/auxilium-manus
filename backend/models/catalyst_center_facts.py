@@ -176,3 +176,18 @@ class CatalystCenterTopology(_Fact):
             )
         node = by_id.get(device_id)
         return {"node": node.model_dump(mode="json") if node else None, "links": links}
+
+
+class CatalystCenterClient(_Fact):
+    """One wired client of ``POST /dna/data/api/v1/clients/query`` (whitelisted fields).
+
+    ``ip_addresses`` holds every valid IPv4 / IPv6 address the controller reports for the client.
+    ``vlan`` and ``port`` are the VLAN and the switch port the client is connected to.
+    """
+
+    mac_address: str | None = None
+    ip_addresses: tuple[str, ...] = ()
+    vlan: str | None = None
+    port: str | None = None
+    connected_device_id: str | None = None
+    connected_device_name: str | None = None

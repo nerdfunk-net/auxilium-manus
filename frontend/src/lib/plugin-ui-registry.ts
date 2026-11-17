@@ -21,6 +21,7 @@ const PLUGIN_UI_LOADERS: Record<string, PluginUILoader> = {
   "get-catalyst-center-details": () => import("@/components/features/workflow-steps/get-catalyst-center-details").then((m) => m.GetCatalystCenterDetailsPlugin),
   "get-catalyst-center-topology": () => import("@/components/features/workflow-steps/get-catalyst-center-topology").then((m) => m.GetCatalystCenterTopologyPlugin),
   "get-catalyst-center-health": () => import("@/components/features/workflow-steps/get-catalyst-center-health").then((m) => m.GetCatalystCenterHealthPlugin),
+  "get-catalyst-center-client-data": () => import("@/components/features/workflow-steps/get-catalyst-center-client-data").then((m) => m.GetCatalystCenterClientDataPlugin),
   "run-catalyst-center-command": () => import("@/components/features/workflow-steps/run-catalyst-center-command").then((m) => m.RunCatalystCenterCommandPlugin),
   "get-aci-details": () => import("@/components/features/workflow-steps/get-aci-details").then((m) => m.GetAciDetailsPlugin),
   "get-aci-policy": () => import("@/components/features/workflow-steps/get-aci-policy").then((m) => m.GetAciPolicyPlugin),

@@ -43,6 +43,33 @@ Ask the Net tools; the UI page is not built (see "Open").
   the ARP collection and shown by `GET /client-data/devices` (`vrfs`), `get_client_data_coverage` (`vrf_results`) and the step summary
   (`parsed.<node>.client_data.vrf_results`). Existing rows have `NULL` until the next run.
 
+## Second source: Catalyst Center (`get-catalyst-center-client-data`)
+
+The step "Get Client Data from CC" (`workflow_steps/get_catalyst_center_client_data/`, palette Cisco / Catalyst Center) fills the **same**
+tables without SSH, from the Cisco Catalyst Center Clients API (release 3.1 or newer): one
+`POST /dna/data/api/v1/clients/query` per device, view `Wired`, filters `connectedNetworkDeviceId eq <the device's controller UUID>`,
+`type eq Wired` and `connectionStatus eq connected` (lowercase operators, scalar values), paged by 500, `startTime`/`endTime` from the
+`lookback_hours` option (1-168, default 24). Devices must come from a Catalyst Center source. The query uses the UUID the workflow device
+already carries (`device.id`), never the name or `hostname` (which is the management IP for these devices).
+
+* A client with a MAC becomes a `client_mac_addresses` row (MAC, VLAN, port) and one `client_ip_addresses` row per reported address
+  (`ipv4Address`, `ipv6Addresses`; IP, MAC, VLAN). Fields are read from `connection.vlanId` and `connectedNetworkDevice.interfaceName`; the
+  user the client authenticated as is never copied. The port is shortened like the MAC table prints it (`GigabitEthernet2/1/3` -> `Gi2/1/3`,
+  `workflow_steps/common/port_names.py`). Unspecified, loopback, multicast, link-local and reserved addresses are dropped (private ones stay).
+  **VRF and the ARP `interface` stay empty**: the API reports neither. A client without a MAC is skipped.
+* The collection row has `arp_status` and `mac_status` = `ok`, `vrf_status` and `neighbor_status` = `skipped`, and `target_host` =
+  `catalyst_center:<source id>:<device id>`. An `ok` collection with 0 rows is stored **only** when the controller returned no clients, so a
+  switch without clients supersedes its older rows.
+* A device fails on a controller error (`catalyst_center_error`), a non-Catalyst-Center device (`not_catalyst_center_device`), the row cap
+  (`too_many_rows`), a duplicate name (`duplicate_key`), or when the controller returned clients and **none** could be stored
+  (`no_usable_clients`: attributed to another switch, or no MAC); nothing is stored then, so the older data stays current.
+* **Mixed sources.** "Current" is decided per device name and table by the newest collection, whichever step wrote it, so an SSH collection and a
+  Catalyst Center collection of the same device name supersede each other. The CC data is an assurance view (connected clients seen in the
+  window), not the live MAC table, and carries no VRF; prefer one source per device.
+* **Not verified live.** Built from the published `clients/query` contract and unit tests with payloads in that shape; the DevNet sandbox has no
+  clients. To check on a real 3.1+ controller: the `Wired` view fields above, that `connectedNetworkDeviceId` filters, that `page.offset` is
+  1-based and whether a switch with 500+ clients needs the response `cursor` on later pages.
+
 ## Per-command outcomes
 
 Each command is judged on its own (`parsing.classify_output`):
@@ -141,6 +168,7 @@ gives the same error. It is an inventory problem and is not retried as a replace
   `repositories/client_data_query_repository.py` (reads; window functions only, so they run on SQLite in the
   unit tests)
 * Service `services/client_data/client_data_service.py`
+* Catalyst Center step `workflow_steps/get_catalyst_center_client_data/`, service `services/catalyst_center/client_data_service.py`, tests `tests/unit/test_get_catalyst_center_client_data_*.py`, `test_catalyst_center_client_data_service.py`
 * Step `workflow_steps/collect_client_data/`: `options.py`, `commands.py`, `parsing.py`, `collector.py`,
   `dns.py`, `executor.py`; panel `frontend/.../workflow-steps/collect-client-data/`
 * Tests `tests/unit/test_collect_client_data_*.py`, `test_client_data_*.py`, `test_ai_host_lookup_tools.py`

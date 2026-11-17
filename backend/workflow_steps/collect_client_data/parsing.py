@@ -28,18 +28,18 @@ from workflow_steps.collect_client_data.commands import (
     CMD_VRF_LIST,
     NEIGHBOR_COMMANDS,
 )
+from workflow_steps.common.mac_address import normalise_mac
 from workflow_steps.common.neighbor_capabilities import (
     INFRASTRUCTURE_CAPABILITIES,
     parse_capabilities,
 )
+from workflow_steps.common.port_names import normalise_port
 
 STATUS_OK: CollectionStatus = "ok"
 STATUS_NOT_SUPPORTED: CollectionStatus = "not_supported"
 STATUS_NO_TEMPLATE: CollectionStatus = "no_template"
 STATUS_SKIPPED: CollectionStatus = "skipped"
 
-_MAC_SEPARATORS = re.compile(r"[.:\-]")
-_HEX_12 = re.compile(r"^[0-9a-f]{12}$")
 _SVI = re.compile(r"^(?:vlan|vl)(\d{1,4})$", re.IGNORECASE)
 _DEFAULT_VRF = "default"
 _MAX_VRF_INDENT = 4
@@ -82,55 +82,6 @@ class NeighborEntry:
 class OutputClass:
     status: CollectionStatus
     rows: list[dict[str, Any]] = field(default_factory=list)
-
-
-def normalise_mac(raw: str | None) -> str | None:
-    """Return ``aabb.ccdd.eeff`` for any common MAC notation, or ``None`` if not a MAC."""
-    if not raw:
-        return None
-    digits = _MAC_SEPARATORS.sub("", raw.strip()).lower()
-    if not _HEX_12.match(digits):
-        return None
-    return f"{digits[0:4]}.{digits[4:8]}.{digits[8:12]}"
-
-
-# Long interface names -> the short form the MAC address table prints. "Ethernet" is "Eth" on
-# NX-OS and "Et" on IOS; names that are already short are left as they are.
-_PORT_PREFIXES = {
-    "gigabitethernet": "Gi",
-    "tengigabitethernet": "Te",
-    "twentyfivegige": "Twe",
-    "fortygigabitethernet": "Fo",
-    "hundredgige": "Hu",
-    "fastethernet": "Fa",
-    "port-channel": "Po",
-    "gi": "Gi",
-    "te": "Te",
-    "twe": "Twe",
-    "fo": "Fo",
-    "hu": "Hu",
-    "fa": "Fa",
-    "po": "Po",
-}
-_PORT_NAME = re.compile(r"^([A-Za-z][A-Za-z\-]*?)\s*(\d.*)$")
-
-
-def normalise_port(raw: str | None, platform: str) -> str:
-    """The short form of an interface name (``GigabitEthernet1/0/5`` -> ``Gi1/0/5``).
-
-    LLDP and CDP print long names, the MAC address table short ones; the neighbours are matched to
-    MAC-table ports by this form. Unknown names (``mgmt0``, ``Vlan10``) are returned stripped.
-    """
-    text = _text(raw)
-    match = _PORT_NAME.match(text)
-    if match is None:
-        return text
-    prefix, rest = match.group(1), match.group(2)
-    key = prefix.lower()
-    if key == "ethernet":
-        return f"{'Eth' if 'nxos' in platform else 'Et'}{rest}"
-    short = _PORT_PREFIXES.get(key)
-    return f"{short}{rest}" if short else text
 
 
 def parse_neighbors(

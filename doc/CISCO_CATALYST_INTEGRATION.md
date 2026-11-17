@@ -44,6 +44,7 @@ on is in [`CATALYST_CENTER_API_DIFF.md`](./CATALYST_CENTER_API_DIFF.md).
 | Per-device facts (device, software, interfaces, VLANs, compliance) | `details_service.py` | none | **`get-catalyst-center-details`** | yes |
 | Topology (physical, L3 per protocol), sliced per device | `topology_service.py` | none | **`get-catalyst-center-topology`** | yes (`bgp` rejected by the controller) |
 | Device health (`/device-detail`) | `health_service.py` | none | **`get-catalyst-center-health`** | yes |
+| Wired clients (`/dna/data/api/v1/clients/query`), stored in the `client_*` tables | `client_data_service.py` | none | **`get-catalyst-center-client-data`** | **no** (unit tests only; the sandbox has no clients; `doc/CLIENT_DATA.md`) |
 | Site list + site filter (devices by site, with sub-sites) | `site_service.py`, `device_service.py` | `GET …/{id}/sites` | `get-catalyst-center-devices` (`sites`, *Search sites…* button) | yes, but the sandbox has only the `Global` site — see limits |
 
 "Verified" means exercised against the public Cisco DevNet always-on sandbox (a self-signed-certificate
@@ -123,7 +124,7 @@ frontend/src/components/features/workflow-steps/get-catalyst-center-devices/
 ├── sites-dialog.tsx           # "Search sites…" picker (searchable multi-select of the controller's sites)
 ├── help-panel.tsx             # Help tab
 └── preview-dialog.tsx         # device preview table
-frontend/src/components/features/workflow-steps/{run-catalyst-center-command,get-catalyst-center-configs,get-catalyst-center-details,get-catalyst-center-topology,get-catalyst-center-health}/  # index.tsx + help-panel.tsx
+frontend/src/components/features/workflow-steps/{run-catalyst-center-command,get-catalyst-center-configs,get-catalyst-center-details,get-catalyst-center-topology,get-catalyst-center-health,get-catalyst-center-client-data}/  # index.tsx + help-panel.tsx
 frontend/src/components/features/workflow-steps/shared/catalyst-center-fact-fields.tsx  # checkbox group + output-key field
 frontend/src/components/features/workflow-steps/shared/catalyst-center-source-{config.ts,select-dialog.tsx}
 frontend/src/hooks/queries/use-catalyst-center-sources-{query,mutations}.ts, use-catalyst-center-sites-query.ts
@@ -421,6 +422,13 @@ Notes: `/device-health` is a bulk alternative to `/device-detail` (one call for 
 not built because the sandbox has no images to verify a shape against.
 
 ---
+
+### Client data: `get-catalyst-center-client-data`
+
+**Get Client Data from CC** is not a fact step: it does not write `{parsed, error}` entries but stores the wired clients of each switch in the client
+data tables (`doc/CLIENT_DATA.md`, "Second source: Catalyst Center"). It reuses `split_targets` / `resolve_source_credentials`, queries once per device
+(`POST /dna/data/api/v1/clients/query` filtered by the device UUID, at most 5 in flight) and has the one option `lookback_hours` (1-168, default 24). Release 3.1 or newer only;
+there is no fallback for the older `client-health` / `client-detail` endpoints. Not verified against a real controller.
 
 ## Backend API
 

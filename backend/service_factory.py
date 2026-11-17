@@ -42,6 +42,7 @@ from services.batfish.preview_service import BatfishPreviewService
 from services.batfish.source_config_service import BatfishSourceConfigService
 from services.cache.redis_cache_service import RedisCacheService
 from services.catalyst_center.client import CatalystCenterService
+from services.catalyst_center.client_data_service import CatalystCenterClientDataService
 from services.catalyst_center.command_service import CatalystCenterCommandService
 from services.catalyst_center.credentials import CatalystCenterCredentials
 from services.catalyst_center.details_service import CatalystCenterDetailsService
@@ -204,6 +205,12 @@ def build_catalyst_center_topology_service(
     credentials: CatalystCenterCredentials,
 ) -> CatalystCenterTopologyService:
     return CatalystCenterTopologyService(get_catalyst_center_app_service(), credentials)
+
+
+def build_catalyst_center_client_data_service(
+    credentials: CatalystCenterCredentials,
+) -> CatalystCenterClientDataService:
+    return CatalystCenterClientDataService(get_catalyst_center_app_service(), credentials)
 
 
 def build_catalyst_center_health_service(

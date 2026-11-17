@@ -129,6 +129,7 @@ class EffectiveProducesTests(unittest.TestCase):
             "get-catalyst-center-details",
             "get-catalyst-center-topology",
             "get-catalyst-center-health",
+            "get-catalyst-center-client-data",
         ):
             with self.subTest(step_id=step_id):
                 spec = StepCapabilitySpec(

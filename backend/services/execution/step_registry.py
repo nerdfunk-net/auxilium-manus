@@ -63,6 +63,9 @@ from workflow_steps.get_aci_details.executor import execute as get_aci_details
 from workflow_steps.get_aci_devices.executor import execute as get_aci_devices
 from workflow_steps.get_aci_policy.executor import execute as get_aci_policy
 from workflow_steps.get_batfish_devices.executor import execute as get_batfish_devices
+from workflow_steps.get_catalyst_center_client_data.executor import (
+    execute as get_catalyst_center_client_data,
+)
 from workflow_steps.get_catalyst_center_configs.executor import (
     execute as get_catalyst_center_configs,
 )
@@ -164,6 +167,7 @@ STEP_REGISTRY: dict[str, StepExecutor] = {
     "get-catalyst-center-details": get_catalyst_center_details,
     "get-catalyst-center-topology": get_catalyst_center_topology,
     "get-catalyst-center-health": get_catalyst_center_health,
+    "get-catalyst-center-client-data": get_catalyst_center_client_data,
     "run-catalyst-center-command": run_catalyst_center_command,
     "get-ise-devices": get_ise_devices,
     "get-ise-tacacs-key": get_ise_tacacs_key,

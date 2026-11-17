@@ -8,6 +8,8 @@ from pathlib import Path
 from repositories.plugin_repository import PluginRepository
 from services.execution.step_registry import STEP_REGISTRY
 from services.plugin_registry.plugin_registry_service import PluginRegistryService
+from workflow_steps.get_catalyst_center_client_data.config import get_config as client_data_config
+from workflow_steps.get_catalyst_center_client_data.executor import execute as client_data_execute
 from workflow_steps.get_catalyst_center_configs.config import get_config as configs_config
 from workflow_steps.get_catalyst_center_configs.executor import execute as configs_execute
 from workflow_steps.get_catalyst_center_details.config import get_config as details_config
@@ -32,6 +34,12 @@ CASES = (
         topology_config,
     ),
     ("get-catalyst-center-health", "get_catalyst_center_health", health_execute, health_config),
+    (
+        "get-catalyst-center-client-data",
+        "get_catalyst_center_client_data",
+        client_data_execute,
+        client_data_config,
+    ),
 )
 
 
@@ -61,5 +69,6 @@ class RegistrationTests(unittest.TestCase):
             "get-catalyst-center-details",
             "get-catalyst-center-topology",
             "get-catalyst-center-health",
+            "get-catalyst-center-client-data",
         ):
             self.assertEqual(self.plugins[step_id].produces, ["parsed"])
