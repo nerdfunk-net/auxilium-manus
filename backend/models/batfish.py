@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Literal, Self
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from core.source_keys import SOURCE_ID_PATTERN
 
@@ -232,6 +232,66 @@ class BatfishSnapshotsResponse(BaseModel):
     own sort key), so a picker's default/top entry is the latest snapshot."""
 
     snapshots: list[BatfishSnapshotInfo]
+
+
+MAX_BATFISH_NAME_LENGTH = 255
+# One delete request removes at most this many snapshots (each is a blocking coordinator call).
+MAX_SNAPSHOTS_PER_DELETE = 50
+
+
+def ensure_safe_batfish_name(value: str) -> str:
+    """A network/snapshot name must be one safe path segment: pybatfish splices it into
+    coordinator URLs (``/networks/{name}``) without quoting."""
+    if not value or len(value) > MAX_BATFISH_NAME_LENGTH:
+        raise ValueError(f"Name must be 1-{MAX_BATFISH_NAME_LENGTH} characters")
+    if "/" in value or "\\" in value or ".." in value or "\x00" in value:
+        raise ValueError("Name must not contain '/', '\\' or '..'")
+    return value
+
+
+class BatfishNetworkSummary(BaseModel):
+    name: str
+    # None when the snapshots of this network could not be listed (``unavailable``).
+    snapshot_count: int | None = None
+    unavailable: bool = False
+    # Creation time of the newest snapshot (ISO UTC); None when there is none or no timestamp.
+    latest_snapshot_at: str | None = None
+
+
+class BatfishNetworkSummariesResponse(BaseModel):
+    """Manage dialog: every network with its number of snapshots."""
+
+    networks: list[BatfishNetworkSummary]
+
+
+class BatfishDeleteSnapshotsRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    snapshots: list[str] = Field(..., min_length=1, max_length=MAX_SNAPSHOTS_PER_DELETE)
+
+    @field_validator("snapshots")
+    @classmethod
+    def _safe_names(cls, names: list[str]) -> list[str]:
+        for name in names:
+            ensure_safe_batfish_name(name)
+        return names
+
+
+class BatfishDeleteSnapshotsResponse(BaseModel):
+    deleted: list[str]
+    failed: list[str]
+
+
+class BatfishSnapshotDevice(BaseModel):
+    device: str
+    ip_addresses: list[str]
+
+
+class BatfishSnapshotDevicesResponse(BaseModel):
+    snapshot: str
+    devices: list[BatfishSnapshotDevice]
+    ips_unavailable: bool = False
+    truncated: bool = False
 
 
 class BatfishQueryResponse(BaseModel):

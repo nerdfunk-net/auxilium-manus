@@ -196,6 +196,16 @@ export const queryKeys = {
       [...queryKeys.sourcesBatfish.all, "networks", sourceId] as const,
     snapshots: (sourceId: string, network: string) =>
       [...queryKeys.sourcesBatfish.all, "snapshots", sourceId, network] as const,
+    networkSummaries: (sourceId: string) =>
+      [...queryKeys.sourcesBatfish.all, "network-summaries", sourceId] as const,
+    devices: (sourceId: string, network: string, snapshot: string) =>
+      [
+        ...queryKeys.sourcesBatfish.all,
+        "devices",
+        sourceId,
+        network,
+        snapshot,
+      ] as const,
   },
   credentials: {
     all: ["credentials"] as const,

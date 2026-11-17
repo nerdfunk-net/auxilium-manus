@@ -171,6 +171,35 @@ class BatfishService:
             logger.error("Failed to delete Batfish snapshot: %s", exc)
             raise BatfishAPIError("Failed to delete Batfish snapshot") from exc
 
+    async def delete_network(self, connection: BatfishConnection, *, network: str) -> None:
+        """Delete a whole network (and every snapshot in it) from the coordinator.
+
+        Uses a throwaway Session and never ``set_network`` (which would create the
+        network when it is absent). Callers must confirm the network exists first.
+        Cached sessions for the network are dropped so a later use starts clean.
+
+        Runs under the same per-network lock as ``_get_session``: a caller that is inside
+        ``set_network`` finishes first, so it cannot re-create the network after the delete,
+        and the lock is kept (never popped here) so two creators cannot run for one key.
+        """
+
+        def _delete() -> None:
+            session = Session(host=connection.host, port=connection.port, load_questions=False)
+            session.delete_network(network)
+
+        key = (connection.host, connection.port, network)
+        lock = self._session_locks.setdefault(key, asyncio.Lock())
+        async with lock:
+            try:
+                await asyncio.to_thread(_delete)
+            except BatfishException as exc:
+                raise BatfishAPIError(f"Failed to delete Batfish network: {exc}") from exc
+            except Exception as exc:
+                logger.error("Failed to delete Batfish network: %s", exc)
+                raise BatfishAPIError("Failed to delete Batfish network") from exc
+            finally:
+                self._sessions.pop(key, None)
+
     async def routes(
         self, connection: BatfishConnection, *, batfish_network: str, snapshot: str, **params: Any
     ) -> list[dict[str, Any]]:

@@ -51,6 +51,7 @@ from routers.sources.agent import agent_source_crud_router, agent_source_ops_rou
 from routers.sources.batfish import (
     batfish_source_crud_router,
     batfish_source_discovery_router,
+    batfish_source_manage_router,
     batfish_source_ops_router,
     batfish_source_query_router,
 )
@@ -216,6 +217,7 @@ app.include_router(agent_source_ops_router, prefix=settings.api_prefix)
 app.include_router(batfish_source_crud_router, prefix=settings.api_prefix)
 app.include_router(batfish_source_ops_router, prefix=settings.api_prefix)
 app.include_router(batfish_source_query_router, prefix=settings.api_prefix)
+app.include_router(batfish_source_manage_router, prefix=settings.api_prefix)
 app.include_router(batfish_source_discovery_router, prefix=settings.api_prefix)
 app.include_router(mattermost_source_crud_router, prefix=settings.api_prefix)
 app.include_router(mattermost_source_ops_router, prefix=settings.api_prefix)

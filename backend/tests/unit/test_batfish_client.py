@@ -66,10 +66,7 @@ class BatfishServiceSessionCacheTests(unittest.IsolatedAsyncioTestCase):
         self.mock_session_cls.return_value = mock_instance
 
         results = await asyncio.gather(
-            *[
-                self.service._get_session(_connection(), "manus-workflow-1")
-                for _ in range(10)
-            ]
+            *[self.service._get_session(_connection(), "manus-workflow-1") for _ in range(10)]
         )
 
         self.mock_session_cls.assert_called_once_with(host="batfish", port=9996)
@@ -277,6 +274,42 @@ class BatfishServiceSnapshotTests(unittest.IsolatedAsyncioTestCase):
             _connection(), batfish_network="manus-workflow-1", snapshot_name="run-1"
         )
         self.instance.delete_snapshot.assert_called_once_with("run-1")
+
+    async def test_delete_network_uses_throwaway_session_and_drops_cache(self) -> None:
+        key = ("batfish", 9996, "net-1")
+        self.service._sessions[key] = MagicMock()
+        await self.service.delete_network(_connection(), network="net-1")
+        self.instance.delete_network.assert_called_once_with("net-1")
+        # never set_network: that would create the network
+        self.instance.set_network.assert_not_called()
+        self.assertNotIn(key, self.service._sessions)
+
+    async def test_delete_network_waits_for_an_in_flight_set_network(self) -> None:
+        """A caller inside set_network finishes first, so it cannot re-create the network
+        after the delete; the per-network lock survives the delete."""
+        import asyncio
+        import threading
+
+        gate = threading.Event()
+        self.instance.set_network.side_effect = lambda _n: gate.wait(5)
+        key = ("batfish", 9996, "net-1")
+
+        getter = asyncio.create_task(self.service._get_session(_connection(), "net-1"))
+        await asyncio.sleep(0.05)
+        deleter = asyncio.create_task(self.service.delete_network(_connection(), network="net-1"))
+        await asyncio.sleep(0.05)
+        self.instance.delete_network.assert_not_called()  # still waiting for the lock
+
+        gate.set()
+        await asyncio.gather(getter, deleter)
+        self.instance.delete_network.assert_called_once_with("net-1")
+        self.assertNotIn(key, self.service._sessions)
+        self.assertIn(key, self.service._session_locks)
+
+    async def test_delete_network_wraps_failure(self) -> None:
+        self.instance.delete_network.side_effect = BatfishException("boom")
+        with self.assertRaises(BatfishAPIError):
+            await self.service.delete_network(_connection(), network="net-1")
 
 
 class BatfishServiceQuestionTests(unittest.IsolatedAsyncioTestCase):

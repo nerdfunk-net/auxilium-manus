@@ -13,6 +13,8 @@ from routers.netmiko import router as netmiko_router
 from routers.secret_manager import router as secret_manager_router
 from routers.sources.aci.crud import router as aci_crud_router
 from routers.sources.aci.ops import router as aci_ops_router
+from routers.sources.batfish.discovery import router as batfish_discovery_router
+from routers.sources.batfish.manage import router as batfish_manage_router
 from routers.sources.batfish.ops import router as batfish_ops_router
 from routers.sources.batfish.query import router as batfish_query_router
 from routers.sources.catalyst_center.crud import router as catalyst_center_crud_router
@@ -53,6 +55,7 @@ def _route(router, path_suffix: str, method: str) -> APIRoute:
         (templates_router, "/render", "POST", "template-render"),
         (secret_manager_router, "/test", "POST", "secret-manager-test"),
         (batfish_ops_router, "/test-connection", "POST", "batfish-test-connection"),
+        (batfish_discovery_router, "/networks-summary", "GET", "batfish-manage"),
         (aci_crud_router, "/test-connection", "POST", "aci-test-connection"),
         (aci_ops_router, "/devices/preview", "POST", "aci-device-preview"),
         (
@@ -77,6 +80,7 @@ def test_route_is_rate_limited(router, suffix: str, method: str, bucket: str) ->
         (netmiko_router, "netmiko"),
         (ise_ops_router, "ise-ops"),
         (batfish_query_router, "batfish-query"),
+        (batfish_manage_router, "batfish-manage"),
     ],
 )
 def test_every_route_of_router_is_rate_limited(router, bucket: str) -> None:

@@ -414,14 +414,39 @@ maps naturally onto Manus's own model:
   pending, running or paused, so a concurrent run on a shared network keeps the snapshot it is querying. Unaffected by `network_name` — even a stable, shared network still
   gets one new, uniquely-named snapshot per init run.
 
-**A Batfish network is never deleted by this integration — only individual
-snapshots are pruned.** Worth stating plainly since it's easy to assume
-otherwise: `batfish-init-snapshot` never calls `bf.delete_network(...)`
-itself. A network (and every snapshot in it beyond what retention below
-prunes) persists in the Batfish coordinator indefinitely across runs, unless
-removed out-of-band. This is what makes the git-mode/named-network pattern
-below workable at all — a nightly refresh reuses the same standing network
-rather than starting from nothing each time.
+**A Batfish network is never deleted by a workflow run — only individual
+snapshots are pruned.** `batfish-init-snapshot` never calls `delete_network`
+itself, so a network (and every snapshot beyond what retention below prunes)
+persists in the coordinator across runs. This is what makes the
+git-mode/named-network pattern below workable — a nightly refresh reuses the
+same standing network. Old networks and snapshots are removed by hand in
+**Settings → Sources → Batfish → Manage** (see "Managing networks and
+snapshots").
+
+**Managing networks and snapshots (Settings → Sources → Batfish → Manage).**
+A *Manage* button on each Batfish source opens a table (network, number of
+snapshots, actions): *Remove Network* (whole network, confirmed), *Remove
+Snapshots* (checkbox list, each snapshot labelled `name (date)` from Batfish's
+`creationTimestamp`, then a Remove button, confirmed) and *Show Network* (tree
+of snapshots on the left, a *Device name / IP Address* table on the right).
+Endpoints (`routers/sources/batfish/`):
+
+| Route | Permission |
+|---|---|
+| `GET /sources/batfish/{source_id}/networks-summary` (`discovery.py`) | `sources.batfish:read` or `:query` |
+| `DELETE /sources/batfish/{source_id}/networks/{network}` (`manage.py`) | `sources.batfish:write` |
+| `POST /sources/batfish/{source_id}/networks/{network}/snapshots/delete` body `{snapshots: [...]}` (`manage.py`) | `sources.batfish:write` |
+| `GET /sources/batfish/{source_id}/networks/{network}/snapshots/{snapshot}/devices` (`manage.py`) | `sources.batfish:query` (network-wide data, not given to `viewer`) |
+
+All three `manage.py` routes share the rate-limit bucket `batfish-manage`.
+Every one confirms the network (and snapshot) exists first, because
+`set_network` creates a missing network. `BatfishService.delete_network` uses a
+throwaway session for the same reason and drops the cached sessions of that
+network. A snapshot delete reports `deleted` and `failed` names (unknown names
+and per-snapshot errors land in `failed`). The device table reuses
+`BatfishPreviewService.run_snapshot_devices` (`nodeProperties` + `ipOwners`).
+Frontend: `batfish-manage-dialog.tsx`, `batfish-network-view-dialog.tsx`,
+`use-batfish-network-summaries-query.ts`, `use-batfish-snapshot-devices-query.ts`.
 
 **Retention is enforced by the step itself, not left as an unbounded
 liability.** After a successful `init_snapshot(...)`, the executor calls
@@ -2164,29 +2189,8 @@ and every question already covered by a typed step/endpoint.
   `5`).** Chosen for symmetry with pyATS's per-chunk defaults being
   reasonable-guess numbers rather than measured ones — revisit once real
   snapshot sizes/frequency are known.
-- **TODO: network/snapshot deletion management (endpoints + UI).** There is
-  currently no in-app way to delete a Batfish network or snapshot — a real
-  gap surfaced directly by the `set_network`-creates-if-absent incident
-  above: cleaning up the junk networks it left behind required going
-  around the app entirely (direct coordinator access). Needed:
-  - `BatfishService.delete_network(connection, batfish_network)` — a new
-    thin wrapper (mirrors `delete_snapshot`'s shape); `Session.delete_network`
-    already exists on `pybatfish`, unused so far.
-  - `BatfishService.delete_snapshot` **already exists** (used internally by
-    `batfish-init-snapshot`'s retention sweep) — only a management endpoint
-    is missing, not the primitive.
-  - New endpoints in `routers/sources/batfish/discovery.py` (or a sibling
-    file): `DELETE /sources/batfish/{source_id}/networks/{network}` and
-    `DELETE /sources/batfish/{source_id}/networks/{network}/snapshots/{snapshot}`.
-    Destructive, so gate on `require_permission("sources.batfish", "write")`
-    (matching `test-connection`'s write-gated mutation), not the `read`
-    dependency the rest of this router uses.
-  - Frontend: a delete action next to each entry in
-    `useBatfishNetworksQuery`/`useBatfishSnapshotsQuery`'s consumers, or a
-    small dedicated management view under Settings → Sources → Batfish —
-    not yet designed.
-  - Confirm before deleting either — irreversible, and a network can hold
-    snapshots other workflows still depend on.
+- **Network/snapshot deletion management: done.** See "Managing networks and
+  snapshots".
 - **Node-name case sensitivity, verified as a non-issue but stated
   explicitly.** Batfish canonicalizes hostnames to lowercase internally (a
   device configured with `hostname R1` appears as node `r1` in every answer

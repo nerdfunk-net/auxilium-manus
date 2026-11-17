@@ -275,6 +275,36 @@ export interface BatfishSnapshotsResponse {
   snapshots: BatfishSnapshotInfo[];
 }
 
+export interface BatfishNetworkSummary {
+  name: string;
+  /** null when the snapshots of this network could not be listed (`unavailable`). */
+  snapshot_count: number | null;
+  unavailable: boolean;
+  /** Creation time of the newest snapshot (ISO UTC), null when there is none. */
+  latest_snapshot_at: string | null;
+}
+
+export interface BatfishNetworkSummariesResponse {
+  networks: BatfishNetworkSummary[];
+}
+
+export interface BatfishDeleteSnapshotsResponse {
+  deleted: string[];
+  failed: string[];
+}
+
+export interface BatfishSnapshotDevice {
+  device: string;
+  ip_addresses: string[];
+}
+
+export interface BatfishSnapshotDevicesResponse {
+  snapshot: string;
+  devices: BatfishSnapshotDevice[];
+  ips_unavailable: boolean;
+  truncated: boolean;
+}
+
 export type AgentTransport = "http" | "redis";
 
 export interface AgentSourceResponse {

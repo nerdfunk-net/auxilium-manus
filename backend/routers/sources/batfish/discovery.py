@@ -30,10 +30,19 @@ from fastapi import APIRouter, Depends, HTTPException, status
 import service_factory
 from core.auth import get_current_user, require_any_permission
 from core.models.users import User
+from core.rate_limit import rate_limited
 from core.safe_http_errors import raise_internal_server_error
 from dependencies import get_batfish_source_config_service
-from models.batfish import BatfishNetworksResponse, BatfishSnapshotInfo, BatfishSnapshotsResponse
+from models.batfish import (
+    BatfishNetworksResponse,
+    BatfishNetworkSummariesResponse,
+    BatfishNetworkSummary,
+    BatfishSnapshotInfo,
+    BatfishSnapshotsResponse,
+)
+from services.batfish.client import BatfishService
 from services.batfish.common.exceptions import BatfishAPIError
+from services.batfish.credentials import BatfishConnection
 from services.batfish.source_config_service import (
     BatfishSourceConfigService,
     BatfishSourceNotFoundError,
@@ -78,6 +87,63 @@ async def list_batfish_networks(
         raise_internal_server_error(logger, "Failed to list Batfish networks: ", exc)
 
     return BatfishNetworksResponse(networks=sorted(networks))
+
+
+async def _summarize_network(
+    batfish: BatfishService, connection: BatfishConnection, name: str
+) -> BatfishNetworkSummary:
+    """One table row. A network whose snapshots cannot be listed is flagged ``unavailable``
+    instead of failing the whole table."""
+    try:
+        entries = await batfish.list_snapshots_with_metadata(connection, batfish_network=name)
+    except BatfishAPIError:
+        logger.warning("Could not list the snapshots of Batfish network %r", name)
+        return BatfishNetworkSummary(name=name, unavailable=True)
+    # Count the rows the snapshot picker shows (named ones); ISO UTC timestamps sort lexically.
+    named = [entry for entry in entries if entry.get("name")]
+    stamps = [str((entry.get("metadata") or {}).get("creationTimestamp") or "") for entry in named]
+    return BatfishNetworkSummary(
+        name=name,
+        snapshot_count=len(named),
+        latest_snapshot_at=max(stamps, default="") or None,
+    )
+
+
+@router.get(
+    "/{source_id}/networks-summary",
+    response_model=BatfishNetworkSummariesResponse,
+    # Same budget as the other Manage routes: one listing per network hits the coordinator.
+    dependencies=[Depends(rate_limited("batfish-manage", attempts=30, window_seconds=60))],
+)
+async def summarize_batfish_networks(
+    source_id: str,
+    _: User = Depends(get_current_user),
+    config: BatfishSourceConfigService = Depends(get_batfish_source_config_service),
+) -> BatfishNetworkSummariesResponse:
+    """Every network with its snapshot count (Manage dialog). Only networks that
+    ``list_networks`` returned are asked for snapshots, so nothing is created."""
+    try:
+        connection = config.resolve_connection(source_id)
+    except BatfishSourceNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+    batfish = service_factory.get_batfish_app_service()
+    try:
+        names = sorted(await batfish.list_networks(connection))
+        summaries = [await _summarize_network(batfish, connection, name) for name in names]
+    except BatfishAPIError as exc:
+        raise_internal_server_error(
+            logger,
+            "Failed to summarize Batfish networks: ",
+            exc,
+            status_code=status.HTTP_502_BAD_GATEWAY,
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise_internal_server_error(logger, "Failed to summarize Batfish networks: ", exc)
+
+    return BatfishNetworkSummariesResponse(networks=summaries)
 
 
 @router.get(

@@ -1,7 +1,7 @@
 "use client";
 
 import type { LucideIcon } from "lucide-react";
-import { Pencil, Plus, Trash2 } from "lucide-react";
+import { Pencil, Plus, Settings2, Trash2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 
@@ -22,6 +22,8 @@ interface SourceListSectionProps {
   onAdd: () => void;
   onEdit: (sourceId: string) => void;
   onDelete: (sourceId: string) => void;
+  /** Optional per-row "Manage" button (e.g. Batfish networks and snapshots). */
+  onManage?: (sourceId: string) => void;
 }
 
 export function SourceListSection({
@@ -35,6 +37,7 @@ export function SourceListSection({
   onAdd,
   onEdit,
   onDelete,
+  onManage,
 }: SourceListSectionProps) {
   return (
     <section className="space-y-3">
@@ -78,7 +81,19 @@ export function SourceListSection({
                   </p>
                 ) : null}
               </div>
-              <div className="flex shrink-0 gap-1">
+              <div className="flex shrink-0 items-center gap-1">
+                {onManage ? (
+                  <Button
+                    aria-label={`Manage ${item.sourceId}`}
+                    size="sm"
+                    type="button"
+                    variant="outline"
+                    onClick={() => onManage(item.sourceId)}
+                  >
+                    <Settings2 className="size-4" aria-hidden />
+                    Manage
+                  </Button>
+                ) : null}
                 <Button
                   aria-label={`Edit ${item.sourceId}`}
                   size="icon"

@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import {
   Bot,
   FlaskConical,
@@ -21,9 +22,13 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 
+import { useAuthStore } from "@/lib/auth-store";
+import { hasPermission } from "@/lib/permissions";
+
 import { buildSourceSettingKey } from "../constants/setting-keys";
 import { AciSourceDialog } from "../dialogs/aci-source-dialog";
 import { AgentSourceDialog } from "../dialogs/agent-source-dialog";
+import { BatfishManageDialog } from "../dialogs/batfish-manage-dialog";
 import { BatfishSourceDialog } from "../dialogs/batfish-source-dialog";
 import { CatalystCenterSourceDialog } from "../dialogs/catalyst-center-source-dialog";
 import { ISESourceDialog } from "../dialogs/ise-source-dialog";
@@ -35,6 +40,12 @@ import { SourceListSection } from "./source-list-section";
 
 export function SourcesSettingsCanvas() {
   const sources = useSourcesSettings();
+  const [manageBatfishId, setManageBatfishId] = useState<string | null>(null);
+  const user = useAuthStore((state) => state.user);
+  // The dialog lists networks (read or query); a write-only role could not load it.
+  const canManageBatfish =
+    hasPermission(user, "sources.batfish", "read") ||
+    hasPermission(user, "sources.batfish", "query");
 
   return (
     <>
@@ -248,6 +259,7 @@ export function SourcesSettingsCanvas() {
                 sourceId: item.source_id,
                 summary: `${item.host}:${item.port}`,
               }))}
+              onManage={canManageBatfish ? setManageBatfishId : undefined}
               onAdd={() => sources.setDialog({ type: "batfish", mode: "create" })}
               onEdit={(sourceId) =>
                 sources.setDialog({ type: "batfish", mode: "edit", sourceId })
@@ -372,6 +384,11 @@ export function SourcesSettingsCanvas() {
         onClose={() => sources.setDialog({ type: "closed" })}
         onCreate={sources.saveBatfish}
         onUpdate={sources.updateBatfish}
+      />
+
+      <BatfishManageDialog
+        sourceId={manageBatfishId}
+        onClose={() => setManageBatfishId(null)}
       />
 
       <AgentSourceDialog
