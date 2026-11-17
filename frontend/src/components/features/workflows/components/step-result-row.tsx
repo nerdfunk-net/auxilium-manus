@@ -11,6 +11,7 @@ import { formatDuration } from "./run-status-icon";
 import { deriveLiveStepProgress } from "../utils/live-step-progress";
 import {
   countOutcomeDevices,
+  isInventoryStepType,
   summarizeCompareData,
   summarizeFanIn,
   summarizeFanOutInventory,
@@ -59,8 +60,7 @@ export function StepResultRow({
     deviceGroups,
   );
   const counts = countOutcomeDevices(step.output);
-  const isInventoryStep =
-    step.step_type === "get-nautobot-devices" || step.step_type === "get-git-devices";
+  const isInventoryStep = isInventoryStepType(step.step_type);
   const runHint = isInventoryStep
     ? summarizeFanOutInventory(step.output)
     : step.step_type === "fan-in"

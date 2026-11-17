@@ -149,7 +149,23 @@ export function summarizeLogAttributes(
   return parts.join(" · ");
 }
 
-const INVENTORY_STEP_TYPES = new Set(["get-nautobot-devices", "get-git-devices"]);
+// Every step whose executor emits `_fan_out` metadata (build_fan_out_metadata).
+const INVENTORY_STEP_TYPES = new Set([
+  "get-nautobot-devices",
+  "get-git-devices",
+  "get-from-user",
+  "get-from-list",
+  "get-from-config",
+  "get-from-agent",
+  "get-ise-devices",
+  "get-aci-devices",
+  "get-catalyst-center-devices",
+  "get-virtual-chassis",
+]);
+
+export function isInventoryStepType(stepType: string): boolean {
+  return INVENTORY_STEP_TYPES.has(stepType);
+}
 
 export interface FanOutInfo {
   mode: "per_device" | "chunked";
