@@ -1,7 +1,7 @@
 "use client";
 
 import { ChevronsRight, PanelRightOpen } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -15,6 +15,7 @@ import { WorkflowAiSessionPanel } from "./workflow-ai-session-panel";
 import { WorkflowAiReleaseSection } from "./workflow-ai-release-section";
 import { WorkflowBackgroundTierPanel } from "./workflow-background-tier-panel";
 import { WorkflowStaticAttributesPanel } from "./workflow-static-attributes-panel";
+import { usePropertiesPanelStore } from "../hooks/use-properties-panel-store";
 import { useWorkflowBuilderStore } from "../hooks/use-workflow-builder-store";
 import type { StaticAttributeDef } from "../types/workflow-persistence";
 import {
@@ -94,7 +95,8 @@ export function WorkflowPropertiesPanel({
   const selectedNodeId = useWorkflowBuilderStore((state) => state.selectedNodeId);
   const selectedEdgeId = useWorkflowBuilderStore((state) => state.selectedEdgeId);
   const openConfigModal = useWorkflowBuilderStore((state) => state.openConfigModal);
-  const [isCollapsed, setIsCollapsed] = useState(false);
+  const isCollapsed = usePropertiesPanelStore((state) => state.isCollapsed);
+  const setIsCollapsed = usePropertiesPanelStore((state) => state.setCollapsed);
 
   const selectedCanvasNodes = useMemo(
     () => nodes.filter((node) => node.selected),
