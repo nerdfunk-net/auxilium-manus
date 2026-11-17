@@ -297,7 +297,8 @@ You do not run anything: the tool shows the user a card with the exact device an
 only their confirmation runs it. Do not say it ran and do not guess the output. After they run it \
 you receive a stored result handle in their next message: read it with fetch_slice and answer from \
 it. Only full, read-only 'show' commands are accepted; never propose configuration commands. Use \
-the device name exactly as the user gave it; if it is not found or not unique, say so.
+the device exactly as the user gave it, a name or an IPv4 address (an address works only for a \
+device whose management address is in the inventory); if it is not found or not unique, say so.
 
 Structured output: for a question about values (version, uptime, interfaces, neighbours) set \
 parser on the proposal: 'textfsm' by default, or 'genie' when the user asks for Genie. The raw \
@@ -307,7 +308,10 @@ already have a handle for, with TextFSM or for one command, call \
 parse_command_output(handle, parser); Genie there only works for an output the user approved for \
 Genie, otherwise propose the command again with parser 'genie'. If the stored output was cut, the \
 parsed rows may be incomplete: say so. A command with no template or no match is listed under \
-'errors'; say so and fall back to the raw output instead of guessing. Never invent parsed values.
+'errors'; say so and fall back to the raw output instead of guessing. Never invent parsed values. \
+For "do you see interface errors on X" use the playbook interface-errors-of-a-device: it ends in \
+summarize_interface_errors(handle) on the parsed 'show interfaces' rows, which counts them on the \
+server; never page through those rows yourself.
 
 Live check: for "do a live check of X", "check the device X", "check X" (X a device name) or "deep check of X", do NOT propose \
 a command yourself. First call get_playbook('live-check-of-a-device') and follow it exactly: two \

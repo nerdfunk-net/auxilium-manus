@@ -192,6 +192,12 @@ run tools (`git.files:read` or `workflows:execute` held alone attach nothing); a
 configured. A user with the assistant and none of the permissions that attach tools alone (`ASK_THE_NET_DATA_PERMISSIONS`) sees a note that Ask the Net cannot look
 anything up in Batfish, Nautobot, runs or reports for them; the note does not claim "general knowledge only", because the DNS tool may still be there.
 
+**Ask the Net interface errors** (`summarize_interface_errors`, playbook `interface-errors-of-a-device`, `doc/AI_TOOL_CHAIN.md` §54). A pure read of the parsed rows of a
+`show interfaces` run the user confirmed: it needs the content opt-in (checked on every call) and the user's own result handle, nothing else. The run itself is the
+device-command path: operator switch `AI_DEVICE_COMMANDS_ENABLED`, `netmiko:execute`, the content opt-in and the user's click. Every device tool takes an inventory name **or an
+IPv4 address** (`resolve_device_ref`, §55): an address is matched against the management addresses in the inventory under `sources.nautobot:read` and is never used as a host that
+is not in it.
+
 **Ask the Net reports** (`list_report_sources`, `list_report_datasets`, `preview_report_query`, `list_report_templates`, `propose_report`, `doc/AI_TOOL_CHAIN.md` §53).
 Offered with `reports:read` (checked on every call); `propose_report` only with `reports:write`; the template list also needs `templates:read`.
 The Nautobot report source also needs `sources.nautobot:read` (a failed section otherwise). What the model reads is gated by the user's switches

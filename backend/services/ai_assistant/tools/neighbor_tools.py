@@ -24,6 +24,7 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 from services.ai_assistant.command_policy import CommandNotAllowedError, check_commands
 from services.ai_assistant.data_sharing import DataClass, not_shared_marker
 from services.ai_assistant.device_access import (
+    DEVICE_REF_DESCRIPTION,
     DeviceAccessError,
     DeviceAmbiguousError,
     DeviceNoAddressError,
@@ -31,6 +32,7 @@ from services.ai_assistant.device_access import (
     DeviceResolver,
     DeviceUnsupportedPlatformError,
     netmiko_device_type,
+    resolve_device_ref,
 )
 from services.ai_assistant.nautobot_query_reader import NautobotAccessError
 from services.ai_assistant.neighbors import catalogue
@@ -85,7 +87,7 @@ _MODEL_NOTE = (
 class ProposeNeighborDiscoveryInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    device: DeviceName = Field(description="Device name exactly as in the inventory, e.g. 'LAB'")
+    device: DeviceName = Field(description=DEVICE_REF_DESCRIPTION)
     layer: Literal["l2", "l3", "both"] = Field(
         default="l2",
         description=(
@@ -132,7 +134,8 @@ class NeighborSourcesInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     device: DeviceName | None = Field(
-        default=None, description="Device name; adds what can be discovered on its platform"
+        default=None,
+        description="Device name or IPv4 address; adds what can be discovered on its platform",
     )
 
 
@@ -142,7 +145,7 @@ class NeighborSourcesInput(BaseModel):
 async def _propose(ctx: ToolContext, args: ProposeNeighborDiscoveryInput) -> ToolOutput:
     resolver: DeviceResolver = ctx.extras[DEVICE_RESOLVER_KEY]
     try:
-        device = await resolver.resolve(args.device)
+        device = await resolve_device_ref(resolver, args.device)
     except DeviceAccessError as exc:
         return ToolOutput(str(exc), is_error=True)
     family = catalogue.family_of(netmiko_device_type(device.network_driver, device.platform))
@@ -363,7 +366,7 @@ async def _get_sources(ctx: ToolContext, args: NeighborSourcesInput) -> ToolOutp
         live = {"available": False, "reason": "device commands are not enabled for this user"}
     elif args.device:
         try:
-            device = await resolver.resolve(args.device)
+            device = await resolve_device_ref(resolver, args.device)
         except DeviceAccessError as exc:
             live = {"available": False, "reason": str(exc)}
         else:

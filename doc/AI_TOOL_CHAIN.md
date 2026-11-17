@@ -4004,3 +4004,82 @@ can use a report template, be opened in the Reports app and downloaded as PDF an
   a lower bound). Filters other than a device name or a version are applied after the read. Later: more Nautobot datasets
   (interfaces, IP addresses, locations), more filters pushed down, an XLSX download, saved reports as a tool target
   (`propose_report` only drafts a new one-off report).
+
+## 54. Interface errors: `summarize_interface_errors` and the playbook `interface-errors-of-a-device` (2026-11-17)
+
+"Do you see any interface errors on 1.2.3.4?" **Built 2026-11-17, unit-tested. The product owner ran it on a lab device the same day and it worked** (no details recorded: platform, interface count and the model used are not noted here).
+The command is `show interfaces`, parsed with TextFSM (§43). A device can have hundreds of interfaces, so the model must not read the
+parsed rows: the server counts them and the model sees only a preview of the interfaces that have a problem.
+
+* **Tool** (`tools/interface_error_tools.py`, logic in `interface_errors.py`): `summarize_interface_errors(handle, interface?)`. A pure
+  read, like `parse_command_output`: it reads a `parsed_output` handle as the calling user, checks the content opt-in on every call
+  (`not_shared` otherwise) and cannot reach a device. A raw `device_command` handle, Genie rows, rows without an `interface` column and
+  a template with none of the counters below are errors with a pointer (the last lists the template's columns). Offered with the
+  device tools **and** the result store, like the parse tool.
+* **Counters are an explicit allow-list in two groups** (`interface_errors.py`), not a name pattern. *Errors:* `input_errors`,
+  `output_errors`, `crc`, `frame`, `overrun`, `abort`, `runts`, `giants` (the IOS / IOS-XR template columns), plus the NX-OS columns
+  `stomped_crc`, `short_frame`, `underrun`, `late_collisions`. *Drops:* `queue_drops`, `queue_output_drops`, plus the NX-OS
+  `input_discards`, `output_discards`, `ignored`, `bad_etype_drop`, `bad_proto_drop`, `interface_down_drop`. `queue_flushes` is not one.
+  The NX-OS columns are not part of `input_errors`, so the IOS names alone called an NX-OS device clean (found in review, fixed).
+  The template columns were read from the installed `ntc_templates`; EOS and Junos `show interfaces` have no counter columns (the tool
+  errors), IOS-XR has no drop columns (`summary.drops_checked` is false and a note says drops were not checked). (`runts` and `giants` are in; take them out of `ERROR_COUNTERS` if they should not count.) Counters are
+  reported one by one and **never added into a total**: `input_errors` already includes `crc`, `frame` and `overrun` on IOS.
+  A TextFSM value is a string; `""` means "this platform does not report it" and is never read as zero (`counter_value`).
+* **Answer.** Standard envelope (§6.1): `rows` are the interfaces with at least one non-zero counter, worst first (sorted by the sum of
+  their counters, which is not shown), at most 20 (`PREVIEW_ROWS`), the whole table behind a `handle` when there are more
+  (`query_result` pages it). A row has `interface`, `link_status`, `protocol_status`, `description` (when set), `errors` and `drops`
+  (non-zero counters only), `input_packets`, `output_packets` and `rates_percent` (`input_errors_percent`, `output_errors_percent`,
+  `input_drops_percent`, `output_drops_percent`, only when measurable). `summary` has `interfaces_in_output`, `interfaces_checked`,
+  `interfaces_with_problems` / `_with_errors` / `_with_drops`, `clean`, `counter_totals` (per counter, across interfaces),
+  `counters_looked_at`, `counters_not_in_output` (counters the platform did not report: not checked) and `unparsed_commands`.
+  300 bad interfaces cost the model the same as 20. **`clean` needs `complete`:** `summary.complete` is false when the stored output was
+  cut or another command of the handle did not parse, and then `clean` is false even with no counters (a cut output can hide the bad
+  interface). `errors_checked` / `drops_checked` say whether the platform's template had counters of that group at all.
+  Rows are sorted by the largest single counter, never by a sum (`input_errors` already contains `crc`).
+* **One interface.** `interface` takes the full name or an abbreviation (`Gi0/1`: the letters are a prefix of at least two characters,
+  the numbers are equal, so `Gi0/1` never matches `Gi0/10`; subinterfaces are included: `Gi0/1` also reports `Gi0/1.100`, `Gi0/1.100` only
+  itself). An abbreviation that fits more than one type of interface (`Se0/1`: `Serial0/1` and `Service-Engine0/1`; `Po1`: `Port-channel1`
+  and `Port1`) is refused with the matching names, the full name is never a clash. The matched interfaces are reported **even when clean**, because the
+  question was about them; no match is an error.
+* **Counters are cumulative** (since the last clear or the boot): a note says so on every answer, and the playbook tells the model to
+  say it once and to use `rates_percent` to size a problem. A delta (two runs some minutes apart) is not built; it needs two confirms.
+* **Cut output.** `show interfaces` of a big device can pass the 500,000 stored characters (§29, §43). The parsed handle then carries
+  `partial`, the tool adds a note ("interfaces at the end may be missing") and `total_rows_exact` is false; the playbook forbids calling such
+  a device clean. If this happens in practice the fix is a shorter per-platform command, not a change to the tool.
+* **Playbook** `knowledge/playbooks/interface-errors-of-a-device.md` (tools `propose_device_command`, `parse_command_output`,
+  `summarize_interface_errors`, `query_result`): propose `show interfaces` with parser `textfsm` for the device (name or IPv4, §55), wait
+  for the click, call the tool, report. The general prompt points "interface errors" questions at it.
+* **Tests:** `test_ai_interface_errors.py` (counters, names, summary, the tool, a 300-interface device, the content gate, another user's
+  handle, redaction of a description), `test_ai_general_surface.py`.
+* **Open:** `show interfaces` through TextFSM on the other platforms (the lab device that worked is the only one checked) (the column names for NX-OS, EOS and XR templates differ; the tool
+  reports which counters it did not find); a real model following the playbook; the "since when" of the counters (`Last clearing` is not
+  a column of the IOS template).
+
+## 55. Devices by IPv4 address in every device tool (2026-11-17)
+
+Network engineers usually have only the address. Every tool that reaches a device accepts **an inventory name or an IPv4 address** in
+`device`: `propose_device_command`, `propose_ping_traceroute`, `propose_neighbor_discovery`, `get_neighbor_sources`,
+`propose_feature_learn` and `propose_bgp_neighbor_detail`. **Built 2026-11-17, unit-tested; the lab run of §54 used it** (which tool and whether by name or address is not recorded).
+
+* **One resolver path** (`device_access.py::resolve_device_ref`). `parse_ipv4_literal` (the strict parser §16.10 uses: exactly one dotted
+  quad, no CIDR, no whitespace, no leading zeros) decides; an address goes to `DbDeviceResolver.resolve_by_ip`, anything else to
+  `resolve` as before. `DeviceResolver` gained `resolve_by_ip`.
+* **Only inventory devices.** The match is the device's **primary** IPv4 address (`find_devices_by_primary_ip`). An address no inventory
+  device has is `DeviceAddressNotFoundError` (a `DeviceNotFoundError`, so the confirm step still maps it to 404) with a message that does
+  not echo the address; it is never used as a host. Two devices with the address are `DeviceAmbiguousError`. Both paths need
+  `sources.nautobot:read` (checked in `_load_sources`). The free-address switch of released workflows (`ai_allow_free_ip`, §16.10) is
+  not involved.
+* **The address is accepted only when its name finds the same device again.** Confirm re-resolves **by name** (§29), so two devices
+  with one name would issue a card whose click ends in `device_ambiguous`. `resolve_device_ref` therefore looks the name up too and
+  refuses with `DeviceNameNotUniqueError` (a `DeviceAmbiguousError`, 409 at confirm) when it is shared or finds another device; two
+  devices with one address are `DeviceAddressAmbiguousError`, whose text says address, not name. One more Nautobot search per address.
+* **An address-shaped name is an address.** A device *named* `10.0.0.1` whose management address is another cannot be selected by that
+  string (the literal is tried as an address first and never as a name). Rename it or use its real name or address. Not a bypass: the
+  card shows the device that was resolved and the user still approves it.
+* **The card and the token are unchanged.** The result is the same `ResolvedDevice`, so the card shows the device's name and address and
+  the signed token binds the name; the confirm step re-resolves **by that name**. An address typed at proposal time is never looked up
+  again.
+* **Not covered:** an address that is only on an interface (not the primary), IPv6, the Batfish tools (they take snapshot hostnames) and
+  `list_config_backups` / `get_config_backup` (they take the device name of the git backup path).
+* **Tests:** `test_ai_device_access.py` (`resolve_device_ref`: found, not found, name path, non-literals, permission) and one found / not
+  found pair per tool (`test_ai_device_tools.py`, `test_ai_probe_tools.py`, `test_ai_neighbor_tools.py`, `test_ai_learn_tools.py`).

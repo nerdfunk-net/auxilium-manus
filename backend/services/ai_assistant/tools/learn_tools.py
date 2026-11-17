@@ -19,9 +19,11 @@ from services.ai_assistant.command_policy import (
     check_commands,
 )
 from services.ai_assistant.device_access import (
+    DEVICE_REF_DESCRIPTION,
     DeviceAccessError,
     DeviceResolver,
     netmiko_device_type,
+    resolve_device_ref,
 )
 from services.ai_assistant.learn import catalogue
 from services.ai_assistant.neighbors.catalogue import family_of
@@ -40,7 +42,7 @@ DeviceName = Annotated[
 class ProposeFeatureLearnInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    device: DeviceName = Field(description="Device name exactly as in the inventory, e.g. 'LAB'")
+    device: DeviceName = Field(description=DEVICE_REF_DESCRIPTION)
     feature: Literal["ospf", "bgp"] = Field(
         description=(
             "The feature to learn: 'ospf' (process, areas, interfaces, neighbours, LSDB) or "
@@ -60,7 +62,7 @@ class ProposeFeatureLearnInput(BaseModel):
 async def _propose(ctx: ToolContext, args: ProposeFeatureLearnInput) -> ToolOutput:
     resolver: DeviceResolver = ctx.extras[DEVICE_RESOLVER_KEY]
     try:
-        device = await resolver.resolve(args.device)
+        device = await resolve_device_ref(resolver, args.device)
     except DeviceAccessError as exc:
         return ToolOutput(str(exc), is_error=True)
     family = family_of(netmiko_device_type(device.network_driver, device.platform))
@@ -97,7 +99,7 @@ _DESCRIPTION = (
 class ProposeBgpNeighborDetailInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    device: DeviceName = Field(description="Device name exactly as in the inventory, e.g. 'LAB'")
+    device: DeviceName = Field(description=DEVICE_REF_DESCRIPTION)
     neighbor: str = Field(
         min_length=2,
         max_length=45,
@@ -116,7 +118,7 @@ class ProposeBgpNeighborDetailInput(BaseModel):
 async def _propose_neighbor(ctx: ToolContext, args: ProposeBgpNeighborDetailInput) -> ToolOutput:
     resolver: DeviceResolver = ctx.extras[DEVICE_RESOLVER_KEY]
     try:
-        device = await resolver.resolve(args.device)
+        device = await resolve_device_ref(resolver, args.device)
     except DeviceAccessError as exc:
         return ToolOutput(str(exc), is_error=True)
     family = family_of(netmiko_device_type(device.network_driver, device.platform))

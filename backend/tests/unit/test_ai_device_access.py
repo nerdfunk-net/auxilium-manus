@@ -409,3 +409,111 @@ def test_only_a_pure_probe_run_is_interrupted_on_timeout(commands, interrupt) ->
             da.DbDeviceCommandRunner().run(_resolved(), commands, credential_id=9, user_id=3)
         )
     assert service.run_commands.call_args.kwargs["interrupt_on_timeout"] is interrupt
+
+
+# -- name or IPv4 address (resolve_device_ref) ------------------------------------------------
+
+
+class _RefResolver:
+    """Records which path ``resolve_device_ref`` took."""
+
+    def __init__(self, by_ip=None, by_name=None, name_error=None) -> None:
+        # By default the device's own name finds it again, as in a healthy inventory.
+        self.by_ip, self.by_name, self.name_error, self.calls = (
+            by_ip,
+            by_name or by_ip,
+            name_error,
+            [],
+        )
+
+    async def resolve(self, name):
+        self.calls.append(("name", name))
+        if self.name_error:
+            raise self.name_error
+        return self.by_name
+
+    async def resolve_by_ip(self, ip):
+        self.calls.append(("ip", ip))
+        return self.by_ip
+
+
+_LAB = da.ResolvedDevice("nb1", "d1", "LAB", "10.1.2.3", "cisco_ios", "cisco_ios")
+
+
+def test_an_ipv4_address_is_looked_up_by_management_address() -> None:
+    resolver = _RefResolver(by_ip=_LAB)
+
+    assert asyncio.run(da.resolve_device_ref(resolver, "10.1.2.3")) is _LAB
+    # The name is looked up too: the confirm step finds the device again by it.
+    assert resolver.calls == [("ip", "10.1.2.3"), ("name", "LAB")]
+
+
+def test_a_name_still_goes_through_the_name_lookup() -> None:
+    resolver = _RefResolver(by_name=_LAB)
+
+    assert asyncio.run(da.resolve_device_ref(resolver, "LAB")) is _LAB
+    assert resolver.calls == [("name", "LAB")]
+
+
+def test_an_address_that_no_inventory_device_has_is_refused_not_used_as_a_host() -> None:
+    resolver = _RefResolver(by_ip=None)
+
+    with pytest.raises(da.DeviceAddressNotFoundError) as caught:
+        asyncio.run(da.resolve_device_ref(resolver, "10.9.9.9"))
+
+    assert isinstance(caught.value, da.DeviceNotFoundError)  # the confirm step maps it to 404
+    assert "inventory" in str(caught.value)
+    assert "10.9.9.9" not in str(caught.value)
+
+
+@pytest.mark.parametrize("ref", ["10.1.2.3/24", "10.1.2", "300.1.1.1", "01.2.3.4", "lab.example"])
+def test_anything_that_is_not_one_ipv4_literal_is_a_name(ref: str) -> None:
+    resolver = _RefResolver(by_name=_LAB)
+
+    asyncio.run(da.resolve_device_ref(resolver, ref))
+
+    assert resolver.calls == [("name", ref)]
+
+
+def test_the_address_lookup_needs_the_same_permission_as_a_name_lookup() -> None:
+    resolver = _Resolver(None, {})
+
+    with pytest.raises(da.DeviceAccessDeniedError):
+        asyncio.run(da.resolve_device_ref(resolver, "10.1.2.3"))
+
+
+def test_an_address_whose_device_name_is_shared_gives_no_card_that_could_not_be_run() -> None:
+    # The confirm step looks the device up by name; with two devices of that name it would refuse.
+    resolver = _RefResolver(by_ip=_LAB, name_error=da.DeviceAmbiguousError())
+
+    with pytest.raises(da.DeviceNameNotUniqueError) as caught:
+        asyncio.run(da.resolve_device_ref(resolver, "10.1.2.3"))
+
+    assert isinstance(caught.value, da.DeviceAmbiguousError)  # the confirm step maps it to 409
+    assert "name" in str(caught.value) and "address" in str(caught.value)
+
+
+def test_an_address_whose_name_picks_another_device_is_refused() -> None:
+    other = da.ResolvedDevice("nb1", "d2", "LAB", "10.9.9.9", "cisco_ios", "cisco_ios")
+    resolver = _RefResolver(by_ip=_LAB, by_name=other)
+
+    with pytest.raises(da.DeviceNameNotUniqueError):
+        asyncio.run(da.resolve_device_ref(resolver, "10.1.2.3"))
+
+
+def test_a_name_that_cannot_be_found_again_is_refused() -> None:
+    resolver = _RefResolver(by_ip=_LAB, name_error=da.DeviceNotFoundError())
+
+    with pytest.raises(da.DeviceNameNotUniqueError):
+        asyncio.run(da.resolve_device_ref(resolver, "10.1.2.3"))
+
+
+def test_two_devices_with_one_address_say_address_not_name() -> None:
+    found = [("nb1", _device("A", id="a")), ("nb1", _device("B", id="b"))]
+
+    with pytest.raises(da.DeviceAddressAmbiguousError) as caught:
+        da.select_device_by_ip(found)
+
+    assert isinstance(caught.value, da.DeviceAmbiguousError)
+    assert "address" in str(caught.value)
+    assert "that name" not in str(caught.value)

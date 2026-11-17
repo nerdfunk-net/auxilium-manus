@@ -14,9 +14,11 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
 from services.ai_assistant.command_policy import CommandNotAllowedError
 from services.ai_assistant.device_access import (
+    DEVICE_REF_DESCRIPTION,
     DeviceAccessError,
     DeviceResolver,
     netmiko_device_type,
+    resolve_device_ref,
 )
 from services.ai_assistant.neighbors import catalogue
 from services.ai_assistant.probes import (
@@ -40,7 +42,7 @@ Ipv4 = Annotated[str, StringConstraints(strip_whitespace=True, max_length=15)]
 class ProposePingTracerouteInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    device: DeviceName = Field(description="Device to probe FROM, as named in the inventory")
+    device: DeviceName = Field(description="Device to probe FROM: " + DEVICE_REF_DESCRIPTION)
     target: Ipv4 = Field(description="The IPv4 address to probe, e.g. '192.168.178.241' (no names)")
     kind: Literal["ping", "traceroute", "both"] = Field(
         default="ping",
@@ -68,7 +70,7 @@ class ProposePingTracerouteInput(BaseModel):
 async def _propose(ctx: ToolContext, args: ProposePingTracerouteInput) -> ToolOutput:
     resolver: DeviceResolver = ctx.extras[DEVICE_RESOLVER_KEY]
     try:
-        device = await resolver.resolve(args.device)
+        device = await resolve_device_ref(resolver, args.device)
     except DeviceAccessError as exc:
         return ToolOutput(str(exc), is_error=True)
     family = catalogue.family_of(netmiko_device_type(device.network_driver, device.platform))

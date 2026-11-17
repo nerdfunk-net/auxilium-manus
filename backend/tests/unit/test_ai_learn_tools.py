@@ -47,6 +47,9 @@ class FakeResolver:
             raise DeviceNotFoundError
         return self.device
 
+    async def resolve_by_ip(self, ip: str) -> ResolvedDevice | None:
+        return self.device if self.device is not None and ip == self.device.host else None
+
 
 def _ctx(resolver: Any = None, **extras: Any) -> ToolContext:
     return ToolContext(
@@ -326,3 +329,17 @@ def test_run_budget_covers_every_long_read_command_up_to_the_cap() -> None:
         assert ex.run_budget_seconds(len(commands), longs) >= longs * 120
     assert ex.run_budget_seconds(3, 0) == ex.RUN_TIMEOUT_SECONDS
     assert ex.run_budget_seconds(16, 16) == ex.MAX_RUN_TIMEOUT_SECONDS
+
+
+def test_feature_learn_accepts_the_management_address_of_an_inventory_device() -> None:
+    out = _call(_ctx(), device=IOS.host, feature="ospf")
+
+    assert not out.is_error
+    assert out.proposal["device"]["name"] == IOS.name
+
+
+def test_feature_learn_refuses_an_address_the_inventory_does_not_have() -> None:
+    out = _call(_ctx(), device="10.9.9.9", feature="ospf")
+
+    assert out.is_error
+    assert out.proposal is None

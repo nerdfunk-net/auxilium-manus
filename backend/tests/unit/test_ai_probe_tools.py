@@ -35,6 +35,9 @@ class FakeResolver:
             raise self.error
         return self.device
 
+    async def resolve_by_ip(self, ip):
+        return self.device if ip == self.device.host else None
+
 
 def _ctx(resolver=None):
     return ToolContext(
@@ -116,3 +119,17 @@ def test_the_free_form_tool_still_refuses_ping() -> None:
     )
 
     assert out.is_error
+
+
+def test_the_probing_device_may_be_named_by_its_management_address() -> None:
+    out = _run(device=IOS.host)
+
+    assert not out.is_error
+    assert out.proposal["device"]["name"] == IOS.name
+
+
+def test_an_address_outside_the_inventory_is_refused_for_a_probe() -> None:
+    out = _run(device="10.9.9.9")
+
+    assert out.is_error
+    assert out.proposal is None

@@ -121,3 +121,26 @@ describe("Ask the Net help: playbooks", () => {
     ).toBe(true);
   });
 });
+
+describe("Ask the Net help: interface errors", () => {
+  it("lists the tool in the device commands section with questions that use it", () => {
+    const tool = byName("summarize_interface_errors");
+
+    expect(tool?.section).toBe("device-commands");
+    expect(tool?.questions.some((q) => /interface errors/i.test(q))).toBe(true);
+    expect(tool?.description).toMatch(/cumulative/i);
+  });
+
+  it("lists the playbook with the question about an IP address", () => {
+    const playbook = byName("interface-errors-of-a-device");
+
+    expect(playbook?.section).toBe("playbooks");
+    expect(playbook?.questions.some((q) => q.includes("10.1.2.3"))).toBe(true);
+  });
+
+  it("says a device may be named by its IPv4 address", () => {
+    expect(byName("propose_device_command")?.description).toMatch(
+      /IPv4 management address/,
+    );
+  });
+});

@@ -92,6 +92,10 @@ class FakeResolver:
             raise DeviceNotFoundError
         return self.device
 
+    async def resolve_by_ip(self, ip: str) -> ResolvedDevice | None:
+        self.names.append(ip)
+        return self.device if ip == self.device.host else None
+
 
 def _ctx(resolver: Any = None, **extras: Any) -> ToolContext:
     return ToolContext(
@@ -548,3 +552,17 @@ def test_a_catalogue_command_that_breaks_the_policy_never_reaches_a_card(monkeyp
 
     assert out.is_error and out.proposal is None
     assert "only full 'show' commands" in out.content
+
+
+def test_discovery_accepts_the_management_address_of_an_inventory_device() -> None:
+    out = _call("propose_neighbor_discovery", _ctx(), device=IOS.host)
+
+    assert not out.is_error
+    assert out.proposal["device"]["name"] == IOS.name
+
+
+def test_discovery_refuses_an_address_the_inventory_does_not_have() -> None:
+    out = _call("propose_neighbor_discovery", _ctx(), device="10.9.9.9")
+
+    assert out.is_error
+    assert out.proposal is None

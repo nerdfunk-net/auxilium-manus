@@ -21,10 +21,12 @@ from services.ai_assistant.command_policy import (
 )
 from services.ai_assistant.device_access import (
     DEVICE_DRIVERS,
+    DEVICE_REF_DESCRIPTION,
     DeviceAccessError,
     DeviceResolver,
     ResolvedDevice,
     driver_known,
+    resolve_device_ref,
 )
 from services.ai_assistant.device_token import issue_token
 from services.ai_assistant.tools.base import Tool, ToolContext, ToolOutput
@@ -43,7 +45,7 @@ DeviceName = Annotated[
 class ProposeDeviceCommandInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    device: DeviceName = Field(description="Device name exactly as in the inventory, e.g. 'LAB'")
+    device: DeviceName = Field(description=DEVICE_REF_DESCRIPTION)
     commands: list[Annotated[str, Field(min_length=1, max_length=MAX_COMMAND_CHARS * 2)]] = Field(
         min_length=1,
         max_length=MAX_COMMANDS,
@@ -75,7 +77,7 @@ async def _propose_device_command(ctx: ToolContext, args: ProposeDeviceCommandIn
         )
     resolver: DeviceResolver = ctx.extras[DEVICE_RESOLVER_KEY]
     try:
-        device = await resolver.resolve(args.device)
+        device = await resolve_device_ref(resolver, args.device)
     except DeviceAccessError as exc:
         return ToolOutput(str(exc), is_error=True)
     return make_device_proposal(ctx, device, commands, args.parser)

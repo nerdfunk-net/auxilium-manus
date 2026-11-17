@@ -30,13 +30,17 @@ def _secret(monkeypatch) -> None:
 
 class FakeResolver:
     def __init__(self, device=DEVICE, error=None) -> None:
-        self.device, self.error, self.names = device, error, []
+        self.device, self.error, self.names, self.ips = device, error, [], []
 
     async def resolve(self, name):
         self.names.append(name)
         if self.error:
             raise self.error
         return self.device
+
+    async def resolve_by_ip(self, ip):
+        self.ips.append(ip)
+        return self.device if ip == self.device.host else None
 
 
 def _ctx(resolver=None, user_id=7, genie=False):
@@ -244,3 +248,25 @@ def test_genie_without_a_pyats_source_makes_no_proposal() -> None:
 def test_an_unknown_parser_is_refused_by_the_input_model() -> None:
     with pytest.raises(ValueError):
         _propose(_ctx(), parser="regex")
+
+
+def test_an_ipv4_address_is_resolved_to_the_inventory_device_and_signed_by_name() -> None:
+    resolver = FakeResolver()
+
+    out = _propose(_ctx(resolver), device="10.1.2.3", commands=["show interfaces"])
+
+    assert not out.is_error
+    # The name is looked up once too: the confirm step finds the device again by it.
+    assert (resolver.ips, resolver.names) == (["10.1.2.3"], ["LAB"])
+    assert out.proposal["device"]["name"] == "LAB"  # the card names the device, not the address
+    grant = device_token.verify_token(out.proposal["token"], user_id=7)
+    # Confirm re-resolves by this name, so the address never has to be looked up again.
+    assert (grant.device_name, grant.host) == ("LAB", "10.1.2.3")
+
+
+def test_an_address_that_is_not_in_the_inventory_gives_no_proposal() -> None:
+    out = _propose(_ctx(), device="10.9.9.9")
+
+    assert out.is_error
+    assert out.proposal is None
+    assert "inventory" in out.content

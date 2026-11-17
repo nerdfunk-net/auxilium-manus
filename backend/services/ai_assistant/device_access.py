@@ -34,10 +34,17 @@ from services.network.netmiko.platform import (
 )
 from services.network.netmiko.preview_service import NetmikoPreviewService
 from services.settings.settings_service import SettingsService
+from services.workflow.device_lines import parse_ipv4_literal
 
 logger = logging.getLogger(__name__)
 
 MAX_CANDIDATES = 50
+# The ``device`` field of every tool that reaches a device (see ``resolve_device_ref``).
+DEVICE_REF_DESCRIPTION = (
+    "The device: its name exactly as in the inventory (e.g. 'LAB') or the IPv4 management "
+    "address the inventory has for it (e.g. '10.0.0.1'). An address that no inventory device "
+    "has is refused."
+)
 # Commands that print a whole configuration (or a whole diagnostic dump) take longer than a
 # normal show command; they get the config read timeout the Netmiko config getters use.
 _LONG_COMMANDS = (
@@ -95,9 +102,43 @@ class DeviceNotFoundError(DeviceAccessError):
         super().__init__("No device with exactly that name is in the inventory")
 
 
+class DeviceAddressNotFoundError(DeviceNotFoundError):
+    """No inventory device has that management address (an address is never used as a free host)."""
+
+    def __init__(self) -> None:
+        DeviceAccessError.__init__(
+            self,
+            "No device in the inventory has that management address. Only inventory devices "
+            "can be reached; ask the user for the device name.",
+        )
+
+
 class DeviceAmbiguousError(DeviceAccessError):
     def __init__(self) -> None:
         super().__init__("More than one device has that name; ask the user which one is meant")
+
+
+class DeviceAddressAmbiguousError(DeviceAmbiguousError):
+    """Two inventory devices have the same management address."""
+
+    def __init__(self) -> None:
+        DeviceAccessError.__init__(
+            self,
+            "More than one inventory device has that management address; ask the user which "
+            "device is meant, by name.",
+        )
+
+
+class DeviceNameNotUniqueError(DeviceAmbiguousError):
+    """The device at an address cannot be found again by its name, so a card could not be run."""
+
+    def __init__(self) -> None:
+        DeviceAccessError.__init__(
+            self,
+            "The device with that address cannot be told apart by its name (another inventory "
+            "device has the same name), so a confirmation could not run it. Ask the user to fix "
+            "the duplicate name in the inventory.",
+        )
 
 
 class DeviceUnsupportedPlatformError(DeviceAccessError):
@@ -153,6 +194,35 @@ def netmiko_device_type(network_driver: str | None, platform: str | None) -> str
 
 class DeviceResolver(Protocol):
     async def resolve(self, name: str) -> ResolvedDevice: ...
+
+    async def resolve_by_ip(self, ip: str) -> ResolvedDevice | None: ...
+
+
+async def resolve_device_ref(resolver: DeviceResolver, ref: str) -> ResolvedDevice:
+    """The inventory device a user or model named by inventory name **or** IPv4 address.
+
+    An IPv4 literal is matched against the devices' management (primary) addresses only and never
+    reaches a host that is not in the inventory; anything else is an inventory name, as before.
+    Both paths need ``sources.nautobot:read``. The result is the same ``ResolvedDevice`` either
+    way, so the signed card and the confirm step (which re-resolves by the device's name) are
+    unchanged.
+
+    The confirm step finds the device again **by its name**, so an address is accepted only when
+    that name picks this same device: otherwise the card would be issued and its click refused.
+    """
+    ip = parse_ipv4_literal(ref)
+    if ip is None:
+        return await resolver.resolve(ref)
+    device = await resolver.resolve_by_ip(ip)
+    if device is None:
+        raise DeviceAddressNotFoundError
+    try:
+        again = await resolver.resolve(device.name)
+    except (DeviceAmbiguousError, DeviceNotFoundError) as exc:
+        raise DeviceNameNotUniqueError from exc
+    if (again.source_id, again.device_id) != (device.source_id, device.device_id):
+        raise DeviceNameNotUniqueError
+    return device
 
 
 class DeviceCommandRunner(Protocol):
@@ -224,7 +294,7 @@ def select_device_by_ip(
     if not found:
         return None
     if len({(source_id, device.id) for source_id, device in found}) > 1:
-        raise DeviceAmbiguousError
+        raise DeviceAddressAmbiguousError
     source_id, device = found[0]
     return ResolvedDevice(
         source_id=source_id,

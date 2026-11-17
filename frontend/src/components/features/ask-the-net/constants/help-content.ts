@@ -48,6 +48,16 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
         ],
       },
       {
+        name: "interface-errors-of-a-device (playbook)",
+        description:
+          "Checks whether a device has interface errors or drops: runs show interfaces live (you confirm the card with your SSH login), parses it and reports only the interfaces with a non-zero counter, worst first, with the packet counts and error rate. Works with the device name or its IPv4 address. Counters are cumulative since the last clear.",
+        questions: [
+          "Do you see any interface errors on 10.1.2.3?",
+          "Are there CRC errors or drops on r1?",
+          "Is interface Gi0/1 on r1 clean?",
+        ],
+      },
+      {
         name: "overview-of-a-device (playbook)",
         description:
           "Sums up one device from Nautobot (what is documented) and Batfish (what the configuration says, with the snapshot age): role, location, interfaces, routes, management servers. Nothing is run on the device.",
@@ -541,7 +551,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
       {
         name: "propose_device_command",
         description:
-          "Proposes read-only commands for one device, which you confirm and run. Ask for the output to be parsed (TextFSM, or Genie when it is available) and the result is shown as a table, with the raw output kept below it. This is also how to read the MAC address table a switch has learned.",
+          "Proposes read-only commands for one device, which you confirm and run. Name the device by its inventory name or by its IPv4 management address (an address that is not in the inventory is refused). Ask for the output to be parsed (TextFSM, or Genie when it is available) and the result is shown as a table, with the raw output kept below it. This is also how to read the MAC address table a switch has learned.",
         questions: [
           "Run show version on r1.",
           "What is the current uptime of r1?",
@@ -564,6 +574,16 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
         description:
           "Parses the output of a command you already ran, without touching the device again. Genie only works if you approved Genie when you confirmed the command.",
         questions: ["Parse that output with TextFSM."],
+      },
+      {
+        name: "summarize_interface_errors",
+        description:
+          "Counts the interface errors and drops in the parsed output of show interfaces and returns only the interfaces that have a non-zero counter (input and output errors, CRC, frame, overrun, abort, runts, giants, queue drops), worst first, with the packet counts and error rate. The counting is done on the server, so a device with hundreds of interfaces is no problem. Name one interface to see it even when it is clean. The counters are cumulative since the last clear, so a value above zero does not mean the problem is still happening.",
+        questions: [
+          "Do you see any interface errors on 10.1.2.3?",
+          "Which interfaces on r1 have input errors or drops?",
+          "Does Gi0/1 on r1 have CRC errors?",
+        ],
       },
     ],
   },

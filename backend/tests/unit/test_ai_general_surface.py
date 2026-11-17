@@ -317,3 +317,29 @@ def test_with_device_commands_the_prompt_no_longer_says_commands_cannot_be_run()
     assert "never run anything yourself" in with_tool.lower()
     assert "change configuration" in with_tool  # still told it cannot change anything
     assert "propose_device_command" in with_tool
+
+
+# -- interface errors (doc/AI_TOOL_CHAIN.md §54) ------------------------------------------------
+
+
+def test_the_interface_error_tool_comes_with_the_device_tool_and_a_store() -> None:
+    with_both = {s.name for s in _session(device_resolver=_Resolver()).toolbox.specs()}
+    no_store = {s.name for s in _session(device_resolver=_Resolver(), store=None).toolbox.specs()}
+    no_resolver = {s.name for s in _session().toolbox.specs()}
+
+    assert "summarize_interface_errors" in with_both
+    assert "summarize_interface_errors" not in no_store
+    assert "summarize_interface_errors" not in no_resolver
+
+
+def test_playbooks_may_name_the_interface_error_tool() -> None:
+    from services.ai_assistant.tools.playbook_tools import known_general_tool_names
+
+    assert "summarize_interface_errors" in known_general_tool_names()
+
+
+def test_the_prompt_sends_interface_error_questions_to_the_tool() -> None:
+    system = _session(device_resolver=_Resolver()).system
+
+    assert "interface-errors-of-a-device" in system
+    assert "summarize_interface_errors" in system
