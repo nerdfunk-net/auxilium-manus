@@ -1054,6 +1054,16 @@ users, git repositories) beyond loading them. The isolated stack has no Nautobot
 - **The confirm token is not single-use** (decided: generating a report only reads and stores a snapshot; bounded by the rate limit and the cap).
 
 
+## `textfsm` pin (recheck regularly)
+
+**Added:** 2026-11-17 · **Area:** `backend/requirements.txt`
+
+- `textfsm==2.1.0` is pinned (transitive, via netmiko and `ntc_templates`). The 2.1.1 wheel installs a top-level `tests/` package that shadows
+  `backend/tests` (`ModuleNotFoundError: tests.unit`). Checked 2026-11-17: 2.1.1 is the latest release and still has it; 2.1.0 does not.
+- **Automated:** the `textfsm-pin` job in the weekly `audit.yml` runs `backend/scripts/check_textfsm_pin.py`. It goes red when a release newer than the pin has a wheel
+  without a top-level `tests/`. Then raise the pin, run the full pytest and delete this section.
+
+
 ## `anthropic` SDK 2.x — DONE (verified live)
 
 **Added:** 2026-11-14 · **Area:** `backend/requirements.txt`, `backend/services/ai_assistant/providers/anthropic_provider.py`
@@ -1097,3 +1107,8 @@ Nautobot, Batfish or model. The maintainer checks it on the production system an
   rows. Without `nodes` keep today's behaviour (a network-wide interface list is too large to filter client-side).
 - **Other gaps.** `search_config_backups` is a free-text search: the model has to search `Port-channel51` itself (the prompt says so). `name_contains` is still a
   substring match (`Port-channel51` also matches `Port-channel510` in the partial-name path).
+
+## Ask the Net: interface utilization (§56)
+
+Built 2026-11-17, unit-tested only. Open: a live run on the lab device (IOS first, then NX-OS and IOS-XR: BW string, NX-OS rate unit); a real model following the playbook
+`interface-utilization-of-a-device`; uplink vs downlink direction (Nautobot role of the neighbour); Port-channel members; LLDP fallback card checked on a platform without CDP.

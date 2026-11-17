@@ -58,6 +58,16 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
         ],
       },
       {
+        name: "interface-utilization-of-a-device (playbook)",
+        description:
+          "Shows how busy the interfaces of a device are: runs show interfaces live (and show cdp neighbors for uplink questions, in the same card, so you confirm once with your SSH login), computes the traffic rate against each interface's capacity on the server and reports the busiest first. Works with the device name or its IPv4 address. Rates are the device's 5-minute average; a port with a neighbour is reported as neighbour-facing with the neighbour's name and type (CDP and LLDP do not say whether it is an uplink or a downlink, and phones and access points are neighbours too).",
+        questions: [
+          "Show me the bandwidth of 10.1.2.3.",
+          "Which interface has the highest utilization on r1?",
+          "Show me the uplink utilization on 10.1.2.3.",
+        ],
+      },
+      {
         name: "overview-of-a-device (playbook)",
         description:
           "Sums up one device from Nautobot (what is documented) and Batfish (what the configuration says, with the snapshot age): role, location, interfaces, routes, management servers. Nothing is run on the device.",
@@ -583,6 +593,16 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
           "Do you see any interface errors on 10.1.2.3?",
           "Which interfaces on r1 have input errors or drops?",
           "Does Gi0/1 on r1 have CRC errors?",
+        ],
+      },
+      {
+        name: "summarize_interface_utilization",
+        description:
+          "Computes the traffic rate in and out, the capacity and the utilization in percent of every interface from the parsed output of show interfaces, busiest first. The arithmetic is done on the server, so a device with hundreds of interfaces is no problem. Ask for the uplinks or downlinks only and it keeps the ports that have a CDP or LLDP neighbour (it then needs show cdp neighbors in the same card). The rates are the device's 5-minute average and the percentage is relative to the interface's BW setting.",
+        questions: [
+          "Which interface has the highest load on r1?",
+          "Show me the uplink utilization on 10.1.2.3.",
+          "How much bandwidth does Gi0/1 on r1 use?",
         ],
       },
     ],

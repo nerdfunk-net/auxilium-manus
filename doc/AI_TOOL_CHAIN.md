@@ -2687,6 +2687,8 @@ errors are redacted from a 5,000-character prefix and then cut to 500.
 
 **Not verified.** Nothing ran against a real device or a real model. Unknown until the lab run: the Nautobot `primary_ip4` / `platform_network_driver` values for LAB, whether the network driver of LAB is accepted by Netmiko, and whether `show startup-config` output survives the redaction cap on a very large config (cut at 500,000 characters with a marker). The follow-up turn is a plain user message, so the saved conversation contains "I ran ... stored as res_..."; the stored handle expires after 4 hours.
 
+**Update 2026-11-17:** `device` may also be an IPv4 address of an inventory device, in every device tool (§55); parsed interface rows can be condensed on the server (§54).
+
 Known facts: `NetmikoPreviewService.run_commands` takes `host` and `credential_id` from the caller and runs any
 command (no allow-list); `get_configs` returns a parsed model, not the raw text, so the raw running config needs
 `run_commands`. The chat is stateless and proposals are client-side cards.
@@ -4083,3 +4085,38 @@ Network engineers usually have only the address. Every tool that reaches a devic
   `list_config_backups` / `get_config_backup` (they take the device name of the git backup path).
 * **Tests:** `test_ai_device_access.py` (`resolve_device_ref`: found, not found, name path, non-literals, permission) and one found / not
   found pair per tool (`test_ai_device_tools.py`, `test_ai_probe_tools.py`, `test_ai_neighbor_tools.py`, `test_ai_learn_tools.py`).
+
+## 56. Interface utilization: `summarize_interface_utilization` and the playbook `interface-utilization-of-a-device` (2026-11-17)
+
+"Show me the bandwidth of 1.2.3.4", "Which interface has the highest utilization / load?", "Show me the uplink utilization on 1.2.3.4".
+**Built 2026-11-17, unit-tested only; no live run yet** (platform and model used: not recorded, to be filled in after the first lab run).
+Same shape as §54: `show interfaces` through TextFSM (§43), the server does the work, the model sees a preview.
+
+* **Tool** (`tools/interface_utilization_tools.py`, logic in `interface_utilization.py`): `summarize_interface_utilization(handle, interface?, only?, sort_by?)`.
+  A pure read of a `parsed_output` handle as the calling user, content opt-in on every call (`not_shared`), cannot reach a device. Offered with
+  the device tools **and** the result store, next to the §54 tool. Errors with a pointer: raw handle, rows without an `interface` column, a template
+  without a rate column (lists the columns), an unknown or ambiguous interface name.
+* **Figures.** Per interface: `rate_in` / `rate_out` (readable) and `_bps`, `capacity` (the template's `BANDWIDTH`, the interface's `BW`; `SPEED` only
+  when BW is empty), `utilization_in_percent`, `utilization_out_percent`, `peak_percent` (the busier direction, the default sort key; `sort_by` also takes
+  `input` / `output`), `pps_in/out` where the template has them. Columns read: IOS and IOS-XR `input_rate` / `output_rate`; NX-OS `bandwidth_input_rate` / `bandwidth_output_rate`.
+  An empty value is `None`, **never zero** (as in §54); an interface with no known capacity gets its rate but no percentage and sorts last. The percentage is not capped:
+  above 100 means the BW is wrong. The two directions are never added.
+* **Rates are the 5-minute average** (the device's `load-interval`), not a live value or a peak; the percentage is relative to **BW, a setting** (port-channels, tunnels
+  and a manual `bandwidth` command make it differ from the link speed). Both are in the `note`, and the playbook says them once.
+* **Uplinks and downlinks.** The playbook proposes ONE card with `["show interfaces", "show cdp neighbors"]`, parser `textfsm`, so the parsed handle holds both tables
+  (rows tagged `_command`). `only='neighbor_facing'` keeps the interfaces whose canonical name (`canonical_interface_name`, so `Gig 1/0/1` = `GigabitEthernet1/0/1`)
+  has a CDP or LLDP row, and attaches `neighbors` (`name`, `platform`, `capabilities`, `port`). Direction cannot be told from CDP: the note says "neighbour-facing"; phones, APs
+  and hosts are neighbours too, so capabilities and platform are passed on. **Without a neighbour table in the handle** (`summary.neighbor_data` = `not_in_handle` or
+  `command_failed`) the call is an error that tells the model how to propose both commands: a missing table is never read as "no uplinks". The neighbour commands
+  are not the §45 discovery catalogue (that uses the `detail` commands and the raw handle).
+* **Cut output.** `only='neighbor_facing'` on a cut handle is an error (either table may be the cut one, so the uplink list would be a silent subset); without the filter the answer is given, `busiest` is withheld and the note says so.
+* **Answer.** Standard envelope (§6.1), `kind` `interface_utilization`, at most 20 rows, the rest behind a handle. `summary`: `interfaces_in_output`, `interfaces_checked`,
+  `busiest` (`interface`, `percent`, `by`: the field that was sorted on; **null with `busiest_withheld` when `complete` is false**, a cut output is a prefix), `neighbor_facing_interfaces`, `neighbor_data`, `interfaces_without_rates`, `interfaces_without_capacity`, `complete`
+  (false when the output was cut or a command other than the neighbour table did not parse), `unparsed_commands`.
+* **Playbook** `knowledge/playbooks/interface-utilization-of-a-device.md` (tools `propose_device_command`, `parse_command_output`, `summarize_interface_utilization`,
+  `query_result`); the general prompt routes bandwidth / utilization / load / uplink questions to it. LLDP is a second card only when CDP gave nothing and the user asked for uplinks.
+* **Tests:** `test_ai_interface_utilization.py` (units, percentages, empty is not zero, capacity fallback, NX-OS columns, sorting, name matching, neighbour join and its three data states,
+  the tool, 300 interfaces, content gate, another user's handle, redaction), `test_ai_general_surface.py`; frontend `help-content.test.ts`.
+* **Open:** a live run (the BW string of the IOS-XR and NX-OS templates and the unit of the NX-OS rate columns were read from the template regexes, not from a device); a real model
+  following the playbook; direction (uplink vs downlink) from the neighbour's role, for example Nautobot; Port-channel members (a neighbour sits on the Port-channel name only);
+  a shorter average than five minutes needs `load-interval` on the device; a rate over time needs two runs.

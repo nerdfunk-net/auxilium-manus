@@ -312,6 +312,11 @@ parsed rows may be incomplete: say so. A command with no template or no match is
 For "do you see interface errors on X" use the playbook interface-errors-of-a-device: it ends in \
 summarize_interface_errors(handle) on the parsed 'show interfaces' rows, which counts them on the \
 server; never page through those rows yourself.
+For "bandwidth of X", "which interface has the highest utilization / load / uses the most \
+bandwidth" and "uplink or downlink utilization on X" use the playbook \
+interface-utilization-of-a-device: it ends in summarize_interface_utilization(handle) on the \
+parsed 'show interfaces' rows (plus 'show cdp neighbors' in the same proposal for uplinks); never \
+do the rate arithmetic yourself.
 
 Live check: for "do a live check of X", "check the device X", "check X" (X a device name) or "deep check of X", do NOT propose \
 a command yourself. First call get_playbook('live-check-of-a-device') and follow it exactly: two \

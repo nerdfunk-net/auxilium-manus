@@ -90,6 +90,9 @@ from services.ai_assistant.tools.glossary_tools import (
 )
 from services.ai_assistant.tools.host_lookup_tools import build_host_lookup_tools
 from services.ai_assistant.tools.interface_error_tools import build_interface_error_tools
+from services.ai_assistant.tools.interface_utilization_tools import (
+    build_interface_utilization_tools,
+)
 from services.ai_assistant.tools.inventory_filter_tools import INVENTORY_FILTER_TOOLS
 from services.ai_assistant.tools.inventory_tools import (
     INVENTORY_TOOLS,
@@ -498,6 +501,8 @@ def build_general_session(
                 # Interface errors (doc/AI_TOOL_CHAIN.md §54): counts the parsed rows of
                 # 'show interfaces' on the server; reads a stored result, so it needs the store.
                 tools.extend(build_interface_error_tools())
+                # Interface utilization (§56): the same kind of pure read of parsed rows.
+                tools.extend(build_interface_utilization_tools())
             if genie_parser is not None:
                 extras[GENIE_PARSER_KEY] = genie_parser
                 if store is not None:

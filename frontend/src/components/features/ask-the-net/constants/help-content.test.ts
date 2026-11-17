@@ -144,3 +144,20 @@ describe("Ask the Net help: interface errors", () => {
     );
   });
 });
+
+describe("Ask the Net help: interface utilization", () => {
+  it("lists the tool in the device commands section with questions that use it", () => {
+    const tool = byName("summarize_interface_utilization");
+
+    expect(tool?.section).toBe("device-commands");
+    expect(tool?.questions.some((q) => /uplink/i.test(q))).toBe(true);
+    expect(tool?.description).toMatch(/5-minute average/i);
+  });
+
+  it("lists the playbook with the question about an IP address", () => {
+    const playbook = byName("interface-utilization-of-a-device");
+
+    expect(playbook?.section).toBe("playbooks");
+    expect(playbook?.questions.some((q) => q.includes("10.1.2.3"))).toBe(true);
+  });
+});

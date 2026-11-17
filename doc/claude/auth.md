@@ -198,6 +198,8 @@ device-command path: operator switch `AI_DEVICE_COMMANDS_ENABLED`, `netmiko:exec
 IPv4 address** (`resolve_device_ref`, §55): an address is matched against the management addresses in the inventory under `sources.nautobot:read` and is never used as a host that
 is not in it.
 
+**Ask the Net interface utilization** (`summarize_interface_utilization`, playbook `interface-utilization-of-a-device`, `doc/AI_TOOL_CHAIN.md` §56). The same gates as the interface errors above and no permission of its own: a pure read of the parsed rows of a confirmed `show interfaces` run (plus `show cdp neighbors` / `show lldp neighbors` in the same card for uplinks and downlinks), content opt-in checked on every call, the user's own result handle. The run is the device-command path (`AI_DEVICE_COMMANDS_ENABLED`, `netmiko:execute`, the content opt-in, the user's click).
+
 **Ask the Net reports** (`list_report_sources`, `list_report_datasets`, `preview_report_query`, `list_report_templates`, `propose_report`, `doc/AI_TOOL_CHAIN.md` §53).
 Offered with `reports:read` (checked on every call); `propose_report` only with `reports:write`; the template list also needs `templates:read`.
 The Nautobot report source also needs `sources.nautobot:read` (a failed section otherwise). What the model reads is gated by the user's switches

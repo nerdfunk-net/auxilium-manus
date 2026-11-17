@@ -343,3 +343,29 @@ def test_the_prompt_sends_interface_error_questions_to_the_tool() -> None:
 
     assert "interface-errors-of-a-device" in system
     assert "summarize_interface_errors" in system
+
+
+# -- interface utilization (doc/AI_TOOL_CHAIN.md §56) -------------------------------------------
+
+
+def test_the_utilization_tool_comes_with_the_device_tool_and_a_store() -> None:
+    with_both = {s.name for s in _session(device_resolver=_Resolver()).toolbox.specs()}
+    no_store = {s.name for s in _session(device_resolver=_Resolver(), store=None).toolbox.specs()}
+    no_resolver = {s.name for s in _session().toolbox.specs()}
+
+    assert "summarize_interface_utilization" in with_both
+    assert "summarize_interface_utilization" not in no_store
+    assert "summarize_interface_utilization" not in no_resolver
+
+
+def test_playbooks_may_name_the_utilization_tool() -> None:
+    from services.ai_assistant.tools.playbook_tools import known_general_tool_names
+
+    assert "summarize_interface_utilization" in known_general_tool_names()
+
+
+def test_the_prompt_sends_utilization_questions_to_the_playbook() -> None:
+    system = _session(device_resolver=_Resolver()).system
+
+    assert "interface-utilization-of-a-device" in system
+    assert "summarize_interface_utilization" in system

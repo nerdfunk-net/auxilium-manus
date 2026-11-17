@@ -23,6 +23,19 @@ jobs:
         # Keep the ignore list identical to the audit job in backend-ci.yml.
         run: pip-audit -r requirements.txt -r requirements-dev.txt --ignore-vuln PYSEC-2026-2858
 
+  textfsm-pin:
+    # textfsm 2.1.1 ships a top-level tests/ package that shadows backend/tests, so it is pinned.
+    # Fails (red) when a newer release is clean, i.e. when the pin can be raised.
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.14"
+      - run: python backend/scripts/check_textfsm_pin.py
+
   agent-pip-audit:
     runs-on: ubuntu-latest
     strategy:
