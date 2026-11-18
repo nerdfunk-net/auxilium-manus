@@ -21,6 +21,9 @@ from core.database import SessionLocal
 from services.auth.rbac_service import RBACService
 from services.catalyst_center.details_service import CatalystCenterDetailsService
 from services.catalyst_center.device_service import CatalystCenterDeviceService
+from services.catalyst_center.fabric_service import CatalystCenterFabricService
+from services.catalyst_center.health_service import CatalystCenterHealthService
+from services.catalyst_center.site_health_service import CatalystCenterSiteHealthService
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +45,9 @@ class CatalystSource:
     source_id: str
     devices: CatalystCenterDeviceService
     details: CatalystCenterDetailsService
+    fabric: CatalystCenterFabricService | None = None
+    health: CatalystCenterHealthService | None = None
+    site_health: CatalystCenterSiteHealthService | None = None
 
 
 class DbCatalystCenterReader:
@@ -73,6 +79,11 @@ class DbCatalystCenterReader:
                         source_id=source_id,
                         devices=service_factory.build_catalyst_center_device_service(credentials),
                         details=service_factory.build_catalyst_center_details_service(credentials),
+                        fabric=service_factory.build_catalyst_center_fabric_service(credentials),
+                        health=service_factory.build_catalyst_center_health_service(credentials),
+                        site_health=service_factory.build_catalyst_center_site_health_service(
+                            credentials
+                        ),
                     )
                 )
         if not usable:

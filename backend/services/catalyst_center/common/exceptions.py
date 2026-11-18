@@ -32,6 +32,14 @@ class CatalystCenterValidationError(CatalystCenterError):
     """Bad configuration or a request Catalyst Center rejected (HTTP 400)."""
 
 
+class CatalystCenterUnknownSiteError(CatalystCenterValidationError):
+    """A site name that is not in the controller's site list."""
+
+
+class CatalystCenterTooManySitesError(CatalystCenterValidationError):
+    """A site selection that expands to more sites than one request may read."""
+
+
 class CatalystCenterAuthError(CatalystCenterError):
     """Token request failed, or the controller refused the credentials (401/403)."""
 

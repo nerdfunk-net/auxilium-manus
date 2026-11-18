@@ -3259,7 +3259,7 @@ Nautobot says what is documented, the controller says what it collected. Two pur
 * **Open.** Not run live: against the DevNet sandbox, check hostname spelling (domain or not) and that
   `serialNumber` / `managementIpAddress` filters match as the unit fakes assume; a live model run of "Show the
   Catalyst Center details of LAB". At most 10 confirmed matches are shown (`has_more` says more exist). No `source` argument: all sources are
-  searched. Health and topology (`get-catalyst-center-health` / `-topology`) are not offered as tools yet.
+  searched. Health and topology (`get-catalyst-center-health` / `-topology`) are not offered as tools yet. SD-Access fabric membership is §57.
 
 
 ## 43. Parsing device output: TextFSM and Genie (2026-11-03)
@@ -4120,3 +4120,68 @@ Same shape as §54: `show interfaces` through TextFSM (§43), the server does th
 * **Open:** a live run (the BW string of the IOS-XR and NX-OS templates and the unit of the NX-OS rate columns were read from the template regexes, not from a device); a real model
   following the playbook; direction (uplink vs downlink) from the neighbour's role, for example Nautobot; Port-channel members (a neighbour sits on the Port-channel name only);
   a shorter average than five minutes needs `load-interval` on the device; a rate over time needs two runs.
+
+
+## 57. SD-Access overlay / underlay: `list_catalyst_center_fabric` (2026-11-18)
+
+"Which devices are part of the overlay network?" / "...the underlay network?" One pure read of Cisco Catalyst Center
+(not ACI: APIC has no SD-Access roles), as the calling user. Built 2026-11-18, **unit-tested only, not run live**.
+
+* **Meaning.** *Overlay* = devices that hold a fabric role (`BORDER_NODE`, `CONTROL_PLANE_NODE`, `EDGE_NODE`, wireless
+  controller, extended node). *Underlay* = those devices **plus** the role-less intermediate nodes of the fabric sites'
+  hierarchy (site membership minus fabric devices). Rows carry `roles`, `fabric_site`, `in_overlay`, `in_underlay`.
+  The research idea "a pool without a virtual-network binding is underlay" was dropped (it mislabels pools); pools are not read.
+* **Tool** (`tools/catalyst_center_fabric_tools.py`): `network` (`overlay` default | `underlay`), `fabric_site`, `role`,
+  `limit` (25, max 40), `offset`. Returns per source: `total`, `has_more`, `devices` (first), then `fabric_site_count`/`fabric_sites` and `virtual_network_count`/`virtual_networks` (each capped at 20, so an over-long answer is cut from the lists, not from the rows), and `incomplete_sites` when a fabric site could not be read completely.
+  No fabric site is an answer ("no SD-Access"), a controller without the `sda` API is a fixed sentence, never upstream text.
+* **Service** (`services/catalyst_center/fabric_service.py`, `CatalystCenterFabricService.read_fabric`): `GET /sda/fabricSites`,
+  `GET /sda/fabricDevices?fabricId=` per site, `GET /sda/layer3VirtualNetworks`; underlay-only nodes through
+  `CatalystCenterSiteService.device_ids_for_sites` (only when `network=underlay`; `fabric_site` limits the per-site reads, the site list is read once, a device under nested fabric sites belongs to the most specific one, a site too wide to read (>100 sub-sites) is `incomplete_sites`, not a failure; a 404 on virtual networks or on one site's devices no longer erases the membership answer). The page's device ids are joined to the
+  inventory with `CatalystCenterDeviceService.get_devices_by_ids`. At most 100 fabric sites.
+* **Sites tool** `list_catalyst_center_sites` (same file): the controller's site hierarchy (`CatalystCenterSiteService.list_sites`,
+  `GET /site`, verified live earlier), `name_contains`, `limit` (100, max 200), `offset`; inventory switch only. Not Nautobot locations.
+* **Site devices tool** `list_catalyst_center_devices` (same file): "What devices are part of site X?" Exact `site` name,
+  `include_child_sites` (true), `role` (controller spelling, case-sensitive), `limit` (max 40)/`offset`. Errors are told apart: unknown site (`CatalystCenterUnknownSiteError`), site with >100 sub-sites (`CatalystCenterTooManySitesError`), more than 1000 devices, anything else is the generic sentence. Uses
+  `CatalystCenterDeviceService.search_devices` with the `sites` filter (membership, `doc/CISCO_CATALYST_INTEGRATION.md` "Site filter"),
+  cap 1000 devices per site (a fixed sentence beyond), unknown site -> a sentence pointing to `list_catalyst_center_sites`.
+  Inventory switch; management IP / serial need the addresses switch.
+* **Gating.** Same reader and permission as §42 (`sources.catalyst_center:read`, checked every call). Inventory switch before any
+  request; `management_ip` and `serial_number` need the addresses switch (`withheld_fields` names them).
+* **Tests.** `test_catalyst_center_fabric_service.py`, `test_ai_catalyst_center_fabric_tools.py`. Mutation-checked: ungating the
+  inventory switch and the addresses switch each fail a test.
+* **Open.** Verify live: field names (`networkDeviceId`, `deviceRoles`, `fabricIds`, `virtualNetworkName`), paging and the
+  `/sda/*` paths on 2.3.7.x and 3.x (the DevNet sandbox may have no SD-Access); membership of a fabric site as the underlay set;
+  a live model run of both questions. Legacy `/business/sda/*` is not used. Not a workflow step.
+
+
+## 58. Catalyst Center health: `get_catalyst_center_device_health`, `list_catalyst_center_site_health` (2026-11-18)
+
+"How healthy is device X?" and "Which sites are unhealthy?" Two pure reads of Catalyst Center as the calling user
+(`tools/catalyst_center_health_tools.py`). Built 2026-11-18, **unit-tested only**; the site health call is **not verified live**.
+
+* **Device health.** Same lookup as §42 (`name`, `management_ip`, `serial_number`; several matches are an error). Reads
+  `GET /device-detail?identifier=uuid&searchBy=` through the existing `CatalystCenterHealthService` (verified on the DevNet
+  sandbox earlier): overall health, CPU and memory with scores, communication state, HA status, maintenance mode, `collected_at`
+  and `last_boot` (the controller's milliseconds as UTC text; 0 means unknown and is left out). A failing read is an `error`
+  entry with a fixed sentence.
+* **Site health.** New `CatalystCenterSiteHealthService` (`services/catalyst_center/site_health_service.py`) reads
+  `GET /dna/intent/api/v1/site-health` (`siteType` AREA or BUILDING only, no floors; `limit` 1..50, so pages of 50; 1-based `offset`). Rows: site name/type/parent, average network health,
+  device count, health per role (access, core, distribution, router, wireless, others), client count and wired/wireless client
+  health. The tool (`limit` max 50) filters by `site_type`, `name_contains` and `max_network_health` ("unhealthy"), sorts **worst first**
+  (sites without a score last) and pages. A controller without the endpoint (404) answers with a fixed sentence.
+* **No thresholds.** The tool descriptions and `CATALYST_PROMPT` tell the model to give the scores as reported (device scores
+  are usually 0-10, site averages 0-100) and never to invent a "healthy" limit.
+* **Gating.** Both need the inventory switch (before any request); a device lookup by IP or serial also needs the addresses
+  switch. No field of the results is an address. Permission `sources.catalyst_center:read` is checked on every call by the reader.
+* **Wiring.** `CatalystSource` gained `health` and `site_health`; `service_factory.build_catalyst_center_site_health_service`.
+* **Tests.** `test_catalyst_center_site_health_service.py`, `test_ai_catalyst_center_health_tools.py`. Mutation-checked:
+  ungating the inventory switch and the name filter each fail a test.
+* **Open (check on the DevNet sandbox):** the `site-health` field names (`siteName`, `networkHealthAverage`,
+  `numberOfNetworkDevice`, `networkHealth<Role>`, `clientHealthWired|Wireless`), paging, `siteType` values; whether newer
+  releases (3.x) moved site health to another path; the score scales; a live model run of both questions.
+* **Review fixes** (`doc/analysis/REVIEW.md`, 2026-11-18): site health pages at 50 and has no `FLOOR`; underlay reads only the asked
+  `fabric_site`, reads the site list once and degrades to `incomplete_sites`; "unknown site" only for an unknown site; 404 on one
+  SD-Access call no longer discards the rest; lists capped and rows first; non-finite or fractional numbers are skipped
+  (`common/coerce.py`: `number` rejects NaN/Infinity, `integer` only whole values); fabric device ids outside the id pattern are
+  skipped. **Still open:** underlay subtraction assumes `fabricDevices.networkDeviceId` equals the membership `instanceUuid`; floors
+  and `/dna/data/api/v1/siteHealthSummaries` are not read.

@@ -533,6 +533,9 @@ def _load(allowed: bool, rows: list[dict[str, Any]], resolve) -> Any:
         ),
         patch.object(reader_module.service_factory, "build_catalyst_center_device_service"),
         patch.object(reader_module.service_factory, "build_catalyst_center_details_service"),
+        patch.object(reader_module.service_factory, "build_catalyst_center_fabric_service"),
+        patch.object(reader_module.service_factory, "build_catalyst_center_health_service"),
+        patch.object(reader_module.service_factory, "build_catalyst_center_site_health_service"),
     ):
         try:
             return asyncio.run(reader.sources()), rbac

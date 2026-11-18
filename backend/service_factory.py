@@ -47,7 +47,9 @@ from services.catalyst_center.command_service import CatalystCenterCommandServic
 from services.catalyst_center.credentials import CatalystCenterCredentials
 from services.catalyst_center.details_service import CatalystCenterDetailsService
 from services.catalyst_center.device_service import CatalystCenterDeviceService
+from services.catalyst_center.fabric_service import CatalystCenterFabricService
 from services.catalyst_center.health_service import CatalystCenterHealthService
+from services.catalyst_center.site_health_service import CatalystCenterSiteHealthService
 from services.catalyst_center.source_config_service import CatalystCenterSourceConfigService
 from services.catalyst_center.topology_service import CatalystCenterTopologyService
 from services.ise.client import ISEService
@@ -199,6 +201,18 @@ def build_catalyst_center_details_service(
     credentials: CatalystCenterCredentials,
 ) -> CatalystCenterDetailsService:
     return CatalystCenterDetailsService(get_catalyst_center_app_service(), credentials)
+
+
+def build_catalyst_center_fabric_service(
+    credentials: CatalystCenterCredentials,
+) -> CatalystCenterFabricService:
+    return CatalystCenterFabricService(get_catalyst_center_app_service(), credentials)
+
+
+def build_catalyst_center_site_health_service(
+    credentials: CatalystCenterCredentials,
+) -> CatalystCenterSiteHealthService:
+    return CatalystCenterSiteHealthService(get_catalyst_center_app_service(), credentials)
 
 
 def build_catalyst_center_topology_service(

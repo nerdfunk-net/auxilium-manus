@@ -24,6 +24,8 @@ from models.catalyst_center import CatalystCenterSite
 from services.catalyst_center.client import CatalystCenterService
 from services.catalyst_center.common.exceptions import (
     CatalystCenterAPIError,
+    CatalystCenterTooManySitesError,
+    CatalystCenterUnknownSiteError,
     CatalystCenterValidationError,
 )
 from services.catalyst_center.common.ids import safe_device_id
@@ -70,24 +72,29 @@ class CatalystCenterSiteService:
         raise CatalystCenterValidationError("Catalyst Center site list exceeded page bound")
 
     async def device_ids_for_sites(
-        self, names: Iterable[str], *, include_children: bool = True
+        self,
+        names: Iterable[str],
+        *,
+        include_children: bool = True,
+        sites: tuple[CatalystCenterSite, ...] | None = None,
     ) -> frozenset[str]:
         """Ids of every device assigned to the named sites (and, optionally, their sub-sites).
 
         ``names`` are exact ``siteNameHierarchy`` values; an unknown name is a validation
         error. Children are found by name-path prefix (``Global/EMEA`` -> ``Global/EMEA/...``,
         never ``Global/EMEAX``), so the result does not depend on whether the controller's
-        membership call is itself recursive.
+        membership call is itself recursive. ``sites`` is an already read site list (saves one
+        full site crawl per call when many selections are resolved in a row).
         """
         requested = list(dict.fromkeys(names))
         if not requested:
             return frozenset()
 
-        sites = await self.list_sites()
+        sites = sites if sites is not None else await self.list_sites()
         by_name = {site.name_hierarchy: site for site in sites}
         for name in requested:
             if name not in by_name:
-                raise CatalystCenterValidationError(
+                raise CatalystCenterUnknownSiteError(
                     f"Unknown site '{name}'; use Search sites to pick an existing one"
                 )
 
@@ -100,7 +107,7 @@ class CatalystCenterSiteService:
                     if site.name_hierarchy.startswith(prefix):
                         targets[site.id] = site
         if len(targets) > MAX_TARGET_SITES:
-            raise CatalystCenterValidationError(
+            raise CatalystCenterTooManySitesError(
                 f"The selection covers {len(targets)} sites (limit {MAX_TARGET_SITES}); "
                 "choose a narrower site"
             )

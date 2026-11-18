@@ -6,6 +6,7 @@ The controller is loose with types (numbers arrive as strings, empty strings sta
 
 from __future__ import annotations
 
+import math
 from typing import Any
 
 
@@ -20,14 +21,16 @@ def number(value: Any) -> float | None:
     if isinstance(value, bool) or value is None:
         return None
     try:
-        return float(value)
+        result = float(value)
     except TypeError, ValueError:
         return None
+    return result if math.isfinite(result) else None  # NaN / Infinity are not data
 
 
 def integer(value: Any) -> int | None:
     parsed = number(value)
-    return int(parsed) if parsed is not None else None
+    # A fractional count is not a count: skip it rather than store it truncated.
+    return int(parsed) if parsed is not None and parsed.is_integer() else None
 
 
 def boolean(value: Any) -> bool | None:

@@ -191,3 +191,64 @@ class CatalystCenterClient(_Fact):
     port: str | None = None
     connected_device_id: str | None = None
     connected_device_name: str | None = None
+
+
+class CatalystCenterFabricSite(_Fact):
+    """One SD-Access fabric site (``GET /sda/fabricSites``)."""
+
+    fabric_id: str
+    site_id: str | None = None
+    site_name: str | None = None
+
+
+class CatalystCenterFabricDevice(_Fact):
+    """A device with SD-Access fabric roles (``GET /sda/fabricDevices``)."""
+
+    device_id: str
+    fabric_id: str
+    fabric_site: str | None = None
+    roles: tuple[str, ...] = ()
+
+
+class CatalystCenterVirtualNetwork(_Fact):
+    """A layer 3 virtual network and the fabric sites it spans."""
+
+    name: str
+    fabric_sites: tuple[str, ...] = ()
+
+
+class CatalystCenterUnderlayDevice(_Fact):
+    """A device in a fabric site's hierarchy that holds no fabric role."""
+
+    device_id: str
+    fabric_site: str | None = None
+
+
+class CatalystCenterFabric(_Fact):
+    """One controller's SD-Access fabric (overlay) and fabric-site transport nodes (underlay)."""
+
+    sites: tuple[CatalystCenterFabricSite, ...] = ()
+    devices: tuple[CatalystCenterFabricDevice, ...] = ()
+    virtual_networks: tuple[CatalystCenterVirtualNetwork, ...] = ()
+    underlay_only: tuple[CatalystCenterUnderlayDevice, ...] = ()
+    # Fabric sites whose devices could not be read completely (the answer is partial for them).
+    incomplete_sites: tuple[str, ...] = ()
+
+
+class CatalystCenterSiteHealth(_Fact):
+    """One row of ``GET /site-health``: network and client health of one site."""
+
+    site_name: str
+    site_type: str | None = None
+    parent_site_name: str | None = None
+    network_health_average: float | None = None
+    number_of_network_devices: int | None = None
+    health_access: float | None = None
+    health_core: float | None = None
+    health_distribution: float | None = None
+    health_router: float | None = None
+    health_wireless: float | None = None
+    health_others: float | None = None
+    number_of_clients: int | None = None
+    client_health_wired: float | None = None
+    client_health_wireless: float | None = None

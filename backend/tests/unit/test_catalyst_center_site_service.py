@@ -13,6 +13,8 @@ from unittest.mock import AsyncMock
 
 from services.catalyst_center.common.exceptions import (
     CatalystCenterAPIError,
+    CatalystCenterTooManySitesError,
+    CatalystCenterUnknownSiteError,
     CatalystCenterValidationError,
 )
 from services.catalyst_center.credentials import CatalystCenterCredentials
@@ -127,9 +129,21 @@ class DeviceIdsForSitesTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_unknown_site_is_rejected_before_any_membership_call(self) -> None:
         client = _client()
-        with self.assertRaisesRegex(CatalystCenterValidationError, "Unknown site 'Global/Nope'"):
+        with self.assertRaisesRegex(CatalystCenterUnknownSiteError, "Unknown site 'Global/Nope'"):
             await _service(client).device_ids_for_sites(["Global/Nope"])
         self.assertEqual(_membership_calls(client), [])
+
+    async def test_a_given_site_list_is_not_read_again(self) -> None:
+        client = _client(members={"site-2": _members("d1")})
+        service = _service(client)
+        sites = await service.list_sites()
+        client.request.reset_mock()
+
+        await service.device_ids_for_sites(["Global/EMEA"], sites=sites)
+
+        self.assertEqual(
+            [c.args[2] for c in client.request.await_args_list if c.args[2] == SITE], []
+        )
 
     async def test_site_names_are_case_sensitive_exact(self) -> None:
         with self.assertRaises(CatalystCenterValidationError):
@@ -226,7 +240,7 @@ class DeviceIdsForSitesTests(unittest.IsolatedAsyncioTestCase):
             _site(i, f"Global/S{i}") for i in range(1, MAX_TARGET_SITES + 5)
         ]
         client = _client(sites=sites)
-        with self.assertRaisesRegex(CatalystCenterValidationError, "narrower"):
+        with self.assertRaisesRegex(CatalystCenterTooManySitesError, "narrower"):
             await _service(client).device_ids_for_sites(["Global"])
         self.assertEqual(_membership_calls(client), [])
 

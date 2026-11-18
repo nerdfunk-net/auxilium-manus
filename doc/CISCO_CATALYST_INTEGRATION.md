@@ -703,3 +703,16 @@ gets its own resolution step in a service and a branch in `CatalystCenterDeviceS
 - **Token lifetime** is assumed to be 60 minutes (refreshed at 50); expiry is handled by the 401 retry either way.
 - **Command-runner limits:** 5 commands per request is verified; the per-request device limit is not (the sandbox has 4 devices).
 - The browser UI was reviewed through type-checking, linting and the API, not an automated browser session.
+
+## SD-Access fabric membership (Ask the Net, 2026-11-18)
+
+`services/catalyst_center/fabric_service.py` reads `/dna/intent/api/v1/sda/fabricSites`, `/sda/fabricDevices?fabricId=` and
+`/sda/layer3VirtualNetworks` for the tool `list_catalyst_center_fabric` (`doc/AI_TOOL_CHAIN.md` §57). **Not verified live**:
+field names and paging come from the Cisco API reference; a 404 means the controller has no SD-Access API.
+
+## Health in Ask the Net (2026-11-18)
+
+`get_catalyst_center_device_health` uses `/device-detail` (verified on the sandbox). `list_catalyst_center_site_health` uses
+`services/catalyst_center/site_health_service.py` -> `GET /dna/intent/api/v1/site-health`: **not verified live** (field names from
+the Cisco API reference). `doc/AI_TOOL_CHAIN.md` §58.
+

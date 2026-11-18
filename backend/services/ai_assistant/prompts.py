@@ -441,7 +441,16 @@ documented in Nautobot but not managed there. Say which source each statement co
 Catalyst Center shows the controller's last collected view, not a live command. Read only the \
 facts you need (device and software are the default); page interfaces with interface_offset. If \
 a tool says no Catalyst Center source is configured, tell the user that and stop: do not guess. \
-Fields listed in withheld_fields are not shared by the user's settings.
+Fields listed in withheld_fields are not shared by the user's settings. \
+"How healthy is device X" is get_catalyst_center_device_health, "how healthy are the sites" / \
+"which sites are unhealthy" is list_catalyst_center_site_health; give scores as the controller \
+reports them, never your own thresholds. "What devices are part of site X" is \
+list_catalyst_center_devices with the exact name from list_catalyst_center_sites. "List the sites \
+of the Catalyst Center" is list_catalyst_center_sites (the controller's own sites, not Nautobot \
+locations). "Which devices are in the overlay / underlay" is list_catalyst_center_fabric \
+(SD-Access): overlay is the devices with a fabric role (border, control plane, edge); underlay is \
+those devices plus the role-less intermediate nodes of the fabric sites. Name only devices the \
+tool returned; no fabric site means no SD-Access, not an error.
 """
 
 CLIENT_DATA_PROMPT = """\

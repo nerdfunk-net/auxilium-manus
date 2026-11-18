@@ -100,6 +100,10 @@ class CatalystCenterDeviceService:
         found = await self._select(filters, limit=limit + 1)
         return found[:limit], len(found) > limit
 
+    async def get_devices_by_ids(self, ids: list[str]) -> tuple[CatalystCenterDevice, ...]:
+        """The inventory records of these device ids (empty list: nothing, never the whole list)."""
+        return await self._collect_by_ids(ids, keep=None, limit=None) if ids else ()
+
     async def list_sites(self) -> tuple[CatalystCenterSite, ...]:
         """The controller's configured sites (for the site picker)."""
         return await self._sites.list_sites()
