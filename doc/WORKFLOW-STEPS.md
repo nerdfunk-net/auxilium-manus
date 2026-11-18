@@ -635,6 +635,49 @@ All are in the `nautobot` palette category; the first two share
   as long as they name different addresses; two devices resolving to one `ip_id` with different values make
   the last write win.
 
+### VLAN step: `update-nautobot-vlan`
+
+`update-nautobot-vlan` ("Update VLAN", `nautobot` palette category, IPAM sub-group) changes an existing
+VLAN. Outcomes `success` / `failure`, `requires: [identity]`, `produces: []`. Structure and conventions follow
+`update-nautobot-ip`; the write goes through the shared facade (`DeviceCommonService` → `VLANManager.update_vlan`).
+
+- **Selecting the VLAN.** `vlan_id` (UUID, fixed or `{path}`) wins when set; otherwise `vid` (1-4094) is looked up
+  with `ipam/vlans/?vid=` and narrowed by the optional `vlan_group` (name or UUID). A VID is not unique in Nautobot:
+  no match fails the device with `vlan_not_found`, several with `ambiguous_match` (nothing is written). A value that
+  is not a UUID / not 1-4094 fails with `vlan_id_invalid` / `vid_invalid`; the value is never echoed.
+- **Fields.** `name`, `description`, `status` (names looked up for content type `ipam.vlan`; `GET
+  /sources/nautobot/statuses` allows it), `role` (name or UUID, content type `ipam.vlan`) and `locations`.
+  **Only filled-in fields are sent; an empty field is left alone and a value cannot be cleared.** A step with no
+  field and no location is a configuration `ValueError`; every field resolving to empty fails the device with
+  `nothing_to_update`.
+- **Locations.** A VLAN can belong to several locations (a client VLAN valid in every site). `locations` is a
+  comma / newline separated list (parsed like CSV, so a name with a comma is quoted: `"Frankfurt, West"`); every entry is
+  a fixed name, a UUID or a `{path}` expression (an expression that resolves to a list is split the same way). `locations_mode`
+  (default `replace`) decides how it meets the VLAN's current locations: `replace` = exactly this list, `add` =
+  current plus these, `remove` = current minus these (the only way to drop a location). The sets are compared as sets,
+  so a list that already matches is `unchanged` and nothing is PATCHed. An empty list leaves the locations alone.
+  Location, VLAN group, role and status names are looked up once per distinct value, location and group names
+  case-insensitively (`name__ic`, then compared locally; an exact-case match wins, a partial match never counts) and a UUID
+  is checked to exist (a status or role UUID is lowercased, so an uppercase one is not re-sent on every run); an unknown one fails the
+  device (`location_not_found`, `vlan_group_not_found`, `role_not_found`, `status_not_found`) with a fixed message,
+  several matches with `ambiguous_match` (use the UUID).
+- **Secrets.** `{path}` values are resolved with `reveal_secrets=False` (`<field>_is_secret`); resolved values are
+  never repeated in an error.
+- **Counts** are in `metadata["<node>.update_vlan_counts"]`: `updated`, `unchanged`, `failed`.
+- **Concurrency.** Each device PATCHes the VLAN it selects, so fan-out children and sibling branches are safe as long
+  as they select different VLANs. Two devices on one VLAN with different values: the last write wins; `add` /
+  `remove` read the current locations first and are not atomic, so parallel runs on one VLAN can overwrite each other.
+- **`locations` is not a VLAN field in the REST API.** It is read-only on `ipam/vlans/`: a PATCH of it answers 200 and
+  changes nothing (and the field is left out of a GET unless `exclude_m2m=false` is sent). The locations are the rows of
+  `ipam/vlan-location-assignments/` (`vlan`, `location`), so `VLANManager.update_vlan` reads the VLAN's assignments
+  (`?vlan=`), then POSTs the missing ones and DELETEs the surplus ones. The other fields are one PATCH of the differing
+  values. Fields are written before the locations and Nautobot has no transaction, so a failure after something was
+  stored leaves the device through `failure` with code `vlan_partially_updated` (the message names what is already
+  written); running the step again completes it. A failure before any write is the plain error.
+  The interface attribute query (`attribute_bag.py`) reads a VLAN's `locations` (list), never the legacy `location`,
+  which raises in Nautobot for a VLAN with more than one location. Verified live on Nautobot 3.x (replace / add / remove, idempotent re-run, unknown location,
+  unknown VID).
+
 ### Removing a device: `remove-from-nautobot`
 
 `remove-from-nautobot` ("Remove from Nautobot", `nautobot` palette category, DCIM sub-group) deletes a device
@@ -1767,6 +1810,7 @@ A step is concurrency-safe when it:
 | `get-next-free-ip` | ⚠️ | Read-only (`/ipam/prefixes/{id}/available-ips/`), nothing is reserved in Nautobot. Devices of one execution get distinct addresses because they are served in order from one list, but fan-out children and parallel runs each read the same free list and can receive the same address. Place it before the fan-out step's children or after a **Fan In**, and create the address (**Add IP to Nautobot**) before another run reads the prefix. |
 | `add-ip-to-nautobot` | ✅ | Get-or-create through the shared `IPManager`: an address that exists is reused, and a concurrent creator of the same address or parent prefix is resolved by re-reading it, so fan-out children and sibling branches converge on one object. The addresses themselves still have to be distinct: take them from **Get Next Free IP** (which does not reserve them) and see its row. |
 | `update-nautobot-ip` | ✅ | Idempotent PATCH of the address each device names (`ip_id`), sent only when a value differs. Safe in fan-out children and sibling branches while the devices name different addresses; two devices naming the same address with different values race (last write wins). |
+| `update-nautobot-vlan` | ✅ | PATCH of the VLAN each device selects (`vlan_id` or `vid` + `vlan_group`), sent only when a value differs. Safe while the devices select different VLANs; two devices on one VLAN race (last write wins), and the `add` / `remove` location modes read before they write (not atomic). |
 | `remove-from-nautobot` | ⚠️ | Deletes the device each context device names by its own UUID. Within one execution the devices run one after another when `remove_ip_addresses` is on, so an address shared by them is removed by the last holder. Fan-out children and sibling branches run in separate executions and cannot see each other: two holders of one address removed there can both keep it, leaving it unassigned. Place the step after a **Fan In** when devices share addresses. Two devices naming the same UUID: the second fails `device_not_found`. |
 | `git-status` | ✅ | Read-only inspection (plus an optional `git fetch`) under the per-repository lock, so concurrent callers are serialised, not corrupted. Its result is per repository, not per device — inside a fan-out branch it re-checks the same repo once per child, so prefer a single check before the fan-out inventory step's children or after a Fan In. |
 | `start-workflow` | ⚠️ | Starts one run for all devices it receives, or one per device (`max_runs`), and optionally polls them for up to 600 s. Two concurrent callers start two sets of runs, so inside a fan-out child it starts runs per child, each waiting in its own worker slot: place it before the fan-out or after a **Fan In**. See "Starting another workflow: `start-workflow`" below. |

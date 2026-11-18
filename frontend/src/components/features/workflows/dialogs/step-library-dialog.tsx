@@ -28,6 +28,10 @@ interface StepLibraryDialogProps {
   plugins: PluginDefinition[];
 }
 
+function preventAutoFocus(event: Event) {
+  event.preventDefault();
+}
+
 /** Dialog shell: unmounts the body on close so category/search/selection state resets on every open. */
 export function StepLibraryDialog(props: StepLibraryDialogProps) {
   const open = useWorkflowBuilderStore((state) => state.stepLibrary.open);
@@ -41,7 +45,11 @@ export function StepLibraryDialog(props: StepLibraryDialogProps) {
 
   return (
     <Dialog onOpenChange={handleOpenChange} open={open}>
-      <DialogContent className="flex h-[80vh] max-h-[720px] flex-col gap-0 p-0 sm:max-w-4xl">
+      <DialogContent
+        className="flex h-[80vh] max-h-[720px] flex-col gap-0 p-0 sm:max-w-4xl"
+        // Keep Radix from focusing the first control; the search input takes focus itself (autoFocus).
+        onOpenAutoFocus={preventAutoFocus}
+      >
         <div className="shrink-0 border-b px-5 py-3.5">
           <DialogTitle>Steps library</DialogTitle>
           <DialogDescription className="text-xs">

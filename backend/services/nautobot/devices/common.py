@@ -15,7 +15,7 @@ fine-grained control, you can import resolvers/managers directly.
 """
 
 import logging
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from typing import Any
 
 from services.nautobot.api_protocol import NautobotApi
@@ -42,6 +42,7 @@ from services.nautobot.managers import (
     PrefixManager,
     VLANManager,
 )
+from services.nautobot.managers.vlan_manager import LocationsMode
 from services.nautobot.resolvers import (
     DeviceResolver,
     MetadataResolver,
@@ -411,6 +412,31 @@ class DeviceCommonService:
     ) -> str:
         """Delegate to VLANManager."""
         return await self.vlan_manager.ensure_vlan_exists(vid, location_id, status, name)
+
+    async def find_vlans(self, vid: int, vlan_group_id: str | None = None) -> list[str]:
+        """Delegate to VLANManager."""
+        return await self.vlan_manager.find_vlans(vid, vlan_group_id)
+
+    async def resolve_vlan_group_id(self, name: str) -> str:
+        """Delegate to VLANManager."""
+        return await self.vlan_manager.resolve_vlan_group_id(name)
+
+    async def resolve_location_id_strict(self, name: str) -> str:
+        """Delegate to VLANManager."""
+        return await self.vlan_manager.resolve_location_id_strict(name)
+
+    async def update_vlan(
+        self,
+        vlan_id: str,
+        fields: Mapping[str, str],
+        *,
+        locations: Sequence[str] = (),
+        locations_mode: LocationsMode = "replace",
+    ) -> bool:
+        """Delegate to VLANManager."""
+        return await self.vlan_manager.update_vlan(
+            vlan_id, fields, locations=locations, locations_mode=locations_mode
+        )
 
     # ========================================================================
     # INTERFACE METHODS (delegated to InterfaceManager)

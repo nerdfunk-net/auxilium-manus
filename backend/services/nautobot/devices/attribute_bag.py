@@ -126,12 +126,38 @@ _DEVICE_FIELDS = """
       tagged_vlans {
         id
         name
+        description
         vid
+        locations {
+          id
+          name
+        }
+        vlan_group {
+          id
+          name
+        }
+        status {
+          id
+          name
+        }
       }
       untagged_vlan {
         id
         name
+        description
         vid
+        locations {
+          id
+          name
+        }
+        vlan_group {
+          id
+          name
+        }
+        status {
+          id
+          name
+        }
       }
       interface_redundancy_groups {
         id

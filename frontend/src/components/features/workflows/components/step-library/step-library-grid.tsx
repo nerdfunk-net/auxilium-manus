@@ -93,6 +93,7 @@ export function StepLibraryGrid({
           <Search className="size-4 shrink-0 text-muted-foreground" aria-hidden />
           <Input
             aria-label="Search steps"
+            autoFocus
             className="h-auto border-none bg-transparent p-0 text-[13px] shadow-none focus-visible:ring-0"
             onChange={(event) => onSearchChange(event.target.value)}
             placeholder="Search steps…"

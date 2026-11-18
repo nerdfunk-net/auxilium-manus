@@ -9,7 +9,7 @@ from services.nautobot.credentials_bound_client import CredentialsBoundNautobotC
 
 # Object types whose statuses a step can pick. The content type is interpolated into a request
 # path, so only these values are ever sent.
-StatusContentType = Literal["ipam.ipaddress", "ipam.prefix"]
+StatusContentType = Literal["ipam.ipaddress", "ipam.prefix", "ipam.vlan"]
 STATUS_CONTENT_TYPES: tuple[str, ...] = get_args(StatusContentType)
 
 

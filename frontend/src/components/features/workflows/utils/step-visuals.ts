@@ -137,7 +137,15 @@ export const CATEGORY_SUBGROUPS: Record<string, CategorySubgroup[]> = {
         "update-config-context",
       ],
     },
-    { label: "IPAM", kinds: ["get-next-free-ip", "add-ip-to-nautobot", "update-nautobot-ip"] },
+    {
+      label: "IPAM",
+      kinds: [
+        "get-next-free-ip",
+        "add-ip-to-nautobot",
+        "update-nautobot-ip",
+        "update-nautobot-vlan",
+      ],
+    },
     { label: "JOBS", kinds: ["start-nautobot-job", "check-nautobot-job"] },
   ],
   cisco: [

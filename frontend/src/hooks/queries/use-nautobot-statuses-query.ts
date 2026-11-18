@@ -13,7 +13,7 @@ interface NautobotStatusListResponse {
 }
 
 /** Object types whose statuses the backend lists (see services/nautobot/statuses.py). */
-export type NautobotStatusContentType = "ipam.ipaddress" | "ipam.prefix";
+export type NautobotStatusContentType = "ipam.ipaddress" | "ipam.prefix" | "ipam.vlan";
 
 interface UseNautobotStatusesOptions {
   sourceId: string;
