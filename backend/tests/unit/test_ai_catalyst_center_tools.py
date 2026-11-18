@@ -534,6 +534,7 @@ def _load(allowed: bool, rows: list[dict[str, Any]], resolve) -> Any:
         patch.object(reader_module.service_factory, "build_catalyst_center_device_service"),
         patch.object(reader_module.service_factory, "build_catalyst_center_details_service"),
         patch.object(reader_module.service_factory, "build_catalyst_center_fabric_service"),
+        patch.object(reader_module.service_factory, "build_catalyst_center_border_service"),
         patch.object(reader_module.service_factory, "build_catalyst_center_health_service"),
         patch.object(reader_module.service_factory, "build_catalyst_center_site_health_service"),
     ):
@@ -844,3 +845,11 @@ def test_a_controller_with_too_many_devices_for_the_scan_is_a_source_error() -> 
     out = _call(_box(reader), "find_catalyst_center_device", name="LAB")
 
     assert out.is_error and "management IP or serial" in out.content
+
+
+def test_the_catalyst_prompt_and_tools_know_the_name_dnac() -> None:
+    from services.ai_assistant.prompts import CATALYST_PROMPT
+
+    assert "DNAC" in CATALYST_PROMPT and "DNA Center" in CATALYST_PROMPT
+    described = " ".join(t.description for t in build_catalyst_center_tools())
+    assert "DNAC" in described

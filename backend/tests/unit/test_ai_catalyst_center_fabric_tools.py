@@ -101,10 +101,9 @@ class FakeDevices:
         self.filters.append(filters)
         if self.search_error:
             raise self.search_error
+        ids = self._by_site.get(filters.sites[0], []) if filters.sites else list(self._all)
         return tuple(
-            self._all[i]
-            for i in self._by_site.get(filters.sites[0], [])
-            if (not filters.roles or self._all[i].role in filters.roles)
+            self._all[i] for i in ids if (not filters.roles or self._all[i].role in filters.roles)
         )
 
     async def list_sites(self):
@@ -320,7 +319,6 @@ def test_site_devices_need_inventory_and_a_site() -> None:
 
     assert _json(_site_devices(reader, NOTHING, site="x"))["not_shared"] == "inventory_data"
     assert reader.calls == 0
-    assert _site_devices(reader).is_error  # site is required
 
 
 def test_site_devices_errors_are_fixed_and_say_the_right_thing() -> None:
@@ -338,7 +336,7 @@ def test_site_devices_errors_are_fixed_and_say_the_right_thing() -> None:
     assert all(o.is_error and "secret" not in o.content for o in (unknown, wide, many, other, down))
     assert "list_catalyst_center_sites" in unknown.content
     assert "too many sub-sites" in wide.content
-    assert "more than 1000" in many.content
+    assert "More than 1000" in many.content
     # An unrelated validation failure must not tell the model the site is unknown.
     assert "list_catalyst_center_sites" not in other.content and "did not answer" in other.content
     assert "list_catalyst_center_devices" in known_general_tool_names()
@@ -382,3 +380,12 @@ def test_incomplete_sites_are_reported() -> None:
 
 def test_limit_is_capped_so_a_page_fits_the_tool_output() -> None:
     assert _call(FakeReader(), limit=41).is_error
+
+
+def test_without_a_site_every_managed_device_is_listed() -> None:
+    reader = FakeReader()
+    source = _json(_site_devices(reader))["sources"][0]
+
+    assert [d["hostname"] for d in source["devices"]] == ["border-1", "edge-1"]
+    assert "site" not in source and source["total"] == 2
+    assert reader.devices.filters[0].sites == ()

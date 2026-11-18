@@ -1112,3 +1112,13 @@ Nautobot, Batfish or model. The maintainer checks it on the production system an
 
 Built 2026-11-17, unit-tested only. Open: a live run on the lab device (IOS first, then NX-OS and IOS-XR: BW string, NX-OS rate unit); a real model following the playbook
 `interface-utilization-of-a-device`; uplink vs downlink direction (Nautobot role of the neighbour); Port-channel members; LLDP fallback card checked on a platform without CDP.
+
+## Ask the Net: Catalyst Center SD-Access, health, border handoffs and transits (§57-§60)
+
+Built 2026-11-18, unit-tested; the DevNet sandbox (3.723) was checked read-only (site-health, device-detail, `sda` paths and paging, layer 3 virtual networks). It has **no
+fabric**, so the operator checks on a production controller: `fabricSites` (`siteId`), `fabricDevices` (`networkDeviceId`, `deviceRoles`) and the assumption that `networkDeviceId`
+equals the site-membership `instanceUuid` (else every overlay device is also listed as underlay); `layer2VirtualNetworks` rows; the handoff rows (`ipTransits`, `sdaTransits`,
+`layer2Handoffs`) and `transitNetworks` settings; the `deployed` flag of a virtual network. Also open: a real model asking each question (overlay/underlay, sites, "devices in the DNAC",
+health, handoffs, transits); floors and `/dna/data/api/v1/siteHealthSummaries` (not read); IP pools per virtual network; border settings (`borderDeviceSettings`). One unexplained one-off failure of
+`test_catalyst_center_router.py` was seen once in a subset run (passed on every re-run).
+

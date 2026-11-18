@@ -19,7 +19,7 @@ Tailwind CSS 4, Shadcn UI, TanStack Query v5, Zustand, React Hook Form, Zod, Luc
 Netmiko, GitPython
 
 **Integrations:** Nautobot API, Cisco Catalyst Center (REST Intent API) — read
-`doc/CISCO_CATALYST_INTEGRATION.md` before changing it or adding Catalyst Center features/steps;
+`doc/CISCO_CATALYST_INTEGRATION.md` before changing it or adding Catalyst Center features/steps (the Ask the Net Catalyst Center tools: `doc/AI_TOOL_CHAIN.md` §42 and §57-§60);
 external **agents** (Route to Agent step, `/agent` reference agent) — read `doc/AGENT_INTEGRATION.md`
 before changing `backend/services/agents/`, `route_to_agent`, `get_from_agent`, `agent/` (every agent below it) or `docker/redis/`;
 the **Nautobot MCP server** (`mcp/nautobot/`) and the Nautobot reads of Ask the Net share `libs/nautobot_read/` — read

@@ -4140,7 +4140,7 @@ Same shape as §54: `show interfaces` through TextFSM (§43), the server does th
   inventory with `CatalystCenterDeviceService.get_devices_by_ids`. At most 100 fabric sites.
 * **Sites tool** `list_catalyst_center_sites` (same file): the controller's site hierarchy (`CatalystCenterSiteService.list_sites`,
   `GET /site`, verified live earlier), `name_contains`, `limit` (100, max 200), `offset`; inventory switch only. Not Nautobot locations.
-* **Site devices tool** `list_catalyst_center_devices` (same file): "What devices are part of site X?" Exact `site` name,
+* **Site devices tool** `list_catalyst_center_devices` (same file): "What devices are part of site X?" / "Show me the devices in the DNAC" (no `site`: every managed device, cap 1000). Exact `site` name,
   `include_child_sites` (true), `role` (controller spelling, case-sensitive), `limit` (max 40)/`offset`. Errors are told apart: unknown site (`CatalystCenterUnknownSiteError`), site with >100 sub-sites (`CatalystCenterTooManySitesError`), more than 1000 devices, anything else is the generic sentence. Uses
   `CatalystCenterDeviceService.search_devices` with the `sites` filter (membership, `doc/CISCO_CATALYST_INTEGRATION.md` "Site filter"),
   cap 1000 devices per site (a fixed sentence beyond), unknown site -> a sentence pointing to `list_catalyst_center_sites`.
@@ -4185,3 +4185,83 @@ Same shape as §54: `show interfaces` through TextFSM (§43), the server does th
   (`common/coerce.py`: `number` rejects NaN/Infinity, `integer` only whole values); fabric device ids outside the id pattern are
   skipped. **Still open:** underlay subtraction assumes `fabricDevices.networkDeviceId` equals the membership `instanceUuid`; floors
   and `/dna/data/api/v1/siteHealthSummaries` are not read.
+* **Live check on the DevNet sandbox** (`sandboxdnac.cisco.com`, Catalyst Center 3.723.75300, 2026-11-18, read-only GETs, no fabric
+  configured there): `site-health` field names match; `limit` max 50 and `siteType` AREA|BUILDING confirmed (400 otherwise);
+  `device-detail` health works; `sda/layer3VirtualNetworks` returns `{id, virtualNetworkName}` (no `fabricIds` when nothing is
+  deployed); `sda/fabricSites`, `layer2VirtualNetworks` exist (empty); `sda/fabricDevices` needs `fabricId`; `sda` paging is
+  `limit` 1..500, `offset` from 1; `business/sda/virtual-network/summary` needs `siteNameHierarchy`.
+  Two findings fixed: `/site-health` also returns aggregate rows (`" All Sites"`, `" All Buildings"`, empty or name-equal `siteId`),
+  now flagged `is_total`, left out of `sites`/`total` and returned as `overall` (only on an unfiltered first page); and the role
+  scores `networkHealthSwitch`, `networkHealthAP`, `networkHealthWLC` are mapped (`health_switch`, `health_ap`, `health_wlc`).
+  **Still unverified:** `fabricSites` / `fabricDevices` row fields (`siteId`, `networkDeviceId`, `deviceRoles`) - the sandbox has no fabric.
+
+
+## 59. SD-Access virtual networks: `list_catalyst_center_virtual_networks` (2026-11-18)
+
+"Which virtual networks exist?" / "Which VNs are deployed to fabric site X?" One pure read of Catalyst Center as the calling
+user (`tools/catalyst_center_vn_tools.py`, service `CatalystCenterFabricService.list_virtual_networks`).
+
+* **Data.** `GET /sda/layer3VirtualNetworks` (`{id, virtualNetworkName, fabricIds?}`; **verified live** on the DevNet sandbox
+  3.723: `DEFAULT_VN`, `INFRA_VN`, no `fabricIds` while nothing is deployed) and `GET /sda/layer2VirtualNetworks` (VLANs; endpoint
+  exists, empty there, so the row fields `vlanName`, `vlanId`, `trafficType`, `associatedLayer3VirtualNetworkName`, `fabricId` are
+  **not verified live**). Fabric ids are mapped to site names through `fabricSites` + `/site`.
+* **Tool.** `name_contains`, `fabric_site` (exact), `include_layer2` (true), `limit` (25, max 50), `offset`. Rows are sorted by
+  name: `deployed` (false = defined but in no fabric site), `fabric_sites`, and with layer 2 `layer2_count` plus up to 10
+  `layer2_networks` (VLAN name/id, traffic type, fabric site). VLANs attach by network name (any case); VLANs whose network is
+  unknown are `layer2_without_virtual_network` (up to 20, only on a request without `name_contains`). No layer 2 API (404):
+  the layer 3 answer stays, with a `layer2_note`; no `fabricSites`/`layer3` API: "no SD-Access API" sentence.
+* **Gating.** Inventory switch before any request; no address or free-text field in the result. Same reader and permission as §42.
+* **Not covered.** IP pools / anycast gateways per virtual network (the legacy `business/sda/virtualnetwork/ippool` needs
+  `virtualNetworkName` and was not checked; the `/sda` replacement path is not known), and anchored virtual networks
+  (`sda/anchoredVirtualNetworks` is a 404 on the sandbox).
+* **Tests.** `test_ai_catalyst_center_vn_tools.py`, three tests in `test_catalyst_center_fabric_service.py`.
+
+
+## 60. SD-Access border handoffs: `list_catalyst_center_border_handoffs` (2026-11-18)
+
+"What connects the fabric to the legacy network?" / "Which handoffs does border X have?" One pure read of Catalyst Center as the
+calling user (`tools/catalyst_center_border_tools.py`, service `services/catalyst_center/border_service.py`). Built 2026-11-18,
+**unit-tested only; the row fields are not verified on a live fabric** (the DevNet sandbox has none: every list was empty).
+To be tested on the operator's production system.
+
+* **Terms.** A *border node* is the fabric device that connects to the outside; the connection is a *handoff* (layer 3 or layer 2);
+  a *transit* is the link to another fabric or WAN (IP transit, SD-Access transit). ACI calls the same idea L3Out on a border leaf.
+* **Calls** (paths and query parameters checked on the sandbox: 200 and `[]`): border nodes from `GET /sda/fabricDevices?fabricId=`
+  (role `BORDER_NODE`, via `CatalystCenterFabricService.read_fabric`), `GET /sda/transitNetworks` (id -> name/type), and per border
+  `GET /sda/fabricDevices/layer3Handoffs/ipTransits`, `.../layer3Handoffs/sdaTransits` and `.../layer2Handoffs`, each with
+  `fabricId` and `networkDeviceId`. `layer3Handoffs` without a sub-path is a 500 on the sandbox. Shared paging in
+  `services/catalyst_center/sda_pages.py` (`limit` 1..500, `offset` from 1, verified live).
+* **Fields assumed from the Cisco API reference (verify in production):** ip transit `transitNetworkId`, `interfaceName`,
+  `virtualNetworkName`, `vlanId`, `externalConnectivityIpPoolName`, `localIpAddress`, `remoteIpAddress`, `localIpv6Address`,
+  `remoteIpv6Address`; sda transit `transitNetworkId`, `connectedToInternet`, `isMulticastOverTransitEnabled`; layer 2
+  `interfaceName`, `internalVlanId`, `externalVlanId`; transit `id`, `name`, `type`. Unknown shapes are skipped.
+* **Tool.** `name_contains` (hostname), `fabric_site`, `limit` (3, max 5 borders: a border can have many handoffs), `offset`.
+  Per border: hostname, fabric site, three groups (`count` plus up to 10 `items` each), `unavailable` (a kind the controller could not
+  answer for that border: the list is partial), per source `incomplete_sites`. Handoffs are read for the page only (3 calls each).
+* **Gating.** Inventory switch before any request; neighbour addresses (`local_ip`, `remote_ip`, IPv6) and the management IP need the
+  addresses switch (`withheld_fields`). Same reader and permission as §42. Errors are fixed sentences.
+* **Not covered:** `borderDeviceSettings` (border type, internal/external, default exit), multicast per VN, the legacy
+  `business/sda/border-device` calls (400 without a provisioned device on the sandbox).
+* **Tests.** `test_catalyst_center_border_service.py`, `test_ai_catalyst_center_border_tools.py`; mutation-checked (inventory and
+  addresses gates).
+
+### 60.1 Transits: `list_catalyst_center_transits` (2026-11-18)
+
+"Which transits exist?" Same file and reader as the border tool. `GET /sda/transitNetworks` (checked on the DevNet sandbox 3.723:
+200 and `[]`; `type` accepts `IP_BASED_TRANSIT`, `SDA_LISP_PUB_SUB_TRANSIT`, `SDA_LISP_BGP_TRANSIT`; `/count` works; `GET /sda/transitNetworks/{id}`
+is a 500, `business/sda/transit*` a 404). **Row fields not verified live** (no transit there): `id`, `name`, `type`,
+`ipTransitSettings.routingProtocolName` / `autonomousSystemNumber`, `sdaTransitSettings.isMulticastOverTransitEnabled` /
+`controlPlaneNetworkDeviceIds`.
+
+* **Tool.** `transit_type`, `name_contains`, `limit` (25, max 40), `offset`. Rows: name, type, routing protocol and AS number (IP
+  transit), multicast over transit and control plane devices (SD-Access transit; `control_plane_count`, up to 10 hostnames from
+  the inventory, an unknown id stays as the id). Filters are applied after one read. None configured is an answer.
+* **Gating.** Inventory switch before any request; no address in the result. The border handoffs of §60 name the transit each
+  handoff uses; "which borders use transit X" is read from there (not a separate call).
+* **Tests.** `test_ai_catalyst_center_border_tools.py` (transit block), `test_catalyst_center_border_service.py`; mutation-checked.
+
+**Names.** Users also say DNAC, DNA Center or Cisco DNA Center for Catalyst Center. `CATALYST_PROMPT` tells the model they mean the same
+controller (use the Catalyst Center tools, not Nautobot), and the descriptions of `find_catalyst_center_device`,
+`list_catalyst_center_sites` and `list_catalyst_center_devices` carry the name; the help page says so too. No playbook mentions
+Catalyst Center, so none needed a change.
+

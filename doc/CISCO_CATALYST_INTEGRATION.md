@@ -46,6 +46,10 @@ on is in [`CATALYST_CENTER_API_DIFF.md`](./CATALYST_CENTER_API_DIFF.md).
 | Device health (`/device-detail`) | `health_service.py` | none | **`get-catalyst-center-health`** | yes |
 | Wired clients (`/dna/data/api/v1/clients/query`), stored in the `client_*` tables | `client_data_service.py` | none | **`get-catalyst-center-client-data`** | **no** (unit tests only; the sandbox has no clients; `doc/CLIENT_DATA.md`) |
 | Site list + site filter (devices by site, with sub-sites) | `site_service.py`, `device_service.py` | `GET …/{id}/sites` | `get-catalyst-center-devices` (`sites`, *Search sites…* button) | yes, but the sandbox has only the `Global` site — see limits |
+| Ask the Net: sites, site devices, device health (`find_`/`get_`/`list_catalyst_center_*`, `doc/AI_TOOL_CHAIN.md` §42, §57, §58) | `site_service.py`, `device_service.py`, `health_service.py` | none | none (tools only) | yes for sites, devices and `/device-detail`; unit tests for the tools |
+| Ask the Net: site health (`/site-health`) | `site_health_service.py` | none | none (tool only) | yes (field names, `limit` max 50, AREA/BUILDING, aggregate rows; DevNet sandbox 3.723) |
+| Ask the Net: SD-Access fabric, virtual networks (`/sda/fabricSites`, `fabricDevices`, `layer3VirtualNetworks`, `layer2VirtualNetworks`) | `fabric_service.py`, `sda_pages.py` | none | none (tools only) | **partly**: paths, paging and the layer 3 virtual network rows; the sandbox has no fabric, so fabric site/device and layer 2 row fields are **not** verified |
+| Ask the Net: border handoffs and transits (`/sda/fabricDevices/layer3Handoffs/*`, `layer2Handoffs`, `transitNetworks`) | `border_service.py` | none | none (tools only) | **partly**: paths and parameters; row fields **not** verified (no fabric or transit on the sandbox) |
 
 "Verified" means exercised against the public Cisco DevNet always-on sandbox (a self-signed-certificate
 controller with 4 virtual IOS-XE switches). It has **not** been run against a 2.3.3.x controller, a
@@ -713,6 +717,16 @@ field names and paging come from the Cisco API reference; a 404 means the contro
 ## Health in Ask the Net (2026-11-18)
 
 `get_catalyst_center_device_health` uses `/device-detail` (verified on the sandbox). `list_catalyst_center_site_health` uses
-`services/catalyst_center/site_health_service.py` -> `GET /dna/intent/api/v1/site-health`: **not verified live** (field names from
-the Cisco API reference). `doc/AI_TOOL_CHAIN.md` §58.
+`services/catalyst_center/site_health_service.py` -> `GET /dna/intent/api/v1/site-health`: verified on the 3.723 sandbox (field names, limit 50, the
+" All Sites" / " All Buildings" aggregate rows, which are returned as `overall`). `doc/AI_TOOL_CHAIN.md` §58.
+
+## Border handoffs (Ask the Net, 2026-11-18)
+
+`services/catalyst_center/border_service.py` reads `sda/transitNetworks` and, per border node, `sda/fabricDevices/layer3Handoffs/ipTransits`,
+`.../sdaTransits` and `sda/fabricDevices/layer2Handoffs` (`doc/AI_TOOL_CHAIN.md` §60). Paths exist on the DevNet sandbox (3.723), row
+fields are **not verified** (no fabric there): check them on a real fabric first. A row with none of the expected fields is skipped
+and its kind is listed in `unavailable`; a failure of one kind (including 429) is that kind's `unavailable`, never the page's.
+A missing `transitNetworks` API is an error for `list_catalyst_center_transits`, not "no transits".
+
+Transits: `list_catalyst_center_transits` reads `sda/transitNetworks` (`doc/AI_TOOL_CHAIN.md` §60.1); settings fields are unverified (no transit on the sandbox).
 

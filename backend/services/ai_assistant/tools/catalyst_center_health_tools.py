@@ -39,6 +39,24 @@ from services.catalyst_center.common.exceptions import (
 
 DEFAULT_SITES = 25
 MAX_SITES = 50
+_HEALTH_FIELDS = frozenset(
+    {
+        "overall_health",
+        "cpu",
+        "cpu_score",
+        "memory",
+        "memory_score",
+        "communication_state",
+        "collection_status",
+        "ha_status",
+        "stack_type",
+        "ring_status",
+        "maintenance_mode",
+        "os_type",
+        "software_version",
+        "role",
+    }
+)
 _SITE_NOT_AVAILABLE = "This Catalyst Center does not offer the site health API."
 
 Text = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]
@@ -90,7 +108,8 @@ async def _device_health(ctx: ToolContext, args: FindDeviceInput) -> ToolOutput:
     except _SOURCE_ERRORS as exc:
         payload["health"] = {"error": _failure_sentence(exc)}
         return _finish(ctx, payload)
-    data = health.model_dump(exclude={"timestamp", "last_boot_time"}, exclude_none=True)
+    # An explicit projection: a field added to the model later is not offered by default.
+    data = health.model_dump(include=_HEALTH_FIELDS, exclude_none=True)
     data["collected_at"] = _iso(health.timestamp)
     data["last_boot"] = _iso(health.last_boot_time)
     payload["health"] = {"data": {k: v for k, v in data.items() if v is not None}}
@@ -119,7 +138,7 @@ class SiteHealthInput(BaseModel):
 
 
 def _site_row(row: Any) -> dict[str, Any]:
-    return row.model_dump(exclude_none=True)
+    return row.model_dump(exclude_none=True, exclude={"is_total"})
 
 
 def _site_sort_key(row: Any) -> tuple[bool, float, str]:
@@ -148,10 +167,15 @@ async def _site_health(ctx: ToolContext, args: SiteHealthInput) -> ToolOutput:
         except _SOURCE_ERRORS as exc:
             errors.append({"source_id": source.source_id, "error": _failure_sentence(exc)})
             continue
+        # The controller's aggregate rows ("All Sites") are totals, not sites: listed apart.
+        totals = [
+            r for r in rows if r.is_total and (needle is None or needle in r.site_name.lower())
+        ]
         kept = [
             r
             for r in rows
-            if (needle is None or needle in r.site_name.lower())
+            if not r.is_total
+            and (needle is None or needle in r.site_name.lower())
             and (
                 args.max_network_health is None
                 or (
@@ -161,14 +185,15 @@ async def _site_health(ctx: ToolContext, args: SiteHealthInput) -> ToolOutput:
             )
         ]
         kept.sort(key=_site_sort_key)
-        results.append(
-            {
-                "source_id": source.source_id,
-                "total": len(kept),
-                "has_more": args.offset + args.limit < len(kept),
-                "sites": [_site_row(r) for r in kept[args.offset : args.offset + args.limit]],
-            }
-        )
+        result: dict[str, Any] = {
+            "source_id": source.source_id,
+            "total": len(kept),
+            "has_more": args.offset + args.limit < len(kept),
+            "sites": [_site_row(r) for r in kept[args.offset : args.offset + args.limit]],
+        }
+        if totals and not (args.max_network_health is not None or args.offset):
+            result["overall"] = [_site_row(r) for r in totals]
+        results.append(result)
     if not results:
         detail = "; ".join(f"source '{e['source_id']}': {e['error']}" for e in errors)
         return ToolOutput(f"Catalyst Center could not be read. {detail}", is_error=True)
@@ -202,8 +227,9 @@ def build_catalyst_center_health_tools() -> tuple[Tool, ...]:
         Tool(
             "list_catalyst_center_site_health",
             "Health of the Catalyst Center sites: average network health, number of devices, "
-            "health per device role (access, core, distribution, router, wireless) and client "
-            "health, worst sites first. Use it for 'how healthy are the sites' and 'which sites "
+            "health per device role (access, core, distribution, router, switch, AP, WLC) and "
+            "client health, worst sites first; the controller's aggregate rows (All Sites) come "
+            "separately as overall. Use it for 'how healthy are the sites' and 'which sites "
             "are unhealthy' (max_network_health). Narrow with site_type or name_contains; page "
             "with limit/offset. Scores are the controller's own (site averages usually 0-100): "
             "report them as given. Controllers without the site health API answer with a fixed "

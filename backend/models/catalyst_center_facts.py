@@ -211,9 +211,10 @@ class CatalystCenterFabricDevice(_Fact):
 
 
 class CatalystCenterVirtualNetwork(_Fact):
-    """A layer 3 virtual network and the fabric sites it spans."""
+    """A layer 3 virtual network and the fabric sites it spans (none: not deployed anywhere)."""
 
     name: str
+    id: str | None = None
     fabric_sites: tuple[str, ...] = ()
 
 
@@ -239,6 +240,8 @@ class CatalystCenterSiteHealth(_Fact):
     """One row of ``GET /site-health``: network and client health of one site."""
 
     site_name: str
+    # True for the controller's aggregate rows ("All Sites", "All Buildings"): totals, not sites.
+    is_total: bool = False
     site_type: str | None = None
     parent_site_name: str | None = None
     network_health_average: float | None = None
@@ -247,8 +250,86 @@ class CatalystCenterSiteHealth(_Fact):
     health_core: float | None = None
     health_distribution: float | None = None
     health_router: float | None = None
+    health_switch: float | None = None
+    health_ap: float | None = None
+    health_wlc: float | None = None
     health_wireless: float | None = None
     health_others: float | None = None
     number_of_clients: int | None = None
     client_health_wired: float | None = None
     client_health_wireless: float | None = None
+
+
+class CatalystCenterLayer2Network(_Fact):
+    """One layer 2 virtual network (VLAN) of a fabric site (``GET /sda/layer2VirtualNetworks``)."""
+
+    vlan_name: str
+    vlan_id: int | None = None
+    traffic_type: str | None = None
+    layer3_virtual_network: str | None = None
+    fabric_site: str | None = None
+
+
+class CatalystCenterVirtualNetworks(_Fact):
+    """The controller's layer 3 virtual networks and layer 2 VLANs."""
+
+    networks: tuple[CatalystCenterVirtualNetwork, ...] = ()
+    layer2: tuple[CatalystCenterLayer2Network, ...] = ()
+    layer2_available: bool = True
+
+
+class CatalystCenterTransit(_Fact):
+    """A transit network definition (``GET /sda/transitNetworks``)."""
+
+    id: str
+    name: str | None = None
+    transit_type: str | None = None
+    # IP transit settings (routing protocol toward the legacy side).
+    routing_protocol: str | None = None
+    autonomous_system_number: str | None = None
+    # SD-Access transit settings.
+    multicast_over_transit: bool | None = None
+    control_plane_device_ids: tuple[str, ...] = ()
+
+
+class CatalystCenterIpTransitHandoff(_Fact):
+    """One layer 3 handoff of a border to an IP transit (``.../layer3Handoffs/ipTransits``)."""
+
+    transit_id: str | None = None
+    transit_name: str | None = None
+    interface_name: str | None = None
+    virtual_network: str | None = None
+    vlan_id: int | None = None
+    ip_pool: str | None = None
+    local_ip: str | None = None
+    remote_ip: str | None = None
+    local_ipv6: str | None = None
+    remote_ipv6: str | None = None
+
+
+class CatalystCenterSdaTransitHandoff(_Fact):
+    """One handoff of a border to an SD-Access transit (``.../layer3Handoffs/sdaTransits``)."""
+
+    transit_id: str | None = None
+    transit_name: str | None = None
+    connected_to_internet: bool | None = None
+    multicast_over_transit: bool | None = None
+
+
+class CatalystCenterLayer2Handoff(_Fact):
+    """One layer 2 handoff of a border (``.../fabricDevices/layer2Handoffs``)."""
+
+    interface_name: str | None = None
+    internal_vlan_id: int | None = None
+    external_vlan_id: int | None = None
+
+
+class CatalystCenterBorderHandoffs(_Fact):
+    """What one border node hands off to the outside, by kind."""
+
+    device_id: str
+    ip_transits: tuple[CatalystCenterIpTransitHandoff, ...] = ()
+    sda_transits: tuple[CatalystCenterSdaTransitHandoff, ...] = ()
+    layer2: tuple[CatalystCenterLayer2Handoff, ...] = ()
+    # Kinds the controller could not answer for this border ("ip_transits", ...): partial data.
+    unavailable: tuple[str, ...] = ()

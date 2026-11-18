@@ -161,3 +161,45 @@ describe("Ask the Net help: interface utilization", () => {
     expect(playbook?.questions.some((q) => q.includes("10.1.2.3"))).toBe(true);
   });
 });
+
+describe("Ask the Net help: Catalyst Center", () => {
+  const section = HELP_SECTIONS.find((s) => s.id === "catalyst-center");
+  const names = section?.tools.map((tool) => tool.name) ?? [];
+
+  it("lists every Catalyst Center tool", () => {
+    expect(names).toEqual([
+      "find_catalyst_center_device",
+      "get_catalyst_center_device_details",
+      "list_catalyst_center_sites",
+      "list_catalyst_center_devices",
+      "get_catalyst_center_device_health",
+      "list_catalyst_center_site_health",
+      "list_catalyst_center_fabric",
+      "list_catalyst_center_virtual_networks",
+      "list_catalyst_center_border_handoffs",
+      "list_catalyst_center_transits",
+    ]);
+  });
+
+  it("has the overlay and underlay questions on the fabric tool", () => {
+    const questions = byName("list_catalyst_center_fabric")?.questions.join(
+      " ",
+    );
+
+    expect(questions).toMatch(/overlay/);
+    expect(questions).toMatch(/underlay/);
+  });
+
+  it("knows the name DNAC and lists all devices without a site", () => {
+    expect(section?.summary).toMatch(/DNAC/);
+    expect(byName("list_catalyst_center_devices")?.questions.join(" ")).toMatch(
+      /devices in the DNAC/,
+    );
+  });
+
+  it("says what the section needs and that the data is the controller's view", () => {
+    expect(section?.summary).toMatch(/not a live command/);
+    expect(section?.requirement).toMatch(/inventory opt-in/);
+    expect(section?.requirement).toMatch(/addresses opt-in/);
+  });
+});

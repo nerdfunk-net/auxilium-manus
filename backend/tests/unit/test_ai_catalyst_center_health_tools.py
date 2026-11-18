@@ -73,9 +73,16 @@ class FakeHealth:
         )
 
 
-def _row(name: str, score: float | None, kind: str = "BUILDING") -> CatalystCenterSiteHealth:
+def _row(
+    name: str, score: float | None, kind: str = "BUILDING", *, total: bool = False
+) -> CatalystCenterSiteHealth:
     return CatalystCenterSiteHealth(
-        site_name=name, site_type=kind, network_health_average=score, number_of_network_devices=3
+        site_name=name,
+        is_total=total,
+        site_type=kind,
+        network_health_average=score,
+        number_of_network_devices=3,
+        health_switch=score,
     )
 
 
@@ -231,3 +238,33 @@ def test_no_source_no_access_input_and_registration() -> None:
     assert _sites(FakeReader(), limit=51).is_error  # a page must fit the tool output
     names = known_general_tool_names()
     assert {"get_catalyst_center_device_health", "list_catalyst_center_site_health"} <= names
+
+
+def test_aggregate_rows_are_not_sites_but_come_back_as_overall() -> None:
+    reader = FakeReader(
+        site_health=FakeSiteHealth(
+            [_row("All Sites", 100, "area", total=True), _row("Berlin", 40), _row("Bonn", 70)]
+        )
+    )
+    source = _json(_sites(reader))["sources"][0]
+
+    assert [s["site_name"] for s in source["sites"]] == ["Berlin", "Bonn"]
+    assert source["total"] == 2  # the total row is not a site
+    assert [o["site_name"] for o in source["overall"]] == ["All Sites"]
+    assert "is_total" not in source["overall"][0]
+    assert source["sites"][0]["health_switch"] == 40  # the switch score is passed on
+
+    # A narrowed or paged question is about sites only: no overall block.
+    assert "overall" not in _json(_sites(reader, max_network_health=50))["sources"][0]
+    assert "overall" not in _json(_sites(reader, name_contains="Ber"))["sources"][0]
+    assert "overall" not in _json(_sites(reader, offset=1))["sources"][0]
+
+
+def test_a_name_search_for_the_aggregate_returns_it_as_overall() -> None:
+    reader = FakeReader(
+        site_health=FakeSiteHealth([_row("All Sites", 100, "area", total=True), _row("Berlin", 40)])
+    )
+    source = _json(_sites(reader, name_contains="all sites"))["sources"][0]
+
+    assert source["sites"] == []
+    assert [o["site_name"] for o in source["overall"]] == ["All Sites"]

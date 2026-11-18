@@ -19,6 +19,7 @@ from dataclasses import dataclass
 import service_factory
 from core.database import SessionLocal
 from services.auth.rbac_service import RBACService
+from services.catalyst_center.border_service import CatalystCenterBorderService
 from services.catalyst_center.details_service import CatalystCenterDetailsService
 from services.catalyst_center.device_service import CatalystCenterDeviceService
 from services.catalyst_center.fabric_service import CatalystCenterFabricService
@@ -48,6 +49,7 @@ class CatalystSource:
     fabric: CatalystCenterFabricService | None = None
     health: CatalystCenterHealthService | None = None
     site_health: CatalystCenterSiteHealthService | None = None
+    border: CatalystCenterBorderService | None = None
 
 
 class DbCatalystCenterReader:
@@ -81,6 +83,7 @@ class DbCatalystCenterReader:
                         details=service_factory.build_catalyst_center_details_service(credentials),
                         fabric=service_factory.build_catalyst_center_fabric_service(credentials),
                         health=service_factory.build_catalyst_center_health_service(credentials),
+                        border=service_factory.build_catalyst_center_border_service(credentials),
                         site_health=service_factory.build_catalyst_center_site_health_service(
                             credentials
                         ),

@@ -117,3 +117,35 @@ def test_non_finite_and_fractional_numbers_do_not_fail_the_list() -> None:
     assert berlin.network_health_average is None and berlin.number_of_network_devices is None
     assert berlin.number_of_clients is None and berlin.client_health_wired is None
     assert bonn.network_health_average == 50.0 and bonn.number_of_clients == 7
+
+
+def test_aggregate_rows_are_marked_as_totals_and_switch_ap_wlc_are_mapped() -> None:
+    # Shapes seen live on the DevNet sandbox (Catalyst Center 3.723).
+    all_sites = {
+        "siteName": " All Sites",
+        "siteId": "",
+        "siteType": "area",
+        "networkHealthAverage": 100,
+        "numberOfNetworkDevice": 4,
+        "networkHealthSwitch": 100,
+        "networkHealthAP": None,
+        "networkHealthWLC": 80,
+    }
+    all_buildings = {**all_sites, "siteName": " All Buildings", "siteId": " All Buildings"}
+    real = {**all_sites, "siteName": "Berlin", "siteId": "abc-123", "siteType": "building"}
+    service, _ = _service(lambda p: {"response": [all_sites, all_buildings, real]})
+
+    totals, buildings, berlin = _run(service)
+
+    assert totals.site_name == "All Sites" and totals.is_total
+    assert buildings.is_total and not berlin.is_total
+    assert berlin.health_switch == 100.0 and berlin.health_ap is None and berlin.health_wlc == 80.0
+
+
+def test_a_real_site_row_without_an_id_is_not_a_total() -> None:
+    row = {"siteName": "Berlin", "siteType": "building", "networkHealthAverage": 90}
+    service, _ = _service(lambda p: {"response": [row]})
+
+    (berlin,) = _run(service)
+
+    assert not berlin.is_total

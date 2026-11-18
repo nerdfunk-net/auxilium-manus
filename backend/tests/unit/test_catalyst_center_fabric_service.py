@@ -294,3 +294,70 @@ def test_a_device_id_outside_the_id_pattern_is_skipped() -> None:
     )
 
     assert [d.device_id for d in _run(client).devices] == ["ok-1"]
+
+
+L2 = "/dna/intent/api/v1/sda/layer2VirtualNetworks"
+
+
+def _vn_client(*, l2_missing: bool = False, l2=None, l3=None):
+    client = _client(
+        fabric_sites=[{"id": "f1", "siteId": "s1"}],
+        vns=l3
+        if l3 is not None
+        else [
+            {"id": "v1", "virtualNetworkName": "CORP", "fabricIds": ["f1"]},
+            {"id": "v2", "virtualNetworkName": "INFRA_VN"},  # live shape: not deployed
+        ],
+    )
+    original = client.request
+
+    async def request(creds, method, path, *, params=None, json=None):
+        if path == L2:
+            if l2_missing:
+                raise CatalystCenterNotFoundError("nope")
+            return {"response": l2 or []}
+        return await original(creds, method, path, params=params, json=json)
+
+    client.request = request
+    return client
+
+
+def test_virtual_networks_carry_ids_sites_and_vlans() -> None:
+    client = _vn_client(
+        l2=[
+            {
+                "vlanName": "users",
+                "vlanId": "1021",
+                "trafficType": "DATA",
+                "associatedLayer3VirtualNetworkName": "CORP",
+                "fabricId": "f1",
+            },
+            {"vlanName": ""},
+        ]
+    )
+
+    found = asyncio.run(CatalystCenterFabricService(client, _creds()).list_virtual_networks())
+
+    assert [(n.name, n.id, n.fabric_sites) for n in found.networks] == [
+        ("CORP", "v1", ("Global/Berlin",)),
+        ("INFRA_VN", "v2", ()),
+    ]
+    assert [
+        (v.vlan_name, v.vlan_id, v.layer3_virtual_network, v.fabric_site) for v in found.layer2
+    ] == [("users", 1021, "CORP", "Global/Berlin")]
+    assert found.layer2_available is True
+
+
+def test_missing_layer2_api_keeps_the_layer3_answer() -> None:
+    found = asyncio.run(
+        CatalystCenterFabricService(_vn_client(l2_missing=True), _creds()).list_virtual_networks()
+    )
+
+    assert len(found.networks) == 2 and found.layer2 == () and found.layer2_available is False
+
+
+def test_a_missing_fabric_site_api_means_no_sd_access() -> None:
+    with pytest.raises(CatalystCenterNotFoundError):
+        asyncio.run(
+            CatalystCenterFabricService(_client(missing=True), _creds()).list_virtual_networks()
+        )

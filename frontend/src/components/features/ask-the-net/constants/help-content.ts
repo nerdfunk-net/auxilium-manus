@@ -351,9 +351,9 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
     id: "catalyst-center",
     title: "Cisco Catalyst Center (controller)",
     summary:
-      "Looks a device up in Cisco Catalyst Center and reads its facts. For a question about one device the assistant looks at Nautobot first, then checks Catalyst Center with the name, or with the IP address or serial number Nautobot shows. A device Catalyst Center does not know is reported as documented in Nautobot but not managed there. The data is the controller's last collected view, not a live command.",
+      "Reads Cisco Catalyst Center (also called DNAC or DNA Center), the network controller: the devices and their facts, the sites and which devices belong to a site, the health of devices and sites, and the SD-Access fabric (overlay and underlay, virtual networks, the handoffs of the border nodes to the legacy network and the transits). For a question about one device the assistant looks at Nautobot first, then checks Catalyst Center with the name, or with the IP address or serial number Nautobot shows. A device Catalyst Center does not know is reported as documented in Nautobot but not managed there. The data is the controller's last collected view, not a live command, and the scores are the controller's own numbers.",
     requirement:
-      "Needs permission to read Catalyst Center sources. If no Catalyst Center source is configured, the assistant tells you an administrator must add one. Addresses and serial numbers need the addresses opt-in, interface descriptions the content opt-in.",
+      "Needs permission to read Catalyst Center sources and the inventory opt-in. If no Catalyst Center source is configured, the assistant tells you an administrator must add one. Addresses, serial numbers and the neighbour addresses of a handoff need the addresses opt-in, interface descriptions the content opt-in. The SD-Access tools answer that the controller has no SD-Access API when it has none.",
     tools: [
       {
         name: "find_catalyst_center_device",
@@ -372,6 +372,82 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
           "Show the Catalyst Center device details of LAB.",
           "Which software version does LAB run according to Catalyst Center?",
           "Show the interfaces and compliance status of LAB in Catalyst Center.",
+        ],
+      },
+      {
+        name: "list_catalyst_center_sites",
+        description:
+          "Lists the sites configured in Catalyst Center as the site hierarchy (areas, buildings, floors, for example Global/EMEA/Berlin). These are the controller's own sites, not Nautobot locations. Use the exact name in the other site questions.",
+        questions: [
+          "List the sites of the Catalyst Center.",
+          "Which Catalyst Center sites contain Berlin?",
+        ],
+      },
+      {
+        name: "list_catalyst_center_devices",
+        description:
+          "Lists the devices of Catalyst Center: all managed devices, or the devices assigned to one site, sub-sites included unless you exclude them. Shows hostname, role, platform, software version and reachability; management IP and serial number need the addresses opt-in.",
+        questions: [
+          "Show me the devices in the DNAC.",
+          "What devices are part of site Global/EMEA/Berlin?",
+          "Which access switches are in the site Global/EMEA/Berlin?",
+        ],
+      },
+      {
+        name: "get_catalyst_center_device_health",
+        description:
+          "Reads the health of one device from Catalyst Center: overall health score, CPU and memory with their scores, communication state, HA status, maintenance mode and when the data was collected. The scores are given as the controller reports them.",
+        questions: [
+          "How healthy is LAB according to Catalyst Center?",
+          "What are the CPU and memory scores of LAB in Catalyst Center?",
+        ],
+      },
+      {
+        name: "list_catalyst_center_site_health",
+        description:
+          "Shows the health of the Catalyst Center sites: average network health, number of devices, health per device role and client health, worst sites first. The controller's totals (All Sites) are shown separately. Floors are not part of this report.",
+        questions: [
+          "How healthy are the sites in Catalyst Center?",
+          "Which sites are unhealthy?",
+          "Show the health of the buildings in Catalyst Center.",
+        ],
+      },
+      {
+        name: "list_catalyst_center_fabric",
+        description:
+          "Says which devices are part of the SD-Access overlay or underlay. Overlay: devices with a fabric role (border, control plane, edge). Underlay: those devices plus the intermediate nodes of the fabric sites that have no fabric role. Also names the fabric sites and virtual networks. Fabric sites that could not be read completely are listed as incomplete.",
+        questions: [
+          "Which devices are part of the overlay network?",
+          "Which devices are part of the underlay network?",
+          "Which border nodes does the fabric site Global/EMEA/Berlin have?",
+        ],
+      },
+      {
+        name: "list_catalyst_center_virtual_networks",
+        description:
+          "Lists the SD-Access virtual networks (VRFs such as INFRA_VN) with the fabric sites each is deployed to, and their layer 2 VLANs. A network that is deployed nowhere is marked as such.",
+        questions: [
+          "Which virtual networks exist in Catalyst Center?",
+          "Which virtual networks are deployed to the fabric site Global/EMEA/Berlin?",
+        ],
+      },
+      {
+        name: "list_catalyst_center_border_handoffs",
+        description:
+          "Lists the SD-Access border nodes and what each hands off to the outside (legacy) network: layer 3 handoffs to IP transits (interface, virtual network, VLAN, IP pool, local and remote address), handoffs to SD-Access transits and layer 2 handoffs. A kind that could not be read for a border is named, so the list may be partial.",
+        questions: [
+          "What connects the fabric to the legacy network?",
+          "Which handoffs does the border node border-1 have?",
+          "Which virtual networks does the border node border-1 hand off?",
+        ],
+      },
+      {
+        name: "list_catalyst_center_transits",
+        description:
+          "Lists the SD-Access transit networks: IP transits to the legacy or WAN side (routing protocol and AS number) and SD-Access transits that connect fabrics (multicast over the transit and the control plane devices). Which borders use a transit shows in their handoffs.",
+        questions: [
+          "Which transits exist in Catalyst Center?",
+          "Which IP transits does the fabric have and which AS number do they use?",
         ],
       },
     ],

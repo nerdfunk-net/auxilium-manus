@@ -643,7 +643,8 @@ def build_catalyst_center_tools() -> tuple[Tool, ...]:
     return (
         Tool(
             "find_catalyst_center_device",
-            "Look a device up in Cisco Catalyst Center (the network controller) by hostname, "
+            "Look a device up in Cisco Catalyst Center (also called DNAC or DNA Center; the "
+            "network controller) by hostname, "
             "management IP or serial number. Use it after Nautobot (get_device) for 'is it in "
             "Catalyst Center': pass the name, or the primary IP / serial Nautobot shows. A name "
             "matches the full or short hostname in any case. Give one key; several are "

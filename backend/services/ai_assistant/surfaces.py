@@ -63,6 +63,9 @@ from services.ai_assistant.tools.batfish_tools import (
     build_batfish_tools,
 )
 from services.ai_assistant.tools.bgp_learn_tools import build_bgp_learn_tools
+from services.ai_assistant.tools.catalyst_center_border_tools import (
+    build_catalyst_center_border_tools,
+)
 from services.ai_assistant.tools.catalyst_center_fabric_tools import (
     build_catalyst_center_fabric_tools,
 )
@@ -74,6 +77,7 @@ from services.ai_assistant.tools.catalyst_center_tools import (
     CatalystReader,
     build_catalyst_center_tools,
 )
+from services.ai_assistant.tools.catalyst_center_vn_tools import build_catalyst_center_vn_tools
 from services.ai_assistant.tools.client_data_tools import (
     CLIENT_DATA_READER_KEY,
     build_client_data_tools,
@@ -530,6 +534,8 @@ def build_general_session(
         tools.extend(build_catalyst_center_tools())
         tools.extend(build_catalyst_center_fabric_tools())
         tools.extend(build_catalyst_center_health_tools())
+        tools.extend(build_catalyst_center_vn_tools())
+        tools.extend(build_catalyst_center_border_tools())
     # Cisco ACI reads (doc/plans/ACI_TOOL_CHAIN.md); independent of Batfish and Nautobot.
     if aci_reader is not None:
         extras[ACI_READER_KEY] = aci_reader

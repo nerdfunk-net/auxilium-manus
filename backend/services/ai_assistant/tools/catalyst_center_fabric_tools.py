@@ -233,9 +233,10 @@ async def _list_sites(ctx: ToolContext, args: SitesInput) -> ToolOutput:
 class SiteDevicesInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    site: Text = Field(
-        description="Exact site hierarchy name, e.g. 'Global/EMEA/Berlin' "
-        "(see list_catalyst_center_sites).",
+    site: Text | None = Field(
+        None,
+        description="Exact site hierarchy name, e.g. 'Global/EMEA/Berlin' (see "
+        "list_catalyst_center_sites). Without it: every device the controller manages.",
     )
     include_child_sites: bool = Field(True, description="Also devices of the sub-sites.")
     role: Text | None = Field(
@@ -251,7 +252,7 @@ _BAD_SITE = (
 )
 _TOO_MANY_SITES = "The site has too many sub-sites to read at once; ask for a sub-site."
 _TOO_MANY = (
-    f"The site holds more than {SITE_DEVICE_CAP} devices; narrow it with a sub-site or role."
+    f"More than {SITE_DEVICE_CAP} devices match; narrow it with a site (or sub-site) or a role."
 )
 
 
@@ -263,7 +264,7 @@ async def _list_site_devices(ctx: ToolContext, args: SiteDevicesInput) -> ToolOu
         return sources
     show_addresses = ctx.sharing.allows(DataClass.ADDRESSES)
     filters = CatalystCenterDeviceFilters(
-        sites=(args.site,),
+        sites=(args.site,) if args.site else (),
         include_child_sites=args.include_child_sites,
         roles=(args.role,) if args.role else (),
     )
@@ -302,7 +303,7 @@ async def _list_site_devices(ctx: ToolContext, args: SiteDevicesInput) -> ToolOu
         results.append(
             {
                 "source_id": source.source_id,
-                "site": args.site,
+                **({"site": args.site} if args.site else {}),
                 "total": len(ordered),
                 "has_more": args.offset + args.limit < len(ordered),
                 "devices": devices,
@@ -347,7 +348,8 @@ def build_catalyst_center_fabric_tools() -> tuple[Tool, ...]:
         ),
         Tool(
             "list_catalyst_center_sites",
-            "List the sites configured in Cisco Catalyst Center (the site hierarchy: areas, "
+            "List the sites configured in Cisco Catalyst Center, also called DNAC or DNA Center "
+            "(the site hierarchy: areas, "
             "buildings, floors, as 'Global/EMEA/Berlin'). Use it for 'list the sites of the "
             "Catalyst Center' and to find the exact name before using fabric_site. Narrow with "
             "name_contains; page with limit/offset. These are the controller's sites, not "
@@ -357,8 +359,9 @@ def build_catalyst_center_fabric_tools() -> tuple[Tool, ...]:
         ),
         Tool(
             "list_catalyst_center_devices",
-            "List the devices assigned to a Cisco Catalyst Center site ('What devices are part "
-            "of site X?'). Pass the exact site hierarchy name (get it from "
+            "List the devices of Cisco Catalyst Center (DNAC): all managed devices, or with site "
+            "the devices assigned to one site ('Show me the devices in the DNAC', 'What devices "
+            "are part of site X?'). Pass the exact site hierarchy name (get it from "
             "list_catalyst_center_sites); sub-sites are included unless include_child_sites is "
             "false. Narrow with role; page with limit/offset. Shows hostname, role, platform, "
             "software and reachability; management IPs and serials need the addresses switch. "

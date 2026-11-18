@@ -1,12 +1,13 @@
 """Site health from Cisco Catalyst Center: ``GET /site-health`` (read-only).
 
 ``{"response": [{siteName, siteType, parentSiteName, networkHealthAverage,
-numberOfNetworkDevice, networkHealthAccess|Core|Distribution|Router|Wireless|Others,
+numberOfNetworkDevice, networkHealthAccess|Core|Distribution|Router|Switch|AP|WLC|Wireless|Others,
 numberOfClients, clientHealthWired, clientHealthWireless, ...}]}``, 1-based ``offset``/``limit``,
 ``limit`` 1..50, optional ``siteType`` (AREA or BUILDING; there are no floors).
 
-Field names are taken from the Cisco API reference and are **not yet verified live**
-(doc/CISCO_CATALYST_INTEGRATION.md). Numbers may arrive as strings and are coerced; an
+Verified live on the DevNet sandbox (Catalyst Center 3.723): the field names below, ``limit``
+max 50, lowercase ``siteType`` in rows, and aggregate rows (``" All Sites"``, ``" All Buildings"``)
+that are totals, not sites (``is_total``). Numbers may arrive as strings and are coerced; an
 unknown shape is skipped, never guessed. A controller without the endpoint (a 404) surfaces as
 ``CatalystCenterNotFoundError``.
 """
@@ -62,8 +63,12 @@ class CatalystCenterSiteHealthService:
 def _normalize(raw: Any) -> CatalystCenterSiteHealth | None:
     if not isinstance(raw, dict) or not (name := text(raw.get("siteName"))):
         return None
+    site_id = text(raw.get("siteId"))
     return CatalystCenterSiteHealth(
         site_name=name,
+        # Verified live (3.723): the aggregate rows are named "All ..." and have an empty siteId
+        # or one equal to the name. A real site that lacks a siteId is not a total.
+        is_total=site_id == name or (site_id is None and name.lower().startswith("all ")),
         site_type=text(raw.get("siteType")),
         parent_site_name=text(raw.get("parentSiteName")),
         network_health_average=number(raw.get("networkHealthAverage")),
@@ -72,6 +77,9 @@ def _normalize(raw: Any) -> CatalystCenterSiteHealth | None:
         health_core=number(raw.get("networkHealthCore")),
         health_distribution=number(raw.get("networkHealthDistribution")),
         health_router=number(raw.get("networkHealthRouter")),
+        health_switch=number(raw.get("networkHealthSwitch")),
+        health_ap=number(raw.get("networkHealthAP")),
+        health_wlc=number(raw.get("networkHealthWLC")),
         health_wireless=number(raw.get("networkHealthWireless")),
         health_others=number(raw.get("networkHealthOthers")),
         number_of_clients=integer(raw.get("numberOfClients")),

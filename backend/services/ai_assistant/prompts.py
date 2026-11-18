@@ -432,8 +432,9 @@ is free or reserved from any other tool.
 
 CATALYST_PROMPT = """\
 Catalyst Center: you can also read Cisco Catalyst Center, the network controller, with \
-find_catalyst_center_device and get_catalyst_center_device_details. It is a second source next to \
-Nautobot. For a question about one device ("show the Catalyst Center details of LAB"), look at \
+find_catalyst_center_device and get_catalyst_center_device_details. Users also call it DNAC, DNA \
+Center or Cisco DNA Center (its old name): "the devices in the DNAC" means this controller, so use \
+the Catalyst Center tools and not Nautobot. It is a second source next to Nautobot. For a question about one device ("show the Catalyst Center details of LAB"), look at \
 Nautobot first (get_device) when you have the Nautobot tools, then look the device up in Catalyst \
 Center with its name, or with the primary IP or serial number Nautobot shows when the name does \
 not match. A device that Catalyst Center does not know is a finding, not a failure: say it is \
@@ -442,6 +443,11 @@ Catalyst Center shows the controller's last collected view, not a live command. 
 facts you need (device and software are the default); page interfaces with interface_offset. If \
 a tool says no Catalyst Center source is configured, tell the user that and stop: do not guess. \
 Fields listed in withheld_fields are not shared by the user's settings. \
+"Which virtual networks exist" / "which VNs are in fabric site X" is \
+list_catalyst_center_virtual_networks (deployed=false: defined, in no fabric site). \
+"What connects the fabric to the legacy network" / "which handoffs does border X have" is \
+list_catalyst_center_border_handoffs (border nodes; unavailable lists mean partial data); \
+"which transits exist" is list_catalyst_center_transits. \
 "How healthy is device X" is get_catalyst_center_device_health, "how healthy are the sites" / \
 "which sites are unhealthy" is list_catalyst_center_site_health; give scores as the controller \
 reports them, never your own thresholds. "What devices are part of site X" is \

@@ -143,10 +143,14 @@ Nautobot token, so what the token may read is what a user with the permission ca
 
 **Ask the Net output parsing** (`parse_command_output`, the `parser` of a device command, `doc/AI_TOOL_CHAIN.md` §43). TextFSM needs nothing beyond the content opt-in. Genie also needs `sources.pyats:read` (checked on every call; the seeded `viewer` role does not hold it) and exactly one configured pyATS source; it sends the redacted output to that source's shim.
 
-**Ask the Net Catalyst Center tools** (`find_catalyst_center_device`, `get_catalyst_center_device_details`). They need
+**Ask the Net Catalyst Center tools** (`find_catalyst_center_device`, `get_catalyst_center_device_details`; sites, site devices, device and
+site health, SD-Access fabric, virtual networks, border handoffs and transits: `list_catalyst_center_sites`, `list_catalyst_center_devices`,
+`get_catalyst_center_device_health`, `list_catalyst_center_site_health`, `list_catalyst_center_fabric`, `list_catalyst_center_virtual_networks`,
+`list_catalyst_center_border_handoffs`, `list_catalyst_center_transits`). They need
 `sources.catalyst_center:read` (checked on every call; the seeded `viewer` role does not hold it, so it has no such tools)
-and report a missing source to the user. The user's inventory switch gates both tools, the addresses switch the
-addresses and serials (and lookups by them), the content switch interface descriptions (`doc/AI_TOOL_CHAIN.md` §42).
+and report a missing source to the user. The user's inventory switch gates every tool, the addresses switch the
+addresses and serials (and lookups by them) and the neighbour addresses of a border handoff, the content switch interface descriptions
+(`doc/AI_TOOL_CHAIN.md` §42, §57-§60). Nothing is written to the controller.
 
 **Ask the Net ping and traceroute** (`propose_ping_traceroute`, `doc/AI_TOOL_CHAIN.md` §51). A proposal on the device-command path: operator switch `AI_DEVICE_COMMANDS_ENABLED`, `netmiko:execute`, the content opt-in and the user's click; the commands come from a reviewed per-platform list, IPv4 literal targets only.
 
