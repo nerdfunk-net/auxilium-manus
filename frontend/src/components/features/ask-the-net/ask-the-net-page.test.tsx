@@ -65,9 +65,7 @@ describe("AskTheNetPage", () => {
   it("shows the title and the chat when the assistant is available", () => {
     render(<AskTheNetPage />);
 
-    expect(
-      screen.getByRole("heading", { name: "Ask the Net" }),
-    ).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Ask the Net" })).toBeTruthy();
     expect(screen.getByTestId("assistant-panel")).toBeTruthy();
     expect(screen.getByTestId("sharing-notice")).toBeTruthy();
   });
@@ -94,10 +92,9 @@ describe("AskTheNetPage", () => {
     render(<AskTheNetPage />);
 
     fireEvent.click(screen.getByRole("button", { name: /help/i }));
-    expect(screen.getByText("Nautobot (documented inventory)")).toBeTruthy();
-    fireEvent.click(
-      screen.getByRole("button", { name: /which route does/i }),
-    );
+    fireEvent.click(screen.getByText("Batfish (network model)"));
+    fireEvent.click(screen.getByRole("button", { name: "get_routes" }));
+    fireEvent.click(screen.getByRole("button", { name: /which route does/i }));
     expect(screen.queryByText("What can I ask?")).toBeNull();
 
     const session =
@@ -110,15 +107,18 @@ describe("AskTheNetPage", () => {
     render(<AskTheNetPage />);
 
     fireEvent.click(screen.getByRole("button", { name: /help/i }));
-    expect(screen.getByText("Neighbours (layer 2 and layer 3)")).toBeTruthy();
+    fireEvent.click(screen.getByText("Neighbours (layer 2 and layer 3)"));
     for (const tool of [
       "propose_neighbor_discovery",
       "get_discovery_result",
       "get_modelled_neighbors",
       "get_neighbor_sources",
     ]) {
-      expect(screen.getByText(tool)).toBeTruthy();
+      expect(screen.getByRole("button", { name: tool })).toBeTruthy();
     }
+    fireEvent.click(
+      screen.getByRole("button", { name: "propose_neighbor_discovery" }),
+    );
     fireEvent.click(
       screen.getByRole("button", { name: /which routing protocols and vrfs/i }),
     );
@@ -142,7 +142,11 @@ describe("AskTheNetPage", () => {
     ["no_permission", /do not have permission/i, null],
     ["disabled", /switched the assistant off/i, "/settings/ai-assistant"],
     ["not_configured", /not set up yet/i, "/settings/ai-assistant"],
-    ["provider_not_allowed", /not allowed by the operator/i, "/settings/ai-assistant"],
+    [
+      "provider_not_allowed",
+      /not allowed by the operator/i,
+      "/settings/ai-assistant",
+    ],
   ] as const)(
     "explains why the assistant is unavailable: %s",
     (reason, message, settingsHref) => {
@@ -169,7 +173,10 @@ describe("AskTheNetPage", () => {
   });
 
   it("offers no help button while the assistant is unavailable", () => {
-    status = { data: { available: false, reason: "disabled" }, isLoading: false };
+    status = {
+      data: { available: false, reason: "disabled" },
+      isLoading: false,
+    };
     render(<AskTheNetPage />);
 
     expect(screen.queryByRole("button", { name: /help/i })).toBeNull();
@@ -209,7 +216,12 @@ describe("AskTheNetPage", () => {
     expect(note).not.toMatch(/general knowledge/);
   });
 
-  it.each([["git.files:read"], ["workflows:execute"], ["netmiko:execute"], ["reports:write"]])(
+  it.each([
+    ["git.files:read"],
+    ["workflows:execute"],
+    ["netmiko:execute"],
+    ["reports:write"],
+  ])(
     "does not treat %s as data to read: held alone it gives no tool",
     (permission) => {
       permissions = ["ai_assistant:use", permission];
@@ -253,7 +265,10 @@ describe("AskTheNetPage", () => {
 
   it("still explains an unavailable assistant instead of the permission note", () => {
     permissions = ["ai_assistant:use"];
-    status = { data: { available: false, reason: "disabled" }, isLoading: false };
+    status = {
+      data: { available: false, reason: "disabled" },
+      isLoading: false,
+    };
     render(<AskTheNetPage />);
 
     expect(screen.queryByTestId("assistant-panel")).toBeNull();
@@ -262,7 +277,10 @@ describe("AskTheNetPage", () => {
   });
 
   it("tells every user who may use it where the answers come from", () => {
-    for (const held of [["ai_assistant:use"], ["ai_assistant:use", "sources.batfish:query"]]) {
+    for (const held of [
+      ["ai_assistant:use"],
+      ["ai_assistant:use", "sources.batfish:query"],
+    ]) {
       cleanup();
       permissions = held;
       render(<AskTheNetPage />);
@@ -276,5 +294,26 @@ describe("AskTheNetPage", () => {
       // The Batfish model is still said to be a snapshot, not the live network.
       expect(subtitle.textContent).toMatch(/not the live network/);
     }
+  });
+});
+
+describe("AskTheNetPage help search", () => {
+  it("narrows the tree to the tools that match and shows the first hit", () => {
+    render(<AskTheNetPage />);
+
+    fireEvent.click(screen.getByRole("button", { name: /help/i }));
+    fireEvent.change(screen.getByLabelText("Find in help"), {
+      target: { value: "propose_neighbor_discovery" },
+    });
+
+    expect(
+      screen.getByRole("button", { name: "propose_neighbor_discovery" }),
+    ).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "get_routes" })).toBeNull();
+
+    fireEvent.change(screen.getByLabelText("Find in help"), {
+      target: { value: "zzzqqq" },
+    });
+    expect(screen.getByText(/Nothing found/)).toBeTruthy();
   });
 });
