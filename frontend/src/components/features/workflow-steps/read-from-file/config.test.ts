@@ -7,6 +7,7 @@ describe("buildReadFromFileConfig", () => {
     expect(buildReadFromFileConfig({})).toEqual({
       source: "filesystem",
       git_repository_id: null,
+      allow_stale_repository: false,
       path: "",
       format: "auto",
       destination_path: "data",
@@ -37,5 +38,13 @@ describe("buildReadFromFileConfig", () => {
       path: "b.json",
       overwrite: true,
     });
+  });
+
+  it("keeps allow_stale_repository across a patch instead of dropping it", () => {
+    const result = buildReadFromFileConfig(
+      { source: "git", git_repository_id: 3, allow_stale_repository: true },
+      { path: "b.json" },
+    );
+    expect(result.allow_stale_repository).toBe(true);
   });
 });

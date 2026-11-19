@@ -808,6 +808,35 @@ workflow's devices from the answer. Protocol, secrets and operations: `doc/AGENT
 - Example handlers: `list_devices` in `agent/example-agent/handlers/examples.py` (a fixed list) and the real inventory
   agent `agent/reachable-ip-inventory/` (attribute `tag`: the reachable hosts of the Nautobot prefixes with that tag).
 
+### Enriching devices from a CSV file: `enrich-attributes`
+
+The sibling of `read-from-file` for lookup tables. The file (export directory or `git_repository_id`, same root
+resolution, containment and `allow_stale_repository` rule as `read-from-file`) is a CSV with a header row; one column
+(`key_column`) identifies the device. Example, `serial;data` / `131184641;example data`.
+
+- **Matching.** The device value is `device_attribute_path` (any scalar attribute, e.g. `nautobot.serial`), compared
+  with each row's key: `match_mode` `match` (equal) or `contains` (device value contains the key; an empty key never
+  matches), optionally `case_insensitive`. The **first** matching row in file order wins (`contains` stops at the
+  first hit, so a short key earlier in the file beats a longer one; order the file accordingly). Duplicate keys in
+  `match` mode log one warning for the file. A device with no matching row, or whose path has no scalar value, or
+  holds a sealed secret (never decrypted for the comparison), continues unchanged on `success`.
+- **Result.** Every column except the key column is deep-merged into the device bag at `destination_path`
+  (`merge_into_device_attribute`, `overwrite` as in `read-from-file`): `inventory.data = "example data"`. Empty cells
+  are skipped (an `""` key would block a real value when `overwrite` is off). A blank `destination_path` means `data`.
+  A column that would land on, or inside, a **sealed secret** is never merged, whatever `overwrite` says: that device
+  takes the `failure` outcome (`sealed_secret_conflict`).
+- **Parsing.** `csv` module, `delimiter` (default `;`, one character or `tab`), UTF-8 with an optional BOM, all values
+  trimmed strings, blank lines skipped. The file is read once per run (at most 10 MiB and 200 000 rows). A missing file,
+  a missing `key_column` header, a duplicate header or an empty file fails the **step**; a symlink is refused like a
+  missing file, and `git_repository_id` must be a whole number. Only a sealed-secret conflict or a merge error fails
+  one device (`failure` outcome, each with a `FailureInfo`).
+- **Root and stale reads.** `workflow_steps/common/file_source_root.py::resolve_source_root` (export directory or git
+  checkout, lease held until the caller's `AsyncExitStack` closes) is shared with `read-from-file` and `read-config`; a
+  new file-reading step uses it instead of its own copy. `allow_stale_repository` is passed to `git_checkout`; the
+  panels get the switch from `shared/git-source-config-panel.tsx` (`showAllowStaleToggle`), and the step's config
+  builder must keep the key, or the next edit in the panel drops it.
+- Code: `backend/workflow_steps/enrich_attributes/`; frontend `workflow-steps/enrich-attributes/`.
+
 ### Asking the AI: `contact-the-ai`
 
 Sends one prompt per step execution to the AI model (palette category Notify) and stores the answer on

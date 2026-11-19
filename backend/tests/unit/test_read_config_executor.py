@@ -27,9 +27,9 @@ def _mock_export_directory(export_dir: Path):
     service_mock = MagicMock()
     service_mock.resolved_export_directory.return_value = export_dir
     with (
-        patch("workflow_steps.read_config.executor.get_db_session", return_value=MagicMock()),
+        patch("workflow_steps.common.file_source_root.get_db_session", return_value=MagicMock()),
         patch(
-            "workflow_steps.read_config.executor.GeneralSettingsService",
+            "workflow_steps.common.file_source_root.GeneralSettingsService",
             return_value=service_mock,
         ),
     ):
@@ -41,7 +41,7 @@ def _mock_git_repository(repo_dir: Path):
     """Patch repository lookup + agit_checkout for source=git."""
     with (
         patch(
-            "workflow_steps.read_config.executor.load_git_repository",
+            "workflow_steps.common.file_source_root.load_git_repository",
             return_value={
                 "id": 7,
                 "name": "prod-lab",
@@ -49,7 +49,7 @@ def _mock_git_repository(repo_dir: Path):
             },
         ),
         patch(
-            "workflow_steps.read_config.executor.agit_checkout",
+            "workflow_steps.common.file_source_root.agit_checkout",
             return_value=acheckout_of(repo_dir),
         ),
     ):

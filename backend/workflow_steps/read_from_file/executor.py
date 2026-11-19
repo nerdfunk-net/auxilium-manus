@@ -11,10 +11,8 @@ import asyncio
 import logging
 from contextlib import AsyncExitStack
 from dataclasses import dataclass
-from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from core.database import get_db_session
 from core.models.runs import WorkflowRun
 from models.workflow_context import (
     DeviceContext,
@@ -24,16 +22,14 @@ from models.workflow_context import (
     WorkflowContext,
 )
 from services.artifacts import ArtifactService
-from services.general.general_settings_service import GeneralSettingsService
 from services.git.paths import resolve_within_repo
-from services.git.sync import agit_checkout
 from services.parsing import parse_structured_document
 from services.parsing.structured_document import FORMATS as _FORMATS
 from workflow_steps.common.attribute_merge import (
     merge_into_device_attribute,
     validate_merge_destination,
 )
-from workflow_steps.common.git_repository_loader import load_git_repository
+from workflow_steps.common.file_source_root import resolve_source_root
 from workflow_steps.common.step_flags import parse_bool_flag
 
 if TYPE_CHECKING:
@@ -87,26 +83,6 @@ def _parse_config(config: dict[str, Any]) -> _ParsedReadFromFile:
         destination_path=destination_path,
         overwrite=parse_bool_flag(config, "overwrite"),
     )
-
-
-def _resolve_filesystem_root() -> Path:
-    db = get_db_session()
-    try:
-        return GeneralSettingsService(db).resolved_export_directory()
-    finally:
-        db.close()
-
-
-async def _resolve_git_root(
-    git_repository_id: int,
-    loop: asyncio.AbstractEventLoop,
-    stack: AsyncExitStack,
-    *,
-    allow_stale: bool = False,
-) -> Path:
-    """Check the repository out; the lease is held until *stack* closes (C2-06)."""
-    repository = await loop.run_in_executor(None, lambda: load_git_repository(git_repository_id))
-    return await stack.enter_async_context(agit_checkout(repository, allow_stale=allow_stale))
 
 
 def _fail_device(*, device: DeviceContext, node_id: str, code: str, message: str) -> DeviceContext:
@@ -164,19 +140,14 @@ async def execute(
         parsed.destination_path,
     )
 
-    loop = asyncio.get_running_loop()
     async with AsyncExitStack() as stack:
-        if parsed.source == "git":
-            if parsed.git_repository_id is None:
-                raise ValueError(f"{_STEP_ID}: git_repository_id is required when source=git")
-            root = await _resolve_git_root(
-                parsed.git_repository_id,
-                loop,
-                stack,
-                allow_stale=parse_bool_flag(config, "allow_stale_repository"),
-            )
-        else:
-            root = await loop.run_in_executor(None, _resolve_filesystem_root)
+        root = await resolve_source_root(
+            source=parsed.source,
+            git_repository_id=parsed.git_repository_id,
+            stack=stack,
+            allow_stale=parse_bool_flag(config, "allow_stale_repository"),
+            step_id=_STEP_ID,
+        )
 
         target = resolve_within_repo(root, parsed.path)
         if not await asyncio.to_thread(target.is_file):

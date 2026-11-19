@@ -2692,7 +2692,9 @@ plugins:
             list is valid — it means "core fields only". The interfaces group
             brings each interface's name, type, enabled, mac_address, mtu,
             description, status, IP addresses and VLANs, read as
-            nautobot.interfaces[name=Ethernet0/0].mac_address.
+            nautobot.interfaces[name=Ethernet0/0].mac_address. Each tagged
+            and untagged VLAN carries id, name, vid, description, vlan_group,
+            status and locations (a list: a VLAN can have several).
           data_type: string_list
           required: false
           default: []
@@ -5072,6 +5074,121 @@ plugins:
             destination (nested dicts still merge key-by-key; lists are replaced
             wholesale). When false (default), existing keys are kept and only new keys
             are added.
+          data_type: boolean
+          required: false
+          default: false
+
+  - id: enrich-attributes
+    name: Enrich Attributes
+    overview: Add columns of a CSV lookup file to the devices whose attribute matches a key column.
+    description: >
+      Read a CSV file from the local export directory or a Git repository and use one
+      column as a key. A device is matched when the value of one of its own attributes
+      (e.g. nautobot.serial) equals ("match") or contains ("contains") the key of a row,
+      optionally ignoring case. The other columns of the first matching row (file order)
+      are deep-merged into the device's attribute bag at a configurable destination path,
+      so "serial;data" with 131184641;example data adds data.data = "example data" to the
+      device with that serial. The key column itself is not copied and empty cells are
+      skipped. A device without a matching row, or whose attribute has no value (a sealed
+      secret is never decrypted for the comparison), continues unchanged on success.
+      A column that would land on a sealed secret fails that device.
+      The first row is the header; values are trimmed strings. Fan-out note: in git mode
+      the shared local working tree is refreshed once per branch, so concurrent fan-out
+      children reading the same repository can contend on the git lock; prefer filesystem
+      mode, or enrich before fan-out / after fan-in.
+    artifact_type: control_flow
+    palette_category: attributes
+    directory: enrich_attributes
+    enabled: true
+    requires: [identity]
+    produces: [attributes]
+    consumes: []
+    outcomes:
+      - name: success
+      - name: failure
+    metadata:
+      configuration_input:
+        - name: source
+          description: >
+            Where to read the file from: "filesystem" (the default export directory,
+            Settings → General) or "git" (a repository under Settings → Git Repositories).
+          data_type: string
+          required: true
+          default: filesystem
+          example: git
+        - name: git_repository_id
+          description: >
+            ID of a Git repository configured under Settings → Git Repositories.
+            Required when source is git; ignored otherwise.
+          data_type: integer
+          required: false
+          example: 3
+        - name: allow_stale_repository
+          description: >
+            When the git repository cannot be refreshed, read the last local copy instead
+            of failing the step. Off by default. A stale read is recorded as a warning
+            event on the step.
+          data_type: boolean
+          required: false
+          default: false
+        - name: path
+          description: >
+            Relative path of the CSV file within the export directory or the Git
+            repository, e.g. "data/serials.csv". Must stay inside the root.
+          data_type: string
+          required: true
+          example: data/serials.csv
+        - name: delimiter
+          description: >
+            Column separator of the CSV file: a single character, or "tab". Default ";".
+          data_type: string
+          required: false
+          default: ";"
+          example: ","
+        - name: key_column
+          description: >
+            Header name of the CSV column that identifies the device (e.g. "serial").
+            The step fails when the header has no such column.
+          data_type: string
+          required: true
+          example: serial
+        - name: device_attribute_path
+          description: >
+            Dotted attribute path of the device value compared with the key column,
+            e.g. "nautobot.serial". A device where the path has no scalar value is not
+            matched.
+          data_type: string
+          required: true
+          example: nautobot.serial
+        - name: match_mode
+          description: >
+            "match" (default): the device value equals the key. "contains": the device
+            value contains the key (an empty key never matches). With several matching
+            rows the first one in file order is used, so a short key early in the file
+            beats a longer one.
+          data_type: string
+          required: false
+          default: match
+          example: contains
+        - name: case_insensitive
+          description: Compare the device value and the key ignoring case. Off by default.
+          data_type: boolean
+          required: false
+          default: false
+        - name: destination_path
+          description: >
+            Dotted bag[.field...] path the matched row's columns are deep-merged into,
+            e.g. "inventory" or "inventory.asset"; blank means "data". The first segment is the attribute bag
+            name and may not be a reserved namespace (parsed, run_input) or a device.*
+            scalar field.
+          data_type: string
+          required: true
+          default: data
+          example: inventory
+        - name: overwrite
+          description: >
+            When true, a column value replaces a key already present at the destination.
+            When false (default), existing keys are kept and only new keys are added.
           data_type: boolean
           required: false
           default: false

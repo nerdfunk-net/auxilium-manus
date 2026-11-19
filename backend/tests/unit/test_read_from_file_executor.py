@@ -27,11 +27,11 @@ def _mock_export_directory(export_dir: Path):
     service_mock.resolved_export_directory.return_value = export_dir
     with (
         patch(
-            "workflow_steps.read_from_file.executor.get_db_session",
+            "workflow_steps.common.file_source_root.get_db_session",
             return_value=MagicMock(),
         ),
         patch(
-            "workflow_steps.read_from_file.executor.GeneralSettingsService",
+            "workflow_steps.common.file_source_root.GeneralSettingsService",
             return_value=service_mock,
         ),
     ):
@@ -42,7 +42,7 @@ def _mock_export_directory(export_dir: Path):
 def _mock_git_repository(repo_dir: Path):
     with (
         patch(
-            "workflow_steps.read_from_file.executor.load_git_repository",
+            "workflow_steps.common.file_source_root.load_git_repository",
             return_value={
                 "id": 7,
                 "name": "prod-lab",
@@ -50,7 +50,7 @@ def _mock_git_repository(repo_dir: Path):
             },
         ),
         patch(
-            "workflow_steps.read_from_file.executor.agit_checkout",
+            "workflow_steps.common.file_source_root.agit_checkout",
             return_value=acheckout_of(repo_dir),
         ),
     ):

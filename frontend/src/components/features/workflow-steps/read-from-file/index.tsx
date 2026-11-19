@@ -1,10 +1,9 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo } from "react";
 
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -18,8 +17,7 @@ import type {
   PluginConfigPanelProps,
   PluginUIComponent,
 } from "@/components/features/workflows/types/plugin-ui";
-import { GitRepositorySelectDialog } from "@/components/features/workflow-steps/shared/git-repository-select-dialog";
-import { GitRepositoryValue } from "@/components/features/workflow-steps/shared/git-repository-value";
+import { GitSourceConfigPanel } from "@/components/features/workflow-steps/shared/git-source-config-panel";
 
 import {
   FORMAT_OPTIONS,
@@ -30,13 +28,11 @@ import {
 } from "./config";
 import { ReadFromFileHelpPanel } from "./help-panel";
 
-function ReadFromFileConfigPanel({ config, onChange }: PluginConfigPanelProps) {
-  const [gitRepositoryOpen, setGitRepositoryOpen] = useState(false);
+function ReadFromFileConfigPanel(props: PluginConfigPanelProps) {
+  const { config, onChange } = props;
 
   const source = (config.source as ReadFromFileSource) || "filesystem";
   const isGitSource = source === "git";
-  const gitRepositoryId =
-    typeof config.git_repository_id === "number" ? config.git_repository_id : null;
   const path = typeof config.path === "string" ? config.path : "";
   const format: ReadFromFileFormat =
     config.format === "yaml" || config.format === "json" ? config.format : "auto";
@@ -79,36 +75,11 @@ function ReadFromFileConfigPanel({ config, onChange }: PluginConfigPanelProps) {
       </div>
 
       {isGitSource ? (
-        <div className="space-y-1.5">
-          <div className="flex items-center gap-1.5">
-            <span className="font-mono text-xs font-medium">git_repository_id</span>
-            <Badge className="h-4 rounded px-1 text-[10px]" variant="secondary">
-              git
-            </Badge>
-          </div>
-          <GitRepositoryValue repositoryId={gitRepositoryId} />
-          <Button
-            className="h-7 w-full text-xs"
-            size="sm"
-            type="button"
-            variant="outline"
-            onClick={() => setGitRepositoryOpen(true)}
-          >
-            {gitRepositoryId !== null ? "Change repository" : "Choose repository"}
-          </Button>
-          <p className="text-[11px] text-muted-foreground">
-            Uses the same Git repositories as Get from Git / Store Artifact (Settings → Git
-            Repositories).
-          </p>
-
-          <GitRepositorySelectDialog
-            open={gitRepositoryOpen}
-            selectedRepositoryId={gitRepositoryId}
-            idPrefix="read-from-file-git-repository"
-            onClose={() => setGitRepositoryOpen(false)}
-            onSave={(value) => patch({ git_repository_id: value })}
-          />
-        </div>
+        <GitSourceConfigPanel
+          {...props}
+          description="Uses the same Git repositories as Get from Git / Store Artifact (Settings → Git Repositories)."
+          showAllowStaleToggle
+        />
       ) : null}
 
       <div className="space-y-1.5">

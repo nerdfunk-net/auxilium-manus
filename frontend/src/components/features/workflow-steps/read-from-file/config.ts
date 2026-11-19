@@ -34,6 +34,7 @@ export function buildReadFromFileConfig(
     source: config.source === "git" ? "git" : "filesystem",
     git_repository_id:
       typeof config.git_repository_id === "number" ? config.git_repository_id : null,
+    allow_stale_repository: config.allow_stale_repository === true,
     path: typeof config.path === "string" ? config.path : "",
     format:
       config.format === "yaml" || config.format === "json" ? config.format : "auto",

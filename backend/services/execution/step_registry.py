@@ -53,6 +53,7 @@ from workflow_steps.decrypt_attribute.executor import execute as decrypt_attribu
 from workflow_steps.deploy_rendered_template.executor import execute as deploy_rendered_template
 from workflow_steps.discover_network.executor import execute as discover_network
 from workflow_steps.encrypt_attribute.executor import execute as encrypt_attribute
+from workflow_steps.enrich_attributes.executor import execute as enrich_attributes
 from workflow_steps.exists_in_nautobot.executor import execute as exists_in_nautobot
 from workflow_steps.fan_in.executor import execute as fan_in
 from workflow_steps.filter_output.executor import execute as filter_output
@@ -186,6 +187,7 @@ STEP_REGISTRY: dict[str, StepExecutor] = {
     "get-device-configs": get_device_configs,
     "read-config": read_config,
     "read-from-file": read_from_file,
+    "enrich-attributes": enrich_attributes,
     "parse-cisco-config": parse_cisco_config,
     "add-pyats-testbed": add_pyats_testbed,
     "get-pyats-running-config": get_pyats_running_config,

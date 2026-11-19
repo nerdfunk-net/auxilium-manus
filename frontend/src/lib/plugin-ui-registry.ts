@@ -40,6 +40,7 @@ const PLUGIN_UI_LOADERS: Record<string, PluginUILoader> = {
   "get-device-configs": () => import("@/components/features/workflow-steps/get-device-configs").then((m) => m.GetDeviceConfigsPlugin),
   "read-config": () => import("@/components/features/workflow-steps/read-config").then((m) => m.ReadConfigPlugin),
   "read-from-file": () => import("@/components/features/workflow-steps/read-from-file").then((m) => m.ReadFromFilePlugin),
+  "enrich-attributes": () => import("@/components/features/workflow-steps/enrich-attributes").then((m) => m.EnrichAttributesPlugin),
   "parse-cisco-config": () => import("@/components/features/workflow-steps/parse-cisco-config").then((m) => m.ParseCiscoConfigPlugin),
   "add-pyats-testbed": () => import("@/components/features/workflow-steps/add-pyats-testbed").then((m) => m.AddPyatsTestbedPlugin),
   "get-pyats-running-config": () => import("@/components/features/workflow-steps/get-pyats-running-config").then((m) => m.GetPyatsRunningConfigPlugin),
