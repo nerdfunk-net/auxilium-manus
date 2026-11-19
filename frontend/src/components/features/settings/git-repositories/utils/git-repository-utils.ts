@@ -7,6 +7,9 @@ export const GIT_CATEGORIES = [
   },
   { value: "workflows", label: "Workflow Version Control" },
   { value: "device_configs", label: "Device configs" },
+  // Read by the Ask the Net file comparison (doc/AI_TOOL_CHAIN.md §61): only these two categories.
+  { value: "csv_imports", label: "CSV files (read by Ask the Net)" },
+  { value: "csv_exports", label: "CSV exports (read by Ask the Net)" },
   { value: "cicd_pipeline", label: "CI/CD Pipeline" },
   { value: "batfish", label: "Batfish" },
 ] as const;

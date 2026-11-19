@@ -540,6 +540,14 @@ def test_reader_does_not_return_another_devices_file_through_a_link(tmp_path: Pa
         _read(_reader(root))
 
 
+def test_reader_refuses_a_symlinked_directory_in_the_path(tmp_path: Path) -> None:
+    root = _git_repo(tmp_path, {"real/LAB.running.cfg": "hostname OTHER\n"})
+    os.symlink(root / "real", root / "Berlin")
+
+    with pytest.raises(cb.ConfigBackupError, match="symbolic link"):
+        _read(_reader(root))
+
+
 def test_a_file_over_the_cap_is_cut_on_a_line_and_flagged(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setattr(cb, "MAX_CONFIG_CHARS", 100)
     path = tmp_path / "big.cfg"

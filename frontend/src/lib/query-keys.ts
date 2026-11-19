@@ -101,6 +101,7 @@ export const queryKeys = {
     conversations: () => [...queryKeys.ai.all, "conversations"] as const,
     conversationList: (surface: string, subjectKey: string) =>
       [...queryKeys.ai.conversations(), "list", surface, subjectKey] as const,
+    compareResult: (handle: string) => [...queryKeys.ai.all, "compare-result", handle] as const,
   },
   general: {
     all: ["general"] as const,

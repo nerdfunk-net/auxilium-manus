@@ -1122,3 +1122,15 @@ equals the site-membership `instanceUuid` (else every overlay device is also lis
 health, handoffs, transits); floors and `/dna/data/api/v1/siteHealthSummaries` (not read); IP pools per virtual network; border settings (`borderDeviceSettings`). One unexplained one-off failure of
 `test_catalyst_center_router.py` was seen once in a subset run (passed on every re-run).
 
+## `enrich-attributes` step and the shared file-source root
+
+Built 2026-11-19, unit-tested only (backend 41 + helper 4 tests, panels tested with a mocked picker). Open:
+- **Live run.** A real workflow with Nautobot devices and a CSV in the export directory and in a git repository; the attribute picker dialog in the browser; a stale read (`allow_stale_repository`) showing its warning event.
+- **Strict git readers.** `set-default-attributes` (`workflow_steps/common/git_yaml_source.py`) and `get-git-devices` (`services/git/device_service.py::fetch_devices`) call `git_checkout` without `allow_stale`; the option would need an executor flag, `get_config`, a registry entry and the `GitSourceConfigPanel` switch.
+- **`get-from-config`** still has its own `_resolve_git_root` (it returns more than the root); move it to `file_source_root.py` if that shape can be shared.
+- **`read-from-file`** has the same sealed-secret and empty-value merge behaviour the `enrich-attributes` review fixed (a column or key landing on a sealed envelope with `overwrite` on; `git_repository_id` coerced with `int()`); not changed, since the step was out of scope.
+
+## Ask the Net: compare a file with Nautobot (§61)
+
+Built 2026-11-19, unit-tested (backend, library, frontend). **Confirmed live by the product owner the same day:** a real model, a real Gitea repository and Nautobot gave the correct lists in both directions for `serial` / `match` (no details recorded). Open: the CSV download and "Try again" in a browser; fields other than `serial` and the `contains` mode on real data; a real Gitea repository of category "CSV files" (`csv_imports`, set in Settings -> Git Repositories; the dialog option is unit-tested, not browser-checked) with a real file (delimiter, header names, size); the 5000-device cap against the real Nautobot (raise `max_items` for this tool if it bites); `software_version` and the pushed-down device filters on the real Nautobot; how stacks and devices with several serials look (one serial per device in Nautobot, a stack's members are separate devices); the MCP server tests (`mcp/nautobot`, own virtualenv) after the `list_devices` filter refactor in `libs/nautobot_read`. Decided against for now: letting the model read values (needs the data switches and a second tool), other sources than Nautobot, XLSX files.
+

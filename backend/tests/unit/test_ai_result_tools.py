@@ -108,6 +108,32 @@ class ResultToolsTests(unittest.IsolatedAsyncioTestCase):
             )
             self.assertFalse(tool.name.startswith(("run", "trigger", "execute", "start", "delete")))
 
+    # -- model-hidden results (doc/AI_TOOL_CHAIN.md §61) ------------------------------------
+
+    async def test_a_model_hidden_result_cannot_be_read_by_any_result_tool(self) -> None:
+        hidden = await self.store.put(
+            7,
+            StoredResult(
+                kind="compare_result",
+                data_class=DataClass.CONTENT,
+                rows=[{"side": "only_in_file", "value": "SN-HIDDEN"}],
+                meta={"model_hidden": True},
+            ),
+        )
+        # every switch on: the data class would allow it, the flag must still refuse
+        box = self._toolbox(user_id=7, sharing=SharingPolicy(inventory=True, content=True))
+        unknown, _ = await self._call("query_result", box, handle="res_000000000000")
+        for name, args in (
+            ("query_result", {}),
+            ("fetch_slice", {}),
+            ("diff_results", {"handle_b": self.handle}),
+        ):
+            key = "handle_a" if name == "diff_results" else "handle"
+            out, _ = await self._call(name, box, **{key: hidden}, **args)
+            self.assertTrue(out.is_error, name)
+            self.assertEqual(out.content, unknown.content, name)  # same as an expired handle
+            self.assertNotIn("SN-HIDDEN", out.content)
+
     # -- query_result ------------------------------------------------------------------------
 
     async def test_query_without_filters_returns_a_bounded_envelope(self) -> None:

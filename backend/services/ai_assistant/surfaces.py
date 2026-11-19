@@ -25,6 +25,7 @@ from services.ai_assistant.config_backup import ConfigBackupReader
 from services.ai_assistant.data_sharing import DataClass, SharingPolicy
 from services.ai_assistant.device_access import DeviceResolver
 from services.ai_assistant.dns_resolver import DnsResolver
+from services.ai_assistant.file_compare_reader import FileCompareReader
 from services.ai_assistant.inventory_filter import describe_condition_tree, field_data_class
 from services.ai_assistant.output_parser import GenieParser
 from services.ai_assistant.prompts import (
@@ -35,6 +36,7 @@ from services.ai_assistant.prompts import (
     CONFIG_BACKUP_PROMPT,
     DEVICE_COMMANDS_PROMPT,
     DNS_PROMPT,
+    FILE_COMPARE_PROMPT,
     HOST_LOOKUP_PROMPT,
     INVENTORY_PROMPT,
     LEARN_PROMPT,
@@ -93,6 +95,10 @@ from services.ai_assistant.tools.device_tools import (
     build_device_tools,
 )
 from services.ai_assistant.tools.dns_tools import DNS_RESOLVER_KEY, build_dns_tools
+from services.ai_assistant.tools.file_compare_tools import (
+    FILE_COMPARE_READER_KEY,
+    build_file_compare_tools,
+)
 from services.ai_assistant.tools.glossary_tools import (
     GLOSSARY_TOOLS,
     STEP_ALIAS_TOOLS,
@@ -468,6 +474,7 @@ def build_general_session(
     dns_resolver: DnsResolver | None = None,
     report_reader: GeneralReportReader | None = None,
     can_propose_reports: bool = False,
+    file_compare_reader: FileCompareReader | None = None,
 ) -> AssistantSession:
     """Ask the Net: read-only questions about the network (doc/AI_TOOL_CHAIN.md §10a, §20.3).
 
@@ -528,6 +535,13 @@ def build_general_session(
     if nautobot_reader is not None:
         extras[NAUTOBOT_READER_KEY] = nautobot_reader
         tools.extend(build_nautobot_tools())
+    # Compare a CSV file in git with a Nautobot field (doc/AI_TOOL_CHAIN.md §61). The model gets
+    # counts only; the card needs the result store, so without one the tools are not offered.
+    # Independent of Batfish and of the data switches (the model never reads a value).
+    if file_compare_reader is not None and store is not None:
+        extras[FILE_COMPARE_READER_KEY] = file_compare_reader
+        extras.setdefault(RESULT_STORE_KEY, store)
+        tools.extend(build_file_compare_tools())
     # Cisco Catalyst Center reads (doc/AI_TOOL_CHAIN.md §42); independent of Batfish and Nautobot.
     if catalyst_reader is not None:
         extras[CATALYST_READER_KEY] = catalyst_reader
@@ -591,6 +605,8 @@ def build_general_session(
         parts.append(CONFIG_BACKUP_PROMPT)
     if nautobot_reader is not None:
         parts.append(NAUTOBOT_PROMPT)
+    if file_compare_reader is not None and store is not None:
+        parts.append(FILE_COMPARE_PROMPT)
     if catalyst_reader is not None:
         parts.append(CATALYST_PROMPT)
     if aci_reader is not None:

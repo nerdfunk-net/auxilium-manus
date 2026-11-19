@@ -117,12 +117,24 @@ class FakeNautobot:
         self.count_result: Count | NautobotError = Count(137, exact=True)
         self.location_lookup: list[dict[str, Any]] = []
         self.available: Any = [{"address": f"10.0.0.{n}/24"} for n in range(0, 12)]
+        self.all_calls: list[dict[str, Any]] = []
+        self.too_many_devices = False
+        self.devices_error: NautobotError | None = None
 
     async def list_all(self, root, selection, filters=None, **_):
         if self.fail_with:
             raise self.fail_with
         if root == "locations" and self.too_many_locations:
             raise TooManyRowsError("Nautobot has more than 5000 locations; too many to load.")
+        if root == "devices":
+            self.all_calls.append(
+                {"selection": selection, "filters": dict(filters or {}), "options": dict(_)}
+            )
+            if self.devices_error:
+                raise self.devices_error
+            if self.too_many_devices:
+                raise TooManyRowsError("Nautobot has more than 5000 devices; too many to load.")
+            return self.list_rows.get("devices", [])
         if root == "locations":
             return LOCATION_ROWS
         if root == "virtual_chassis" and self.vc_names is not None:

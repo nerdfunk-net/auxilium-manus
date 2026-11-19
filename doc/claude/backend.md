@@ -102,6 +102,7 @@ or uses a `GitRepository` row.
 | `backend/services/git/auth.py` | `GitAuthenticationService`: resolves `credential_name` → username/token/ssh_key from `Credential` table. **Only `visibility="global"` credentials resolve in background jobs** |
 | `backend/services/git/sync.py` | `git_checkout` / `agit_checkout` (pulls strictly unless `allow_stale`) and `remove_and_clone`: "ensure local working tree exists" helpers |
 | `backend/services/git/repo_lock.py` | `git_repo_lock(git_repository_id)` — per-repository Redis advisory lock **every git-mutating step must hold** across its `GitService` calls |
+| `backend/workflow_steps/common/file_source_root.py` | `resolve_source_root(source=..., git_repository_id=..., stack=..., allow_stale=..., step_id=...)` — the root a **file-reading** step reads from (export directory or git checkout, lease held until the caller's `AsyncExitStack` closes); used by `read-from-file`, `read-config`, `enrich-attributes` |
 | `backend/workflow_steps/common/git_repository_loader.py` | `load_git_repository(repository_id: int)` — the **one** resolver every workflow step uses to turn a `git_repository_id` config value into a `GitService`-ready dict |
 
 ### Workflow Steps and Git
@@ -112,14 +113,17 @@ Deploys of a change request start with `from-change-request`, which holds the re
 checks out `manus/cr-{id}` pinned to the reviewed commit and restores the configured branch
 (the old `use_change_request_branch` flag was removed). Every use of the shared working tree is a
 bracket: `services/git/tree_scope.py` (`git_work_tree`, `git_branch_scope`). Read steps pull
-strictly (`allow_stale_repository` opts out). See `doc/CICD_PIPELINE.md`.
+strictly (`allow_stale_repository` opts out). A step that reads a file from the export directory or a repository
+resolves the root with `file_source_root.resolve_source_root`, not a private copy. See `doc/CICD_PIPELINE.md`.
 
 ### Frontend
 Settings → **Git Repositories**
 (`frontend/src/components/features/settings/components/git-repositories-settings-canvas.tsx`)
 is the only UI for creating/editing repositories.
 `workflow-steps/shared/git-repository-select-dialog.tsx` (`GitRepositorySelectDialog`) is
-the only picker workflow steps use.
+the only picker workflow steps use. `workflow-steps/shared/git-source-config-panel.tsx` (`GitSourceConfigPanel`) is the
+repository picker plus the `allow_stale_repository` switch (`showAllowStaleToggle`) for a read step; the step's config
+builder must keep `allow_stale_repository`, or the next edit in the panel drops it.
 
 ### Git Repository DO / DON'T
 - ✅ Add a `GitRepository` row for any new git-backed feature; reuse an existing `GitCategory` or extend the enum
@@ -129,6 +133,7 @@ the only picker workflow steps use.
 - ❌ Add a `sources.<type>.*`-style Settings KV entry for git configuration
 - ❌ Store a git source as a bare string id/URL in workflow step config — always `git_repository_id: int`
 - ❌ Write a second "resolve git config" helper — extend `git_repository_loader.py` instead
+- ❌ Copy `_resolve_git_root` / `_resolve_filesystem_root` into a file-reading step — use `file_source_root.py`
 
 ---
 

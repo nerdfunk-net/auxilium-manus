@@ -41,6 +41,7 @@ class StoredProposal(BaseModel):
         "inventory",
         "device_command",
         "config_download",
+        "compare_result",
         "workflow_run",
         "report_run",
         "workflow_notes",

@@ -31,6 +31,7 @@ import {
   useAssistantSessionStore,
 } from "../store/assistant-session-store";
 import { buildChatHistory } from "../utils/chat-history";
+import { fieldLabel, parseCompareProposal } from "../utils/compare-result";
 import { RESULT_HANDLE } from "../utils/config-download";
 import { canvasFingerprint } from "../utils/canvas-fingerprint";
 import { filterTreeFingerprint } from "../utils/filter-tree-fingerprint";
@@ -580,6 +581,19 @@ export function useAssistantChat({
                     proposal: {
                       kind: "config_download",
                       summary: `Download ${parsed.configKind} config of ${parsed.device}`,
+                      ...parsed,
+                      state: "pending",
+                    },
+                  }));
+                }
+              } else if (proposal.kind === "compare_result") {
+                const parsed = parseCompareProposal(proposal);
+                if (parsed) {
+                  patchAssistant(assistantId, (m) => ({
+                    ...m,
+                    proposal: {
+                      kind: "compare_result",
+                      summary: `Compare ${parsed.file} with the ${fieldLabel(parsed.nautobotField)} in Nautobot`,
                       ...parsed,
                       state: "pending",
                     },

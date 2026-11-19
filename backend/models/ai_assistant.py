@@ -349,6 +349,26 @@ class ParsedRowsResponse(BaseModel):
     rows: list[dict[str, Any]]
 
 
+class CompareResultResponse(BaseModel):
+    """The two lists of a file comparison, for the card and its CSV download (§61).
+
+    The values are never sent to the model: they are fetched here by the user's browser.
+    """
+
+    repository: str
+    file: str
+    key_column: str
+    nautobot_field: str
+    match_mode: str
+    case_insensitive: bool
+    filters: dict[str, Any]
+    counts: dict[str, int]
+    columns: list[str]
+    partial: bool
+    kept: dict[str, int] | None = None
+    rows: list[dict[str, Any]]
+
+
 class AiProxySettingsUpdate(BaseModel):
     """Full replacement of the global AI proxy settings (admin only)."""
 

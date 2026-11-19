@@ -654,6 +654,66 @@ describe("useAssistantChat", () => {
     });
   });
 
+  describe("compare result proposals", () => {
+    const payload = {
+      kind: "compare_result",
+      handle: "res_0123456789ab",
+      repository: "Gitea CSV",
+      file: "data/compare.csv",
+      key_column: "serial",
+      nautobot_field: "serial",
+      match_mode: "match",
+      case_insensitive: false,
+      filters: {},
+      counts: { only_in_file: 2, only_in_nautobot: 1 },
+      partial: false,
+      inline_limit: 50,
+    };
+
+    it("keeps the handle and the counts, never any value, for the card", async () => {
+      fetchMock.mockResolvedValue(
+        sseResponse([frame("proposal", payload), frame("done", {})]),
+      );
+      const { result } = renderHook(() =>
+        useAssistantChat({ sessionKey: `${KEY}-compare` }),
+      );
+
+      await send(result, "Compare compare.csv with Nautobot");
+
+      expect(result.current.messages[1].proposal).toEqual({
+        kind: "compare_result",
+        summary: "Compare data/compare.csv with the serial number in Nautobot",
+        handle: "res_0123456789ab",
+        repository: "Gitea CSV",
+        file: "data/compare.csv",
+        keyColumn: "serial",
+        nautobotField: "serial",
+        matchMode: "match",
+        caseInsensitive: false,
+        counts: { only_in_file: 2, only_in_nautobot: 1 },
+        partial: false,
+        inlineLimit: 50,
+        state: "pending",
+      });
+    });
+
+    it("ignores a payload with a malformed handle", async () => {
+      fetchMock.mockResolvedValue(
+        sseResponse([
+          frame("proposal", { ...payload, handle: "../res_0123456789ab" }),
+          frame("done", {}),
+        ]),
+      );
+      const { result } = renderHook(() =>
+        useAssistantChat({ sessionKey: `${KEY}-compare-bad` }),
+      );
+
+      await send(result, "Compare compare.csv with Nautobot");
+
+      expect(result.current.messages[1].proposal).toBeUndefined();
+    });
+  });
+
   describe("device command proposals", () => {
     const payload = {
       kind: "device_command",

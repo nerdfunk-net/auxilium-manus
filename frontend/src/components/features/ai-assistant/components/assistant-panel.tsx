@@ -53,6 +53,7 @@ import {
 } from "../utils/conversation-mapping";
 import { AssistantMessageText } from "./assistant-message-text";
 import { SavedConversationsDialog } from "./saved-conversations-dialog";
+import { CompareResultCard } from "./compare-result-card";
 import { ConfigDownloadCard } from "./config-download-card";
 import { DeviceCommandProposalCard } from "./device-command-proposal-card";
 import { ReportRunProposalCard } from "./report-run-proposal-card";
@@ -172,6 +173,8 @@ const TOOL_LABELS: Record<string, string> = {
   search_config_backups: "Searching config backups",
   get_config_section: "Reading config sections",
   offer_config_download: "Preparing a config download",
+  list_file_repositories: "Looking for CSV repositories",
+  compare_file_with_nautobot: "Comparing a file with Nautobot",
   list_playbooks: "Looking for a matching playbook",
   get_playbook: "Reading a playbook",
   list_batfish_networks: "Listing Batfish networks",
@@ -583,6 +586,9 @@ export function AssistantPanel({
         )}
       {message.proposal?.kind === "config_download" && (
         <ConfigDownloadCard proposal={message.proposal} />
+      )}
+      {message.proposal?.kind === "compare_result" && (
+        <CompareResultCard proposal={message.proposal} />
       )}
       {message.proposal?.kind === "workflow_run" && (
         <WorkflowRunProposalCard

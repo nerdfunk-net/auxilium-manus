@@ -9,8 +9,6 @@ deep-merged into the device's attribute bag at ``destination_path``.
 from __future__ import annotations
 
 import asyncio
-import csv
-import io
 import logging
 from contextlib import AsyncExitStack
 from dataclasses import dataclass
@@ -27,6 +25,14 @@ from models.workflow_context import (
     WorkflowContext,
 )
 from services.artifacts import ArtifactService
+from services.csv_lookup import (
+    MAX_FILE_BYTES,
+    CsvLookupError,
+    CsvRow,
+    RowIndex,
+    parse_csv_rows,
+    parse_delimiter,
+)
 from services.git.paths import is_contained_regular_file, resolve_within_repo
 from services.workflow_context.attribute_path import resolve_device_attribute
 from services.workflow_context.secret_fields import REDACTED_PLACEHOLDER, is_sealed_secret
@@ -45,9 +51,6 @@ logger = logging.getLogger(__name__)
 _STEP_ID = "enrich-attributes"
 _SOURCES = frozenset({"filesystem", "git"})
 _MATCH_MODES = frozenset({"match", "contains"})
-_MAX_FILE_BYTES = 10 * 1024 * 1024
-_MAX_ROWS = 200_000
-_DELIMITER_WORDS = {"tab": "\t", "\\t": "\t"}
 # The registry and get_config() advertise this default; validation accepts a blank field.
 _DEFAULT_DESTINATION = "data"
 
@@ -66,18 +69,11 @@ class _Parsed:
     overwrite: bool
 
 
-@dataclass(frozen=True)
-class _Row:
-    key: str
-    values: dict[str, str]
-
-
-def _parse_delimiter(raw: Any) -> str:
-    text = ";" if raw is None or raw == "" else str(raw)
-    text = _DELIMITER_WORDS.get(text.strip().lower(), text)
-    if len(text) != 1:
-        raise ValueError(f"{_STEP_ID}: delimiter must be a single character (or 'tab')")
-    return text
+def _delimiter(raw: Any) -> str:
+    try:
+        return parse_delimiter(raw)
+    except CsvLookupError as exc:
+        raise ValueError(f"{_STEP_ID}: {exc}") from exc
 
 
 def _parse_repository_id(raw: Any) -> int | None:
@@ -127,7 +123,7 @@ def _parse_config(config: dict[str, Any]) -> _Parsed:
         source=source,
         git_repository_id=git_repository_id,
         path=path,
-        delimiter=_parse_delimiter(config.get("delimiter")),
+        delimiter=_delimiter(config.get("delimiter")),
         key_column=key_column,
         device_attribute_path=device_attribute_path,
         match_mode=match_mode,
@@ -135,77 +131,6 @@ def _parse_config(config: dict[str, Any]) -> _Parsed:
         destination_path=destination_path,
         overwrite=parse_bool_flag(config, "overwrite"),
     )
-
-
-def _normalize(value: str, *, case_insensitive: bool) -> str:
-    return value.casefold() if case_insensitive else value
-
-
-def parse_csv_rows(text: str, parsed: _Parsed) -> list[_Row]:
-    """Parse *text* into rows keyed by ``parsed.key_column`` (values trimmed strings)."""
-    reader = csv.reader(io.StringIO(text.lstrip("﻿"), newline=""), delimiter=parsed.delimiter)
-    try:
-        header = next(reader)
-    except StopIteration:
-        raise ValueError(f"{_STEP_ID}: {parsed.path} is empty") from None
-    except csv.Error as exc:
-        raise ValueError(f"{_STEP_ID}: invalid CSV: {exc}") from exc
-
-    columns = [name.strip() for name in header]
-    if len(set(columns)) != len(columns):
-        raise ValueError(f"{_STEP_ID}: duplicate column names in the CSV header")
-    if parsed.key_column not in columns:
-        raise ValueError(
-            f"{_STEP_ID}: key column {parsed.key_column!r} not found in header {columns}"
-        )
-    key_index = columns.index(parsed.key_column)
-
-    rows: list[_Row] = []
-    try:
-        for record in reader:
-            if not any(cell.strip() for cell in record):
-                continue  # blank line
-            if len(rows) >= _MAX_ROWS:
-                raise ValueError(f"{_STEP_ID}: more than {_MAX_ROWS} rows in {parsed.path}")
-            cells = [cell.strip() for cell in record]
-            cells += [""] * (len(columns) - len(cells))
-            # An empty cell adds nothing: with overwrite off, an "" key would block a real value.
-            values = {
-                name: cells[i]
-                for i, name in enumerate(columns)
-                if i != key_index and name and cells[i]
-            }
-            rows.append(_Row(key=cells[key_index], values=values))
-    except csv.Error as exc:
-        raise ValueError(f"{_STEP_ID}: invalid CSV: {exc}") from exc
-    return rows
-
-
-class _RowIndex:
-    """First-match lookup: dict for ``match``, ordered scan for ``contains``."""
-
-    def __init__(self, rows: list[_Row], parsed: _Parsed) -> None:
-        self._contains = parsed.match_mode == "contains"
-        self._ci = parsed.case_insensitive
-        self._ordered: list[tuple[str, _Row]] = []
-        self._exact: dict[str, _Row] = {}
-        self.duplicates = 0
-        for row in rows:
-            if not row.key:
-                continue
-            key = _normalize(row.key, case_insensitive=self._ci)
-            self._ordered.append((key, row))
-            if key in self._exact:
-                self.duplicates += 1
-            else:
-                self._exact[key] = row
-
-    def find(self, device_value: str) -> _Row | None:
-        """The first matching row in file order (``contains`` stops at the first hit)."""
-        value = _normalize(device_value, case_insensitive=self._ci)
-        if not self._contains:
-            return self._exact.get(value)
-        return next((row for key, row in self._ordered if key in value), None)
 
 
 def _fail_device(
@@ -256,7 +181,7 @@ def _is_regular_file(root: Path, relative: str) -> bool:
     return is_contained_regular_file(root, Path(root).resolve() / relative)
 
 
-async def _load_rows(parsed: _Parsed, config: dict[str, Any]) -> list[_Row]:
+async def _load_rows(parsed: _Parsed, config: dict[str, Any]) -> list[CsvRow]:
     async with AsyncExitStack() as stack:
         root = await resolve_source_root(
             source=parsed.source,
@@ -270,10 +195,18 @@ async def _load_rows(parsed: _Parsed, config: dict[str, Any]) -> list[_Row]:
         if not await asyncio.to_thread(_is_regular_file, root, parsed.path):
             # Also reached for a symlink: the hardened repository readers never follow one.
             raise FileNotFoundError(f"{_STEP_ID}: file not found: {parsed.path}")
-        if (await asyncio.to_thread(target.stat)).st_size > _MAX_FILE_BYTES:
-            raise ValueError(f"{_STEP_ID}: {parsed.path} is larger than {_MAX_FILE_BYTES} bytes")
+        if (await asyncio.to_thread(target.stat)).st_size > MAX_FILE_BYTES:
+            raise ValueError(f"{_STEP_ID}: {parsed.path} is larger than {MAX_FILE_BYTES} bytes")
         text = await asyncio.to_thread(target.read_text, encoding="utf-8")
-    return parse_csv_rows(text, parsed)
+    try:
+        return parse_csv_rows(
+            text,
+            key_column=parsed.key_column,
+            delimiter=parsed.delimiter,
+            label=parsed.path,
+        )
+    except CsvLookupError as exc:
+        raise ValueError(f"{_STEP_ID}: {exc}") from exc
 
 
 async def execute(
@@ -293,7 +226,11 @@ async def execute(
         return [StepOutcome(name="success", context=context)]
 
     rows = await _load_rows(parsed, config)
-    index = _RowIndex(rows, parsed)
+    index = RowIndex(
+        rows,
+        contains=parsed.match_mode == "contains",
+        case_insensitive=parsed.case_insensitive,
+    )
     if index.duplicates and parsed.match_mode == "match":
         logger.warning(
             "enrich-attributes duplicate keys run_id=%s node_id=%s duplicates=%d (first row wins)",

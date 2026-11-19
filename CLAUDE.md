@@ -34,7 +34,8 @@ the **Nautobot MCP server** (`mcp/nautobot/`) and the Nautobot reads of Ask the 
 `doc/WORKFLOW-STEPS.md` "Discovering the network" and `doc/AI_TOOL_CHAIN.md` §52 before changing it;
 **client data** (the `collect-client-data` step and its Catalyst Center twin `get-catalyst-center-client-data`, tables `client_*`, `GET /client-data`, the Ask the Net tools `find_client` & co, permission `client_data:read`) — read `doc/CLIENT_DATA.md` and §48 of `doc/AI_TOOL_CHAIN.md` before changing it;
 **reports from Ask the Net** (the `nautobot` report source, `propose_report` and its signed confirm token, ad-hoc snapshots, CSV export, the Reports-page assistant following the source picker) —
-read §53 of `doc/AI_TOOL_CHAIN.md` and `doc/REPORTS.md` before changing `services/reports/sources/`, `services/reports/csv_export.py`, `services/ai_assistant/tools/report_*`, `report_run_*` or `report_reader.py`
+read §53 of `doc/AI_TOOL_CHAIN.md` and `doc/REPORTS.md` before changing `services/reports/sources/`, `services/reports/csv_export.py`, `services/ai_assistant/tools/report_*`, `report_run_*` or `report_reader.py`;
+**file comparison from Ask the Net** (`compare_file_with_nautobot`, the shared CSV core `services/csv_lookup/` that the `enrich-attributes` step also uses, `services/git/safe_read.py`, the `compare_result` card) — read §61 of `doc/AI_TOOL_CHAIN.md` before changing it (the model must never read a value of the comparison)
 
 ## Architecture
 

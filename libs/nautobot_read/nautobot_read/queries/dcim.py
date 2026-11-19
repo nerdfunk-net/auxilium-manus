@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from nautobot_read import networks
+from nautobot_read.client import DEFAULT_MAX_ITEMS, NautobotError, TooManyRowsError
 from nautobot_read.context import QueryContext
 from nautobot_read.queries.common import (
     DEFAULT_LIMIT,
@@ -123,6 +124,42 @@ def _interface_item(row: dict[str, Any]) -> dict[str, Any]:
     return item
 
 
+async def _device_filters(
+    ctx: QueryContext,
+    directory: LocationDirectory | None,
+    *,
+    location: str | None,
+    role: str | None,
+    status: str | None,
+    tag: str | None,
+    device_type: str | None,
+    platform: str | None,
+) -> tuple[dict[str, list[str]], dict[str, Any]]:
+    """The GraphQL filters and their readable form for the device filters shared by the queries.
+
+    Every name is resolved against a vocabulary first (Nautobot fails the whole query on an
+    unknown value); a location includes its child locations.
+    """
+    vocabularies = ctx.vocabularies
+    filters: dict[str, list[str]] = {}
+    applied: dict[str, Any] = {}
+    if location:
+        location_id, location_label = await resolve_location(ctx, location, directory)
+        filters["location"], applied["location"] = [location_id], location_label
+    named = (
+        ("role", "role", role, roles_spec("dcim.device")),
+        ("status", "status", status, statuses_spec("dcim.device")),
+        ("tag", "tags", tag, tags_spec("dcim.device")),
+        ("device_type", "device_type", device_type, DEVICE_TYPES_SPEC),
+        ("platform", "platform", platform, PLATFORMS_SPEC),
+    )
+    for param, filter_name, value, spec in named:
+        if value:
+            canonical = (await vocabularies.get(spec)).resolve(value)
+            filters[filter_name], applied[param] = [canonical], canonical
+    return filters, applied
+
+
 async def list_devices(
     ctx: QueryContext,
     *,
@@ -138,30 +175,102 @@ async def list_devices(
 ) -> dict[str, Any]:
     """Devices, filtered. Filters combine with AND; a location includes its child locations."""
     check_paging(limit, offset)
-    vocabularies = ctx.vocabularies
-    filters: dict[str, list[str]] = {}
-    applied: dict[str, Any] = {}
     directory = await directory_or_none(ctx)
-    if location:
-        location_id, location_label = await resolve_location(ctx, location, directory)
-        filters["location"], applied["location"] = [location_id], location_label
-    named = (
-        ("role", "role", role, roles_spec("dcim.device")),
-        ("status", "status", status, statuses_spec("dcim.device")),
-        ("tag", "tags", tag, tags_spec("dcim.device")),
-        ("device_type", "device_type", device_type, DEVICE_TYPES_SPEC),
-        ("platform", "platform", platform, PLATFORMS_SPEC),
+    filters, applied = await _device_filters(
+        ctx, directory, location=location, role=role, status=status, tag=tag,
+        device_type=device_type, platform=platform,
     )
-    for param, filter_name, value, spec in named:
-        if value:
-            canonical = (await vocabularies.get(spec)).resolve(value)
-            filters[filter_name], applied[param] = [canonical], canonical
     if name_contains:
         filters["name__ic"], applied["name_contains"] = [name_contains], name_contains
     return await list_with_total(
         ctx, "devices", DEVICE_SELECTION, filters, limit=limit, offset=offset,
         to_item=lambda row: device_item(row, directory), applied=applied,
     )
+
+
+# What ``list_device_values`` can read from every device: the extra GraphQL selection per field.
+DEVICE_VALUE_FIELDS: dict[str, str] = {
+    "serial": "serial",
+    "name": "",
+    "primary_ip4": "primary_ip4 { address }",
+    "location": "",
+    "software_version": "software_version { version }",
+}
+_DEVICE_VALUE_BASE = "id name location { id name }"
+MAX_DEVICE_VALUES_CAP = 100_000
+
+
+def _device_value(row: dict[str, Any], field: str, label: str) -> str | None:
+    if field == "serial":
+        return row.get("serial") or None
+    if field == "name":
+        return row.get("name") or None
+    if field == "primary_ip4":
+        return (row.get("primary_ip4") or {}).get("address")
+    if field == "location":
+        return label or None
+    return (row.get("software_version") or {}).get("version")
+
+
+async def list_device_values(
+    ctx: QueryContext,
+    *,
+    field: str,
+    location: str | None = None,
+    role: str | None = None,
+    status: str | None = None,
+    tag: str | None = None,
+    device_type: str | None = None,
+    platform: str | None = None,
+    max_items: int = DEFAULT_MAX_ITEMS,
+) -> dict[str, Any]:
+    """Every matching device with one value (``field``), for comparing against another list.
+
+    Unlike ``list_devices`` it is not a page: it collects all rows (up to ``max_items``) with a
+    lean selection, because a comparison needs the whole set. A device whose field is empty has
+    ``value: null``. Raises ``TooManyRowsError`` (with a message that asks for a filter) above
+    ``max_items``.
+    """
+    if field not in DEVICE_VALUE_FIELDS:
+        raise networks.InvalidInputError(
+            f"Unknown field {field!r}; use one of: {', '.join(DEVICE_VALUE_FIELDS)}."
+        )
+    if not 1 <= max_items <= MAX_DEVICE_VALUES_CAP:
+        raise networks.InvalidInputError(
+            f"max_items must be between 1 and {MAX_DEVICE_VALUES_CAP}."
+        )
+    directory = await directory_or_none(ctx)
+    filters, applied = await _device_filters(
+        ctx, directory, location=location, role=role, status=status, tag=tag,
+        device_type=device_type, platform=platform,
+    )
+    selection = f"{_DEVICE_VALUE_BASE} {DEVICE_VALUE_FIELDS[field]}".strip()
+    try:
+        rows = await ctx.client.list_all("devices", selection, filters, max_items=max_items)
+    except TooManyRowsError as exc:
+        raise TooManyRowsError(
+            f"More than {max_items} devices match; add a filter (location, role, status, tag, "
+            "platform or device_type) to compare fewer."
+        ) from exc
+    except NautobotError as exc:
+        if field == "software_version":
+            raise NautobotError(
+                f"{exc} Software versions on devices need Nautobot 2.2 or later."
+            ) from exc
+        raise
+    items = []
+    for row in rows:
+        location_row = row.get("location") or {}
+        label = path_or_name(directory, location_row.get("id", ""), location_row.get("name"))
+        items.append(
+            {
+                "id": row["id"],
+                "name": row["name"],
+                "location": label,
+                "value": _device_value(row, field, label),
+            }
+        )
+    return {"field": field, "applied_filters": applied, "count": len(items), "items": items}
 
 
 async def get_device(ctx: QueryContext, *, device: str) -> dict[str, Any]:

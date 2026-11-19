@@ -846,6 +846,40 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
     ],
   },
   {
+    id: "file-compare",
+    title: "Compare a file with Nautobot",
+    summary:
+      "Compares one column of a CSV file in a git repository with a field of the Nautobot devices (serial number, name, primary IPv4 address, location or software version) and finds what is on only one side: values in the file that no device has, and device values that are not in the file. The server does the comparison. The assistant only gets the counts and never sees a serial number or any other value; you see both lists in a card in the chat, and a long result has a Download CSV button. Name the file (a path such as export/compare.csv, or just compare.csv), the repository if there is more than one, the column and what to compare it with. The columns are separated by a semicolon unless you say otherwise. Say 'contains' if the Nautobot value only has to contain the file value, ask to ignore upper and lower case, or limit the devices to a location, role, status or tag.",
+    requirement:
+      "Needs permission to read git files and to read the Nautobot source. The repository must have the category CSV files (or CSV exports) in Settings, Git Repositories. No data opt-in is needed, because the assistant does not read the values. Up to 5000 devices are compared at once; with more, the assistant asks you to narrow them with a filter.",
+    tools: [
+      {
+        name: "compare_file_with_nautobot",
+        description:
+          "Compares a column of a CSV file with a Nautobot device field and shows both differences in a card with a CSV download. A file name that exists in several folders is reported with its paths so you can pick one.",
+        questions: [
+          'Compare the file export/compare.csv in the git repository "gitea" with Nautobot. Use the column "serial" of the file and compare it with the serial number of the devices in Nautobot (exact match). I want to see the rows of the file whose serial number is not in Nautobot.',
+          "Which serial numbers in compare.csv are missing in Nautobot, and which devices in Nautobot are missing in the file? Only the devices in Berlin.",
+          "Compare the column hostname of devices.csv with the device names in Nautobot, ignoring upper and lower case.",
+        ],
+      },
+      {
+        name: "list_file_repositories",
+        description:
+          "Lists the git repositories that hold CSV files you can compare (category CSV files or CSV exports).",
+        questions: ["Which repositories hold CSV files I can compare?"],
+      },
+      {
+        name: "compare-file-with-nautobot (playbook)",
+        description:
+          "Collects what the comparison needs (file, repository, column, Nautobot field, match mode, scope), makes one comparison and reports the counts, the warnings (duplicates, devices without a value) and what was not checked. The lists themselves are in the card.",
+        questions: [
+          "Which devices in Nautobot are missing from the file compare.csv? Compare the serial numbers.",
+        ],
+      },
+    ],
+  },
+  {
     id: "workflows",
     title: "Released workflows",
     summary:

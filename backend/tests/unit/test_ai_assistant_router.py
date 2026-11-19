@@ -1588,3 +1588,170 @@ def test_generating_a_report_needs_both_permissions(
 
     assert client.post("/api/ai/exec/report-generate", json={"token": "x.y"}).status_code == 403
     assert executor.calls == []
+
+
+# -- the file comparison card (doc/AI_TOOL_CHAIN.md section 61) ---------------------------------
+
+
+def _compare_put(put, **kw):
+    base = {
+        "kind": "compare_result",
+        "rows": [
+            {"side": "only_in_file", "value": "SN-FILE", "device_name": "", "file_data": "x"},
+            {"side": "only_in_nautobot", "value": "SN-NB", "device_name": "dev1", "file_data": ""},
+        ],
+        "meta": {
+            "model_hidden": True,
+            "repository": "Gitea CSV",
+            "file": "data/compare.csv",
+            "key_column": "serial",
+            "nautobot_field": "serial",
+            "match_mode": "match",
+            "case_insensitive": False,
+            "filters": {"location": "Berlin"},
+            "counts": {"only_in_file": 1, "only_in_nautobot": 1},
+            "columns": ["data"],
+            "kept": {"only_in_file": 1, "only_in_nautobot": 1},
+        },
+    }
+    base.update(kw)
+    return put(**base)
+
+
+def test_the_comparison_can_be_fetched_by_its_owner(rows_client) -> None:
+    client, put, _ = rows_client
+
+    response = client.get(f"/api/ai/results/{_compare_put(put)}/compare")
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["repository"] == "Gitea CSV" and body["file"] == "data/compare.csv"
+    assert body["counts"] == {"only_in_file": 1, "only_in_nautobot": 1}
+    assert body["rows"][0]["value"] == "SN-FILE" and body["partial"] is False
+    assert body["columns"] == ["data"] and body["filters"] == {"location": "Berlin"}
+    assert response.headers["cache-control"] == "no-store"
+    assert "model_hidden" not in response.text
+
+
+@pytest.mark.parametrize("handle", ["res_000000000000", "not-a-handle", "res_ZZZZ"])
+def test_comparison_unknown_or_malformed_handle_is_404(rows_client, handle) -> None:
+    client, _, _ = rows_client
+
+    assert client.get(f"/api/ai/results/{handle}/compare").status_code == 404
+
+
+def test_another_users_comparison_is_404(rows_client) -> None:
+    client, put, _ = rows_client
+
+    assert client.get(f"/api/ai/results/{_compare_put(put, user_id=2)}/compare").status_code == 404
+
+
+def test_only_a_comparison_handle_resolves_here(rows_client) -> None:
+    client, put, _ = rows_client
+
+    assert client.get(f"/api/ai/results/{put()}/compare").status_code == 404  # parsed output
+    assert client.get(f"/api/ai/results/{_compare_put(put)}/rows").status_code == 404
+    assert client.get(f"/api/ai/results/{_compare_put(put)}/text").status_code == 404
+
+
+@pytest.mark.parametrize(
+    "denied", [("git.files", "read"), ("sources.nautobot", "read")], ids=["git", "nautobot"]
+)
+def test_the_comparison_needs_both_permissions_again(rows_client, monkeypatch, denied) -> None:
+    client, put, _ = rows_client
+    handle = _compare_put(put)
+    monkeypatch.setattr(
+        RBACService,
+        "has_permission",
+        lambda self, _uid, resource, action: (resource, action) != denied,
+    )
+
+    response = client.get(f"/api/ai/results/{handle}/compare")
+
+    assert response.status_code == 403
+    assert response.json()["detail"]["code"] == "compare_access_denied"
+
+
+def test_the_comparison_needs_no_data_switch(rows_client) -> None:
+    client, put, _ = rows_client
+    handle = _compare_put(put)
+    client.patch("/api/ai/settings", json={"share_content_data": False})
+
+    assert client.get(f"/api/ai/results/{handle}/compare").status_code == 200
+
+
+def test_a_comparison_download_is_audited_without_values(rows_client, caplog) -> None:
+    import logging
+
+    client, put, _ = rows_client
+
+    with caplog.at_level(logging.INFO):
+        client.get(f"/api/ai/results/{_compare_put(put)}/compare")
+
+    lines = [
+        r.getMessage() for r in caplog.records if "ai_assistant_file_compare" in r.getMessage()
+    ]
+    assert len(lines) == 1
+    assert "user_id=1" in lines[0] and "SN-FILE" not in lines[0] and "SN-NB" not in lines[0]
+
+
+def test_the_comparison_route_reports_an_unavailable_store(rows_client) -> None:
+    from services.ai_assistant.results.store import ResultStoreUnavailableError
+
+    client, _, store = rows_client
+
+    async def down(*_args):
+        raise ResultStoreUnavailableError
+
+    store.get = down  # type: ignore[method-assign]
+
+    assert client.get("/api/ai/results/res_000000000000/compare").status_code == 503
+
+
+@pytest.mark.parametrize(
+    ("may_read_files", "may_read_nautobot", "has_source", "expected"),
+    [
+        (True, True, True, True),
+        (False, True, True, False),
+        (True, False, True, False),
+        (True, True, False, False),
+    ],
+)
+def test_the_chat_offers_the_file_comparison_with_both_permissions_and_a_nautobot_source(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+    may_read_files: bool,
+    may_read_nautobot: bool,
+    has_source: bool,
+    expected: bool,
+) -> None:
+    from services.settings.settings_service import SettingsService
+
+    _configure(client)  # no data switch is on: the model never reads a value
+    monkeypatch.setattr(ai_router_module, "try_load_visible_secret_values", lambda _uid: [])
+    denied = {
+        ("git.files", "read"): may_read_files,
+        ("sources.nautobot", "read"): may_read_nautobot,
+    }
+    monkeypatch.setattr(
+        RBACService,
+        "has_permission",
+        lambda self, _uid, resource, action: denied.get((resource, action), True),
+    )
+
+    class _Summaries:
+        sources = [object()] if has_source else []
+
+    monkeypatch.setattr(
+        SettingsService, "list_nautobot_source_summaries", lambda self: _Summaries()
+    )
+    seen = _capture_chat(monkeypatch)
+
+    client.post(
+        "/api/ai/chat",
+        json={"messages": [{"role": "user", "content": "hi"}], "context": {"surface": "general"}},
+    )
+
+    assert ("compare_file_with_nautobot" in seen["tools"]) is expected
+    assert ("list_file_repositories" in seen["tools"]) is expected
+    assert ("file_compare_reader" in seen["extras"]) is expected

@@ -375,6 +375,31 @@ export interface ConfigDownloadProposal {
   state: ProposalState;
 }
 
+/**
+ * The result of comparing a CSV file in a git repository with a Nautobot device field. The card
+ * carries counts only: the two lists are stored on the server (the model never sees them) and the
+ * card fetches them by `handle`.
+ */
+export interface CompareResultProposal {
+  kind: "compare_result";
+  summary: string;
+  /** The handle of the stored lists (`res_` + 12 hex digits). */
+  handle: string;
+  repository: string;
+  file: string;
+  keyColumn: string;
+  /** serial, name, primary_ip4, location or software_version (shown as text only). */
+  nautobotField: string;
+  matchMode: "match" | "contains";
+  caseInsensitive: boolean;
+  counts: Record<string, number>;
+  /** True when the stored lists were cut to fit the size limit. */
+  partial: boolean;
+  /** Up to this many rows per side the card shows a list completely. */
+  inlineLimit: number;
+  state: ProposalState;
+}
+
 /** The run a confirmed workflow proposal started. */
 export interface WorkflowRunResult {
   runId: number;
@@ -456,6 +481,7 @@ export type AssistantProposal =
   | InventoryProposal
   | DeviceCommandProposal
   | ConfigDownloadProposal
+  | CompareResultProposal
   | WorkflowRunProposal
   | ReportRunProposal;
 
@@ -499,6 +525,7 @@ export interface SavedProposal {
     | "inventory"
     | "device_command"
     | "config_download"
+    | "compare_result"
     | "workflow_run"
     | "report_run"
     | "workflow_notes";

@@ -324,7 +324,9 @@ when the clone fails). `pull()` never merges into a different branch. Read steps
 `git_checkout()` / `agit_checkout()` (`services/git/sync.py`): the lease is held while the step
 reads the files, so a change-request checkout cannot switch the tree underneath it; the pull is
 deduplicated for a few seconds and a failed pull raises (`allow_stale_repository: true` accepts the
-stale copy). Never keep the path after the `with` block.
+stale copy; a stale read is recorded as a warning event). Never keep the path after the `with` block. The switch is
+offered by `read-from-file`, `read-config`, `enrich-attributes`, `get-from-config`, `batfish-init-snapshot` and
+`batfish-validate-facts`; `set-default-attributes` and `get-git-devices` still pull strictly.
 
 Where the table is applied (CF-07): `upload-config`, `add-to-nautobot` (interface/IP/prefix/virtual
 chassis problems fail the device and keep the created id; a failed pre-flight check creates nothing), `batfish-init-snapshot` (a snapshot from
@@ -835,6 +837,9 @@ resolution, containment and `allow_stale_repository` rule as `read-from-file`) i
   new file-reading step uses it instead of its own copy. `allow_stale_repository` is passed to `git_checkout`; the
   panels get the switch from `shared/git-source-config-panel.tsx` (`showAllowStaleToggle`), and the step's config
   builder must keep the key, or the next edit in the panel drops it.
+- **Shared CSV core.** Parsing and matching live in `backend/services/csv_lookup/` (`parse_csv_rows`, `RowIndex`), which the Ask the Net
+  file comparison also uses (`doc/AI_TOOL_CHAIN.md` §61); the step keeps only what is workflow-specific (the root, the device values, the merge,
+  the sealed-secret guard). A change to the CSV rules is made there once.
 - Code: `backend/workflow_steps/enrich_attributes/`; frontend `workflow-steps/enrich-attributes/`.
 
 ### Asking the AI: `contact-the-ai`

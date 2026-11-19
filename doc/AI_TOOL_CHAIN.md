@@ -4265,3 +4265,73 @@ controller (use the Catalyst Center tools, not Nautobot), and the descriptions o
 `list_catalyst_center_sites` and `list_catalyst_center_devices` carry the name; the help page says so too. No playbook mentions
 Catalyst Center, so none needed a change.
 
+## 61. Compare a file with Nautobot: `compare_file_with_nautobot` and the playbook `compare-file-with-nautobot` (2026-11-19)
+
+"Compare the attribute nautobot.serial with the file compare.csv in the gitea repo. Match the column serial. Which serial numbers do not appear
+in Nautobot?" **Built 2026-11-19, unit-tested (backend, library, frontend). The product owner ran it the same day on their own Nautobot and Gitea repository and confirmed that both directions (in the file only, in Nautobot only) gave the correct result; no details are recorded (model, device count, file size, the filters used).** The answer is
+(a) values in the file that no device has and (b) device values that are not in the file; a short result is shown in the chat, a long one is a CSV
+download.
+
+* **The model never sees a value.** The server reads, compares and stores the two lists behind a result handle; the model gets **counts only**
+  and a note not to repeat or guess values. The lists go from the server to the user in a card (`compare-result-card.tsx`), the same idea as the
+  reports of §53. Consequences: no data-sharing switch is needed (nothing reaches the AI provider), text in the file cannot instruct the model, and
+  the only file content a tool can return is the list of column names in a "column not found" error, which needs the content switch.
+  The handle carries `meta.model_hidden`: `result_tools._load` (so `query_result`, `fetch_slice`, `diff_results` and every reader that uses
+  `load_stored_result`) answers it like an expired handle, whatever the user's switches say.
+* **One CSV core for the step and the tool.** The assistant must not import `workflow_steps` (`test_ai_device_guard`), so the pure code lives in
+  `backend/services/csv_lookup/` (no I/O, imports neither steps nor the assistant, pinned by a test): `parse.py` (`parse_csv_rows`, delimiter, BOM,
+  caps 10 MiB / 200,000 rows, `KeyColumnNotFoundError` with the column names), `match.py` (`RowIndex`, the first-match lookup the
+  `enrich-attributes` step uses, and `reconcile`). `reconcile` is two-sided: a file row is matched if **any** device matches it and a device if
+  **any** row does (the step's "first row wins" does not apply); rows without a key and devices without a value are listed apart; it counts
+  duplicate keys and device values, devices matching several keys and, with `contains`, keys of 1-2 characters. `contains` means the device value
+  contains the file key; it is refused above 5,000,000 key/value comparisons. `primary_ip4` ignores a `/mask` on both sides. A key or value that is
+  **empty after normalising** (a bare `/24`) is blank: counted with the rows without a key / the devices without a value, never compared (`""` is a
+  substring of everything, so with `contains` it would have matched every device).
+* **Reading the file.** `services/git/safe_read.py` (generalised from `config_backup.py`, which now calls it and keeps its messages): `contain`
+  refuses `..`, `.git` and every symlink component, `read_text_file` opens with `O_NOFOLLOW`, needs a regular file, strict UTF-8 and a size cap
+  (`max_bytes` is a separate hard ceiling: a file above it is refused, never cut; the character cap alone would let a 4-byte-per-character file
+  through at four times the byte size). **`read_text_under(root, relative)`** is what the comparison and the config backup use: it opens every path
+  component with `O_NOFOLLOW` relative to its parent's descriptor, so a directory swapped for a symlink after the `lstat` check is refused as well,
+  `find_files_named` looks for a bare name ("compare.csv") without following links (20,000 entries, depth 8). A file larger than the cap is refused,
+  never compared partly. Only `.csv`, `.tsv` and `.txt`.
+* **Reader** `services/ai_assistant/file_compare_reader.py` (`DbFileCompareReader`): `git.files:read` **and** `sources.nautobot:read` are checked on every call, also for the repository list (the Nautobot reader checks
+  the second again), rate bucket `ai-file-compare` (6/min), repositories only of category **`csv_imports` and `csv_exports`** and active (an
+  administrator sets it in Settings -> Git Repositories -> Category, "CSV files" = `csv_imports` and "CSV exports" = `csv_exports`, added to the dialog 2026-11-19; a config backup repository is not readable here), `agit_checkout` (lease, strict pull). Errors are fixed
+  sentences (a failed checkout is a generic one). One audit line per comparison (`ai_assistant_file_compare`: user, repository, file, counts) and per
+  fetch of the lists (`..._view`); never a value.
+* **Nautobot side** `libs/nautobot_read/queries/dcim.py::list_device_values(field, filters...)` (backend-only, not an MCP tool): all matching devices
+  with a lean selection (`id name location` + the field), fields `serial`, `name`, `primary_ip4`, `location`, `software_version` (needs Nautobot
+  2.2; the error says so), the same filters as `list_devices` (location including children, role, status, tag, device type, platform; the resolution
+  is shared). It stops at **5000 devices** (`TooManyRowsError`, rewritten to "add a filter"); the real Nautobot's device count is not known yet.
+* **Tools** `tools/file_compare_tools.py`: `list_file_repositories` and `compare_file_with_nautobot(repository?, file, key_column, nautobot_field,
+  match_mode, case_insensitive, delimiter?, location?, role?, status?, tag?, device_type?, platform?)`. A bare file name is searched in the checkout; several
+  hits are an error listing the paths. The stored table (`kind=compare_result`, 4 hours, per user) has one row per item with `side`
+  (`only_in_file`, `only_in_nautobot`, `without_value`), `value`, `device_name`, `device_location`, `device_id` and up to 20 `file_<column>` columns
+  (cells cut at 200 characters); a result above the store's 2 MB is halved (every side) and flagged `partial`, the counts stay exact. The tool returns
+  the counts, `warnings` (devices without a value, rows without a key, duplicates, short keys, several keys, a cut result) and sends a
+  `compare_result` proposal that carries only the handle, the options and the counts.
+* **Card and route.** `GET /ai/results/{handle}/compare` (`ai_assistant:use`, bucket `ai-result-rows`, `no-store`): only the caller's own
+  `compare_result` handle (else the same 404), **both permissions checked again** (403 `compare_access_denied`), no data switch. The card shows the
+  counts, both lists completely up to **50 rows per side** (`INLINE_ROWS_PER_SIDE`), above that the first 10 and a note, a collapsed list of devices
+  without a value, and **Download CSV** (all stored rows, byte order mark, formula cells get a leading apostrophe as in §43). The table columns come from the whole list, not the sample. A
+  transient failure to load the lists is retried once and then offers **Try again**; an expired handle or a withdrawn permission is final. It is gone after a reload
+  (saved chats keep kind and summary; `StoredProposal.kind` has `compare_result`).
+* **Gating.** Offered on the general surface when the router has `git.files:read` **and** `sources.nautobot:read` with a configured Nautobot source,
+  and a result store exists. Independent of Batfish and of every data switch. Because playbooks come with the Batfish tools, `FILE_COMPARE_PROMPT`
+  carries the essentials itself and says "if list_playbooks is available".
+* **Playbook** `compare-file-with-nautobot` (class A): inputs to collect (file, repository, key column, Nautobot field, match mode, case, delimiter,
+  scope), one call, decision points (ambiguous file, column not found, too many devices, short keys with `contains`), a report that names what was
+  not checked. The model cannot discuss individual values; a follow-up is a new comparison with a filter.
+* **Tests.** `test_csv_lookup.py`, `test_git_safe_read.py`, `test_ai_file_compare_reader.py`, `test_ai_file_compare_tools.py` (surface wiring included),
+  `test_ai_result_tools.py` (model-hidden handle), `test_ai_assistant_router.py` (route and gate), `libs/nautobot_read/tests/test_device_values.py`
+  (100 % coverage), frontend `compare-result.test.ts`, `compare-result-card.test.tsx`, `use-assistant-chat.test.tsx`. Mutation-checked (14 guards:
+  the hidden flag, both permission checks, the kind check, the rate limit, the category list, the content switch for column names, no value in the
+  answer, the symlink refusal, the `contains` cap, the result store, the AND of the two permissions, the ambiguity check).
+* **Verified live (2026-11-19, product owner).** A real model chose the tool and the card showed the right lists for `serial` with `match`, for both
+  directions, from a real Gitea repository. **Not verified / open.** The Download CSV button and "Try again" in a browser; the new "CSV files" option in the
+  repository dialog; the fields other than `serial` and the `contains` mode on real data; `software_version` and the REST/GraphQL filters on the real
+  Nautobot; the 5000-device cap against the real device count;
+  stacks and devices with several serials (Nautobot stores one serial per device; a stack's members are separate devices); the MCP server tests
+  need their own virtualenv and were not run after the `list_devices` refactor (the library tests cover it). Later: a way to talk about single values
+  (would need the data switches and a second tool), more fields, other sources than Nautobot.
+

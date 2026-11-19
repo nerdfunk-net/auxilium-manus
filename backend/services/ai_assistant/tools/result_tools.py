@@ -135,7 +135,9 @@ async def _load(ctx: ToolContext, handle: str) -> StoredResult | ToolOutput:
             "Run the original tool again.",
             is_error=True,
         )
-    if stored is None:
+    # A result kept for the user's card only (the file comparison, doc/AI_TOOL_CHAIN.md §61): the
+    # model must never read it, whatever the user's switches say. Same answer as an unknown handle.
+    if stored is None or (stored.meta or {}).get("model_hidden") is True:
         return ToolOutput(_EXPIRED, is_error=True)
     ctx.audit_refs.add(f"result:{handle}")
     if not ctx.sharing.allows(stored.data_class):

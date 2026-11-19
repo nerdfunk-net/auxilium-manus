@@ -392,12 +392,12 @@ class EnrichAttributesReviewTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(error.failure.exception_type, "ValueError")
 
     async def test_file_over_size_cap_raises(self) -> None:
-        with patch(f"{_MODULE}._MAX_FILE_BYTES", 10):
+        with patch(f"{_MODULE}.MAX_FILE_BYTES", 10):
             with self.assertRaisesRegex(ValueError, "larger than"):
                 await _run(_config(), {"d1": _device()}, CSV)
 
     async def test_row_cap_raises(self) -> None:
-        with patch(f"{_MODULE}._MAX_ROWS", 1):
+        with patch("services.csv_lookup.parse.MAX_ROWS", 1):
             with self.assertRaisesRegex(ValueError, "rows"):
                 await _run(_config(), {"d1": _device()}, CSV)
 

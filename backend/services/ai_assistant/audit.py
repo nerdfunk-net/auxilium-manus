@@ -93,6 +93,22 @@ def log_config_download(*, user_id: int, device: str, handle: str) -> None:
     )
 
 
+def log_file_compare(*, user_id: int, repository: str, file: str, counts: dict[str, int]) -> None:
+    """One line per file comparison: who, which repository and file, the counts; never a value."""
+    logger.info(
+        "ai_assistant_file_compare user_id=%s repository=%s file=%s counts=%s",
+        user_id,
+        repository,
+        file,
+        counts,
+    )
+
+
+def log_file_compare_view(*, user_id: int, handle: str) -> None:
+    """One line per fetch of a comparison's lists by the card (ids only)."""
+    logger.info("ai_assistant_file_compare_view user_id=%s handle=%s", user_id, handle)
+
+
 def log_dns_lookup(*, query: str, status: str) -> None:
     """One line per DNS lookup: a hash of the query (never the name), so a lookup used to carry
     data out can be matched to a suspect name afterwards."""

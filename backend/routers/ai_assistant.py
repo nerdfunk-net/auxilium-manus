@@ -33,6 +33,7 @@ from models.ai_assistant import (
     AiStatusResponse,
     ChatRequest,
     CommandParseError,
+    CompareResultResponse,
     ConfigTextResponse,
     DeviceCommandConfirmRequest,
     DeviceCommandResponse,
@@ -52,7 +53,7 @@ from models.ai_assistant import (
 )
 from services.ai_assistant.aci_reader import DbAciReader
 from services.ai_assistant.agent_loop import DEFAULT_BUDGET
-from services.ai_assistant.audit import AuditContext, log_config_download
+from services.ai_assistant.audit import AuditContext, log_config_download, log_file_compare_view
 from services.ai_assistant.batfish_reader import DbBatfishReader
 from services.ai_assistant.catalyst_center_reader import DbCatalystCenterReader
 from services.ai_assistant.chat_service import ChatEvent, check_connection, stream_chat
@@ -83,6 +84,7 @@ from services.ai_assistant.exceptions import (
     AiAssistantNotConfiguredError,
     AiSettingsValidationError,
 )
+from services.ai_assistant.file_compare_reader import DbFileCompareReader
 from services.ai_assistant.genie_parser import DbGenieParser, has_pyats_source
 from services.ai_assistant.glossary_reader import DbGlossaryReader
 from services.ai_assistant.inventory_reader import DbInventoryReader
@@ -122,6 +124,7 @@ from services.ai_assistant.template_reader import DbTemplateReader
 from services.ai_assistant.token_once import ConfirmationStoreUnavailableError
 from services.ai_assistant.tools.base import Toolbox
 from services.ai_assistant.tools.config_backup_tools import HANDLE_KIND as CONFIG_BACKUP_KIND
+from services.ai_assistant.tools.file_compare_tools import COMPARE_KIND
 from services.ai_assistant.workflow_reader import (
     DbReferenceReader,
     DbWorkflowNotesReader,
@@ -190,6 +193,7 @@ def _session_for(
     can_run_device_commands: bool = False,
     can_read_config_backups: bool = False,
     can_read_nautobot: bool = False,
+    can_compare_files: bool = False,
     can_read_catalyst: bool = False,
     can_read_aci: bool = False,
     can_read_client_data: bool = False,
@@ -239,6 +243,13 @@ def _session_for(
             # Documented inventory (DCIM / IPAM); what it may show is gated per field by the
             # sharing policy inside the tools.
             nautobot_reader=DbNautobotQueryReader(user.id) if can_read_nautobot else None,
+            # Compare a CSV file in git with Nautobot (doc/AI_TOOL_CHAIN.md §61): both permissions
+            # (checked again on every call); the model never reads a value, so no data switch.
+            file_compare_reader=(
+                DbFileCompareReader(user.id, DbNautobotQueryReader(user.id))
+                if can_compare_files
+                else None
+            ),
             # Catalyst Center: offered with the permission alone, so a missing source is reported
             # to the user by the tool instead of the tools silently vanishing.
             catalyst_reader=DbCatalystCenterReader(user.id) if can_read_catalyst else None,
@@ -427,6 +438,7 @@ def chat(
     can_run_device_commands = False
     can_read_config_backups = False
     can_read_nautobot = False
+    can_compare_files = False
     can_read_catalyst = False
     can_read_aci = False
     can_read_client_data = False
@@ -456,6 +468,7 @@ def chat(
             can_read_nautobot = rbac.has_permission(
                 current_user.id, "sources.nautobot", "read"
             ) and bool(SettingsService(db).list_nautobot_source_summaries().sources)
+            can_compare_files = can_read_config_backups and can_read_nautobot
             can_read_catalyst = rbac.has_permission(
                 current_user.id, "sources.catalyst_center", "read"
             )
@@ -506,6 +519,7 @@ def chat(
                 can_run_device_commands=can_run_device_commands,
                 can_read_config_backups=can_read_config_backups,
                 can_read_nautobot=can_read_nautobot,
+                can_compare_files=can_compare_files,
                 can_read_catalyst=can_read_catalyst,
                 can_read_aci=can_read_aci,
                 can_read_client_data=can_read_client_data,
@@ -725,6 +739,74 @@ async def get_config_text(
         kind=str(meta.get("kind", "")),
         committed_at=committed_at if isinstance(committed_at, str) else None,
         text=stored.text,
+    )
+
+
+@router.get(
+    "/results/{handle}/compare",
+    response_model=CompareResultResponse,
+    dependencies=[_OPERATOR, _USE, Depends(_RESULT_ROWS_BUDGET)],
+)
+async def get_compare_result(
+    handle: str,
+    response: Response,
+    current_user: User = Depends(get_current_user),
+    store: ResultStore = Depends(get_result_store),
+    db: Session = Depends(get_db),
+) -> CompareResultResponse:
+    """The two lists of a file comparison, for the card (doc/AI_TOOL_CHAIN.md §61).
+
+    Only the caller's own ``compare_result`` handle resolves (anything else is the same 404). The
+    model never reads these values, so no data-sharing switch applies; the permissions the
+    comparison needed (repository files and Nautobot) are checked again, so revoking one stops a
+    handle that is still alive.
+    """
+    try:
+        stored = await store.get(current_user.id, handle)
+    except ResultStoreUnavailableError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "code": "result_store_unavailable",
+                "message": "Stored results are unavailable",
+            },
+        ) from exc
+    if stored is None or stored.kind != COMPARE_KIND or stored.rows is None:
+        raise _result_not_found()
+    rbac = RBACService(db)
+    allowed = await asyncio.to_thread(
+        lambda: (
+            rbac.has_permission(current_user.id, "git.files", "read")
+            and rbac.has_permission(current_user.id, "sources.nautobot", "read")
+        )
+    )
+    if not allowed:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "code": "compare_access_denied",
+                "message": "You no longer have access to repository files or Nautobot.",
+            },
+        )
+    # The values must not sit in the browser's HTTP cache.
+    response.headers["Cache-Control"] = "no-store"
+    log_file_compare_view(user_id=current_user.id, handle=handle)
+    meta = stored.meta or {}
+    filters, counts = meta.get("filters"), meta.get("counts")
+    columns, kept = meta.get("columns"), meta.get("kept")
+    return CompareResultResponse(
+        repository=str(meta.get("repository", "")),
+        file=str(meta.get("file", "")),
+        key_column=str(meta.get("key_column", "")),
+        nautobot_field=str(meta.get("nautobot_field", "")),
+        match_mode=str(meta.get("match_mode", "")),
+        case_insensitive=bool(meta.get("case_insensitive", False)),
+        filters=filters if isinstance(filters, dict) else {},
+        counts=counts if isinstance(counts, dict) else {},
+        columns=[str(c) for c in columns] if isinstance(columns, list) else [],
+        partial=stored.partial,
+        kept=kept if isinstance(kept, dict) else None,
+        rows=stored.rows,
     )
 
 

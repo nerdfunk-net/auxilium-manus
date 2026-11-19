@@ -233,6 +233,9 @@ Each workflow step is a self-contained Python package under
 - ✅ Raise `ValueError` for config/input errors, `RuntimeError` for execution failures
 - ✅ If the step needs git: store `git_repository_id: int` in config, resolve via
   `workflow_steps.common.git_repository_loader.load_git_repository`
+- ✅ If the step reads a file from the export directory or a git repository: take the root from
+  `workflow_steps.common.file_source_root.resolve_source_root`; offer `allow_stale_repository` (parsed with
+  `parse_bool_flag`) and in the panel render `GitSourceConfigPanel` with `showAllowStaleToggle`
 - ✅ If the step writes to `device.parsed`: use
   `services.workflow_context.node_result.set_node_result(device.parsed, node_id, key, value)`
   — never a flat `f"{node_id}.{key}"` string key (dots are nesting separators in

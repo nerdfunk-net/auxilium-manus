@@ -211,6 +211,11 @@ The Nautobot report source also needs `sources.nautobot:read` (a failed section 
 `POST /ai/exec/report-generate` (`ai_assistant:use` + `reports:write`, signed user-bound token, 10 minutes, not single-use) and the report is generated **as that user**. A stored snapshot with a Nautobot section needs `sources.nautobot:read` to be read (REST and the assistant),
 and the Reports-page assistant applies the same data-switch rule to Nautobot rows (`doc/AI_TOOL_CHAIN.md` §53).
 
+**Ask the Net file comparison** (`list_file_repositories`, `compare_file_with_nautobot`, `doc/AI_TOOL_CHAIN.md` §61). Offered with `git.files:read` **and** `sources.nautobot:read` (a configured source), both checked on every call; the seeded
+`viewer` role holds both. Only repositories of category `csv_imports` / `csv_exports` are readable. **No data switch applies, because the model never sees a value** (counts only): the two lists go
+from the server to the user's card through `GET /ai/results/{handle}/compare`, which re-checks both permissions and resolves only the caller's own handle. The one file content the model may get is the
+column-name list of a "column not found" error, with the content switch. Rate bucket `ai-file-compare`.
+
 **Contact the AI step** (`contact-the-ai`, `doc/WORKFLOW-STEPS.md`). No RBAC permission of its own: whoever may edit and run the workflow may use it. It runs as the
 operator-designated service user `WORKFLOW_AI_USER`, so that user's AI key, provider and sharing switches (and the operator's `AI_ALLOWED_DATA`) decide
 what the prompt may contain (each placeholder is checked with the assistant's data-sharing rules before it is read); the triggering user's own settings are never used. Every prompt is redacted; an unset, unknown or inactive user (looked up case-insensitively) or a withheld placeholder ends the step on `failure`.

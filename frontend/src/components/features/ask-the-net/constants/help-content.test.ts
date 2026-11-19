@@ -203,3 +203,40 @@ describe("Ask the Net help: Catalyst Center", () => {
     expect(section?.requirement).toMatch(/addresses opt-in/);
   });
 });
+
+const FILE_COMPARE_PROMPT =
+  'Compare the file export/compare.csv in the git repository "gitea" with Nautobot. Use the column "serial" of the file and compare it with the serial number of the devices in Nautobot (exact match). I want to see the rows of the file whose serial number is not in Nautobot.';
+
+describe("Ask the Net help: comparing a file with Nautobot", () => {
+  const section = HELP_SECTIONS.find((entry) => entry.id === "file-compare");
+
+  it("has its own section with the example prompt", () => {
+    const tool = section?.tools.find((entry) =>
+      entry.name.includes("compare_file_with_nautobot"),
+    );
+
+    expect(section?.title).toMatch(/file/i);
+    expect(tool?.questions).toContain(FILE_COMPARE_PROMPT);
+  });
+
+  it("says what the user needs and that the assistant never sees the values", () => {
+    expect(section?.requirement).toMatch(/CSV files/);
+    expect(section?.requirement).toMatch(/git files/);
+    expect(section?.summary).toMatch(/never|not see/i);
+    expect(section?.summary).toMatch(/download/i);
+  });
+
+  it("lists the repository tool and the playbook", () => {
+    expect(byName("list_file_repositories")?.section).toBe("file-compare");
+    const playbook = byName("compare-file-with-nautobot");
+    expect(playbook?.name).toMatch(/playbook/);
+    expect(playbook?.questions.length).toBeGreaterThan(0);
+  });
+
+  it("uses every question text only once", () => {
+    const questions = HELP_SECTIONS.flatMap((entry) =>
+      entry.tools.flatMap((tool) => tool.questions),
+    );
+    expect(questions.filter((q) => q === FILE_COMPARE_PROMPT)).toHaveLength(1);
+  });
+});

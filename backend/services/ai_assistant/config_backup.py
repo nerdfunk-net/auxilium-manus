@@ -12,7 +12,6 @@ separate from ``DbConfigBackupReader`` so they can be tested with a temporary di
 from __future__ import annotations
 
 import asyncio
-import codecs
 import logging
 import os
 import re
@@ -33,6 +32,7 @@ from models.workflow_context import DeviceContext
 from services.ai_assistant.device_access import DeviceAccessError, ResolvedDevice
 from services.auth.login_rate_limiter import RateLimitExceededError
 from services.auth.rbac_service import RBACService
+from services.git import safe_read
 from services.git.repository_service import GitRepositoryService
 from services.git.sync import agit_checkout
 from services.workflow_context.device_template import (
@@ -174,78 +174,53 @@ def render_path(template: str, context: DeviceContext) -> str:
         raise ConfigBackupError("The config path template gives an unusable path") from exc
 
 
+_CONTAIN_MESSAGES = {
+    "outside": "The config path leaves the repository",
+    "symlink": "The backup path is a symbolic link",
+    "unreadable": "The backup file cannot be read",
+}
+_READ_MESSAGES = {
+    "missing": "No backup file exists for this device",
+    "not_regular": "The backup path is not a regular file",
+    "not_utf8": "The backup file is not valid UTF-8 text",
+    "unreadable": "The backup file cannot be read",
+}
+
+
 def contain(root: Path, relative: str) -> Path:
     """``root / relative``; refuses a path that leaves ``root``, enters ``.git`` or crosses a link.
 
-    Every component below ``root`` is checked with ``lstat`` before anything is resolved, so a
-    symlink (a file or a directory) is refused even when it points at another file in the same
-    checkout: the bytes of one device must not be reported as another device's backup.
+    A symlink (a file or a directory) is refused even when it points at another file in the same
+    checkout: the bytes of one device must not be reported as another device's backup
+    (``services/git/safe_read.py``).
     """
-    resolved_root = root.resolve()
-    candidate = resolved_root / relative
     try:
-        parts = candidate.relative_to(resolved_root).parts
-    except ValueError as exc:
-        raise ConfigBackupError("The config path leaves the repository") from exc
-    if ".." in parts or ".git" in parts:
-        raise ConfigBackupError("The config path leaves the repository")
-    current = resolved_root
-    for part in parts:
-        current = current / part
-        try:
-            mode = current.lstat().st_mode
-        except FileNotFoundError:
-            break  # the rest does not exist; the read reports a missing file
-        except OSError as exc:
-            raise ConfigBackupError("The backup file cannot be read") from exc
-        if stat.S_ISLNK(mode):
-            raise ConfigBackupError("The backup path is a symbolic link")
-    return candidate
-
-
-_OPEN_FLAGS = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | getattr(os, "O_CLOEXEC", 0)
-
-
-def _cut_on_line(text: str, limit: int) -> str:
-    """At most ``limit`` characters, ending on a line boundary when one is near the end, so a
-    one-line secret is never split before redaction."""
-    head = text[:limit]
-    newline = head.rfind("\n")
-    return head[:newline] if newline > limit // 2 else head
+        return safe_read.contain(root, relative)
+    except safe_read.SafeReadError as exc:
+        raise ConfigBackupError(
+            _CONTAIN_MESSAGES.get(exc.code, _CONTAIN_MESSAGES["unreadable"])
+        ) from exc
 
 
 def read_backup_text(target: Path) -> tuple[str, bool]:
     """``(text, truncated)``: a regular file only (no symlink), strict UTF-8, at most
     ``MAX_CONFIG_CHARS`` characters. Not cached: a backup can be large and is read rarely."""
     try:
-        fd = os.open(target, _OPEN_FLAGS)
-    except (FileNotFoundError, NotADirectoryError) as exc:
-        raise ConfigBackupError("No backup file exists for this device") from exc
-    except OSError as exc:  # includes a symlink, refused by O_NOFOLLOW
-        raise ConfigBackupError("The backup file cannot be read") from exc
+        return safe_read.read_text_file(target, max_chars=MAX_CONFIG_CHARS)
+    except safe_read.SafeReadError as exc:
+        raise ConfigBackupError(_READ_MESSAGES.get(exc.code, _READ_MESSAGES["unreadable"])) from exc
+
+
+def read_backup_under(root: Path, relative: str) -> tuple[str, bool]:
+    """``(text, truncated)`` of ``root / relative``, opened component by component without
+    following a link, even one swapped in after a check (``safe_read.read_text_under``)."""
     try:
-        info = os.fstat(fd)
-        if stat.S_ISDIR(info.st_mode):
-            raise ConfigBackupError("No backup file exists for this device")
-        if not stat.S_ISREG(info.st_mode):
-            raise ConfigBackupError("The backup path is not a regular file")
-        with os.fdopen(fd, "rb", closefd=False) as handle:
-            # Four bytes per character is the UTF-8 maximum, so the cap never cuts a limit short.
-            limit = MAX_CONFIG_CHARS * 4
-            data = handle.read(limit + 1)
-    except OSError as exc:
-        raise ConfigBackupError("The backup file cannot be read") from exc
-    finally:
-        os.close(fd)
-    cut_bytes = len(data) > limit
-    try:
-        # With ``final=False`` a character split by the byte cap is held back, not an error.
-        text = codecs.getincrementaldecoder("utf-8")().decode(data[:limit], final=not cut_bytes)
-    except UnicodeDecodeError as exc:
-        raise ConfigBackupError("The backup file is not valid UTF-8 text") from exc
-    if cut_bytes or len(text) > MAX_CONFIG_CHARS:
-        return _cut_on_line(text, MAX_CONFIG_CHARS), True
-    return text, False
+        return safe_read.read_text_under(root, relative, max_chars=MAX_CONFIG_CHARS)
+    except safe_read.SafeReadError as exc:
+        message = {**_READ_MESSAGES, **_CONTAIN_MESSAGES}.get(
+            exc.code, _READ_MESSAGES["unreadable"]
+        )
+        raise ConfigBackupError(message) from exc
 
 
 def last_commit_time(root: Path, relative: str) -> str | None:
@@ -535,8 +510,7 @@ class DbConfigBackupReader:
         relative = render_path(template, build_device_context(device, bag))
         try:
             async with self._checkout(chosen) as root:
-                target = contain(root, relative)
-                text, truncated = await asyncio.to_thread(read_backup_text, target)
+                text, truncated = await asyncio.to_thread(read_backup_under, root, relative)
                 committed = await asyncio.to_thread(last_commit_time, root, relative)
         except ConfigBackupError:
             raise
