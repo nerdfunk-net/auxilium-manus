@@ -114,6 +114,20 @@ LOCATION_OPERATORS_MESSAGE = (
 )
 _CONTAINS_OPERATORS = frozenset({"contains", "not_contains"})
 
+# Pseudo-field that selects every device. It is a building block for "all devices except ...":
+# ``all_devices AND location not_equals X``. A condition needs a value everywhere, so its value is
+# the fixed string "true"; any other value (empty, "false", ...) is rejected rather than treated as
+# "every device".
+ALL_DEVICES_FIELD = "all_devices"
+ALL_DEVICES_VALUE = "true"
+ALL_DEVICES_OPERATORS_MESSAGE = "The all_devices field only supports the 'equals' operator."
+ALL_DEVICES_VALUE_MESSAGE = f"The all_devices field only accepts the value '{ALL_DEVICES_VALUE}'."
+ALL_DEVICES_OR_MESSAGE = (
+    "all_devices cannot be combined with other conditions under OR: every device OR anything "
+    "is every device, so the other conditions would do nothing. Use AND to narrow it, or put "
+    "what to leave out in a negated (NOT) group."
+)
+
 
 class LogicalCondition(BaseModel):
     field: str
@@ -126,6 +140,11 @@ class LogicalCondition(BaseModel):
         # "contains" match ("City" matching "City A") is not wanted for locations.
         if self.field == "location" and self.operator in _CONTAINS_OPERATORS:
             raise ValueError(LOCATION_OPERATORS_MESSAGE)
+        if self.field == ALL_DEVICES_FIELD:
+            if self.operator != "equals":
+                raise ValueError(ALL_DEVICES_OPERATORS_MESSAGE)
+            if self.value != ALL_DEVICES_VALUE:
+                raise ValueError(ALL_DEVICES_VALUE_MESSAGE)
         return self
 
 
@@ -133,6 +152,22 @@ class LogicalOperation(BaseModel):
     operation_type: str
     conditions: list[LogicalCondition] = Field(default_factory=list)
     nested_operations: list[LogicalOperation] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _all_devices_is_not_ored(self) -> Self:
+        """``all_devices`` OR anything is every device, which silently makes the other
+        conditions dead (and a one-click AND -> OR toggle would put an excluded location back).
+        Only a NOT nested operation may sit beside it: that one is subtracted, not ORed."""
+        if self.operation_type.upper() != "OR":
+            return self
+        if not any(c.field == ALL_DEVICES_FIELD for c in self.conditions):
+            return self
+        others = len(self.conditions) > 1 or any(
+            op.operation_type.upper() != "NOT" for op in self.nested_operations
+        )
+        if others:
+            raise ValueError(ALL_DEVICES_OR_MESSAGE)
+        return self
 
 
 LogicalOperation.model_rebuild()

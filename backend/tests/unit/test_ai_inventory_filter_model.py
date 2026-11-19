@@ -60,6 +60,80 @@ def test_builder_operators_are_accepted() -> None:
     assert structure_errors(filter_) == []
 
 
+def test_all_devices_is_a_positive_condition_and_only_takes_equals() -> None:
+    only_all = FilterInput(conditions=[_cond("all_devices", "equals", "true")])
+    assert structure_errors(only_all) == []
+    with_exclusion = FilterInput(
+        conditions=[_cond("all_devices", "equals", "true")],
+        groups=[FilterGroup(negate=True, conditions=[_cond("name", "equals", "LAB.local.zz")])],
+    )
+    assert structure_errors(with_exclusion) == []
+    wrong = FilterInput(conditions=[_cond("all_devices", "not_equals", "true")])
+    assert any("all_devices" in e for e in structure_errors(wrong))
+
+
+def test_all_devices_under_or_beside_anything_else_is_an_error() -> None:
+    root_or = FilterInput(
+        logic="OR",
+        conditions=[_cond("all_devices", "equals", "true"), _cond("role", "equals", "leaf")],
+    )
+    assert any("OR" in e for e in structure_errors(root_or))
+
+    root_or_group = FilterInput(
+        logic="OR",
+        conditions=[_cond("all_devices", "equals", "true")],
+        groups=[FilterGroup(conditions=[_cond("role", "equals", "leaf")])],
+    )
+    assert any("OR" in e for e in structure_errors(root_or_group))
+
+    or_group = FilterInput(
+        groups=[
+            FilterGroup(
+                logic="OR",
+                conditions=[_cond("all_devices", "equals", "true"), _cond("role", "equals", "x")],
+            )
+        ],
+    )
+    assert any("group" in e for e in structure_errors(or_group))
+
+
+def test_all_devices_with_and_or_with_only_excluding_groups_is_fine() -> None:
+    and_root = FilterInput(
+        conditions=[_cond("all_devices", "equals", "true"), _cond("role", "equals", "leaf")]
+    )
+    assert structure_errors(and_root) == []
+
+    or_root_with_exclusion = FilterInput(
+        logic="OR",
+        conditions=[_cond("all_devices", "equals", "true")],
+        groups=[FilterGroup(negate=True, conditions=[_cond("name", "equals", "LAB.local.zz")])],
+    )
+    assert structure_errors(or_root_with_exclusion) == []
+
+
+def test_all_devices_value_is_normalised_and_needs_no_nautobot_list() -> None:
+    filter_ = FilterInput(conditions=[_cond("all_devices", "equals", "yes please")])
+
+    fixed, errors = canonicalize_values(filter_, {})
+
+    assert errors == []
+    assert fixed.conditions[0].value == "true"
+
+
+def test_all_devices_with_an_excluded_device_builds_the_builder_tree() -> None:
+    filter_ = FilterInput(
+        conditions=[_cond("all_devices", "equals", "true")],
+        groups=[FilterGroup(negate=True, conditions=[_cond("name", "equals", "LAB.local.zz")])],
+    )
+
+    ops = tree_to_operations(build_condition_tree(filter_))
+
+    # A root-level NOT group is its own top-level operation; preview_inventory subtracts it.
+    assert [o.operation_type for o in ops] == ["AND", "NOT"]
+    assert [c.field for c in ops[0].conditions] == ["all_devices"]
+    assert [c.field for c in ops[1].conditions] == ["name"]
+
+
 def test_empty_filter_is_an_error() -> None:
     assert structure_errors(FilterInput()) != []
 

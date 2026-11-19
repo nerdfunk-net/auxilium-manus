@@ -13,6 +13,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from models.sources_nautobot import DeviceInfo
 from models.workflow_context import WorkflowContext
+from services.sources.nautobot.evaluator import InventoryEvaluationError
 from workflow_steps.get_nautobot_devices import executor as mod
 
 _TREE = {
@@ -138,6 +139,21 @@ class AdHocSnapshotStillWorksTests(unittest.IsolatedAsyncioTestCase):
         operations = service.preview_inventory.await_args.args[0]
         self.assertEqual(operations[0].conditions[0].value, "OLD-SNAPSHOT")
         self.assertEqual(list(context.devices), ["snap"])
+
+    async def test_the_own_filter_is_evaluated_strictly(self) -> None:
+        # A failed condition must fail the step, not select another device set.
+        service = _source_service()
+
+        await _run(_config(device_filter=_TREE), service)
+
+        self.assertIs(service.preview_inventory.await_args.kwargs.get("strict"), True)
+
+    async def test_a_failed_condition_fails_the_step(self) -> None:
+        service = _source_service()
+        service.preview_inventory.side_effect = InventoryEvaluationError("a condition failed")
+
+        with self.assertRaises(InventoryEvaluationError):
+            await _run(_config(device_filter=_TREE), service)
 
     async def test_static_list_without_an_inventory_id_uses_its_own_ids(self) -> None:
         service = _source_service()

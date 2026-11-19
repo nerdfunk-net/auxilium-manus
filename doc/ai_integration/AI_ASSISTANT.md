@@ -908,13 +908,22 @@ saves.
   respelled as Nautobot spells it. An unknown value is an error back to the model with the closest names
   (names are listed only when `share_inventory_data` is on). A value list Nautobot could not return
   makes the value "unverified" (a warning), not wrong.
+- **All devices.** `all_devices` (operator `equals`, value always `true`, normalised whatever the model
+  wrote; `field_data_class` = inventory) selects every device, so "all devices but X" is
+  `all_devices` plus a negated group (or `location not_equals X`). It must not be ORed with other
+  conditions (every device OR anything is every device): `structure_errors` refuses a root or group
+  `OR` that holds it beside another condition, a negated group beside it is fine. The same rule and
+  the value rule are enforced on `LogicalOperation` / `LogicalCondition` and at save time.
 - **Evaluation** reuses `utils/inventory_converter.tree_to_operations` and
   `NautobotSourceService.preview_inventory`, the code a saved inventory runs through, so the count the
   model sees is the count the builder will show. The evaluator turns a failed condition into "no devices"
   (the inventory page relies on that), so it also records the failure in `evaluator.failures`;
   `DbInventoryReader.preview_operations` raises `InventoryQueryError` when it is non-empty, and the tools
   then return an error and emit **no proposal**: a failure is never shown as "0 devices". Prefix values are
-  also validated up front (CIDR plus an optional namespace).
+  also validated up front (CIDR plus an optional namespace). Resolving a *saved* inventory
+  (`resolve_inventory`) is strict as well: `NautobotSourceService.preview_inventory(strict=True)`
+  raises `InventoryEvaluationError` and the reader maps it to `InventoryQueryError`, so a failed
+  exclusion never shows the whole fleet.
 - **No membership oracle.** A count for a filter the model wrote tells it whether a guessed name, address
   or custom-field value exists. So a filter is **checked but not run** (no count, no rows, nothing logged
   by the evaluator) unless every class it touches is shared: any filter needs `share_inventory_data`;

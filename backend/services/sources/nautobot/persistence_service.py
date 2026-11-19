@@ -18,6 +18,7 @@ from typing import Any
 from core.domain_exceptions import ConflictError
 from core.models.inventories import Inventory
 from repositories.inventory_repository import InventoryRepository
+from utils.inventory_converter import validate_conditions_for_save
 
 logger = logging.getLogger(__name__)
 
@@ -56,6 +57,7 @@ class InventoryService:
                     raise ValueError("Device IDs are required for a static inventory")
             elif not inventory_data.get("conditions"):
                 raise ValueError("Conditions are required")
+            validate_conditions_for_save(inventory_data.get("conditions"))
 
             # Check for existing active inventory with same name and creator
             existing = self.repository.get_by_name(
@@ -264,6 +266,8 @@ class InventoryService:
                     f"Inventory with name '{new_name}' already exists for this user"
                 )
 
+            if "conditions" in inventory_data:
+                validate_conditions_for_save(inventory_data["conditions"])
             conditions_json = (
                 json.dumps(inventory_data["conditions"])
                 if "conditions" in inventory_data

@@ -27,6 +27,22 @@ class TreeToOperationsTests(unittest.TestCase):
         self.assertEqual(len(ops), 1)
         self.assertEqual(ops[0].conditions[0].field, "location")
 
+    def test_all_devices_with_an_excluded_location(self) -> None:
+        ops = tree_to_operations(
+            {
+                "internalLogic": "AND",
+                "items": [
+                    _cond("all_devices", "true"),
+                    _cond("location", "City A", "not_equals"),
+                ],
+            }
+        )
+        self.assertEqual(len(ops), 1)
+        self.assertEqual(
+            [(c.field, c.operator) for c in ops[0].conditions],
+            [("all_devices", "equals"), ("location", "not_equals")],
+        )
+
     def test_multiple_root_conditions_merge_into_one_operation(self) -> None:
         ops = tree_to_operations(
             {

@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/select";
 
 import { createEmptyTree } from "../hooks/use-condition-tree";
+import { ALL_DEVICES_FIELD } from "../utils/field-operators";
 import type { ConditionTree, CustomField, FieldOption } from "../types/device-selector";
 
 interface AddConditionBarProps {
@@ -158,7 +159,13 @@ export function AddConditionBar({
 
         <div className="space-y-2">
           <Label htmlFor="value">Value</Label>
-          {currentField === "has_primary" ? (
+          {currentField === ALL_DEVICES_FIELD ? (
+            // No value control: the stored value is a fixed placeholder, so show what the
+            // condition does instead of a box that suggests it can be edited.
+            <p className="flex h-9 items-center rounded-md border-2 border-input bg-muted px-3 text-sm text-muted-foreground">
+              Selects every device
+            </p>
+          ) : currentField === "has_primary" ? (
             <Select onValueChange={setCurrentValue} value={currentValue}>
               <SelectTrigger className="border-2 border-input bg-card shadow-sm focus:border-ring focus:ring-2 focus:ring-ring/30">
                 <SelectValue placeholder="Select value..." />

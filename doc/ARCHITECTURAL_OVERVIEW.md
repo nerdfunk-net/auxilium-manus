@@ -765,9 +765,15 @@ the device list with `service_factory.build_nautobot_source_service` and
   step by older versions is ignored. A deleted, inactive or inaccessible
   inventory fails the step with a message naming it — it never silently falls
   back to an old copy.
+  Resolution is **strict** (`preview_inventory(..., strict=True)`): the evaluator turns a
+  failed condition into "no devices" so the inventory *page* degrades, but a run must not act
+  on that. For a filter that subtracts (`all_devices` minus a negated group) a failed
+  exclusion would otherwise select the whole fleet, so a failed condition raises
+  `InventoryEvaluationError` and fails the step.
 - **The step names no inventory** — the ad-hoc `device_filter`
   (`_filter_tree_to_operations`, canvas → runtime) or `device_ids`
-  (`resolve_devices_by_ids`) stored in the step is the definition.
+  (`resolve_devices_by_ids`) stored in the step is the definition. The ad-hoc filter is
+  evaluated strictly too.
 - **Previewing in the builder** ("Preview devices") calls
   `GET /sources/nautobot/{inventory_id}/devices` for a linked inventory — the same
   resolution a run performs — and the `/preview` / `/preview-device-ids`

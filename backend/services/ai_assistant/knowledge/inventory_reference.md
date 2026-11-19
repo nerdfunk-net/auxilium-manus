@@ -12,6 +12,7 @@ A condition is `field`, `operator`, `value` (all text).
 
 | field | operators | value |
 |---|---|---|
+| `all_devices` | equals | Every device. Always write the value `true`. The starting point for "all devices" and "all devices except ...". |
 | `location` | equals, not_equals | A location name exactly as Nautobot spells it. Devices in child locations are included (a country returns the devices of its cities). Names are not unique: if two locations share a name, tell the user. |
 | `role` | equals, not_equals | Device role name, e.g. `Network`. |
 | `status` | equals, not_equals | Device status name, e.g. `Active`. |
@@ -34,7 +35,11 @@ A condition is `field`, `operator`, `value` (all text).
    tool corrects the spelling, but a name that does not exist is an error.
 2. Words like "router", "switch" or "network devices" may be a role, a device type or a platform in
    this instance. Look at the lists; if more than one fits, ask the user which they mean.
-3. Put everything the user wants to be true together in `conditions` with `logic` AND.
+3. "All devices", "every device" or "everything": use `all_devices equals true`. Never fake it with
+   `has_primary` true/false or by listing every status, role or location.
+   Combine it only with AND (or negated groups): `all_devices` with OR next to another condition is
+   still every device, so the filter is rejected.
+   Put everything the user wants to be true together in `conditions` with `logic` AND.
 4. "A or B" for the same field: a group with `logic` OR (or the root `logic` OR when everything is
    an alternative).
 5. "Not X" / "except X": a condition with `not_equals`, or a group with `negate` true for several.
@@ -54,6 +59,11 @@ No entry means ask which Nautobot name they mean.
 
 ## Recipes
 
+- "all devices": the single condition `all_devices equals true`.
+- "all devices but the device X": `all_devices equals true` plus a group with `negate` true
+  containing `name equals X` (names have no `not_equals`). Use `name contains X` in the group to
+  exclude every device whose name has X in it, e.g. a domain.
+- "all devices except City A": `all_devices equals true` plus `location not_equals City A`.
 - "all network devices in City A with a primary IP":
   `role equals Network`, `location equals City A`, `has_primary equals true`.
 - "... and status Active": add `status equals Active`.

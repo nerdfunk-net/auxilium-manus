@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING
 
 from core.domain_exceptions import InvalidFilterInputError
 from models.sources_nautobot import (
+    ALL_DEVICES_FIELD,
     LOCATION_OPERATORS_MESSAGE,
     DeviceInfo,
     LogicalCondition,
@@ -25,6 +26,15 @@ if TYPE_CHECKING:
     from services.sources.nautobot.query_service import NautobotSourceQueryService
 
 logger = logging.getLogger(__name__)
+
+
+class InventoryEvaluationError(RuntimeError):
+    """An inventory could not be evaluated because a condition failed (Nautobot unreachable,
+    a rejected query). The evaluator turns such a condition into "no devices"; for a filter
+    that subtracts (``all_devices`` minus a group) that would silently select too many
+    devices, so a caller that acts on the result must refuse it. The message is safe to show:
+    it names only the field and operator."""
+
 
 _NATIVE_NOT_EQUALS_LOG_SUFFIX = {
     "location": "using GraphQL location__n",
@@ -312,6 +322,10 @@ class NautobotSourceEvaluator:
     async def _query_native_not_equals(
         self, field: str, value: str
     ) -> tuple[set[str], int, dict[str, DeviceInfo]] | None:
+        # Nautobot's native ``<field>__n`` is "everything but X" for these fields. For location
+        # that is the complement of ``location equals X`` (children included) because every
+        # device has a location (Nautobot 3 enforces it), so no unlocated device is lost and
+        # ``all_devices AND location not_equals X`` is "all devices except X".
         handlers: dict[str, Callable[[str], Awaitable[list[DeviceInfo]]]] = {
             "location": lambda v: self.query_service._query_devices_by_location(
                 v, use_negation=True
@@ -378,6 +392,11 @@ class NautobotSourceEvaluator:
             Tuple of (device_ids_set, operations_count, devices_data)
         """
         try:
+            if condition.field == ALL_DEVICES_FIELD:
+                # The whole fleet; inside an AND narrowed by the index this is only the
+                # devices that survived so far. ``LogicalCondition`` only lets "true" through.
+                return _pack_devices(await self.query_service._query_all_devices())
+
             if not condition.field or condition.value is None or condition.value == "":
                 logger.warning(
                     "Skipping condition with empty field or value: field=%s, value=%s",

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { operatorRuleForField } from "./field-operators";
+import { ALL_DEVICES_FIELD, ALL_DEVICES_VALUE, operatorRuleForField } from "./field-operators";
 
 const values = (fieldName: string): string[] =>
   (operatorRuleForField(fieldName).options ?? []).map((option) => option.value);
@@ -48,6 +48,13 @@ describe("operatorRuleForField", () => {
       expect(values(field)).toEqual(["equals"]);
       expect(operatorRuleForField(field).forcedOperator).toBe("equals");
     }
+  });
+
+  it("restricts all devices to equals, forces it and carries a fixed value", () => {
+    expect(ALL_DEVICES_FIELD).toBe("all_devices");
+    expect(ALL_DEVICES_VALUE).toBe("true");
+    expect(values(ALL_DEVICES_FIELD)).toEqual(["equals"]);
+    expect(operatorRuleForField(ALL_DEVICES_FIELD).forcedOperator).toBe("equals");
   });
 
   it("uses the prefix operators for the prefix fields and forces within_include", () => {

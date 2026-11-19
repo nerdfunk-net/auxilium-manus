@@ -9,7 +9,10 @@ from models.sources_nautobot import DeviceInfo, InventoryPreviewResponse, Logica
 from services.nautobot.client import NautobotService
 from services.nautobot.credentials import NautobotCredentials
 from services.nautobot.devices.query import DeviceQueryService
-from services.sources.nautobot.evaluator import NautobotSourceEvaluator
+from services.sources.nautobot.evaluator import (
+    InventoryEvaluationError,
+    NautobotSourceEvaluator,
+)
 from services.sources.nautobot.export_service import NautobotSourceExportService
 from services.sources.nautobot.metadata_service import NautobotSourceMetadataService
 from services.sources.nautobot.persistence_service import InventoryService
@@ -45,6 +48,26 @@ class NautobotSourceService:
         self._persistence_service = persistence_service
 
     async def preview_inventory(
+        self, operations: list[LogicalOperation], *, strict: bool = False
+    ) -> tuple[list[DeviceInfo], int]:
+        """Evaluate ``operations`` to devices.
+
+        A condition that fails evaluates to "no devices" so the inventory page degrades. That is
+        wrong for anything that acts on the result: a failed exclusion matches nobody, so
+        ``all_devices`` minus that exclusion is every device. With ``strict`` the call raises
+        ``InventoryEvaluationError`` instead of returning such a list.
+        """
+        failures_before = len(self.evaluator.failures)
+        devices, count = await self._evaluate_operations(operations)
+        if strict and len(self.evaluator.failures) > failures_before:
+            failed = ", ".join(sorted(set(self.evaluator.failures[failures_before:])))
+            raise InventoryEvaluationError(
+                f"The inventory could not be evaluated because a condition failed ({failed}); "
+                "no devices were selected."
+            )
+        return devices, count
+
+    async def _evaluate_operations(
         self, operations: list[LogicalOperation]
     ) -> tuple[list[DeviceInfo], int]:
         if not operations:
@@ -114,7 +137,7 @@ class NautobotSourceService:
             return empty_analysis
 
         operations = convert_saved_inventory_to_operations(conditions)
-        devices, _ = await self.preview_inventory(operations)
+        devices, _ = await self.preview_inventory(operations, strict=True)
         return await self.export_service.analyze_devices(devices)
 
     async def resolve_saved_inventory_devices_by_id(
@@ -149,7 +172,7 @@ class NautobotSourceService:
         if not conditions:
             return []
         operations = convert_saved_inventory_to_operations(conditions)
-        devices, _ = await self.preview_inventory(operations)
+        devices, _ = await self.preview_inventory(operations, strict=True)
         return devices
 
     async def search_devices_by_name(self, name_filter: str, limit: int = 20) -> list[DeviceInfo]:
@@ -221,7 +244,7 @@ class NautobotSourceService:
             }
 
         operations = convert_saved_inventory_to_operations(conditions)
-        devices, _ = await self.preview_inventory(operations)
+        devices, _ = await self.preview_inventory(operations, strict=True)
         device_ids = [device.id for device in devices]
         return {
             "device_ids": device_ids,
@@ -255,7 +278,7 @@ class NautobotSourceService:
                 }
 
             operations = convert_saved_inventory_to_operations(conditions)
-            devices, _ = await self.preview_inventory(operations)
+            devices, _ = await self.preview_inventory(operations, strict=True)
 
         device_details = []
         device_list = []
@@ -300,7 +323,7 @@ class NautobotSourceService:
             return InventoryPreviewResponse(devices=[], total_count=0, operations_executed=0)
 
         operations = convert_saved_inventory_to_operations(conditions)
-        devices, operations_executed = await self.preview_inventory(operations)
+        devices, operations_executed = await self.preview_inventory(operations, strict=True)
         return InventoryPreviewResponse(
             devices=devices,
             total_count=len(devices),

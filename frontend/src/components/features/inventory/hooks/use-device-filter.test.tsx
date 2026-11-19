@@ -87,6 +87,24 @@ describe("useDeviceFilter", () => {
     expect(fieldValueCalls()).toHaveLength(0);
   });
 
+  it("selects all devices with the fixed value and loads no values", async () => {
+    const { result } = setup();
+    act(() => result.current.setCurrentValue("old"));
+    act(() => result.current.handleFieldChange("all_devices"));
+    expect(result.current.currentField).toBe("all_devices");
+    expect(result.current.currentValue).toBe("true");
+    expect(result.current.currentOperator).toBe("equals");
+    await Promise.resolve();
+    expect(fieldValueCalls()).toHaveLength(0);
+  });
+
+  it("drops the fixed value again when another field is picked", () => {
+    const { result } = setup();
+    act(() => result.current.handleFieldChange("all_devices"));
+    act(() => result.current.handleFieldChange("location"));
+    expect(result.current.currentValue).toBe("");
+  });
+
   it("does not load values while the source is not ready", async () => {
     const { result } = setup(NOT_READY);
     act(() => result.current.handleFieldChange("location"));

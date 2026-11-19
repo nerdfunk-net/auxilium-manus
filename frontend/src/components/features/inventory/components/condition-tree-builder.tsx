@@ -11,6 +11,7 @@ import {
   Settings,
 } from "lucide-react";
 
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -22,6 +23,7 @@ import type {
   CustomField,
   FieldOption,
 } from "../types/device-selector";
+import { findAllDevicesConflict } from "../utils/all-devices-conflicts";
 
 import { AddConditionBar } from "./add-condition-bar";
 import { ConditionGroup } from "./condition-group";
@@ -120,6 +122,9 @@ export function ConditionTreeBuilder({
   selectionMode,
   onToggleSelectionMode,
 }: ConditionTreeBuilderProps) {
+  // All Devices under OR beside other conditions is every device; the backend refuses it too.
+  const allDevicesConflict = findAllDevicesConflict(conditionTree);
+
   const getFieldLabel = (field: string) => {
     const option = fieldOptions.find((opt) => opt.value === field);
     return option?.label ?? field;
@@ -291,6 +296,11 @@ export function ConditionTreeBuilder({
               </div>
             )}
           </div>
+          {allDevicesConflict ? (
+            <Alert className="mt-2" variant="destructive">
+              <AlertDescription>{allDevicesConflict}</AlertDescription>
+            </Alert>
+          ) : null}
         </div>
 
         {showActions ? (
@@ -298,7 +308,12 @@ export function ConditionTreeBuilder({
             <div className="flex flex-wrap items-center gap-2">
               <Button
                 className="flex items-center space-x-2 border-0 bg-success-foreground text-success hover:bg-success-foreground/90 disabled:bg-muted-foreground"
-                disabled={conditionTree.items.length === 0 || isLoadingPreview || !sourceReady}
+                disabled={
+                  conditionTree.items.length === 0 ||
+                  isLoadingPreview ||
+                  !sourceReady ||
+                  allDevicesConflict !== null
+                }
                 onClick={onPreview}
                 type="button"
               >
@@ -312,7 +327,8 @@ export function ConditionTreeBuilder({
                     disabled={
                       !loadedInventoryName ||
                       conditionTree.items.length === 0 ||
-                      isSavingCurrent
+                      isSavingCurrent ||
+                      allDevicesConflict !== null
                     }
                     onClick={onSaveCurrent}
                     title={
@@ -327,7 +343,7 @@ export function ConditionTreeBuilder({
                   </Button>
                   <Button
                     className="flex items-center space-x-2 border-0 bg-info-foreground text-info hover:bg-info-foreground/90 disabled:bg-muted-foreground"
-                    disabled={conditionTree.items.length === 0}
+                    disabled={conditionTree.items.length === 0 || allDevicesConflict !== null}
                     onClick={onOpenSaveAsModal}
                     title="Save as a new inventory"
                     type="button"

@@ -19,6 +19,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from models.sources_nautobot import ALL_DEVICES_FIELD, ALL_DEVICES_OR_MESSAGE
 from services.ai_assistant.data_sharing import DataClass
 
 Logic = Literal["AND", "OR"]
@@ -31,6 +32,7 @@ _EQUALS_OR_NOT: tuple[str, ...] = ("equals", "not_equals")
 _TEXT: tuple[str, ...] = ("equals", "contains")
 # Mirrors frontend inventory/utils/field-operators.ts: what the builder offers per field.
 OPERATORS_BY_FIELD: dict[str, tuple[str, ...]] = {
+    ALL_DEVICES_FIELD: _EQUALS,
     "name": _TEXT,
     "location": _EQUALS_OR_NOT,
     "role": _EQUALS_OR_NOT,
@@ -153,6 +155,7 @@ def structure_errors(filter_: FilterInput) -> list[str]:
         for c in conditions_of(filter_)
         if c.field in _PREFIX_FIELDS and _bad_prefix(c.value)
     )
+    errors.extend(_all_devices_or_errors(filter_))
     if not filter_.conditions and not any(not g.negate for g in filter_.groups):
         errors.append(
             "The filter needs at least one positive condition or non-negated group: a filter "
@@ -161,11 +164,29 @@ def structure_errors(filter_: FilterInput) -> list[str]:
     return errors
 
 
+def _all_devices_or_errors(filter_: FilterInput) -> list[str]:
+    """``all_devices`` under OR next to anything else is every device, so the rest is dead.
+    Negated groups beside it are fine: they are subtracted, not ORed."""
+    errors: list[str] = []
+    root_has_all = any(c.field == ALL_DEVICES_FIELD for c in filter_.conditions)
+    root_others = len(filter_.conditions) > 1 or any(not g.negate for g in filter_.groups)
+    if filter_.logic == "OR" and root_has_all and root_others:
+        errors.append(f"The root logic is OR. {ALL_DEVICES_OR_MESSAGE}")
+    for group in filter_.groups:
+        has_all = any(c.field == ALL_DEVICES_FIELD for c in group.conditions)
+        if group.logic == "OR" and not group.negate and has_all and len(group.conditions) > 1:
+            errors.append(f"A group uses OR. {ALL_DEVICES_OR_MESSAGE}")
+    return errors
+
+
 def _canonical_value(
     condition: FilterCondition,
     known: Sequence[Mapping[str, str]] | None,
     show_names: bool,
 ) -> tuple[FilterCondition, str | None]:
+    if condition.field == ALL_DEVICES_FIELD:
+        # Takes no value; the builder stores the fixed "true", whatever the model wrote.
+        return condition.model_copy(update={"value": "true"}), None
     if condition.field == "has_primary":
         lowered = condition.value.strip().lower()
         if lowered in ("true", "false"):

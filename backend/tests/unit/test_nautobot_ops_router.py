@@ -189,3 +189,14 @@ def test_statuses_listing_failure_is_sanitised(ctx, monkeypatch):
 
     assert response.status_code == 500
     assert "secret-token" not in response.text
+
+
+def test_field_options_offer_all_devices_first(ctx) -> None:
+    client, _service = ctx
+    path = next(
+        "/api" + r.path
+        for r in ops.router.routes
+        if getattr(r, "path", "").endswith("/field-options")
+    )
+    fields = client.get(path).json()["fields"]
+    assert fields[0] == {"value": "all_devices", "label": "All Devices"}

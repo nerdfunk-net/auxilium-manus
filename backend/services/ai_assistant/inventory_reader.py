@@ -24,6 +24,7 @@ from services.ai_assistant.tools.inventory_tools import (
 )
 from services.auth.rbac_service import RBACService
 from services.nautobot.credentials import NautobotCredentials
+from services.sources.nautobot.evaluator import InventoryEvaluationError
 from services.sources.nautobot.source_service import NautobotSourceService
 
 logger = logging.getLogger(__name__)
@@ -82,7 +83,10 @@ class DbInventoryReader:
 
     async def resolve_inventory(self, inventory_id: int) -> dict[str, Any]:
         credentials, inventory = await asyncio.to_thread(self._load, inventory_id)
-        response = await self._service(credentials).resolve_saved_inventory_devices(inventory)
+        try:
+            response = await self._service(credentials).resolve_saved_inventory_devices(inventory)
+        except InventoryEvaluationError as exc:
+            raise InventoryQueryError from exc
         return {
             "id": inventory["id"],
             "name": inventory["name"],

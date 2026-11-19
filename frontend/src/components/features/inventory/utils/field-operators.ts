@@ -8,6 +8,13 @@ export interface FieldOperatorRule {
   forcedOperator: string | null;
 }
 
+/**
+ * Pseudo-field that selects every device. Combine it with other conditions to build
+ * "all devices except ...". A condition needs a value everywhere, so it carries a fixed one.
+ */
+export const ALL_DEVICES_FIELD = "all_devices";
+export const ALL_DEVICES_VALUE = "true";
+
 const EQUALS: FieldOption = { value: "equals", label: "Equals" };
 const NOT_EQUALS: FieldOption = { value: "not_equals", label: "Not Equals" };
 const CONTAINS: FieldOption = { value: "contains", label: "Contains" };
@@ -23,6 +30,7 @@ const EQUALS_OR_NOT_EQUALS: FieldOperatorRule = {
 };
 
 const RULES_BY_FIELD: Readonly<Record<string, FieldOperatorRule>> = {
+  [ALL_DEVICES_FIELD]: EQUALS_ONLY,
   platform: EQUALS_ONLY,
   has_primary: EQUALS_ONLY,
   role: EQUALS_OR_NOT_EQUALS,

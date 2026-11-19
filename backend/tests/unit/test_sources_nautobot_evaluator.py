@@ -324,3 +324,118 @@ class LocationIsExactMatchOnlyTests(unittest.IsolatedAsyncioTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class AllDevicesFieldTests(unittest.IsolatedAsyncioTestCase):
+    """``all_devices`` selects the whole fleet so "all devices but City A" can be built:
+    ``all_devices AND location not_equals City A``."""
+
+    def setUp(self) -> None:
+        self.qs = _query_service()
+        self.qs._query_all_devices.return_value = [_dev("a"), _dev("b"), _dev("c")]
+        self.evaluator = NautobotSourceEvaluator(self.qs)
+
+    @staticmethod
+    def _all() -> LogicalCondition:
+        return LogicalCondition(field="all_devices", operator="equals", value="true")
+
+    async def test_all_devices_returns_the_whole_fleet(self) -> None:
+        ids, _, dmap = await self.evaluator._execute_condition(self._all())
+        self.assertEqual(ids, {"a", "b", "c"})
+        self.assertEqual(set(dmap), {"a", "b", "c"})
+        self.assertEqual(self.evaluator.failures, [])
+
+    def test_the_model_accepts_only_the_value_true(self) -> None:
+        for value in ("", "false", "False", "yes", "TRUE", " true"):
+            with self.subTest(value=value):
+                with self.assertRaises(ValidationError) as ctx:
+                    LogicalCondition(field="all_devices", operator="equals", value=value)
+                self.assertIn("'true'", str(ctx.exception))
+
+    async def test_and_with_a_not_equals_excludes_that_location(self) -> None:
+        self.qs._query_devices_by_location.return_value = [_dev("b"), _dev("c")]
+        op = LogicalOperation(
+            operation_type="AND",
+            conditions=[
+                self._all(),
+                LogicalCondition(field="location", operator="not_equals", value="City A"),
+            ],
+        )
+        result, _, _ = await self.evaluator._execute_operation(op)
+        self.assertEqual(result, {"b", "c"})
+        # the exclusion is Nautobot's native location__n, not a client-side subtraction
+        self.qs._query_devices_by_location.assert_awaited_once_with("City A", use_negation=True)
+
+    async def test_and_with_a_negated_group_excludes_its_devices(self) -> None:
+        self.qs._query_devices_by_location.return_value = [_dev("a")]
+        op = LogicalOperation(
+            operation_type="AND",
+            conditions=[self._all()],
+            nested_operations=[
+                LogicalOperation(
+                    operation_type="NOT",
+                    conditions=[
+                        LogicalCondition(field="location", operator="equals", value="City A")
+                    ],
+                )
+            ],
+        )
+        result, _, _ = await self.evaluator._execute_operation(op)
+        self.assertEqual(result, {"b", "c"})
+
+    def test_the_model_rejects_all_devices_next_to_other_conditions_under_or(self) -> None:
+        with self.assertRaises(ValidationError) as ctx:
+            LogicalOperation(
+                operation_type="OR",
+                conditions=[
+                    self._all(),
+                    LogicalCondition(field="role", operator="equals", value="leaf"),
+                ],
+            )
+        self.assertIn("OR", str(ctx.exception))
+
+    def test_the_model_rejects_an_or_group_that_holds_all_devices_and_more(self) -> None:
+        with self.assertRaises(ValidationError):
+            LogicalOperation(
+                operation_type="AND",
+                conditions=[LogicalCondition(field="role", operator="equals", value="leaf")],
+                nested_operations=[
+                    LogicalOperation(
+                        operation_type="or",
+                        conditions=[self._all()],
+                        nested_operations=[
+                            LogicalOperation(
+                                operation_type="AND",
+                                conditions=[
+                                    LogicalCondition(field="role", operator="equals", value="x")
+                                ],
+                            )
+                        ],
+                    )
+                ],
+            )
+
+    async def test_or_with_only_all_devices_and_a_not_is_the_fleet_minus_the_not(self) -> None:
+        self.qs._query_devices_by_location.return_value = [_dev("a")]
+        op = LogicalOperation(
+            operation_type="OR",
+            conditions=[self._all()],
+            nested_operations=[
+                LogicalOperation(
+                    operation_type="NOT",
+                    conditions=[
+                        LogicalCondition(field="location", operator="equals", value="City A")
+                    ],
+                )
+            ],
+        )
+        result, _, _ = await self.evaluator._execute_operation(op)
+        self.assertEqual(result, {"b", "c"})
+
+    def test_the_model_accepts_only_equals(self) -> None:
+        self._all()
+        for operator in ("not_equals", "contains", "not_contains"):
+            with self.subTest(operator=operator):
+                with self.assertRaises(ValidationError) as ctx:
+                    LogicalCondition(field="all_devices", operator=operator, value="true")
+                self.assertIn("all_devices", str(ctx.exception))

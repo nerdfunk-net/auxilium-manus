@@ -6,6 +6,20 @@ pick it up without re-deriving the context.
 
 ---
 
+## Inventory `all_devices` field (built 2026-11-19, uncommitted)
+
+Review: `doc/analysis/REVIEW.md`; findings 1, 2, 4, 5 fixed, 3 not applicable (every device has a location, Nautobot 3).
+
+- **Live check.** Unit-tested only. Build `All Devices` + `Location not_equals X` and `All Devices` + a negated
+  `name equals` group in the builder, compare the preview count with Nautobot, save, run a workflow on it; ask
+  Ask the Net for "all devices but the device X".
+- **Unbounded all-devices query.** A cold cache plus All Devices loads the whole fleet in one GraphQL response
+  (`_query_all_devices_live`, no `limit`; same as the cache refresh). A cap or a confirmation on the preview
+  response is a product decision.
+- **`get-ise-devices` is not strict.** Its subnet resolution (`_resolve_devices_via_nautobot`) still turns a failed
+  `primary_prefix` lookup into "no devices" (fails closed, not open); make it strict if a silent empty subnet matters.
+- **Glossary editor** (`glossary-filter-editor.tsx`) has its own field list without All Devices on purpose.
+
 ## Client data (`collect-client-data`, `/client-data`, Ask the Net)
 
 **Added:** 2026-11-07 · **Area:** `backend/workflow_steps/collect_client_data`, `backend/routers/client_data.py`,

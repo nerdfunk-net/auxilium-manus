@@ -5,7 +5,7 @@ import { useGetNautobotDevicesFieldValuesQuery } from "@/hooks/queries/use-get-n
 import { useInventoryCustomFieldsQuery } from "@/hooks/queries/use-inventory-custom-fields-query";
 
 import type { CustomField, FieldOption } from "../types/device-selector";
-import { operatorRuleForField } from "../utils/field-operators";
+import { ALL_DEVICES_FIELD, ALL_DEVICES_VALUE, operatorRuleForField } from "../utils/field-operators";
 
 interface UseDeviceFilterOptions {
   sourceId: string;
@@ -86,7 +86,8 @@ export function useDeviceFilter({
   const handleFieldChange = useCallback(
     (fieldName: string) => {
       setCurrentField(fieldName);
-      setCurrentValue("");
+      // All devices takes no value; the fixed one lets the condition be added without typing.
+      setCurrentValue(fieldName === ALL_DEVICES_FIELD ? ALL_DEVICES_VALUE : "");
       setSelectedCustomField("");
 
       updateOperatorOptions(fieldName);
@@ -100,6 +101,7 @@ export function useDeviceFilter({
 
       if (
         fieldName &&
+        fieldName !== ALL_DEVICES_FIELD &&
         fieldName !== "has_primary" &&
         fieldName !== "ip_prefix" &&
         fieldName !== "primary_prefix" &&

@@ -136,6 +136,24 @@ class NarrowingTests(unittest.IsolatedAsyncioTestCase):
         (_, fields), _ = hmget.call_args
         self.assertEqual(sorted(fields), ["b", "c", "e"])  # the servers, nothing else
 
+    async def test_all_devices_inside_a_narrowed_and_sees_only_the_candidates(self) -> None:
+        with patch.object(self.cache, "hvals_json") as hvals:
+            ids, _, _ = await self._run(
+                _and(_cond("all_devices", "equals", "true"), _cond("role", "equals", "server"))
+            )
+        self.assertEqual(ids, {"b", "c", "e"})
+        hvals.assert_not_called()  # not the whole fleet
+
+    async def test_all_devices_without_other_conditions_is_the_whole_fleet(self) -> None:
+        ids, _, _ = await self._run(_and(_cond("all_devices", "equals", "true")))
+        self.assertEqual(ids, {"a", "b", "c", "d", "e", "f"})
+
+    async def test_all_devices_minus_a_negated_indexed_condition(self) -> None:
+        ids, _, _ = await self._run(
+            _and(_cond("all_devices", "equals", "true"), _cond("role", "not_equals", "server"))
+        )
+        self.assertEqual(ids, {"a", "d", "f"})
+
     async def test_name_contains_runs_over_the_narrowed_devices(self) -> None:
         ids, _, _ = await self._run(
             _and(_cond("role", "equals", "server"), _cond("name", "contains", "dev-c"))

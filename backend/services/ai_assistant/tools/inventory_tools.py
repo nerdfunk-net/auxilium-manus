@@ -137,6 +137,11 @@ _NO_ACCESS = ToolOutput(
     "You cannot read Nautobot data here (missing permission or the source is unavailable).",
     is_error=True,
 )
+_QUERY_FAILED = ToolOutput(
+    "Nautobot could not evaluate that inventory: a condition failed, so the device list would be "
+    "wrong. Nothing is shown and this is not '0 devices'. Tell the user to try again.",
+    is_error=True,
+)
 
 
 def _json(value: Any) -> str:
@@ -210,6 +215,8 @@ async def _resolve_inventory(ctx: ToolContext, args: ResolveInput) -> ToolOutput
         return _NOT_FOUND
     except InventoryAccessError:
         return _NO_ACCESS
+    except InventoryQueryError:
+        return _QUERY_FAILED
     devices: list[dict[str, Any]] = resolved["devices"]
     truncated = False
     result: dict[str, Any] = {

@@ -13,6 +13,7 @@ from services.ai_assistant.surfaces import build_inventory_session
 from services.ai_assistant.tools.inventory_tools import (
     InventoryAccessError,
     InventoryNotFoundError,
+    InventoryQueryError,
 )
 
 DEVICES = [
@@ -32,8 +33,9 @@ DEVICES = [
 
 
 class FakeInventoryReader:
-    def __init__(self, denied: bool = False) -> None:
+    def __init__(self, denied: bool = False, query_fails: bool = False) -> None:
         self.denied = denied
+        self.query_fails = query_fails
 
     async def list_inventories(self):
         if self.denied:
@@ -43,6 +45,8 @@ class FakeInventoryReader:
     async def resolve_inventory(self, inventory_id):
         if self.denied:
             raise InventoryAccessError
+        if self.query_fails:
+            raise InventoryQueryError
         if inventory_id != 1:
             raise InventoryNotFoundError
         return {"id": 1, "name": "LAB", "inventory_type": "filter", "devices": DEVICES}
@@ -245,6 +249,21 @@ def test_unknown_inventory_and_denied_access() -> None:
     denied = _call(_session(denied=True), "list_inventories")
 
     assert denied.is_error and "cannot read Nautobot" in denied.content
+
+
+def test_resolving_an_inventory_whose_query_failed_is_an_error_not_an_empty_list() -> None:
+    reader = FakeInventoryReader(query_fails=True)
+    session = build_inventory_session(
+        user_id=1,
+        context=InventoryContext(surface="inventory", source_id="nb"),
+        reader=reader,
+        sharing=SharingPolicy(inventory=True),
+    )
+
+    out = _call(session, "resolve_inventory", inventory_id=1)
+
+    assert out.is_error
+    assert "not '0 devices'" in out.content
 
 
 def test_unknown_device_is_an_error() -> None:

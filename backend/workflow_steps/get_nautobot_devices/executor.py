@@ -195,7 +195,8 @@ async def execute(
             source_id,
             len(operations),
         )
-        devices, _ = await source_service.preview_inventory(operations)
+        # strict: a failed condition must fail the step, not select a different device set
+        devices, _ = await source_service.preview_inventory(operations, strict=True)
 
     logger.info(
         "get-nautobot-devices returning %d devices run_id=%s",

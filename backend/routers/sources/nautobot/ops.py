@@ -310,6 +310,8 @@ async def get_device_attributes(
 async def get_field_options(_: User = Depends(get_current_user)) -> dict:
     return {
         "fields": [
+            # Selects every device; combine with other conditions to build "all but ...".
+            {"value": "all_devices", "label": "All Devices"},
             {"value": "name", "label": "Device Name"},
             {"value": "location", "label": "Location"},
             {"value": "role", "label": "Role"},

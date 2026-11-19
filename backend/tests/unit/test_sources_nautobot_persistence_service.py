@@ -241,3 +241,55 @@ class InventoryServiceTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class AllDevicesConditionsTests(unittest.TestCase):
+    """A tree that misuses ``all_devices`` is refused when it is saved, not when a run uses it."""
+
+    def setUp(self) -> None:
+        engine = create_engine("sqlite:///:memory:")
+        Inventory.metadata.create_all(engine, tables=[Inventory.__table__])
+        self.addCleanup(engine.dispose)
+        self.db = sessionmaker(bind=engine)()
+        self.addCleanup(self.db.close)
+        self.service = InventoryService(InventoryRepository(self.db))
+
+    def _create(self, **over) -> int:
+        data = {"name": "inv1", "created_by": _USER, "scope": "global"}
+        data.update(over)
+        return self.service.create_inventory(data)
+
+    _OR_TREE = [
+        {
+            "version": 2,
+            "tree": {
+                "internalLogic": "OR",
+                "items": [
+                    {"field": "all_devices", "operator": "equals", "value": "true"},
+                    {"field": "role", "operator": "equals", "value": "leaf"},
+                ],
+            },
+        }
+    ]
+    _AND_TREE = [
+        {
+            "version": 2,
+            "tree": {
+                "internalLogic": "AND",
+                "items": [{"field": "all_devices", "operator": "equals", "value": "true"}],
+            },
+        }
+    ]
+
+    def test_create_refuses_all_devices_under_or(self) -> None:
+        with self.assertRaises(ValueError):
+            self._create(conditions=self._OR_TREE)
+
+    def test_update_refuses_all_devices_under_or(self) -> None:
+        inv_id = self._create(conditions=self._AND_TREE)
+        with self.assertRaises(ValueError):
+            self.service.update_inventory(inv_id, {"conditions": self._OR_TREE}, _USER)
+        self.assertEqual(self.service.get_inventory(inv_id)["conditions"], self._AND_TREE)
+
+    def test_create_accepts_all_devices_under_and(self) -> None:
+        self.assertTrue(self._create(conditions=self._AND_TREE))

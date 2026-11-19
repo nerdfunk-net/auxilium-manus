@@ -35,6 +35,7 @@ from services.ai_assistant.tools.run_tools import RunAccessError
 from services.ai_assistant.tools.template_tools import TemplatePermissionError
 from services.ai_assistant.tools.workflow_tools import ReferencePermissionError
 from services.auth.rbac_service import RBACService
+from services.sources.nautobot.evaluator import InventoryEvaluationError
 from services.templates.exceptions import TemplateNotFoundError
 
 
@@ -297,6 +298,33 @@ def test_inventory_reader_refuses_a_preview_where_a_condition_failed(
 
     with pytest.raises(InventoryQueryError):
         run(reader.preview_operations([]))
+
+
+def test_resolving_a_saved_inventory_whose_condition_failed_is_a_query_error(
+    permissions: set, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    permissions.add(("sources.nautobot", "read"))
+    monkeypatch.setattr(
+        inventory_reader, "nautobot_credentials_from_source_id", lambda *_a: object()
+    )
+
+    class Inventories:
+        def get_inventory(self, inventory_id: int, username: str) -> Any:
+            return {"id": inventory_id, "name": "n", "is_active": True}
+
+    class Service:
+        async def resolve_saved_inventory_devices(self, inventory: Any) -> Any:
+            raise InventoryEvaluationError("a condition failed (name equals)")
+
+    monkeypatch.setattr(
+        inventory_reader.service_factory, "build_inventory_service", lambda _db: Inventories()
+    )
+    monkeypatch.setattr(
+        inventory_reader.service_factory, "build_nautobot_source_service", lambda *_a: Service()
+    )
+
+    with pytest.raises(InventoryQueryError):
+        run(inventory_reader.DbInventoryReader(5, "tester", "nautobot").resolve_inventory(1))
 
 
 def test_inventory_reader_lists_field_values_and_previews_a_filter(

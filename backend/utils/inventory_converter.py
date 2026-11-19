@@ -11,10 +11,15 @@ Used by:
 - Any service that needs to evaluate saved inventory conditions
 """
 
+import json
 import logging
 from typing import Any
 
-from models.sources_nautobot import LogicalCondition, LogicalOperation
+from pydantic import ValidationError
+
+from core.domain_exceptions import InvalidFilterInputError
+from core.safe_http_errors import client_error_message
+from models.sources_nautobot import ALL_DEVICES_FIELD, LogicalCondition, LogicalOperation
 
 logger = logging.getLogger(__name__)
 
@@ -220,3 +225,23 @@ def convert_saved_inventory_to_operations(
 
     logger.info("Converting version 2 tree structure to operations")
     return tree_to_operations(tree)
+
+
+def validate_conditions_for_save(conditions: Any) -> None:
+    """Refuse to store a tree whose ``all_devices`` use is wrong (an OR beside other conditions,
+    a value other than "true"). The same rules run when the tree is evaluated; checking at save
+    time tells the author at once instead of failing a later run. Trees without ``all_devices``
+    are left alone: their other rules are unchanged and enforced where they always were.
+
+    Raises ``InvalidFilterInputError`` (a 400 with a safe message)."""
+    if not isinstance(conditions, list):
+        return
+    for item in conditions:
+        if not isinstance(item, dict) or not isinstance(item.get("tree"), dict):
+            continue
+        if f'"{ALL_DEVICES_FIELD}"' not in json.dumps(item["tree"], default=str):
+            continue
+        try:
+            tree_to_operations(item["tree"])
+        except ValidationError as exc:
+            raise InvalidFilterInputError(client_error_message(exc)) from exc

@@ -70,6 +70,7 @@ export function InventoryHelpContent() {
             <li>Choose a connector (AND/OR) and optionally Negate (NOT) for groups.</li>
             <li>Click <Badge variant="secondary">+</Badge> to add a condition or <Badge variant="secondary">+ Group</Badge> for nested logic.</li>
             <li>Click a group in the expression tree to add conditions inside it.</li>
+            <li>Pick <strong>All Devices</strong> as the field to start from every device, then add conditions to exclude some.</li>
             <li>Use <strong>Preview Results</strong> to see matching devices from Nautobot.</li>
           </ol>
         </div>
@@ -90,6 +91,12 @@ export function InventoryHelpContent() {
   Device Name contains "switch"
   GROUP (AND)
     Manufacturer equals "Cisco"`}
+          />
+          <CodeExample
+            title="All devices except one location"
+            code={`Root (AND)
+  All Devices
+  Location not_equals "City A"`}
           />
           <CodeExample
             title="Devices excluding a status"
