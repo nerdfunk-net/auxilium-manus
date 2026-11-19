@@ -2,6 +2,7 @@
 
 import { useMemo } from "react";
 
+import { Combobox, type ComboboxOption } from "@/components/ui/combobox";
 import { Label } from "@/components/ui/label";
 import {
   Select,
@@ -48,6 +49,15 @@ export function ScheduleParameterFields({
     enabled: needsCredential && canReadCredentials,
   });
 
+  const inventoryOptions = useMemo<ComboboxOption[]>(
+    () =>
+      (inventoriesQuery.data ?? []).map((inv) => ({
+        value: String(inv.id),
+        label: inv.scope === "private" ? `${inv.name} (private)` : inv.name,
+      })),
+    [inventoriesQuery.data],
+  );
+
   const sshCredentials = useMemo(
     () => (credentialsQuery.data?.credentials ?? []).filter((c) => c.type === "ssh"),
     [credentialsQuery.data],
@@ -80,22 +90,17 @@ export function ScheduleParameterFields({
           return (
             <div key={attr.name} className="grid gap-1">
               {label}
-              <Select
-                value={current != null ? String(current) : ""}
+              <Combobox
+                options={inventoryOptions}
+                value={current != null && current !== "" ? String(current) : ""}
                 onValueChange={(v) => setValue(attr.name, Number(v))}
-              >
-                <SelectTrigger id={`param-${attr.name}`}>
-                  <SelectValue placeholder="Select an inventory" />
-                </SelectTrigger>
-                <SelectContent>
-                  {(inventoriesQuery.data ?? []).map((inv) => (
-                    <SelectItem key={inv.id} value={String(inv.id)}>
-                      {inv.name}
-                      {inv.scope === "private" ? " (private)" : ""}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+                placeholder={inventoriesQuery.isLoading ? "Loading inventories…" : "Select an inventory"}
+                searchPlaceholder="Search inventories…"
+                emptyText="No inventories found"
+                disabled={inventoriesQuery.isLoading}
+                id={`param-${attr.name}`}
+                inline
+              />
             </div>
           );
         }

@@ -21,6 +21,8 @@ interface ComboboxProps {
   emptyText?: string;
   disabled?: boolean;
   className?: string;
+  /** Id of the trigger button, so a `<Label htmlFor>` can point at it. */
+  id?: string;
   /** Render the list in normal flow instead of an absolutely positioned
    * popover — use inside scroll/overflow containers (e.g. dialogs) that
    * would otherwise clip it. */
@@ -42,6 +44,7 @@ export function Combobox({
   emptyText = "No results.",
   disabled = false,
   className,
+  id,
   inline = false,
 }: ComboboxProps) {
   const [open, setOpen] = useState(false);
@@ -115,6 +118,7 @@ export function Combobox({
           className,
         )}
         disabled={disabled}
+        id={id}
         onClick={handleToggle}
         onKeyDown={handleKeyDown}
         type="button"

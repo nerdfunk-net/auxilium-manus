@@ -95,26 +95,49 @@ describe("ScheduleParameterFields", () => {
   });
 
   describe("inventory reference", () => {
+    const openList = () => fireEvent.click(screen.getByLabelText("targets"));
+
     it("lists the inventories and marks private ones", () => {
       setup([INVENTORY_ATTR]);
-      const options = screen.getAllByRole("option").map((o) => o.textContent);
-      expect(options).toEqual(expect.arrayContaining(["core", "lab (private)"]));
+      openList();
+      expect(screen.getByText("core")).toBeTruthy();
+      expect(screen.getByText("lab (private)")).toBeTruthy();
+    });
+
+    it("filters the inventories by the search text", () => {
+      setup([INVENTORY_ATTR]);
+      openList();
+      fireEvent.change(screen.getByPlaceholderText("Search inventories…"), {
+        target: { value: "LAB" },
+      });
+      expect(screen.queryByText("core")).toBeNull();
+      expect(screen.getByText("lab (private)")).toBeTruthy();
+    });
+
+    it("says so when no inventory matches", () => {
+      setup([INVENTORY_ATTR]);
+      openList();
+      fireEvent.change(screen.getByPlaceholderText("Search inventories…"), {
+        target: { value: "zzz" },
+      });
+      expect(screen.getByText("No inventories found")).toBeTruthy();
     });
 
     it("stores the chosen inventory as a number", () => {
       const onChange = setup([INVENTORY_ATTR], { other: "x" });
-      fireEvent.change(screen.getByLabelText("targets"), { target: { value: "2" } });
+      openList();
+      fireEvent.click(screen.getByText("lab (private)"));
       expect(onChange).toHaveBeenCalledWith({ other: "x", targets: 2 });
     });
 
     it("shows the stored inventory as selected", () => {
       setup([INVENTORY_ATTR], { targets: 1 });
-      expect((screen.getByLabelText("targets") as HTMLSelectElement).value).toBe("1");
+      expect(screen.getByLabelText("targets").textContent).toContain("core");
     });
 
-    it("shows no selection when nothing is stored", () => {
+    it("shows the placeholder when nothing is stored", () => {
       setup([INVENTORY_ATTR]);
-      expect((screen.getByLabelText("targets") as HTMLSelectElement).value).toBe("");
+      expect(screen.getByLabelText("targets").textContent).toContain("Select an inventory");
     });
 
     it("copes with a list that has not loaded", () => {
