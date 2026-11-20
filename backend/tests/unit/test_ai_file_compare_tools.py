@@ -112,6 +112,7 @@ def test_the_answer_has_counts_and_no_value() -> None:
         "devices_without_value": 1,
         "matched_keys": 1,
         "matched_devices": 1,
+        "matched_pairs": 1,
         "only_in_file": 1,
         "only_in_nautobot": 1,
         "duplicate_keys": 0,
@@ -153,6 +154,9 @@ def test_the_rows_are_stored_for_the_card_and_hidden_from_the_model() -> None:
             "file_data": "file-only",
         }
     ]
+    assert len(by_side["in_both"]) == 1
+    both = by_side["in_both"][0]
+    assert both["value"] and both["device_name"] and both["device_id"]
     assert by_side["only_in_nautobot"][0]["device_name"] == "dev2"
     assert by_side["only_in_nautobot"][0]["file_data"] == ""
     assert by_side["without_value"][0]["device_name"] == "dev3"

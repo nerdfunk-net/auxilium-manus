@@ -99,6 +99,27 @@ class ReconcileTests(unittest.TestCase):
         self.assertEqual((result.matched_keys, result.matched_items), (2, 2))
         self.assertEqual((result.file_rows, result.items), (3, 3))
 
+    def test_matches_pair_each_file_row_with_its_device(self) -> None:
+        result = reconcile(_rows("1", "2", "3"), _items("3", "2", "4"))
+        self.assertEqual(
+            [(p.row.key, p.item.id) for p in result.matches], [("3", "id0"), ("2", "id1")]
+        )
+        self.assertEqual(result.match_pairs, 2)
+
+    def test_matches_with_duplicate_rows_and_devices_are_all_paired(self) -> None:
+        result = reconcile(_rows("1", "1"), _items("1", "1"))
+        self.assertEqual(result.match_pairs, 4)
+        self.assertEqual(len(result.matches), 4)
+
+    def test_matches_contains_lists_every_matching_key_in_file_order(self) -> None:
+        result = reconcile(_rows("12", "FOC", "9"), _items("FOC123"), contains=True)
+        self.assertEqual([p.row.key for p in result.matches], ["12", "FOC"])
+
+    def test_matches_are_capped_but_counted_exactly(self) -> None:
+        result = reconcile(_rows("1", "2", "3"), _items("1", "2", "3"), max_match_pairs=2)
+        self.assertEqual(len(result.matches), 2)
+        self.assertEqual(result.match_pairs, 3)
+
     def test_items_without_value_are_listed_apart(self) -> None:
         result = reconcile(_rows("1"), _items("1", None, "  "))
         self.assertEqual(len(result.items_without_value), 2)

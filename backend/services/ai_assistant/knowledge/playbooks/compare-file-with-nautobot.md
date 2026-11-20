@@ -1,7 +1,7 @@
 ---
 name: compare-file-with-nautobot
 title: Compare a column of a CSV file in a git repository with a Nautobot field
-when: "Compare the attribute nautobot.serial with the file compare.csv; which serial numbers are in the file but not in Nautobot; which devices in Nautobot are missing from this CSV; compare this list/file with Nautobot; reconcile an export with the inventory"
+when: "Compare the attribute nautobot.serial with the file compare.csv; which serial numbers are in the file but not in Nautobot; which devices in Nautobot are missing from this CSV; which serial numbers/devices are in the file AND in Nautobot; compare this list/file with Nautobot; reconcile an export with the inventory"
 tools: [list_file_repositories, compare_file_with_nautobot, list_locations, list_roles, list_statuses, list_tags]
 scope: read-only
 ---
@@ -9,8 +9,9 @@ scope: read-only
 
 ## When to use
 The user has a CSV file in a git repository (a list of serial numbers, device names, addresses ...) and wants to
-know what is in the file but not in Nautobot, and what is in Nautobot but not in the file. The server does the
-comparison. You are only given counts: the two lists are shown to the user in a card with a CSV download. This
+know what is in the file but not in Nautobot, what is in Nautobot but not in the file, and what is in both (the
+matching rows with their device). The server does the comparison. You are only given counts: the lists are shown to
+the user in a card with a CSV download. This
 playbook only reads and changes nothing.
 
 ## Inputs to collect
@@ -34,10 +35,11 @@ playbook only reads and changes nothing.
 2. Read the counts in the answer:
    - `only_in_file`: values in the file that no device has.
    - `only_in_nautobot`: device values that are not in the file.
-   - `matched_keys` and `matched_devices`: found on both sides.
+   - `matched_keys` and `matched_devices`: found on both sides; `matched_pairs` is the number of rows of the "in both"
+     list (one row per file row and device).
    - `devices_without_value`: devices that have no value in this field; they cannot be compared.
    - `warnings`: duplicates, rows without a key, short keys with `contains`, a cut result.
-3. Tell the user the counts and that the two lists are in the card below, with a **Download CSV** button. A short list
+3. Tell the user the counts and that the three lists (in the file only, in both, in Nautobot only) are in the card below, with a **Download CSV** button. A short list
    is shown completely in the card; a long one shows a sample and the download has every row. Do not repeat, list or
    guess any value: you do not have them.
 
@@ -55,7 +57,7 @@ playbook only reads and changes nothing.
 
 ## Report
 1. What was compared: the file and column, the Nautobot field, the match mode and any filter.
-2. The counts: only in the file, only in Nautobot, matched, devices without a value.
+2. The counts: only in the file, only in Nautobot, in both, devices without a value.
 3. Where the lists are: the card below, with the CSV download.
 4. What was not checked: the comparison uses the documented Nautobot inventory, not the devices themselves; devices
    without a value, duplicates and rows without a key are listed in the warnings; `contains` can match more than intended.

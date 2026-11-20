@@ -15,6 +15,8 @@ from services.csv_lookup.parse import CsvLookupError, CsvRow
 # ``contains`` compares every distinct key with every distinct value.
 MAX_COMPARISONS = 5_000_000
 SHORT_KEY_LENGTH = 2
+# Pairs (file row, item) kept for the "in both" list; the count stays exact beyond it.
+MAX_MATCH_PAIRS = 200_000
 
 
 class ReconcileTooLargeError(CsvLookupError):
@@ -67,6 +69,14 @@ class RowIndex:
 
 
 @dataclass(frozen=True)
+class MatchedPair:
+    """A file row and an item that match each other (one pair per row and item)."""
+
+    row: CsvRow
+    item: ValueItem
+
+
+@dataclass(frozen=True)
 class Reconciliation:
     file_rows: int
     rows_without_key: int
@@ -80,6 +90,10 @@ class Reconciliation:
     duplicate_item_values: int
     items_matching_several_keys: int
     short_keys: int
+    # Every (file row, item) pair that matches, in item order and, per item, in file order; at most
+    # ``MAX_MATCH_PAIRS`` of them (``match_pairs`` is the exact number).
+    matches: tuple[MatchedPair, ...] = ()
+    match_pairs: int = 0
 
 
 def reconcile(
@@ -90,6 +104,7 @@ def reconcile(
     case_insensitive: bool = False,
     normalizer: Callable[[str], str] | None = None,
     max_comparisons: int = MAX_COMPARISONS,
+    max_match_pairs: int = MAX_MATCH_PAIRS,
 ) -> Reconciliation:
     """Both directions: a row is matched if *any* item matches it, an item if *any* row does.
 
@@ -122,29 +137,42 @@ def reconcile(
     duplicate_keys = len(keyed) - len(keys)
     duplicate_item_values = len(valued) - len(values)
 
-    matched_key_set: set[str]
-    matched_value_set: set[str]
+    rows_by_key: dict[str, list[CsvRow]] = {}
+    for key, row in keyed:
+        rows_by_key.setdefault(key, []).append(row)
+    ordered_keys = list(rows_by_key)
+
+    if contains and len(keys) * len(values) > max_comparisons:
+        raise ReconcileTooLargeError(
+            f"'contains' would need {len(keys) * len(values)} comparisons "
+            f"(limit {max_comparisons}); use 'match' or narrow the devices"
+        )
+    short_keys = sum(1 for key in keys if len(key) <= SHORT_KEY_LENGTH) if contains else 0
+
+    matched_key_set: set[str] = set()
+    matched_value_set: set[str] = set()
     several_values: set[str] = set()
-    short_keys = 0
-    if contains:
-        if len(keys) * len(values) > max_comparisons:
-            raise ReconcileTooLargeError(
-                f"'contains' would need {len(keys) * len(values)} comparisons "
-                f"(limit {max_comparisons}); use 'match' or narrow the devices"
-            )
-        short_keys = sum(1 for key in keys if len(key) <= SHORT_KEY_LENGTH)
-        matched_key_set = set()
-        matched_value_set = set()
-        for value in values:
-            hits = [key for key in keys if key in value]
-            if hits:
-                matched_value_set.add(value)
-                matched_key_set.update(hits)
-            if len(hits) > 1:
-                several_values.add(value)
-    else:
-        matched_key_set = keys & values
-        matched_value_set = matched_key_set
+    pairs: list[MatchedPair] = []
+    pair_count = 0
+    hits_by_value: dict[str, list[str]] = {}
+    for value, item in valued:
+        if value not in hits_by_value:
+            if contains:
+                hits_by_value[value] = [key for key in ordered_keys if key in value]
+            else:
+                hits_by_value[value] = [value] if value in rows_by_key else []
+        hits = hits_by_value[value]
+        if not hits:
+            continue
+        matched_value_set.add(value)
+        matched_key_set.update(hits)
+        if len(hits) > 1:
+            several_values.add(value)
+        for key in hits:
+            for row in rows_by_key[key]:
+                pair_count += 1
+                if len(pairs) < max_match_pairs:
+                    pairs.append(MatchedPair(row=row, item=item))
 
     return Reconciliation(
         file_rows=len(rows),
@@ -159,4 +187,6 @@ def reconcile(
         duplicate_item_values=duplicate_item_values,
         items_matching_several_keys=sum(1 for value, _ in valued if value in several_values),
         short_keys=short_keys,
+        matches=tuple(pairs),
+        match_pairs=pair_count,
     )

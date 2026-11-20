@@ -2,6 +2,8 @@
 
 from services.csv_lookup.match import (
     MAX_COMPARISONS,
+    MAX_MATCH_PAIRS,
+    MatchedPair,
     ReconcileTooLargeError,
     Reconciliation,
     RowIndex,
@@ -25,10 +27,12 @@ __all__ = [
     "DEFAULT_DELIMITER",
     "MAX_COMPARISONS",
     "MAX_FILE_BYTES",
+    "MAX_MATCH_PAIRS",
     "MAX_ROWS",
     "CsvLookupError",
     "CsvRow",
     "KeyColumnNotFoundError",
+    "MatchedPair",
     "ReconcileTooLargeError",
     "Reconciliation",
     "RowIndex",

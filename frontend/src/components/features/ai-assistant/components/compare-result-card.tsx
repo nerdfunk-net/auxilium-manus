@@ -43,7 +43,7 @@ interface SideListProps {
   rows: readonly CompareRow[];
   limit: number;
   columns: readonly string[];
-  kind: "file" | "device";
+  kind: "file" | "both" | "device";
 }
 
 function SideList({ testId, title, rows, limit, columns, kind }: SideListProps) {
@@ -51,7 +51,7 @@ function SideList({ testId, title, rows, limit, columns, kind }: SideListProps) 
   // The columns come from the whole list, not the sample: a column filled only in later rows
   // still gets its place.
   const fileColumns =
-    kind === "file" ? usedFileColumns(rows, columns, MAX_FILE_TABLE_COLUMNS) : [];
+    kind !== "device" ? usedFileColumns(rows, columns, MAX_FILE_TABLE_COLUMNS) : [];
   return (
     <section className="space-y-1" data-testid={testId}>
       <p className="text-xs font-medium">
@@ -65,12 +65,18 @@ function SideList({ testId, title, rows, limit, columns, kind }: SideListProps) 
             <Table className="text-xs">
               <TableHeader>
                 <TableRow>
-                  {kind === "file" ? (
+                  {kind !== "device" ? (
                     <>
                       <TableHead>Value</TableHead>
                       {fileColumns.map((name) => (
                         <TableHead key={name}>{name}</TableHead>
                       ))}
+                      {kind === "both" && (
+                        <>
+                          <TableHead>Device</TableHead>
+                          <TableHead>Location</TableHead>
+                        </>
+                      )}
                     </>
                   ) : (
                     <>
@@ -84,12 +90,18 @@ function SideList({ testId, title, rows, limit, columns, kind }: SideListProps) 
               <TableBody>
                 {shown.map((row, index) => (
                   <TableRow key={index}>
-                    {kind === "file" ? (
+                    {kind !== "device" ? (
                       <>
                         <TableCell className="font-mono">{row.value}</TableCell>
                         {fileColumns.map((name) => (
                           <TableCell key={name}>{row.fileValues[name] ?? ""}</TableCell>
                         ))}
+                        {kind === "both" && (
+                          <>
+                            <TableCell>{row.deviceName}</TableCell>
+                            <TableCell>{row.deviceLocation}</TableCell>
+                          </>
+                        )}
                       </>
                     ) : (
                       <>
@@ -134,6 +146,14 @@ function Lists({
         limit={limit}
         columns={data.columns}
         kind="file"
+      />
+      <SideList
+        testId="compare-in-both"
+        title="In the file and in Nautobot"
+        rows={sides.inBoth}
+        limit={limit}
+        columns={data.columns}
+        kind="both"
       />
       <SideList
         testId="compare-only-in-nautobot"
@@ -189,7 +209,7 @@ export function CompareResultCard({ proposal }: CompareResultCardProps) {
       <div className="flex flex-wrap gap-1.5" data-testid="compare-counts">
         <Badge variant="outline">In file only: {counts.only_in_file ?? 0}</Badge>
         <Badge variant="outline">In Nautobot only: {counts.only_in_nautobot ?? 0}</Badge>
-        <Badge variant="outline">Matched: {counts.matched_keys ?? 0}</Badge>
+        <Badge variant="outline">In both: {counts.matched_keys ?? 0}</Badge>
         {(counts.devices_without_value ?? 0) > 0 && (
           <Badge variant="outline">Without a value: {counts.devices_without_value}</Badge>
         )}

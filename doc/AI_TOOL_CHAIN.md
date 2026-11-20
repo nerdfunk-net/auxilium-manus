@@ -4287,6 +4287,11 @@ download.
   contains the file key; it is refused above 5,000,000 key/value comparisons. `primary_ip4` ignores a `/mask` on both sides. A key or value that is
   **empty after normalising** (a bare `/24`) is blank: counted with the rows without a key / the devices without a value, never compared (`""` is a
   substring of everything, so with `contains` it would have matched every device).
+* **"In both" list (2026-11-20).** The first version stored only the differences, so "which serials are in the file AND in Nautobot" could not be
+  answered (only the `matched_*` counts). `reconcile` now also returns `matches`: one `MatchedPair` per (file row, device) that match, in device
+  order (with `contains`, every matching key, in file order), capped at `MAX_MATCH_PAIRS` (200,000; `match_pairs` stays exact and a warning says so).
+  `build_rows` stores them as `side=in_both` with the key, the file columns and the device name, location and id; the card has a list "In the file
+  and in Nautobot" and the CSV download includes them. Counts gain `matched_pairs`. The model still sees counts only.
 * **Reading the file.** `services/git/safe_read.py` (generalised from `config_backup.py`, which now calls it and keeps its messages): `contain`
   refuses `..`, `.git` and every symlink component, `read_text_file` opens with `O_NOFOLLOW`, needs a regular file, strict UTF-8 and a size cap
   (`max_bytes` is a separate hard ceiling: a file above it is refused, never cut; the character cap alone would let a 4-byte-per-character file
@@ -4306,7 +4311,7 @@ download.
 * **Tools** `tools/file_compare_tools.py`: `list_file_repositories` and `compare_file_with_nautobot(repository?, file, key_column, nautobot_field,
   match_mode, case_insensitive, delimiter?, location?, role?, status?, tag?, device_type?, platform?)`. A bare file name is searched in the checkout; several
   hits are an error listing the paths. The stored table (`kind=compare_result`, 4 hours, per user) has one row per item with `side`
-  (`only_in_file`, `only_in_nautobot`, `without_value`), `value`, `device_name`, `device_location`, `device_id` and up to 20 `file_<column>` columns
+  (`only_in_file`, `in_both`, `only_in_nautobot`, `without_value`), `value`, `device_name`, `device_location`, `device_id` and up to 20 `file_<column>` columns
   (cells cut at 200 characters); a result above the store's 2 MB is halved (every side) and flagged `partial`, the counts stay exact. The tool returns
   the counts, `warnings` (devices without a value, rows without a key, duplicates, short keys, several keys, a cut result) and sends a
   `compare_result` proposal that carries only the handle, the options and the counts.

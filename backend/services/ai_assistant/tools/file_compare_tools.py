@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import json
 import logging
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
@@ -36,7 +36,7 @@ from services.ai_assistant.results.store import (
 )
 from services.ai_assistant.tools.base import Tool, ToolContext, ToolOutput
 from services.ai_assistant.tools.result_tools import RESULT_STORE_KEY
-from services.csv_lookup import CsvRow, Reconciliation, ValueItem
+from services.csv_lookup import MAX_MATCH_PAIRS, CsvRow, MatchedPair, Reconciliation, ValueItem
 
 logger = logging.getLogger(__name__)
 
@@ -49,9 +49,9 @@ MAX_FILE_COLUMNS = 20
 MAX_CELL_CHARS = 200
 _MAX_HALVINGS = 4
 _NOTE = (
-    "The two lists are shown to the user in a card with a CSV download. You were given counts "
-    "only: do not guess, repeat or invent serial numbers or other values, and say that the "
-    "values are in the card."
+    "The lists (in the file only, in both, in Nautobot only) are shown to the user in a card "
+    "with a CSV download. You were given counts only: do not guess, repeat or invent serial "
+    "numbers or other values, and say that the values are in the card."
 )
 
 Name = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]
@@ -111,6 +111,7 @@ def _counts(result: Reconciliation) -> dict[str, int]:
         "devices_without_value": len(result.items_without_value),
         "matched_keys": result.matched_keys,
         "matched_devices": result.matched_items,
+        "matched_pairs": result.match_pairs,
         "only_in_file": len(result.only_in_file),
         "only_in_nautobot": len(result.only_in_items),
         "duplicate_keys": result.duplicate_keys,
@@ -122,6 +123,11 @@ def _counts(result: Reconciliation) -> dict[str, int]:
 
 def _warnings(counts: Mapping[str, int], *, contains: bool) -> list[str]:
     found: list[str] = []
+    if counts["matched_pairs"] > MAX_MATCH_PAIRS:
+        found.append(
+            f"{counts['matched_pairs']} file row/device pairs match; the 'in both' list keeps "
+            f"the first {MAX_MATCH_PAIRS}."
+        )
     if counts["devices_without_value"]:
         found.append(
             f"{counts['devices_without_value']} devices have no value in this field and are not "
@@ -148,7 +154,7 @@ def _cell(value: str) -> str:
     return value if len(value) <= MAX_CELL_CHARS else value[: MAX_CELL_CHARS - 1] + "…"
 
 
-def _file_columns(rows: tuple[CsvRow, ...]) -> list[str]:
+def _file_columns(rows: Iterable[CsvRow]) -> list[str]:
     columns: list[str] = []
     for row in rows:
         for name in row.values:
@@ -169,20 +175,34 @@ def _device_row(side: str, item: ValueItem, columns: list[str]) -> dict[str, str
     return row
 
 
+def _file_row(side: str, file_row: CsvRow, columns: list[str]) -> dict[str, str]:
+    row = {
+        "side": side,
+        "value": _cell(file_row.key),
+        "device_name": "",
+        "device_location": "",
+        "device_id": "",
+    }
+    row.update({f"file_{name}": _cell(file_row.values.get(name, "")) for name in columns})
+    return row
+
+
+def _both_row(pair: MatchedPair, columns: list[str]) -> dict[str, str]:
+    """A match: the file row's key and columns next to the device that carries the value."""
+    row = _file_row("in_both", pair.row, columns)
+    row["device_name"] = str(pair.item.info.get("name", ""))
+    row["device_location"] = str(pair.item.info.get("location", ""))
+    row["device_id"] = pair.item.id
+    return row
+
+
 def build_rows(result: Reconciliation) -> tuple[list[dict[str, str]], list[str]]:
-    """The stored table: file-only rows, Nautobot-only rows, devices without a value."""
-    columns = _file_columns(result.only_in_file)
-    rows: list[dict[str, str]] = []
-    for file_row in result.only_in_file:
-        row = {
-            "side": "only_in_file",
-            "value": _cell(file_row.key),
-            "device_name": "",
-            "device_location": "",
-            "device_id": "",
-        }
-        row.update({f"file_{name}": _cell(file_row.values.get(name, "")) for name in columns})
-        rows.append(row)
+    """The stored table: file-only rows, matches, Nautobot-only rows, devices without a value."""
+    columns = _file_columns([*result.only_in_file, *(pair.row for pair in result.matches)])
+    rows: list[dict[str, str]] = [
+        _file_row("only_in_file", r, columns) for r in result.only_in_file
+    ]
+    rows.extend(_both_row(pair, columns) for pair in result.matches)
     rows.extend(_device_row("only_in_nautobot", item, columns) for item in result.only_in_items)
     rows.extend(_device_row("without_value", item, columns) for item in result.items_without_value)
     return rows, columns
@@ -359,7 +379,8 @@ def build_file_compare_tools() -> tuple[Tool, ...]:
             "compare_file_with_nautobot",
             "Compare a column of a CSV file in a git repository with a Nautobot device field "
             "(serial, name, primary_ip4, location, software_version) and find what is on only "
-            "one side: file values no device has, and device values that are not in the file. "
+            "one side (file values no device has, device values that are not in the file) and what "
+            "is on both sides (the matching rows, with their device). "
             "The server compares; you receive counts only and the user sees both lists in a "
             "card with a CSV download, so never repeat or guess values. Use filters to compare "
             "only some devices. If list_playbooks is available, read the playbook "

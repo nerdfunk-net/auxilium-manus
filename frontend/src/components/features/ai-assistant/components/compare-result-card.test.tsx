@@ -45,8 +45,18 @@ function proposal(overrides: Partial<CompareResultProposal> = {}): CompareResult
   };
 }
 
-function data(file = 2, device = 1, without = 1, partial = false): CompareResultData {
+function data(
+  file = 2,
+  device = 1,
+  without = 1,
+  partial = false,
+  both = 0,
+): CompareResultData {
   const rows = [
+    ...Array.from({ length: both }, (_, i) => ({
+      side: "in_both", value: `B${i}`, device_name: `both${i}`, device_location: "Paris",
+      device_id: `b${i}`, file_data: `bd${i}`,
+    })),
     ...Array.from({ length: file }, (_, i) => ({
       side: "only_in_file", value: `F${i}`, device_name: "", device_location: "", device_id: "",
       file_data: `d${i}`,
@@ -84,7 +94,7 @@ describe("CompareResultCard", () => {
     const counts = within(screen.getByTestId("compare-counts"));
     expect(counts.getByText("In file only: 2")).toBeTruthy();
     expect(counts.getByText("In Nautobot only: 1")).toBeTruthy();
-    expect(counts.getByText("Matched: 5")).toBeTruthy();
+    expect(counts.getByText("In both: 5")).toBeTruthy();
     expect(counts.getByText("Without a value: 1")).toBeTruthy();
     expect(screen.getByText(/counts only, never the values/)).toBeTruthy();
   });
@@ -98,6 +108,17 @@ describe("CompareResultCard", () => {
     expect(within(screen.getByTestId("compare-only-in-nautobot")).getByText("dev0")).toBeTruthy();
     expect(screen.queryByText(/Showing the first/)).toBeNull();
     expect(screen.getByText(/Devices without a value in Nautobot/)).toBeTruthy();
+  });
+
+  it("lists the rows that are in the file and in Nautobot, with file columns and device", () => {
+    state.data = data(1, 1, 0, false, 2);
+    render(<CompareResultCard proposal={proposal()} />);
+    const both = within(screen.getByTestId("compare-in-both"));
+    expect(both.getByText("In the file and in Nautobot")).toBeTruthy();
+    expect(both.getByText("B1")).toBeTruthy();
+    expect(both.getByText("bd1")).toBeTruthy(); // a file column
+    expect(both.getByText("both1")).toBeTruthy(); // the device
+    expect(both.getAllByText("Paris").length).toBe(2);
   });
 
   it("shows only a sample of a long list and points to the download", () => {

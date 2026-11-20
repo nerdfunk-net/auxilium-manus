@@ -5,8 +5,13 @@ import { rowsToCsv, type ParsedRow } from "./parsed-rows-export";
 export const SAMPLE_ROWS = 10;
 export const DEFAULT_INLINE_LIMIT = 50;
 
-export type CompareSide = "only_in_file" | "only_in_nautobot" | "without_value";
-const SIDES: readonly CompareSide[] = ["only_in_file", "only_in_nautobot", "without_value"];
+export type CompareSide = "only_in_file" | "in_both" | "only_in_nautobot" | "without_value";
+const SIDES: readonly CompareSide[] = [
+  "only_in_file",
+  "in_both",
+  "only_in_nautobot",
+  "without_value",
+];
 
 const FIELD_LABELS: Record<string, string> = {
   serial: "serial number",
@@ -110,6 +115,7 @@ export function parseCompareResponse(raw: unknown): CompareResultData | null {
 
 export interface ComparedSides {
   onlyInFile: CompareRow[];
+  inBoth: CompareRow[];
   onlyInNautobot: CompareRow[];
   withoutValue: CompareRow[];
 }
@@ -117,6 +123,7 @@ export interface ComparedSides {
 export function splitSides(rows: readonly CompareRow[]): ComparedSides {
   return {
     onlyInFile: rows.filter((row) => row.side === "only_in_file"),
+    inBoth: rows.filter((row) => row.side === "in_both"),
     onlyInNautobot: rows.filter((row) => row.side === "only_in_nautobot"),
     withoutValue: rows.filter((row) => row.side === "without_value"),
   };

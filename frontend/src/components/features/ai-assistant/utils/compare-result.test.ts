@@ -26,6 +26,7 @@ const RESPONSE = {
   partial: false,
   rows: [
     { side: "only_in_file", value: "SN1", device_name: "", device_location: "", file_data: "x", file_site: "" },
+    { side: "in_both", value: "SN9", device_name: "dev9", device_location: "Paris", file_data: "y", file_site: "" },
     { side: "only_in_nautobot", value: "SN2", device_name: "dev1", device_location: "Berlin", file_data: "", file_site: "" },
     { side: "without_value", value: "", device_name: "dev2", device_location: "Rome", file_data: "", file_site: "" },
     { side: "bogus", value: "ignored" },
@@ -42,8 +43,11 @@ describe("parseCompareResponse", () => {
     ]);
     expect(sides.onlyInNautobot[0].deviceName).toBe("dev1");
     expect(sides.withoutValue[0].deviceLocation).toBe("Rome");
-    expect(data!.rows).toHaveLength(3);
-    expect(data!.rawRows).toHaveLength(4);
+    expect(sides.inBoth).toEqual([
+      { side: "in_both", value: "SN9", deviceName: "dev9", deviceLocation: "Paris", fileValues: { data: "y" } },
+    ]);
+    expect(data!.rows).toHaveLength(4);
+    expect(data!.rawRows).toHaveLength(5);
     expect(data!.counts.only_in_file).toBe(1);
   });
 
