@@ -15,7 +15,7 @@ fine-grained control, you can import resolvers/managers directly.
 """
 
 import logging
-from collections.abc import Awaitable, Callable, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Iterable, Mapping, Sequence
 from typing import Any
 
 from services.nautobot.api_protocol import NautobotApi
@@ -354,9 +354,26 @@ class DeviceCommonService:
         fields: Mapping[str, str],
         *,
         find_parent: Callable[[str], Awaitable[str]] | None = None,
+        dry_run: bool = False,
     ) -> bool:
         """Delegate to IPManager."""
-        return await self.ip_manager.update_ip_address(ip_id, fields, find_parent=find_parent)
+        return await self.ip_manager.update_ip_address(
+            ip_id, fields, find_parent=find_parent, dry_run=dry_run
+        )
+
+    async def plan_ip_update(
+        self,
+        ip_id: str,
+        fields: Mapping[str, str],
+        *,
+        find_parent: Callable[[str], Awaitable[str]] | None = None,
+    ) -> dict[str, str]:
+        """Delegate to IPManager: the values the address does not have yet (a read)."""
+        return await self.ip_manager.plan_ip_update(ip_id, fields, find_parent=find_parent)
+
+    async def shared_ip_ids(self, ip_ids: Iterable[str], own_interface_ids: set[str]) -> set[str]:
+        """Delegate to IPManager: addresses held by anything but ``own_interface_ids``."""
+        return await self.ip_manager.shared_ip_ids(ip_ids, own_interface_ids)
 
     async def list_device_ip_ids(self, device_id: str) -> tuple[list[str], list[str]]:
         """Delegate to IPManager: ``(owned, shared)`` IP address ids of a device."""
@@ -437,6 +454,31 @@ class DeviceCommonService:
         return await self.vlan_manager.update_vlan(
             vlan_id, fields, locations=locations, locations_mode=locations_mode
         )
+
+    async def find_prefixes(self, prefix: str, namespace_id: str | None = None) -> list[str]:
+        """Delegate to PrefixManager."""
+        return await self.prefix_manager.find_prefixes(prefix, namespace_id)
+
+    async def update_prefix(
+        self,
+        prefix_id: str,
+        fields: Mapping[str, str],
+        *,
+        locations: Sequence[str] = (),
+        locations_mode: LocationsMode = "replace",
+    ) -> bool:
+        """Delegate to PrefixManager."""
+        return await self.prefix_manager.update_prefix(
+            prefix_id, fields, locations=locations, locations_mode=locations_mode
+        )
+
+    async def missing_prefix_locations(self, prefix_id: str, locations: Sequence[str]) -> list[str]:
+        """Delegate to PrefixManager."""
+        return await self.prefix_manager.missing_locations(prefix_id, locations)
+
+    async def missing_vlan_locations(self, vlan_id: str, locations: Sequence[str]) -> list[str]:
+        """Delegate to VLANManager."""
+        return await self.vlan_manager.missing_locations(vlan_id, locations)
 
     # ========================================================================
     # INTERFACE METHODS (delegated to InterfaceManager)

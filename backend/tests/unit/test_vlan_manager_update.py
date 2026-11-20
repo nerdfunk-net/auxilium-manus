@@ -16,6 +16,7 @@ _VLAN = "55555555-5555-5555-5555-555555555555"
 _A = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
 _B = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
 _C = "cccccccc-cccc-cccc-cccc-cccccccccccc"
+_R1 = "11111111-1111-1111-1111-111111111111"
 
 
 def _manager(current: dict | None = None, assigned: dict[str, str] | None = None, pages=None):
@@ -47,6 +48,18 @@ def _writes(nautobot, method: str) -> list[tuple[str, object]]:
     return [(endpoint, data) for m, endpoint, data in nautobot.calls if m == method]
 
 
+class MissingLocationsTests(unittest.IsolatedAsyncioTestCase):
+    async def test_returns_only_unassigned_locations_and_writes_nothing(self) -> None:
+        manager, nautobot = _manager(assigned={_A: _R1})
+        self.assertEqual(await manager.missing_locations(_VLAN, [_A, _B, _B]), [_B])
+        self.assertEqual({m for m, _, _ in nautobot.calls}, {"GET"})
+
+    async def test_rejects_a_non_uuid(self) -> None:
+        manager, _ = _manager()
+        with self.assertRaises(ValueError):
+            await manager.missing_locations("nope", [_A])
+
+
 class MergeLocationsTests(unittest.TestCase):
     def test_modes(self) -> None:
         self.assertEqual(merge_locations([_A], [_B, _B], "replace"), [_B])
@@ -66,7 +79,7 @@ class UpdateVlanTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(_patches(nautobot), [{"description": "new"}])
 
     async def test_identical_values_send_nothing(self) -> None:
-        manager, nautobot = _manager({"description": "d"}, {_A: "r1"})
+        manager, nautobot = _manager({"description": "d"}, {_A: _R1})
         changed = await manager.update_vlan(
             _VLAN, {"description": "d"}, locations=[_A], locations_mode="replace"
         )
@@ -74,7 +87,7 @@ class UpdateVlanTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual([m for m, _, _ in nautobot.calls if m != "GET"], [])
 
     async def test_locations_are_assignments_never_a_vlan_field(self) -> None:
-        manager, nautobot = _manager({}, {_A: "r1"})
+        manager, nautobot = _manager({}, {_A: _R1})
         await manager.update_vlan(_VLAN, {}, locations=[_B], locations_mode="add")
         self.assertEqual(_patches(nautobot), [])
         self.assertEqual(
@@ -84,12 +97,12 @@ class UpdateVlanTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_location_modes(self) -> None:
         cases = (
-            ("replace", [_B], [_B], ["r1"]),
+            ("replace", [_B], [_B], [_R1]),
             ("add", [_B], [_B], []),
-            ("remove", [_A], [], ["r1"]),
+            ("remove", [_A], [], [_R1]),
         )
         for mode, requested, added, removed in cases:
-            manager, nautobot = _manager({}, {_A: "r1"})
+            manager, nautobot = _manager({}, {_A: _R1})
             self.assertTrue(
                 await manager.update_vlan(_VLAN, {}, locations=requested, locations_mode=mode)
             )
@@ -98,7 +111,7 @@ class UpdateVlanTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual((posts, deletes), (added, removed), mode)
 
     async def test_add_existing_and_remove_missing_are_noops(self) -> None:
-        manager, nautobot = _manager({}, {_A: "r1"})
+        manager, nautobot = _manager({}, {_A: _R1})
         self.assertFalse(await manager.update_vlan(_VLAN, {}, locations=[_A], locations_mode="add"))
         self.assertFalse(
             await manager.update_vlan(_VLAN, {}, locations=[_C], locations_mode="remove")
@@ -106,7 +119,7 @@ class UpdateVlanTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual([m for m, _, _ in nautobot.calls if m != "GET"], [])
 
     async def test_empty_locations_leave_them_alone(self) -> None:
-        manager, nautobot = _manager({}, {_A: "r1"})
+        manager, nautobot = _manager({}, {_A: _R1})
         self.assertFalse(
             await manager.update_vlan(_VLAN, {}, locations=[], locations_mode="replace")
         )
@@ -140,7 +153,7 @@ class UpdateVlanTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsInstance(ctx.exception.__cause__, RuntimeError)
 
     async def test_failure_after_some_location_writes_is_partial(self) -> None:
-        manager, nautobot = _manager({}, {_C: "r1"})
+        manager, nautobot = _manager({}, {_C: _R1})
         inner = nautobot.rest_request.side_effect
 
         async def fail_delete(*, endpoint, method="GET", data=None):

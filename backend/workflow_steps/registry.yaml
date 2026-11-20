@@ -2874,7 +2874,9 @@ plugins:
       Update an existing IP address in Nautobot, identified by its Nautobot ID (UUID), for
       example the one Add IP to Nautobot wrote to an attribute. Only the fields you fill in
       are changed; an empty field is left as it is. An address that already has the values
-      is not written again.
+      is not written again. With "IP addresses from interfaces" the step instead applies the
+      values to every IP address on the device's interfaces (addresses that are also assigned
+      elsewhere are skipped); a dry run shows what would change.
     artifact_type: inventory_selector
     palette_category: nautobot
     directory: update_nautobot_ip
@@ -2894,9 +2896,10 @@ plugins:
         - name: ip_id
           description: >
             Nautobot ID (UUID) of the IP address to update. Fixed value or a {path}
-            expression resolved per device.
+            expression resolved per device. Required unless ips_from_interfaces is on, and must
+            be empty then.
           data_type: string
-          required: true
+          required: false
           example: "{custom.ip_id}"
         - name: namespace
           description: >
@@ -2932,16 +2935,42 @@ plugins:
         - name: dns_name
           description: >
             DNS name of the address. Fixed value or a {path} expression. Empty leaves it
-            unchanged.
+            unchanged. With ips_from_interfaces it may also contain {ip.address}, {ip.host},
+            {interface.name} and {interface.slug}, filled in for each address.
           data_type: string
           required: false
           example: host.example.org
         - name: description
           description: >
             Description of the address. Fixed value or a {path} expression. Empty leaves it
-            unchanged.
+            unchanged. With ips_from_interfaces it may also contain {ip.address}, {ip.host},
+            {interface.name} and {interface.slug}, filled in for each address.
           data_type: string
           required: false
+        - name: ips_from_interfaces
+          description: >
+            true = update every IP address on the device's interfaces (the addresses in the Nautobot
+            attributes; run Get Nautobot Attributes with interfaces first) with the values
+            configured here. Addresses that are also assigned to another device or a VM interface
+            are skipped and counted. ip_id must be empty in this mode.
+          data_type: boolean
+          required: false
+          example: true
+        - name: ip_version
+          description: >
+            Only with ips_from_interfaces: 4 or 6 limits the update to that IP version; empty
+            updates both.
+          data_type: string
+          required: false
+          example: "4"
+        - name: dry_run
+          description: >
+            true = write nothing; read the addresses in Nautobot and store, per device, the
+            addresses that would change and the fields (dry_run_results). Only works with
+            ips_from_interfaces; on its own it is refused (a manual run would write).
+          data_type: boolean
+          required: false
+          example: true
 
   - id: update-nautobot-vlan
     name: Update VLAN
@@ -3031,6 +3060,127 @@ plugins:
           data_type: string
           required: false
           example: add
+        - name: vlans_from_interfaces
+          description: >
+            true = take the VLANs from the device's interfaces (tagged and untagged VLAN ids of the
+            Nautobot attributes; run Get Nautobot Attributes with interfaces first) and add the
+            device's own Nautobot location to each VLAN's locations. Nothing is ever removed.
+            In this mode vlan_id, vid, vlan_group, name, description, status, role and locations
+            must be empty.
+          data_type: boolean
+          required: false
+          example: true
+        - name: dry_run
+          description: >
+            true = write nothing; read the VLANs' locations in Nautobot and store, per device, the
+            VLANs that would get the location (dry_run_results). Only works with
+            vlans_from_interfaces; on its own it is refused (a manual run would write).
+          data_type: boolean
+          required: false
+          example: true
+
+  - id: update-nautobot-prefix
+    name: Update IP Prefix
+    overview: Change description, status, role or locations of an IP prefix in Nautobot.
+    description: >
+      Update an existing IP prefix in Nautobot, selected by its Nautobot ID (UUID) or by its
+      network (and optionally a namespace). Only the fields you fill in are changed; an empty field
+      is left as it is. A prefix can belong to several locations: replace the list, add to it or
+      remove from it. A prefix that already has the values is not written again. With "prefixes
+      from interfaces" the step instead adds each device's own location to the prefixes its
+      interface addresses belong to (a dry run shows what would change).
+    artifact_type: inventory_selector
+    palette_category: nautobot
+    directory: update_nautobot_prefix
+    enabled: true
+    requires: [identity]
+    produces: []
+    outcomes:
+      - name: success
+      - name: failure
+    metadata:
+      configuration_input:
+        - name: nautobot_source_id
+          description: ID of a Nautobot source configured under Settings → Sources.
+          data_type: string
+          required: true
+          example: prod-lab
+        - name: prefix_id
+          description: >
+            Nautobot ID (UUID) of the prefix to update. Fixed value or a {path} expression
+            resolved per device. When set it is used instead of prefix.
+          data_type: string
+          required: false
+          example: "{custom.prefix_id}"
+        - name: prefix
+          description: >
+            Network of the prefix (for example 10.0.0.0/24) to look up when prefix_id is empty.
+            Fixed value or a {path} expression. The same network can exist in several namespaces:
+            narrow it with namespace (several matches fail the device with ambiguous_match).
+          data_type: string
+          required: false
+          example: 10.0.0.0/24
+        - name: namespace
+          description: >
+            Name (or UUID) of the namespace that narrows the prefix lookup. Fixed value or a
+            {path} expression. Only used together with prefix.
+          data_type: string
+          required: false
+          example: Global
+        - name: description
+          description: >
+            Description of the prefix. Fixed value or a {path} expression. Empty leaves it
+            unchanged.
+          data_type: string
+          required: false
+        - name: status
+          description: >
+            Name (or UUID) of a status valid for prefixes, for example Active or Reserved. Fixed
+            value or a {path} expression. Empty leaves it unchanged.
+          data_type: string
+          required: false
+          example: Active
+        - name: role
+          description: >
+            Name (or UUID) of a Nautobot role that applies to prefixes. Fixed value or a {path}
+            expression. Empty leaves it unchanged.
+          data_type: string
+          required: false
+          example: Management
+        - name: locations
+          description: >
+            Locations of the prefix: names (matched without regard to case) or UUIDs separated by
+            commas or new lines, each a fixed value or a {path} expression. Quote a name that
+            contains a comma ("Frankfurt, West") or use its UUID. Empty leaves the locations
+            unchanged. How the list is applied depends on locations_mode.
+          data_type: string
+          required: false
+          example: "Berlin, Munich"
+        - name: locations_mode
+          description: >
+            replace (the list becomes the complete set of locations), add (keep the current
+            locations and add these) or remove (drop these from the current locations).
+          data_type: string
+          required: false
+          example: add
+        - name: prefixes_from_interfaces
+          description: >
+            true = take the prefixes from the device's interfaces (the parent prefix of every IP
+            address in the Nautobot attributes; run Get Nautobot Attributes with interfaces first)
+            and add the device's own Nautobot location to each prefix's locations. Nothing is ever
+            removed. In this mode prefix_id, prefix, namespace, description, status, role and
+            locations must be empty.
+          data_type: boolean
+          required: false
+          example: true
+        - name: dry_run
+          description: >
+            true = write nothing; read the prefixes' locations in Nautobot and store, per device,
+            the prefixes that would get the location (dry_run_results). Only works with
+            prefixes_from_interfaces; on its own it is refused (a manual run would write).
+          data_type: boolean
+          required: false
+          example: true
 
   - id: get-device-location
     name: Get Location of Device

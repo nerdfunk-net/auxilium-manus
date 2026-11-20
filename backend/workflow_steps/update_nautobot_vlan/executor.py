@@ -9,7 +9,6 @@ field is left unchanged; the locations are replaced, extended or reduced dependi
 from __future__ import annotations
 
 import asyncio
-import csv
 import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
@@ -37,12 +36,15 @@ from services.nautobot.managers.vlan_manager import (
     VlanPartialUpdateError,
 )
 from services.workflow_context.secret_fields import REDACTED_PLACEHOLDER
+from workflow_steps.common.location_list import split_locations
 from workflow_steps.common.nautobot_source import resolve_nautobot_credentials
 from workflow_steps.common.partial_outcomes import (
     device_error_from_exception,
     fail_device_with_error,
 )
+from workflow_steps.common.step_flags import parse_bool_flag
 from workflow_steps.common.update_field_expression import resolve_update_field_expression
+from workflow_steps.update_nautobot_vlan.interfaces_mode import run_from_interfaces
 
 if TYPE_CHECKING:
     from services.network.netmiko.session_pool import DeviceSessionPool
@@ -59,14 +61,6 @@ _FIELDS = ("name", "description", "status", "role", "locations")
 _VID_RANGE = range(1, 4095)
 
 
-def split_locations(text: str) -> list[str]:
-    """Location entries separated by commas or new lines; a name with a comma is "quoted"."""
-    parts: list[str] = []
-    for row in csv.reader(text.splitlines(), skipinitialspace=True):
-        parts.extend(part.strip() for part in row if part.strip())
-    return parts
-
-
 @dataclass(frozen=True)
 class _ParsedConfig:
     source_id: str
@@ -76,6 +70,12 @@ class _ParsedConfig:
     expressions: dict[str, str]
     location_expressions: tuple[str, ...]
     locations_mode: LocationsMode
+    from_interfaces: bool = False
+    dry_run: bool = False
+
+
+# Keys the "VLANs from interfaces" mode does not take: it only adds the device's own location.
+_INTERFACE_MODE_REFUSED = ("vlan_id", "vid", "vlan_group", *_FIELDS)
 
 
 @dataclass(frozen=True)
@@ -94,6 +94,31 @@ def _parse_config(config: dict[str, Any]) -> _ParsedConfig:
     source_id = _text(config, "nautobot_source_id")
     if not source_id:
         raise ValueError(f"{_STEP_ID}: nautobot_source_id is not configured")
+    dry_run = parse_bool_flag(config, "dry_run")
+    if parse_bool_flag(config, "vlans_from_interfaces"):
+        extra = [key for key in _INTERFACE_MODE_REFUSED if _text(config, key)]
+        if extra:
+            raise ValueError(
+                f"{_STEP_ID}: vlans_from_interfaces only adds the device's location; "
+                f"clear {', '.join(extra)}"
+            )
+        return _ParsedConfig(
+            source_id=source_id,
+            vlan_id_expression="",
+            vid_expression="",
+            vlan_group_expression="",
+            expressions={},
+            location_expressions=(),
+            locations_mode="add",
+            from_interfaces=True,
+            dry_run=dry_run,
+        )
+    if dry_run:
+        # Only the interfaces mode previews; ignoring the flag here would write to Nautobot.
+        raise ValueError(
+            f"{_STEP_ID}: dry_run only works with vlans_from_interfaces; "
+            "switch it off or the step would write"
+        )
     vlan_id = _text(config, "vlan_id")
     vid = _text(config, "vid")
     if not vlan_id and not vid:
@@ -469,6 +494,10 @@ async def execute(
         return _build_outcomes(context=context, node_id=node_id, buckets=buckets, updated=0)
 
     bound = _bind_nautobot(run, parsed.source_id)
+    if parsed.from_interfaces:
+        return await run_from_interfaces(
+            common=bound.common, context=context, node_id=node_id, dry_run=parsed.dry_run
+        )
     logger.info(
         "update-nautobot-vlan started run_id=%s node_id=%s devices=%d",
         context.run_id,

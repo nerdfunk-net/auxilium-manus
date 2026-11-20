@@ -13,4 +13,6 @@ def get_config() -> dict:
         "role": "",
         "locations": "",
         "locations_mode": "replace",
+        "vlans_from_interfaces": False,
+        "dry_run": False,
     }

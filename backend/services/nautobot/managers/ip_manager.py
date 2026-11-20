@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import ipaddress
 import logging
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Awaitable, Callable, Iterable, Mapping
 from typing import TYPE_CHECKING
 
 from services.nautobot.common.rest import rest_paginate, rest_query
@@ -42,6 +42,24 @@ def _same_value(key: str, current: Mapping[str, object], value: str) -> bool:
     if key == "dns_name" and isinstance(stored, str):
         return stored.lower() == value.lower()
     return stored == value
+
+
+def _holders(assignments: list[dict], interface_ids: set[str]) -> tuple[bool, bool]:
+    """``(held_here, elsewhere)`` for one address's assignments against a device's interfaces.
+
+    Ids are compared without regard to case: the device's ids can come from an attribute bag and
+    Nautobot's answer need not spell a UUID the same way.
+    """
+    own = {interface_id.lower() for interface_id in interface_ids}
+    held_here = any(
+        str(_reference_id(assignment.get("interface"))).lower() in own for assignment in assignments
+    )
+    elsewhere = any(
+        assignment.get("vm_interface")
+        or str(_reference_id(assignment.get("interface"))).lower() not in own
+        for assignment in assignments
+    )
+    return held_here, elsewhere
 
 
 class IPManager:
@@ -270,38 +288,29 @@ class IPManager:
                 use_assigned_ip_if_exists=use_assigned_ip_if_exists,
             )
 
-    async def update_ip_address(
+    async def plan_ip_update(
         self,
         ip_id: str,
         fields: Mapping[str, str],
         *,
         find_parent: Callable[[str], Awaitable[str]] | None = None,
-    ) -> bool:
-        """
-        Update an existing IP address; only the values that differ are sent.
+    ) -> dict[str, str]:
+        """The values of ``fields`` the address does not have yet (a read; nothing is written).
 
         Nautobot ignores ``namespace`` on an existing address (it answers 200 and keeps the
         parent), so a namespace move is a change of ``parent``: ``find_parent`` receives the
         host address and returns the id of the prefix in the target namespace to move to.
 
-        Args:
-            ip_id: IP address UUID
-            fields: Nautobot REST fields to set (``status`` and ``role`` as ids, ``type``,
-                ``dns_name`` and ``description`` as text)
-            find_parent: Optional lookup of the target parent prefix id for a namespace move
-
-        Returns:
-            True when a PATCH was sent, False when the address already had every value.
-
         Raises:
             ValueError: If ``ip_id`` is not a UUID.
             NautobotNotFoundError: If the address does not exist.
-            NautobotAPIError: If Nautobot refuses the change.
+            NautobotAPIError: If Nautobot refuses a lookup.
         """
         if not is_valid_uuid(ip_id.lower()):
             raise ValueError("ip_id is not a Nautobot UUID")
-        endpoint = f"ipam/ip-addresses/{ip_id}/?format=json"
-        current = await self.nautobot.rest_request(endpoint=endpoint, method="GET")
+        current = await self.nautobot.rest_request(
+            endpoint=f"ipam/ip-addresses/{ip_id}/?format=json", method="GET"
+        )
         changes = {
             key: value for key, value in fields.items() if not _same_value(key, current, value)
         }
@@ -309,13 +318,70 @@ class IPManager:
             parent_id = await find_parent(str(current.get("host") or ""))
             if _reference_id(current.get("parent")) != parent_id:
                 changes["parent"] = parent_id
+        return changes
+
+    async def update_ip_address(
+        self,
+        ip_id: str,
+        fields: Mapping[str, str],
+        *,
+        find_parent: Callable[[str], Awaitable[str]] | None = None,
+        dry_run: bool = False,
+    ) -> bool:
+        """
+        Update an existing IP address; only the values that differ are sent.
+
+        Args:
+            ip_id: IP address UUID
+            fields: Nautobot REST fields to set (``status`` and ``role`` as ids, ``type``,
+                ``dns_name`` and ``description`` as text)
+            find_parent: Optional lookup of the target parent prefix id for a namespace move
+                (see ``plan_ip_update``)
+            dry_run: Only report whether a write would be needed; nothing is sent
+
+        Returns:
+            True when a PATCH was sent (or would be, in a dry run), False when the address
+            already had every value.
+
+        Raises:
+            ValueError: If ``ip_id`` is not a UUID.
+            NautobotNotFoundError: If the address does not exist.
+            NautobotAPIError: If Nautobot refuses the change.
+        """
+        changes = await self.plan_ip_update(ip_id, fields, find_parent=find_parent)
         if not changes:
             logger.info("IP address %s already has the requested values", ip_id)
             return False
+        if dry_run:
+            return True
 
         logger.info("Updating IP address %s fields=%s", ip_id, sorted(changes))
-        await self.nautobot.rest_request(endpoint=endpoint, method="PATCH", data=changes)
+        await self.nautobot.rest_request(
+            endpoint=f"ipam/ip-addresses/{ip_id}/", method="PATCH", data=changes
+        )
         return True
+
+    async def shared_ip_ids(self, ip_ids: Iterable[str], own_interface_ids: set[str]) -> set[str]:
+        """The addresses that are held by anything but the given interfaces, or not confirmed.
+
+        An address is *not* shared only when the assignment lookup confirms that it is on one of
+        ``own_interface_ids`` and on nothing else (another device's interface or a VM interface).
+        An empty or inconsistent answer counts as shared, so a caller never changes an address it
+        could not confirm to be exclusive.
+
+        Raises:
+            NautobotAPIError: If Nautobot refuses a lookup.
+        """
+        shared: set[str] = set()
+        for ip_id in dict.fromkeys(ip_ids):
+            assignments = await rest_paginate(
+                self.nautobot,
+                f"ipam/ip-address-to-interface/?{rest_query(ip_address=ip_id, limit=1000)}",
+            )
+            held_here, elsewhere = _holders(assignments, own_interface_ids)
+            if not held_here or elsewhere:
+                shared.add(ip_id)
+        return shared
 
     async def list_device_ip_ids(self, device_id: str) -> tuple[list[str], list[str]]:
         """
@@ -354,15 +420,7 @@ class IPManager:
                 self.nautobot,
                 f"ipam/ip-address-to-interface/?{rest_query(ip_address=ip_id, limit=1000)}",
             )
-            held_here = any(
-                str(_reference_id(assignment.get("interface"))) in interface_ids
-                for assignment in assignments
-            )
-            elsewhere = any(
-                assignment.get("vm_interface")
-                or str(_reference_id(assignment.get("interface"))) not in interface_ids
-                for assignment in assignments
-            )
+            held_here, elsewhere = _holders(assignments, interface_ids)
             # Exclusive only when the lookup confirms this device holds the address and nobody
             # else does; an empty or inconsistent answer must never lead to a delete.
             (owned if held_here and not elsewhere else shared).append(ip_id)

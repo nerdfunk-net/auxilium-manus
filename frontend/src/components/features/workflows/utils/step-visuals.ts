@@ -145,6 +145,7 @@ export const CATEGORY_SUBGROUPS: Record<string, CategorySubgroup[]> = {
         "add-ip-to-nautobot",
         "update-nautobot-ip",
         "update-nautobot-vlan",
+        "update-nautobot-prefix",
       ],
     },
     { label: "JOBS", kinds: ["start-nautobot-job", "check-nautobot-job"] },

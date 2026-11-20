@@ -101,7 +101,13 @@ class FacadeDelegationTests(unittest.IsolatedAsyncioTestCase):
         await self.facade.assign_ip_to_interface("ip", "if")
         ip.assign_ip_to_interface.assert_awaited_once_with("ip", "if", False)
         await self.facade.update_ip_address("ip", {"status": "s"})
-        ip.update_ip_address.assert_awaited_once_with("ip", {"status": "s"}, find_parent=None)
+        ip.update_ip_address.assert_awaited_once_with(
+            "ip", {"status": "s"}, find_parent=None, dry_run=False
+        )
+        await self.facade.plan_ip_update("ip", {"status": "s"})
+        ip.plan_ip_update.assert_awaited_once_with("ip", {"status": "s"}, find_parent=None)
+        await self.facade.shared_ip_ids(["ip"], {"if"})
+        ip.shared_ip_ids.assert_awaited_once_with(["ip"], {"if"})
         await self.facade.ensure_prefix_exists("10.0.0.0/24")
         px.ensure_prefix_exists.assert_awaited_once()
         await self.facade.ensure_interface_exists("dev", "Gi0/0")

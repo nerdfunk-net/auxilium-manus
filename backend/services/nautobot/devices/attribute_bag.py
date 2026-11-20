@@ -122,6 +122,18 @@ _DEVICE_FIELDS = """
           id
           name
         }
+        parent {
+          id
+          prefix
+          locations {
+            id
+            name
+          }
+          namespace {
+            id
+            name
+          }
+        }
       }
       tagged_vlans {
         id

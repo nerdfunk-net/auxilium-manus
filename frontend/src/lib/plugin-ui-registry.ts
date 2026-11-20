@@ -68,6 +68,7 @@ const PLUGIN_UI_LOADERS: Record<string, PluginUILoader> = {
   "add-ip-to-nautobot": () => import("@/components/features/workflow-steps/add-ip-to-nautobot").then((m) => m.AddIpToNautobotPlugin),
   "update-nautobot-ip": () => import("@/components/features/workflow-steps/update-nautobot-ip").then((m) => m.UpdateNautobotIpPlugin),
   "update-nautobot-vlan": () => import("@/components/features/workflow-steps/update-nautobot-vlan").then((m) => m.UpdateNautobotVlanPlugin),
+  "update-nautobot-prefix": () => import("@/components/features/workflow-steps/update-nautobot-prefix").then((m) => m.UpdateNautobotPrefixPlugin),
   "remove-from-nautobot": () => import("@/components/features/workflow-steps/remove-from-nautobot").then((m) => m.RemoveFromNautobotPlugin),
   reachable: () => import("@/components/features/workflow-steps/reachable").then((m) => m.ReachablePlugin),
   "login-successful": () => import("@/components/features/workflow-steps/login-successful").then((m) => m.LoginSuccessfulPlugin),

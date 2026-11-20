@@ -11,4 +11,7 @@ def get_config() -> dict:
         "status": "",
         "dns_name": "",
         "description": "",
+        "ips_from_interfaces": False,
+        "ip_version": "",
+        "dry_run": False,
     }

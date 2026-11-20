@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Mapping, Sequence
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any
 
 from services.nautobot.common.rest import rest_paginate, rest_query
 from services.nautobot.common.validators import is_valid_uuid
@@ -17,6 +17,15 @@ from ..common.exceptions import (
     NautobotNotFoundError,
 )
 from ..common.utils import graphql_errors_summary
+from .location_assignments import (
+    LOCATIONS_MODES,
+    LocationsMode,
+    PartialUpdateError,
+    apply_locations,
+    merge_locations,
+    missing_locations,
+    reference_id,
+)
 
 if TYPE_CHECKING:
     from services.nautobot.api_protocol import NautobotApi
@@ -29,20 +38,17 @@ logger = logging.getLogger(__name__)
 _ID_FIELDS = frozenset({"status", "role"})
 
 
-class VlanPartialUpdateError(NautobotAPIError):
-    """A VLAN write failed after earlier writes had already been stored.
+# Kept under its old name: the executor and the tests import it from here.
+VlanPartialUpdateError = PartialUpdateError
+__all__ = [
+    "LOCATIONS_MODES",
+    "LocationsMode",
+    "VLANManager",
+    "VlanPartialUpdateError",
+    "merge_locations",
+]
 
-    ``applied`` names what is stored (``"fields"``, ``"locations"``); the original error is the
-    ``__cause__``. Nautobot has no transaction across the calls, so a second run completes it.
-    """
-
-    def __init__(self, applied: Sequence[str]) -> None:
-        super().__init__("VLAN update stopped part-way: " + ", ".join(applied) + " already written")
-        self.applied = tuple(applied)
-
-
-LocationsMode = Literal["replace", "add", "remove"]
-LOCATIONS_MODES: tuple[str, ...] = ("replace", "add", "remove")
+_ASSIGNMENTS_ENDPOINT = "ipam/vlan-location-assignments/"
 
 _VLANS_BY_VID_QUERY = """
 query GetVlans($vid: [Int], $location: [String]) {
@@ -66,25 +72,8 @@ async def _query_vlans(nautobot, vid: int, location_id: str | None) -> list[dict
     return result.get("data", {}).get("vlans", [])
 
 
-def _reference_id(value: object) -> object:
-    """A related object arrives as a UUID or as a nested object; compare by its id."""
-    return value.get("id") if isinstance(value, dict) else value
-
-
 def _normalize_id(key: str, value: str) -> str:
     return value.lower() if key in _ID_FIELDS and is_valid_uuid(value.lower()) else value
-
-
-def merge_locations(
-    current: Sequence[str], requested: Sequence[str], mode: LocationsMode
-) -> list[str]:
-    """The location ids a VLAN has after applying ``requested`` in ``mode``."""
-    if mode == "replace":
-        return list(dict.fromkeys(requested))
-    if mode == "add":
-        return list(dict.fromkeys([*current, *requested]))
-    drop = set(requested)
-    return [item for item in current if item not in drop]
 
 
 class VLANManager:
@@ -238,7 +227,7 @@ class VLANManager:
         current = await self.nautobot.rest_request(endpoint=endpoint, method="GET")
         wanted = {key: _normalize_id(key, value) for key, value in fields.items()}
         changes: dict[str, Any] = {
-            key: value for key, value in wanted.items() if _reference_id(current.get(key)) != value
+            key: value for key, value in wanted.items() if reference_id(current.get(key)) != value
         }
         applied: list[str] = []
         try:
@@ -260,42 +249,24 @@ class VLANManager:
             logger.info("VLAN %s already has the requested values", vlan_id)
         return bool(changes) or relocated
 
+    async def missing_locations(self, vlan_id: str, locations: Sequence[str]) -> list[str]:
+        """The ids in ``locations`` the VLAN is not assigned to yet (a read; nothing is written).
+
+        This is what ``update_vlan(..., locations_mode="add")`` would add, for a dry run.
+
+        Raises:
+            ValueError: If ``vlan_id`` is not a UUID.
+        """
+        if not is_valid_uuid(vlan_id.lower()):
+            raise ValueError("vlan_id is not a Nautobot UUID")
+        return await missing_locations(
+            self.nautobot, _ASSIGNMENTS_ENDPOINT, "vlan", vlan_id, locations
+        )
+
     async def _apply_locations(
         self, vlan_id: str, requested: Sequence[str], mode: LocationsMode
     ) -> bool:
-        """Create / delete location assignments so the VLAN's locations match; True if any changed.
-
-        Nautobot exposes ``locations`` read-only on a VLAN (a PATCH of it is silently ignored);
-        the set is the ``ipam/vlan-location-assignments/`` rows (one per VLAN and location).
-        """
-        if not requested:
-            return False
-        query = rest_query(vlan=vlan_id, limit=1000, format="json")
-        rows = await rest_paginate(self.nautobot, f"ipam/vlan-location-assignments/?{query}")
-        assigned = {str(_reference_id(row.get("location"))): str(row["id"]) for row in rows}
-        wanted = merge_locations(list(assigned), requested, mode)
-        to_add = [location for location in wanted if location not in assigned]
-        to_remove = [row_id for location, row_id in assigned.items() if location not in wanted]
-        written = 0
-        try:
-            for location in to_add:
-                await self.nautobot.rest_request(
-                    endpoint="ipam/vlan-location-assignments/",
-                    method="POST",
-                    data={"vlan": vlan_id, "location": location},
-                )
-                written += 1
-            for row_id in to_remove:
-                await self.nautobot.rest_request(
-                    endpoint=f"ipam/vlan-location-assignments/{row_id}/", method="DELETE"
-                )
-                written += 1
-        except Exception as exc:
-            if written:
-                raise VlanPartialUpdateError(["locations"]) from exc
-            raise
-        if to_add or to_remove:
-            logger.info(
-                "VLAN %s locations added=%d removed=%d", vlan_id, len(to_add), len(to_remove)
-            )
-        return bool(to_add or to_remove)
+        """Create / delete assignments so the VLAN's locations match; True if any changed."""
+        return await apply_locations(
+            self.nautobot, _ASSIGNMENTS_ENDPOINT, "vlan", vlan_id, requested, mode
+        )

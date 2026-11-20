@@ -636,6 +636,36 @@ All are in the `nautobot` palette category; the first two share
   *Concurrency:* each device PATCHes the address it names, so fan-out children and sibling branches are safe
   as long as they name different addresses; two devices resolving to one `ip_id` with different values make
   the last write win.
+  **IP addresses from interfaces** (`ips_from_interfaces: true`, `ip_version`, `dry_run`;
+  `workflow_steps/update_nautobot_ip/interfaces_mode.py`). Unlike the VLAN and prefix modes the **values are not derived
+  from the device**: the user configures `status` / `type` / `role` / `namespace` / `dns_name` / `description` once and the
+  step applies them to **every IP address on the device's interfaces** (`nautobot.interfaces[].ip_addresses[]` of the
+  attribute bag; Get Nautobot Attributes with interfaces on). `ip_id` must be empty (the step refuses it) and at least one
+  value is still required. `ip_version` (`4` / `6`, empty = both) filters the addresses. An address listed on several
+  interfaces is handled once. Every address costs one GET (and a PATCH when it differs); concurrency 5.
+  - **Shared addresses are skipped.** An address that is also assigned to another device's interface or to a VM interface
+    (HSRP / VRRP virtual IP, anycast), or whose assignments cannot be confirmed, is not touched (`IPManager.shared_ip_ids`,
+    one `ipam/ip-address-to-interface/?ip_address=` read per address, the same rule as `list_device_ip_ids`). It is counted
+    in `skipped_shared` and listed in the dry-run preview. This is also why an address handled here belongs to one device only.
+    **Limit:** only these assignment rows are looked at. An address that is exclusive there but also used as a NAT or service
+    address elsewhere is still updated (the same limit as Remove from Nautobot). Interface ids from the bag and from Nautobot
+    are compared without regard to case.
+  - **Per-address values.** `dns_name` and `description` may use `{ip.address}`, `{ip.host}`, `{interface.name}` (the first
+    interface that lists the address) and `{interface.slug}` (a DNS label: `Gi0/0.100` -> `gi0-0-100`), besides device
+    `{path}` expressions (`address_values.py`). A token value never carries braces, an unresolved placeholder or one that
+    points to a secret fails the device (`dns_name_unresolved` / `..._is_secret`) before anything is written, never empty text.
+    A value that *renders* empty for one address (`{interface.slug}` of an interface named `///`) skips only that address:
+    it is counted in `skipped_empty` and listed in the dry-run preview, and the rest of the device is updated. The
+    `nothing_to_update` code stays for a configuration whose device-level fields all resolve to nothing.
+  - **Outcome.** A device with any failed address leaves through `failure` ("n of m addresses could not be updated", the
+    first error's code); the other addresses were still written (one PATCH per address, so none is half-updated). A device
+    without `interfaces` in its attributes fails with `interfaces_missing`. Counts in `metadata["<node>.update_ip_counts"]`:
+    `updated`, `unchanged`, `failed`, `skipped_shared`, `skipped_empty`, `dry_run`, per address.
+  - **`dry_run`** writes nothing: `IPManager.plan_ip_update` reads each address and the device gets
+    `dry_run_results[<node>] = {would_change: [{ip_id, address, fields}], unchanged, skipped_shared: [...], skipped_empty: [...]}`
+    (names of the fields, not their values; a namespace move shows as `namespace`). **`dry_run` without
+    `ips_from_interfaces` is a configuration error**, not ignored: a manual run would otherwise write.
+  - Loopback, management and the primary IP are included like any other address; there is no interface filter yet.
 
 ### VLAN step: `update-nautobot-vlan`
 
@@ -666,6 +696,21 @@ VLAN. Outcomes `success` / `failure`, `requires: [identity]`, `produces: []`. St
 - **Secrets.** `{path}` values are resolved with `reveal_secrets=False` (`<field>_is_secret`); resolved values are
   never repeated in an error.
 - **Counts** are in `metadata["<node>.update_vlan_counts"]`: `updated`, `unchanged`, `failed`.
+- **VLANs from interfaces** (`vlans_from_interfaces: true`, `workflow_steps/update_nautobot_vlan/interfaces_mode.py`). Instead
+  of one selected VLAN the step reads each device's `nautobot` attribute bag (Get Nautobot Attributes with interfaces on):
+  `location.id` and the `untagged_vlan` / `tagged_vlans` ids of every interface, and adds the device's location to each VLAN
+  (`add` only, nothing is removed). `vlan_id`, `vid`, `vlan_group`, the fields and `locations` must be empty (the step
+  refuses them; the panel clears them when the mode is switched on). A device without a location or without `interfaces` in its
+  bag fails with `device_location_missing` / `interfaces_missing`. **Nautobot, not the bag, decides whether a VLAN already has
+  the location** (the bag is a snapshot: a location removed after the attributes were read must still be found missing, in a
+  dry run too): every VLAN is asked, `update_vlan` reads the assignments and POSTs only a missing one. Each (VLAN, location)
+  pair is handled once per execution however many devices and interfaces use it, so devices at one site do not race to create
+  the same assignment, and the counts are per pair (`updated` / `unchanged` / `failed` plus `dry_run`). **`dry_run: true`**
+  writes nothing: `VLANManager.missing_locations` reads the VLAN's assignments and each device
+  gets `dry_run_results[<node>] = {would_add_location: [{vlan_id, vid, name}], already_assigned, location_id}`. `dry_run`
+  without `vlans_from_interfaces` is a configuration error (not ignored). Parallel
+  runs (other workflows) on the same pair can still collide; the second POST then fails that device and a re-run completes it.
+
 - **Concurrency.** Each device PATCHes the VLAN it selects, so fan-out children and sibling branches are safe as long
   as they select different VLANs. Two devices on one VLAN with different values: the last write wins; `add` /
   `remove` read the current locations first and are not atomic, so parallel runs on one VLAN can overwrite each other.
@@ -679,6 +724,36 @@ VLAN. Outcomes `success` / `failure`, `requires: [identity]`, `produces: []`. St
   The interface attribute query (`attribute_bag.py`) reads a VLAN's `locations` (list), never the legacy `location`,
   which raises in Nautobot for a VLAN with more than one location. Verified live on Nautobot 3.x (replace / add / remove, idempotent re-run, unknown location,
   unknown VID).
+
+
+### Prefix step: `update-nautobot-prefix`
+
+`update-nautobot-prefix` ("Update IP Prefix", `nautobot` palette category, IPAM sub-group) is the VLAN step for IP prefixes
+and works the same way (outcomes `success` / `failure`, `requires: [identity]`, `produces: []`; the write goes through
+`DeviceCommonService` → `PrefixManager.update_prefix`). Read "VLAN step" above for the shared rules; the differences:
+
+- **Selecting the prefix.** `prefix_id` (UUID, fixed or `{path}`) wins; otherwise `prefix` (a network such as `10.0.0.0/24`,
+  checked with `ipaddress`, `prefix_invalid` when it is not one) is looked up with `ipam/prefixes/?prefix=&namespace=` in
+  its **canonical form** (`2001:DB8::/32` is searched as `2001:db8::/32`, the text Nautobot stores), and a returned row whose
+  `prefix` is another network is dropped (`PrefixManager.find_prefixes`), narrowed by the optional `namespace` (name or UUID). The same network can exist in several namespaces: no match fails the
+  device with `prefix_not_found`, several with `ambiguous_match`.
+- **Fields.** `description`, `status` and `role` (names looked up for content type `ipam.prefix`) and `locations` with
+  `locations_mode` (`replace` / `add` / `remove`). There is no `name`. Errors: `prefix_partially_updated`,
+  `namespace_not_found`, `location_not_found`, `status_not_found`, `role_not_found`.
+- **Locations** are `ipam/prefix-location-assignments/` rows (`prefix`, `location`), the same mechanism as the VLAN's. The code
+  is shared: `services/nautobot/managers/location_assignments.py` (read, add, replace, remove, `PartialUpdateError`; the VLAN
+  manager's `VlanPartialUpdateError` is the same class). The assignment row ids Nautobot returns are checked as UUIDs
+  **before** the first write (they go into a DELETE path) and so are the location ids sent in a POST; every row of a location
+  that goes is deleted.
+- **Prefixes from interfaces** (`prefixes_from_interfaces: true`, `dry_run`): as for VLANs, but the objects are the **parent
+  prefix of every IP address** on the device's interfaces (`nautobot.interfaces[].ip_addresses[].parent`: `id`, `prefix`,
+  `locations`, `namespace`). Get Nautobot Attributes now selects `parent { id prefix locations { id name } namespace { id name } }`
+  for interface addresses (`services/nautobot/devices/attribute_bag.py`); **a bag read before that has no parent data and the
+  mode finds nothing for it**, so read the attributes again. Counts are in `update_prefix_counts`; the preview entries are
+  `{prefix_id, prefix, namespace}`. `dry_run` applies to this mode only; without `prefixes_from_interfaces` it is a configuration
+  error. As for VLANs, Nautobot (not the bag's `locations`) decides whether a prefix already has the location.
+- **Shared engine.** Both "from interfaces" modes run `workflow_steps/common/device_location_sync.py` (`LocationSyncSpec`:
+  how to find the objects in the bag, how to write one, how to check one); each step's `interfaces_mode.py` only supplies those.
 
 ### Removing a device: `remove-from-nautobot`
 
@@ -1853,6 +1928,7 @@ A step is concurrency-safe when it:
 | `add-ip-to-nautobot` | ✅ | Get-or-create through the shared `IPManager`: an address that exists is reused, and a concurrent creator of the same address or parent prefix is resolved by re-reading it, so fan-out children and sibling branches converge on one object. The addresses themselves still have to be distinct: take them from **Get Next Free IP** (which does not reserve them) and see its row. |
 | `update-nautobot-ip` | ✅ | Idempotent PATCH of the address each device names (`ip_id`), sent only when a value differs. Safe in fan-out children and sibling branches while the devices name different addresses; two devices naming the same address with different values race (last write wins). |
 | `update-nautobot-vlan` | ✅ | PATCH of the VLAN each device selects (`vlan_id` or `vid` + `vlan_group`), sent only when a value differs. Safe while the devices select different VLANs; two devices on one VLAN race (last write wins), and the `add` / `remove` location modes read before they write (not atomic). |
+| `update-nautobot-prefix` | ✅ | PATCH of the prefix each device selects (`prefix_id` or `prefix` + `namespace`), sent only when a value differs; locations are assignment rows. Safe while the devices select different prefixes; two devices on one prefix race (last write wins), and the `add` / `remove` location modes read before they write (not atomic). |
 | `remove-from-nautobot` | ⚠️ | Deletes the device each context device names by its own UUID. Within one execution the devices run one after another when `remove_ip_addresses` is on, so an address shared by them is removed by the last holder. Fan-out children and sibling branches run in separate executions and cannot see each other: two holders of one address removed there can both keep it, leaving it unassigned. Place the step after a **Fan In** when devices share addresses. Two devices naming the same UUID: the second fails `device_not_found`. |
 | `git-status` | ✅ | Read-only inspection (plus an optional `git fetch`) under the per-repository lock, so concurrent callers are serialised, not corrupted. Its result is per repository, not per device — inside a fan-out branch it re-checks the same repo once per child, so prefer a single check before the fan-out inventory step's children or after a Fan In. |
 | `start-workflow` | ⚠️ | Starts one run for all devices it receives, or one per device (`max_runs`), and optionally polls them for up to 600 s. Two concurrent callers start two sets of runs, so inside a fan-out child it starts runs per child, each waiting in its own worker slot: place it before the fan-out or after a **Fan In**. See "Starting another workflow: `start-workflow`" below. |

@@ -4,6 +4,15 @@ import { useCallback, useMemo, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import type {
   PluginConfigPanelProps,
   PluginUIComponent,
@@ -21,16 +30,26 @@ import {
 import { NautobotSourceSelectDialog } from "../shared/nautobot-source-select-dialog";
 import { SelectOrExpressionField } from "../shared/select-or-expression-field";
 import {
+  ADDRESS_TOKENS,
   DESCRIPTION_KEY,
   DNS_NAME_KEY,
+  DRY_RUN_KEY,
+  INTERFACE_IP_ID_PROBLEM,
+  IPS_FROM_INTERFACES_KEY,
   IP_ID_KEY,
   IP_TYPE_OPTIONS,
+  IP_VERSION_ANY,
+  IP_VERSION_KEY,
+  IP_VERSION_OPTIONS,
   NAMESPACE_KEY,
   NO_FIELD_PROBLEM,
   ROLE_KEY,
   STATUS_KEY,
   TYPE_KEY,
   configProblems,
+  interfaceModeEnabledPatch,
+  ipVersionFromConfig,
+  isFromInterfaces,
 } from "./config";
 import { UpdateNautobotIpHelpPanel } from "./help-panel";
 
@@ -44,13 +63,23 @@ function UpdateNautobotIpConfigPanel({
   const sourceId = useMemo(() => nautobotSourceIdFromConfig(config), [config]);
   const credentials = useNautobotSourceCredentials({ sourceId });
   const isSourceConfigured = isNautobotSourceConfigured(config);
-  const statuses = useNautobotStatusesQuery({ sourceId, contentType: "ipam.ipaddress" });
+  const statuses = useNautobotStatusesQuery({
+    sourceId,
+    contentType: "ipam.ipaddress",
+  });
   const nodes = workflowNodes ?? [];
   const edges = workflowEdges ?? [];
   const problems = configProblems(config);
+  const fromInterfaces = isFromInterfaces(config);
+  const ipVersion = ipVersionFromConfig(config);
+  const dryRun = config[DRY_RUN_KEY] === true || config[DRY_RUN_KEY] === "true";
 
   const statusOptions = useMemo(
-    () => (statuses.data ?? []).map((item) => ({ value: item.name, label: item.name })),
+    () =>
+      (statuses.data ?? []).map((item) => ({
+        value: item.name,
+        label: item.name,
+      })),
     [statuses.data],
   );
 
@@ -66,11 +95,41 @@ function UpdateNautobotIpConfigPanel({
     [patch],
   );
 
+  const tokenHint = (
+    <p className="text-[11px] leading-4 text-muted-foreground">
+      Per address: <span className="font-mono">{ADDRESS_TOKENS.join(" ")}</span>
+    </p>
+  );
+  const handleFromInterfacesChange = useCallback(
+    (next: boolean) =>
+      onChange(
+        next
+          ? { ...config, ...interfaceModeEnabledPatch() }
+          : {
+              ...config,
+              [IPS_FROM_INTERFACES_KEY]: false,
+              [DRY_RUN_KEY]: false,
+            },
+      ),
+    [config, onChange],
+  );
+  const handleDryRunChange = useCallback(
+    (next: boolean) => patch(DRY_RUN_KEY, next),
+    [patch],
+  );
+  const handleIpVersionChange = useCallback(
+    (next: string) =>
+      patch(IP_VERSION_KEY, next === IP_VERSION_ANY ? "" : next),
+    [patch],
+  );
+
   return (
     <div className="flex flex-col gap-4">
       <div className="space-y-1.5">
         <div className="flex items-center gap-1.5">
-          <span className="font-mono text-xs font-medium">{NAUTOBOT_SOURCE_ID_KEY}</span>
+          <span className="font-mono text-xs font-medium">
+            {NAUTOBOT_SOURCE_ID_KEY}
+          </span>
           <Badge className="h-4 rounded px-1 text-[10px]" variant="secondary">
             nautobot
           </Badge>
@@ -104,22 +163,92 @@ function UpdateNautobotIpConfigPanel({
         </Button>
       </div>
 
-      <ExpressionField
-        configKey={IP_ID_KEY}
-        value={stringField(config, IP_ID_KEY)}
-        placeholder="{custom.ip_id}"
-        onValueChange={(next) => patch(IP_ID_KEY, next)}
-        nodeId={nodeId}
-        workflowNodes={nodes}
-        workflowEdges={edges}
-      >
-        {problems.includes("ip_id is not configured") ? (
-          <p className="text-[11px] text-warning-foreground">Not configured</p>
-        ) : null}
-        <p className="text-[11px] leading-4 text-muted-foreground">
-          Nautobot ID (UUID) of the address, for example the attribute Add IP to Nautobot filled.
-        </p>
-      </ExpressionField>
+      <div className="flex items-center justify-between gap-3">
+        <div className="space-y-0.5">
+          <Label className="text-xs font-medium">
+            IP addresses from interfaces
+          </Label>
+          <p className="text-[11px] text-muted-foreground">
+            Apply the values below to every IP address on the device&apos;s
+            interfaces. Addresses that are also assigned elsewhere are skipped.
+            Needs Get Nautobot Attributes with interfaces.
+          </p>
+        </div>
+        <Switch
+          aria-label={IPS_FROM_INTERFACES_KEY}
+          checked={fromInterfaces}
+          onCheckedChange={handleFromInterfacesChange}
+          className="data-[state=checked]:bg-step"
+        />
+      </div>
+
+      {fromInterfaces ? (
+        <div className="space-y-3">
+          {problems.includes(INTERFACE_IP_ID_PROBLEM) ? (
+            <p className="text-[11px] text-warning-foreground">
+              {INTERFACE_IP_ID_PROBLEM}.
+            </p>
+          ) : null}
+          <div className="space-y-1.5">
+            <span className="font-mono text-xs font-medium">
+              {IP_VERSION_KEY}
+            </span>
+            <Select value={ipVersion} onValueChange={handleIpVersionChange}>
+              <SelectTrigger
+                className="h-8 text-xs focus:ring-step/40"
+                aria-label={IP_VERSION_KEY}
+              >
+                <SelectValue placeholder="IPv4 and IPv6" />
+              </SelectTrigger>
+              <SelectContent>
+                {IP_VERSION_OPTIONS.map((option) => (
+                  <SelectItem
+                    key={option.value}
+                    value={option.value}
+                    className="text-xs"
+                  >
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="flex items-center justify-between gap-3">
+            <div className="space-y-0.5">
+              <Label className="text-xs font-medium">Dry run</Label>
+              <p className="text-[11px] text-muted-foreground">
+                Write nothing; list per device the addresses that would change.
+              </p>
+            </div>
+            <Switch
+              aria-label={DRY_RUN_KEY}
+              checked={dryRun}
+              onCheckedChange={handleDryRunChange}
+              className="data-[state=checked]:bg-step"
+            />
+          </div>
+        </div>
+      ) : (
+        <ExpressionField
+          configKey={IP_ID_KEY}
+          value={stringField(config, IP_ID_KEY)}
+          placeholder="{custom.ip_id}"
+          onValueChange={(next) => patch(IP_ID_KEY, next)}
+          nodeId={nodeId}
+          workflowNodes={nodes}
+          workflowEdges={edges}
+        >
+          {problems.includes("ip_id is not configured") ? (
+            <p className="text-[11px] text-warning-foreground">
+              Not configured
+            </p>
+          ) : null}
+          <p className="text-[11px] leading-4 text-muted-foreground">
+            Nautobot ID (UUID) of the address, for example the attribute Add IP
+            to Nautobot filled.
+          </p>
+        </ExpressionField>
+      )}
 
       <div className="space-y-4 border-t pt-3">
         {problems.includes(NO_FIELD_PROBLEM) ? (
@@ -181,7 +310,9 @@ function UpdateNautobotIpConfigPanel({
           nodeId={nodeId}
           workflowNodes={nodes}
           workflowEdges={edges}
-        />
+        >
+          {fromInterfaces ? tokenHint : null}
+        </ExpressionField>
 
         <ExpressionField
           configKey={DESCRIPTION_KEY}
@@ -191,7 +322,9 @@ function UpdateNautobotIpConfigPanel({
           nodeId={nodeId}
           workflowNodes={nodes}
           workflowEdges={edges}
-        />
+        >
+          {fromInterfaces ? tokenHint : null}
+        </ExpressionField>
 
         <ExpressionField
           configKey={NAMESPACE_KEY}
@@ -203,7 +336,8 @@ function UpdateNautobotIpConfigPanel({
           workflowEdges={edges}
         >
           <p className="text-[11px] leading-4 text-muted-foreground">
-            Moves the address to a prefix of this namespace that contains it; see Help.
+            Moves the address to a prefix of this namespace that contains it;
+            see Help.
           </p>
         </ExpressionField>
       </div>
