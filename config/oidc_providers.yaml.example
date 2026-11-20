@@ -28,6 +28,18 @@ providers:
     # Okta:       https://{domain}.okta.com/.well-known/openid-configuration
     discovery_url: "https://keycloak.example.com/realms/production/.well-known/openid-configuration"
 
+    # Keycloak client settings (not read from this file; configure them in the IdP):
+    #   Client authentication: On (confidential client)    Standard flow: enabled
+    #   Valid redirect URIs:   {app-origin}/login/callback
+    #                          e.g. http://localhost:3000/login/callback (development)
+    #                               https://manus.example.com/login/callback (production)
+    #   Web origins:           {app-origin}   e.g. https://manus.example.com
+    # The redirect URI is the address users open the app on (the frontend, not the
+    # backend) plus /login/callback. It must match exactly: scheme, host, port, path.
+    # Development accepts only localhost / 127.0.0.1 with that path. Outside
+    # development, set OIDC_REDIRECT_URI_ALLOWLIST in backend/.env to the same value(s)
+    # (comma-separated). "Valid post logout redirect URIs" is not used by the app.
+
     # client_id / client_secret: OAuth 2.0 confidential client credentials. Required.
     # Prefer setting the secret via the environment so it is not on disk:
     #   OIDC_<PROVIDER_ID>_CLIENT_SECRET  (provider id upper-cased, non-alnum -> _)
@@ -73,6 +85,18 @@ providers:
     # setting's downstream role — an admin must activate them under
     # Settings > Users before they can sign in (via SSO or password).
     auto_provision: true
+
+    # Linking an existing local user to an SSO identity:
+    # An SSO login is matched to a local user by (provider, subject) only, never by
+    # username. If the IdP username equals an existing local account (e.g. "admin")
+    # that is not bound to this identity, the login is refused with 403 ("This
+    # identity cannot be linked to an existing account"). To bind them on purpose,
+    # run on the host (there is deliberately no API for it):
+    #   cd backend && python scripts/link_oidc_identity.py <username> <provider_id> <subject>
+    #   e.g. python scripts/link_oidc_identity.py admin corporate <subject>
+    # <subject> is the IdP's "sub" claim: for Keycloak, Users > the user > ID (a UUID).
+    # The script refuses an identity already bound to another user and ends the
+    # user's existing sessions. Alternative: sign in with a different IdP username.
 
     # default_role: Role name assigned to auto-provisioned users. Default: "viewer".
     # Must be an existing role name (manus ships "admin" and "viewer" by default;

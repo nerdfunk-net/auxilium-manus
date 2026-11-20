@@ -2,7 +2,7 @@
 
 import { AlertCircle, Boxes, CheckCircle2, Loader2 } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { useAuthStore } from "@/lib/auth-store";
@@ -17,8 +17,14 @@ function OidcCallbackContent() {
   const setUser = useAuthStore((state) => state.setUser);
   const [status, setStatus] = useState<CallbackStatus>("processing");
   const [error, setError] = useState("");
+  // React Strict Mode runs effects twice in development. The first run consumes the
+  // one-time OIDC state and authorization code, so a second run must not start.
+  const handledRef = useRef(false);
 
   useEffect(() => {
+    if (handledRef.current) return;
+    handledRef.current = true;
+
     const handleCallback = async () => {
       const code = searchParams.get("code");
       const state = searchParams.get("state");
