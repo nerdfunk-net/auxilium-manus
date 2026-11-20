@@ -102,7 +102,7 @@ or uses a `GitRepository` row.
 | `backend/services/git/auth.py` | `GitAuthenticationService`: resolves `credential_name` → username/token/ssh_key from `Credential` table. **Only `visibility="global"` credentials resolve in background jobs** |
 | `backend/services/git/sync.py` | `git_checkout` / `agit_checkout` (pulls strictly unless `allow_stale`; `refresh=False` skips the pull) and `remove_and_clone`: "ensure local working tree exists" helpers |
 | `backend/services/git/repo_lock.py` | `git_repo_lock(git_repository_id)` — per-repository Redis advisory lock **every git-mutating step must hold** across its `GitService` calls |
-| `backend/workflow_steps/common/file_source_root.py` | `resolve_source_root(source=..., git_repository_id=..., stack=..., allow_stale=..., step_id=...)` — the root a **file-reading** step reads from (export directory or git checkout, lease held until the caller's `AsyncExitStack` closes); used by `read-from-file`, `read-config`, `enrich-attributes` |
+| `backend/workflow_steps/common/file_source_root.py` | `resolve_source_root(source=..., git_repository_id=..., stack=..., allow_stale=..., refresh=..., step_id=...)` — the root a **file-reading** step reads from (export directory or git checkout, lease held until the caller's `AsyncExitStack` closes); used by `read-from-file`, `read-config`, `enrich-attributes` |
 | `backend/workflow_steps/common/git_repository_loader.py` | `load_git_repository(repository_id: int)` — the **one** resolver every workflow step uses to turn a `git_repository_id` config value into a `GitService`-ready dict |
 
 ### Workflow Steps and Git
@@ -123,8 +123,9 @@ Settings → **Git Repositories**
 is the only UI for creating/editing repositories.
 `workflow-steps/shared/git-repository-select-dialog.tsx` (`GitRepositorySelectDialog`) is
 the only picker workflow steps use. `workflow-steps/shared/git-source-config-panel.tsx` (`GitSourceConfigPanel`) is the
-repository picker plus the `allow_stale_repository` switch (`showAllowStaleToggle`) for a read step; the step's config
-builder must keep `allow_stale_repository`, or the next edit in the panel drops it.
+repository picker plus the `allow_stale_repository` switch (`showAllowStaleToggle`) for a read step, and, for a step that may read without a pull,
+the `refresh_repository` switch (`showRefreshToggle`; the stale switch then shows only while refresh is on and is cleared when it goes off); the step's config
+builder must keep both keys, or the next edit in the panel drops them.
 
 ### Git Repository DO / DON'T
 - ✅ Add a `GitRepository` row for any new git-backed feature; reuse an existing `GitCategory` or extend the enum

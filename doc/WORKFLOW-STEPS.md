@@ -324,7 +324,7 @@ when the clone fails). `pull()` never merges into a different branch. Read steps
 `git_checkout()` / `agit_checkout()` (`services/git/sync.py`): the lease is held while the step
 reads the files, so a change-request checkout cannot switch the tree underneath it; the pull is
 deduplicated for a few seconds and a failed pull raises (`allow_stale_repository: true` accepts the
-stale copy; a stale read is recorded as a warning event). Never keep the path after the `with` block. The switch is
+stale copy; a stale read is recorded as a warning event). `refresh=False` skips the pull and reads the local copy under the same lease (only `enrich-attributes` passes it, via `refresh_repository`; see its section for why that is deliberate). Never keep the path after the `with` block. The switch is
 offered by `read-from-file`, `read-config`, `enrich-attributes`, `get-from-config`, `batfish-init-snapshot` and
 `batfish-validate-facts`; `set-default-attributes` and `get-git-devices` still pull strictly.
 
