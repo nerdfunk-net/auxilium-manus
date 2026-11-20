@@ -12,6 +12,7 @@ import { GitRepositoryValue } from "@/components/features/workflow-steps/shared/
 
 const GIT_REPOSITORY_ID_KEY = "git_repository_id";
 const ALLOW_STALE_KEY = "allow_stale_repository";
+const REFRESH_KEY = "refresh_repository";
 
 function gitRepositoryIdFromConfig(config: Record<string, unknown>): number | null {
   const raw = config[GIT_REPOSITORY_ID_KEY];
@@ -22,6 +23,11 @@ interface GitSourceConfigPanelProps extends PluginConfigPanelProps {
   description: string;
   /** Show the "allow stale repository" switch (read steps that work on a pulled copy). */
   showAllowStaleToggle?: boolean;
+  /**
+   * Show the "refresh repository" switch (off = read the local copy without pulling; a Pull Git
+   * step refreshes it). With it, the stale switch only appears while refresh is on.
+   */
+  showRefreshToggle?: boolean;
 }
 
 export function GitSourceConfigPanel({
@@ -30,11 +36,14 @@ export function GitSourceConfigPanel({
   nodeId,
   description,
   showAllowStaleToggle = false,
+  showRefreshToggle = false,
 }: GitSourceConfigPanelProps) {
   const initializedForNode = useRef<string | null>(null);
   const [repositoryOpen, setRepositoryOpen] = useState(false);
   const repositoryId = gitRepositoryIdFromConfig(config);
   const allowStale = config[ALLOW_STALE_KEY] === true;
+  const refresh = config[REFRESH_KEY] === true;
+  const staleToggleVisible = showAllowStaleToggle && (!showRefreshToggle || refresh);
 
   useEffect(() => {
     if (initializedForNode.current === nodeId) {
@@ -48,10 +57,13 @@ export function GitSourceConfigPanel({
     if (showAllowStaleToggle && config[ALLOW_STALE_KEY] === undefined) {
       patch[ALLOW_STALE_KEY] = false;
     }
+    if (showRefreshToggle && config[REFRESH_KEY] === undefined) {
+      patch[REFRESH_KEY] = false;
+    }
     if (Object.keys(patch).length > 0) {
       onChange({ ...config, ...patch });
     }
-  }, [nodeId, config, onChange, showAllowStaleToggle]);
+  }, [nodeId, config, onChange, showAllowStaleToggle, showRefreshToggle]);
 
   const handleRepositoryIdChange = useCallback(
     (newRepositoryId: number) => {
@@ -65,6 +77,19 @@ export function GitSourceConfigPanel({
       onChange({ ...config, [ALLOW_STALE_KEY]: checked });
     },
     [config, onChange],
+  );
+
+  const handleRefreshChange = useCallback(
+    (checked: boolean) => {
+      // The stale switch is hidden while refresh is off; drop its value so it cannot come back
+      // switched on, unseen, the next time refresh is turned on.
+      onChange({
+        ...config,
+        [REFRESH_KEY]: checked,
+        ...(!checked && showAllowStaleToggle ? { [ALLOW_STALE_KEY]: false } : {}),
+      });
+    },
+    [config, onChange, showAllowStaleToggle],
   );
 
   return (
@@ -96,7 +121,28 @@ export function GitSourceConfigPanel({
         onSave={handleRepositoryIdChange}
       />
 
-      {showAllowStaleToggle ? (
+      {showRefreshToggle ? (
+        <div className="flex items-start gap-2">
+          <Checkbox
+            id={`${nodeId}-refresh`}
+            checked={refresh}
+            onCheckedChange={(checked) => handleRefreshChange(checked === true)}
+            className="mt-0.5"
+          />
+          <div className="space-y-0.5">
+            <Label htmlFor={`${nodeId}-refresh`} className="font-mono text-xs font-medium">
+              {REFRESH_KEY}
+            </Label>
+            <p className="text-[11px] text-muted-foreground">
+              Pull the repository before reading. Off by default: the last local copy is read as it
+              is, so many fan-out devices do not queue for the repository lock. Add a Pull Git step
+              before this one when you need fresh data.
+            </p>
+          </div>
+        </div>
+      ) : null}
+
+      {staleToggleVisible ? (
         <div className="flex items-start gap-2">
           <Checkbox
             id={`${nodeId}-allow-stale`}

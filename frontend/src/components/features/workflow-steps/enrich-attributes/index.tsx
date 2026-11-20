@@ -102,6 +102,7 @@ function EnrichAttributesConfigPanel(props: PluginConfigPanelProps) {
         <GitSourceConfigPanel
           {...props}
           description="Uses the same Git repositories as Get from Git / Store Artifact (Settings → Git Repositories)."
+          showRefreshToggle
           showAllowStaleToggle
         />
       ) : null}

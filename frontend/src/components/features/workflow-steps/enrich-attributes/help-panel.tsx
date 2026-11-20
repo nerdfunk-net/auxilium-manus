@@ -39,7 +39,9 @@ export function EnrichAttributesHelpPanel() {
       <HelpSection title="Source, path and delimiter">
         <p>
           <HelpCode>source</HelpCode> is the export directory (<HelpCode>filesystem</HelpCode>)
-          or a Git repository, refreshed before reading. <HelpCode>path</HelpCode> is one fixed
+          or a Git repository, read as last pulled (switch on{" "}
+          <HelpCode>refresh_repository</HelpCode> to pull first, or add a Pull Git step before this
+          one). <HelpCode>path</HelpCode> is one fixed
           relative path and stays inside the root. The first row is the header; values are
           trimmed text. <HelpCode>delimiter</HelpCode> defaults to <HelpCode>;</HelpCode> and can
           be any single character or <HelpCode>tab</HelpCode>.
@@ -103,9 +105,29 @@ export function EnrichAttributesHelpPanel() {
         </p>
       </HelpSection>
 
+      <HelpSection title="Fan-out">
+        <p>
+          This step handles <span className="font-medium text-foreground">all devices in one run</span>,
+          so it does not need a fan-out. Place it <span className="font-medium text-foreground">before the
+          fan-out or after the fan-in</span>: the file is then read once. Inside a fan-out every
+          child reads the same file again and takes the repository lock to do it.
+        </p>
+        <HelpWarning title="Git source inside a fan-out">
+          <p>
+            With <HelpCode>refresh_repository</HelpCode> off (default) the children only read the
+            local copy and queue for the lock for a moment. With it on, each child may pull, and
+            the later ones can fail with &quot;Timed out after 90s waiting for the lock&quot;.
+            Refresh the repository once with a Pull Git step before the fan-out instead.
+          </p>
+        </HelpWarning>
+      </HelpSection>
+
       <HelpSection title="Typical setup">
         <ol className="list-decimal space-y-1.5 pl-4">
           <li>Get Nautobot Attributes — selects the devices and reads their serial numbers.</li>
+          <li>
+            Pull Git (optional) — refreshes the repository once when the file must be current.
+          </li>
           <li>
             Enrich Attributes — <HelpCode>key_column: serial</HelpCode>,{" "}
             <HelpCode>device_attribute_path: nautobot.serial</HelpCode>.

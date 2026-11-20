@@ -7,6 +7,7 @@ describe("buildEnrichAttributesConfig", () => {
     expect(buildEnrichAttributesConfig({})).toEqual({
       source: "filesystem",
       git_repository_id: null,
+      refresh_repository: false,
       allow_stale_repository: false,
       path: "",
       delimiter: ";",
@@ -17,6 +18,13 @@ describe("buildEnrichAttributesConfig", () => {
       destination_path: "data",
       overwrite: false,
     });
+  });
+
+  it("keeps refresh_repository only when it is exactly true", () => {
+    expect(buildEnrichAttributesConfig({ refresh_repository: true }).refresh_repository).toBe(true);
+    expect(buildEnrichAttributesConfig({ refresh_repository: "yes" }).refresh_repository).toBe(
+      false,
+    );
   });
 
   it("coerces unknown source and match_mode to their defaults", () => {

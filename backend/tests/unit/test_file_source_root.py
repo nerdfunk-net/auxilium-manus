@@ -54,7 +54,23 @@ class ResolveSourceRootTests(unittest.IsolatedAsyncioTestCase):
                             step_id="s",
                         )
                 self.assertEqual(root, Path(tmp))
-                checkout.assert_called_once_with({"id": 7}, allow_stale=allow_stale)
+                checkout.assert_called_once_with({"id": 7}, allow_stale=allow_stale, refresh=True)
+
+    async def test_git_passes_refresh_false_to_checkout(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            with (
+                patch(f"{_MODULE}.load_git_repository", return_value={"id": 7}),
+                patch(f"{_MODULE}.agit_checkout", return_value=acheckout_of(Path(tmp))) as checkout,
+            ):
+                async with AsyncExitStack() as stack:
+                    await resolve_source_root(
+                        source="git",
+                        git_repository_id=7,
+                        stack=stack,
+                        refresh=False,
+                        step_id="s",
+                    )
+            checkout.assert_called_once_with({"id": 7}, allow_stale=False, refresh=False)
 
     async def test_git_lease_is_released_when_the_stack_closes(self) -> None:
         events: list[str] = []

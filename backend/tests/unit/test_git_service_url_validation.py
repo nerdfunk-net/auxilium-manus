@@ -30,6 +30,38 @@ class GitServiceUrlValidationTests(unittest.TestCase):
                 {"url": "http://127.0.0.1:3030/admin/export.git", "name": "gitea"}
             )
 
+    def test_open_or_clone_without_dns_still_applies_the_url_policy(self) -> None:
+        with self.assertRaises(UnsafeURLError):
+            self.git_service.open_or_clone(
+                {"url": "http://127.0.0.1:3030/admin/export.git", "name": "gitea"},
+                resolve_dns=False,
+            )
+
+    def test_open_or_clone_without_dns_skips_the_lookup_for_an_existing_clone(self) -> None:
+        repository = {"url": "https://example.com/a/b.git", "name": "gitea", "branch": "main"}
+        with (
+            patch("services.git.service.validate_git_remote_url") as validate,
+            patch.object(self.git_service, "get_repo_path", return_value=Path("/tmp/x-nope")),
+            patch("services.git.service.Path.mkdir"),
+            patch("services.git.service.Repo") as repo_cls,
+            patch.object(self.git_service, "ensure_branch"),
+        ):
+            repo_cls.return_value.remotes = []
+            self.git_service.open_or_clone(repository, resolve_dns=False)
+        self.assertFalse(validate.call_args.kwargs["resolve_dns"])
+
+    def test_a_fresh_clone_always_resolves_dns(self) -> None:
+        repository = {"url": "https://example.com/a/b.git", "name": "gitea", "branch": "main"}
+        with tempfile.TemporaryDirectory() as tmp:
+            with (
+                patch("services.git.service.validate_git_remote_url") as validate,
+                patch.object(self.git_service, "get_repo_path", return_value=Path(tmp) / "r"),
+                patch.object(self.git_service, "_clone_fresh") as clone_fresh,
+            ):
+                self.git_service.open_or_clone(repository, resolve_dns=False)
+        clone_fresh.assert_called_once()  # _clone_fresh validates with DNS itself
+        self.assertFalse(validate.call_args.kwargs["resolve_dns"])
+
     def test_clone_rejects_http_url(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             with self.assertRaises(UnsafeURLError):

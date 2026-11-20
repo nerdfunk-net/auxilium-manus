@@ -813,7 +813,7 @@ workflow's devices from the answer. Protocol, secrets and operations: `doc/AGENT
 ### Enriching devices from a CSV file: `enrich-attributes`
 
 The sibling of `read-from-file` for lookup tables. The file (export directory or `git_repository_id`, same root
-resolution, containment and `allow_stale_repository` rule as `read-from-file`) is a CSV with a header row; one column
+resolution and containment as `read-from-file`; the git read does **not** pull unless `refresh_repository` is on) is a CSV with a header row; one column
 (`key_column`) identifies the device. Example, `serial;data` / `131184641;example data`.
 
 - **Matching.** The device value is `device_attribute_path` (any scalar attribute, e.g. `nautobot.serial`), compared
@@ -834,12 +834,20 @@ resolution, containment and `allow_stale_repository` rule as `read-from-file`) i
   one device (`failure` outcome, each with a `FailureInfo`).
 - **Root and stale reads.** `workflow_steps/common/file_source_root.py::resolve_source_root` (export directory or git
   checkout, lease held until the caller's `AsyncExitStack` closes) is shared with `read-from-file` and `read-config`; a
-  new file-reading step uses it instead of its own copy. `allow_stale_repository` is passed to `git_checkout`; the
-  panels get the switch from `shared/git-source-config-panel.tsx` (`showAllowStaleToggle`), and the step's config
-  builder must keep the key, or the next edit in the panel drops it.
+  new file-reading step uses it instead of its own copy. `refresh_repository` (default off) is passed as `refresh` to
+  `git_checkout`: off reads the local copy without a pull (`sync="never"`; a missing clone is still made), so a fan-out
+  of children each takes the repository lease for a local read only instead of queueing behind a pull
+  (a 10-child fan-out used to hit "Timed out after 90s waiting for the lock"). The lease is always taken, so a
+  change-request checkout cannot switch the branch under the read, and no DNS lookup runs under it for an existing clone (`open_or_clone(resolve_dns=False)`). A read without a pull is **not** the strict-pull guarantee: the tree may be behind or ahead of `origin`, so the step records a `git_not_refreshed` run event with the commit it read (no git command runs for it, so nothing is checked per device). Refresh with a Pull Git step. `allow_stale_repository`
+  only matters while refresh is on (the panel clears it when refresh is switched off). The panel gets both switches from `shared/git-source-config-panel.tsx`
+  (`showRefreshToggle`, `showAllowStaleToggle`), and the step's config builder must keep the keys, or the next edit in
+  the panel drops them. `services/git/tree_scope.py::async_scope` shields the lock acquisition, so a cancelled step
+  releases a lock its worker thread takes late.
 - **Shared CSV core.** Parsing and matching live in `backend/services/csv_lookup/` (`parse_csv_rows`, `RowIndex`), which the Ask the Net
   file comparison also uses (`doc/AI_TOOL_CHAIN.md` §61); the step keeps only what is workflow-specific (the root, the device values, the merge,
   the sealed-secret guard). A change to the CSV rules is made there once.
+- **Deliberate: no pull, no status check per read.** `refresh_repository` is off by default, also for a stored step that has no such key, and a read runs no git command beyond opening the tree (no pull, no `status`/`diff`). This is a decision, not an omission: a pull or a status check for every device of a fan-out, each under the repository lock, made the children queue past the 90s lock timeout. The price is that the file may be older than `origin`; the step records the commit it read (`git_not_refreshed` run event) and the Pull Git step is how a workflow asks for fresh data. Do not make a pull the default again, and do not add a per-read dirty/ahead check, without changing how fan-out children share one read (for example one read per run).
+- **Fan-out.** The step takes every device of the context in one execution, so place it before the fan-out or after the fan-in: the file is then read once. Inside a fan-out each child reads it again under the repository lease; with `refresh_repository` on they can queue behind pulls (use a Pull Git step before the fan-out instead). The Help tab says so.
 - Code: `backend/workflow_steps/enrich_attributes/`; frontend `workflow-steps/enrich-attributes/`.
 
 ### Asking the AI: `contact-the-ai`

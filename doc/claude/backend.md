@@ -100,7 +100,7 @@ or uses a `GitRepository` row.
 | `backend/services/git/repository_service.py` | `GitRepositoryService`: CRUD for `git_repositories` table; `_to_dict()` is the canonical shape every git operation consumes |
 | `backend/services/git/service.py` | `GitService` (via `service_factory.build_git_service()`): clone/pull/push/commit/fetch. Takes a plain `repository: dict`, not an ORM object |
 | `backend/services/git/auth.py` | `GitAuthenticationService`: resolves `credential_name` → username/token/ssh_key from `Credential` table. **Only `visibility="global"` credentials resolve in background jobs** |
-| `backend/services/git/sync.py` | `git_checkout` / `agit_checkout` (pulls strictly unless `allow_stale`) and `remove_and_clone`: "ensure local working tree exists" helpers |
+| `backend/services/git/sync.py` | `git_checkout` / `agit_checkout` (pulls strictly unless `allow_stale`; `refresh=False` skips the pull) and `remove_and_clone`: "ensure local working tree exists" helpers |
 | `backend/services/git/repo_lock.py` | `git_repo_lock(git_repository_id)` — per-repository Redis advisory lock **every git-mutating step must hold** across its `GitService` calls |
 | `backend/workflow_steps/common/file_source_root.py` | `resolve_source_root(source=..., git_repository_id=..., stack=..., allow_stale=..., step_id=...)` — the root a **file-reading** step reads from (export directory or git checkout, lease held until the caller's `AsyncExitStack` closes); used by `read-from-file`, `read-config`, `enrich-attributes` |
 | `backend/workflow_steps/common/git_repository_loader.py` | `load_git_repository(repository_id: int)` — the **one** resolver every workflow step uses to turn a `git_repository_id` config value into a `GitService`-ready dict |
@@ -113,7 +113,8 @@ Deploys of a change request start with `from-change-request`, which holds the re
 checks out `manus/cr-{id}` pinned to the reviewed commit and restores the configured branch
 (the old `use_change_request_branch` flag was removed). Every use of the shared working tree is a
 bracket: `services/git/tree_scope.py` (`git_work_tree`, `git_branch_scope`). Read steps pull
-strictly (`allow_stale_repository` opts out). A step that reads a file from the export directory or a repository
+strictly (`allow_stale_repository` opts out); `enrich-attributes` is the exception: `refresh_repository` (default off) reads the
+local copy without a pull, records the commit it read as a run event (no git status check) and holds the lease all the same. A step that reads a file from the export directory or a repository
 resolves the root with `file_source_root.resolve_source_root`, not a private copy. See `doc/CICD_PIPELINE.md`.
 
 ### Frontend

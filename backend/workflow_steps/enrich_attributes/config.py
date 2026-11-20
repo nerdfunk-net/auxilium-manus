@@ -2,6 +2,7 @@ def get_config() -> dict:
     return {
         "source": "filesystem",
         "git_repository_id": None,
+        "refresh_repository": False,
         "allow_stale_repository": False,
         "path": "",
         "delimiter": ";",

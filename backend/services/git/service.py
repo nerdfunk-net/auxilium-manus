@@ -172,8 +172,13 @@ class GitService:
         """
         return get_repo_path(repository)
 
-    def open_or_clone(self, repository: dict) -> Repo:
+    def open_or_clone(self, repository: dict, *, resolve_dns: bool = True) -> Repo:
         """Open an existing repository or clone it if it doesn't exist.
+
+        ``resolve_dns=False`` skips the DNS lookup of the up-front URL check (scheme, host and
+        address-literal policy still apply): a caller that only reads a clone that already
+        exists sends nothing to the host, so it must not wait for a lookup while it holds the
+        repository lease. A clone (``_clone_fresh``) always resolves DNS itself.
 
         This method handles:
         - Opening existing valid repositories
@@ -193,7 +198,7 @@ class GitService:
         """
         validate_git_remote_url(
             repository.get("url", ""),
-            resolve_dns=True,
+            resolve_dns=resolve_dns,
             verify_ssl=repository.get("verify_ssl", True),
         )
 

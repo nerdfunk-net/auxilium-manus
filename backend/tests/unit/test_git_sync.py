@@ -95,6 +95,113 @@ class ClonePullDelegationTests(unittest.TestCase):
         self.assertEqual(result, repo_dir)
         git_service.pull.assert_called_once()
 
+    def test_refresh_false_reads_the_local_copy_without_pulling(self) -> None:
+        import service_factory as real_service_factory
+
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_dir = Path(tmp) / "gitea"
+            (repo_dir / ".git").mkdir(parents=True)
+
+            with patch.object(real_service_factory, "build_git_service") as build:
+                git_service = MagicMock()
+                git_service.get_repo_path.return_value = repo_dir
+                build.return_value = git_service
+
+                with git_checkout(_repository(), refresh=False) as root:
+                    self.assertEqual(root, repo_dir)
+
+        git_service.open_or_clone.assert_called_once()  # a missing clone is still made
+        git_service.pull.assert_not_called()
+
+    def test_refresh_false_still_holds_the_lease(self) -> None:
+        import service_factory as real_service_factory
+
+        events: list[str] = []
+
+        @contextmanager
+        def fake_lock(_repo_id: int):
+            events.append("acquire")
+            try:
+                yield MagicMock()
+            finally:
+                events.append("release")
+
+        with (
+            patch.object(real_service_factory, "build_git_service") as build,
+            patch("services.git.tree_scope.git_repo_lock", fake_lock),
+        ):
+            build.return_value = MagicMock()
+            with git_checkout(_repository(), refresh=False):
+                events.append("read")
+
+        self.assertEqual(events, ["acquire", "read", "release"])
+
+    def test_skipped_pull_is_recorded_with_the_commit_that_was_read(self) -> None:
+        import service_factory as real_service_factory
+        from services.execution.run_events_reporter import RunEventContext, bound_run_event_context
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with (
+                patch.object(real_service_factory, "build_git_service") as build,
+                patch("services.execution.run_events_reporter.emit_run_event") as emit,
+            ):
+                git_service = MagicMock()
+                git_service.get_repo_path.return_value = Path(tmp)
+                repo = git_service.open_or_clone.return_value
+                repo.head.is_valid.return_value = True
+                repo.head.commit.hexsha = "abcdef1234567890"
+                build.return_value = git_service
+                with bound_run_event_context(RunEventContext(run_id=5, node_id="n1")):
+                    with git_checkout(_repository(), refresh=False):
+                        pass
+        emit.assert_called_once()
+        self.assertEqual(emit.call_args.kwargs["kind"], "git_not_refreshed")
+        self.assertEqual(emit.call_args.kwargs["level"], "info")
+        self.assertIn("abcdef1", emit.call_args.kwargs["message"])
+
+    def test_skipped_pull_runs_no_git_status_check(self) -> None:
+        import service_factory as real_service_factory
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch.object(real_service_factory, "build_git_service") as build:
+                git_service = MagicMock()
+                git_service.get_repo_path.return_value = Path(tmp)
+                build.return_value = git_service
+                repo = git_service.open_or_clone.return_value
+                with git_checkout(_repository(), refresh=False):
+                    pass
+        repo.is_dirty.assert_not_called()
+        repo.git.assert_not_called()
+
+    def test_refresh_false_wins_over_allow_stale(self) -> None:
+        import service_factory as real_service_factory
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch.object(real_service_factory, "build_git_service") as build:
+                git_service = MagicMock()
+                git_service.get_repo_path.return_value = Path(tmp)
+                build.return_value = git_service
+                with git_checkout(_repository(), allow_stale=True, refresh=False):
+                    pass
+        git_service.pull.assert_not_called()
+
+    def test_refresh_false_opens_the_tree_without_a_dns_lookup_under_the_lease(self) -> None:
+        import service_factory as real_service_factory
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch.object(real_service_factory, "build_git_service") as build:
+                git_service = MagicMock()
+                git_service.get_repo_path.return_value = Path(tmp)
+                build.return_value = git_service
+                with git_checkout(_repository(), refresh=False):
+                    pass
+                git_service.open_or_clone.assert_called_once_with(_repository(), resolve_dns=False)
+
+                git_service.reset_mock()
+                with git_checkout(_repository()):
+                    pass
+                git_service.open_or_clone.assert_called_once_with(_repository())
+
     def test_clone_command_error_becomes_runtime_error(self) -> None:
         import service_factory as real_service_factory
 

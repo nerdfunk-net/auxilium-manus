@@ -5092,10 +5092,11 @@ plugins:
       skipped. A device without a matching row, or whose attribute has no value (a sealed
       secret is never decrypted for the comparison), continues unchanged on success.
       A column that would land on a sealed secret fails that device.
-      The first row is the header; values are trimmed strings. Fan-out note: in git mode
-      the shared local working tree is refreshed once per branch, so concurrent fan-out
-      children reading the same repository can contend on the git lock; prefer filesystem
-      mode, or enrich before fan-out / after fan-in.
+      The first row is the header; values are trimmed strings. Git mode reads the local
+      copy as last pulled (add a Pull Git step to refresh it, or set refresh_repository).
+      Fan-out note: every child still takes the repository lock to read the file, so
+      without a pull per child they queue only for a moment; with refresh_repository on
+      they can contend on the lock, so enrich before fan-out / after fan-in instead.
     artifact_type: control_flow
     palette_category: attributes
     directory: enrich_attributes
@@ -5123,11 +5124,20 @@ plugins:
           data_type: integer
           required: false
           example: 3
+        - name: refresh_repository
+          description: >
+            Pull the git repository before reading. Off by default: the last local copy is
+            read as it is (a missing clone is still made), under the repository lock, so a
+            fan-out of devices does not queue behind one pull each. Refresh with a Pull Git
+            step. Ignored for source filesystem.
+          data_type: boolean
+          required: false
+          default: false
         - name: allow_stale_repository
           description: >
-            When the git repository cannot be refreshed, read the last local copy instead
-            of failing the step. Off by default. A stale read is recorded as a warning
-            event on the step.
+            Only with refresh_repository: when the git repository cannot be refreshed, read
+            the last local copy instead of failing the step. Off by default. A stale read is
+            recorded as a warning event on the step.
           data_type: boolean
           required: false
           default: false

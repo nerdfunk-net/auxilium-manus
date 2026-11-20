@@ -301,6 +301,40 @@ class EnrichAttributesTests(unittest.IsolatedAsyncioTestCase):
             outcomes[0].context.devices["d1"].attribute_bags["inventory"]["site"], "berlin"
         )
 
+    async def test_git_does_not_refresh_by_default(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp) / "data.csv").write_text(CSV, encoding="utf-8")
+            with (
+                patch(f"{_ROOT}.load_git_repository", return_value={"id": 7}),
+                patch(f"{_ROOT}.agit_checkout", return_value=acheckout_of(Path(tmp))) as checkout,
+            ):
+                await execute(
+                    config=_config(source="git", git_repository_id=7),
+                    context=WorkflowContext(run_id="r", workflow_id="w", devices={"d1": _device()}),
+                    run=MagicMock(),
+                    artifact_service=InMemoryArtifactService(),
+                    node_id="n",
+                    device_sessions=MagicMock(),
+                )
+        self.assertFalse(checkout.call_args.kwargs["refresh"])
+
+    async def test_git_refreshes_when_refresh_repository_is_set(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp) / "data.csv").write_text(CSV, encoding="utf-8")
+            with (
+                patch(f"{_ROOT}.load_git_repository", return_value={"id": 7}),
+                patch(f"{_ROOT}.agit_checkout", return_value=acheckout_of(Path(tmp))) as checkout,
+            ):
+                await execute(
+                    config=_config(source="git", git_repository_id=7, refresh_repository=True),
+                    context=WorkflowContext(run_id="r", workflow_id="w", devices={"d1": _device()}),
+                    run=MagicMock(),
+                    artifact_service=InMemoryArtifactService(),
+                    node_id="n",
+                    device_sessions=MagicMock(),
+                )
+        self.assertTrue(checkout.call_args.kwargs["refresh"])
+
     async def test_git_requires_repository_id(self) -> None:
         with self.assertRaisesRegex(ValueError, "git_repository_id"):
             await _run(_config(source="git"), {"d1": _device()}, CSV)

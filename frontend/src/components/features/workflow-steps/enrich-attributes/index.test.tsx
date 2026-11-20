@@ -10,6 +10,13 @@ vi.mock("@/components/features/workflow-steps/shared/attribute-path-picker", () 
     open ? <button onClick={() => onSelect("nautobot.serial")}>pick serial</button> : null,
 }));
 
+vi.mock("@/components/features/workflow-steps/shared/git-repository-value", () => ({
+  GitRepositoryValue: () => <div>repository</div>,
+}));
+vi.mock("@/components/features/workflow-steps/shared/git-repository-select-dialog", () => ({
+  GitRepositorySelectDialog: () => null,
+}));
+
 const Panel = EnrichAttributesPlugin.ConfigPanel;
 
 function mount(initial: Record<string, unknown> = {}) {
@@ -59,5 +66,37 @@ describe("EnrichAttributesConfigPanel device_attribute_path picker", () => {
       target: { value: "nautobot.name" },
     });
     expect(last()).toMatchObject({ device_attribute_path: "nautobot.name" });
+  });
+});
+
+describe("EnrichAttributesConfigPanel git refresh switches", () => {
+  it("offers refresh_repository, off by default, and hides the stale switch until it is on", () => {
+    const { last } = mount({ source: "git", git_repository_id: 3 });
+
+    expect(screen.getByText("refresh_repository")).toBeTruthy();
+    expect(screen.queryByText("allow_stale_repository")).toBeNull();
+    expect(last()?.refresh_repository ?? false).toBe(false);
+
+    fireEvent.click(screen.getByLabelText("refresh_repository"));
+
+    expect(last()).toMatchObject({ refresh_repository: true, git_repository_id: 3 });
+    expect(screen.getByText("allow_stale_repository")).toBeTruthy();
+  });
+
+  it("clears allow_stale_repository when refresh is turned off, so it cannot come back unseen", () => {
+    const { last } = mount({
+      source: "git",
+      git_repository_id: 3,
+      refresh_repository: true,
+      allow_stale_repository: true,
+    });
+
+    fireEvent.click(screen.getByLabelText("refresh_repository"));
+
+    expect(last()).toMatchObject({ refresh_repository: false, allow_stale_repository: false });
+    expect(screen.queryByText("allow_stale_repository")).toBeNull();
+
+    fireEvent.click(screen.getByLabelText("refresh_repository"));
+    expect(last()).toMatchObject({ refresh_repository: true, allow_stale_repository: false });
   });
 });

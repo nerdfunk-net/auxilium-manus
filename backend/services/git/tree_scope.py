@@ -94,7 +94,11 @@ def git_work_tree(
     git_service = service_factory.build_git_service()
     repo_id = _as_int(repository.get("id"))
     with git_repo_lock(repo_id if repo_id is not None else -1) as lease:
-        repo = git_service.open_or_clone(repository)  # clones, or ensures the configured branch
+        if sync == "never":
+            # A read of the local copy sends nothing to the host: no DNS lookup under the lease.
+            repo = git_service.open_or_clone(repository, resolve_dns=False)
+        else:
+            repo = git_service.open_or_clone(repository)  # clones, or ensures the branch
         stale = pulled = False
         if sync != "never" and not _pulled_recently(repository):
             result = git_service.pull(repository, repo=repo)
@@ -108,7 +112,10 @@ def git_work_tree(
         lease.ensure_held()
         head = repo.head.commit.hexsha if repo.head.is_valid() else ""
         yield GitTree(
-            path=git_service.get_repo_path(repository), head=head, pulled=pulled, stale=stale
+            path=git_service.get_repo_path(repository),
+            head=head,
+            pulled=pulled,
+            stale=stale,
         )
 
 
@@ -117,8 +124,35 @@ async def async_scope(cm: Any) -> AsyncIterator[Any]:
     """Run a blocking context manager (lease acquisition polls with ``time.sleep``) so that
     entering and leaving happen in worker threads, never on the event loop."""
     import asyncio
+    import threading
 
-    value = await asyncio.to_thread(cm.__enter__)
+    # The worker thread cannot be interrupted. When this task is cancelled while the thread is
+    # still waiting for the lock, the thread goes on and takes it later, and nobody would run
+    # ``__exit__``: the lease would stay held (and renewed) with no owner. Shield the thread and
+    # release whatever it ends up holding.
+    entering = asyncio.ensure_future(asyncio.to_thread(cm.__enter__))
+    try:
+        value = await asyncio.shield(entering)
+    except asyncio.CancelledError:
+
+        def _exit_late() -> None:
+            try:
+                cm.__exit__(None, None, None)
+            except BaseException:
+                logger.error("git scope: releasing a late-acquired lease failed", exc_info=True)
+
+        def _release_late(done: asyncio.Future[Any]) -> None:
+            if done.cancelled() or done.exception() is not None:
+                return  # nothing was acquired
+            try:
+                # not a daemon: the interpreter waits for the release instead of dropping it
+                threading.Thread(target=_exit_late, name="git-scope-release").start()
+            except BaseException:
+                logger.error("git scope: could not start the lease release", exc_info=True)
+                _exit_late()
+
+        entering.add_done_callback(_release_late)
+        raise
     try:
         yield value
     except BaseException as exc:

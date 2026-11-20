@@ -46,6 +46,7 @@ export function buildEnrichAttributesConfig(
     source: config.source === "git" ? "git" : "filesystem",
     git_repository_id:
       typeof config.git_repository_id === "number" ? config.git_repository_id : null,
+    refresh_repository: config.refresh_repository === true,
     allow_stale_repository: config.allow_stale_repository === true,
     path: text(config.path),
     delimiter: text(config.delimiter) !== "" ? text(config.delimiter) : DEFAULT_DELIMITER,

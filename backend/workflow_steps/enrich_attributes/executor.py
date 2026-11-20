@@ -188,6 +188,12 @@ async def _load_rows(parsed: _Parsed, config: dict[str, Any]) -> list[CsvRow]:
             git_repository_id=parsed.git_repository_id,
             stack=stack,
             allow_stale=parse_bool_flag(config, "allow_stale_repository"),
+            # DELIBERATE, do not "fix" by defaulting to a pull: off by default, also for stored
+            # steps without the key. A Pull Git step refreshes the repository once; every (fan-out)
+            # child only reads it, so it holds the git lock for milliseconds. A pull or a git
+            # status check per device is what timed out ("Timed out after 90s waiting for the
+            # lock"). The read says which commit it read (run event). See doc/WORKFLOW-STEPS.md.
+            refresh=parse_bool_flag(config, "refresh_repository"),
             step_id=_STEP_ID,
         )
 
