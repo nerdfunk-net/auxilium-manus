@@ -6,6 +6,27 @@ pick it up without re-deriving the context.
 
 ---
 
+## Nautobot "from interfaces" modes: Update VLAN, Update IP Prefix, Update IP (built 2026-11-20, uncommitted)
+
+`update-nautobot-vlan` and `update-nautobot-prefix` add the device's location to the VLANs / parent prefixes of its interfaces;
+`update-nautobot-ip` applies user-set values to every address of its interfaces (`doc/WORKFLOW-STEPS.md`, "VLAN step", "Prefix step",
+"IP address steps"). Unit-tested; the VLAN mode was confirmed working by the product owner in the `test` workflow. Review fixes from
+`doc/analysis/REVIEW.md` (all eight findings) are in. Open:
+- **Live write path.** Only reads were checked against a real Nautobot (assignment endpoints, shared-address check, dry-run diff,
+  prefix lookup). Not yet run live: the writes of the prefix mode (`ipam/prefix-location-assignments/` POST / DELETE, PATCH), the IP
+  mode (PATCH of status / dns_name / namespace move) and the VLAN / IP panels' final run. Do one reversible write per step.
+- **IPv6 prefix lookup.** The canonical-form search is unit-tested only; the lab has no IPv6 prefix.
+- **Shared-address rule.** Only `ipam/ip-address-to-interface/` rows are looked at; an address that is exclusive there but also a NAT
+  or service address elsewhere is still updated. No live check with a really shared address (the lab has none).
+- **No interface filter** for the IP mode (e.g. only `Loopback.*`); loopback, management and the primary IP are updated like any other.
+- **Browser check** of the three panels (switch, dry run, per-address tokens, help text) is unit-tested with mocked queries only.
+- **Cost.** Since the bag no longer decides, every VLAN / prefix of the device is read from Nautobot on every run (one read each).
+  Fine for a switch; revisit if a device with thousands of VLANs shows up.
+- **Credentials grid** (`credentials-table.tsx`, resizable columns): the width cap and table roles are in; there is no stacked
+  small-screen layout (the product is desktop only).
+
+---
+
 ## Inventory `all_devices` field (built 2026-11-19, uncommitted)
 
 Review: `doc/analysis/REVIEW.md`; findings 1, 2, 4, 5 fixed, 3 not applicable (every device has a location, Nautobot 3).
