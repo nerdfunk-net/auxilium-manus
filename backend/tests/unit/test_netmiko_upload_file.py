@@ -77,6 +77,20 @@ class NetmikoDeviceSessionUploadFileTests(unittest.TestCase):
         self.assertTrue(call_kwargs["inline_transfer"])
         self.assertEqual(call_kwargs["socket_timeout"], 30)
 
+    def test_verify_file_is_forwarded_and_defaults_to_netmiko_behaviour(self) -> None:
+        session = _session()
+        with (
+            patch("services.network.netmiko.connection.ConnectHandler"),
+            patch("services.network.netmiko.connection.file_transfer") as file_transfer_mock,
+        ):
+            file_transfer_mock.return_value = {"file_transferred": True, "file_verified": False}
+            session.upload_file(local_path="/tmp/a", dest_file="a", file_system="flash:")
+            self.assertIsNone(file_transfer_mock.call_args.kwargs["verify_file"])
+            session.upload_file(
+                local_path="/tmp/a", dest_file="a", file_system="flash:", verify_file=False
+            )
+            self.assertIs(file_transfer_mock.call_args.kwargs["verify_file"], False)
+
     def test_transfer_error_is_captured(self) -> None:
         session = _session()
         with (
@@ -148,3 +162,32 @@ class NetmikoServiceUploadFileTests(unittest.IsolatedAsyncioTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class NetmikoServiceVerifyFileTests(unittest.IsolatedAsyncioTestCase):
+    async def test_verify_file_reaches_the_session_operation(self) -> None:
+        pool = MagicMock()
+        pool.run_on_device = AsyncMock(return_value=FileTransferResult(success=True))
+        session = MagicMock()
+        session.upload_file.return_value = FileTransferResult(success=True)
+
+        async def _run(**kwargs):
+            return kwargs["op"](session)
+
+        pool.run_on_device = AsyncMock(side_effect=_run)
+        await NetmikoService(pool=pool).upload_file(
+            host="10.0.0.1",
+            network_driver="cisco_ios",
+            platform=None,
+            username="admin",
+            password="secret",
+            local_path="/tmp/a",
+            dest_file="a",
+            file_system="flash:",
+            overwrite=False,
+            inline_transfer=False,
+            socket_timeout=10,
+            credential_reference="lab",
+            verify_file=False,
+        )
+        self.assertIs(session.upload_file.call_args.kwargs["verify_file"], False)

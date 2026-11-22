@@ -6,6 +6,22 @@ pick it up without re-deriving the context.
 
 ---
 
+## `upload-binary` step (built 2026-11-21, uncommitted)
+
+Git file -> private snapshot -> device over SCP with MD5 before (local, optional `expected_md5`) and after (`verify /md5` with its own
+`read_timeout`); shared code with `upload-config` in `workflow_steps/common/device_file_upload.py` (`doc/WORKFLOW-STEPS.md`,
+"Uploading a binary"). All findings of `doc/analysis/REVIEW.md` are fixed. Unit-tested only (a fake device answers `dir` / `verify` /
+`delete`). Open:
+- **Live check** on a real Catalyst (SCP server on, a real image): free-space check, the identical-file skip, `overwrite`, the md5
+  mismatch path with the `delete /force`, a `verify /md5` that takes minutes. Device writes: only on explicit OK.
+- **`delete /force` syntax** is IOS / IOS-XE; NX-OS and others may need another form (the removal is best effort and reported).
+- **Temporary disk space.** The snapshot needs the file's size free in the system temp directory (limit 4 GiB per file); no free-space
+  check before the copy.
+- **`source_path` is literal** (no `{placeholder}` templating, no per-device image by platform yet).
+- **Browser check** of the panel and Help tab.
+
+---
+
 ## Nautobot "from interfaces" modes: Update VLAN, Update IP Prefix, Update IP (built 2026-11-20, uncommitted)
 
 `update-nautobot-vlan` and `update-nautobot-prefix` add the device's location to the VLANs / parent prefixes of its interfaces;

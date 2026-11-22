@@ -187,3 +187,22 @@ def test_read_text_under_applies_the_caps(tmp_path: Path) -> None:
     with pytest.raises(sr.SafeReadError) as info:
         sr.read_text_under(tmp_path, "big.csv", max_chars=1000, max_bytes=50)
     assert info.value.code == "too_large"
+
+
+def test_open_file_under_yields_a_readable_descriptor_and_closes_it(tmp_path: Path) -> None:
+    (tmp_path / "a").mkdir()
+    (tmp_path / "a" / "image.bin").write_bytes(b"\x00\xff binary")
+    with sr.open_file_under(tmp_path, "a/image.bin") as fd:
+        assert os.read(fd, 100) == b"\x00\xff binary"
+    with pytest.raises(OSError):
+        os.fstat(fd)
+
+
+def test_open_file_under_refuses_a_symlink_swapped_in_after_a_check(tmp_path: Path) -> None:
+    (tmp_path / "real").mkdir()
+    (tmp_path / "real" / "image.bin").write_bytes(b"x")
+    os.symlink(tmp_path / "real", tmp_path / "swapped")
+    with pytest.raises(sr.SafeReadError) as info:
+        with sr.open_file_under(tmp_path, "swapped/image.bin"):
+            pass
+    assert info.value.code == "symlink"

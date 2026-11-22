@@ -6396,6 +6396,110 @@ plugins:
                 dotall: false
               replace_all: true
 
+  - id: upload-binary
+    name: Upload Binary
+    overview: Copy a binary file (e.g. an IOS image) from a git repository to a device via SCP.
+    description: >
+      Copies one file from a git repository to a device's filesystem with Netmiko's SCP file
+      transfer. The file's MD5 is computed before anything is sent (and compared with the
+      vendor's checksum when expected_md5 is set); the file is read once into a private copy,
+      so the repository is not locked during the transfer. After the copy the device's own
+      `verify /md5` result must match, otherwise the copy is deleted and the device leaves
+      through failure.
+      There is no inline (text) transfer mode: it would corrupt a binary.
+    artifact_type: persistent_artifact
+    palette_category: configuration_management
+    directory: upload_binary
+    enabled: true
+    requires: [identity]
+    produces: []
+    consumes: []
+    outcomes:
+      - name: success
+      - name: failure
+    metadata:
+      configuration_input:
+        - name: credential_reference
+          description: >
+            Credential vault name to use when credential_source is "fixed" (the default).
+          data_type: credential_ref
+          required: false
+        - name: credential_source
+          description: >
+            "fixed" (default) uses credential_reference. "run_param" uses the credential
+            vault name held in the run parameter named by credential_param — a workflow
+            static_attribute of type "reference", ref_kind "credential".
+          data_type: string
+          required: false
+          default: fixed
+          example: run_param
+        - name: credential_param
+          description: >
+            Name of the run parameter (workflow static_attribute) carrying the credential
+            vault name, used only when credential_source is "run_param".
+          data_type: string
+          required: false
+          example: ssh_credential
+        - name: git_repository_id
+          description: Id of the git repository (Settings → Git Repositories) holding the file.
+          data_type: integer
+          required: true
+        - name: allow_stale_repository
+          description: >
+            Accept the local copy of the repository when it cannot be pulled (the stale read
+            is recorded as a warning). Default off: a failed pull fails the step.
+          data_type: boolean
+          required: false
+          default: false
+        - name: source_path
+          description: >
+            Path of the file inside the repository (no "..", no symbolic links). A Git LFS
+            pointer file is refused.
+          data_type: string
+          required: true
+          example: images/cat9k_iosxe.17.09.04a.SPA.bin
+        - name: expected_md5
+          description: >
+            Optional MD5 published by the vendor (32 hex characters). When set, the file in the
+            repository must match it before any device is contacted.
+          data_type: string
+          required: false
+        - name: destination_filename
+          description: >
+            Target filename on the device. Empty uses the file name of source_path.
+          data_type: string
+          required: false
+          example: cat9k_iosxe.17.09.04a.SPA.bin
+        - name: file_system
+          description: "Destination filesystem on the device, e.g. flash: or bootflash:."
+          data_type: string
+          required: true
+          example: "flash:"
+        - name: overwrite
+          description: >
+            Replace the destination file if it exists. An identical file (same MD5) is never
+            copied again, whatever this is set to.
+          data_type: boolean
+          required: false
+          default: false
+        - name: network_driver_override
+          description: Override the Netmiko device type for all devices in this step.
+          data_type: string
+          required: false
+        - name: socket_timeout
+          description: SCP socket timeout in seconds (per operation, not for the whole copy).
+          data_type: integer
+          required: false
+          default: 10
+        - name: read_timeout
+          description: >
+            Seconds to wait for the device's `verify /md5` (and `dir` / `delete`) answer, 5-600.
+            A large image on slow flash needs minutes. A copy whose checksum is wrong, unreadable
+            or timed out is deleted from the device again.
+          data_type: integer
+          required: false
+          default: 600
+
   - id: upload-config
     name: Upload Config
     overview: Upload a configuration file to a device via SCP.

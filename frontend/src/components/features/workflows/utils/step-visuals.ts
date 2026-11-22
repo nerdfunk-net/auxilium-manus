@@ -16,6 +16,7 @@ import {
   FileInput,
   FileJson2,
   FileText,
+  FileUp,
   Filter,
   FolderOpen,
   Funnel,
@@ -259,6 +260,7 @@ const nodeIconsByKind: Record<string, LucideIcon> = {
   "get-pyats-running-config": HardDriveDownload,
   "get-pyats-snapshot": Camera,
   "compare-pyats-snapshot": Diff,
+  "upload-binary": FileUp,
   "upload-config": HardDriveUpload,
   "get-from-user": UserRound,
   // Same reason as the pyats entries above: palette_category: batfish means

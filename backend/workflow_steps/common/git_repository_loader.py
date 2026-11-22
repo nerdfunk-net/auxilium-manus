@@ -28,3 +28,18 @@ def load_git_repository(repository_id: int) -> dict[str, Any]:
         raise ValueError(f"Git repository '{repository['name']}' has no URL configured")
 
     return repository
+
+
+def parse_repository_id(raw: Any, *, step_id: str) -> int | None:
+    """A whole number (or its decimal text), or ``None`` when empty.
+
+    ``True`` and ``7.9`` are refused: ``int()`` would turn them into repositories 1 and 7.
+    """
+    if raw is None or raw == "":
+        return None
+    if isinstance(raw, bool) or (isinstance(raw, float) and not raw.is_integer()):
+        raise ValueError(f"{step_id}: git_repository_id must be a whole number")
+    try:
+        return int(raw)
+    except TypeError, ValueError:
+        raise ValueError(f"{step_id}: git_repository_id must be a whole number") from None

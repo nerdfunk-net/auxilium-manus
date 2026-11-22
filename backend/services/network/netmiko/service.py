@@ -275,6 +275,7 @@ class NetmikoService:
         socket_timeout: float,
         credential_reference: str,
         device_type: str | None = None,
+        verify_file: bool | None = None,
     ) -> FileTransferResult:
         resolved_device_type = device_type or resolve_netmiko_device_type(
             network_driver=network_driver,
@@ -289,6 +290,7 @@ class NetmikoService:
                 overwrite=overwrite,
                 inline_transfer=inline_transfer,
                 socket_timeout=socket_timeout,
+                verify_file=verify_file,
             )
 
         return await self._pool.run_on_device(

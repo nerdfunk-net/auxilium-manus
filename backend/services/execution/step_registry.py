@@ -147,6 +147,7 @@ from workflow_steps.update_nautobot_device.executor import execute as update_nau
 from workflow_steps.update_nautobot_ip.executor import execute as update_nautobot_ip
 from workflow_steps.update_nautobot_prefix.executor import execute as update_nautobot_prefix
 from workflow_steps.update_nautobot_vlan.executor import execute as update_nautobot_vlan
+from workflow_steps.upload_binary.executor import execute as upload_binary
 from workflow_steps.upload_config.executor import execute as upload_config
 
 StepExecutor = Callable[..., Awaitable[list[StepOutcome]]]
@@ -249,6 +250,7 @@ STEP_REGISTRY: dict[str, StepExecutor] = {
     "update-nautobot-vlan": update_nautobot_vlan,
     "update-nautobot-prefix": update_nautobot_prefix,
     "update-config-context": update_config_context,
+    "upload-binary": upload_binary,
     "upload-config": upload_config,
     "log-message": log_message,
     "log-attributes": log_attributes,

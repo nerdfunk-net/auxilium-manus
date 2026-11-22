@@ -103,6 +103,7 @@ const PLUGIN_UI_LOADERS: Record<string, PluginUILoader> = {
   "decrypt-attribute": () => import("@/components/features/workflow-steps/decrypt-attribute").then((m) => m.DecryptAttributePlugin),
   "update-content": () => import("@/components/features/workflow-steps/update-content").then((m) => m.UpdateContentPlugin),
   "update-ise-tacacs-key": () => import("@/components/features/workflow-steps/update-ise-tacacs-key").then((m) => m.UpdateIseTacacsKeyPlugin),
+  "upload-binary": () => import("@/components/features/workflow-steps/upload-binary").then((m) => m.UploadBinaryPlugin),
   "upload-config": () => import("@/components/features/workflow-steps/upload-config").then((m) => m.UploadConfigPlugin),
   "add-to-ise": () => import("@/components/features/workflow-steps/add-to-ise").then((m) => m.AddToIsePlugin),
   "add-to-nautobot": () => import("@/components/features/workflow-steps/add-to-nautobot").then((m) => m.AddToNautobotPlugin),

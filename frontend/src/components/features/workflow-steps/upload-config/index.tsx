@@ -22,8 +22,6 @@ import { listUpstreamSourceSteps } from "@/components/features/workflow-steps/sh
 import { UploadConfigHelpPanel } from "./help-panel";
 import {
   UPLOAD_CONFIG_SOURCE_OPTIONS,
-  MAX_SOCKET_TIMEOUT,
-  MIN_SOCKET_TIMEOUT,
   buildUploadConfigConfig,
   needsParsedOutputKey,
   needsSourceStepNodeId,
@@ -32,11 +30,13 @@ import {
   type VerifyAlgorithm,
 } from "./upload-config-config";
 import { SshCredentialField } from "@/components/features/workflow-steps/shared/ssh-credential-field";
+import { DEFAULT_SOCKET_TIMEOUT, clampSocketTimeout } from "../shared/device-file-transfer";
 import {
-  UploadConfigSocketTimeoutFields,
-  UploadConfigTransferFields,
-  UploadConfigVerifyFields,
-} from "./upload-config-fields";
+  NetworkDriverOverrideField,
+  SocketTimeoutField,
+  TransferTextField,
+} from "../shared/device-file-transfer-fields";
+import { UploadConfigTransferFields, UploadConfigVerifyFields } from "./upload-config-fields";
 
 function UploadConfigConfigPanel({
   config,
@@ -71,7 +71,7 @@ function UploadConfigConfigPanel({
   const socketTimeout =
     typeof config.socket_timeout === "number" && Number.isFinite(config.socket_timeout)
       ? config.socket_timeout
-      : MIN_SOCKET_TIMEOUT;
+      : DEFAULT_SOCKET_TIMEOUT;
   const verifyContent = config.verify_content === true;
   const verifyAlgorithm: VerifyAlgorithm = config.verify_algorithm === "sha512" ? "sha512" : "md5";
 
@@ -179,11 +179,7 @@ function UploadConfigConfigPanel({
 
   const handleSocketTimeoutChange = useCallback(
     (value: string) => {
-      const parsed = Number.parseInt(value, 10);
-      const clamped = Number.isFinite(parsed)
-        ? Math.min(MAX_SOCKET_TIMEOUT, Math.max(MIN_SOCKET_TIMEOUT, parsed))
-        : MIN_SOCKET_TIMEOUT;
-      onChange(buildUploadConfigConfig(config, { socket_timeout: clamped }));
+      onChange(buildUploadConfigConfig(config, { socket_timeout: clampSocketTimeout(value) }));
     },
     [config, onChange],
   );
@@ -298,41 +294,21 @@ function UploadConfigConfigPanel({
         </div>
       ) : null}
 
-      <div className="space-y-1.5">
-        <div className="flex items-center gap-1.5">
-          <span className="font-mono text-xs font-medium">destination_filename</span>
-          <Badge className="h-4 rounded px-1 text-[10px]" variant="secondary">
-            string
-          </Badge>
-        </div>
-        <Input
-          value={destinationFilename}
-          onChange={(event) => handleDestinationFilenameChange(event.target.value)}
-          placeholder="startup-config-new.cfg"
-          className="h-8 font-mono text-xs"
-        />
-        <p className="text-[11px] text-muted-foreground">
-          Target filename on the device filesystem.
-        </p>
-      </div>
+      <TransferTextField
+        name="destination_filename"
+        value={destinationFilename}
+        onChange={handleDestinationFilenameChange}
+        placeholder="startup-config-new.cfg"
+        hint="Target filename on the device filesystem."
+      />
 
-      <div className="space-y-1.5">
-        <div className="flex items-center gap-1.5">
-          <span className="font-mono text-xs font-medium">file_system</span>
-          <Badge className="h-4 rounded px-1 text-[10px]" variant="secondary">
-            string
-          </Badge>
-        </div>
-        <Input
-          value={fileSystem}
-          onChange={(event) => handleFileSystemChange(event.target.value)}
-          placeholder="bootflash:"
-          className="h-8 font-mono text-xs"
-        />
-        <p className="text-[11px] text-muted-foreground">
-          Destination filesystem on the device, e.g. bootflash:, flash:, or nvram:.
-        </p>
-      </div>
+      <TransferTextField
+        name="file_system"
+        value={fileSystem}
+        onChange={handleFileSystemChange}
+        placeholder="bootflash:"
+        hint="Destination filesystem on the device, e.g. bootflash:, flash:, or nvram:."
+      />
 
       <UploadConfigTransferFields
         overwrite={overwrite}
@@ -348,27 +324,15 @@ function UploadConfigConfigPanel({
         onVerifyAlgorithmChange={handleVerifyAlgorithmChange}
       />
 
-      <div className="space-y-1.5">
-        <div className="flex items-center gap-1.5">
-          <span className="font-mono text-xs font-medium">network_driver_override</span>
-          <Badge className="h-4 rounded px-1 text-[10px]" variant="secondary">
-            string
-          </Badge>
-        </div>
-        <Input
-          value={networkDriverOverride}
-          onChange={(event) => handleDriverOverrideChange(event.target.value)}
-          placeholder="cisco_ios (optional)"
-          className="h-8 font-mono text-xs"
-        />
-        <p className="text-[11px] text-muted-foreground">
-          Overrides each device&apos;s network driver for Netmiko in this step.
-        </p>
-      </div>
+      <NetworkDriverOverrideField
+        value={networkDriverOverride}
+        onChange={handleDriverOverrideChange}
+      />
 
-      <UploadConfigSocketTimeoutFields
+      <SocketTimeoutField
         socketTimeout={socketTimeout}
-        onSocketTimeoutChange={handleSocketTimeoutChange}
+        onChange={handleSocketTimeoutChange}
+        hint="SCP/SFTP socket timeout in seconds. Raise this for large config files or slow links."
       />
     </div>
   );

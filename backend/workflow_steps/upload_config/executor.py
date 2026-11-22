@@ -2,12 +2,10 @@
 
 from __future__ import annotations
 
-import asyncio
 import contextlib
 import hashlib
 import logging
 import os
-import re
 import tempfile
 from dataclasses import dataclass, replace
 from typing import Any
@@ -15,11 +13,10 @@ from typing import Any
 from sqlalchemy.orm import object_session
 
 from core.models.runs import WorkflowRun
-from models.failure import FailureInfo, failure_from_exception
+from models.failure import FailureInfo
 from models.workflow_context import (
     CommandResult,
     DeviceContext,
-    DeviceError,
     DeviceStatus,
     StepOutcome,
     WorkflowContext,
@@ -31,6 +28,18 @@ from services.network.netmiko.service import NetmikoService
 from services.network.netmiko.session_pool import DeviceSessionPool
 from workflow_steps.common.content_resolver import CONTENT_SOURCES, list_exportable_content
 from workflow_steps.common.credential_resolver import resolve_ssh_credential
+from workflow_steps.common.device_file_upload import (
+    DeviceResult,
+    RemoteTarget,
+    build_upload_outcomes,
+    fail_device,
+    fail_device_from_exception,
+    parse_socket_timeout,
+    partition_device_results,
+    record_transfer,
+    run_on_devices,
+    verify_remote_digest,
+)
 from workflow_steps.common.run_param_reference import resolve_config_reference
 from workflow_steps.common.step_flags import parse_bool_flag
 
@@ -38,12 +47,7 @@ logger = logging.getLogger(__name__)
 
 _STEP_ID = "upload-config"
 _SOURCE_STEP_ID_EXEMPT = frozenset({"running_config", "startup_config", "latest_command_output"})
-_MIN_SOCKET_TIMEOUT = 5
-_MAX_SOCKET_TIMEOUT = 300
 _VERIFY_ALGORITHMS = frozenset({"md5", "sha512"})
-# Matches Cisco IOS/IOS-XE `verify /<algo> (<fs>:<file>) = <hex>` output; ignores any
-# other banner/progress lines (e.g. the leading ".Done!").
-_VERIFY_HASH_PATTERN = re.compile(r"verify\s+/\S+\s+\([^)]*\)\s*=\s*([0-9a-fA-F]+)", re.IGNORECASE)
 # Cisco IOS/IOS-XE unconditionally append one extra "\n" to whatever bytes were
 # actually sent when storing a text file — confirmed in Netmiko's own cisco_ios.py
 # file_md5()/config_md5() ("Cisco IOS automatically adds this": `file_contents + "\n"`,
@@ -70,22 +74,6 @@ class _ParsedUploadConfig:
     socket_timeout: int
     verify_content: bool
     verify_algorithm: str
-
-
-def _parse_socket_timeout(config: dict[str, Any]) -> int:
-    raw = config.get("socket_timeout")
-    if raw in (None, ""):
-        raw = 10
-    try:
-        value = int(raw)
-    except (TypeError, ValueError) as exc:
-        raise ValueError("upload-config: socket_timeout must be an integer") from exc
-    if not (_MIN_SOCKET_TIMEOUT <= value <= _MAX_SOCKET_TIMEOUT):
-        raise ValueError(
-            f"upload-config: socket_timeout must be between {_MIN_SOCKET_TIMEOUT} "
-            f"and {_MAX_SOCKET_TIMEOUT} seconds"
-        )
-    return value
 
 
 def _parse_verify_algorithm(config: dict[str, Any]) -> str:
@@ -129,35 +117,10 @@ def _parse_upload_config(config: dict[str, Any]) -> _ParsedUploadConfig:
         overwrite=parse_bool_flag(config, "overwrite"),
         inline_transfer=parse_bool_flag(config, "inline_transfer"),
         network_driver_override=str(config.get("network_driver_override") or "").strip() or None,
-        socket_timeout=_parse_socket_timeout(config),
+        socket_timeout=parse_socket_timeout(config, step_id=_STEP_ID),
         verify_content=parse_bool_flag(config, "verify_content"),
         verify_algorithm=_parse_verify_algorithm(config),
     )
-
-
-def _fail_device(
-    *,
-    device: DeviceContext,
-    device_id: str,
-    node_id: str,
-    code: str,
-    message: str,
-    failure: FailureInfo | None = None,
-) -> tuple[str, DeviceContext, bool]:
-    err = DeviceError(
-        node_id=node_id,
-        step_id=_STEP_ID,
-        code=code,
-        message=message,
-        failure=failure,
-    )
-    failed = device.model_copy(
-        update={
-            "status": DeviceStatus.FAILED,
-            "errors": [*device.errors, err],
-        }
-    )
-    return device_id, failed, False
 
 
 async def _load_upload_content(
@@ -167,7 +130,7 @@ async def _load_upload_content(
     node_id: str,
     parsed: _ParsedUploadConfig,
     artifact_service: ArtifactService,
-) -> str | tuple[str, DeviceContext, bool]:
+) -> str | DeviceResult:
     items = list_exportable_content(
         device,
         content_source=parsed.content_source,
@@ -175,10 +138,11 @@ async def _load_upload_content(
         parsed_output_key=parsed.parsed_output_key,
     )
     if not items:
-        return _fail_device(
+        return fail_device(
             device=device,
             device_id=device_id,
             node_id=node_id,
+            step_id=_STEP_ID,
             code=f"{parsed.content_source}_missing",
             message=f"No {parsed.content_source} found for the configured source",
         )
@@ -210,54 +174,25 @@ async def _verify_uploaded_content(
     netmiko: NetmikoService,
     device_type: str | None,
 ) -> tuple[bool, CommandResult, str | None, FailureInfo | None]:
-    local_digest = _compute_local_digest(
-        content_text, parsed.verify_algorithm, device_type=device_type
+    check = await verify_remote_digest(
+        RemoteTarget(
+            netmiko=netmiko,
+            host=host,
+            device=device,
+            username=username,
+            password=password,
+            device_type=device_type,
+            credential_reference=parsed.credential_reference,
+        ),
+        node_id=node_id,
+        file_system=parsed.file_system,
+        filename=parsed.destination_filename,
+        algorithm=parsed.verify_algorithm,
+        local_digest=_compute_local_digest(
+            content_text, parsed.verify_algorithm, device_type=device_type
+        ),
     )
-    target = f"{parsed.file_system}{parsed.destination_filename}"
-    command = f"verify /{parsed.verify_algorithm} {target}"
-
-    result = await netmiko.send_commands(
-        host=host,
-        network_driver=device.network_driver,
-        platform=device.platform,
-        username=username,
-        password=password,
-        commands=[command],
-        device_type=device_type,
-        credential_reference=parsed.credential_reference,
-    )
-    if not result.success:
-        message = result.error or f"verify command failed: {command}"
-        failed_result = CommandResult(
-            node_id=node_id, command=command, success=False, summary=message
-        )
-        return False, failed_result, message, result.failure
-
-    output = result.command_outputs.get(command, "") or result.output
-    match = _VERIFY_HASH_PATTERN.search(output)
-    if match is None:
-        message = (
-            f"Could not parse a {parsed.verify_algorithm} checksum from the device's verify output"
-        )
-        failed_result = CommandResult(
-            node_id=node_id, command=command, success=False, summary=message
-        )
-        return False, failed_result, message, None
-
-    device_digest = match.group(1).lower()
-    if device_digest != local_digest.lower():
-        message = (
-            f"{parsed.verify_algorithm} mismatch: expected {local_digest}, "
-            f"device reported {device_digest}"
-        )
-        failed_result = CommandResult(
-            node_id=node_id, command=command, success=False, summary=message
-        )
-        return False, failed_result, message, None
-
-    summary = f"{parsed.verify_algorithm} checksum verified ({device_digest})"
-    ok_result = CommandResult(node_id=node_id, command=command, success=True, summary=summary)
-    return True, ok_result, None, None
+    return check.ok, check.command_result, check.message, check.failure
 
 
 async def _upload_on_device(
@@ -271,14 +206,15 @@ async def _upload_on_device(
     password: str,
     netmiko: NetmikoService,
     artifact_service: ArtifactService,
-) -> tuple[str, DeviceContext, bool]:
+) -> DeviceResult:
     del run_id  # kept for parity with sibling steps' _*_on_device signatures
     host = bare_hostname(device.primary_ip4, device.hostname)
     if not host:
-        return _fail_device(
+        return fail_device(
             device=device,
             device_id=device_id,
             node_id=node_id,
+            step_id=_STEP_ID,
             code="missing_host",
             message=f"Device {device_id} has no hostname or primary IP",
         )
@@ -323,51 +259,29 @@ async def _upload_on_device(
             credential_reference=parsed.credential_reference,
         )
     except Exception as exc:  # per device: connect/auth/scp errors must not abort the step
-        return _fail_device(
-            device=device,
-            device_id=device_id,
-            node_id=node_id,
-            code=type(exc).__name__.lower(),
-            message=str(exc),
-            failure=failure_from_exception(exc),
+        return fail_device_from_exception(
+            device=device, device_id=device_id, node_id=node_id, step_id=_STEP_ID, exc=exc
         )
     finally:
         if tmp_path:
             with contextlib.suppress(OSError):
                 os.unlink(tmp_path)
 
-    summary = (
-        f"uploaded {parsed.destination_filename} to {parsed.file_system} "
-        f"(transferred={result.file_transferred}, verified={result.file_verified})"
-        if result.success
-        else (result.error or "Config upload failed")
+    updated_command_results, failed_transfer = record_transfer(
+        device=device,
+        device_id=device_id,
+        node_id=node_id,
+        step_id=_STEP_ID,
+        command="upload-config",
+        result=result,
+        ok_summary=(
+            f"uploaded {parsed.destination_filename} to {parsed.file_system} "
+            f"(transferred={result.file_transferred}, verified={result.file_verified})"
+        ),
+        default_error="Config upload failed",
     )
-    updated_command_results = dict(device.command_results)
-    updated_command_results[node_id] = [
-        CommandResult(
-            node_id=node_id,
-            command="upload-config",
-            success=result.success,
-            summary=summary,
-        )
-    ]
-
-    if not result.success:
-        err = DeviceError(
-            node_id=node_id,
-            step_id=_STEP_ID,
-            code="upload_failed",
-            message=result.error or "Config upload failed",
-            failure=result.failure,
-        )
-        failed = device.model_copy(
-            update={
-                "status": DeviceStatus.FAILED,
-                "errors": [*device.errors, err],
-                "command_results": updated_command_results,
-            }
-        )
-        return device_id, failed, False
+    if failed_transfer is not None:
+        return failed_transfer
 
     if parsed.verify_content:
         (
@@ -391,21 +305,16 @@ async def _upload_on_device(
             verify_command_result,
         ]
         if not verify_ok:
-            verify_err = DeviceError(
+            return fail_device(
+                device=device,
+                device_id=device_id,
                 node_id=node_id,
                 step_id=_STEP_ID,
                 code="verify_failed",
                 message=verify_message or "Content verification failed",
                 failure=verify_failure,
+                command_results=updated_command_results,
             )
-            failed = device.model_copy(
-                update={
-                    "status": DeviceStatus.FAILED,
-                    "errors": [*device.errors, verify_err],
-                    "command_results": updated_command_results,
-                }
-            )
-            return device_id, failed, False
 
     enriched = device.model_copy(
         update={
@@ -414,90 +323,6 @@ async def _upload_on_device(
         }
     )
     return device_id, enriched, True
-
-
-async def _upload_on_device_logged(
-    *,
-    index: int,
-    device_id: str,
-    device: DeviceContext,
-    total: int,
-    run_id: Any,
-    node_id: str,
-    parsed: _ParsedUploadConfig,
-    username: str,
-    password: str,
-    netmiko: NetmikoService,
-    artifact_service: ArtifactService,
-) -> tuple[str, DeviceContext, bool]:
-    host = bare_hostname(device.primary_ip4, device.hostname) or "(no host)"
-    logger.info(
-        "upload-config device %d/%d id=%s host=%s: connecting run_id=%s",
-        index,
-        total,
-        device_id,
-        host,
-        run_id,
-    )
-    result = await _upload_on_device(
-        device_id=device_id,
-        device=device,
-        node_id=node_id,
-        run_id=run_id,
-        parsed=parsed,
-        username=username,
-        password=password,
-        netmiko=netmiko,
-        artifact_service=artifact_service,
-    )
-    _, _, ok = result
-    logger.info(
-        "upload-config device %d/%d id=%s host=%s: %s run_id=%s",
-        index,
-        total,
-        device_id,
-        host,
-        "ok" if ok else "failed",
-        run_id,
-    )
-    return result
-
-
-def _partition_device_results(
-    results: list[tuple[str, DeviceContext, bool]],
-) -> tuple[dict[str, DeviceContext], dict[str, DeviceContext]]:
-    success_devices: dict[str, DeviceContext] = {}
-    failed_devices: dict[str, DeviceContext] = {}
-    for device_id, updated_device, ok in results:
-        if ok:
-            success_devices[device_id] = updated_device
-        else:
-            failed_devices[device_id] = updated_device
-    return success_devices, failed_devices
-
-
-def _build_upload_outcomes(
-    *,
-    context: WorkflowContext,
-    success_devices: dict[str, DeviceContext],
-    failed_devices: dict[str, DeviceContext],
-) -> list[StepOutcome]:
-    outcomes = [
-        StepOutcome(
-            name="success",
-            context=context.model_copy(update={"devices": success_devices}),
-            summary=f"uploaded config to {len(success_devices)} device(s)",
-        )
-    ]
-    if failed_devices:
-        outcomes.append(
-            StepOutcome(
-                name="failure",
-                context=context.model_copy(update={"devices": failed_devices}),
-                summary=f"{len(failed_devices)} device(s) failed",
-            )
-        )
-    return outcomes
 
 
 async def execute(
@@ -540,32 +365,31 @@ async def execute(
         parsed.destination_filename,
     )
 
-    results = await asyncio.gather(
-        *[
-            _upload_on_device_logged(
-                index=index,
-                device_id=device_id,
-                device=device,
-                total=total,
-                run_id=run_id,
-                node_id=node_id,
-                parsed=parsed,
-                username=username,
-                password=password,
-                netmiko=netmiko,
-                artifact_service=artifact_service,
-            )
-            for index, (device_id, device) in enumerate(context.devices.items(), start=1)
-        ]
-    )
+    async def _work(device_id: str, device: DeviceContext) -> DeviceResult:
+        return await _upload_on_device(
+            device_id=device_id,
+            device=device,
+            node_id=node_id,
+            run_id=run_id,
+            parsed=parsed,
+            username=username,
+            password=password,
+            netmiko=netmiko,
+            artifact_service=artifact_service,
+        )
 
-    success_devices, failed_devices = _partition_device_results(results)
+    results = await run_on_devices(step_label=_STEP_ID, context=context, run_id=run_id, work=_work)
+
+    success_devices, failed_devices = partition_device_results(results)
     logger.info(
         "upload-config finished success=%d failure=%d run_id=%s",
         len(success_devices),
         len(failed_devices),
         run_id,
     )
-    return _build_upload_outcomes(
-        context=context, success_devices=success_devices, failed_devices=failed_devices
+    return build_upload_outcomes(
+        context=context,
+        success_devices=success_devices,
+        failed_devices=failed_devices,
+        noun="config",
     )

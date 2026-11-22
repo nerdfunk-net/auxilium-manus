@@ -1,6 +1,4 @@
-export const DEFAULT_SOCKET_TIMEOUT = 10;
-export const MIN_SOCKET_TIMEOUT = 5;
-export const MAX_SOCKET_TIMEOUT = 300;
+import { deviceFileTransferConfig } from "../shared/device-file-transfer";
 
 export const UPLOAD_CONFIG_SOURCE_OPTIONS = [
   {
@@ -139,27 +137,13 @@ export function buildUploadConfigConfig(
   patch: Record<string, unknown> = {},
 ): Record<string, unknown> {
   return {
-    credential_reference:
-      typeof config.credential_reference === "string" ? config.credential_reference : "",
-    credential_source: config.credential_source === "run_param" ? "run_param" : "fixed",
-    credential_param:
-      typeof config.credential_param === "string" ? config.credential_param : "",
+    ...deviceFileTransferConfig(config),
     content_source: typeof config.content_source === "string" ? config.content_source : "updated_content",
     source_step_node_id:
       typeof config.source_step_node_id === "string" ? config.source_step_node_id : "",
     parsed_output_key:
       typeof config.parsed_output_key === "string" ? config.parsed_output_key : "",
-    destination_filename:
-      typeof config.destination_filename === "string" ? config.destination_filename : "",
-    file_system: typeof config.file_system === "string" ? config.file_system : "",
-    overwrite: config.overwrite === true,
     inline_transfer: config.inline_transfer === true,
-    network_driver_override:
-      typeof config.network_driver_override === "string" ? config.network_driver_override : "",
-    socket_timeout:
-      typeof config.socket_timeout === "number" && Number.isFinite(config.socket_timeout)
-        ? config.socket_timeout
-        : DEFAULT_SOCKET_TIMEOUT,
     verify_content: config.verify_content === true,
     verify_algorithm: config.verify_algorithm === "sha512" ? "sha512" : "md5",
     ...patch,

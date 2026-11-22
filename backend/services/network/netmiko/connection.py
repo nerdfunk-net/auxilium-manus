@@ -1015,6 +1015,7 @@ class NetmikoDeviceSession:
         overwrite: bool = False,
         inline_transfer: bool = False,
         socket_timeout: float = 10.0,
+        verify_file: bool | None = None,
     ) -> FileTransferResult:
         """Push a local file to the device via Netmiko's SCP/SFTP file_transfer,
         or its inline (non-SCP, text-only) transfer mode.
@@ -1022,6 +1023,10 @@ class NetmikoDeviceSession:
         Uses its own SCP/SFTP subsystem channel over the existing SSH
         transport, so it does not enter config mode or otherwise change the
         CLI session's base state.
+
+        ``verify_file=None`` keeps Netmiko's default (compare MD5 after the copy, with a fixed
+        300 s read timeout for the device's ``verify /md5``). ``False`` skips that check, for a
+        caller that verifies itself with its own timeout.
         """
         self.connect()
         try:
@@ -1034,6 +1039,7 @@ class NetmikoDeviceSession:
                 overwrite_file=overwrite,
                 inline_transfer=inline_transfer,
                 socket_timeout=socket_timeout,
+                verify_file=verify_file,
             )
             return FileTransferResult(
                 success=True,

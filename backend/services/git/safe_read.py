@@ -13,6 +13,8 @@ import errno
 import logging
 import os
 import stat
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -134,15 +136,13 @@ def _open_at(name: str, *, dir_fd: int, flags: int) -> int:
         raise SafeReadError("unreadable") from exc
 
 
-def read_text_under(
-    root: Path, relative: str, *, max_chars: int, max_bytes: int | None = None
-) -> tuple[str, bool]:
-    """Read ``root / relative`` without ever following a link, even one swapped in meanwhile.
+@contextmanager
+def open_file_under(root: Path, relative: str) -> Iterator[int]:
+    """Yield a read-only descriptor of ``root / relative``, never following a link.
 
-    ``contain`` checks the path with ``lstat`` first, which leaves a window before the open. Here
-    every component is opened with ``O_NOFOLLOW`` relative to the descriptor of its parent, so a
-    directory replaced by a symlink after any check is refused as well. Same result and caps as
-    ``read_text_file``.
+    Every component is opened with ``O_NOFOLLOW`` relative to the descriptor of its parent, so a
+    directory replaced by a symlink after any ``contain`` check is refused as well. The caller
+    checks the type (``fstat``) and reads from the descriptor; all descriptors close on exit.
     """
     parts = _components(relative)
     flags = os.O_RDONLY | os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0)
@@ -159,10 +159,22 @@ def read_text_under(
                 raise SafeReadError("missing")
         fd = _open_at(parts[-1], dir_fd=current, flags=_OPEN_FLAGS)
         opened.append(fd)
-        return _read_regular_file(fd, max_chars=max_chars, max_bytes=max_bytes)
+        yield fd
     finally:
         for descriptor in opened:
             os.close(descriptor)
+
+
+def read_text_under(
+    root: Path, relative: str, *, max_chars: int, max_bytes: int | None = None
+) -> tuple[str, bool]:
+    """Read ``root / relative`` without ever following a link, even one swapped in meanwhile.
+
+    ``contain`` checks the path with ``lstat`` first, which leaves a window before the open;
+    ``open_file_under`` closes it. Same result and caps as ``read_text_file``.
+    """
+    with open_file_under(root, relative) as fd:
+        return _read_regular_file(fd, max_chars=max_chars, max_bytes=max_bytes)
 
 
 def find_files_named(

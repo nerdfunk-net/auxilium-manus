@@ -41,6 +41,7 @@ from workflow_steps.common.attribute_merge import (
     validate_merge_destination,
 )
 from workflow_steps.common.file_source_root import resolve_source_root
+from workflow_steps.common.git_repository_loader import parse_repository_id
 from workflow_steps.common.step_flags import parse_bool_flag
 
 if TYPE_CHECKING:
@@ -76,24 +77,12 @@ def _delimiter(raw: Any) -> str:
         raise ValueError(f"{_STEP_ID}: {exc}") from exc
 
 
-def _parse_repository_id(raw: Any) -> int | None:
-    """A whole number (or its decimal text); ``True`` / ``7.9`` must not pick another repository."""
-    if raw is None or raw == "":
-        return None
-    if isinstance(raw, bool) or (isinstance(raw, float) and not raw.is_integer()):
-        raise ValueError(f"{_STEP_ID}: git_repository_id must be a whole number")
-    try:
-        return int(raw)
-    except TypeError, ValueError:
-        raise ValueError(f"{_STEP_ID}: git_repository_id must be a whole number") from None
-
-
 def _parse_config(config: dict[str, Any]) -> _Parsed:
     source = str(config.get("source") or "filesystem").strip().lower()
     if source not in _SOURCES:
         raise ValueError(f"{_STEP_ID}: source must be one of {sorted(_SOURCES)}")
 
-    git_repository_id = _parse_repository_id(config.get("git_repository_id"))
+    git_repository_id = parse_repository_id(config.get("git_repository_id"), step_id=_STEP_ID)
     if source == "git" and git_repository_id is None:
         raise ValueError(f"{_STEP_ID}: git_repository_id is required when source=git")
 

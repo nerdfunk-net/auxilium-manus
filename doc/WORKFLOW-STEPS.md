@@ -325,7 +325,7 @@ when the clone fails). `pull()` never merges into a different branch. Read steps
 reads the files, so a change-request checkout cannot switch the tree underneath it; the pull is
 deduplicated for a few seconds and a failed pull raises (`allow_stale_repository: true` accepts the
 stale copy; a stale read is recorded as a warning event). `refresh=False` skips the pull and reads the local copy under the same lease (only `enrich-attributes` passes it, via `refresh_repository`; see its section for why that is deliberate). Never keep the path after the `with` block. The switch is
-offered by `read-from-file`, `read-config`, `enrich-attributes`, `get-from-config`, `batfish-init-snapshot` and
+offered by `upload-binary`, `read-from-file`, `read-config`, `enrich-attributes`, `get-from-config`, `batfish-init-snapshot` and
 `batfish-validate-facts`; `set-default-attributes` and `get-git-devices` still pull strictly.
 
 Where the table is applied (CF-07): `upload-config`, `add-to-nautobot` (interface/IP/prefix/virtual
@@ -924,6 +924,41 @@ resolution and containment as `read-from-file`; the git read does **not** pull u
 - **Deliberate: no pull, no status check per read.** `refresh_repository` is off by default, also for a stored step that has no such key, and a read runs no git command beyond opening the tree (no pull, no `status`/`diff`). This is a decision, not an omission: a pull or a status check for every device of a fan-out, each under the repository lock, made the children queue past the 90s lock timeout. The price is that the file may be older than `origin`; the step records the commit it read (`git_not_refreshed` run event) and the Pull Git step is how a workflow asks for fresh data. Do not make a pull the default again, and do not add a per-read dirty/ahead check, without changing how fan-out children share one read (for example one read per run).
 - **Fan-out.** The step takes every device of the context in one execution, so place it before the fan-out or after the fan-in: the file is then read once. Inside a fan-out each child reads it again under the repository lease; with `refresh_repository` on they can queue behind pulls (use a Pull Git step before the fan-out instead). The Help tab says so.
 - Code: `backend/workflow_steps/enrich_attributes/`; frontend `workflow-steps/enrich-attributes/`.
+
+### Uploading a binary: `upload-binary`
+
+Copies one file (an IOS / IOS-XE image) from a git repository to every device over SCP.
+`upload-config` sends *text produced by an earlier step*; the two share
+`workflow_steps/common/device_file_upload.py` (per-device concurrency and log lines, the transfer record,
+`success`/`failure` split, `socket_timeout`, the remote `verify /md5` / `dir` / `delete` helpers, `RemoteTarget`,
+`fail_device_from_exception`) and differ only in the source.
+
+- **Source: one snapshot.** `git_repository_id` (a whole number: `true` / `7.9` are refused,
+  `git_repository_loader.parse_repository_id`) + `source_path`, resolved with `file_source_root.resolve_git_root` (strict pull,
+  `allow_stale_repository`). `source_file.snapshot_source_file` opens the file **once** through
+  `services/git/safe_read.open_file_under` (every component `O_NOFOLLOW`, so a link swapped in after any check is refused),
+  checks the descriptor (regular, not empty, at most 4 GiB, not a **Git LFS pointer**), and copies it to a private temporary file while
+  computing the MD5; a file whose inode/size/mtime changed during the read fails the step. The MD5, `expected_md5` and the bytes
+  sent are therefore one read. The repository lease is held only for that copy and released **before** the first device is
+  contacted (so a long transfer neither blocks other git steps nor outlives the lease); the cost is the file size in temporary
+  disk space per run. The snapshot is deleted when the step ends.
+- **MD5 before and after.** `expected_md5` (the vendor's value) is compared with the snapshot's MD5: a mismatch raises and no device is
+  touched. Per device: `dir` (does it exist?) and, if it does, `verify /md5` (identical = not copied again, whatever `overwrite` is;
+  different = `file_exists` failure unless `overwrite`). Then Netmiko's SCP `file_transfer` with `verify_file=False`
+  (`NetmikoDeviceSession.upload_file(verify_file=...)`: Netmiko's own check has a fixed 300 s timeout), then the step's own
+  `verify /md5` with `read_timeout` (5-600 s, default 600). A copy whose checksum is wrong, unreadable or timed out is removed with
+  `delete /force` (the message says whether the removal worked), so a failed step does not leave a bootable-looking image behind.
+  The stored command rows only say "verified" when the device's checksum matched.
+- **No inline transfer, on purpose.** Netmiko's inline mode is text only (it reads the file as UTF-8 and types it
+  through the CLI with a TCL `puts`); a binary would fail to decode or arrive corrupted, and an image would take
+  hours. Without SCP the device fails with the transfer error instead of falling back.
+- **Command safety.** `file_system` and `destination_filename` (or the basename of `source_path`) are pasted into `dir`, `verify` and
+  `delete` command lines, so a space or line break in either fails the step.
+- **Outcomes.** A bad config, an unusable source file or an `expected_md5` mismatch `raise` (nothing was sent); a
+  device-level problem (no host, SSH/SCP error, no space, existing different file, checksum mismatch) leaves that device through
+  `failure`. A driver exception is stored as its class name plus the structured `FailureInfo`, never the driver text.
+- **Fan-out.** Read-only on the repository, and the lease is not held during the transfer, so children do not serialize on it
+  (each child still takes its own snapshot).
 
 ### Asking the AI: `contact-the-ai`
 
