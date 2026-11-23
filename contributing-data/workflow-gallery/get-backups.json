@@ -1,6 +1,6 @@
 {
   "export_format": "auxilium-workflow-v1",
-  "exported_at": "2026-09-26T19:48:38.572Z",
+  "exported_at": "2026-11-23T12:40:14.785Z",
   "name": "Get Backups",
   "description": "Get Backups",
   "folder": "Gallery",
@@ -50,35 +50,18 @@
               "first_batch_auto": true
             }
           },
-          "inventory_id": 2,
-          "inventory_name": "Full lab env",
+          "inventory_id": 3,
+          "inventory_name": "alle test lab devices",
           "inventory_type": "filter",
           "device_filter": {
             "id": "root",
-            "logic": "OR",
+            "logic": "AND",
             "negate": false,
-            "items": [
-              {
-                "id": "1788330349355-4om3d0nkf",
-                "field": "name",
-                "operator": "equals",
-                "value": "LAB"
-              },
-              {
-                "id": "1788330356487-66b5yp5ip",
-                "field": "name",
-                "operator": "equals",
-                "value": "lab-2"
-              },
-              {
-                "id": "1788330360639-xxtiq943y",
-                "field": "name",
-                "operator": "equals",
-                "value": "switch"
-              }
-            ]
+            "items": []
           },
-          "device_ids": []
+          "device_ids": [],
+          "inventory_source": "fixed",
+          "inventory_param": "inventory"
         }
       },
       "measured": {
@@ -380,7 +363,7 @@
       "id": "git-push-8",
       "type": "workflowNode",
       "position": {
-        "x": 1224.0982492859162,
+        "x": 1222.4294998337132,
         "y": 72.6588922744728
       },
       "data": {
@@ -424,8 +407,8 @@
       "id": "notify-mattermost-9",
       "type": "workflowNode",
       "position": {
-        "x": 920.5795817382398,
-        "y": 1244.502032583567
+        "x": 918.9108322860366,
+        "y": 1423.2590650549248
       },
       "zIndex": 1,
       "data": {
@@ -756,7 +739,7 @@
       "id": "collect-statistics-17",
       "type": "workflowNode",
       "position": {
-        "x": 920.5795817382398,
+        "x": 918.9108322860366,
         "y": 1072.409166919967
       },
       "zIndex": 1,
@@ -823,6 +806,54 @@
         "outcomeHandleSide": "bottom",
         "pluginConfig": {
           "result": "failed"
+        }
+      },
+      "measured": {
+        "width": 320,
+        "height": 128
+      },
+      "selected": false,
+      "dragging": false
+    },
+    {
+      "id": "store-in-db-19",
+      "type": "workflowNode",
+      "position": {
+        "x": 918.9108322860366,
+        "y": 1245.667256184195
+      },
+      "zIndex": 1,
+      "data": {
+        "kind": "store-in-db",
+        "stepUuid": "15ddca30-b5dd-4468-b31b-04dc7ebfaf17",
+        "title": "Store in DB",
+        "overview": "Persist device data to the application database for later retrieval.",
+        "description": "Store all device data, attribute bags, a single attribute, or a rendered template in the application database under a storage key, keyed by device name (table device_data_records). Read it back with the Get from DB step. Concurrency-safe: rows are keyed by (device_name, storage_key), so fan-out children and independent sibling branches never collide; a concurrent writer to the same device+key is resolved via a safe upsert, no Fan In node required.\n",
+        "artifactType": "persistent_artifact",
+        "requires": [
+          "identity"
+        ],
+        "requiresParsed": [],
+        "produces": [],
+        "producesParsed": [],
+        "consumes": [],
+        "outcomes": [
+          {
+            "name": "success"
+          },
+          {
+            "name": "failure"
+          }
+        ],
+        "incomeHandleSide": "top",
+        "outcomeHandleSide": "bottom",
+        "pluginConfig": {
+          "storage_key": "backup_checked",
+          "content_source": "single_attribute",
+          "attribute_path": "device.name",
+          "allow_secret_storage": false,
+          "source_step_node_id": "",
+          "parsed_output_key": ""
         }
       },
       "measured": {
@@ -1056,19 +1087,6 @@
       "data": {
         "edgeStyle": "bezier"
       },
-      "source": "collect-statistics-17",
-      "sourceHandle": "success",
-      "target": "notify-mattermost-9",
-      "targetHandle": "input",
-      "id": "xy-edge__collect-statistics-17success-notify-mattermost-9input",
-      "selected": false
-    },
-    {
-      "type": "waypoint",
-      "zIndex": 0,
-      "data": {
-        "edgeStyle": "bezier"
-      },
       "source": "funnel-12",
       "sourceHandle": "output",
       "target": "collect-statistics-18",
@@ -1088,6 +1106,44 @@
       "targetHandle": "input",
       "id": "xy-edge__collect-statistics-18success-notify-on-error-11input",
       "selected": false
+    },
+    {
+      "type": "waypoint",
+      "zIndex": 0,
+      "data": {
+        "edgeStyle": "bezier"
+      },
+      "source": "collect-statistics-17",
+      "sourceHandle": "success",
+      "target": "store-in-db-19",
+      "targetHandle": "input",
+      "id": "xy-edge__collect-statistics-17success-store-in-db-19input",
+      "selected": false
+    },
+    {
+      "type": "waypoint",
+      "zIndex": 0,
+      "data": {
+        "edgeStyle": "bezier"
+      },
+      "source": "store-in-db-19",
+      "sourceHandle": "success",
+      "target": "notify-mattermost-9",
+      "targetHandle": "input",
+      "id": "xy-edge__store-in-db-19success-notify-mattermost-9input",
+      "selected": false
+    },
+    {
+      "type": "waypoint",
+      "zIndex": 0,
+      "data": {
+        "edgeStyle": "bezier"
+      },
+      "source": "store-in-db-19",
+      "sourceHandle": "failure",
+      "target": "funnel-12",
+      "targetHandle": "input",
+      "id": "xy-edge__store-in-db-19failure-funnel-12input"
     }
   ],
   "canvas_groups": [],

@@ -20,7 +20,6 @@ import time
 from collections.abc import Awaitable, Callable
 from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal, Protocol
 
@@ -33,6 +32,7 @@ from services.ai_assistant.device_access import DeviceAccessError, ResolvedDevic
 from services.auth.login_rate_limiter import RateLimitExceededError
 from services.auth.rbac_service import RBACService
 from services.git import safe_read
+from services.git.commit_info import last_commit_of
 from services.git.repository_service import GitRepositoryService
 from services.git.sync import agit_checkout
 from services.workflow_context.device_template import (
@@ -225,17 +225,12 @@ def read_backup_under(root: Path, relative: str) -> tuple[str, bool]:
 
 def last_commit_time(root: Path, relative: str) -> str | None:
     """ISO UTC time of the newest commit touching ``relative``; ``None`` when unknown."""
-    from git import Repo
-
     try:
-        repo = Repo(root)
-        commit = next(repo.iter_commits(paths=relative, max_count=1), None)
+        commit = last_commit_of(root, relative)
     except Exception:
         logger.info("AI assistant: commit time of a config backup is unavailable", exc_info=True)
         return None
-    if commit is None:
-        return None
-    return datetime.fromtimestamp(commit.committed_date, UTC).isoformat()
+    return commit.committed_at.isoformat() if commit else None
 
 
 _TEMPLATE_PLACEHOLDER = re.compile(r"\{([^{}]*)\}")

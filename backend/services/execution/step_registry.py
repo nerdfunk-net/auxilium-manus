@@ -63,6 +63,7 @@ from workflow_steps.generate_password.executor import execute as generate_passwo
 from workflow_steps.get_aci_details.executor import execute as get_aci_details
 from workflow_steps.get_aci_devices.executor import execute as get_aci_devices
 from workflow_steps.get_aci_policy.executor import execute as get_aci_policy
+from workflow_steps.get_age_of_backup.executor import execute as get_age_of_backup
 from workflow_steps.get_batfish_devices.executor import execute as get_batfish_devices
 from workflow_steps.get_catalyst_center_client_data.executor import (
     execute as get_catalyst_center_client_data,
@@ -164,6 +165,7 @@ STEP_REGISTRY: dict[str, StepExecutor] = {
     "get-aci-devices": get_aci_devices,
     "get-aci-details": get_aci_details,
     "get-aci-policy": get_aci_policy,
+    "get-age-of-backup": get_age_of_backup,
     "find-aci-endpoints": find_aci_endpoints,
     "compare-aci-subnets": compare_aci_subnets,
     "backup-aci-config": backup_aci_config,

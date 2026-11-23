@@ -6396,6 +6396,85 @@ plugins:
                 dotall: false
               replace_all: true
 
+  - id: get-age-of-backup
+    name: Get Age of Backup
+    overview: Get how many days ago a device's config backup in git last changed.
+    description: >
+      Read the date of the newest git commit that touched a device's config backup file and
+      write the age in whole days (plus the date and commit) into a separate attribute bag, so
+      a later step can compare it. A repository only records a commit when the config changed,
+      so this is the age of the last *change*; turn on the backup-check marker to also get the
+      age of the last *check*, taken from a record a Store in DB step wrote after the backup.
+      A device whose backup file is missing or has no commit leaves through failure.
+    artifact_type: configuration_management
+    palette_category: configuration_management
+    directory: get_age_of_backup
+    enabled: true
+    requires: [identity]
+    produces: [attributes]
+    consumes: []
+    outcomes:
+      - name: success
+      - name: failure
+    metadata:
+      configuration_input:
+        - name: git_repository_id
+          description: >
+            ID of the Git repository (Settings → Git Repositories) that holds the config
+            backups, usually the device_configs repository the backup workflow pushes to.
+          data_type: integer
+          required: true
+          example: 3
+        - name: allow_stale_repository
+          description: >
+            When the repository cannot be refreshed (expired token, merge conflict, offline),
+            use the last local copy instead of failing the step. Off by default: an age is
+            never silently computed from an outdated copy. A stale read is recorded as a
+            warning event on the step.
+          data_type: boolean
+          required: false
+          default: false
+        - name: path_template
+          description: >
+            Relative path of the device's backup file in the repository, resolved per device.
+            Supports {device.name}, {device.hostname}, {device.primary_ip4},
+            {nautobot.location.name}, {nautobot.role.name},
+            {nautobot.custom_fields.<slug>} and may include subdirectories. Use the same
+            template the backup workflow stores the files under.
+          data_type: string
+          required: true
+          default: "{device.name}.cfg"
+          example: "{nautobot.location.name}/{device.name}.cfg"
+        - name: output_bag
+          description: >
+            Name of the attribute bag the results are written to (letters, digits and
+            underscores; not parsed, run_input or a device field name). Fields: age_days
+            (whole days, a number), last_changed (ISO UTC time), commit_sha, and with the
+            marker on also marker_found (true/false), checked_age_days and last_checked (both null when
+            no marker exists).
+            Read them as {backup_age.age_days}.
+          data_type: string
+          required: false
+          default: backup_age
+          example: backup_age
+        - name: use_marker
+          description: >
+            Also read a "backup checked" marker that a Store in DB step stored for the device
+            after each backup attempt. The marker's last-stored time becomes last_checked and
+            checked_age_days. A device without a marker still succeeds (both are null, marker_found is false) and the
+            step records one warning event naming how many devices had none, so a wrong key is visible.
+          data_type: boolean
+          required: false
+          default: false
+        - name: marker_storage_key
+          description: >
+            Storage key of the marker record (table device_data_records, keyed by device
+            name), exactly as set in the Store in DB step. Placeholders such as
+            {nautobot.location.name} are rendered per device. Required when use_marker is on.
+          data_type: string
+          required: false
+          example: backup_checked
+
   - id: upload-binary
     name: Upload Binary
     overview: Copy a binary file (e.g. an IOS image) from a git repository to a device via SCP.
@@ -6762,6 +6841,9 @@ plugins:
       fan-out children and independent sibling branches never collide; a
       concurrent writer to the same device+key is resolved via a safe upsert, no
       Fan In node required.
+      Every store moves the record's last-stored time (updated_at), also when the
+      value is unchanged; the Get Age of Backup step reads it as a "backup checked"
+      marker.
     artifact_type: persistent_artifact
     directory: store_in_db
     enabled: true

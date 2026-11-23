@@ -39,6 +39,7 @@ const PLUGIN_UI_LOADERS: Record<string, PluginUILoader> = {
   "config-to-attributes": () => import("@/components/features/workflow-steps/config-to-attributes").then((m) => m.ConfigToAttributesPlugin),
   "get-device-configs": () => import("@/components/features/workflow-steps/get-device-configs").then((m) => m.GetDeviceConfigsPlugin),
   "read-config": () => import("@/components/features/workflow-steps/read-config").then((m) => m.ReadConfigPlugin),
+  "get-age-of-backup": () => import("@/components/features/workflow-steps/get-age-of-backup").then((m) => m.GetAgeOfBackupPlugin),
   "read-from-file": () => import("@/components/features/workflow-steps/read-from-file").then((m) => m.ReadFromFilePlugin),
   "enrich-attributes": () => import("@/components/features/workflow-steps/enrich-attributes").then((m) => m.EnrichAttributesPlugin),
   "parse-cisco-config": () => import("@/components/features/workflow-steps/parse-cisco-config").then((m) => m.ParseCiscoConfigPlugin),

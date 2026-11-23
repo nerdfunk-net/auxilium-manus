@@ -26,6 +26,7 @@ import {
   HardDriveDownload,
   HeartPulse,
   HardDriveUpload,
+  History,
   Key,
   KeyRound,
   KeySquare,
@@ -201,6 +202,7 @@ export function formatArtifactType(artifactType: string): string {
 
 const nodeIconsByKind: Record<string, LucideIcon> = {
   "compare-data": Scale,
+  "get-age-of-backup": History,
   "route-on-content": SearchCode,
   "route-to-agent": Bot,
   "fan-in": GitMerge,

@@ -925,6 +925,51 @@ resolution and containment as `read-from-file`; the git read does **not** pull u
 - **Fan-out.** The step takes every device of the context in one execution, so place it before the fan-out or after the fan-in: the file is then read once. Inside a fan-out each child reads it again under the repository lease; with `refresh_repository` on they can queue behind pulls (use a Pull Git step before the fan-out instead). The Help tab says so.
 - Code: `backend/workflow_steps/enrich_attributes/`; frontend `workflow-steps/enrich-attributes/`.
 
+### Age of a config backup: `get-age-of-backup`
+
+Reports how old each device's config backup in a git repository is. Category Configuration Management; read-only (nothing is
+written to git or a device).
+
+- **What the date means.** The git date is the newest commit that touched the device's file
+  (`services/git/commit_info.py::last_commit_of`, shared with the Ask the Net config-backup reader). A backup commits a file only
+  when its content changed (`GitService.commit` returns "No changes to commit" for an empty staged diff), so the date is the last
+  *change*, not the last backup run: a stable device that is backed up every night still shows its old date. A config with a
+  volatile line (a "last configuration change" timestamp) commits on every run and looks fresh.
+- **Backup-check marker (`use_marker`).** To learn when the backup last *ran*, the backup workflow adds a Store in DB step after
+  the backup (`storage_key` e.g. `backup_checked`, `content_source: single_attribute`). With `use_marker` on, this step reads the
+  record under `marker_storage_key` (rendered per device, like Get from DB) and uses its `updated_at` as `last_checked`.
+  `DeviceDataRecordRepository.upsert` always moves `updated_at`, also when the stored value is equal (SQLAlchemy sends no UPDATE for
+  an equal JSON value on its own), so a constant marker value is enough. A device with no marker still succeeds: `marker_found` is `false` and `last_checked` / `checked_age_days` are
+  `null`. The step also emits one `backup_marker_missing` warning run event per execution (count, the first five
+  device names, the key). The count is "devices without a marker of those whose marker was looked up": a device that
+  already failed on its backup file is in neither number, a lookup that raised is in the denominator, so a wrong
+  key reads "N of N". A marker key that renders empty (an absent attribute in `{...}`) is treated as no marker and is
+  never looked up, because Store in DB refuses an empty key. A missing marker is deliberately not a failure; there is no
+  `marker_required` switch yet. Because the step succeeds, **a workflow that alerts on age must route the missing
+  marker itself**: `null` never matches a comparison such as `{:gt(1)}` (verified against the expression evaluator), so
+  route first on `{backup_age.marker_found:equalsIgnoreCase('false')}` (booleans render as `False`) or
+  `{backup_age.checked_age_days:isNull()}`, then compare the age, and wire the step's `failure` handle too. See
+  `contributing-data/workflow-gallery/check-backup-age.json`. `age_days` is whole days rounded down, so `{:gt(1)}` means
+  "two full days or more".
+- **Marker content.** The age step only reads `updated_at`, so the backup workflow stores a constant: Store in DB
+  `content_source: single_attribute`, `attribute_path: device.name`. `device_data` would keep a second copy of the
+  inventory bags under a well-known key. Wire the Store in DB `failure` handle to the error path (the gallery backups send
+  it into the funnel before Notify On Error): a failed write leaves no new marker, and the next check would not alert.
+- **Result.** Written into a separate bag (`output_bag`, default `backup_age`; not `parsed`, `run_input` or a device field name):
+  `age_days` (whole days, rounded down, never negative, a number so a later step can compare it), `last_changed` (ISO UTC),
+  `commit_sha`, and with the marker `marker_found` (bool), `checked_age_days` and `last_checked`. One `now` is taken per step run.
+- **Per device.** `path_template` is rendered like `read-config` (strict) and contained with `safe_read.contain` (no `..`, no
+  `.git`, no symlink). The history is asked for with a **literal** pathspec
+  (`:(literal)<path>` in `services/git/commit_info.py`): a plain pathspec treats `[` `]` as a character class, so `DC[1]/r.cfg`
+  would report the commit of `DC1/r.cfg`. `git_repository_id` is parsed with `parse_repository_id` (a boolean or `7.9` is refused). A missing file (also one deleted in the working tree but present in history), a file without a commit, an
+  unresolved placeholder or an unsafe path fails that device (`backup_not_found`, `no_backup_commit`, `template_unresolved`,
+  `unsafe_path`; each with a `FailureInfo`). Bad configuration (no repository, empty template, bad `output_bag`, marker without a key) fails the step.
+- **Git root.** `resolve_git_root` (the repository is pulled, `allow_stale_repository` accepts a stale copy; the lease is held
+  while the history is read). There is no `refresh_repository` switch. The git reads run in worker threads, one per device.
+- **Fan-out.** Read-only, so fan-out safe. Inside a fan-out every child pulls the repository under its lease (the pull is
+  deduplicated for a few seconds); place the step before the fan-out when the list is large.
+- Code: `backend/workflow_steps/get_age_of_backup/`; frontend `workflow-steps/get-age-of-backup/`.
+
 ### Uploading a binary: `upload-binary`
 
 Copies one file (an IOS / IOS-XE image) from a git repository to every device over SCP.

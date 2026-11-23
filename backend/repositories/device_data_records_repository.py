@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -16,7 +16,7 @@ class DeviceDataRecordRepository:
     def upsert(self, *, device_name: str, storage_key: str, data: Any) -> DeviceDataRecord:
         existing = self._get(device_name, storage_key)
         if existing is not None:
-            existing.data = data
+            self._overwrite(existing, data)
             self.db.commit()
             self.db.refresh(existing)
             return existing
@@ -33,12 +33,20 @@ class DeviceDataRecordRepository:
             existing = self._get(device_name, storage_key)
             if existing is None:
                 raise
-            existing.data = data
+            self._overwrite(existing, data)
             self.db.commit()
             self.db.refresh(existing)
             return existing
         self.db.refresh(record)
         return record
+
+    @staticmethod
+    def _overwrite(record: DeviceDataRecord, data: Any) -> None:
+        """Replace the data and always move ``updated_at``: an equal JSON value sends no UPDATE
+        on its own, so a re-stored identical value would otherwise keep its old date (the
+        get-age-of-backup marker relies on ``updated_at`` meaning "last stored")."""
+        record.data = data
+        record.updated_at = func.now()
 
     def get(self, *, device_name: str, storage_key: str) -> DeviceDataRecord | None:
         return self._get(device_name, storage_key)

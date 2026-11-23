@@ -1,0 +1,392 @@
+{
+  "export_format": "auxilium-workflow-v1",
+  "exported_at": "2026-11-23T12:40:16.018Z",
+  "name": "Check Backup Age",
+  "description": "Check Backup Age",
+  "folder": "Gallery",
+  "visibility": "private",
+  "notes": null,
+  "canvas_nodes": [
+    {
+      "id": "get-nautobot-devices-1",
+      "type": "workflowNode",
+      "position": {
+        "x": 46.52476681489088,
+        "y": -250.78649658378845
+      },
+      "zIndex": 1,
+      "data": {
+        "kind": "get-nautobot-devices",
+        "stepUuid": "bb3db4fa-eed1-4e2a-8826-8e86261f98e8",
+        "title": "Get from Nautobot",
+        "overview": "Select devices from the Nautobot inventory.",
+        "description": "Select one or more target devices from the inventory.",
+        "artifactType": "inventory_selector",
+        "requires": [],
+        "requiresParsed": [],
+        "produces": [
+          "identity"
+        ],
+        "producesParsed": [],
+        "consumes": [],
+        "outcomes": [
+          {
+            "name": "success"
+          }
+        ],
+        "pluginConfig": {
+          "nautobot_source_id": "nautobot",
+          "inventory_id": 3,
+          "inventory_name": "alle test lab devices",
+          "inventory_type": "filter",
+          "device_filter": {
+            "id": "root",
+            "logic": "AND",
+            "negate": false,
+            "items": []
+          },
+          "device_ids": []
+        },
+        "outcomeHandleSide": "bottom",
+        "incomeHandleSide": "top"
+      },
+      "measured": {
+        "width": 320,
+        "height": 128
+      },
+      "dragging": false,
+      "selected": false
+    },
+    {
+      "id": "get-nautobot-attributes-3",
+      "type": "workflowNode",
+      "position": {
+        "x": 46.52476681489088,
+        "y": -75.3961733902152
+      },
+      "zIndex": 1,
+      "data": {
+        "kind": "get-nautobot-attributes",
+        "stepUuid": "0be8467c-ecff-44a9-9857-e96d5cb0cd8a",
+        "title": "Get Nautobot Attributes",
+        "overview": "Retrieve Nautobot attributes for selected devices.",
+        "description": "Retrieve attributes from Nautobot for selected devices. Core fields (ID, name, role, device type, platform, location, status, …) are always fetched; list_of_attributes only adds optional groups on top of those.\n",
+        "artifactType": "inventory_selector",
+        "requires": [
+          "identity"
+        ],
+        "requiresParsed": [],
+        "produces": [
+          "attributes"
+        ],
+        "producesParsed": [],
+        "consumes": [],
+        "outcomes": [
+          {
+            "name": "success"
+          },
+          {
+            "name": "failure"
+          }
+        ],
+        "pluginConfig": {
+          "nautobot_source_id": "nautobot"
+        },
+        "incomeHandleSide": "top",
+        "outcomeHandleSide": "bottom"
+      },
+      "measured": {
+        "width": 320,
+        "height": 128
+      },
+      "selected": false,
+      "dragging": false
+    },
+    {
+      "id": "get-age-of-backup-3",
+      "type": "workflowNode",
+      "position": {
+        "x": 46.52476681489088,
+        "y": 106.87220169330206
+      },
+      "zIndex": 1,
+      "data": {
+        "kind": "get-age-of-backup",
+        "stepUuid": "6749d42f-9a22-4461-801d-21fdc223ab15",
+        "title": "Get Age of Backup",
+        "overview": "Get how many days ago a device's config backup in git last changed.",
+        "description": "Read the date of the newest git commit that touched a device's config backup file and write the age in whole days (plus the date and commit) into a separate attribute bag, so a later step can compare it. A repository only records a commit when the config changed, so this is the age of the last *change*; turn on the backup-check marker to also get the age of the last *check*, taken from a record a Store in DB step wrote after the backup. A device whose backup file is missing or has no commit leaves through failure.\n",
+        "artifactType": "configuration_management",
+        "requires": [
+          "identity"
+        ],
+        "requiresParsed": [],
+        "produces": [
+          "attributes"
+        ],
+        "producesParsed": [],
+        "consumes": [],
+        "outcomes": [
+          {
+            "name": "success"
+          },
+          {
+            "name": "failure"
+          }
+        ],
+        "pluginConfig": {
+          "git_repository_id": 4,
+          "allow_stale_repository": false,
+          "path_template": "configs/{nautobot.location.name}/{device.name}.running.cfg",
+          "output_bag": "backup_age",
+          "use_marker": true,
+          "marker_storage_key": "backup_checked"
+        },
+        "incomeHandleSide": "top",
+        "outcomeHandleSide": "bottom"
+      },
+      "measured": {
+        "width": 320,
+        "height": 128
+      },
+      "selected": false,
+      "dragging": false
+    },
+    {
+      "id": "route-on-attribute-4",
+      "type": "workflowNode",
+      "position": {
+        "x": 46.52476681489088,
+        "y": 288.89125156391395
+      },
+      "zIndex": 1,
+      "data": {
+        "kind": "route-on-attribute",
+        "stepUuid": "aad892cc-f6f2-4790-8c0a-2584fa88cffb",
+        "title": "Route on Attribute",
+        "overview": "Branch workflow paths by attribute value.",
+        "description": "Split devices onto different paths by matching an attribute value.",
+        "artifactType": "control_flow",
+        "requires": [
+          "identity"
+        ],
+        "requiresParsed": [],
+        "produces": [
+          "identity"
+        ],
+        "producesParsed": [],
+        "consumes": [],
+        "outcomes": [
+          {
+            "name": "no_marker"
+          },
+          {
+            "name": "too_old"
+          },
+          {
+            "name": "unmatched"
+          },
+          {
+            "name": "failure"
+          }
+        ],
+        "incomeHandleSide": "top",
+        "outcomeHandleSide": "bottom",
+        "pluginConfig": {
+          "attribute_path": "backup_age.checked_age_days",
+          "routes": [
+            {
+              "outcome": "no_marker",
+              "values": [
+                "{backup_age.marker_found:equalsIgnoreCase('false')}"
+              ]
+            },
+            {
+              "outcome": "too_old",
+              "values": [
+                "{:gt(1)}"
+              ]
+            }
+          ],
+          "default_outcome": "unmatched",
+          "case_sensitive": false
+        }
+      },
+      "measured": {
+        "width": 320,
+        "height": 128
+      },
+      "dragging": false,
+      "selected": false
+    },
+    {
+      "id": "notify-mattermost-5",
+      "type": "workflowNode",
+      "position": {
+        "x": -68.44269623852942,
+        "y": 500.60628630125416
+      },
+      "zIndex": 1,
+      "data": {
+        "kind": "notify-mattermost",
+        "stepUuid": "ac94ee07-c226-4039-b040-c24d92f2a00d",
+        "title": "Notify Mattermost",
+        "overview": "Post a message to a Mattermost channel.",
+        "description": "Posts one message to a Mattermost channel via a configured Mattermost source, team, and channel. Supports {path.to.value} placeholders resolved against the first device in context (e.g. {device.name}, {nautobot.location.name}), plus {devices} (comma-joined device names) and {device_count} for summarizing a multi-device run. Typically wired to an upstream step's success or failure outcome handle to report a workflow's outcome. Fan-out note: place after Fan In (or at the end of a non-fanned workflow) for one summary message per run; inside fan-out children it posts once per child branch. A message longer than 15 000 characters is cut and ends with the number of characters left out.\n",
+        "artifactType": "control_flow",
+        "requires": [
+          "identity"
+        ],
+        "requiresParsed": [],
+        "produces": [],
+        "producesParsed": [],
+        "consumes": [],
+        "outcomes": [
+          {
+            "name": "success"
+          },
+          {
+            "name": "failure"
+          }
+        ],
+        "incomeHandleSide": "top",
+        "outcomeHandleSide": "right",
+        "pluginConfig": {
+          "mattermost_source_id": "mattermost",
+          "team_name": "manus",
+          "channel_name": "manus",
+          "message": "The backup of {device.name} is {backup_age.checked_age_days} days old!"
+        }
+      },
+      "measured": {
+        "width": 320,
+        "height": 128
+      }
+    },
+    {
+      "id": "notify-mattermost-6",
+      "type": "workflowNode",
+      "position": {
+        "x": 440.0,
+        "y": 500.60628630125416
+      },
+      "zIndex": 1,
+      "data": {
+        "kind": "notify-mattermost",
+        "stepUuid": "4047f0f7-fd38-46f3-97c4-ce6b47028315",
+        "title": "Notify Mattermost",
+        "overview": "Post a message to a Mattermost channel.",
+        "description": "Posts one message to a Mattermost channel via a configured Mattermost source, team, and channel. Supports {path.to.value} placeholders resolved against the first device in context (e.g. {device.name}, {nautobot.location.name}), plus {devices} (comma-joined device names) and {device_count} for summarizing a multi-device run. Typically wired to an upstream step's success or failure outcome handle to report a workflow's outcome. Fan-out note: place after Fan In (or at the end of a non-fanned workflow) for one summary message per run; inside fan-out children it posts once per child branch. A message longer than 15 000 characters is cut and ends with the number of characters left out.\n",
+        "artifactType": "control_flow",
+        "requires": [
+          "identity"
+        ],
+        "requiresParsed": [],
+        "produces": [],
+        "producesParsed": [],
+        "consumes": [],
+        "outcomes": [
+          {
+            "name": "success"
+          },
+          {
+            "name": "failure"
+          }
+        ],
+        "incomeHandleSide": "top",
+        "outcomeHandleSide": "right",
+        "pluginConfig": {
+          "mattermost_source_id": "mattermost",
+          "team_name": "manus",
+          "channel_name": "manus",
+          "message": "The backup of {device.name} could not be checked: no backup file, no commit or no backup-check marker was found. See the run."
+        }
+      },
+      "measured": {
+        "width": 320,
+        "height": 128
+      }
+    }
+  ],
+  "canvas_edges": [
+    {
+      "type": "waypoint",
+      "zIndex": 0,
+      "data": {
+        "edgeStyle": "bezier"
+      },
+      "source": "get-nautobot-devices-1",
+      "sourceHandle": "success",
+      "target": "get-nautobot-attributes-3",
+      "targetHandle": "input",
+      "id": "xy-edge__get-nautobot-devices-1success-get-nautobot-attributes-3input",
+      "selected": false
+    },
+    {
+      "type": "waypoint",
+      "zIndex": 0,
+      "data": {
+        "edgeStyle": "bezier"
+      },
+      "source": "get-nautobot-attributes-3",
+      "sourceHandle": "success",
+      "target": "get-age-of-backup-3",
+      "targetHandle": "input",
+      "id": "xy-edge__get-nautobot-attributes-3success-get-age-of-backup-3input",
+      "selected": false
+    },
+    {
+      "type": "waypoint",
+      "zIndex": 0,
+      "data": {
+        "edgeStyle": "bezier"
+      },
+      "source": "get-age-of-backup-3",
+      "sourceHandle": "success",
+      "target": "route-on-attribute-4",
+      "targetHandle": "input",
+      "id": "xy-edge__get-age-of-backup-3success-route-on-attribute-4input",
+      "selected": false
+    },
+    {
+      "type": "waypoint",
+      "zIndex": 0,
+      "data": {
+        "edgeStyle": "bezier"
+      },
+      "source": "route-on-attribute-4",
+      "sourceHandle": "too_old",
+      "target": "notify-mattermost-5",
+      "targetHandle": "input",
+      "id": "xy-edge__route-on-attribute-4too_old-notify-mattermost-5input"
+    },
+    {
+      "type": "waypoint",
+      "zIndex": 0,
+      "data": {
+        "edgeStyle": "bezier"
+      },
+      "source": "route-on-attribute-4",
+      "sourceHandle": "no_marker",
+      "target": "notify-mattermost-6",
+      "targetHandle": "input",
+      "id": "xy-edge__route-on-attribute-4no_marker-notify-mattermost-6input"
+    },
+    {
+      "type": "waypoint",
+      "zIndex": 0,
+      "data": {
+        "edgeStyle": "bezier"
+      },
+      "source": "get-age-of-backup-3",
+      "sourceHandle": "failure",
+      "target": "notify-mattermost-6",
+      "targetHandle": "input",
+      "id": "xy-edge__get-age-of-backup-3failure-notify-mattermost-6input"
+    }
+  ],
+  "canvas_groups": [],
+  "static_attributes": [],
+  "credential_references": [],
+  "templates": []
+}

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import unittest
+from datetime import datetime
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -37,6 +38,21 @@ class DeviceDataRecordRepositoryTests(unittest.TestCase):
         self.assertEqual(second.data, {"a": 2})
         rows = self.db.query(DeviceDataRecord).all()
         self.assertEqual(len(rows), 1)
+
+    def test_upsert_with_identical_data_still_advances_updated_at(self) -> None:
+        # get-age-of-backup reads updated_at as "last stored": a constant marker value must
+        # still move it (SQLAlchemy sends no UPDATE for an equal JSON value on its own).
+        first = self.repo.upsert(device_name="lab", storage_key="marker", data="x")
+        old = datetime(2000, 1, 1)
+        self.db.query(DeviceDataRecord).update({"updated_at": old})
+        self.db.commit()
+        self.db.refresh(first)
+        self.assertEqual(first.updated_at.replace(tzinfo=None), old)
+
+        second = self.repo.upsert(device_name="lab", storage_key="marker", data="x")
+
+        self.assertEqual(first.id, second.id)
+        self.assertGreater(second.updated_at.replace(tzinfo=None), old)
 
     def test_different_storage_key_creates_separate_row(self) -> None:
         self.repo.upsert(device_name="lab", storage_key="backup", data={"a": 1})

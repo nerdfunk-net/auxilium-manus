@@ -6,6 +6,23 @@ pick it up without re-deriving the context.
 
 ---
 
+## `get-age-of-backup` step (built 2026-11-23, uncommitted)
+
+Newest git commit of the device's backup file -> `age_days` / `last_changed` / `commit_sha` in a separate bag (`output_bag`);
+optional marker from Store in DB (`device_data_records.updated_at`) -> `marker_found` / `last_checked` / `checked_age_days`, one
+`backup_marker_missing` warning event when markers are missing (`doc/WORKFLOW-STEPS.md`). Open:
+
+- Used live by the user in workflow "Check Backup Age" (git age and marker, missing key checked); the warning event and
+  `marker_found` were added afterwards and not yet seen in a real run.
+- `DeviceDataRecordRepository.upsert` now always moves `updated_at` (changes what that column means for every Store in DB user: "last stored").
+- Verified 2026-11-23: `{:gt(n)}` is false for `null`, so the gallery `check-backup-age` routes `marker_found` = false first and wires the age step's `failure`. In that workflow `Get Nautobot Attributes` `failure` is still unwired (devices dropped there are not notified).
+- Review `doc/analysis/REVIEW.md` (2026-11-23) fixed: literal pathspec, denominator of the missing-marker warning, empty rendered marker key, `parse_repository_id`, the gallery wiring and the constant marker.
+- No `refresh_repository` switch (always pulls); no `marker_required` switch (a missing marker is a warning, not a failure). Both left out on purpose.
+- Once seen, not reproduced: the editor did not draw a saved edge (`too_old` -> Notify) until the canvas was reopened after a run. If it
+  recurs, note the steps, the console and the saved time (`workflows.updated_at`).
+
+---
+
 ## `upload-binary` step (built 2026-11-21, uncommitted)
 
 Git file -> private snapshot -> device over SCP with MD5 before (local, optional `expected_md5`) and after (`verify /md5` with its own
