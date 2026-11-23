@@ -6,6 +6,7 @@ from __future__ import annotations
 import unittest
 from unittest.mock import AsyncMock, MagicMock
 
+from services.nautobot.common.exceptions import NautobotAmbiguousMatchError
 from services.nautobot.devices.uuid_resolver import (
     OBJECTVAR_MODEL_TO_RESOURCE_TYPE,
     UUID_RESOURCE_TYPES,
@@ -56,6 +57,12 @@ class ResolveNautobotUuidTests(unittest.IsolatedAsyncioTestCase):
         common = _common()
         await resolve_nautobot_uuid(common, "device", "router1")
         common.resolve_device_id.assert_awaited_once_with(device_name="router1")
+
+    async def test_an_ambiguous_device_name_is_a_value_error(self) -> None:
+        common = _common()
+        common.resolve_device_id = AsyncMock(side_effect=NautobotAmbiguousMatchError("2 devices"))
+        with self.assertRaisesRegex(ValueError, "could not resolve device 'router1'"):
+            await resolve_nautobot_uuid(common, "device", "router1")
 
     async def test_platform_device_type_namespace_rack_dispatch(self) -> None:
         common = _common()

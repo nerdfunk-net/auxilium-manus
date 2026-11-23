@@ -11,6 +11,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from services.nautobot.common.exceptions import NautobotAmbiguousMatchError
+
 if TYPE_CHECKING:
     from services.nautobot.devices.common import DeviceCommonService
 
@@ -61,7 +63,12 @@ async def resolve_nautobot_uuid(
     elif resource_type == "platform":
         resolved = await common.resolve_platform_id(name)
     elif resource_type == "device":
-        resolved = await common.resolve_device_id(device_name=name)
+        try:
+            resolved = await common.resolve_device_id(device_name=name)
+        except NautobotAmbiguousMatchError as exc:
+            # A ValueError, like every other "cannot resolve" here: the executor fails the
+            # device and the router's "test resolve" answers ``resolved: false``.
+            raise ValueError(f"could not resolve device {name!r} to a UUID: {exc}") from exc
     elif resource_type == "device_type":
         resolved = await common.resolve_device_type_id(name)
     elif resource_type == "namespace":

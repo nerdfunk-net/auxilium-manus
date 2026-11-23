@@ -9,6 +9,7 @@ from __future__ import annotations
 import unittest
 from unittest.mock import AsyncMock, MagicMock
 
+from services.nautobot.common.exceptions import NautobotAPIError
 from services.nautobot.resolvers.base_resolver import BaseResolver
 from services.nautobot.resolvers.device_resolver import DeviceResolver
 from services.nautobot.resolvers.metadata_resolver import MetadataResolver
@@ -68,7 +69,8 @@ class DeviceResolverTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_resolve_device_by_name_graphql_errors(self) -> None:
         svc = _service(graphql={"errors": ["nope"]})
-        self.assertIsNone(await DeviceResolver(svc).resolve_device_by_name("r1"))
+        with self.assertRaises(NautobotAPIError):
+            await DeviceResolver(svc).resolve_device_by_name("r1")
 
     async def test_resolve_device_by_name_not_found(self) -> None:
         svc = _service(graphql={"data": {"devices": []}})
@@ -77,7 +79,8 @@ class DeviceResolverTests(unittest.IsolatedAsyncioTestCase):
     async def test_resolve_device_by_name_exception(self) -> None:
         svc = MagicMock()
         svc.graphql_query = AsyncMock(side_effect=ValueError("x"))
-        self.assertIsNone(await DeviceResolver(svc).resolve_device_by_name("r1"))
+        with self.assertRaises(ValueError):
+            await DeviceResolver(svc).resolve_device_by_name("r1")
 
     async def test_resolve_device_by_ip_list_form(self) -> None:
         svc = _service(
@@ -119,7 +122,8 @@ class DeviceResolverTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_resolve_device_by_ip_graphql_errors(self) -> None:
         svc = _service(graphql={"errors": ["nope"]})
-        self.assertIsNone(await DeviceResolver(svc).resolve_device_by_ip("10.0.0.1"))
+        with self.assertRaises(NautobotAPIError):
+            await DeviceResolver(svc).resolve_device_by_ip("10.0.0.1")
 
     async def test_resolve_device_id_passes_through_valid_uuid(self) -> None:
         svc = _service()

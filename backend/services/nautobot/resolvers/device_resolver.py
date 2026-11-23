@@ -3,11 +3,22 @@ Device resolver for device and device-related entity resolution.
 """
 
 import logging
+from typing import Any
 
+from ..common.exceptions import NautobotAmbiguousMatchError, NautobotAPIError
 from ..common.validators import is_valid_uuid
 from .base_resolver import BaseResolver
 
 logger = logging.getLogger(__name__)
+
+
+def _raise_on_graphql_errors(result: dict[str, Any], what: str) -> None:
+    """A response carrying ``errors`` may hold partial data: never read it as "no device"."""
+    if result.get("errors"):
+        logger.error("GraphQL error looking up %s: %s", what, result["errors"])
+        raise NautobotAPIError(
+            "Nautobot's GraphQL API reported an error for this query", code="graphql_error"
+        )
 
 
 class DeviceResolver(BaseResolver):
@@ -17,112 +28,94 @@ class DeviceResolver(BaseResolver):
         """
         Resolve device UUID from device name using GraphQL.
 
-        Args:
-            device_name: Name of the device to look up
+        This picks the device a write goes to, so it is strict (P-N1, W2-01): a device with
+        another name is never taken, two devices of that name raise
+        ``NautobotAmbiguousMatchError``, and a GraphQL or transport error is raised, not
+        reported as "not found".
 
         Returns:
-            Device UUID if found, None otherwise
+            Device UUID if found, None if no device has that name
         """
-        try:
-            logger.info("Looking up device by name: %s", device_name)
+        logger.info("Looking up device by name: %s", device_name)
 
-            query = """
-            query GetDeviceByName($name: [String]) {
-              devices(name: $name) {
-                id
-                name
-              }
-            }
-            """
-            variables = {"name": [device_name]}
-            result = await self.nautobot.graphql_query(query, variables)
+        query = """
+        query GetDeviceByName($name: [String]) {
+          devices(name: $name) {
+            id
+            name
+          }
+        }
+        """
+        result = await self.nautobot.graphql_query(query, {"name": [device_name]})
+        _raise_on_graphql_errors(result, "device by name")
 
-            if "errors" in result:
-                logger.error("GraphQL error looking up device by name: %s", result["errors"])
-                return None
-
-            devices = result.get("data", {}).get("devices", [])
-            if devices and len(devices) > 0:
-                device_id = devices[0].get("id")
-                logger.info("Found device by name '%s': %s", device_name, device_id)
-                return device_id
-
+        devices = (result.get("data") or {}).get("devices") or []
+        # never fall back to a device that has another name
+        ids = {
+            str(device["id"])
+            for device in devices
+            if device.get("name") == device_name and device.get("id")
+        }
+        if len(ids) > 1:
+            raise NautobotAmbiguousMatchError(
+                f"{len(ids)} Nautobot devices are named {device_name!r}"
+            )
+        if not ids:
             logger.warning("No device found with name: %s", device_name)
             return None
-
-        except Exception as e:
-            logger.error("Error resolving device by name: %s", e, exc_info=True)
-            return None
+        device_id = next(iter(ids))
+        logger.info("Found device by name '%s': %s", device_name, device_id)
+        return device_id
 
     async def resolve_device_by_ip(self, ip_address: str) -> str | None:
         """
         Resolve device UUID from primary IPv4 address using GraphQL.
 
-        Looks up the IP address object and returns the device it's assigned
-        to as primary IP.
-
-        Args:
-            ip_address: Primary IPv4 address to search for
+        Looks up the IP address object and returns the device it's assigned to as primary IP.
+        Strict like ``resolve_device_by_name``: two devices with that primary IP raise
+        ``NautobotAmbiguousMatchError``, and a GraphQL or transport error is raised.
 
         Returns:
             Device UUID if found, None otherwise
         """
-        try:
-            logger.info("Looking up device by primary IPv4: %s", ip_address)
+        logger.info("Looking up device by primary IPv4: %s", ip_address)
 
-            # Query for IP address and get the device it's assigned to as primary IP
-            query = """
-            query GetIPAddress($address: [String]) {
-              ip_addresses(address: $address) {
-                id
-                address
-                primary_ip4_for {
-                  id
-                  name
-                }
-              }
+        # Query for IP address and get the device it's assigned to as primary IP
+        query = """
+        query GetIPAddress($address: [String]) {
+          ip_addresses(address: $address) {
+            id
+            address
+            primary_ip4_for {
+              id
+              name
             }
-            """
-            variables = {"address": [ip_address]}
-            result = await self.nautobot.graphql_query(query, variables)
+          }
+        }
+        """
+        result = await self.nautobot.graphql_query(query, {"address": [ip_address]})
+        _raise_on_graphql_errors(result, "IP address")
 
-            if "errors" in result:
-                logger.error("GraphQL error looking up IP address: %s", result["errors"])
-                return None
-
-            ip_addresses = result.get("data", {}).get("ip_addresses", [])
-            if not ip_addresses or len(ip_addresses) == 0:
-                logger.warning("No IP address found: %s", ip_address)
-                return None
-
-            # Get the device from primary_ip4_for
-            ip_obj = ip_addresses[0]
+        ids: set[str] = set()
+        for ip_obj in (result.get("data") or {}).get("ip_addresses") or []:
             devices = ip_obj.get("primary_ip4_for")
-
-            if not devices:
-                logger.warning("IP address %s is not set as primary IP for any device", ip_address)
-                return None
-
             # primary_ip4_for can be a list or a single device
-            if isinstance(devices, list):
-                if len(devices) == 0:
-                    logger.warning(
-                        "IP address %s is not set as primary IP for any device",
-                        ip_address,
-                    )
-                    return None
-                device = devices[0]
-            else:
-                device = devices
+            if isinstance(devices, dict):
+                devices = [devices]
+            for device in devices or []:
+                if device.get("id"):
+                    ids.add(str(device["id"]))
 
-            device_id = device.get("id")
-            device_name = device.get("name")
-            logger.info("Found device by IP '%s': %s (%s)", ip_address, device_name, device_id)
-            return device_id
-
-        except Exception as e:
-            logger.error("Error resolving device by IP: %s", e, exc_info=True)
+        if len(ids) > 1:
+            raise NautobotAmbiguousMatchError(
+                f"{len(ids)} Nautobot devices have primary IP {ip_address}"
+            )
+        if not ids:
+            logger.warning("IP address %s is not set as primary IP for any device", ip_address)
             return None
+        device_id = next(iter(ids))
+        logger.info("Found device by IP '%s': %s", ip_address, device_id)
+        return device_id
 
     async def resolve_device_id(
         self,
