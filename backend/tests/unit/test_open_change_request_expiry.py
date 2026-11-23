@@ -10,7 +10,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from tests.unit._step_helpers import make_context, make_device, make_run, strict_xfail
+from tests.unit._step_helpers import call_step, make_context, make_device, make_run
 from workflow_steps.open_change_request import executor as mod
 
 
@@ -42,11 +42,26 @@ def test_expiry_defaults_to_a_week_and_takes_whole_hours(raw: Any, expected: int
     assert _expires_passed({"expires_after_hours": raw}) == expected
 
 
-@strict_xfail("W9-05", "0 is falsy, so `int(0 or 168)` turns 'disable expiry' into a week")
 def test_zero_disables_expiry() -> None:
     assert _expires_passed({"expires_after_hours": 0}) == 0
 
 
-def test_a_text_value_is_a_config_error() -> None:
-    with pytest.raises(ValueError):
-        _expires_passed({"expires_after_hours": "abc"})
+@pytest.mark.parametrize("raw", ["abc", True, 7.9, -1])
+def test_a_bad_value_is_a_config_error(raw: Any) -> None:
+    with pytest.raises(ValueError, match="expires_after_hours"):
+        _expires_passed({"expires_after_hours": raw})
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("raw", ["abc", True])
+async def test_a_bad_value_fails_before_anything_is_pushed(raw: Any) -> None:
+    with patch.object(mod, "load_git_repository") as load:
+        outcomes = await call_step(
+            mod.execute,
+            {"git_repository_id": 1, "expires_after_hours": raw},
+            make_context([make_device("d1")]),
+        )
+
+    failed = next(o for o in outcomes if o.name == "failure").context.devices["d1"]
+    assert "expires_after_hours" in failed.errors[-1].message
+    load.assert_not_called()

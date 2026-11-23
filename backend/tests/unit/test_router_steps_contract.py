@@ -32,9 +32,6 @@ async def test_route_on_content_answers_every_handle_for_an_empty_branch() -> No
     assert all(o.context.metadata["note"] == "kept" for o in outcomes)
 
 
-@strict_xfail(
-    "W10-03", "an empty branch emits `success`, which route-on-attribute does not declare"
-)
 @pytest.mark.asyncio
 async def test_route_on_attribute_answers_every_declared_handle_for_an_empty_branch() -> None:
     config = {"attribute_path": "device.platform", "routes": _ROUTES, "default_outcome": "other"}
@@ -43,9 +40,21 @@ async def test_route_on_attribute_answers_every_declared_handle_for_an_empty_bra
     outcomes = await call_step(route_on_attribute, config, context)
 
     names = {o.name for o in outcomes}
-    assert {"cisco", "arista", "other"} <= names
-    assert "success" not in names
+    assert names == {"cisco", "arista", "other", "failure"}
     assert all(o.context.metadata["note"] == "kept" for o in outcomes)
+
+
+@pytest.mark.asyncio
+async def test_route_on_attribute_checks_its_config_before_the_empty_guard() -> None:
+    # Parse first (W1-10): a broken config fails the same way with or without devices.
+    reserved = {
+        "attribute_path": "device.platform",
+        "routes": _ROUTES,
+        "default_outcome": "failure",
+    }
+    for config in ({"attribute_path": "device.platform", "routes": []}, reserved):
+        with pytest.raises(ValueError, match="route-on-attribute"):
+            await call_step(route_on_attribute, config, make_context())
 
 
 @pytest.mark.asyncio

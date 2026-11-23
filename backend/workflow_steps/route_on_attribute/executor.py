@@ -224,11 +224,6 @@ async def execute(
 ) -> list[StepOutcome]:
     del run, artifact_service
 
-    if not context.devices:
-        return [StepOutcome(name="success", context=context)]
-
-    logger.info("route-on-attribute started run_id=%s node_id=%s", context.run_id, node_id)
-
     attribute_path = str(
         config.get("attribute_path") or _default_config()["attribute_path"]
     ).strip()
@@ -242,6 +237,17 @@ async def execute(
     default_outcome = str(config.get("default_outcome") or "").strip() or None
     if default_outcome in _RESERVED_OUTCOMES:
         raise ValueError(f"route-on-attribute: default_outcome {default_outcome!r} is reserved")
+
+    outcome_names = [route["outcome"] for route in routes]
+    if default_outcome and default_outcome not in outcome_names:
+        outcome_names.append(default_outcome)
+
+    if not context.devices:
+        # An empty branch is a no-op that answers every declared handle and keeps the context
+        # (D2, W10-03): the runner would otherwise start the next step with a fresh context.
+        return [StepOutcome(name=name, context=context) for name in (*outcome_names, "failure")]
+
+    logger.info("route-on-attribute started run_id=%s node_id=%s", context.run_id, node_id)
 
     # matches()/find() run in the isolated regex runner; answer all of them up front, then route.
     answers = await _answer_regex_questions(
@@ -272,10 +278,6 @@ async def execute(
         )
         for device_id, (code, message) in route_failures.items()
     }
-
-    outcome_names = [route["outcome"] for route in routes]
-    if default_outcome and default_outcome not in outcome_names:
-        outcome_names.append(default_outcome)
 
     routed_counts = {
         outcome_name: len(buckets.get(outcome_name, {})) for outcome_name in outcome_names

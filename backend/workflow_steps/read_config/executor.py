@@ -25,6 +25,7 @@ from services.workflow_context.device_template import (
 )
 from workflow_steps.common.file_source_root import resolve_source_root
 from workflow_steps.common.git_repository_loader import parse_repository_id
+from workflow_steps.common.partial_outcomes import device_error_from_exception
 from workflow_steps.common.step_flags import parse_bool_flag
 
 if TYPE_CHECKING:
@@ -125,12 +126,15 @@ async def _read_for_device(
         )
         return device_id, enriched, True
     except Exception as exc:
+        # ``ValueError``/``FileNotFoundError`` text is written by this step (relative paths);
+        # an ``OSError`` such as ``PermissionError`` carries the absolute path: class name only.
+        error = device_error_from_exception(exc, node_id=node_id, step_id=_STEP_ID)
         return _fail_device(
             device=device,
             device_id=device_id,
             node_id=node_id,
-            code=type(exc).__name__.lower(),
-            message=str(exc),
+            code=error.code,
+            message=error.message,
         )
 
 

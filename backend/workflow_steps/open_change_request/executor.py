@@ -46,6 +46,7 @@ from services.workflow_context.device_template import (
 from workflow_steps.common.content_resolver import list_exportable_content, parse_content_source
 from workflow_steps.common.duplicate_keys import find_duplicate_keys
 from workflow_steps.common.git_repository_loader import load_git_repository, parse_repository_id
+from workflow_steps.common.step_flags import parse_int_flag
 from workflow_steps.open_change_request.config import get_config
 
 if TYPE_CHECKING:
@@ -56,6 +57,7 @@ logger = logging.getLogger(__name__)
 _STEP_ID = "open-change-request"
 _DIFF_MAX_BYTES = 2 * 1024 * 1024
 _DIFF_DEVICE_ID = "__change_request__"
+_DEFAULT_EXPIRY_HOURS = 168
 
 
 def _config_value(config: dict[str, Any], key: str) -> Any:
@@ -70,6 +72,13 @@ def _as_int(value: Any) -> int | None:
         return int(value)
     except TypeError, ValueError:
         return None
+
+
+def _parse_expiry_hours(config: dict[str, Any]) -> int:
+    """Hours until an un-actioned change request expires; ``0`` disables expiry (registry)."""
+    return parse_int_flag(
+        config, "expires_after_hours", default=_DEFAULT_EXPIRY_HOURS, minimum=0, step_id=_STEP_ID
+    )
 
 
 def _truncate_diff(diff_text: str) -> tuple[str, bool]:
@@ -380,7 +389,7 @@ def _create_change_request(
             run_inputs=dict(run.run_inputs or {}),
             diff_artifact_id=diff_ref.artifact_id,
             diff_stats=diff_stats,
-            expires_after_hours=int(_config_value(config, "expires_after_hours") or 168),
+            expires_after_hours=_parse_expiry_hours(config),
         )
     finally:
         db.close()
@@ -437,6 +446,10 @@ async def execute(
             node_id=node_id,
             message=f"{_STEP_ID}: git_repository_id is not configured",
         )
+    try:
+        _parse_expiry_hours(config)  # a typo fails here, before anything is pushed
+    except ValueError as exc:
+        return _failure_outcomes(context=context, node_id=node_id, message=str(exc))
     if not context.devices:
         return _failure_outcomes(
             context=context,

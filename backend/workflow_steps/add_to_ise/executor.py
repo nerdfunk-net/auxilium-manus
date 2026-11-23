@@ -97,6 +97,7 @@ from services.workflow_context.attribute_path import resolve_device_value
 from services.workflow_context.secret_expression import require_secret_expression
 from services.workflow_context.secret_fields import seal_secret
 from workflow_steps.add_to_ise.group_ensure import DeviceGroupEnsurer
+from workflow_steps.common.partial_outcomes import abort_outcomes
 from workflow_steps.common.request_record import append_request_record
 from workflow_steps.common.step_flags import parse_bool_flag
 from workflow_steps.common.update_field_expression import (
@@ -150,7 +151,8 @@ class _ResolvedFields:
 class _CreateOneResult:
     kind: Literal["created", "exists", "failed", "abort"]
     device: DeviceContext | None = None
-    abort_outcome: StepOutcome | None = None
+    abort_message: str | None = None
+    abort_failure: FailureInfo | None = None
 
 
 def _mark_failed(
@@ -584,12 +586,8 @@ async def _create_one_device(
     except ISEAPIError as exc:
         return _CreateOneResult(
             kind="abort",
-            abort_outcome=StepOutcome(
-                name="failure",
-                context=context,
-                summary=f"lost connection to ISE source '{source_id}': {exc}",
-                failure=exc.failure,
-            ),
+            abort_message=f"lost connection to ISE source '{source_id}': {exc}",
+            abort_failure=exc.failure,
         )
 
     try:
@@ -640,12 +638,8 @@ async def _create_one_device(
         )
         return _CreateOneResult(
             kind="abort",
-            abort_outcome=StepOutcome(
-                name="failure",
-                context=context,
-                summary=f"lost connection to ISE source '{source_id}': {exc}",
-                failure=exc.failure,
-            ),
+            abort_message=f"lost connection to ISE source '{source_id}': {exc}",
+            abort_failure=exc.failure,
         )
 
     updated = _enrich_device_after_create(device, device_payload, created, resolved.key, node_id)
@@ -774,8 +768,17 @@ async def execute(
         )
 
         if result.kind == "abort":
-            assert result.abort_outcome is not None  # noqa: S101  # type narrowing on result.kind
-            return [result.abort_outcome]
+            assert result.abort_message is not None  # noqa: S101  # type narrowing on result.kind
+            return abort_outcomes(
+                context=context,
+                node_id=node_id,
+                step_id=_STEP_ID,
+                done_ok=success_devices,
+                done_failed=failed_devices,
+                message=result.abort_message,
+                failure=result.abort_failure,
+                extra={"exists": exists_devices},
+            )
 
         assert result.device is not None  # noqa: S101  # type narrowing on result.kind
         if result.kind == "exists":

@@ -2,8 +2,8 @@
 
 The pool key holds the *reference* of the credential (never the secret). With
 ``credential_source: run_param`` the reference comes from the run inputs; the step resolves it
-for the login but hands the pool the literal ``credential_reference`` config value (empty), so two
-nodes with different credentials share one live session.
+for the login and hands the pool the same resolved reference, so two nodes with different
+credentials never share a live session (W3b-01).
 """
 
 from __future__ import annotations
@@ -20,7 +20,6 @@ from tests.unit._step_helpers import (
     make_run,
     patch_object_session,
     patch_ssh_credential,
-    strict_xfail,
 )
 from workflow_steps.get_device_configs.executor import execute
 
@@ -63,7 +62,6 @@ async def test_a_run_param_reference_is_used_for_the_login() -> None:
     assert credential.call_args.args[1] == "from-run"
 
 
-@strict_xfail("W3b-01", "the pool is keyed by the literal config value, not the resolved reference")
 @pytest.mark.asyncio
 async def test_a_run_param_reference_is_the_pool_key() -> None:
     _credential, get_configs = await _run(

@@ -7,8 +7,14 @@ from types import SimpleNamespace
 from typing import Any
 from unittest.mock import MagicMock, patch
 
+from models.failure import failure_from_exception
 from models.workflow_context import WorkflowContext
-from services.agents.exceptions import AgentHandlerError, AgentOfflineError
+from services.agents.exceptions import (
+    AgentAuthError,
+    AgentHandlerError,
+    AgentOfflineError,
+    AgentTimeoutError,
+)
 from services.agents.source_config_service import AgentConnection
 from services.workflow_context.secret_fields import seal_secret
 from workflow_steps.get_from_agent import executor as mod
@@ -146,6 +152,24 @@ class ExecutorTests(unittest.IsolatedAsyncioTestCase):
         client = FakeClient(error=AgentHandlerError("ValueError", "boom"))
         with self.assertRaisesRegex(RuntimeError, "boom"):
             await _run(BASE_CONFIG, client)
+
+    async def test_the_step_failure_keeps_the_classification_of_the_agent_error(self) -> None:
+        # W8-02: the record the step stores is read from the cause chain of what it raises.
+        cases = [
+            (AgentOfflineError("agent is offline"), "agent_offline", True),
+            (AgentTimeoutError("no answer"), "timeout", True),
+            (AgentAuthError("wrong secret"), "auth_failed", False),
+            (AgentHandlerError("ValueError", "boom"), "agent_handler_error", False),
+        ]
+        for error, kind, retryable in cases:
+            with self.subTest(kind=kind):
+                with self.assertRaises(RuntimeError) as raised:
+                    await _run(BASE_CONFIG, FakeClient(error=error))
+                failure = failure_from_exception(raised.exception)
+                assert failure is not None
+                self.assertEqual((failure.phase, failure.kind), ("agent", kind))
+                self.assertEqual(failure.retryable, retryable)
+                self.assertEqual(failure.exception_type, type(error).__name__)
 
     async def test_empty_list_fails(self) -> None:
         with self.assertRaisesRegex(RuntimeError, "no devices"):

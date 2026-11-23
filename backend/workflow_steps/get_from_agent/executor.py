@@ -20,6 +20,7 @@ from core.models.runs import WorkflowRun
 from core.safe_hosts import validate_device_host
 from models.workflow_context import StepOutcome, WorkflowContext
 from services.agents.exceptions import AgentCallError
+from services.agents.failure import describe_call_failure
 from services.agents.source_config_service import AgentConnection
 from services.artifacts import ArtifactService
 from workflow_steps.common.agent_source import resolve_agent_connection
@@ -30,7 +31,6 @@ from workflow_steps.common.device_list import (
 )
 from workflow_steps.common.fan_out import build_fan_out_metadata
 from workflow_steps.get_from_agent.request import STEP_ID, build_inputs, parse_config
-from workflow_steps.route_to_agent.output import describe_failure
 
 if TYPE_CHECKING:
     from services.network.netmiko.session_pool import DeviceSessionPool
@@ -137,7 +137,7 @@ async def execute(
     try:
         output = await client.invoke(parsed.handler, {}, inputs, timeout=parsed.timeout_seconds)
     except AgentCallError as exc:
-        _, message, _ = describe_failure(exc)
+        _, message, _ = describe_call_failure(exc)
         raise RuntimeError(f"{STEP_ID}: {message}") from exc
     finally:
         await client.aclose()

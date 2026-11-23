@@ -7,16 +7,7 @@ from typing import Any
 
 from core.config import settings
 from models.failure import FailureInfo
-from services.agents.exceptions import (
-    AgentAuthError,
-    AgentCallError,
-    AgentHandlerError,
-    AgentOfflineError,
-    AgentPayloadTooLargeError,
-    AgentTimeoutError,
-    AgentTransportError,
-    AgentValidationError,
-)
+from services.agents.failure import describe_call_failure
 from workflow_steps.route_to_agent.request import OUTPUT_KEY_PATTERN
 
 MAX_VALUE_DEPTH = 8
@@ -74,16 +65,6 @@ def check_output(
     return output
 
 
-_CODES: tuple[tuple[type[Exception], str, bool], ...] = (
-    (AgentOfflineError, "agent_offline", True),
-    (AgentTimeoutError, "agent_timeout", True),
-    (AgentAuthError, "agent_auth_failed", False),
-    (AgentTransportError, "agent_transport_error", False),
-    (AgentPayloadTooLargeError, "payload_too_large", False),
-    (AgentHandlerError, "agent_handler_error", False),
-)
-
-
 def describe_failure(exc: Exception) -> tuple[str, str, FailureInfo]:
     """``(code, message, FailureInfo)`` for a failed call; free text only where it is safe."""
     if isinstance(exc, OutputRejectedError):
@@ -92,29 +73,4 @@ def describe_failure(exc: Exception) -> tuple[str, str, FailureInfo]:
             str(exc),
             FailureInfo(phase="agent", kind="output_rejected", hint="check_agent"),
         )
-    for error_type, code, retryable in _CODES:
-        if isinstance(exc, error_type):
-            kind = exc.kind if isinstance(exc, AgentCallError) else "unknown"
-            return (
-                code,
-                str(exc),
-                FailureInfo(
-                    phase="agent",
-                    kind=kind,  # type: ignore[arg-type]
-                    retryable=retryable,
-                    exception_type=type(exc).__name__,
-                    hint="check_agent",
-                ),
-            )
-    if isinstance(exc, AgentValidationError):
-        return (
-            "agent_request_invalid",
-            str(exc),
-            FailureInfo(phase="agent", kind="bad_request", exception_type=type(exc).__name__),
-        )
-    # Anything else is a bug on our side; its text can carry anything, so only the class name.
-    return (
-        "internal_error",
-        type(exc).__name__,
-        FailureInfo(phase="internal", kind="internal_error", exception_type=type(exc).__name__),
-    )
+    return describe_call_failure(exc)

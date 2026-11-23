@@ -37,7 +37,6 @@ _CONFIG_FORMATS = frozenset({"running", "startup", "both"})
 
 @dataclass(frozen=True)
 class _ParsedConfig:
-    credential_reference: str
     config_format: str
     read_timeout: int
     retry: RetryPolicy
@@ -53,14 +52,12 @@ def _config_targets(config_format: str) -> tuple[bool, bool]:
 
 
 def _parse_config(config: dict[str, Any]) -> _ParsedConfig:
-    credential_reference = str(config.get("credential_reference") or "").strip()
     config_format = str(config.get("config_format") or "both").strip().lower()
     if config_format not in _CONFIG_FORMATS:
         raise ValueError(
             f"get-device-configs: config_format must be one of {sorted(_CONFIG_FORMATS)}"
         )
     return _ParsedConfig(
-        credential_reference=credential_reference,
         config_format=config_format,
         read_timeout=parse_read_timeout(
             config, step_id=_STEP_ID, default=DEFAULT_CONFIG_READ_TIMEOUT
@@ -101,6 +98,7 @@ async def _fetch_device(
     node_id: str,
     context_run_id: str,
     parsed: _ParsedConfig,
+    credential_reference: str,
     username: str,
     password: str,
     include_running: bool,
@@ -127,7 +125,7 @@ async def _fetch_device(
             password=password,
             include_running=include_running,
             include_startup=include_startup,
-            credential_reference=parsed.credential_reference,
+            credential_reference=credential_reference,
             read_timeout=parsed.read_timeout,
             retry=parsed.retry,
         )
@@ -189,6 +187,7 @@ async def _fetch_device_logged(
     node_id: str,
     context_run_id: str,
     parsed: _ParsedConfig,
+    credential_reference: str,
     username: str,
     password: str,
     include_running: bool,
@@ -211,6 +210,7 @@ async def _fetch_device_logged(
         node_id=node_id,
         context_run_id=context_run_id,
         parsed=parsed,
+        credential_reference=credential_reference,
         username=username,
         password=password,
         include_running=include_running,
@@ -315,6 +315,7 @@ async def execute(
                 node_id=node_id,
                 context_run_id=context.run_id,
                 parsed=parsed,
+                credential_reference=credential_reference,
                 username=username,
                 password=password,
                 include_running=include_running,

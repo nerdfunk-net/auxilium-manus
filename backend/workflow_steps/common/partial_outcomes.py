@@ -71,10 +71,16 @@ def abort_outcomes(
     done_failed: dict[str, DeviceContext],
     message: str,
     failure: FailureInfo | None,
+    extra: dict[str, dict[str, DeviceContext]] | None = None,
 ) -> list[StepOutcome]:
     """The remote system was lost after some devices were processed: those keep their result
     (partial effects stay visible), every device not yet processed fails with the transport
-    cause."""
+    cause.
+
+    ``extra`` carries the devices already routed to further handles (``add-to-ise`` answers
+    ``exists`` besides ``success`` and ``failure``); each handle keeps its devices.
+    """
+    extra = extra or {}
     remaining = {
         device_id: mark_device_failed(
             device,
@@ -85,7 +91,9 @@ def abort_outcomes(
             failure=failure,
         )
         for device_id, device in context.devices.items()
-        if device_id not in done_ok and device_id not in done_failed
+        if device_id not in done_ok
+        and device_id not in done_failed
+        and not any(device_id in bucket for bucket in extra.values())
     }
     metadata = {
         **context.metadata,
@@ -97,6 +105,14 @@ def abort_outcomes(
             name="success",
             summary=f"{len(done_ok)} processed before the connection was lost",
             context=context.model_copy(update={"devices": dict(done_ok), "metadata": metadata}),
+        ),
+        *(
+            StepOutcome(
+                name=handle,
+                summary=f"{len(devices)} processed before the connection was lost",
+                context=context.model_copy(update={"devices": dict(devices), "metadata": metadata}),
+            )
+            for handle, devices in extra.items()
         ),
         StepOutcome(
             name="failure",

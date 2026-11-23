@@ -93,7 +93,8 @@ def _read_filesystem_sync(config: dict[str, Any], relative_path: str) -> str:
         relative_path=relative_path,
     )
     if not target.is_file():
-        raise FileNotFoundError(f"Reference file not found: {target}")
+        # relative path only: the absolute server path must not leak (W4-18)
+        raise FileNotFoundError(f"Reference file not found: {relative_path}")
     content = target.read_text(encoding="utf-8")
     logger.info("compare-data read filesystem reference path=%s bytes=%d", target, len(content))
     return content

@@ -12,6 +12,8 @@ from __future__ import annotations
 
 from typing import ClassVar
 
+from models.failure import FailureInfo
+
 
 class AgentValidationError(ValueError):
     """An agent source or request is misconfigured (never carries secret material)."""
@@ -21,18 +23,33 @@ class AgentCallError(RuntimeError):
     """One call to an agent failed."""
 
     kind: ClassVar[str] = "unknown"
+    retryable: ClassVar[bool] = False
+
+    @property
+    def failure(self) -> FailureInfo:
+        """The closed-vocabulary record, so ``raise RuntimeError(...) from exc`` keeps it
+        (``models.failure.failure_from_exception`` follows the cause chain)."""
+        return FailureInfo(
+            phase="agent",
+            kind=self.kind,  # type: ignore[arg-type]
+            retryable=self.retryable,
+            exception_type=type(self).__name__,
+            hint="check_agent",
+        )
 
 
 class AgentOfflineError(AgentCallError):
     """The agent is not reachable (connection refused, or no heartbeat on Redis)."""
 
     kind = "agent_offline"
+    retryable = True
 
 
 class AgentTimeoutError(AgentCallError):
     """The agent did not answer within the timeout."""
 
     kind = "timeout"
+    retryable = True
 
 
 class AgentTransportError(AgentCallError):

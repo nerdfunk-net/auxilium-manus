@@ -833,9 +833,13 @@ class AddToIseExecutorTests(unittest.IsolatedAsyncioTestCase):
                 device_sessions=MagicMock(),
             )
 
-        self.assertEqual(len(outcomes), 1)
-        self.assertEqual(outcomes[0].name, "failure")
-        self.assertIn("lab-ise", outcomes[0].summary)
+        # Nothing was processed before the loss: success and exists are empty, the one device
+        # fails with the transport cause (W6-01).
+        by_name = {o.name: o for o in outcomes}
+        self.assertEqual(set(by_name), {"success", "exists", "failure"})
+        self.assertEqual(by_name["success"].context.devices, {})
+        self.assertEqual(set(by_name["failure"].context.devices), {"dev-1"})
+        self.assertIn("lab-ise", by_name["failure"].summary)
 
     async def test_invalid_device_groups_type_raises(self) -> None:
         config = {**_BASE_CONFIG, "device_groups": "not-a-list"}

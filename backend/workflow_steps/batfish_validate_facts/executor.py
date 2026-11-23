@@ -132,6 +132,14 @@ async def _resolve_rendered_yaml_fragment(
     return nodes, None
 
 
+def _repo_relative(path: Path, repo_root: Path) -> str:
+    """The path inside the checkout: an error text must not name the server's directories."""
+    try:
+        return path.resolve().relative_to(repo_root.resolve()).as_posix()
+    except ValueError:
+        return path.name
+
+
 async def _build_git_facts_corpus(*, merged_config: dict[str, Any]) -> dict[str, dict[str, Any]]:
     """Resolve git_repository_id/base_path/glob_pattern into a node-name(lower)
     -> fields corpus, merging every matched file's own 'nodes:' map.
@@ -170,7 +178,7 @@ async def _build_git_facts_corpus(*, merged_config: dict[str, Any]) -> dict[str,
             text = await asyncio.to_thread(path.read_text, "utf-8")
             nodes, error = await asyncio.to_thread(_parse_nodes_yaml, text)
             if error is not None or nodes is None:
-                raise ValueError(f"{_STEP_ID}: {path} -- {error}")
+                raise ValueError(f"{_STEP_ID}: {_repo_relative(path, repo_dir)} -- {error}")
             for key, value in nodes.items():
                 corpus[str(key).strip().lower()] = value
     return corpus
