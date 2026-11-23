@@ -80,11 +80,7 @@ class _ParsedConfig:
 
 
 def _parse_workflow_id(config: dict[str, Any]) -> int:
-    raw_id = config.get("workflow_id")
-    try:
-        workflow_id = int(raw_id) if raw_id not in (None, "") else 0
-    except (TypeError, ValueError) as exc:
-        raise ValueError(f"{_STEP_ID}: workflow_id must be a workflow id") from exc
+    workflow_id = parse_int_flag(config, "workflow_id", default=0, step_id=_STEP_ID)
     if workflow_id < 1:
         raise ValueError(f"{_STEP_ID}: select the workflow to start (workflow_id)")
     return workflow_id

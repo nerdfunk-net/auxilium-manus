@@ -72,7 +72,7 @@ from workflow_steps.batfish_validate_facts.config import get_config
 from workflow_steps.common.batfish_context import resolve_batfish_snapshot_ref
 from workflow_steps.common.batfish_git_source import collect_git_source_files
 from workflow_steps.common.content_resolver import list_exportable_content
-from workflow_steps.common.git_repository_loader import load_git_repository
+from workflow_steps.common.git_repository_loader import load_git_repository, require_repository_id
 from workflow_steps.common.jinja_render import (
     JinjaTemplateError,
     build_jinja_context,
@@ -148,7 +148,9 @@ async def _build_git_facts_corpus(*, merged_config: dict[str, Any]) -> dict[str,
     established for its own zero-match/cap-exceeded cases (see
     doc/BATFISH_INTEGRATION.md "Validate Facts" / "Open items").
     """
-    git_repository_id = int(merged_config["git_repository_id"])
+    git_repository_id = require_repository_id(
+        merged_config.get("git_repository_id"), step_id=_STEP_ID
+    )
     base_path = str(merged_config.get("base_path") or "")
     glob_pattern = str(merged_config.get("glob_pattern") or "").strip()
 

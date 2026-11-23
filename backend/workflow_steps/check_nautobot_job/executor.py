@@ -39,6 +39,7 @@ from services.nautobot.jobs import NautobotJobsService
 from workflow_steps.check_nautobot_job.config import get_config
 from workflow_steps.common.attribute_expression import resolve_attribute_expression
 from workflow_steps.common.nautobot_source import resolve_nautobot_credentials
+from workflow_steps.common.step_flags import parse_int_flag
 
 if TYPE_CHECKING:
     from services.network.netmiko.session_pool import DeviceSessionPool
@@ -71,19 +72,12 @@ def _parse_config(config: dict[str, Any]) -> _ParsedConfig:
     if not job_uuid_expr:
         raise ValueError(f"{_STEP_ID}: job_uuid is required")
 
-    try:
-        max_checks = int(config.get("max_checks", defaults["max_checks"]))
-    except (TypeError, ValueError) as exc:
-        raise ValueError(f"{_STEP_ID}: max_checks must be an integer") from exc
-    if max_checks < 1:
-        raise ValueError(f"{_STEP_ID}: max_checks must be at least 1")
-
-    try:
-        interval_seconds = int(config.get("interval_seconds", defaults["interval_seconds"]))
-    except (TypeError, ValueError) as exc:
-        raise ValueError(f"{_STEP_ID}: interval_seconds must be an integer") from exc
-    if interval_seconds < 0:
-        raise ValueError(f"{_STEP_ID}: interval_seconds must be at least 0")
+    max_checks = parse_int_flag(
+        config, "max_checks", default=defaults["max_checks"], minimum=1, step_id=_STEP_ID
+    )
+    interval_seconds = parse_int_flag(
+        config, "interval_seconds", default=defaults["interval_seconds"], step_id=_STEP_ID
+    )
 
     total_wait = max_checks * interval_seconds
     if total_wait > _MAX_TOTAL_WAIT_SECONDS:

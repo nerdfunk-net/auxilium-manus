@@ -12,7 +12,7 @@ from services.artifacts import ArtifactService
 from services.git.device_service import GitDeviceService
 from workflow_steps.common.device_builders import device_context_from_git_detail
 from workflow_steps.common.fan_out import build_fan_out_metadata
-from workflow_steps.common.git_repository_loader import load_git_repository
+from workflow_steps.common.git_repository_loader import load_git_repository, require_repository_id
 from workflow_steps.common.partial_outcomes import mark_device_failed
 from workflow_steps.common.step_flags import parse_bool_flag
 
@@ -43,7 +43,7 @@ async def execute(
         raise ValueError("get-git-devices: git_repository_id is not configured")
     if not filename_pattern:
         raise ValueError("get-git-devices: filename_pattern is not configured")
-    git_repository_id = int(raw_repository_id)
+    git_repository_id = require_repository_id(raw_repository_id, step_id="get-git-devices")
 
     logger.info(
         "get-git-devices started run_id=%s git_repository_id=%s filename_pattern=%s",

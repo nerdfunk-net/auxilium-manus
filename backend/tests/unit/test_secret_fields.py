@@ -20,7 +20,6 @@ from services.workflow_context.secret_fields import (
     unwrap_secret,
     with_run_secret_scope,
 )
-from tests.unit._step_helpers import strict_xfail
 
 _ENC = EncryptionService("test-secret-key-for-workflow-context")
 
@@ -346,7 +345,6 @@ class SealRegistersCleartextTests(unittest.TestCase):
         self.assertNotIn(self._PLAIN, scrubbed["msg"])
         self.assertIn(REDACTED_PLACEHOLDER, scrubbed["msg"])
 
-    @strict_xfail("W10-07", "seal_secret does not register the cleartext it just produced")
     def test_seal_registers_the_cleartext(self) -> None:
         with run_secret_scope():
             seal_secret(self._PLAIN, encryption=_ENC)

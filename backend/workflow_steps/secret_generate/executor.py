@@ -38,6 +38,7 @@ from workflow_steps.common.secret_paths import (
     resolve_secret_paths,
     secret_manager_failure,
 )
+from workflow_steps.common.step_flags import parse_int_flag
 
 if TYPE_CHECKING:
     from services.network.netmiko.session_pool import DeviceSessionPool
@@ -78,11 +79,7 @@ def _parse_config(config: dict[str, Any]) -> tuple[int, str, str, str, SecretGen
     except ValueError as exc:
         raise ValueError(f"{_STEP_ID}: unsupported charset {raw_charset!r}") from exc
 
-    raw_length = config.get("length", 32)
-    try:
-        length = int(raw_length)
-    except (TypeError, ValueError) as exc:
-        raise ValueError(f"{_STEP_ID}: length must be an integer") from exc
+    length = parse_int_flag(config, "length", default=32, minimum=-(2**31), step_id=_STEP_ID)
 
     try:
         policy = SecretGenerationPolicy(charset=charset, length=length)

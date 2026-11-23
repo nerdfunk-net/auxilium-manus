@@ -33,6 +33,7 @@ from services.batfish.query_helpers import (
 from workflow_steps.batfish_bgp_facts.config import get_config
 from workflow_steps.common.batfish_bgp_facts import BGP_QUESTION_KEYS, build_bgp_facts_outcomes
 from workflow_steps.common.batfish_context import resolve_batfish_snapshot_ref
+from workflow_steps.common.step_flags import parse_bool_flag
 
 if TYPE_CHECKING:
     from services.network.netmiko.session_pool import DeviceSessionPool
@@ -64,7 +65,7 @@ async def execute(
     enabled_keys = [
         question_key
         for toggle_key, question_key in _QUESTION_TOGGLES
-        if bool(merged_config.get(toggle_key, True))
+        if parse_bool_flag(merged_config, toggle_key, default=True, step_id=_STEP_ID)
     ]
     if not enabled_keys:
         raise ValueError(

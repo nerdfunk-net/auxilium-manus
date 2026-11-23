@@ -28,6 +28,7 @@ from models.workflow_context import (
 from services.network.netmiko.connection import FileTransferResult
 from services.network.netmiko.service import NetmikoService
 from workflow_steps.common.partial_outcomes import device_error_from_exception
+from workflow_steps.common.step_flags import parse_int_flag
 
 logger = logging.getLogger(__name__)
 
@@ -47,19 +48,14 @@ DeviceResult = tuple[str, DeviceContext, bool]
 
 def parse_socket_timeout(config: dict[str, Any], *, step_id: str) -> int:
     """SCP/SFTP socket timeout in seconds (per socket operation, not for the whole transfer)."""
-    raw = config.get("socket_timeout")
-    if raw in (None, ""):
-        raw = DEFAULT_SOCKET_TIMEOUT
-    try:
-        value = int(raw)
-    except (TypeError, ValueError) as exc:
-        raise ValueError(f"{step_id}: socket_timeout must be an integer") from exc
-    if not (MIN_SOCKET_TIMEOUT <= value <= MAX_SOCKET_TIMEOUT):
-        raise ValueError(
-            f"{step_id}: socket_timeout must be between {MIN_SOCKET_TIMEOUT} "
-            f"and {MAX_SOCKET_TIMEOUT} seconds"
-        )
-    return value
+    return parse_int_flag(
+        config,
+        "socket_timeout",
+        default=DEFAULT_SOCKET_TIMEOUT,
+        minimum=MIN_SOCKET_TIMEOUT,
+        maximum=MAX_SOCKET_TIMEOUT,
+        step_id=step_id,
+    )
 
 
 def fail_device(

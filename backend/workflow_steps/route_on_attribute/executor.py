@@ -25,6 +25,7 @@ from services.workflow_context.attribute_path import (
     resolve_device_attribute_state,
 )
 from workflow_steps.common.partial_outcomes import mark_device_failed
+from workflow_steps.common.step_flags import parse_bool_flag
 from workflow_steps.route_on_attribute.config import get_config
 
 if TYPE_CHECKING:
@@ -75,15 +76,6 @@ def _parse_routes(config: dict[str, Any]) -> list[dict[str, Any]]:
         routes.append({"outcome": outcome, "literals": literals, "expressions": expressions})
 
     return routes
-
-
-def _parse_case_sensitive(config: dict[str, Any]) -> bool:
-    value = config.get("case_sensitive", _default_config()["case_sensitive"])
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, str):
-        return value.strip().lower() in {"1", "true", "yes", "on"}
-    return bool(value)
 
 
 def _match_route(
@@ -244,7 +236,9 @@ async def execute(
         raise ValueError("route-on-attribute: attribute_path is required")
 
     routes = _parse_routes(config)
-    case_sensitive = _parse_case_sensitive(config)
+    case_sensitive = parse_bool_flag(
+        config, "case_sensitive", default=_default_config()["case_sensitive"], step_id=_STEP_ID
+    )
     default_outcome = str(config.get("default_outcome") or "").strip() or None
     if default_outcome in _RESERVED_OUTCOMES:
         raise ValueError(f"route-on-attribute: default_outcome {default_outcome!r} is reserved")

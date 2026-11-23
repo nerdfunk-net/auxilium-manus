@@ -17,13 +17,14 @@ from workflow_steps.update_content.executor import (
     _apply_rules_to_text,
     _build_update_content_outcomes,
     _parse_content_source,
-    _parse_replace_all,
     _parse_rules,
     _parse_update_content_config,
     _partition_device_results,
     _source_ref,
     execute,
 )
+
+_MISSING = object()
 
 
 class ParseHelperTests(unittest.TestCase):
@@ -33,12 +34,23 @@ class ParseHelperTests(unittest.TestCase):
             _parse_content_source({"content_source": "command_output"})
 
     def test_parse_replace_all(self) -> None:
-        self.assertTrue(_parse_replace_all(None))
-        self.assertTrue(_parse_replace_all(True))
-        self.assertFalse(_parse_replace_all(False))
-        self.assertFalse(_parse_replace_all("off"))
-        self.assertTrue(_parse_replace_all("yes"))
-        self.assertTrue(_parse_replace_all(1))
+        def replace_all(value: object) -> bool:
+            rule: dict = {"pattern": "a", "replacement": "b"}
+            if value is not _MISSING:
+                rule["replace_all"] = value
+            return _parse_rules({"replace_rules": [rule]})[0].replace_all
+
+        self.assertTrue(replace_all(_MISSING))
+        self.assertTrue(replace_all(None))
+        self.assertTrue(replace_all(True))
+        self.assertFalse(replace_all(False))
+        self.assertFalse(replace_all("off"))
+        self.assertTrue(replace_all("yes"))
+        self.assertTrue(replace_all(1))
+
+    def test_replace_all_typo_is_refused(self) -> None:
+        with self.assertRaisesRegex(ValueError, "replace_all must be true or false"):
+            _parse_rules({"replace_rules": [{"pattern": "a", "replace_all": "nope"}]})
 
     def test_parse_rules_requires_a_list_of_dicts_with_patterns(self) -> None:
         with self.assertRaises(ValueError):

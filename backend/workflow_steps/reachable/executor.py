@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 from typing import TYPE_CHECKING, Any
 
 from icmplib import ICMPLibError, async_ping
@@ -20,6 +21,7 @@ from models.workflow_context import (
 )
 from services.artifacts import ArtifactService
 from services.workflow_context.node_result import set_node_result
+from workflow_steps.common.step_flags import parse_int_flag
 from workflow_steps.reachable.config import get_config
 
 if TYPE_CHECKING:
@@ -27,6 +29,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+_STEP_ID = "reachable"
 _OUTCOME_NAMES = ("success", "failure")
 
 
@@ -34,32 +37,41 @@ def _default_config() -> dict[str, Any]:
     return get_config()
 
 
+# Bounds: a typo must not turn one step into a billion pings or an hour-long wait.
+MAX_PING_COUNT = 20
+MAX_TIMEOUT_SECONDS = 60.0
+
+
 def _parse_positive_int(config: dict[str, Any], key: str) -> int:
-    raw = config.get(key, _default_config()[key])
-    try:
-        value = int(raw)
-    except (TypeError, ValueError):
-        raise ValueError(f"reachable: {key} must be a whole number") from None
-    if value < 1:
-        raise ValueError(f"reachable: {key} must be at least 1")
-    return value
+    return parse_int_flag(
+        config,
+        key,
+        default=_default_config()[key],
+        minimum=1,
+        maximum=MAX_PING_COUNT,
+        step_id=_STEP_ID,
+    )
 
 
 def _parse_positive_number(config: dict[str, Any], key: str) -> float:
     raw = config.get(key, _default_config()[key])
+    if isinstance(raw, bool):
+        raise ValueError(f"{_STEP_ID}: {key} must be a number")
     try:
         value = float(raw)
     except (TypeError, ValueError):
-        raise ValueError(f"reachable: {key} must be a number") from None
-    if value <= 0:
-        raise ValueError(f"reachable: {key} must be greater than 0")
+        raise ValueError(f"{_STEP_ID}: {key} must be a number") from None
+    if not math.isfinite(value) or not 0 < value <= MAX_TIMEOUT_SECONDS:
+        raise ValueError(
+            f"{_STEP_ID}: {key} must be greater than 0 and at most {MAX_TIMEOUT_SECONDS:g}"
+        )
     return value
 
 
 def _device_failure(
     device: DeviceContext, *, node_id: str, code: str, message: str
 ) -> DeviceContext:
-    err = DeviceError(node_id=node_id, step_id="reachable", code=code, message=message)
+    err = DeviceError(node_id=node_id, step_id=_STEP_ID, code=code, message=message)
     return device.model_copy(
         update={"status": DeviceStatus.FAILED, "errors": [*device.errors, err]}
     )
@@ -127,7 +139,7 @@ async def _ping_device(
                 *enriched.errors,
                 DeviceError(
                     node_id=node_id,
-                    step_id="reachable",
+                    step_id=_STEP_ID,
                     code="unreachable",
                     message=(
                         f"received {result.packets_received}/{ping_count} replies, "

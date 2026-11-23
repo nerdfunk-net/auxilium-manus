@@ -13,6 +13,7 @@ from workflow_steps.common.attribute_defaults import (
     merge_nautobot_defaults,
     normalize_defaults_block,
 )
+from workflow_steps.common.git_repository_loader import parse_repository_id
 from workflow_steps.common.git_yaml_source import load_yaml_from_git_source
 from workflow_steps.common.step_flags import parse_bool_flag
 
@@ -72,7 +73,7 @@ def _defaults_from_manual_config(attributes: dict[str, Any]) -> dict[str, Any]:
 def _defaults_from_git(config: dict[str, Any]) -> dict[str, Any]:
     git_config = config.get("git") or {}
     raw_repository_id = git_config.get("git_repository_id")
-    git_repository_id = int(raw_repository_id) if raw_repository_id not in (None, "") else None
+    git_repository_id = parse_repository_id(raw_repository_id, step_id=_STEP_ID)
     filename_pattern = str(git_config.get("filename_pattern") or "").strip()
 
     parsed = load_yaml_from_git_source(

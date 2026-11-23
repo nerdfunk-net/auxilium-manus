@@ -12,7 +12,7 @@ from services.git.paths import repo_path as get_repo_path
 from services.git.paths import resolve_within_repo, validate_relative_glob
 from services.git.tree_scope import git_work_tree
 from services.workflow_context.device_template import sanitize_relative_path
-from workflow_steps.common.git_repository_loader import load_git_repository
+from workflow_steps.common.git_repository_loader import load_git_repository, require_repository_id
 
 logger = logging.getLogger(__name__)
 
@@ -107,7 +107,9 @@ async def _read_git_async(config: dict[str, Any], relative_path: str) -> str:
     if raw_repository_id in (None, ""):
         raise ValueError("compare-data: git_repository_id is required when reference_location=git")
 
-    repository = load_git_repository(int(raw_repository_id))
+    repository = load_git_repository(
+        require_repository_id(raw_repository_id, step_id="compare-data")
+    )
     repository_subdirectory = str(
         config.get("repository_subdirectory") or defaults.get("repository_subdirectory") or ""
     )

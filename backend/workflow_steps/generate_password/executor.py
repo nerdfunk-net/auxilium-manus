@@ -20,6 +20,7 @@ from models.workflow_context import DeviceContext, StepOutcome, WorkflowContext
 from services.artifacts import ArtifactService
 from services.workflow_context.secret_fields import seal_secret
 from workflow_steps.common.attribute_write import set_device_attribute
+from workflow_steps.common.step_flags import parse_int_flag
 from workflow_steps.generate_password.password_policy import PasswordPolicy, generate_password
 
 if TYPE_CHECKING:
@@ -33,15 +34,13 @@ _COUNT_FIELDS = ("min_digits", "min_uppercase", "min_lowercase", "min_special")
 
 
 def _int_field(config: dict[str, Any], key: str, default: int, *, allow_negative: bool) -> int:
-    raw = config.get(key, default)
-    try:
-        value = int(raw)
-    except (TypeError, ValueError) as exc:
-        kind = "an integer" if allow_negative else "a non-negative integer"
-        raise ValueError(f"{_STEP_ID}: {key} must be {kind}") from exc
-    if not allow_negative and value < 0:
-        raise ValueError(f"{_STEP_ID}: {key} must be a non-negative integer")
-    return value
+    return parse_int_flag(
+        config,
+        key,
+        default=default,
+        minimum=-(2**31) if allow_negative else 0,
+        step_id=_STEP_ID,
+    )
 
 
 def _parse_config(config: dict[str, Any]) -> tuple[str, PasswordPolicy]:

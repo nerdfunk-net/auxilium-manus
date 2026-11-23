@@ -8,11 +8,9 @@ from core.models.runs import WorkflowRun
 from models.workflow_context import StepOutcome, WorkflowContext
 from services.artifacts import ArtifactService
 from services.workflow_context.device_template import render_step_template
-from workflow_steps.common.git_push_helpers import (
-    collect_export_paths_for_commit,
-    parse_commit_before_push,
-)
+from workflow_steps.common.git_push_helpers import collect_export_paths_for_commit
 from workflow_steps.common.git_workflow_step import run_git_workflow_step
+from workflow_steps.common.step_flags import parse_bool_flag
 from workflow_steps.git_push.config import get_config
 
 if TYPE_CHECKING:
@@ -45,7 +43,7 @@ def _push_operation(
     files_changed = 0
     committed = False
 
-    if parse_commit_before_push(config):
+    if parse_bool_flag(config, "commit_before_push", default=True, step_id="git-push"):
         export_paths = collect_export_paths_for_commit(context, repo_root=repo_path)
         if export_paths:
             commit_result = git_service.commit(

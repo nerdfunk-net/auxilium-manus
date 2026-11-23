@@ -10,6 +10,7 @@ import json
 from typing import Any
 
 from services.network.netmiko.connection import RetryPolicy
+from workflow_steps.common.step_flags import parse_int_flag
 
 MAX_RETRY_ATTEMPTS = 5
 MIN_RETRY_BACKOFF_SECONDS = 1
@@ -39,8 +40,19 @@ def parse_retry_backoff_seconds(config: dict[str, Any], *, step_id: str) -> Retr
         raise ValueError(f"{step_id}: retry_backoff_seconds must be a list of integers")
 
     try:
-        delays = [int(value) for value in raw]
-    except (TypeError, ValueError) as exc:
+        # A blank item is not "use the default": parse_int_flag would read it that way.
+        if any(value is None or (isinstance(value, str) and not value.strip()) for value in raw):
+            raise ValueError("blank delay")
+        delays = [
+            parse_int_flag(
+                {"retry_backoff_seconds": value},
+                "retry_backoff_seconds",
+                default=0,
+                minimum=-(2**31),
+            )
+            for value in raw
+        ]
+    except ValueError as exc:
         raise ValueError(f"{step_id}: retry_backoff_seconds must be a list of integers") from exc
 
     if len(delays) > MAX_RETRY_ATTEMPTS:

@@ -19,7 +19,6 @@ from workflow_steps.merge_content.executor import (
     _build_merge_outcomes,
     _merge_items_to_string,
     _parse_content_source,
-    _parse_include_command_header,
     _parse_merge_config,
     _parse_merge_mode,
     _parse_source_step_node_ids,
@@ -54,10 +53,17 @@ class ParseHelperTests(unittest.TestCase):
             _parse_merge_mode({"merge_mode": "bogus"})
 
     def test_include_command_header_coercions(self) -> None:
-        self.assertTrue(_parse_include_command_header({}))
-        self.assertFalse(_parse_include_command_header({"include_command_header": "false"}))
-        self.assertFalse(_parse_include_command_header({"include_command_header": False}))
-        self.assertTrue(_parse_include_command_header({"include_command_header": 1}))
+        def header(**config: object) -> bool:
+            return _parse_merge_config(config).include_command_header
+
+        self.assertTrue(header())
+        self.assertFalse(header(include_command_header="false"))
+        self.assertFalse(header(include_command_header=False))
+        self.assertTrue(header(include_command_header=1))
+
+    def test_include_command_header_typo_is_refused(self) -> None:
+        with self.assertRaisesRegex(ValueError, "include_command_header must be true or false"):
+            _parse_merge_config({"include_command_header": "nope"})
 
     def test_parse_merge_config_requires_node_ids_for_non_command_source(self) -> None:
         with self.assertRaises(ValueError):

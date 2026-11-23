@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
@@ -47,6 +48,7 @@ logger = logging.getLogger(__name__)
 _STEP_ID = "add-to-nautobot"
 _REQUIRED_FIELDS = ("name", "role", "status", "location", "device_type")
 _SOURCE_MODES = frozenset({"manual", "nautobot_origin"})
+_VC_MODES = frozenset({"none", "join", "create"})
 # Fields of a REST 400 that a device-name uniqueness error is reported under: the whole object
 # (name + location + tenant) or ``name`` alone, depending on DEVICE_UNIQUENESS.
 _NAME_UNIQUENESS_FIELDS = frozenset({"__all__", "non_field_errors", "name"})
@@ -64,6 +66,12 @@ class _ParsedConfig:
     # None = redundancy groups are not written; otherwise the name schema, e.g. "hsrp-{next}".
     redundancy_name_pattern: str | None = None
     redundancy_group_status: str = DEFAULT_REDUNDANCY_STATUS
+    # Read once at the top (a bad value fails the step once, not every device).
+    add_prefix: bool = True
+    dry_run: bool = False
+    virtual_chassis_mode: str = "none"
+    virtual_chassis_id: str | None = None
+    virtual_chassis_name: str | None = None
 
 
 def _all_custom_fields_from_bag(device: DeviceContext) -> dict[str, str] | None:
@@ -80,30 +88,35 @@ def _tags_as_list(value: Any) -> list[str] | None:
     return [str(value)]
 
 
+_WHOLE_NUMBER = re.compile(r"[0-9]+")
+
+
 def _position_as_int(value: Any) -> int | None:
+    """A rack position from a resolved text; blank is no position, anything else must be digits.
+
+    ``int()`` also takes ``"1_0"`` and non-ASCII digits, and the old fallback dropped a bad value
+    silently and created the device without it.
+    """
     if value is None:
         return None
     text = str(value).strip()
     if not text:
         return None
-    try:
-        return int(text)
-    except ValueError:
-        logger.warning("%s: position '%s' is not an integer — omitting", _STEP_ID, text)
-        return None
+    if not _WHOLE_NUMBER.fullmatch(text):
+        raise _PositionError(f"position must be a whole number, got {text!r}")
+    return int(text)
+
+
+class _PositionError(ValueError):
+    """The resolved ``position`` is not a whole number (fails that device)."""
 
 
 def _build_request(
     *,
     resolved: dict[str, Any],
-    config: dict[str, Any],
+    parsed: _ParsedConfig,
     interfaces: list[dict[str, Any]],
-    redundancy_name_pattern: str | None = None,
-    redundancy_group_status: str = DEFAULT_REDUNDANCY_STATUS,
 ) -> AddDeviceRequest:
-    virtual_chassis = config.get("virtual_chassis") or {}
-    vc_mode = str(virtual_chassis.get("mode") or "none").strip()
-
     return AddDeviceRequest(
         name=resolved["name"],
         role=resolved["role"],
@@ -121,17 +134,13 @@ def _build_request(
         face=resolved.get("face"),
         position=_position_as_int(resolved.get("position")),
         interfaces=interfaces,
-        redundancy_name_pattern=redundancy_name_pattern,
-        redundancy_group_status=redundancy_group_status,
-        add_prefix=parse_bool_flag(config, "add_prefix", default=True),
-        default_prefix_length=str(config.get("default_prefix_length") or "/24"),
-        virtual_chassis_id=str(virtual_chassis.get("id") or "").strip() or None
-        if vc_mode == "join"
-        else None,
-        new_virtual_chassis_name=str(virtual_chassis.get("name") or "").strip() or None
-        if vc_mode == "create"
-        else None,
-        dry_run=parse_bool_flag(config, "dry_run", default=False),
+        redundancy_name_pattern=parsed.redundancy_name_pattern,
+        redundancy_group_status=parsed.redundancy_group_status,
+        add_prefix=parsed.add_prefix,
+        default_prefix_length=parsed.default_prefix_length,
+        virtual_chassis_id=parsed.virtual_chassis_id,
+        new_virtual_chassis_name=parsed.virtual_chassis_name,
+        dry_run=parsed.dry_run,
     )
 
 
@@ -168,6 +177,15 @@ def _parse_config(config: dict[str, Any]) -> _ParsedConfig:
         config, step_id=_STEP_ID, interfaces_source=interfaces_source
     )
 
+    virtual_chassis = config.get("virtual_chassis") or {}
+    if not isinstance(virtual_chassis, dict):
+        raise ValueError(f"{_STEP_ID}: virtual_chassis must be an object")
+    vc_mode = str(virtual_chassis.get("mode") or "none").strip().lower()
+    if vc_mode not in _VC_MODES:
+        raise ValueError(
+            f"{_STEP_ID}: virtual_chassis.mode must be one of {sorted(_VC_MODES)}, got {vc_mode!r}"
+        )
+
     return _ParsedConfig(
         source_id=source_id,
         raw_device_fields=raw_device_fields,
@@ -180,6 +198,15 @@ def _parse_config(config: dict[str, Any]) -> _ParsedConfig:
         ),
         redundancy_name_pattern=redundancy_name_pattern,
         redundancy_group_status=redundancy_group_status,
+        add_prefix=parse_bool_flag(config, "add_prefix", default=True, step_id=_STEP_ID),
+        dry_run=parse_bool_flag(config, "dry_run", default=False, step_id=_STEP_ID),
+        virtual_chassis_mode=vc_mode,
+        virtual_chassis_id=(
+            str(virtual_chassis.get("id") or "").strip() or None if vc_mode == "join" else None
+        ),
+        virtual_chassis_name=(
+            str(virtual_chassis.get("name") or "").strip() or None if vc_mode == "create" else None
+        ),
     )
 
 
@@ -273,13 +300,7 @@ async def _create_one_device(
                 message=(f"Required field(s) could not be resolved: {', '.join(missing)}"),
             )
 
-        request = _build_request(
-            resolved=resolved,
-            config=config,
-            interfaces=interfaces,
-            redundancy_name_pattern=parsed.redundancy_name_pattern,
-            redundancy_group_status=parsed.redundancy_group_status,
-        )
+        request = _build_request(resolved=resolved, parsed=parsed, interfaces=interfaces)
         result = await creation_service.create_device(request)
 
         if request.dry_run:
@@ -353,7 +374,12 @@ async def _create_one_device(
         enriched = device.model_copy(update=update_fields)
         return device_key, enriched, True
     except Exception as exc:
-        code = "device_already_exists" if _is_already_exists(exc) else type(exc).__name__.lower()
+        if isinstance(exc, _PositionError):
+            code = "invalid_position"
+        elif _is_already_exists(exc):
+            code = "device_already_exists"
+        else:
+            code = type(exc).__name__.lower()
         return _fail_device(
             device=device,
             device_key=device_key,

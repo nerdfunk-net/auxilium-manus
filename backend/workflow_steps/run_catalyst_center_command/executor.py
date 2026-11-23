@@ -35,7 +35,8 @@ from workflow_steps.common.catalyst_center_targets import (
     resolve_source_credentials,
     split_targets,
 )
-from workflow_steps.common.jinja_render import JinjaTemplateError, parse_output_key
+from workflow_steps.common.fact_entries import parse_output_key_config
+from workflow_steps.common.step_flags import parse_int_flag
 from workflow_steps.common.textfsm_parse import parse_with_textfsm
 
 if TYPE_CHECKING:
@@ -81,12 +82,14 @@ def _parse_commands(raw: Any) -> tuple[str, ...]:
 
 
 def _parse_timeout(raw: Any) -> int:
-    if raw is None or (isinstance(raw, str) and not raw.strip()):
-        return DEFAULT_TIMEOUT
-    value: Any = int(raw) if isinstance(raw, str) and raw.strip().isdecimal() else raw
-    if isinstance(value, bool) or not isinstance(value, int) or not 1 <= value <= MAX_TIMEOUT:
-        raise ValueError(f"{STEP_ID}: timeout must be a whole number between 1 and {MAX_TIMEOUT}")
-    return value
+    return parse_int_flag(
+        {"timeout": raw},
+        "timeout",
+        default=DEFAULT_TIMEOUT,
+        minimum=1,
+        maximum=MAX_TIMEOUT,
+        step_id=STEP_ID,
+    )
 
 
 def _parse_parser_mode(raw: Any) -> str:
@@ -96,20 +99,15 @@ def _parse_parser_mode(raw: Any) -> str:
     return mode
 
 
-def _parse_output_key(raw: Any) -> str:
-    try:
-        return parse_output_key(raw or DEFAULT_PARSED_OUTPUT_KEY)
-    except JinjaTemplateError as exc:
-        raise ValueError(f"{STEP_ID}: parsed_output_key: {exc}") from exc
-
-
 def _parse_config(config: dict[str, Any]) -> _ParsedConfig:
     parser_mode = _parse_parser_mode(config.get("parser"))
     return _ParsedConfig(
         commands=_parse_commands(config.get("commands")),
         timeout=_parse_timeout(config.get("timeout")),
         parser_mode=parser_mode,
-        parsed_output_key=_parse_output_key(config.get("parsed_output_key"))
+        parsed_output_key=parse_output_key_config(
+            config.get("parsed_output_key"), step_id=STEP_ID, default=DEFAULT_PARSED_OUTPUT_KEY
+        )
         if parser_mode != "none"
         else "",
         network_driver_override=str(config.get("network_driver_override") or "").strip() or None,

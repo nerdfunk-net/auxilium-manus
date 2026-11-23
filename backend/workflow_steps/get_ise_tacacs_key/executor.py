@@ -65,6 +65,7 @@ from workflow_steps.common.ise_lookup import (
     paginate_ise_summaries,
 )
 from workflow_steps.common.partial_outcomes import abort_outcomes
+from workflow_steps.common.step_flags import parse_bool_flag
 from workflow_steps.get_ise_tacacs_key.config import get_config
 
 if TYPE_CHECKING:
@@ -124,7 +125,8 @@ def _parse_priority(config: dict[str, Any]) -> list[dict[str, Any]]:
         if tier_type in seen_types:
             raise ValueError(f"{_STEP_ID}: duplicate priority type '{tier_type}'")
         seen_types.add(tier_type)
-        items.append({"type": tier_type, "enabled": bool(entry.get("enabled", True))})
+        enabled = parse_bool_flag(entry, "enabled", default=True, step_id=_STEP_ID)
+        items.append({"type": tier_type, "enabled": enabled})
 
     if seen_types != set(_TIER_TYPES):
         missing = sorted(set(_TIER_TYPES) - seen_types)

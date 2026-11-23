@@ -69,17 +69,20 @@ def test_defaults_parse() -> None:
         ({"nautobot_source_id": "s", "job_uuid": " "}, "job_uuid is required"),
         (
             {"nautobot_source_id": "s", "job_uuid": "j", "max_checks": "x"},
-            "max_checks must be an integer",
+            "max_checks must be a whole number",
         ),
         (
             {"nautobot_source_id": "s", "job_uuid": "j", "max_checks": 0},
-            "max_checks must be at least 1",
+            "max_checks must be between 1",
         ),
         (
             {"nautobot_source_id": "s", "job_uuid": "j", "interval_seconds": "x"},
-            "interval_seconds must be an integer",
+            "interval_seconds must be a whole number",
         ),
-        ({"nautobot_source_id": "s", "job_uuid": "j", "interval_seconds": -1}, "at least 0"),
+        (
+            {"nautobot_source_id": "s", "job_uuid": "j", "interval_seconds": -1},
+            "interval_seconds must be between 0",
+        ),
         (
             {
                 "nautobot_source_id": "s",

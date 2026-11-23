@@ -25,7 +25,7 @@ from services.artifacts.sinks.git_sink import GitArtifactSink
 from services.git.repo_lock import acquire_git_repo_lock, release_git_repo_lock
 from workflow_steps.common.aci_targets import resolve_source_credentials
 from workflow_steps.common.fact_entries import parse_output_key_config
-from workflow_steps.common.git_repository_loader import load_git_repository
+from workflow_steps.common.git_repository_loader import load_git_repository, parse_repository_id
 from workflow_steps.common.step_flags import parse_bool_flag
 
 if TYPE_CHECKING:
@@ -55,13 +55,9 @@ def _build_sink(
 
 
 def _repository_id(config: dict[str, Any]) -> int:
-    raw = config.get("git_repository_id")
-    if isinstance(raw, bool) or raw in (None, ""):
+    value = parse_repository_id(config.get("git_repository_id"), step_id=STEP_ID)
+    if value is None:
         raise ValueError(f"{STEP_ID}: git_repository_id is not configured")
-    try:
-        value = int(raw)
-    except (TypeError, ValueError) as exc:
-        raise ValueError(f"{STEP_ID}: git_repository_id must be a whole number") from exc
     if value < 1:
         raise ValueError(f"{STEP_ID}: git_repository_id must be a whole number")
     return value

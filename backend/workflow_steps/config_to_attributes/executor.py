@@ -22,6 +22,7 @@ from workflow_steps.common.nautobot_interfaces import (
     infer_interface_type_from_name,
 )
 from workflow_steps.common.partial_outcomes import mark_device_failed
+from workflow_steps.common.step_flags import parse_bool_flag
 from workflow_steps.config_to_attributes.aci_details import (
     build_device_fields_from_aci_details,
     build_interfaces_from_aci_details,
@@ -108,11 +109,6 @@ def _parse_attributes(config: dict[str, Any]) -> set[str]:
     if not isinstance(raw, list):
         return set()
     return {str(item).strip() for item in raw if str(item).strip() in _SUPPORTED_ATTRIBUTES}
-
-
-def _parse_update_primary_ipv4(config: dict[str, Any]) -> bool:
-    raw = config["update_primary_ipv4"] if "update_primary_ipv4" in config else False
-    return bool(raw)
 
 
 def _parse_primary_ipv4_priority(config: dict[str, Any]) -> list[str]:
@@ -497,7 +493,7 @@ async def execute(
     parsed_key = _parse_parsed_key(config)
     attributes = _parse_attributes(config)
     source_format = _parse_source_format(config)
-    update_primary_ipv4 = _parse_update_primary_ipv4(config)
+    update_primary_ipv4 = parse_bool_flag(config, "update_primary_ipv4", step_id=_STEP_ID)
     primary_ipv4_priority = _parse_primary_ipv4_priority(config) if update_primary_ipv4 else []
     primary_ipv4_custom_pattern = (
         _parse_primary_ipv4_custom_pattern(config, primary_ipv4_priority)

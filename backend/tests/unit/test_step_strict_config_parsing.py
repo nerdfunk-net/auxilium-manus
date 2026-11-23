@@ -8,15 +8,12 @@ behaviour that must not change.
 from __future__ import annotations
 
 from typing import Any
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
-from tests.unit._step_helpers import call_step, make_context, make_device, make_run, strict_xfail
+from tests.unit._step_helpers import call_step, make_context, make_device, make_run
 from workflow_steps.common.git_repository_loader import parse_repository_id
-
-_LAX_ID = strict_xfail("W11-07", "int() accepts True and 7.9 as repository 1 and 7")
-
 
 # ── the reference parser stays strict ──────────────────────────────────────────────────────────
 
@@ -84,13 +81,11 @@ def test_a_text_repository_id_is_refused(parse: Any) -> None:
 
 @pytest.mark.parametrize("parse", [s for s in _STEPS if s.id != "backup-aci-config"])
 @pytest.mark.parametrize("raw", [pytest.param(True, id="True"), pytest.param(7.9, id="7.9")])
-@_LAX_ID
 def test_a_bool_or_fractional_repository_id_is_refused(parse: Any, raw: Any) -> None:
     with pytest.raises(ValueError):
         parse(raw)
 
 
-@_LAX_ID
 def test_backup_aci_config_refuses_a_fractional_repository_id() -> None:
     with pytest.raises(ValueError):
         _backup_aci(7.9)
@@ -109,9 +104,7 @@ def test_a_whole_repository_id_is_kept(parse: Any) -> None:
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(
-    "raw", ["abc", pytest.param(True, marks=_LAX_ID), pytest.param(7.9, marks=_LAX_ID)]
-)
+@pytest.mark.parametrize("raw", ["abc", True, 7.9])
 async def test_open_change_request_never_loads_a_repository_for_a_mangled_id(raw: Any) -> None:
     from workflow_steps.open_change_request import executor as mod
 
@@ -130,62 +123,38 @@ async def test_open_change_request_never_loads_a_repository_for_a_mangled_id(raw
 # ── boolean flags ──────────────────────────────────────────────────────────────────────────────
 
 
-@strict_xfail("W11-07", "a typo is read as False: git-push silently commits nothing")
+def _commit_before_push(value: Any) -> None:
+    from workflow_steps.git_push.executor import _push_operation
+
+    service = MagicMock()
+    service.get_repo_path.return_value = "/nonexistent"
+    _push_operation(
+        service, {"id": 1}, {"commit_before_push": value}, make_context([make_device("d1")])
+    )
+
+
 @pytest.mark.parametrize("value", ["ture", "nope", "2"])
 def test_commit_before_push_with_a_typo_is_refused(value: str) -> None:
-    from workflow_steps.common.git_push_helpers import parse_commit_before_push
-
-    with pytest.raises(ValueError):
-        _typo_guard(parse_commit_before_push, {"commit_before_push": value})
+    with pytest.raises(ValueError, match="commit_before_push must be true or false"):
+        _commit_before_push(value)
 
 
-@strict_xfail("W11-07", "a typo is read as True")
+def _include_header(**config: Any) -> bool:
+    from workflow_steps.merge_content.executor import _parse_merge_config
+
+    return _parse_merge_config(config).include_command_header
+
+
 @pytest.mark.parametrize("value", ["nope", "fasle"])
 def test_include_command_header_with_a_typo_is_refused(value: str) -> None:
-    from workflow_steps.merge_content.executor import _parse_include_command_header
-
-    with pytest.raises(ValueError):
-        _typo_guard(_parse_include_command_header, {"include_command_header": value})
-
-
-@strict_xfail("W11-07", "bool('false') is True")
-def test_update_primary_ipv4_text_false_is_not_true() -> None:
-    from workflow_steps.config_to_attributes.executor import _parse_update_primary_ipv4
-
-    assert _parse_update_primary_ipv4({"update_primary_ipv4": "false"}) is False
-
-
-def _typo_guard(parse: Any, config: dict[str, Any]) -> Any:
-    """Return the parsed value; a flag typo must raise before it is silently read as a bool."""
-    return parse(config)
+    with pytest.raises(ValueError, match="include_command_header must be true or false"):
+        _include_header(include_command_header=value)
 
 
 @pytest.mark.parametrize(
-    ("parse_path", "key", "true_text", "false_text"),
-    [
-        (
-            "workflow_steps.common.git_push_helpers.parse_commit_before_push",
-            "commit_before_push",
-            "yes",
-            "off",
-        ),
-        (
-            "workflow_steps.merge_content.executor._parse_include_command_header",
-            "include_command_header",
-            "on",
-            "no",
-        ),
-    ],
+    ("value", "expected"),
+    [("on", True), ("no", False), ("false", False), (True, True), (False, False), (1, True)],
 )
-def test_common_bool_spellings_keep_working(
-    parse_path: str, key: str, true_text: str, false_text: str
-) -> None:
-    import importlib
-
-    module_name, _, attr = parse_path.rpartition(".")
-    parse = getattr(importlib.import_module(module_name), attr)
-
-    assert parse({key: true_text}) is True
-    assert parse({key: false_text}) is False
-    assert parse({key: True}) is True
-    assert parse({}) is True
+def test_common_bool_spellings_keep_working(value: Any, expected: bool) -> None:
+    assert _include_header(include_command_header=value) is expected
+    assert _include_header() is True

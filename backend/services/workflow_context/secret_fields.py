@@ -147,7 +147,12 @@ def path_is_known_secret(dotted_path: str) -> bool:
 
 
 def seal_secret(plaintext: str, *, encryption: EncryptionService | None = None) -> dict[str, Any]:
-    """Encrypt *plaintext* into a sealed envelope suitable for storage in an attribute bag."""
+    """Encrypt *plaintext* into a sealed envelope suitable for storage in an attribute bag.
+
+    The cleartext is registered for run-scoped redaction: a secret that a step generates or reads
+    and only seals must not show up in that step's (or a later step's) error text or logs.
+    """
+    register_secret_value(plaintext)
     svc = encryption or EncryptionService()
     token = svc.encrypt(plaintext)
     return {SEALED_MARKER: True, "v": 2, "ct": token.decode("ascii")}

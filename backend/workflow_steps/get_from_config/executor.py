@@ -16,7 +16,7 @@ from services.git.sync import agit_checkout
 from services.network.cisco_config_parsing import parse_cisco_config_text
 from workflow_steps.common.device_builders import device_context_from_config_match
 from workflow_steps.common.fan_out import build_fan_out_metadata
-from workflow_steps.common.git_repository_loader import load_git_repository
+from workflow_steps.common.git_repository_loader import load_git_repository, require_repository_id
 from workflow_steps.common.step_flags import parse_bool_flag
 
 if TYPE_CHECKING:
@@ -44,7 +44,7 @@ def _parse_get_from_config(config: dict[str, Any]) -> _ParsedGetFromConfig:
     if not search_text:
         raise ValueError("get-from-config: search_text is not configured")
     return _ParsedGetFromConfig(
-        git_repository_id=int(raw_repository_id),
+        git_repository_id=require_repository_id(raw_repository_id, step_id="get-from-config"),
         search_text=search_text,
         directory=(config.get("directory") or "").strip(),
         file_filter=(config.get("file_filter") or "").strip(),

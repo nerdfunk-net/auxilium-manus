@@ -26,7 +26,7 @@ from services.git.failure import classify_git_exception
 from services.git.repo_lock import git_repo_lock
 from services.git.scrub import scrub_url_credentials
 from services.workflow_context.flags import parse_bool_flag
-from workflow_steps.common.git_repository_loader import load_git_repository
+from workflow_steps.common.git_repository_loader import load_git_repository, parse_repository_id
 
 logger = logging.getLogger(__name__)
 
@@ -37,16 +37,6 @@ GitOperation = Callable[
     [Any, dict[str, Any], dict[str, Any], WorkflowContext],
     dict[str, Any],
 ]
-
-
-def _git_repository_id(config: dict[str, Any]) -> int | None:
-    raw = config.get("git_repository_id")
-    if raw is None or raw == "":
-        return None
-    try:
-        return int(raw)
-    except TypeError, ValueError:
-        return None
 
 
 def _change_request_branch_requested(config: dict[str, Any]) -> bool:
@@ -268,7 +258,11 @@ async def run_git_workflow_step(
     """
     del artifact_service
 
-    repository_id = _git_repository_id(config)
+    bad_repository_id: str | None = None
+    try:
+        repository_id = parse_repository_id(config.get("git_repository_id"), step_id=step_id)
+    except ValueError as exc:
+        repository_id, bad_repository_id = None, str(exc)
 
     def _failure(message: str, failure: FailureInfo | None = None) -> list[StepOutcome]:
         return _failure_outcomes(
@@ -281,6 +275,9 @@ async def run_git_workflow_step(
             result_outcome_names=result_outcome_names,
             failure=failure,
         )
+
+    if bad_repository_id is not None:
+        return _failure(bad_repository_id, _BAD_CONFIG)
 
     if repository_id is None:
         return _failure(f"{step_id}: git_repository_id is not configured", _BAD_CONFIG)

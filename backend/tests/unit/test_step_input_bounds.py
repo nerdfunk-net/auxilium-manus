@@ -24,10 +24,15 @@ def test_reachable_defaults_and_ordinary_values_parse() -> None:
     assert _parse_positive_number({"timeout_seconds": "2.5"}, "timeout_seconds") == 2.5
 
 
-@pytest.mark.parametrize("raw", [0, -1, "abc", None])
+@pytest.mark.parametrize("raw", [0, -1, "abc"])
 def test_reachable_refuses_non_positive_and_non_numeric_counts(raw: Any) -> None:
     with pytest.raises(ValueError):
         _parse_positive_int({"ping_count": raw}, "ping_count")
+
+
+@pytest.mark.parametrize("raw", [None, ""])
+def test_reachable_blank_count_means_the_default(raw: Any) -> None:
+    assert _parse_positive_int({"ping_count": raw}, "ping_count") >= 1
 
 
 @pytest.mark.parametrize("raw", [0, -0.5, "abc"])
@@ -36,26 +41,22 @@ def test_reachable_refuses_non_positive_and_non_numeric_timeouts(raw: Any) -> No
         _parse_positive_number({"timeout_seconds": raw}, "timeout_seconds")
 
 
-@strict_xfail("W3b-04", "float('nan') and float('inf') pass the `<= 0` check")
 @pytest.mark.parametrize("raw", ["nan", "inf", float("nan"), float("inf")])
 def test_reachable_refuses_nan_and_infinite_timeouts(raw: Any) -> None:
     with pytest.raises(ValueError):
         _parse_positive_number({"timeout_seconds": raw}, "timeout_seconds")
 
 
-@strict_xfail("W3b-04", "True is read as 1 and 1.0")
 def test_reachable_refuses_a_boolean_count() -> None:
     with pytest.raises(ValueError):
         _parse_positive_int({"ping_count": True}, "ping_count")
 
 
-@strict_xfail("W3b-04", "no upper bound: a typo makes a billion pings")
 def test_reachable_caps_the_ping_count_at_twenty() -> None:
     with pytest.raises(ValueError):
         _parse_positive_int({"ping_count": 1_000_000}, "ping_count")
 
 
-@strict_xfail("W3b-04", "no upper bound on the timeout")
 def test_reachable_caps_the_timeout_at_sixty_seconds() -> None:
     with pytest.raises(ValueError):
         _parse_positive_number({"timeout_seconds": 86_400}, "timeout_seconds")

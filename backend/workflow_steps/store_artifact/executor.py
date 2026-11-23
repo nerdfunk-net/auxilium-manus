@@ -44,7 +44,7 @@ from workflow_steps.common.content_resolver import (
     list_exportable_content,
     parse_content_source,
 )
-from workflow_steps.common.git_repository_loader import load_git_repository
+from workflow_steps.common.git_repository_loader import load_git_repository, require_repository_id
 from workflow_steps.common.step_flags import parse_bool_flag
 
 if TYPE_CHECKING:
@@ -98,7 +98,9 @@ def _build_sink(config: dict[str, Any], *, base_dir: Path) -> ArtifactSink:
         raw_repository_id = config.get("git_repository_id")
         if raw_repository_id in (None, ""):
             raise ValueError("store-artifact: git_repository_id is required when destination=git")
-        repository = _load_git_repository(int(raw_repository_id))
+        repository = _load_git_repository(
+            require_repository_id(raw_repository_id, step_id="store-artifact")
+        )
         return GitArtifactSink(
             repository,
             repository_subdirectory=str(

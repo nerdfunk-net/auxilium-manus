@@ -73,16 +73,6 @@ def _parse_content_source(config: dict[str, Any]) -> str:
     return source
 
 
-def _parse_replace_all(value: Any) -> bool:
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, str):
-        return value.strip().lower() not in {"0", "false", "no", "off"}
-    if value is None:
-        return True
-    return bool(value)
-
-
 def _parse_rules(config: dict[str, Any]) -> list[_ReplaceRule]:
     raw = config.get("replace_rules")
     if not raw:
@@ -107,7 +97,9 @@ def _parse_rules(config: dict[str, Any]) -> list[_ReplaceRule]:
                 pattern=pattern,
                 replacement=str(item.get("replacement") or ""),
                 regex_flags=regex_flags,
-                replace_all=_parse_replace_all(item.get("replace_all")),
+                replace_all=parse_bool_flag(
+                    item, "replace_all", default=True, step_id=f"{_STEP_ID} replace_rules[{i}]"
+                ),
             )
         )
     return rules

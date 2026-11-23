@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
@@ -137,10 +138,8 @@ def _resolve_fields(device: DeviceContext, parsed: _ParsedConfig) -> dict[str, A
 
 
 def _parse_height(text: str) -> int:
-    try:
-        height = int(text)
-    except ValueError:
-        height = 0
+    # ASCII digits only: int() would also take "1_0" and non-ASCII digits.
+    height = int(text.strip()) if re.fullmatch(r"[0-9]+", text.strip()) else 0
     if height < 1:
         raise _DeviceFailure(
             "invalid_height", f"height must be a positive whole number, got {text!r}"

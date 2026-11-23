@@ -61,6 +61,7 @@ from services.ai_assistant.settings_service import AiRuntimeConfig, AiSettingsSe
 from services.artifacts import ArtifactService
 from services.workflow_context.secret_fields import path_is_known_secret
 from workflow_steps.common.attribute_write import set_device_attribute
+from workflow_steps.common.step_flags import parse_int_flag
 from workflow_steps.contact_the_ai.config import (
     DEFAULT_MAX_OUTPUT_TOKENS,
     DEFAULT_OUTPUT_ATTRIBUTE,
@@ -142,15 +143,9 @@ def _provider_failure(exc: ProviderError) -> FailureInfo:
 
 
 def _bounded_int(raw: Any, default: int, maximum: int, name: str) -> int:
-    if raw is None or raw == "":
-        return default
-    try:
-        value = int(raw)
-    except (TypeError, ValueError) as exc:
-        raise ValueError(f"{_STEP_ID}: {name} must be an integer") from exc
-    if not 1 <= value <= maximum:
-        raise ValueError(f"{_STEP_ID}: {name} must be between 1 and {maximum}")
-    return value
+    return parse_int_flag(
+        {name: raw}, name, default=default, minimum=1, maximum=maximum, step_id=_STEP_ID
+    )
 
 
 def _parse_output_attribute(raw: Any) -> str:

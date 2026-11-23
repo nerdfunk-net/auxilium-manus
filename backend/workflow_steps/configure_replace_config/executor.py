@@ -96,7 +96,7 @@ from services.pyats.source_config_service import (
 )
 from services.workflow_context.node_result import set_node_result
 from services.workflow_context.secret_fields import unwrap_secret
-from workflow_steps.common.step_flags import parse_bool_flag
+from workflow_steps.common.step_flags import parse_bool_flag, parse_int_flag
 from workflow_steps.configure_replace_config.config import get_config
 
 if TYPE_CHECKING:
@@ -817,17 +817,6 @@ def _parse_job_timeout(value: Any) -> float:
     return float(value)
 
 
-def _parse_timeout_minutes(value: Any) -> int:
-    if isinstance(value, bool) or not isinstance(value, int):
-        raise ValueError(f"{_STEP_ID}: timeout_minutes must be an integer")
-    if not (_MIN_TIMEOUT_MINUTES <= value <= _MAX_TIMEOUT_MINUTES):
-        raise ValueError(
-            f"{_STEP_ID}: timeout_minutes must be between {_MIN_TIMEOUT_MINUTES} and "
-            f"{_MAX_TIMEOUT_MINUTES}"
-        )
-    return value
-
-
 async def execute(
     *,
     config: dict[str, Any],
@@ -847,7 +836,14 @@ async def execute(
     file_system = str(merged_config.get("file_system") or "").strip()
     if not file_system:
         raise ValueError(f"{_STEP_ID}: file_system is required")
-    timeout_minutes = _parse_timeout_minutes(merged_config.get("timeout_minutes"))
+    timeout_minutes = parse_int_flag(
+        config,
+        "timeout_minutes",
+        default=get_config()["timeout_minutes"],
+        minimum=_MIN_TIMEOUT_MINUTES,
+        maximum=_MAX_TIMEOUT_MINUTES,
+        step_id=_STEP_ID,
+    )
     job_timeout_seconds = _parse_job_timeout(merged_config.get("job_timeout_seconds"))
     skip_if_no_pending_changes = parse_bool_flag(
         merged_config, "skip_if_no_pending_changes", default=True

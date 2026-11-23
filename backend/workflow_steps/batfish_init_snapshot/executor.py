@@ -59,10 +59,10 @@ from workflow_steps.common.batfish_git_source import (
     copy_git_source_files_into,
 )
 from workflow_steps.common.content_resolver import list_exportable_content
-from workflow_steps.common.git_repository_loader import load_git_repository
+from workflow_steps.common.git_repository_loader import load_git_repository, require_repository_id
 from workflow_steps.common.partial_outcomes import mark_device_failed
 from workflow_steps.common.run_param_reference import resolve_config_reference
-from workflow_steps.common.step_flags import parse_bool_flag
+from workflow_steps.common.step_flags import parse_bool_flag, parse_int_flag
 
 if TYPE_CHECKING:
     from services.network.netmiko.session_pool import DeviceSessionPool
@@ -222,7 +222,7 @@ async def _init_from_git(
     raw_repository_id = merged_config.get("git_repository_id")
     if raw_repository_id in (None, ""):
         raise ValueError(f"{_STEP_ID}: git_repository_id is required when config_source is 'git'")
-    git_repository_id = int(raw_repository_id)
+    git_repository_id = require_repository_id(raw_repository_id, step_id=_STEP_ID)
     base_path = str(merged_config.get("base_path") or "")
     glob_pattern = str(merged_config.get("glob_pattern") or "").strip()
     if not glob_pattern:
@@ -281,7 +281,7 @@ async def execute(
     source_id = str(merged_config.get("batfish_source_id") or "").strip()
     if not source_id:
         raise ValueError(f"{_STEP_ID}: batfish_source_id is required")
-    retain = int(merged_config.get("retain_snapshots") or 0)
+    retain = parse_int_flag(merged_config, "retain_snapshots", default=0, step_id=_STEP_ID)
 
     db = object_session(run)
     if db is None:

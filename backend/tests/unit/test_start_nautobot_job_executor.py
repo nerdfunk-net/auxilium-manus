@@ -373,12 +373,15 @@ class StartJobForDeviceRequestResponseIntegrationTests(unittest.IsolatedAsyncioT
 
 class MaxConcurrencyTests(unittest.IsolatedAsyncioTestCase):
     def test_parse_defaults_and_validates(self) -> None:
-        self.assertEqual(mod._parse_max_concurrency(None), 5)
-        self.assertEqual(mod._parse_max_concurrency("3"), 3)
-        with self.assertRaises(ValueError):
-            mod._parse_max_concurrency(0)
-        with self.assertRaises(ValueError):
-            mod._parse_max_concurrency("many")
+        def parse(**extra: object) -> int:
+            config = {"nautobot_source_id": "src", "job_id": "job-1", **extra}
+            return mod._parse_config(config).max_concurrency
+
+        self.assertEqual(parse(), 5)
+        self.assertEqual(parse(max_concurrency="3"), 3)
+        for bad in (0, "many", True, 2.5):
+            with self.assertRaises(ValueError, msg=repr(bad)):
+                parse(max_concurrency=bad)
 
     async def test_job_starts_are_capped(self) -> None:
         import asyncio

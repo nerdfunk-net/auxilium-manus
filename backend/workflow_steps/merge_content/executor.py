@@ -23,6 +23,7 @@ from workflow_steps.common.partial_outcomes import (
     device_error_from_exception,
     fail_device_with_error,
 )
+from workflow_steps.common.step_flags import parse_bool_flag
 
 if TYPE_CHECKING:
     from services.network.netmiko.session_pool import DeviceSessionPool
@@ -78,15 +79,6 @@ def _parse_merge_mode(config: dict[str, Any]) -> str:
     return mode
 
 
-def _parse_include_command_header(config: dict[str, Any]) -> bool:
-    value = config.get("include_command_header", True)
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, str):
-        return value.strip().lower() not in {"0", "false", "no", "off"}
-    return bool(value)
-
-
 def _decode_separator(raw: str) -> str:
     """The panel is a plain text input: an author types ``\\n`` meaning a newline (HF-02)."""
     return raw.replace("\\n", "\n").replace("\\t", "\t").replace("\\r", "\r")
@@ -107,7 +99,9 @@ def _parse_merge_config(config: dict[str, Any]) -> _ParsedMergeConfig:
         section_separator=_decode_separator(
             str(config.get("section_separator") or _DEFAULT_SEPARATOR)
         ),
-        include_command_header=_parse_include_command_header(config),
+        include_command_header=parse_bool_flag(
+            config, "include_command_header", default=True, step_id="merge-content"
+        ),
     )
 
 

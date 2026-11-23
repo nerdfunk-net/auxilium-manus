@@ -41,6 +41,7 @@ from services.workflow_context.secret_fields import redact_secrets_in_data
 from workflow_steps.common.attribute_expression import resolve_attribute_expression
 from workflow_steps.common.nautobot_source import resolve_nautobot_credentials
 from workflow_steps.common.request_record import append_request_record
+from workflow_steps.common.step_flags import parse_int_flag
 from workflow_steps.common.update_field_expression import normalize_field_spec
 from workflow_steps.start_nautobot_job.config import get_config
 
@@ -163,21 +164,11 @@ def _parse_config(config: dict[str, Any]) -> _ParsedConfig:
         optional_params=optional_params,
         task_queue=task_queue,
         bag_name=bag_name,
-        max_concurrency=_parse_max_concurrency(config.get("max_concurrency")),
+        # Jobs started at once: one job per device must not flood Nautobot's workers.
+        max_concurrency=parse_int_flag(
+            config, "max_concurrency", default=5, minimum=1, step_id=_STEP_ID
+        ),
     )
-
-
-def _parse_max_concurrency(raw: Any) -> int:
-    """Jobs started at once (default 5): one job per device must not flood Nautobot's workers."""
-    if raw is None or raw == "":
-        return 5
-    try:
-        value = int(raw)
-    except (TypeError, ValueError) as exc:
-        raise ValueError(f"{_STEP_ID}: max_concurrency must be an integer") from exc
-    if value < 1:
-        raise ValueError(f"{_STEP_ID}: max_concurrency must be at least 1")
-    return value
 
 
 def _split_multi_value(resolved: str) -> list[Any] | None:
@@ -201,10 +192,11 @@ def _coerce_value(name: str, resolved: str, var_type: str) -> Any:
             raise ValueError(f"parameter '{name}' must be an integer, got {resolved!r}") from exc
 
     if var_type in _BOOLEAN_TYPES:
+        # A resolved per-device value, not step config; it raises on a typo (guard opt-outs below).
         normalized = resolved.strip().lower()
-        if normalized in ("true", "1", "yes"):
+        if normalized in ("true", "1", "yes"):  # check_flag_parsing: ok
             return True
-        if normalized in ("false", "0", "no", ""):
+        if normalized in ("false", "0", "no", ""):  # check_flag_parsing: ok
             return False
         raise ValueError(f"parameter '{name}' must be a boolean, got {resolved!r}")
 

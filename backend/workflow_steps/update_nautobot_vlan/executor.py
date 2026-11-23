@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
@@ -242,7 +243,7 @@ def _plan_device(
         if not is_valid_uuid(vlan_id.lower()):
             return "vlan_id_invalid", "vlan_id is not a Nautobot UUID", _bad_request_failure()
     else:
-        if not vid_text.isdigit() or int(vid_text) not in _VID_RANGE:
+        if not re.fullmatch(r"[0-9]+", vid_text) or int(vid_text) not in _VID_RANGE:
             return "vid_invalid", "vid must be a number from 1 to 4094", _bad_request_failure()
         vid = int(vid_text)
 

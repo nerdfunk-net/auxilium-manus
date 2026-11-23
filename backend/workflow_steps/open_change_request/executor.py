@@ -45,7 +45,7 @@ from services.workflow_context.device_template import (
 )
 from workflow_steps.common.content_resolver import list_exportable_content, parse_content_source
 from workflow_steps.common.duplicate_keys import find_duplicate_keys
-from workflow_steps.common.git_repository_loader import load_git_repository
+from workflow_steps.common.git_repository_loader import load_git_repository, parse_repository_id
 from workflow_steps.open_change_request.config import get_config
 
 if TYPE_CHECKING:
@@ -427,7 +427,10 @@ async def execute(
 ) -> list[StepOutcome]:
     del device_sessions
 
-    repository_id = _as_int(config.get("git_repository_id"))
+    try:
+        repository_id = parse_repository_id(config.get("git_repository_id"), step_id=_STEP_ID)
+    except ValueError as exc:
+        return _failure_outcomes(context=context, node_id=node_id, message=str(exc))
     if repository_id is None:
         return _failure_outcomes(
             context=context,

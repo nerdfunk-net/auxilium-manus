@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
 
 from models.workflow_context import WorkflowContext
 
@@ -43,10 +42,3 @@ def collect_export_paths_for_commit(
     return unique_paths
 
 
-def parse_commit_before_push(config: dict[str, Any]) -> bool:
-    value = config.get("commit_before_push", True)
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, str):
-        return value.strip().lower() in {"1", "true", "yes", "on"}
-    return bool(value)

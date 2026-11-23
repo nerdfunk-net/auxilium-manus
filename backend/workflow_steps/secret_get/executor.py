@@ -38,6 +38,7 @@ from workflow_steps.common.secret_paths import (
     resolve_secret_paths,
     secret_manager_failure,
 )
+from workflow_steps.common.step_flags import parse_int_flag
 
 if TYPE_CHECKING:
     from services.network.netmiko.session_pool import DeviceSessionPool
@@ -72,21 +73,9 @@ def _parse_config(config: dict[str, Any]) -> tuple[int, str, str, str, int | Non
     if not destination_path:
         raise ValueError(f"{_STEP_ID}: destination_path is required")
 
-    raw_version = config.get("version")
     version: int | None = None
-    if raw_version is not None and raw_version != "":
-        if isinstance(raw_version, bool) or (
-            isinstance(raw_version, float) and not raw_version.is_integer()
-        ):
-            raise ValueError(f"{_STEP_ID}: version must be an integer, got {raw_version!r}")
-        try:
-            version = int(raw_version)
-        except (TypeError, ValueError, OverflowError):
-            raise ValueError(
-                f"{_STEP_ID}: version must be an integer, got {raw_version!r}"
-            ) from None
-        if version < 1:
-            raise ValueError(f"{_STEP_ID}: version must be 1 or greater")
+    if config.get("version") not in (None, ""):
+        version = parse_int_flag(config, "version", default=1, minimum=1, step_id=_STEP_ID)
 
     return connection_id, path_template, field, destination_path, version
 

@@ -43,3 +43,14 @@ def parse_repository_id(raw: Any, *, step_id: str) -> int | None:
         return int(raw)
     except TypeError, ValueError:
         raise ValueError(f"{step_id}: git_repository_id must be a whole number") from None
+
+
+def require_repository_id(raw: Any, *, step_id: str, context: str = "") -> int:
+    """Like :func:`parse_repository_id`, but an empty value is a configuration error.
+
+    ``context`` completes the message ("... is required when source=git").
+    """
+    value = parse_repository_id(raw, step_id=step_id)
+    if value is None:
+        raise ValueError(f"{step_id}: git_repository_id is {context or 'not configured'}")
+    return value

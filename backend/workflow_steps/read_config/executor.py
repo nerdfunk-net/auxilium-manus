@@ -24,6 +24,7 @@ from services.workflow_context.device_template import (
     render_device_template,
 )
 from workflow_steps.common.file_source_root import resolve_source_root
+from workflow_steps.common.git_repository_loader import parse_repository_id
 from workflow_steps.common.step_flags import parse_bool_flag
 
 if TYPE_CHECKING:
@@ -49,7 +50,7 @@ def _parse_read_config(config: dict[str, Any]) -> _ParsedReadConfig:
         raise ValueError(f"{_STEP_ID}: source must be one of {sorted(_SOURCES)}")
 
     raw_repository_id = config.get("git_repository_id")
-    git_repository_id = int(raw_repository_id) if raw_repository_id not in (None, "") else None
+    git_repository_id = parse_repository_id(raw_repository_id, step_id=_STEP_ID)
     if source == "git" and git_repository_id is None:
         raise ValueError(f"{_STEP_ID}: git_repository_id is required when source=git")
 
