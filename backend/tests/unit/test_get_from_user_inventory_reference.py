@@ -52,3 +52,16 @@ class InventoryReferenceTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(inventory_reference.is_inventory_reference(db, run, "other"))
         attrs[0]["ref_kind"] = "credential"
         self.assertFalse(inventory_reference.is_inventory_reference(db, run, "t"))
+
+
+class NoDatabaseSessionTests(unittest.IsolatedAsyncioTestCase):
+    async def test_a_run_without_a_session_is_a_runtime_error(self) -> None:
+        run = MagicMock(id=1, triggered_by_id=None)
+        with patch(f"{_MOD}.object_session", return_value=None):
+            with self.assertRaisesRegex(RuntimeError, "no active DB session"):
+                await inventory_reference.inventory_device_text(run, {}, 1)
+
+    async def test_a_non_numeric_reference_is_a_value_error(self) -> None:
+        with patch(f"{_MOD}.object_session", return_value=MagicMock()):
+            with self.assertRaisesRegex(ValueError, "did not resolve to an inventory id"):
+                await inventory_reference.inventory_device_text(MagicMock(), {}, "abc")
