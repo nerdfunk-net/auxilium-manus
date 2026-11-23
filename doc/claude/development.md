@@ -100,6 +100,12 @@ pip install -r requirements-dev.txt  # ruff, pip-audit, pyright
 python -m pytest
 # or: python -m unittest discover -s tests
 
+# Workflow-step tests share builders and typed fakes (tests/unit/_step_helpers.py: make_run /
+# make_pool reject attributes the real object lacks, strict_xfail marks a test that documents a
+# known defect and must carry its finding id; tests/unit/test_strict_xfail_hygiene.py enforces it).
+# Branch coverage of the steps (a report, not a gate; statement coverage is the ratchet):
+python -m pytest --cov=workflow_steps --cov-branch --cov-report=term-missing:skip-covered --cov-fail-under=0 -q
+
 # CI checks (run locally before pushing):
 pip-audit -r requirements.txt -r requirements-dev.txt --ignore-vuln PYSEC-2026-2858
 pyright

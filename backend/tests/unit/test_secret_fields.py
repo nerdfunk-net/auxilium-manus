@@ -20,6 +20,7 @@ from services.workflow_context.secret_fields import (
     unwrap_secret,
     with_run_secret_scope,
 )
+from tests.unit._step_helpers import strict_xfail
 
 _ENC = EncryptionService("test-secret-key-for-workflow-context")
 
@@ -328,3 +329,36 @@ class UnwrapAllSecretsTests(unittest.TestCase):
         other = EncryptionService("a-completely-different-key")
         with self.assertRaises(ValueError):
             unwrap_all_secrets({"a": sealed}, encryption=other)
+
+
+class SealRegistersCleartextTests(unittest.TestCase):
+    """A secret a step generates or reads must be scrubbed from later free text (W10-07/W11-11)."""
+
+    _PLAIN = "generated-s3cr3t-value"
+
+    def test_unwrap_registers_the_cleartext(self) -> None:
+        sealed = seal_secret(self._PLAIN, encryption=_ENC)
+        with run_secret_scope():
+            unwrap_secret(sealed, encryption=_ENC)
+
+            scrubbed = scrub_known_secrets({"msg": f"login failed with {self._PLAIN}"})
+
+        self.assertNotIn(self._PLAIN, scrubbed["msg"])
+        self.assertIn(REDACTED_PLACEHOLDER, scrubbed["msg"])
+
+    @strict_xfail("W10-07", "seal_secret does not register the cleartext it just produced")
+    def test_seal_registers_the_cleartext(self) -> None:
+        with run_secret_scope():
+            seal_secret(self._PLAIN, encryption=_ENC)
+
+            scrubbed = scrub_known_secrets({"msg": f"push failed, key {self._PLAIN}"})
+
+        self.assertNotIn(self._PLAIN, scrubbed["msg"])
+
+    def test_nothing_is_registered_outside_a_run_scope(self) -> None:
+        seal_secret(self._PLAIN, encryption=_ENC)
+
+        with run_secret_scope():
+            scrubbed = scrub_known_secrets({"msg": self._PLAIN})
+
+        self.assertEqual(scrubbed["msg"], self._PLAIN)

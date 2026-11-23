@@ -16,6 +16,7 @@ from models.workflow_context import (
     WorkflowContext,
 )
 from services.artifacts import InMemoryArtifactService
+from tests.unit._step_helpers import call_step, make_context, make_device
 from workflow_steps.render_jinja_template.executor import execute
 
 
@@ -257,6 +258,63 @@ class RenderJinjaTemplateExecutorTests(unittest.IsolatedAsyncioTestCase):
         entry = success.parsed["device_config"]
         content = await artifact_service.resolve(ArtifactRef.model_validate(entry["artifact_ref"]))
         self.assertEqual(content, "Ethernet0/0 / 15.2 / count=2")
+
+class RenderJinjaTemplateStoredTemplateTests(unittest.IsolatedAsyncioTestCase):
+    """The production path: the panel and the gallery write ``template_id`` (W13-08)."""
+
+    _LOAD = "workflow_steps.render_jinja_template.executor.load_stored_template"
+
+    def _context(self) -> WorkflowContext:
+        return make_context([make_device("d1", name="lab")])
+
+    async def _run(self, config: dict, *, stored: str | None = None):  # noqa: ANN202
+        artifact_service = InMemoryArtifactService()
+        with patch(self._LOAD, return_value=stored) as load:
+            outcomes = await call_step(
+                execute,
+                {"output_key": "out", **config},
+                self._context(),
+                artifact_service=artifact_service,
+            )
+        return outcomes, artifact_service, load
+
+    async def test_stored_template_is_loaded_by_id_and_rendered(self) -> None:
+        outcomes, artifacts, load = await self._run(
+            {"template_id": 7}, stored="hostname {{ device.hostname }}\n"
+        )
+
+        load.assert_called_once_with(7, step_id="render-jinja-template")
+        entry = outcomes[0].context.devices["d1"].parsed["out"]
+        rendered = await artifacts.resolve(ArtifactRef.model_validate(entry["artifact_ref"]))
+        self.assertIn("hostname lab", rendered)
+
+    async def test_template_id_may_be_a_numeric_string(self) -> None:
+        _outcomes, _artifacts, load = await self._run({"template_id": "12"}, stored="x")
+
+        load.assert_called_once_with(12, step_id="render-jinja-template")
+
+    async def test_non_integer_template_id_is_a_config_error(self) -> None:
+        with self.assertRaisesRegex(ValueError, "template_id must be an integer"):
+            await self._run({"template_id": "abc"}, stored="x")
+
+    async def test_empty_stored_template_is_a_config_error(self) -> None:
+        with self.assertRaisesRegex(ValueError, "has no content"):
+            await self._run({"template_id": 7}, stored="  \n")
+
+    async def test_stored_template_wins_over_an_inline_template(self) -> None:
+        outcomes, artifacts, _load = await self._run(
+            {"template_id": 7, "template": "inline {{ device.hostname }}"},
+            stored="stored {{ device.hostname }}",
+        )
+
+        entry = outcomes[0].context.devices["d1"].parsed["out"]
+        rendered = await artifacts.resolve(ArtifactRef.model_validate(entry["artifact_ref"]))
+        self.assertEqual(rendered.strip(), "stored lab")
+
+    async def test_nothing_selected_is_a_config_error(self) -> None:
+        with self.assertRaisesRegex(ValueError, "stored template must be selected"):
+            await self._run({}, stored=None)
+
 
 
 if __name__ == "__main__":
