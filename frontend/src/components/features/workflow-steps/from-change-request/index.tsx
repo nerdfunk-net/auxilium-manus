@@ -10,7 +10,6 @@ import type {
 } from "@/components/features/workflows/types/plugin-ui";
 
 const DEFAULTS = {
-  checkout_branch: true,
   load_configs: true,
 };
 
@@ -56,7 +55,7 @@ function FromChangeRequestConfigPanel({ config, onChange, nodeId }: PluginConfig
   useEffect(() => {
     if (initializedForNode.current === nodeId) return;
     initializedForNode.current = nodeId;
-    if (config.checkout_branch === undefined || config.load_configs === undefined) {
+    if (config.load_configs === undefined) {
       onChange({ ...DEFAULTS, ...config });
     }
   }, [nodeId, config, onChange]);
@@ -74,13 +73,6 @@ function FromChangeRequestConfigPanel({ config, onChange, nodeId }: PluginConfig
         was started by approving a change request.
       </p>
 
-      <ToggleRow
-        id={`${nodeId}-checkout-branch`}
-        label="checkout_branch"
-        hint="Also check out the manus/cr-* branch into the repo working tree."
-        checked={bool(config, "checkout_branch")}
-        onChange={(checked) => patch({ checkout_branch: checked })}
-      />
       <ToggleRow
         id={`${nodeId}-load-configs`}
         label="load_configs"

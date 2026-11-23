@@ -123,9 +123,9 @@ was dispatched by a CR approval it
 - rebuilds the device list from the identity snapshot the `open-change-request` step
   stored on the change request (`id`, `name`, `hostname`, `platform`, `network_driver`,
   `primary_ip4`, `config_path`) — no `get-nautobot-devices` / `get-git-devices` needed;
-- checks out `manus/cr-{id}` into the repo working tree (`checkout_branch`);
-- loads each device's committed config as `running_config` (`load_configs`), so
-  `{device.name}` and the reviewed file are both available downstream.
+- loads each device's committed config as `running_config` (`load_configs`; it is read from
+  `manus/cr-{id}`, pinned to the reviewed commit), so `{device.name}` and the reviewed file
+  are both available downstream.
 
 It **fails** if the run was not started by a change request, and it needs a CR created by
 the current `open-change-request` (older CRs have no device snapshot — re-run the stage

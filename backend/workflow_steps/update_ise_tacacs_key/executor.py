@@ -163,16 +163,12 @@ async def _preflight_ise(
 
 async def _update_one_device(
     *,
-    device_id: str,
     device: DeviceContext,
     device_service: ISENetworkDeviceService,
     parsed: _ParsedConfig,
     node_id: str,
     run_id: str | None,
-    context: WorkflowContext,
 ) -> _UpdateOneResult:
-    del device_id
-
     new_key_value = resolve_update_field_expression(
         device=device,
         field_key="new_key",
@@ -331,13 +327,11 @@ async def execute(
 
     for device_id, device in context.devices.items():
         result = await _update_one_device(
-            device_id=device_id,
             device=device,
             device_service=device_service,
             parsed=parsed,
             node_id=node_id,
             run_id=context.run_id,
-            context=context,
         )
         if result.kind == "abort":
             return abort_outcomes(

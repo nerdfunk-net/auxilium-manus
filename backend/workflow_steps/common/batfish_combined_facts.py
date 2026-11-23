@@ -41,7 +41,7 @@ from models.workflow_context import (
 from services.artifacts import ArtifactService
 from services.batfish.facts_specs import CombinedQuestionSpec, merge_facts_by_node
 
-__all__ = ["CombinedQuestionSpec", "build_combined_facts_outcomes"]
+__all__ = ["build_combined_facts_outcomes"]
 
 logger = logging.getLogger(__name__)
 

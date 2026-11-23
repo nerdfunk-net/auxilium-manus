@@ -23,27 +23,19 @@ from workflow_steps.common.catalyst_center_targets import (
     split_targets,
 )
 from workflow_steps.common.fact_entries import (
-    MAX_PARALLEL_DEVICES,
     Entry,
     FactError,
     collect_facts,
-    dump,
     error_entry,
     ok_entry,
     parse_output_key_config,
 )
-from workflow_steps.common.fact_entries import (
-    with_entries as _generic_with_entries,
-)
 
 __all__ = [
-    "MAX_PARALLEL_DEVICES",
     "CollectFn",
     "Entry",
     "FactError",
-    "PrepareFn",
     "capture",
-    "dump",
     "error_entry",
     "fact",
     "ok_entry",
@@ -71,24 +63,6 @@ async def capture[T](fetch: Callable[[], Awaitable[T]]) -> tuple[T | None, FactE
 async def fact(fetch: Callable[[], Awaitable[Any]]) -> Entry:
     value, error = await capture(fetch)
     return error_entry(error) if error is not None else ok_entry(value)
-
-
-def _with_entries(
-    device: DeviceContext,
-    entries: dict[str, Entry],
-    *,
-    output_key: str,
-    step_id: str,
-    node_id: str,
-) -> tuple[DeviceContext, bool]:
-    return _generic_with_entries(
-        device,
-        entries,
-        output_key=output_key,
-        step_id=step_id,
-        node_id=node_id,
-        error_code=CATALYST_ERROR_CODE,
-    )
 
 
 async def run_fact_step(

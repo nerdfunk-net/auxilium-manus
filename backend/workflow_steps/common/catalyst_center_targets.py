@@ -22,11 +22,10 @@ from workflow_steps.common.device_outcomes import (
 
 CATALYST_CENTER_SOURCE = "catalyst_center"
 
-# ``TargetSplit``, ``build_outcomes`` and ``failed_device`` live in ``device_outcomes`` (shared with
-# the ACI steps) and stay importable from here.
+# ``build_outcomes`` and ``failed_device`` live in ``device_outcomes`` (shared with the ACI steps)
+# and stay importable from here until the two steps that use them import them directly.
 __all__ = [
     "CATALYST_CENTER_SOURCE",
-    "TargetSplit",
     "build_outcomes",
     "failed_device",
     "resolve_source_credentials",

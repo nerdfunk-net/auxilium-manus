@@ -164,7 +164,7 @@ def render_prompt(
 
     Raises ``PromptWithheldError`` when a placeholder names data the policy withholds.
     """
-    aggregated = apply_run_placeholders(template, context)
+    aggregated = apply_run_placeholders(template)
     if "{" not in aggregated:
         return finish_run_placeholders(aggregated, context)
     if not context.devices:

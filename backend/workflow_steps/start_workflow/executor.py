@@ -46,7 +46,6 @@ from services.workflow.child_run_inputs import secret_input_message, secret_inpu
 from services.workflow.device_lines import (
     device_line,
     enabled_device_input_readers,
-    forwardable_driver,
 )
 from workflow_steps.common.partial_outcomes import mark_device_failed
 from workflow_steps.common.step_flags import parse_bool_flag, parse_int_flag
@@ -149,11 +148,6 @@ def _parse_config(config: dict[str, Any]) -> _ParsedConfig:
 
 
 # ── what the started workflow is told about the devices ───────────────────────────────────────
-
-
-def _forwardable_driver(device: DeviceContext) -> str:
-    """The canonical Netmiko type the parent's SSH steps would use, or "" when it has none."""
-    return forwardable_driver(device.network_driver, device.platform)
 
 
 def _device_line(device: DeviceContext) -> str | None:

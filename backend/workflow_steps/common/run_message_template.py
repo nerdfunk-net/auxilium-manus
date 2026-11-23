@@ -27,9 +27,8 @@ _RUN_SUMMARY = "\x00run_summary\x00"
 _MARKER = re.compile("|".join(re.escape(m) for m in (_DEVICES, _DEVICE_COUNT, _RUN_SUMMARY)))
 
 
-def apply_run_placeholders(message: str, context: WorkflowContext) -> str:
+def apply_run_placeholders(message: str) -> str:
     """Protect ``{devices}`` and ``{device_count}``; :func:`finish_run_placeholders` fills them."""
-    del context
     return (
         message.replace("{devices}", _DEVICES)
         .replace("{device_count}", _DEVICE_COUNT)
@@ -84,7 +83,7 @@ def render_for_all_devices(message: str, context: WorkflowContext) -> str | None
     with no devices to resolve against, return ``None`` so the caller can skip
     instead of sending an unresolved placeholder.
     """
-    aggregated = apply_run_placeholders(message, context)
+    aggregated = apply_run_placeholders(message)
     if "{" not in aggregated:
         return finish_run_placeholders(aggregated, context)
 
@@ -102,7 +101,7 @@ def render_for_first_device(message: str, context: WorkflowContext) -> str | Non
     first device only, producing a single line. Used for single-line values (mail
     subject, addresses) that cannot be newline-joined.
     """
-    aggregated = apply_run_placeholders(message, context)
+    aggregated = apply_run_placeholders(message)
     if "{" not in aggregated:
         return finish_run_placeholders(aggregated, context)
 

@@ -6,11 +6,11 @@ The actual fetch-store-merge engine lives in
 workflow_steps.common.batfish_combined_facts (shared with Get BGP Facts,
 see workflow_steps.common.batfish_bgp_facts). The OSPF-specific
 `CombinedQuestionSpec` table itself now lives in
-`services.batfish.ospf_facts` (re-exported here for backward-compatible
-imports) so `services.batfish.preview_service` can build the ad-hoc "Get
-OSPF Facts" preview from the exact same spec table -- see that module's
-docstring, and doc/BATFISH_INTEGRATION.md "Batfish OSPF Facts" for the
-row-shape verification it's built on.
+`services.batfish.ospf_facts` (its keys are re-exported here) so
+`services.batfish.preview_service` can build the ad-hoc "Get OSPF Facts"
+preview from the exact same spec table -- see that module's docstring, and
+doc/BATFISH_INTEGRATION.md "Batfish OSPF Facts" for the row-shape verification
+it's built on.
 """
 
 from __future__ import annotations
@@ -22,7 +22,7 @@ from services.artifacts import ArtifactService
 from services.batfish.ospf_facts import OSPF_QUESTION_KEYS, OSPF_QUESTION_SPECS
 from workflow_steps.common.batfish_combined_facts import build_combined_facts_outcomes
 
-__all__ = ["OSPF_QUESTION_KEYS", "OSPF_QUESTION_SPECS", "build_ospf_facts_outcomes"]
+__all__ = ["OSPF_QUESTION_KEYS", "build_ospf_facts_outcomes"]
 
 _STEP_ID = "batfish-ospf-facts"
 

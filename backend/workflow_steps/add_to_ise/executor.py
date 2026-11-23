@@ -543,7 +543,6 @@ def _enrich_device_after_create(
 
 async def _create_one_device(
     *,
-    device_id: str,
     device: DeviceContext,
     cfg: _ParsedConfig,
     device_service: ISENetworkDeviceService,
@@ -765,7 +764,6 @@ async def execute(
 
     for device_id, device in context.devices.items():
         result = await _create_one_device(
-            device_id=device_id,
             device=device,
             cfg=parsed,
             device_service=device_service,

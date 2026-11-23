@@ -89,10 +89,10 @@ async def execute(
     node_id: str,
     device_sessions: DeviceSessionPool,
 ) -> list[StepOutcome]:
+    del run
     return await run_git_workflow_step(
         config=config,
         context=context,
-        run=run,
         artifact_service=artifact_service,
         node_id=node_id,
         step_id="git-status",

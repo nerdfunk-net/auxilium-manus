@@ -18,12 +18,8 @@ from services.catalyst_center.common.exceptions import (
     CatalystCenterTaskError,
 )
 from tests.unit.test_catalyst_center_client import _Controller, _creds
-from workflow_steps.common.catalyst_center_facts import (
-    FactError,
-    _with_entries,
-    error_entry,
-    ok_entry,
-)
+from workflow_steps.common.catalyst_center_facts import CATALYST_ERROR_CODE
+from workflow_steps.common.fact_entries import FactError, error_entry, ok_entry, with_entries
 from workflow_steps.run_catalyst_center_command.executor import _command_failure
 
 
@@ -205,7 +201,14 @@ def test_fact_failure_reaches_the_device_error_but_not_the_parsed_shape() -> Non
         "vlans": error_entry("plain text"),
     }
 
-    updated, ok = _with_entries(device, entries, output_key="cc", step_id="s", node_id="n")
+    updated, ok = with_entries(
+        device,
+        entries,
+        output_key="cc",
+        step_id="s",
+        node_id="n",
+        error_code=CATALYST_ERROR_CODE,
+    )
 
     assert not ok
     assert updated.errors[0].failure == info
@@ -216,7 +219,14 @@ def test_partial_fact_failure_does_not_fail_the_device() -> None:
     device = DeviceContext(id="d1", name="sw1", hostname="sw1")
     entries = {"interfaces": error_entry(FactError("x", None)), "vlans": ok_entry([1])}
 
-    updated, ok = _with_entries(device, entries, output_key="cc", step_id="s", node_id="n")
+    updated, ok = with_entries(
+        device,
+        entries,
+        output_key="cc",
+        step_id="s",
+        node_id="n",
+        error_code=CATALYST_ERROR_CODE,
+    )
 
     assert ok
     assert updated.errors == []

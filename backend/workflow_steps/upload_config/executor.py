@@ -200,14 +200,12 @@ async def _upload_on_device(
     device_id: str,
     device: DeviceContext,
     node_id: str,
-    run_id: Any,
     parsed: _ParsedUploadConfig,
     username: str,
     password: str,
     netmiko: NetmikoService,
     artifact_service: ArtifactService,
 ) -> DeviceResult:
-    del run_id  # kept for parity with sibling steps' _*_on_device signatures
     host = bare_hostname(device.primary_ip4, device.hostname)
     if not host:
         return fail_device(
@@ -370,7 +368,6 @@ async def execute(
             device_id=device_id,
             device=device,
             node_id=node_id,
-            run_id=run_id,
             parsed=parsed,
             username=username,
             password=password,

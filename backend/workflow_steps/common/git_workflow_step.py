@@ -13,7 +13,6 @@ import logging
 from collections.abc import Callable
 from typing import Any
 
-from core.models.runs import WorkflowRun
 from models.failure import FailureInfo, failure_from_exception
 from models.workflow_context import (
     DeviceContext,
@@ -250,7 +249,6 @@ async def run_git_workflow_step(
     *,
     config: dict[str, Any],
     context: WorkflowContext,
-    run: WorkflowRun,
     artifact_service: ArtifactService,
     node_id: str,
     step_id: str,

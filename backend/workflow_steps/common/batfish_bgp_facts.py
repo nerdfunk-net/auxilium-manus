@@ -6,7 +6,7 @@ The actual fetch-store-merge engine lives in
 workflow_steps.common.batfish_combined_facts (shared with Get OSPF Facts,
 see workflow_steps.common.batfish_ospf_facts). The BGP-specific
 `CombinedQuestionSpec` table itself now lives in `services.batfish.bgp_facts`
-(re-exported here for backward-compatible imports) so
+(its keys are re-exported here) so
 `services.batfish.preview_service` can build the ad-hoc "Get BGP Facts"
 preview from the exact same spec table -- see that module's docstring, and
 doc/BATFISH_INTEGRATION.md "Batfish BGP Facts" for the row-shape
@@ -22,7 +22,7 @@ from services.artifacts import ArtifactService
 from services.batfish.bgp_facts import BGP_QUESTION_KEYS, BGP_QUESTION_SPECS
 from workflow_steps.common.batfish_combined_facts import build_combined_facts_outcomes
 
-__all__ = ["BGP_QUESTION_KEYS", "BGP_QUESTION_SPECS", "build_bgp_facts_outcomes"]
+__all__ = ["BGP_QUESTION_KEYS", "build_bgp_facts_outcomes"]
 
 _STEP_ID = "batfish-bgp-facts"
 

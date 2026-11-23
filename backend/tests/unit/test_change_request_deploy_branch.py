@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import contextlib
 import unittest
-from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from sqlalchemy import create_engine
@@ -64,7 +63,6 @@ class GitWorkflowStepRemovedFlagTests(unittest.IsolatedAsyncioTestCase):
             outcomes = await run_git_workflow_step(
                 config={"git_repository_id": 1, "use_change_request_branch": True},
                 context=WorkflowContext(run_id="u", workflow_id="1", devices={}),
-                run=SimpleNamespace(change_request_id=7),
                 artifact_service=MagicMock(),
                 node_id="n",
                 step_id="git-pull",

@@ -202,7 +202,6 @@ class AmbiguousContentError(ValueError):
 
 def _resolve_compare_export_item(
     device: DeviceContext,
-    device_id: str,
     parsed: _ParsedCompareConfig,
 ) -> ExportableContent | None:
     export_items = list_exportable_content(
@@ -379,7 +378,7 @@ async def _compare_for_device(
     diff_service: GitDiffService,
 ) -> tuple[str, DeviceContext, str, dict[str, Any] | None]:
     try:
-        item = _resolve_compare_export_item(device, device_id, parsed)
+        item = _resolve_compare_export_item(device, parsed)
     except AmbiguousContentError as exc:
         failed = _device_failure(
             device=device,

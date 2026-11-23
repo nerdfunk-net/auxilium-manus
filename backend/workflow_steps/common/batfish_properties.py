@@ -43,7 +43,6 @@ from services.artifacts import ArtifactService
 from services.batfish.facts_specs import (
     PropertyQuestionSpec,
     facts_by_node_for_property,
-    group_rows_by_node,
 )
 from services.workflow_context.node_result import set_node_result
 
@@ -52,7 +51,6 @@ __all__ = [
     "PropertyQuestionSpec",
     "assert_requested_columns_present",
     "build_property_outcomes",
-    "group_rows_by_node",
     "is_empty_value",
     "parse_properties_list",
     "row_matches_empty",

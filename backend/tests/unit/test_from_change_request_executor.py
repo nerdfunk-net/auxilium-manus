@@ -138,7 +138,7 @@ class FromChangeRequestExecutorTests(unittest.IsolatedAsyncioTestCase):
         )
 
         outcomes = await execute(
-            config={"checkout_branch": True, "load_configs": True},
+            config={"load_configs": True},
             context=self._ctx(),
             run=SimpleNamespace(id=99, change_request_id=cr.id),
             artifact_service=self.artifacts,
@@ -164,6 +164,26 @@ class FromChangeRequestExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(meta["change_request_id"], cr.id)
         self.assertEqual(meta["branch"], "manus/cr-7")
 
+    async def test_without_load_configs_the_branch_is_not_entered(self) -> None:
+        cr = self._cr_with_devices(
+            [{"id": "d1", "name": "d1", "hostname": "d1.lab", "config_path": "d1.cfg"}]
+        )
+
+        outcomes = await execute(
+            config={"load_configs": False},
+            context=self._ctx(),
+            run=SimpleNamespace(id=99, change_request_id=cr.id),
+            artifact_service=self.artifacts,
+            node_id=NODE_ID,
+            device_sessions=None,
+        )
+
+        d1 = outcomes[0].context.devices["d1"]
+        self.assertIn(Capability.IDENTITY, d1.capabilities)
+        self.assertNotIn(Capability.RUNNING_CONFIG, d1.capabilities)
+        self.git.checkout_new_branch.assert_not_called()
+        self.git.ensure_branch.assert_not_called()
+
     async def _assert_refused(self, bad: str) -> None:
         from core.domain_exceptions import AccessDeniedError
 
@@ -172,7 +192,7 @@ class FromChangeRequestExecutorTests(unittest.IsolatedAsyncioTestCase):
         )
         with self.assertRaises(AccessDeniedError):
             await execute(
-                config={"checkout_branch": True, "load_configs": True},
+                config={"load_configs": True},
                 context=self._ctx(),
                 run=SimpleNamespace(id=99, change_request_id=cr.id),
                 artifact_service=self.artifacts,
@@ -195,7 +215,7 @@ class FromChangeRequestExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.repo.head.commit.hexsha = "badbadbadbad"  # commit B pushed after review of c0ffee
         with self.assertRaises(GitOperationError) as ctx:
             await execute(
-                config={"checkout_branch": True, "load_configs": True},
+                config={"load_configs": True},
                 context=self._ctx(),
                 run=SimpleNamespace(id=99, change_request_id=cr.id),
                 artifact_service=self.artifacts,
@@ -216,7 +236,7 @@ class FromChangeRequestExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.db.commit()
         with self.assertRaises(GitOperationError) as ctx:
             await execute(
-                config={"checkout_branch": True, "load_configs": True},
+                config={"load_configs": True},
                 context=self._ctx(),
                 run=SimpleNamespace(id=99, change_request_id=cr.id),
                 artifact_service=self.artifacts,
@@ -231,7 +251,7 @@ class FromChangeRequestExecutorTests(unittest.IsolatedAsyncioTestCase):
             [{"id": "d1", "name": "d1", "hostname": "d1.lab", "config_path": "d1.cfg"}]
         )
         await execute(
-            config={"checkout_branch": True, "load_configs": True},
+            config={"load_configs": True},
             context=self._ctx(),
             run=SimpleNamespace(id=99, change_request_id=cr.id),
             artifact_service=self.artifacts,

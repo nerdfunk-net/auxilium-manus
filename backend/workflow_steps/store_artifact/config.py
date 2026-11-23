@@ -7,7 +7,6 @@ def get_config() -> dict:
         "parsed_output_key": "",
         "filename_template": "{device.name}_{nautobot.location.name}_{run.timestamp}.cfg",
         "strict_templates": True,
-        "retention_policy": "standard-90-days",
         "git_repository_id": None,
         "repository_subdirectory": "",
         "pull_before_write": False,

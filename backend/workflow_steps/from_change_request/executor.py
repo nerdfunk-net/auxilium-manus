@@ -6,10 +6,9 @@ change-request approval (``run.change_request_id`` is set), this step:
 * rebuilds the device list from the identity snapshot the ``open-change-request``
   step captured on the change request — so the deploy workflow needs no
   upstream ``get-nautobot-devices`` / ``get-git-devices``;
-* checks out the change request's ``manus/cr-{id}`` branch into the repository
-  working tree (``checkout_branch``);
 * loads each device's reviewed config file as ``running_config``
-  (``load_configs``), so a deploy workflow can be as short as
+  (``load_configs``; read from the change request's ``manus/cr-{id}`` branch, pinned to
+  the reviewed commit), so a deploy workflow can be as short as
   ``from-change-request → upload-config → configure-replace-config``.
 
 See ``doc/CICD_PIPELINE.md`` §3.3.
@@ -143,7 +142,6 @@ async def execute(
             "(it predates this feature — re-run the stage workflow)."
         )
 
-    checkout = parse_bool_flag(config, "checkout_branch", default=True)
     load_configs = parse_bool_flag(config, "load_configs", default=True)
 
     logger.info(
@@ -156,7 +154,7 @@ async def execute(
 
     new_devices: dict[str, DeviceContext] = {}
     tree_cm: Any = contextlib.nullcontext(None)
-    if (checkout or load_configs) and change_request.git_repository_id and change_request.branch:
+    if load_configs and change_request.git_repository_id and change_request.branch:
         import service_factory
 
         git_service = service_factory.build_git_service()

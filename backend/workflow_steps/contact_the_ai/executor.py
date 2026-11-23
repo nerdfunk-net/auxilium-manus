@@ -84,7 +84,6 @@ MAX_PROMPT_CHARS = 100_000
 MAX_RESPONSE_CHARS = 10_000
 
 _PLACEHOLDER = re.compile(r"\{([A-Za-z0-9_.]+)\}")
-_RUN_LEVEL = frozenset({"devices", "device_count", "run_summary"})
 _NAME_PLACEHOLDERS = frozenset({"devices", "run_summary"})
 _MENTION = re.compile(r"(?<![\w@])@(channel|all|here)\b", re.IGNORECASE)
 

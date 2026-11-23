@@ -276,7 +276,6 @@
           "parsed_output_key": "pyats_snapshot",
           "filename_template": "{device.name}_snapshot_baseline.json",
           "strict_templates": true,
-          "retention_policy": "standard-90-days",
           "git_repository_id": 2,
           "repository_subdirectory": "snapshots/",
           "pull_before_write": false,

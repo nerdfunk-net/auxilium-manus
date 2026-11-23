@@ -25,8 +25,6 @@ REASON_NOT_INFRASTRUCTURE = "not_infrastructure"
 REASON_OUT_OF_SCOPE = "out_of_scope"
 REASON_UNSUPPORTED = "unsupported_platform"
 REASON_LIMIT = "limit_reached"
-REASON_UNREACHABLE = "unreachable"
-REASON_LOGIN_FAILED = "login_failed"
 
 LIMIT_MAX_DEVICES = "max_devices"
 LIMIT_MAX_DEPTH = "max_depth"

@@ -115,8 +115,7 @@ def _build_sink(config: dict[str, Any], *, base_dir: Path) -> ArtifactSink:
     raise ValueError(f"store-artifact: unsupported destination {destination!r}")
 
 
-def _filename_template(config: dict[str, Any], item: ExportableContent) -> str:
-    del item
+def _filename_template(config: dict[str, Any]) -> str:
     return str(
         config.get("filename_template")
         or _default_config().get("filename_template")
@@ -148,7 +147,7 @@ def _relative_export_path(
     index: int,
     run_id: str,
 ) -> str:
-    template = _filename_template(config, item)
+    template = _filename_template(config)
     extra = dict(item.extra)
     extra["index"] = index + 1
     return render_device_template(

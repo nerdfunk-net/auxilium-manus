@@ -6823,12 +6823,6 @@ plugins:
           data_type: boolean
           required: false
           default: true
-        - name: retention_policy
-          description: Retention policy that controls artifact lifecycle (reserved for future use).
-          data_type: string
-          required: false
-          default: standard-90-days
-          example: standard-90-days
 
   - id: store-in-db
     name: Store in DB
@@ -7602,13 +7596,6 @@ plugins:
       - name: success
     metadata:
       configuration_input:
-        - name: checkout_branch
-          description: >
-            Also check out the change request's manus/cr-{id} branch into the
-            repository working tree so later git-reading steps see it.
-          data_type: boolean
-          required: false
-          default: true
         - name: load_configs
           description: >
             Load each device's committed config file (from the change request's
