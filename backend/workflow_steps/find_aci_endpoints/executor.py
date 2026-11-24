@@ -26,6 +26,7 @@ from workflow_steps.common.aci_facts import (
 from workflow_steps.common.aci_targets import resolve_source_credentials
 from workflow_steps.common.device_outcomes import TargetSplit, failed_device
 from workflow_steps.common.fact_entries import collect_facts
+from workflow_steps.common.failure_records import INVALID_INPUT
 
 if TYPE_CHECKING:
     from services.network.netmiko.session_pool import DeviceSessionPool
@@ -87,6 +88,7 @@ async def execute(
                 step_id=STEP_ID,
                 node_id=node_id,
                 code="no_address",
+                failure=INVALID_INPUT,
                 message=f"Device {device_id} has no value at '{address_path}' to look up",
             )
 

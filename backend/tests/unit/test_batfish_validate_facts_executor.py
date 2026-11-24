@@ -664,6 +664,7 @@ class BatfishValidateFactsGitModeTests(unittest.IsolatedAsyncioTestCase):
         batfish.validate_facts.assert_not_called()
         failed = {o.name: o for o in outcomes}["failure"].context.devices["device-1"]
         self.assertEqual(failed.errors[0].code, "expected_facts_empty")
+        self.assertEqual(failed.errors[0].failure.kind, "not_found")
 
 
 if __name__ == "__main__":

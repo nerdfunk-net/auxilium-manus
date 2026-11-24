@@ -35,6 +35,7 @@ from services.pyats.source_config_service import (
 )
 from services.workflow_context.secret_fields import unwrap_secret
 from workflow_steps.common.device_outcomes import mark_device_failed
+from workflow_steps.common.failure_records import INVALID_INPUT
 
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session
@@ -97,6 +98,7 @@ def validate_and_group_devices(
                 node_id=node_id,
                 step_id=step_id,
                 code="missing_testbed",
+                failure=INVALID_INPUT,
                 message="No pyats_testbed bag found -- add an Add Testbed step upstream",
             )
             continue
@@ -111,6 +113,7 @@ def validate_and_group_devices(
                 node_id=node_id,
                 step_id=step_id,
                 code="source_error",
+                failure=INVALID_INPUT,
                 message=message,
             )
             continue
@@ -135,6 +138,7 @@ def validate_and_group_devices(
                 node_id=node_id,
                 step_id=step_id,
                 code="missing_credential",
+                failure=INVALID_INPUT,
                 message="pyats_testbed bag has no usable password",
             )
             continue

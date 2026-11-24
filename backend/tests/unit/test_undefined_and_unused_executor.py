@@ -123,8 +123,11 @@ class UndefinedAndUnusedExecutorTests(unittest.IsolatedAsyncioTestCase):
         # node, routerG had no name at all -- distinct error codes.
         failure_devices = by_name["failure"].context.devices
         self.assertEqual(failure_devices["id-e"].errors[-1].code, "parse_status")
+        self.assertEqual(failure_devices["id-e"].errors[-1].failure.kind, "bad_request")
         self.assertEqual(failure_devices["id-f"].errors[-1].code, "node_not_found")
+        self.assertEqual(failure_devices["id-f"].errors[-1].failure.kind, "not_found")
         self.assertEqual(failure_devices["id-g"].errors[-1].code, "missing_name")
+        self.assertEqual(failure_devices["id-g"].errors[-1].failure.kind, "bad_request")
 
         # routerC lands in both undefined and unused with identical,
         # merge-safe device copies (both parsed keys present in each).

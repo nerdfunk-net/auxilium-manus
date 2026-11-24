@@ -17,6 +17,7 @@ from models.workflow_context import DeviceContext
 from services.aci.common.exceptions import AciValidationError
 from services.aci.credentials import AciCredentials
 from workflow_steps.common.device_outcomes import TargetSplit, failed_device
+from workflow_steps.common.failure_records import INVALID_INPUT
 from workflow_steps.common.source_credentials import resolve_source
 
 ACI_SOURCE = "aci"
@@ -50,6 +51,7 @@ def split_targets(devices: dict[str, DeviceContext], *, step_id: str, node_id: s
                 step_id=step_id,
                 node_id=node_id,
                 code="not_aci_device",
+                failure=INVALID_INPUT,
                 message=(
                     f"Device {device_id} did not come from a Cisco ACI source "
                     f"(source={device.source or 'unknown'})"
@@ -61,6 +63,7 @@ def split_targets(devices: dict[str, DeviceContext], *, step_id: str, node_id: s
                 step_id=step_id,
                 node_id=node_id,
                 code="aci_node_unknown",
+                failure=INVALID_INPUT,
                 message=(
                     f"Device {device_id} carries no ACI node and pod id; use Get from ACI first"
                 ),

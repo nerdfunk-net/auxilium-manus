@@ -29,6 +29,7 @@ from sqlalchemy.orm import object_session
 
 import service_factory
 from core.models.runs import WorkflowRun
+from models.failure import FailureInfo
 from models.workflow_context import (
     DeviceContext,
     DeviceError,
@@ -47,6 +48,7 @@ from services.workflow_context.secret_fields import (
     unwrap_all_secrets,
 )
 from workflow_steps.common.attribute_merge import deep_merge_mapping
+from workflow_steps.common.failure_records import NOT_FOUND
 from workflow_steps.common.jinja_render import build_jinja_context, render_jinja_template
 from workflow_steps.common.json_object_path import get_at_path, set_at_path, top_level_key
 from workflow_steps.common.nautobot_resolve import resolve_nautobot_device_id
@@ -443,6 +445,7 @@ def _fail_device(
     code: str | None = None,
     message: str | None = None,
     exc: Exception | None = None,
+    failure: FailureInfo | None = None,
 ) -> tuple[str, DeviceContext | None, bool]:
     from_exc = (
         device_error_from_exception(
@@ -453,7 +456,7 @@ def _fail_device(
     )
     error_code = code or (from_exc.code if from_exc else "error")
     error_message = message or (from_exc.message if from_exc else "Unknown error")
-    failure = from_exc.failure if from_exc else None
+    failure = failure or (from_exc.failure if from_exc else None)
 
     if device is None:
         placeholder = DeviceContext(
@@ -524,6 +527,7 @@ async def _update_one_device(
                 device=device,
                 node_id=node_id,
                 code="not_found",
+                failure=NOT_FOUND,
                 message=f"No Nautobot device found for {device_key} "
                 f"(name={target.name!r}, ip={target.primary_ip4!r})",
             )

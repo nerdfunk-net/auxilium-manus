@@ -151,6 +151,7 @@ class ExecuteTests(unittest.IsolatedAsyncioTestCase):
         by_name = {o.name: o for o in outcomes}
         failed = by_name["failure"].context.devices["d1"]
         self.assertEqual(failed.errors[-1].code, "not_found")
+        self.assertEqual(failed.errors[-1].failure.kind, "not_found")
 
     async def test_resolver_exception_routes_to_failure(self) -> None:
         ctx = WorkflowContext(run_id="r", workflow_id="w", devices={"d1": _device("d1")})

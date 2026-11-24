@@ -38,6 +38,7 @@ from models.workflow_context import (
 from services.artifacts import ArtifactService
 from workflow_steps.common.device_outcomes import build_outcomes
 from workflow_steps.common.device_runner import Fail, run_per_device
+from workflow_steps.common.failure_records import INVALID_RESPONSE
 from workflow_steps.common.jinja_render import parse_output_key
 from workflow_steps.common.pyats_batch import (
     resolve_source_credentials,
@@ -76,12 +77,21 @@ def _shape_result(
     running_entry = commands.get(_RUNNING_COMMAND)
     if not running_entry:
         return Fail(
-            "parse_failed", f"{_RUNNING_COMMAND}: the shim returned no result for this command"
+            "parse_failed", f"{_RUNNING_COMMAND}: the shim returned no result for this command",
+            failure=INVALID_RESPONSE,
         )
     if running_entry.get("error"):
-        return Fail("parse_failed", f"{_RUNNING_COMMAND}: {running_entry['error']}")
+        return Fail(
+            "parse_failed",
+            f"{_RUNNING_COMMAND}: {running_entry['error']}",
+            failure=INVALID_RESPONSE,
+        )
     if running_entry.get("parsed") is None:
-        return Fail("parse_failed", f"{_RUNNING_COMMAND}: the shim returned no parsed data")
+        return Fail(
+            "parse_failed",
+            f"{_RUNNING_COMMAND}: the shim returned no parsed data",
+            failure=INVALID_RESPONSE,
+        )
 
     entry = {"running": running_entry.get("parsed")}
     parsed = dict(device.parsed)

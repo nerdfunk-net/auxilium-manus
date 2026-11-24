@@ -95,6 +95,7 @@ from services.workflow_context.secret_expression import require_secret_expressio
 from services.workflow_context.secret_fields import seal_secret
 from workflow_steps.add_to_ise.group_ensure import DeviceGroupEnsurer
 from workflow_steps.common.device_runner import AbortRun, Fail, run_per_device
+from workflow_steps.common.failure_records import INVALID_INPUT
 from workflow_steps.common.partial_outcomes import abort_outcomes
 from workflow_steps.common.request_record import append_request_record
 from workflow_steps.common.source_credentials import resolve_source
@@ -546,7 +547,9 @@ async def _create_one_device(
         failure_code, failure_message = resolved
         return _CreateOneResult(
             kind="failed",
-            fail=_refusal(device, code=failure_code, message=failure_message),
+            fail=_refusal(
+                device, code=failure_code, message=failure_message, failure=INVALID_INPUT
+            ),
         )
 
     device_payload = _build_create_payload(resolved)

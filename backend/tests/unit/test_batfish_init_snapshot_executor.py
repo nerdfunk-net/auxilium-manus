@@ -147,6 +147,7 @@ class BatfishInitSnapshotExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(list(by_name["success"].context.devices), ["device-1"])
         failed = by_name["failure"].context.devices["device-2"]
         self.assertEqual(failed.errors[-1].code, "running_config_missing")
+        self.assertEqual(failed.errors[-1].failure.kind, "not_found")
         self.assertIn("1 skipped", by_name["success"].summary or "")
         batfish.init_snapshot.assert_awaited_once()
 

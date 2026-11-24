@@ -254,6 +254,7 @@ class UpdateAttributeExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(list(by_name["success"].context.devices), ["dev-2"])
         failed = by_name["failure"].context.devices["dev-1"]
         self.assertEqual(failed.errors[-1].code, "source_is_secret")
+        self.assertEqual(failed.errors[-1].failure.kind, "bad_request")
         self.assertIn("sealed secret", failed.errors[-1].message)
         self.assertNotIn("backup", failed.attribute_bags)
 

@@ -836,6 +836,7 @@ class UpdateOneDeviceTests(unittest.IsolatedAsyncioTestCase):
             )
         self.assertFalse(ok)
         self.assertEqual(dev.errors[-1].code, "not_found")
+        self.assertEqual(dev.errors[-1].failure.kind, "not_found")
 
     async def test_success_marks_device_ok(self) -> None:
         parsed = _parse_config(_attribute_config("tacacs.shared_secret", mode="write"))

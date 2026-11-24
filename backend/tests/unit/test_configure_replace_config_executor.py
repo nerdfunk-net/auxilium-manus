@@ -276,6 +276,7 @@ class ConfigureReplaceConfigExecutorTests(unittest.IsolatedAsyncioTestCase):
         failure_outcome = next(o for o in outcomes if o.name == "failure")
         err = failure_outcome.context.devices[_DEVICE_ID].errors[0]
         self.assertEqual(err.code, "confirm_failed")
+        self.assertEqual(err.failure.kind, "command_error")
         self.assertIn("auto-revert", err.message)
         self.assertEqual(shim.run_job.await_count, 1)
 
@@ -521,6 +522,7 @@ class ConfigureReplaceConfigExecutorTests(unittest.IsolatedAsyncioTestCase):
         failure_outcome = next(o for o in outcomes if o.name == "failure")
         err = failure_outcome.context.devices[_DEVICE_ID].errors[0]
         self.assertEqual(err.code, "post_verify_failed")
+        self.assertEqual(err.failure.kind, "command_error")
         self.assertEqual(shim.run_job.await_count, 2)
 
     async def test_failed_post_check_keeps_the_pre_diff_artifact_ref(self) -> None:

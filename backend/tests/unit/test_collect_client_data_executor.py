@@ -773,6 +773,9 @@ class CollectClientDataExecutorTests(unittest.IsolatedAsyncioTestCase):
         outcomes = await self._run({"d6": device}, _FakeNetmiko({}))
 
         self.assertEqual(self._by_name(outcomes, "failure")["d6"].errors[-1].code, "missing_host")
+        self.assertEqual(
+            self._by_name(outcomes, "failure")["d6"].errors[-1].failure.kind, "bad_request"
+        )
 
     async def test_a_long_hostname_target_does_not_break_the_save(self) -> None:
         host = "core-switch-01." + "building-a." * 5 + "example.net"  # longer than varchar(45)

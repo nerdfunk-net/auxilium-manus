@@ -92,6 +92,7 @@ from services.workflow_context.node_result import set_node_result
 from services.workflow_context.secret_fields import unwrap_secret
 from workflow_steps.common.device_outcomes import build_outcomes
 from workflow_steps.common.device_runner import Fail, run_per_device
+from workflow_steps.common.failure_records import COMMAND_FAILED, INVALID_INPUT
 from workflow_steps.common.pyats_batch import (
     resolve_source_credentials,
     shim_concurrency,
@@ -184,6 +185,7 @@ def _replace_failure(error: str | None) -> Fail:
             "  archive\n"
             "   path flash:archive\n"
             "then retry. See this step's Help panel for details.",
+            failure=INVALID_INPUT,
         )
     return Fail(
         "replace_failed",
@@ -340,19 +342,28 @@ def _prepare_target(
     bag = device.attribute_bags.get("pyats_testbed")
     if not isinstance(bag, dict):
         return Fail(
-            "missing_testbed", "No pyats_testbed bag found -- add an Add Testbed step upstream"
+            "missing_testbed", "No pyats_testbed bag found -- add an Add Testbed step upstream",
+            failure=INVALID_INPUT,
         )
 
     source_id = str(bag.get("pyats_source_id") or "")
     if source_id in source_errors:
-        return Fail("source_error", source_errors[source_id])
+        return Fail("source_error", source_errors[source_id], failure=INVALID_INPUT)
     shim_credentials = source_credentials.get(source_id)
     if shim_credentials is None:
-        return Fail("source_error", f"pyATS source {source_id!r} could not be resolved")
+        return Fail(
+            "source_error",
+            f"pyATS source {source_id!r} could not be resolved",
+            failure=INVALID_INPUT,
+        )
 
     password = unwrap_secret(bag.get("password"))
     if not password:
-        return Fail("missing_credential", "pyats_testbed bag has no usable password")
+        return Fail(
+            "missing_credential",
+            "pyats_testbed bag has no usable password",
+            failure=INVALID_INPUT,
+        )
 
     shim_device = {
         "name": device_id,
@@ -492,6 +503,7 @@ async def _replace_and_confirm(
             f"'configure replace' succeeded but sending '{_CONFIRM_COMMAND}' on the same "
             f"connection failed ({confirm_entry['error']}); device will auto-revert after "
             f"{timeout_minutes} minute(s)",
+            failure=COMMAND_FAILED,
         )
 
     if _has_no_pending_rollback(confirm_entry.get("raw")):
@@ -538,6 +550,7 @@ async def _verify_after_replace(
                 pre_diff_artifact_ref=pre_diff_artifact_ref,
                 post_diff_artifact_ref=None,
             ),
+            failure=COMMAND_FAILED,
         )
     if not _diff_has_changes(post_diff_text):
         return None

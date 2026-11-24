@@ -495,6 +495,7 @@ class MergeConfigExecutorTests(unittest.IsolatedAsyncioTestCase):
         by_name = {o.name: o for o in outcomes}
         failed = by_name["failure"].context.devices["d1"]
         self.assertEqual(failed.errors[-1].code, "missing_host")
+        self.assertEqual(failed.errors[-1].failure.kind, "bad_request")
 
     async def test_merge_config_exception_fails_device(self) -> None:
         with (

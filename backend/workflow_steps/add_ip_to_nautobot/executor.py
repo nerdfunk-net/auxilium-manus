@@ -33,6 +33,7 @@ from services.nautobot.devices.common import DeviceCommonService
 from services.workflow_context.secret_fields import REDACTED_PLACEHOLDER
 from workflow_steps.add_ip_to_nautobot.config import get_config
 from workflow_steps.common.attribute_write import set_device_attribute
+from workflow_steps.common.failure_records import INVALID_INPUT
 from workflow_steps.common.nautobot_prefix_lookup import (
     LookupFailure,
     find_containing_prefix,
@@ -493,7 +494,9 @@ async def execute(
             code, message = planned
             results[device.id] = (
                 "failure",
-                _failed(device, node_id=node_id, code=code, message=message),
+                _failed(
+                    device, node_id=node_id, code=code, message=message, failure=INVALID_INPUT
+                ),
             )
         else:
             plans.append(planned)

@@ -26,6 +26,7 @@ from services.nautobot.common.exceptions import NautobotAPIError, is_duplicate_e
 from services.nautobot.credentials_bound_client import CredentialsBoundNautobotClient
 from services.nautobot.devices.creation import DeviceCreationService
 from services.nautobot.devices.types import AddDeviceRequest
+from workflow_steps.common.failure_records import INVALID_INPUT
 from workflow_steps.common.nautobot_interfaces import (
     build_interfaces_from_config,
     interfaces_from_nautobot_bag,
@@ -299,6 +300,7 @@ async def _create_one_device(
                 device_key=device_key,
                 node_id=node_id,
                 code="missing_required_field",
+                failure=INVALID_INPUT,
                 message=(f"Required field(s) could not be resolved: {', '.join(missing)}"),
             )
 
@@ -312,6 +314,7 @@ async def _create_one_device(
                     device_key=device_key,
                     node_id=node_id,
                     code="dry_run_validation_failed",
+                    failure=INVALID_INPUT,
                     message="; ".join(result.get("errors") or ["dry run validation failed"]),
                 )
             enriched = device.model_copy(

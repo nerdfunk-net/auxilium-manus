@@ -24,6 +24,7 @@ from services.workflow_context.attribute_path import (
     AttributeState,
     resolve_device_attribute_state,
 )
+from workflow_steps.common.failure_records import INVALID_INPUT
 from workflow_steps.common.partial_outcomes import mark_device_failed
 from workflow_steps.common.step_flags import parse_bool_flag
 from workflow_steps.route_on_attribute.config import get_config
@@ -274,6 +275,7 @@ async def execute(
             node_id=node_id,
             step_id=_STEP_ID,
             code=code,
+            failure=INVALID_INPUT,
             message=message,
         )
         for device_id, (code, message) in route_failures.items()

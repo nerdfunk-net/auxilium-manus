@@ -19,6 +19,7 @@ from services.artifacts import ArtifactService
 from services.network.netmiko.connection import RetryPolicy
 from services.network.netmiko.platform import resolve_connection_device_type
 from services.network.netmiko.service import NetmikoService
+from workflow_steps.common.failure_records import INVALID_INPUT
 from workflow_steps.common.step_flags import record_dry_run
 from workflow_steps.run_command.outcomes import fail_device
 from workflow_steps.run_command.parsing import ParsedRunCommandConfig
@@ -65,6 +66,7 @@ async def _run_on_device(
             device_id=device_id,
             node_id=node_id,
             code="missing_host",
+            failure=INVALID_INPUT,
             message=f"Device {device_id} has no hostname or primary IP",
         )
         return dev_id, failed, ok, {}

@@ -152,6 +152,7 @@ class ExecuteTests(unittest.IsolatedAsyncioTestCase):
         )
         failed = {o.name: o for o in outs}["failure"].context.devices["d1"]
         self.assertEqual(failed.errors[-1].code, "not_found")
+        self.assertEqual(failed.errors[-1].failure.kind, "not_found")
 
     async def test_graphql_device_missing_fails_not_found(self) -> None:
         svc = MagicMock()
@@ -159,6 +160,7 @@ class ExecuteTests(unittest.IsolatedAsyncioTestCase):
         outs = await _run_execute(_cfg(), {"d1": _device("d1")}, svc, AsyncMock(return_value="x"))
         failed = {o.name: o for o in outs}["failure"].context.devices["d1"]
         self.assertEqual(failed.errors[-1].code, "not_found")
+        self.assertEqual(failed.errors[-1].failure.kind, "not_found")
 
     async def test_exception_message_is_sanitised(self) -> None:
         outs = await _run_execute(

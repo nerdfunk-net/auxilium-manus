@@ -175,6 +175,7 @@ class ExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual([o.name for o in outcomes], ["success", "failure"])
         failed = outcomes[1].context.devices["d1"]
         self.assertEqual(failed.errors[-1].code, "no_address")
+        self.assertEqual(failed.errors[-1].failure.kind, "bad_request")
         p.service.find.assert_awaited_once()  # only the device with an address is looked up
 
     async def test_an_apic_failure_fails_that_device_with_the_error(self) -> None:

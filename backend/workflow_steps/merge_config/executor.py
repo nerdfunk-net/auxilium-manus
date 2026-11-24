@@ -43,6 +43,7 @@ from services.network.netmiko.session_pool import DeviceSessionPool
 from workflow_steps.common.credential_resolver import resolve_ssh_credential
 from workflow_steps.common.device_outcomes import build_outcomes
 from workflow_steps.common.device_runner import Fail, run_per_device
+from workflow_steps.common.failure_records import INVALID_INPUT
 from workflow_steps.common.read_timeout import parse_read_timeout
 from workflow_steps.common.retry_config import parse_retry_backoff_seconds
 from workflow_steps.common.run_logging import log_run_id
@@ -99,7 +100,11 @@ async def _merge_on_device(
 ) -> DeviceContext | Fail:
     host = bare_hostname(device.primary_ip4, device.hostname)
     if not host:
-        return Fail("missing_host", f"Device {device_id} has no hostname or primary IP")
+        return Fail(
+            "missing_host",
+            f"Device {device_id} has no hostname or primary IP",
+            failure=INVALID_INPUT,
+        )
 
     command = f"copy {parsed.source_filename} running-config"
 

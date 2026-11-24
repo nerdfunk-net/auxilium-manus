@@ -18,6 +18,7 @@ from workflow_steps.common.device_outcomes import (
     build_outcomes,
     failed_device,
 )
+from workflow_steps.common.failure_records import INVALID_INPUT
 from workflow_steps.common.source_credentials import resolve_source
 
 CATALYST_CENTER_SOURCE = "catalyst_center"
@@ -44,6 +45,7 @@ def split_targets(devices: dict[str, DeviceContext], *, step_id: str, node_id: s
                 step_id=step_id,
                 node_id=node_id,
                 code="not_catalyst_center_device",
+                failure=INVALID_INPUT,
                 message=(
                     f"Device {device_id} did not come from a Catalyst Center source "
                     f"(source={device.source or 'unknown'})"

@@ -172,6 +172,7 @@ class CollectTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(list(outcomes["success"].context.devices), ["a"])
         failed = outcomes["failure"].context.devices["b"]
         self.assertEqual(failed.errors[-1].code, "not_catalyst_center_device")
+        self.assertEqual(failed.errors[-1].failure.kind, "bad_request")
         self.assertEqual(env.service.get_wired_clients.await_count, 1)
 
     async def test_duplicate_names_fail_the_second_device(self) -> None:

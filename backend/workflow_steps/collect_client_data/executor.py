@@ -52,6 +52,7 @@ from workflow_steps.common.duplicate_keys import (
     DUPLICATE_KEY_FAILURE,
     find_duplicate_keys,
 )
+from workflow_steps.common.failure_records import INVALID_INPUT
 from workflow_steps.common.partial_outcomes import (
     device_error_from_exception,
     fail_device_with_error,
@@ -161,7 +162,9 @@ def _target(
     """Resolve the SSH target; raises ``CollectionError`` when the device cannot be reached."""
     host = bare_hostname(device.primary_ip4, device.hostname)
     if not host:
-        raise CollectionError("missing_host", f"Device {device.id} has no hostname or primary IP")
+        raise CollectionError(
+            "missing_host", f"Device {device.id} has no hostname or primary IP", INVALID_INPUT
+        )
     try:
         device_type = resolve_connection_device_type(
             network_driver=device.network_driver,

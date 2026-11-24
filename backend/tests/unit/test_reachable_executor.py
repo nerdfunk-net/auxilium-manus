@@ -116,6 +116,7 @@ class ExecuteTests(unittest.IsolatedAsyncioTestCase):
         )
         failed = {o.name: o for o in outcomes}["failure"].context.devices["d1"]
         self.assertEqual(failed.errors[-1].code, "missing_host")
+        self.assertEqual(failed.errors[-1].failure.kind, "bad_request")
 
 
 if __name__ == "__main__":

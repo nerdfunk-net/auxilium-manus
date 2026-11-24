@@ -224,6 +224,7 @@ class ListContainsExecutorTests(unittest.IsolatedAsyncioTestCase):
         failed = by_name["failure"].context.devices["d1"]
         self.assertEqual(failed.status, DeviceStatus.FAILED)
         self.assertEqual(failed.errors[-1].code, "list_not_populated")
+        self.assertEqual(failed.errors[-1].failure.kind, "not_found")
 
     async def test_failure_when_list_path_resolves_to_non_list(self) -> None:
         run = MagicMock()
@@ -253,6 +254,9 @@ class ListContainsExecutorTests(unittest.IsolatedAsyncioTestCase):
         by_name = {o.name: o for o in outcomes}
         self.assertEqual(list(by_name["failure"].context.devices), ["d1"])
         self.assertEqual(by_name["failure"].context.devices["d1"].errors[-1].code, "not_a_list")
+        self.assertEqual(
+            by_name["failure"].context.devices["d1"].errors[-1].failure.kind, "bad_request"
+        )
 
     async def test_value_expression_resolves_per_device_attribute(self) -> None:
         run = MagicMock()
@@ -335,6 +339,7 @@ class ListContainsExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(list(by_name["failure"].context.devices), ["d1"])
         failed = by_name["failure"].context.devices["d1"]
         self.assertEqual(failed.errors[-1].code, "value_unresolved")
+        self.assertEqual(failed.errors[-1].failure.kind, "bad_request")
 
     async def test_case_insensitive_by_default_and_case_sensitive_opt_in(self) -> None:
         run = MagicMock()
@@ -552,6 +557,7 @@ class ListContainsExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(list(by_name["failure"].context.devices), ["d1"])
         failed = by_name["failure"].context.devices["d1"]
         self.assertEqual(failed.errors[-1].code, "list_not_populated")
+        self.assertEqual(failed.errors[-1].failure.kind, "not_found")
 
 
 if __name__ == "__main__":

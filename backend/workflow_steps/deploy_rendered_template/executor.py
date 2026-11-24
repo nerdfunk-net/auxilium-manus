@@ -26,6 +26,7 @@ from workflow_steps.common.content_resolver import list_exportable_content
 from workflow_steps.common.credential_resolver import resolve_ssh_credential
 from workflow_steps.common.device_outcomes import build_outcomes
 from workflow_steps.common.device_runner import Fail, run_per_device
+from workflow_steps.common.failure_records import INVALID_INPUT, MISSING_DATA
 from workflow_steps.common.read_timeout import parse_read_timeout
 from workflow_steps.common.retry_config import parse_retry_backoff_seconds
 from workflow_steps.common.run_logging import log_run_id
@@ -104,14 +105,20 @@ async def _load_deploy_commands(
     )
     if not items:
         return Fail(
-            "rendered_template_missing", "No rendered template found for the configured source step"
+            "rendered_template_missing",
+            "No rendered template found for the configured source step",
+            failure=MISSING_DATA,
         )
     rendered_text = await artifact_service.resolve(items[0].artifact_ref)
     # Split on "\n" only: the template renderer rejects every other line separator inside values,
     # so the two sides cannot disagree about where a command ends.
     commands = [line.rstrip("\r") for line in rendered_text.split("\n") if line.strip()]
     if not commands:
-        return Fail("empty_rendered_template", "Rendered template produced no commands")
+        return Fail(
+            "empty_rendered_template",
+            "Rendered template produced no commands",
+            failure=MISSING_DATA,
+        )
     return commands
 
 
@@ -265,7 +272,11 @@ async def _deploy_on_device(
 ) -> DeviceContext | Fail:
     host = bare_hostname(device.primary_ip4, device.hostname)
     if not host:
-        return Fail("missing_host", f"Device {device_id} has no hostname or primary IP")
+        return Fail(
+            "missing_host",
+            f"Device {device_id} has no hostname or primary IP",
+            failure=INVALID_INPUT,
+        )
 
     loaded = await _load_deploy_commands(
         device=device, parsed=parsed, artifact_service=artifact_service

@@ -578,6 +578,7 @@ class ConfigToAttributesExecutorTests(unittest.IsolatedAsyncioTestCase):
         failed = by_name["failure"].context.devices["dev-1"]
         self.assertNotIn("nautobot", failed.attribute_bags)
         self.assertEqual(failed.errors[-1].code, "no_parsed_data")
+        self.assertEqual(failed.errors[-1].failure.kind, "not_found")
 
     async def test_device_without_parsed_data_fails(self) -> None:
         ok_device = _device(

@@ -30,6 +30,7 @@ from services.nautobot.devices.attribute_bag import (
 from services.nautobot.devices.cable_normalize import normalize_cables as normalize_cables_in_bag
 from workflow_steps.common.device_outcomes import build_outcomes
 from workflow_steps.common.device_runner import Fail, run_per_device
+from workflow_steps.common.failure_records import NOT_FOUND
 from workflow_steps.common.nautobot_resolve import resolve_nautobot_device_id
 from workflow_steps.common.nautobot_source import resolve_nautobot_credentials
 from workflow_steps.common.run_logging import log_run_id
@@ -126,13 +127,18 @@ async def _enrich_device(
             "not_found",
             f"No Nautobot device found for workflow device {device_id} "
             f"(name={device.name!r}, ip={device.primary_ip4!r})",
+            failure=NOT_FOUND,
         )
 
     detail = await _fetch_device(
         nautobot_service, credentials, nautobot_device_id, variables, query
     )
     if detail is None:
-        return Fail("not_found", f"No Nautobot data returned for device {device_id}")
+        return Fail(
+            "not_found",
+            f"No Nautobot data returned for device {device_id}",
+            failure=NOT_FOUND,
+        )
 
     platform_raw = detail.get("platform")
     platform = platform_raw if isinstance(platform_raw, dict) else {}

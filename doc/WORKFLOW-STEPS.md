@@ -463,6 +463,12 @@ errors whose text is sanitised at the source:
   group ensurer decide by that code, never by message text, so an address conflict worded the same way is a failure.
 - **SSH driver, git and database** errors keep the class name and the `FailureInfo` only.
 
+A failure that names a code names its cause too: `DeviceError(failure=...)`, a wrapper's `failure=` and the runner's
+`Fail(code, message, failure)`. `workflow_steps/common/failure_records.py` holds the records most steps share
+(`INVALID_INPUT`, `NOT_FOUND`, `MISSING_DATA`, `INVALID_RESPONSE`, `COMMAND_FAILED`); a cause with more facts (an HTTP
+status, a transport kind) builds its own. `test_device_error_failure_ratchet.py` (direct `DeviceError(...)` calls) and
+`test_failure_record_wrapper_ratchet.py` (calls through `_fail_device`, `mark_device_failed`, `Fail`, ...) may only fall.
+
 ### Empty branch and step-level failure (D2)
 
 - **Validate first, then look at the devices.** A step parses and validates its config before it returns for an empty

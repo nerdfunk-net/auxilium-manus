@@ -142,6 +142,7 @@ class LoginSuccessfulExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(outcomes[0].context.devices, {})
         failed = outcomes[1].context.devices["device-1"]
         self.assertEqual(failed.errors[-1].code, "missing_host")
+        self.assertEqual(failed.errors[-1].failure.kind, "bad_request")
 
     async def test_missing_credential_raises(self) -> None:
         run = MagicMock()

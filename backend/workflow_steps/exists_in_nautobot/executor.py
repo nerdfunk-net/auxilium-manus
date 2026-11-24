@@ -17,6 +17,7 @@ from services.nautobot.common.exceptions import NautobotError
 from services.nautobot.credentials import NautobotCredentials
 from workflow_steps.common.device_outcomes import outcomes_from_buckets
 from workflow_steps.common.device_runner import Fail, run_per_device
+from workflow_steps.common.failure_records import INVALID_INPUT
 from workflow_steps.common.nautobot_resolve import (
     find_device_id_by_interface_ip,
     find_device_id_by_name,
@@ -145,7 +146,7 @@ async def _classify_device(
             credentials=credentials,
         )
     except _IpUnresolvedError as exc:
-        return "failure", Fail(code="ip_unresolved", message=str(exc))
+        return "failure", Fail(code="ip_unresolved", message=str(exc), failure=INVALID_INPUT)
     if nautobot_id is None:
         return "non_existing", device
     return "exists", _with_nautobot_id(device, nautobot_id)

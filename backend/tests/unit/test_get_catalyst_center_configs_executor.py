@@ -96,6 +96,7 @@ class GetCatalystCenterConfigsTests(unittest.IsolatedAsyncioTestCase):
             outcomes = await _run(_context(_device("n", source="nautobot")))
         failure = next(o for o in outcomes if o.name == "failure")
         self.assertEqual(failure.context.devices["n"].errors[0].code, "not_catalyst_center_device")
+        self.assertEqual(failure.context.devices["n"].errors[0].failure.kind, "bad_request")
         get_config.assert_not_awaited()
 
     async def test_no_devices_is_a_noop_success(self) -> None:

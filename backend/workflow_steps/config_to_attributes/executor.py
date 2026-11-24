@@ -17,6 +17,7 @@ from models.workflow_context import (
 )
 from services.artifacts import ArtifactService
 from workflow_steps.common.attribute_defaults import merge_nautobot_defaults
+from workflow_steps.common.failure_records import MISSING_DATA
 from workflow_steps.common.nautobot_interfaces import (
     cidr_from_ip_and_mask,
     infer_interface_type_from_name,
@@ -630,6 +631,7 @@ async def execute(
             node_id=node_id,
             step_id=_STEP_ID,
             code="no_parsed_data",
+            failure=MISSING_DATA,
             message=(
                 "no usable parsed config at "
                 f"{_parsed_location(parsed_key, config_source, source_format)} for this device"

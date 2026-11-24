@@ -9,6 +9,7 @@ from core.models.runs import WorkflowRun
 from models.workflow_context import DeviceContext, DeviceStatus, StepOutcome, WorkflowContext
 from services.artifacts import ArtifactService
 from workflow_steps.common.device_outcomes import build_outcomes, mark_device_failed
+from workflow_steps.common.failure_records import INVALID_INPUT
 from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.split_virtual_chassis.members import (
     STEP_ID,
@@ -41,6 +42,7 @@ def _split_all(
                 node_id=node_id,
                 step_id=STEP_ID,
                 code="not_a_stack",
+                failure=INVALID_INPUT,
                 message=(
                     f"Device {device.name!r} has no {settings.attribute_bag!r} stack data; "
                     "use a Get Virtual Chassis step with split_members off upstream"
@@ -54,6 +56,7 @@ def _split_all(
                 node_id=node_id,
                 step_id=STEP_ID,
                 code="member_id_conflict",
+                failure=INVALID_INPUT,
                 message=f"Stack member id(s) {', '.join(clash)} already belong to another stack",
             )
             continue

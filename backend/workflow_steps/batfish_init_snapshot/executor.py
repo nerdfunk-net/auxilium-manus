@@ -61,6 +61,7 @@ from workflow_steps.common.batfish_git_source import (
     copy_git_source_files_into,
 )
 from workflow_steps.common.content_resolver import list_exportable_content
+from workflow_steps.common.failure_records import MISSING_DATA
 from workflow_steps.common.git_repository_loader import load_git_repository, require_repository_id
 from workflow_steps.common.partial_outcomes import mark_device_failed
 from workflow_steps.common.run_logging import log_run_id
@@ -379,6 +380,7 @@ async def execute(
             node_id=node_id,
             step_id=_STEP_ID,
             code="running_config_missing",
+            failure=MISSING_DATA,
             message="no running config, device is not part of the snapshot",
         )
         for device_id in summary.skipped

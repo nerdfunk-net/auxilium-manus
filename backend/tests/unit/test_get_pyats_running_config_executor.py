@@ -234,6 +234,7 @@ class GetPyatsRunningConfigExecutorTests(unittest.IsolatedAsyncioTestCase):
         failure_outcome = next(o for o in outcomes if o.name == "failure")
         error = failure_outcome.context.devices["device-1"].errors[0]
         self.assertEqual(error.code, "parse_failed")
+        self.assertEqual(error.failure.kind, "invalid_response")
         self.assertIn("no result", error.message)
 
     async def test_no_devices_short_circuits(self) -> None:

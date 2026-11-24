@@ -32,6 +32,7 @@ from workflow_steps.common.content_resolver import (
     list_exportable_content,
     parse_content_source,
 )
+from workflow_steps.common.failure_records import MISSING_DATA
 from workflow_steps.common.partial_outcomes import device_error_from_exception
 from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.common.step_flags import parse_bool_flag
@@ -400,6 +401,7 @@ async def _compare_for_device(
             device=device,
             node_id=node_id,
             code="missing_content",
+            failure=MISSING_DATA,
             message=(
                 f"No {parsed.content_source!r} content available for device {device_id}. "
                 "Ensure an upstream step produced the selected data."

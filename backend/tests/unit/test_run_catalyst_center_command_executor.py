@@ -162,6 +162,7 @@ class FailurePathTests(unittest.IsolatedAsyncioTestCase):
             )
         failure = next(o for o in outcomes if o.name == "failure")
         self.assertEqual(failure.context.devices["n1"].errors[0].code, "not_catalyst_center_device")
+        self.assertEqual(failure.context.devices["n1"].errors[0].failure.kind, "bad_request")
         h.command_service.run_commands.assert_not_awaited()
 
     async def test_blocklisted_command_fails_the_device_but_keeps_results(self) -> None:

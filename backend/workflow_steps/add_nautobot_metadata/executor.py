@@ -34,6 +34,7 @@ from services.nautobot.metadata_creation import (
     MetadataCreationService,
     MetadataReferenceNotFoundError,
 )
+from workflow_steps.common.failure_records import INVALID_INPUT
 from workflow_steps.common.nautobot_source import resolve_nautobot_credentials
 from workflow_steps.common.partial_outcomes import NAUTOBOT_TEXT, device_error_from_exception
 from workflow_steps.common.run_logging import log_run_id
@@ -263,7 +264,11 @@ async def _process_device(
         key = _identity_key(parsed.metadata_type, values)
         bag_updates = await shared.run(key, lambda: ensure(service, values))
     except _DeviceFailure as failure:
-        return device_key, _fail(device, node_id, failure.code, failure.message), False
+        return (
+            device_key,
+            _fail(device, node_id, failure.code, failure.message, INVALID_INPUT),
+            False,
+        )
     except MetadataReferenceNotFoundError as exc:
         return (
             device_key,

@@ -221,6 +221,7 @@ class GetPyatsSnapshotExecutorTests(unittest.IsolatedAsyncioTestCase):
         failure_outcome = next(o for o in outcomes if o.name == "failure")
         error = failure_outcome.context.devices["device-1"].errors[0]
         self.assertEqual(error.code, "snapshot_failed")
+        self.assertEqual(error.failure.kind, "invalid_response")
         self.assertIn("no result", error.message)
 
     async def test_missing_testbed_bag_fails_device(self) -> None:

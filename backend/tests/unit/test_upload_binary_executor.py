@@ -356,6 +356,7 @@ class UploadBinaryExecutorTests(unittest.IsolatedAsyncioTestCase):
         bare = _device(ip=None).model_copy(update={"hostname": None})
         outcomes, _ = await self._run(_config(), {"device-1": bare}, {})
         self.assertEqual(self._only(outcomes, "failure").errors[-1].code, "missing_host")
+        self.assertEqual(self._only(outcomes, "failure").errors[-1].failure.kind, "bad_request")
 
     async def test_no_devices_touches_neither_git_nor_devices(self) -> None:
         outcomes, _ = await self._run(_config(), {}, {})

@@ -61,6 +61,7 @@ from services.workflow_context.device_template import (
 from services.workflow_context.node_result import set_node_result
 from workflow_steps.common.content_resolver import ExportableContent, list_exportable_content
 from workflow_steps.common.device_runner import Fail, run_per_device
+from workflow_steps.common.failure_records import INVALID_INPUT, MISSING_DATA
 from workflow_steps.common.partial_outcomes import device_error_from_exception
 from workflow_steps.common.pyats_batch import resolve_source_credentials
 from workflow_steps.common.pyats_features import parse_feature_list
@@ -311,15 +312,20 @@ def _credentials_for_device(
     bag = device.attribute_bags.get("pyats_testbed")
     if not isinstance(bag, dict):
         return Fail(
-            "missing_testbed", "No pyats_testbed bag found -- add an Add Testbed step upstream"
+            "missing_testbed", "No pyats_testbed bag found -- add an Add Testbed step upstream",
+            failure=INVALID_INPUT,
         )
 
     source_id = str(bag.get("pyats_source_id") or "")
     if source_id in source_errors:
-        return Fail("source_error", source_errors[source_id])
+        return Fail("source_error", source_errors[source_id], failure=INVALID_INPUT)
     shim_credentials = source_credentials.get(source_id)
     if shim_credentials is None:
-        return Fail("source_error", f"pyATS source {source_id!r} could not be resolved")
+        return Fail(
+            "source_error",
+            f"pyATS source {source_id!r} could not be resolved",
+            failure=INVALID_INPUT,
+        )
     return shim_credentials
 
 
@@ -343,13 +349,18 @@ async def _load_live_snapshot(
             "missing_content",
             "No pyats_snapshot content available for this device. "
             "Add an upstream Get Snapshot step.",
+            failure=MISSING_DATA,
         )
 
     try:
         live_text = await artifact_service.resolve(item.artifact_ref)
         return _LiveSnapshot(item=item, data=json.loads(live_text))
     except json.JSONDecodeError:
-        return Fail("invalid_snapshot", "Live snapshot artifact is not valid JSON")
+        return Fail(
+            "invalid_snapshot",
+            "Live snapshot artifact is not valid JSON",
+            failure=INVALID_INPUT,
+        )
 
 
 async def _load_reference_snapshot(
@@ -374,7 +385,7 @@ async def _load_reference_snapshot(
     try:
         reference_text = await read_reference_text(config=config, relative_path=reference_path)
     except FileNotFoundError as exc:
-        return Fail("missing_reference", str(exc))
+        return Fail("missing_reference", str(exc), failure=MISSING_DATA)
     except Exception as exc:  # noqa: BLE001 - surfaced to the operator as a device failure
         # The class name and a closed record: the text of a reader error can carry paths.
         error = device_error_from_exception(exc, node_id=node_id, step_id=_STEP_ID)
@@ -384,7 +395,8 @@ async def _load_reference_snapshot(
         return _ReferenceSnapshot(path=reference_path, data=json.loads(reference_text))
     except json.JSONDecodeError:
         return Fail(
-            "invalid_snapshot", "Reference snapshot file is not valid JSON snapshot content"
+            "invalid_snapshot", "Reference snapshot file is not valid JSON snapshot content",
+            failure=INVALID_INPUT,
         )
 
 
@@ -409,13 +421,13 @@ async def _diff_features(
     for feature in features:
         live_data, live_error = _extract_feature(live_snapshot, feature, side="Live")
         if live_error is not None:
-            return Fail("missing_feature", live_error)
+            return Fail("missing_feature", live_error, failure=MISSING_DATA)
 
         reference_data, reference_error = _extract_feature(
             reference_snapshot, feature, side="Reference"
         )
         if reference_error is not None:
-            return Fail("missing_feature", reference_error)
+            return Fail("missing_feature", reference_error, failure=MISSING_DATA)
 
         try:
             response = await shim.diff(

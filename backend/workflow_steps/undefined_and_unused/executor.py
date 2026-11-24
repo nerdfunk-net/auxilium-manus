@@ -54,6 +54,7 @@ from typing import TYPE_CHECKING, Any
 
 import service_factory
 from core.models.runs import WorkflowRun
+from models.failure import FailureInfo
 from models.workflow_context import (
     Capability,
     DeviceContext,
@@ -70,6 +71,7 @@ from services.batfish.query_helpers import (
 )
 from workflow_steps.common.batfish_context import resolve_batfish_snapshot_ref
 from workflow_steps.common.fact_entries import parse_output_key_config
+from workflow_steps.common.failure_records import INVALID_INPUT, NOT_FOUND
 from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.undefined_and_unused.config import get_config
 
@@ -101,14 +103,25 @@ def _build_nodes_filter(configured: str, contributions: dict[str, str]) -> str |
 
 
 def _fail_device(
-    device: DeviceContext, *, node_id: str, code: str, message: str
+    device: DeviceContext,
+    *,
+    node_id: str,
+    code: str,
+    message: str,
+    failure: FailureInfo | None = None,
 ) -> DeviceContext:
     return device.model_copy(
         update={
             "status": DeviceStatus.FAILED,
             "errors": [
                 *device.errors,
-                DeviceError(node_id=node_id, step_id=_STEP_ID, code=code, message=message),
+                DeviceError(
+                    node_id=node_id,
+                    step_id=_STEP_ID,
+                    code=code,
+                    message=message,
+                    failure=failure,
+                ),
             ],
         }
     )
@@ -167,6 +180,7 @@ def _split_nameless_devices(
                 device,
                 node_id=node_id,
                 code="missing_name",
+                failure=INVALID_INPUT,
                 message="Device has no name to use as a Batfish node key",
             )
             continue
@@ -255,6 +269,7 @@ def _classify_devices(
                 device,
                 node_id=node_id,
                 code="node_not_found",
+                failure=NOT_FOUND,
                 message=(
                     f"No Batfish node matching this device's name ({device.name!r}, "
                     "case-insensitive) was found in the snapshot"
@@ -266,6 +281,7 @@ def _classify_devices(
                 device,
                 node_id=node_id,
                 code="parse_status",
+                failure=INVALID_INPUT,
                 message=(
                     f"Batfish reported parse status {status!r} for this device's config "
                     "file -- undefined-reference/unused-structure results would be unreliable"

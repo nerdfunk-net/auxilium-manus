@@ -36,6 +36,7 @@ from workflow_steps.common.device_file_upload import (
     verify_remote_digest,
 )
 from workflow_steps.common.device_runner import Fail, run_per_device
+from workflow_steps.common.failure_records import INVALID_INPUT, MISSING_DATA
 from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.common.run_param_reference import resolve_config_reference
 from workflow_steps.common.step_flags import parse_bool_flag
@@ -136,6 +137,7 @@ async def _load_upload_content(
         return Fail(
             f"{parsed.content_source}_missing",
             f"No {parsed.content_source} found for the configured source",
+            failure=MISSING_DATA,
         )
     return await artifact_service.resolve(items[0].artifact_ref)
 
@@ -199,7 +201,11 @@ async def _upload_on_device(
 ) -> DeviceContext | Fail:
     host = bare_hostname(device.primary_ip4, device.hostname)
     if not host:
-        return Fail("missing_host", f"Device {device_id} has no hostname or primary IP")
+        return Fail(
+            "missing_host",
+            f"Device {device_id} has no hostname or primary IP",
+            failure=INVALID_INPUT,
+        )
 
     loaded = await _load_upload_content(
         device=device, parsed=parsed, artifact_service=artifact_service

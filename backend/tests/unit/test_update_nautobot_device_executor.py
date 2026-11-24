@@ -116,6 +116,7 @@ class UpdateOneDeviceTests(unittest.IsolatedAsyncioTestCase):
         key, dev, ok, _ = await self._run_one(resolve_id=None)
         self.assertFalse(ok)
         self.assertEqual(dev.errors[-1].code, "not_found")
+        self.assertEqual(dev.errors[-1].failure.kind, "not_found")
 
     async def test_success(self) -> None:
         key, dev, ok, rid = await self._run_one(

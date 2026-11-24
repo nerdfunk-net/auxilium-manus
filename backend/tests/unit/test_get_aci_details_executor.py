@@ -183,6 +183,7 @@ class TargetTests(unittest.IsolatedAsyncioTestCase):
         failed = by_name["failure"].context.devices["nb"]
         self.assertEqual(failed.status, DeviceStatus.FAILED)
         self.assertEqual(failed.errors[0].code, "not_aci_device")
+        self.assertEqual(failed.errors[0].failure.kind, "bad_request")
         self.assertIn("aci-lab-101", by_name["success"].context.devices)
         p.service.get_device_and_software.assert_awaited_once()
 
@@ -192,6 +193,7 @@ class TargetTests(unittest.IsolatedAsyncioTestCase):
             outcomes = await _run({"facts": ["device"]}, _context(broken))
         failed = {o.name: o for o in outcomes}["failure"].context.devices[broken.id]
         self.assertEqual(failed.errors[0].code, "aci_node_unknown")
+        self.assertEqual(failed.errors[0].failure.kind, "bad_request")
         p.service.get_device_and_software.assert_not_called()
 
     async def test_a_node_or_pod_that_is_not_a_positive_number_fails(self) -> None:
@@ -206,6 +208,7 @@ class TargetTests(unittest.IsolatedAsyncioTestCase):
                 outcomes = await _run({"facts": ["device"]}, _context(broken))
                 failed = {o.name: o for o in outcomes}["failure"].context.devices[broken.id]
                 self.assertEqual(failed.errors[0].code, "aci_node_unknown")
+                self.assertEqual(failed.errors[0].failure.kind, "bad_request")
                 p.service.get_device_and_software.assert_not_called()
 
     async def test_credentials_resolve_once_per_source(self) -> None:

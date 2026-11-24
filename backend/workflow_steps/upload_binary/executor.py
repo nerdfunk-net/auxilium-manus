@@ -45,6 +45,7 @@ from workflow_steps.common.device_file_upload import (
     verify_remote_digest,
 )
 from workflow_steps.common.device_runner import Batch, Fail, run_per_device
+from workflow_steps.common.failure_records import INVALID_INPUT
 from workflow_steps.common.file_source_root import resolve_git_root
 from workflow_steps.common.git_repository_loader import parse_repository_id
 from workflow_steps.common.read_timeout import parse_read_timeout
@@ -166,7 +167,11 @@ async def _upload_on_device(
 ) -> DeviceContext | Fail:
     host = bare_hostname(device.primary_ip4, device.hostname)
     if not host:
-        return Fail("missing_host", f"Device {device_id} has no hostname or primary IP")
+        return Fail(
+            "missing_host",
+            f"Device {device_id} has no hostname or primary IP",
+            failure=INVALID_INPUT,
+        )
     return await _transfer_and_verify(
         device_id=device_id,
         device=device,

@@ -74,6 +74,7 @@ from workflow_steps.common.batfish_context import resolve_batfish_snapshot_ref
 from workflow_steps.common.batfish_git_source import collect_git_source_files
 from workflow_steps.common.content_resolver import list_exportable_content
 from workflow_steps.common.fact_entries import parse_output_key_config
+from workflow_steps.common.failure_records import MISSING_DATA
 from workflow_steps.common.git_repository_loader import load_git_repository, require_repository_id
 from workflow_steps.common.jinja_render import (
     JinjaTemplateError,
@@ -407,6 +408,7 @@ async def execute(
                 node_id=node_id,
                 step_id=_STEP_ID,
                 code="expected_facts_empty",
+                failure=MISSING_DATA,
                 message="The expected facts for this device are empty; nothing to validate",
             )
             continue

@@ -232,6 +232,7 @@ class ExecuteTests(unittest.IsolatedAsyncioTestCase):
         failed = by_name["failure"].context.devices["plain"]
         self.assertEqual(failed.status, DeviceStatus.FAILED)
         self.assertEqual(failed.errors[0].code, "not_a_stack")
+        self.assertEqual(failed.errors[0].failure.kind, "bad_request")
         self.assertEqual(failed.errors[0].step_id, "split-virtual-chassis")
 
     async def test_failed_stack_device_is_passed_to_failure_untouched(self) -> None:

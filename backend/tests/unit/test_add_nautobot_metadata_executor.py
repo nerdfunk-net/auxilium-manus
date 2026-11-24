@@ -234,6 +234,7 @@ class LocationTests(unittest.IsolatedAsyncioTestCase):
         failed = _by_name(outcomes)["failure"].context.devices["d1"]
         self.assertEqual(failed.status, DeviceStatus.FAILED)
         self.assertEqual(failed.errors[0].code, "unresolved_attribute")
+        self.assertEqual(failed.errors[0].failure.kind, "bad_request")
         self.assertIn("custom.location_name", failed.errors[0].message)
 
     async def test_blank_required_field_fails_device(self) -> None:
@@ -246,6 +247,7 @@ class LocationTests(unittest.IsolatedAsyncioTestCase):
         ensure.assert_not_awaited()
         failed = _by_name(outcomes)["failure"].context.devices["d1"]
         self.assertEqual(failed.errors[0].code, "missing_required_field")
+        self.assertEqual(failed.errors[0].failure.kind, "bad_request")
 
     async def test_devices_sharing_a_location_call_nautobot_once(self) -> None:
         ensure = AsyncMock(return_value=EnsureResult(id="loc-1", name="Berlin", created=True))
@@ -422,6 +424,7 @@ class DeviceTypeTests(unittest.IsolatedAsyncioTestCase):
                 ensure.assert_not_awaited()
                 failed = _by_name(outcomes)["failure"].context.devices["d1"]
                 self.assertEqual(failed.errors[0].code, "invalid_height")
+                self.assertEqual(failed.errors[0].failure.kind, "bad_request")
 
     async def test_blank_height_defaults_to_one(self) -> None:
         config = {
@@ -444,6 +447,7 @@ class DeviceTypeTests(unittest.IsolatedAsyncioTestCase):
         ensure.assert_not_awaited()
         failed = _by_name(outcomes)["failure"].context.devices["d1"]
         self.assertEqual(failed.errors[0].code, "missing_required_field")
+        self.assertEqual(failed.errors[0].failure.kind, "bad_request")
         self.assertIn("role", failed.errors[0].message)
 
 

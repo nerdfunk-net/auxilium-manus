@@ -72,6 +72,7 @@ class ValidateAndGroupDevicesTests(unittest.TestCase):
         )
         self.assertEqual(groups, {})
         self.assertEqual(failures["device-1"].errors[0].code, "missing_testbed")
+        self.assertEqual(failures["device-1"].errors[0].failure.kind, "bad_request")
 
     def test_missing_password_is_immediate_failure(self) -> None:
         groups, failures = validate_and_group_devices(
@@ -120,6 +121,7 @@ class ValidateAndGroupDevicesTests(unittest.TestCase):
         )
         self.assertEqual(groups, {})
         self.assertEqual(failures["device-1"].errors[0].code, "source_error")
+        self.assertEqual(failures["device-1"].errors[0].failure.kind, "bad_request")
 
     def test_groups_by_source(self) -> None:
         devices = {

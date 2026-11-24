@@ -180,6 +180,7 @@ class DetailsFactTests(unittest.IsolatedAsyncioTestCase):
             outcomes = await _run(details, {}, _context(_device("n", source="nautobot")))
         failure = next(o for o in outcomes if o.name == "failure")
         self.assertEqual(failure.context.devices["n"].errors[0].code, "not_catalyst_center_device")
+        self.assertEqual(failure.context.devices["n"].errors[0].failure.kind, "bad_request")
         service.get_device_and_software.assert_not_awaited()
 
     async def test_each_source_resolves_its_own_credentials(self) -> None:

@@ -276,6 +276,7 @@ class RouteOnContentExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(list(by_name["failure"].context.devices), ["dev-1"])
         error = by_name["failure"].context.devices["dev-1"].errors[0]
         self.assertEqual(error.code, "missing_content")
+        self.assertEqual(error.failure.kind, "not_found")
 
     async def test_invalid_regex_routes_to_failure(self) -> None:
         artifact_service = InMemoryArtifactService()
@@ -294,6 +295,7 @@ class RouteOnContentExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(list(by_name["failure"].context.devices), ["dev-1"])
         error = by_name["failure"].context.devices["dev-1"].errors[0]
         self.assertEqual(error.code, "invalid_regex")
+        self.assertEqual(error.failure.kind, "bad_request")
 
     async def test_pattern_resolving_to_empty_string_routes_to_failure(self) -> None:
         artifact_service = InMemoryArtifactService()
@@ -312,6 +314,7 @@ class RouteOnContentExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(list(by_name["failure"].context.devices), ["dev-1"])
         error = by_name["failure"].context.devices["dev-1"].errors[0]
         self.assertEqual(error.code, "pattern_unresolved")
+        self.assertEqual(error.failure.kind, "bad_request")
 
     async def test_missing_pattern_raises_value_error(self) -> None:
         with self.assertRaises(ValueError):

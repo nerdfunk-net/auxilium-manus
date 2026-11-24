@@ -27,6 +27,7 @@ from workflow_steps.common.content_resolver import (
     list_exportable_content,
     parse_content_source,
 )
+from workflow_steps.common.failure_records import INVALID_INPUT, MISSING_DATA
 from workflow_steps.common.partial_outcomes import device_error_from_exception
 from workflow_steps.common.placeholder_template import render_placeholder_template
 from workflow_steps.common.step_flags import parse_bool_flag
@@ -162,6 +163,7 @@ async def _process_device(
             device=device,
             node_id=node_id,
             code="missing_content",
+            failure=MISSING_DATA,
             message=(
                 f"No {parsed.content_source!r} content available for device {device_id}. "
                 "Ensure an upstream step produced the selected data."
@@ -203,6 +205,7 @@ async def _process_device(
             device=device,
             node_id=node_id,
             code="pattern_unresolved",
+            failure=INVALID_INPUT,
             message=(
                 "pattern rendered to an empty string for this device — a "
                 "{path.to.attribute} placeholder may not have resolved"
@@ -227,6 +230,7 @@ async def _process_device(
             device=device,
             node_id=node_id,
             code="invalid_regex",
+            failure=INVALID_INPUT,
             message=f"invalid regular expression {rendered_pattern!r}: {exc}",
         )
         return device_id, failed, "failure"

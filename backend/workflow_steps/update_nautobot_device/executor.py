@@ -25,6 +25,7 @@ from services.nautobot.credentials import NautobotCredentials
 from services.nautobot.credentials_bound_client import CredentialsBoundNautobotClient
 from services.nautobot.devices.update import DeviceUpdateService
 from services.workflow_context.attribute_path import resolve_device_attribute_raw
+from workflow_steps.common.failure_records import NOT_FOUND
 from workflow_steps.common.nautobot_interfaces import (
     NEW_TYPE_MODES,
     build_interfaces_from_config,
@@ -419,6 +420,7 @@ async def _update_one_device(
                 device=device,
                 node_id=node_id,
                 code="not_found",
+                failure=NOT_FOUND,
                 message=(
                     f"No Nautobot device found for workflow device {device_key} "
                     f"(name={target.name!r}, ip={target.primary_ip4!r})"

@@ -45,6 +45,7 @@ from models.workflow_context import (
 from services.artifacts import ArtifactService
 from workflow_steps.common.device_outcomes import build_outcomes
 from workflow_steps.common.device_runner import Fail, run_per_device
+from workflow_steps.common.failure_records import INVALID_RESPONSE
 from workflow_steps.common.jinja_render import parse_output_key
 from workflow_steps.common.pyats_batch import (
     resolve_source_credentials,
@@ -112,7 +113,7 @@ async def _shape_and_store_result(
         logger.warning(
             "%s every feature failed device=%s error=%s", _STEP_ID, device_id, message
         )
-        return Fail("snapshot_failed", message)
+        return Fail("snapshot_failed", message, failure=INVALID_RESPONSE)
 
     content = json.dumps(feature_results, indent=2, default=str)
     artifact_ref = await artifact_service.store(

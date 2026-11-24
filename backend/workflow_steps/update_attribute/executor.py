@@ -19,6 +19,7 @@ from services.workflow_context.secret_fields import (
     seal_secret,
 )
 from workflow_steps.common.attribute_write import set_device_attribute
+from workflow_steps.common.failure_records import INVALID_INPUT
 from workflow_steps.common.partial_outcomes import (
     device_error_from_exception,
     fail_device_with_error,
@@ -364,6 +365,7 @@ async def execute(
                 node_id=node_id,
                 step_id=_STEP_ID,
                 code="source_is_secret",
+                failure=INVALID_INPUT,
                 message=str(exc),
             )
             continue

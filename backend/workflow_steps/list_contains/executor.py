@@ -6,6 +6,7 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from core.models.runs import WorkflowRun
+from models.failure import FailureInfo
 from models.workflow_context import (
     Capability,
     DeviceContext,
@@ -22,6 +23,7 @@ from services.workflow_context.attribute_path import (
 )
 from services.workflow_context.node_result import set_node_result
 from services.workflow_context.secret_fields import REDACTED_PLACEHOLDER
+from workflow_steps.common.failure_records import INVALID_INPUT, MISSING_DATA
 from workflow_steps.common.step_flags import parse_bool_flag
 from workflow_steps.common.update_field_expression import resolve_update_field_expression
 from workflow_steps.list_contains.config import get_config
@@ -72,9 +74,16 @@ def _find_match(
 
 
 def _device_failure(
-    device: DeviceContext, *, node_id: str, code: str, message: str
+    device: DeviceContext,
+    *,
+    node_id: str,
+    code: str,
+    message: str,
+    failure: FailureInfo | None = None,
 ) -> DeviceContext:
-    err = DeviceError(node_id=node_id, step_id="list-contains", code=code, message=message)
+    err = DeviceError(
+        node_id=node_id, step_id="list-contains", code=code, message=message, failure=failure
+    )
     return device.model_copy(
         update={"status": DeviceStatus.FAILED, "errors": [*device.errors, err]}
     )
@@ -156,6 +165,7 @@ def _classify_device_membership(
             device,
             node_id=node_id,
             code="value_is_secret",
+            failure=INVALID_INPUT,
             message=(
                 f"value expression {value_expr!r} points to a secret, "
                 "which this step does not copy"
@@ -166,6 +176,7 @@ def _classify_device_membership(
             device,
             node_id=node_id,
             code="value_unresolved",
+            failure=INVALID_INPUT,
             message=f"value expression {value_expr!r} resolved to nothing for this device",
         )
 
@@ -175,6 +186,7 @@ def _classify_device_membership(
             device,
             node_id=node_id,
             code="list_not_populated",
+            failure=MISSING_DATA,
             message=(
                 f"list_path {list_path!r} is not populated on this device — "
                 "add an upstream step that produces it"
@@ -188,6 +200,7 @@ def _classify_device_membership(
             device,
             node_id=node_id,
             code="not_a_list",
+            failure=INVALID_INPUT,
             message=f"list_path {list_path!r} did not resolve to a list (got {got})",
         )
 
