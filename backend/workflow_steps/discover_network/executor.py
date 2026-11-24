@@ -28,7 +28,7 @@ from services.artifacts import ArtifactService
 from services.network.netmiko.platform import resolve_connection_device_type
 from services.network.netmiko.service import NetmikoService
 from workflow_steps.common.credential_resolver import resolve_ssh_credential
-from workflow_steps.common.partial_outcomes import mark_device_failed
+from workflow_steps.common.device_outcomes import build_outcomes, mark_device_failed
 from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.common.run_param_reference import resolve_config_reference
 from workflow_steps.common.step_flags import record_dry_run
@@ -120,7 +120,7 @@ def _seed_target(device_id: str, device: DeviceContext, options: DiscoverOptions
     )  # fmt: skip
 
 
-def _fail(device: DeviceContext, node_id: str, error: VisitError) -> DeviceContext:
+def _seed_failed(device: DeviceContext, node_id: str, error: VisitError) -> DeviceContext:
     return mark_device_failed(
         device,
         node_id=node_id,
@@ -223,7 +223,7 @@ def _management_ip_lookup(
     return build_management_ip_lookup(db, options.nautobot_source_id), "on"
 
 
-def _build_outcomes(
+def _discovery_outcomes(
     context: WorkflowContext,
     node_id: str,
     result: CrawlResult,
@@ -244,16 +244,16 @@ def _build_outcomes(
                 context.devices[target.seed_id], node_id, device_summary(visited)
             )
             code = _CDP_PROBLEM_CODES.get(visited.status, "cdp_no_output")
-            failed[target.seed_id] = _fail(recorded, node_id, VisitError(code, _NO_CDP))
+            failed[target.seed_id] = _seed_failed(recorded, node_id, VisitError(code, _NO_CDP))
         else:
             ok[target.seed_id] = with_discovery(
                 context.devices[target.seed_id], node_id, device_summary(visited)
             )
     for target, error in result.failed_seeds:
         if target.seed_id is not None:
-            failed[target.seed_id] = _fail(context.devices[target.seed_id], node_id, error)
+            failed[target.seed_id] = _seed_failed(context.devices[target.seed_id], node_id, error)
     for device_id, error in seed_errors.items():
-        failed[device_id] = _fail(context.devices[device_id], node_id, error)
+        failed[device_id] = _seed_failed(context.devices[device_id], node_id, error)
 
     for device_id, device in context.devices.items():
         if device_id not in ok and device_id not in failed:
@@ -263,26 +263,17 @@ def _build_outcomes(
     summary: dict[str, Any] = step_summary(
         result, seed_hosts=seed_hosts, management_ip_lookup=management_ip_lookup
     )
-    metadata = {**context.metadata, f"{node_id}.{RESULT_KEY}": summary}
-    outcomes = [
-        StepOutcome(
-            name="success",
-            context=context.model_copy(update={"devices": ok, "metadata": metadata}),
-            summary=(
-                f"visited {len(result.visited)} device(s), {len(result.seen)} seen but not visited"
-            ),
-        )
-    ]
-    if failed:
-        outcomes.append(
-            StepOutcome(
-                name="failure",
-                # The crawl record is on both exits: a failed seed's result must not be empty.
-                context=context.model_copy(update={"devices": failed, "metadata": metadata}),
-                summary=f"{len(failed)} seed device(s) failed",
-            )
-        )
-    return outcomes
+    # The crawl record is on both exits: a failed seed's result must not be empty.
+    return build_outcomes(
+        context,
+        ok,
+        failed,
+        metadata={f"{node_id}.{RESULT_KEY}": summary},
+        success_summary=(
+            f"visited {len(result.visited)} device(s), {len(result.seen)} seen but not visited"
+        ),
+        failure_summary=f"{len(failed)} seed device(s) failed",
+    )
 
 
 async def execute(
@@ -355,9 +346,9 @@ async def execute(
     result = await crawl(
         seeds, visit, crawl_settings, resolve=lookup.resolve if lookup is not None else None
     )
-    if lookup is not None and lookup.unavailable:
+    if (lookup is not None and lookup.unavailable) or result.resolve_errors:
         lookup_status = "unavailable"
-    outcomes = _build_outcomes(context, node_id, result, seed_errors, lookup_status)
+    outcomes = _discovery_outcomes(context, node_id, result, seed_errors, lookup_status)
     logger.info(
         "discover-network finished visited=%d seen=%d failed_seeds=%d limits=%s run_id=%s",
         len(result.visited),

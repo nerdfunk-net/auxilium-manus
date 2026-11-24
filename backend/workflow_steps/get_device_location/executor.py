@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal
@@ -14,7 +13,6 @@ from core.models.runs import WorkflowRun
 from models.failure import FailureInfo
 from models.workflow_context import (
     DeviceContext,
-    DeviceError,
     StepOutcome,
     WorkflowContext,
 )
@@ -23,12 +21,10 @@ from services.nautobot.client import NautobotService
 from services.nautobot.credentials import NautobotCredentials
 from services.workflow_context.attribute_path import DEVICE_SCALAR_FIELDS
 from workflow_steps.common.attribute_write import RESERVED_BAG_NAMES, set_device_attribute
+from workflow_steps.common.device_outcomes import build_outcomes
+from workflow_steps.common.device_runner import Fail, run_per_device
 from workflow_steps.common.nautobot_resolve import resolve_nautobot_device_id
 from workflow_steps.common.nautobot_source import resolve_nautobot_credentials
-from workflow_steps.common.partial_outcomes import (
-    device_error_from_exception,
-    fail_device_with_error,
-)
 from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.common.step_flags import parse_bool_flag
 from workflow_steps.get_device_location.chain import (
@@ -91,32 +87,25 @@ def _bind_nautobot(
     return credentials, service_factory.get_nautobot_app_service()
 
 
-def _failed(
-    device: DeviceContext,
-    node_id: str,
+def _located_failure(
     code: str,
     message: str,
     kind: Literal["not_found", "ambiguous_match"] = "not_found",
-) -> DeviceContext:
-    error = DeviceError(
-        node_id=node_id,
-        step_id=_STEP_ID,
-        code=code,
-        message=message,
-        failure=FailureInfo(phase="api", kind=kind),
-    )
-    return fail_device_with_error(device, error)
+) -> Fail:
+    return Fail(code, message, FailureInfo(phase="api", kind=kind))
 
 
 async def _locate_device(
     *,
     device: DeviceContext,
-    node_id: str,
     nautobot_service: NautobotService,
     credentials: NautobotCredentials,
     parsed: _ParsedConfig,
-) -> tuple[DeviceContext, bool]:
-    """Return ``(device, ok)``; a failed lookup returns the device with an error attached."""
+) -> DeviceContext | Fail:
+    """The device with its location written, or the failure of a lookup that found nothing.
+
+    An unexpected error is turned into a failed device by the runner (class name only).
+    """
     nautobot_id = await resolve_nautobot_device_id(
         nautobot_service=nautobot_service,
         credentials=credentials,
@@ -124,73 +113,33 @@ async def _locate_device(
         case_insensitive=parsed.case_insensitive_lookup,
     )
     if nautobot_id is None:
-        return _failed(
-            device, node_id, "not_found",
+        return _located_failure(
+            "not_found",
             f"No Nautobot device found for workflow device {device.id} "
             f"(name={device.name!r}, ip={device.primary_ip4!r})",
-        ), False
+        )
     response = await nautobot_service.graphql_query(
         LOCATION_CHAIN_QUERY, {"deviceId": nautobot_id}, credentials, strict=True
     )
     nautobot_device = (response.get("data") or {}).get("device")
     if nautobot_device is None:
-        return _failed(
-            device, node_id, "not_found",
-            f"No Nautobot data returned for device {device.id}",
-        ), False
+        return _located_failure("not_found", f"No Nautobot data returned for device {device.id}")
     location = nautobot_device.get("location")
     names = find_locations_by_type(location, parsed.location_type)
     if len(names) > 1:
-        return _failed(
-            device, node_id, "location_type_ambiguous",
+        return _located_failure(
+            "location_type_ambiguous",
             f"Location type {parsed.location_type!r} occurs {len(names)} times in the "
             f"hierarchy ({', '.join(names)}); it is a nestable type: {describe_chain(location)}",
             "ambiguous_match",
-        ), False
+        )
     if not names:
-        return _failed(
-            device, node_id, "location_type_not_found",
+        return _located_failure(
+            "location_type_not_found",
             f"No location of type {parsed.location_type!r} in the hierarchy: "
             f"{describe_chain(location)}",
-        ), False
-    return set_device_attribute(device, parsed.target_attribute, names[0]), True
-
-
-async def _process_device(
-    *,
-    device_id: str,
-    device: DeviceContext,
-    node_id: str,
-    nautobot_service: NautobotService,
-    credentials: NautobotCredentials,
-    parsed: _ParsedConfig,
-) -> tuple[str, DeviceContext, bool]:
-    try:
-        updated, ok = await _locate_device(
-            device=device,
-            node_id=node_id,
-            nautobot_service=nautobot_service,
-            credentials=credentials,
-            parsed=parsed,
         )
-    except Exception as exc:
-        error = device_error_from_exception(exc, node_id=node_id, step_id=_STEP_ID)
-        return device_id, fail_device_with_error(device, error), False
-    return device_id, updated, ok
-
-
-def _build_outcomes(
-    context: WorkflowContext,
-    results: list[tuple[str, DeviceContext, bool]],
-) -> list[StepOutcome]:
-    ok = {device_id: dev for device_id, dev, success in results if success}
-    failed = {device_id: dev for device_id, dev, success in results if not success}
-    outcomes = [StepOutcome(name="success", context=context.model_copy(update={"devices": ok}))]
-    if failed:
-        outcomes.append(
-            StepOutcome(name="failure", context=context.model_copy(update={"devices": failed}))
-        )
-    return outcomes
+    return set_device_attribute(device, parsed.target_attribute, names[0])
 
 
 async def execute(
@@ -218,24 +167,20 @@ async def execute(
         parsed.target_attribute,
         len(context.devices),
     )
-    results = await asyncio.gather(
-        *[
-            _process_device(
-                device_id=device_id,
-                device=device,
-                node_id=node_id,
-                nautobot_service=nautobot_service,
-                credentials=credentials,
-                parsed=parsed,
-            )
-            for device_id, device in context.devices.items()
-        ]
-    )
-    succeeded = sum(1 for _, _, ok in results if ok)
+
+    async def work(_device_id: str, device: DeviceContext) -> DeviceContext | Fail:
+        return await _locate_device(
+            device=device,
+            nautobot_service=nautobot_service,
+            credentials=credentials,
+            parsed=parsed,
+        )
+
+    batch = await run_per_device(context, work, node_id=node_id, step_id=_STEP_ID)
     logger.info(
         "get-device-location finished success=%d failure=%d run_id=%s",
-        succeeded,
-        len(results) - succeeded,
+        len(batch.ok),
+        len(batch.failed),
         log_run_id(run),
     )
-    return _build_outcomes(context, list(results))
+    return build_outcomes(context, batch.ok, batch.failed)

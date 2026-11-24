@@ -10,10 +10,10 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from core.models.runs import WorkflowRun
+from models.failure import FailureInfo
 from models.workflow_context import (
     Capability,
     DeviceContext,
-    DeviceError,
     DeviceStatus,
     StepOutcome,
     WorkflowContext,
@@ -23,9 +23,10 @@ from services.workflow_context.device_template import (
     TemplateRenderOptions,
     render_device_template,
 )
+from workflow_steps.common.device_outcomes import build_outcomes
+from workflow_steps.common.device_runner import Fail, run_per_device
 from workflow_steps.common.file_source_root import resolve_source_root
 from workflow_steps.common.git_repository_loader import parse_repository_id
-from workflow_steps.common.partial_outcomes import device_error_from_exception
 from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.common.step_flags import parse_bool_flag
 
@@ -78,99 +79,50 @@ def _resolve_target_path(root: Path, relative_path: str) -> Path:
     return target
 
 
-def _fail_device(
-    *, device: DeviceContext, device_id: str, node_id: str, code: str, message: str
-) -> tuple[str, DeviceContext, bool]:
-    err = DeviceError(node_id=node_id, step_id=_STEP_ID, code=code, message=message)
-    failed = device.model_copy(
-        update={"status": DeviceStatus.FAILED, "errors": [*device.errors, err]}
-    )
-    return device_id, failed, False
-
-
 async def _read_for_device(
     *,
     device_id: str,
     device: DeviceContext,
-    node_id: str,
     root: Path,
     parsed: _ParsedReadConfig,
     context_run_id: str,
     artifact_service: ArtifactService,
-) -> tuple[str, DeviceContext, bool]:
+) -> DeviceContext | Fail:
+    """One device. ``ValueError`` / ``FileNotFoundError`` text is written by this step (relative
+    paths); any other error (``PermissionError`` carries the absolute path) is reduced to its
+    class name by the runner."""
     if device.running_config_ref is not None and not parsed.overwrite_existing:
-        return device_id, device, True
+        return device
 
-    try:
-        relative_path = render_device_template(
-            parsed.path_template,
-            device,
-            options=TemplateRenderOptions(strict=True, run_id=context_run_id),
-        )
-        target = _resolve_target_path(root, relative_path)
-        if not target.is_file():
-            raise FileNotFoundError(f"config file not found: {relative_path}")
+    relative_path = render_device_template(
+        parsed.path_template,
+        device,
+        options=TemplateRenderOptions(strict=True, run_id=context_run_id),
+    )
+    target = _resolve_target_path(root, relative_path)
+    if not target.is_file():
+        raise FileNotFoundError(f"config file not found: {relative_path}")
 
-        content = await asyncio.to_thread(target.read_text, encoding="utf-8")
-        ref = await artifact_service.store(
-            content=content,
-            kind="running_config",
-            device_id=device_id,
-            run_id=context_run_id,
+    content = await asyncio.to_thread(target.read_text, encoding="utf-8")
+    if not content.strip():
+        return Fail(
+            "empty_config",
+            f"config file is empty: {relative_path}",
+            FailureInfo(phase="config", kind="invalid_response"),
         )
-        enriched = device.model_copy(
-            update={
-                "status": DeviceStatus.OK,
-                "running_config_ref": ref,
-                "capabilities": device.capabilities | {Capability.RUNNING_CONFIG},
-            }
-        )
-        return device_id, enriched, True
-    except Exception as exc:
-        # ``ValueError``/``FileNotFoundError`` text is written by this step (relative paths);
-        # an ``OSError`` such as ``PermissionError`` carries the absolute path: class name only.
-        error = device_error_from_exception(exc, node_id=node_id, step_id=_STEP_ID)
-        return _fail_device(
-            device=device,
-            device_id=device_id,
-            node_id=node_id,
-            code=error.code,
-            message=error.message,
-        )
-
-
-def _partition_device_results(
-    results: list[tuple[str, DeviceContext, bool]],
-) -> tuple[dict[str, DeviceContext], dict[str, DeviceContext]]:
-    success_devices: dict[str, DeviceContext] = {}
-    failed_devices: dict[str, DeviceContext] = {}
-    for device_id, updated_device, ok in results:
-        if ok:
-            success_devices[device_id] = updated_device
-        else:
-            failed_devices[device_id] = updated_device
-    return success_devices, failed_devices
-
-
-def _build_outcomes(
-    context: WorkflowContext,
-    success_devices: dict[str, DeviceContext],
-    failed_devices: dict[str, DeviceContext],
-) -> list[StepOutcome]:
-    outcomes = [
-        StepOutcome(
-            name="success",
-            context=context.model_copy(update={"devices": success_devices}),
-        )
-    ]
-    if failed_devices:
-        outcomes.append(
-            StepOutcome(
-                name="failure",
-                context=context.model_copy(update={"devices": failed_devices}),
-            )
-        )
-    return outcomes
+    ref = await artifact_service.store(
+        content=content,
+        kind="running_config",
+        device_id=device_id,
+        run_id=context_run_id,
+    )
+    return device.model_copy(
+        update={
+            "status": DeviceStatus.OK,
+            "running_config_ref": ref,
+            "capabilities": device.capabilities | {Capability.RUNNING_CONFIG},
+        }
+    )
 
 
 async def execute(
@@ -206,26 +158,22 @@ async def execute(
             step_id=_STEP_ID,
         )
 
-        results = await asyncio.gather(
-            *[
-                _read_for_device(
-                    device_id=device_id,
-                    device=device,
-                    node_id=node_id,
-                    root=root,
-                    parsed=parsed,
-                    context_run_id=context.run_id,
-                    artifact_service=artifact_service,
-                )
-                for device_id, device in context.devices.items()
-            ]
-        )
-    success_devices, failed_devices = _partition_device_results(results)
+        async def work(device_id: str, device: DeviceContext) -> DeviceContext | Fail:
+            return await _read_for_device(
+                device_id=device_id,
+                device=device,
+                root=root,
+                parsed=parsed,
+                context_run_id=context.run_id,
+                artifact_service=artifact_service,
+            )
+
+        batch = await run_per_device(context, work, node_id=node_id, step_id=_STEP_ID)
 
     logger.info(
         "read-config finished success=%d failure=%d run_id=%s",
-        len(success_devices),
-        len(failed_devices),
+        len(batch.ok),
+        len(batch.failed),
         log_run_id(run),
     )
-    return _build_outcomes(context, success_devices, failed_devices)
+    return build_outcomes(context, batch.ok, batch.failed)

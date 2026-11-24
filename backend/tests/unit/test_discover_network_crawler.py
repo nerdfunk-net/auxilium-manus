@@ -5,8 +5,6 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass, field, replace
 
-import pytest
-
 from workflow_steps.discover_network.crawler import (
     CrawlSettings,
     Reading,
@@ -227,12 +225,16 @@ def test_override_is_used_for_a_neighbour_without_platform() -> None:
     assert seen_types == ["cisco_ios", "cisco_xe"]
 
 
-def test_unexpected_exception_from_visit_propagates() -> None:
+def test_unexpected_exception_from_visit_fails_that_device_only() -> None:
+    """W3b-03: it used to propagate and lose every device visited so far."""
+
     async def boom(target: Target) -> Reading:
         raise RuntimeError("bug")
 
-    with pytest.raises(RuntimeError):
-        asyncio.run(crawl([seed("10.1.0.1")], boom, settings()))
+    result = asyncio.run(crawl([seed("10.1.0.1")], boom, settings()))
+    ((target, error),) = result.failed_seeds
+    assert (target.host, error.code) == ("10.1.0.1", "unreachable")
+    assert error.failure is not None and error.failure.exception_type == "RuntimeError"
 
 
 def test_a_reached_device_without_cdp_data_is_still_visited() -> None:

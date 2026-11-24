@@ -375,9 +375,6 @@ class GetDeviceConfigsExecutorTests(unittest.IsolatedAsyncioTestCase):
             )
 
 
-if __name__ == "__main__":
-    unittest.main()
-
     async def _failed_outcome(self, netmiko_mock: AsyncMock) -> DeviceContext:
         run = MagicMock()
         run.id = 1
@@ -423,7 +420,15 @@ if __name__ == "__main__":
 
         self.assertEqual(device.errors[0].failure, info)
 
-    async def test_unclassified_error_has_no_failure(self) -> None:
+    async def test_unclassified_error_is_recorded_as_internal_with_its_class_name(self) -> None:
         device = await self._failed_outcome(AsyncMock(side_effect=KeyError("x")))
 
-        self.assertIsNone(device.errors[0].failure)
+        self.assertEqual(
+            device.errors[0].failure,
+            FailureInfo(phase="internal", kind="internal_error", exception_type="KeyError"),
+        )
+        self.assertEqual(device.errors[0].message, "KeyError")
+
+
+if __name__ == "__main__":
+    unittest.main()

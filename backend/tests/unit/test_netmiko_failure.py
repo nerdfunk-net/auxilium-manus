@@ -207,6 +207,7 @@ def test_login_successful_records_connect_failure() -> None:
     import asyncio
 
     from models.workflow_context import DeviceContext
+    from workflow_steps.common.device_runner import Fail
     from workflow_steps.login_successful.executor import _try_login
 
     info = FailureInfo(phase="connect", kind="auth_failed", attempts=1, max_attempts=1)
@@ -218,7 +219,7 @@ def test_login_successful_records_connect_failure() -> None:
     netmiko.test_login = _boom
     device = DeviceContext(id="d1", name="r1", hostname="r1", network_driver="cisco_ios")
 
-    outcome, updated = asyncio.run(
+    outcome = asyncio.run(
         _try_login(
             device_id="d1",
             device=device,
@@ -231,5 +232,7 @@ def test_login_successful_records_connect_failure() -> None:
         )
     )
 
-    assert outcome == "failure"
-    assert updated.errors[0].failure == info
+    assert isinstance(outcome, Fail)
+    assert outcome.failure == info
+    assert outcome.device is not None
+    assert outcome.device.parsed["n1"]["login"]["error"] == "auth_failed"

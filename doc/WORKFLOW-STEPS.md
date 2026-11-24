@@ -452,8 +452,16 @@ that device), `store-in-db` and `get-from-db` (`concurrency=1`: one shared sessi
 `configure-replace-config` (`concurrency` = the shim's own job limit; `Fail(device=...)` records the error on the device
 that already carries its diff artifact refs), `deploy-rendered-template`, `merge-config`, `upload-config` and `upload-binary`
 (artifact I/O and connection errors fail that device only; their error text is no longer stored, only the class name plus a
-`FailureInfo`; `log_label=` writes the per-device "connecting / ok / failed" lines). The other
-steps still carry their own loops and move family by family (P-C).
+`FailureInfo`; `log_label=` writes the per-device "connecting / ok / failed" lines), and the device reads
+`get-device-configs`, `read-config` (an empty file is refused with `empty_config`; every failure carries a
+`FailureInfo`), `login-successful` (`parsed.<node>.login.error` holds a closed code, never exception text; both outcome
+handles are always answered, with `<node>.login_counts`), `reachable` (at most 50 pings in flight,
+`MAX_CONCURRENT_PINGS`; library errors are recorded as `dns` / `no_route`, an unexpected error fails that device only) and
+`get-device-location`. `discover-network` keeps its own breadth-first walk, but the walk is a per-device boundary too: a
+visit that raises anything other than `VisitError` fails that seed (`unreachable`, class name in the `FailureInfo`) or
+lists that neighbour as seen, it never loses the devices already visited, and a neighbour lookup that raises leaves the
+neighbour as CDP reported it (`management_ip_lookup: unavailable`). The other steps still carry their own loops and move
+family by family (P-C).
 
 ### Step config flags
 

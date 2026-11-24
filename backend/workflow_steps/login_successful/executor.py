@@ -2,18 +2,16 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from typing import Any
 
 from sqlalchemy.orm import object_session
 
 from core.models.runs import WorkflowRun
-from models.failure import FailureInfo, failure_from_exception
+from models.failure import FailureInfo
 from models.workflow_context import (
     Capability,
     DeviceContext,
-    DeviceError,
     DeviceStatus,
     StepOutcome,
     WorkflowContext,
@@ -25,6 +23,9 @@ from services.network.netmiko.service import NetmikoService
 from services.network.netmiko.session_pool import DeviceSessionPool
 from services.workflow_context.node_result import set_node_result
 from workflow_steps.common.credential_resolver import resolve_ssh_credential
+from workflow_steps.common.device_outcomes import outcomes_from_buckets
+from workflow_steps.common.device_runner import Fail, run_per_device
+from workflow_steps.common.partial_outcomes import device_error_from_exception
 from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.common.run_param_reference import resolve_config_reference
 
@@ -32,22 +33,8 @@ logger = logging.getLogger(__name__)
 
 _OUTCOME_NAMES = ("success", "failure")
 _STEP_ID = "login-successful"
-
-
-def _device_failure(
-    device: DeviceContext,
-    *,
-    node_id: str,
-    code: str,
-    message: str,
-    failure: FailureInfo | None = None,
-) -> DeviceContext:
-    err = DeviceError(
-        node_id=node_id, step_id=_STEP_ID, code=code, message=message, failure=failure
-    )
-    return device.model_copy(
-        update={"status": DeviceStatus.FAILED, "errors": [*device.errors, err]}
-    )
+_MISSING_HOST = FailureInfo(phase="connect", kind="bad_request", hint="check_hostname")
+_NOT_ALIVE = FailureInfo(phase="connect", kind="ssh_error")
 
 
 def _with_login_parsed(
@@ -76,6 +63,33 @@ def _with_login_parsed(
     )
 
 
+def _login_failed(
+    device: DeviceContext,
+    *,
+    node_id: str,
+    host: str,
+    credential_reference: str,
+    code: str,
+    message: str,
+    failure: FailureInfo,
+    error: str,
+) -> Fail:
+    """A failed login: the error is on the device and so is the result record in its bag.
+
+    ``error`` is a closed code (never the text of a driver exception): downstream steps and the
+    run viewer can read the bag.
+    """
+    marked = _with_login_parsed(
+        device,
+        node_id=node_id,
+        login_ok=False,
+        host=host,
+        credential_reference=credential_reference,
+        error=error,
+    )
+    return Fail(code, message, failure, device=marked)
+
+
 async def _try_login(
     *,
     device_id: str,
@@ -86,21 +100,17 @@ async def _try_login(
     username: str,
     password: str,
     netmiko: NetmikoService,
-) -> tuple[str, DeviceContext]:
+) -> DeviceContext | Fail:
     host = bare_hostname(device.primary_ip4, device.hostname)
     if not host:
-        failed = _device_failure(
+        return _login_failed(
             device,
             node_id=node_id,
-            code="missing_host",
-            message=f"Device {device_id} has no hostname or primary IP",
-        )
-        return "failure", _with_login_parsed(
-            failed,
-            node_id=node_id,
-            login_ok=False,
             host="",
             credential_reference=credential_reference,
+            code="missing_host",
+            message=f"Device {device_id} has no hostname or primary IP",
+            failure=_MISSING_HOST,
             error="missing_host",
         )
 
@@ -111,7 +121,7 @@ async def _try_login(
             platform=device.platform,
             override=network_driver_override,
         )
-        # Disposable probe login — does not touch any pooled session, so a
+        # Disposable probe login: does not touch any pooled session, so a
         # prior deploy session remains available for rollback on failure.
         alive = await netmiko.test_login(
             host=host,
@@ -122,123 +132,37 @@ async def _try_login(
             credential_reference=credential_reference,
             device_type=device_type,
         )
-        if not alive:
-            failed = _device_failure(
-                device,
-                node_id=node_id,
-                code="login_failed",
-                message="SSH session opened but is not alive",
-            )
-            return "failure", _with_login_parsed(
-                failed,
-                node_id=node_id,
-                login_ok=False,
-                host=host,
-                credential_reference=credential_reference,
-                error="session_not_alive",
-            )
-
-        enriched = device.model_copy(update={"status": DeviceStatus.OK})
-        return "success", _with_login_parsed(
-            enriched,
-            node_id=node_id,
-            login_ok=True,
-            host=host,
-            credential_reference=credential_reference,
-        )
     except Exception as exc:
-        failed = _device_failure(
+        error = device_error_from_exception(exc, node_id=node_id, step_id=_STEP_ID)
+        failure = error.failure or _NOT_ALIVE  # the helper always sets one
+        return _login_failed(
             device,
             node_id=node_id,
-            code=type(exc).__name__.lower(),
-            message=str(exc),
-            failure=failure_from_exception(exc),
-        )
-        return "failure", _with_login_parsed(
-            failed,
-            node_id=node_id,
-            login_ok=False,
             host=host,
             credential_reference=credential_reference,
-            error=str(exc),
+            code=error.code,
+            message=error.message,
+            failure=failure,
+            error=failure.kind,
         )
-
-
-async def _try_login_logged(
-    *,
-    index: int,
-    device_id: str,
-    device: DeviceContext,
-    total: int,
-    run_id: Any,
-    node_id: str,
-    credential_reference: str,
-    network_driver_override: str | None,
-    username: str,
-    password: str,
-    netmiko: NetmikoService,
-) -> tuple[str, DeviceContext]:
-    host = bare_hostname(device.primary_ip4, device.hostname) or "(no host)"
-    logger.info(
-        "login-successful device %d/%d id=%s host=%s: connecting run_id=%s",
-        index,
-        total,
-        device_id,
-        host,
-        run_id,
-    )
-    outcome_name, updated = await _try_login(
-        device_id=device_id,
-        device=device,
+    if not alive:
+        return _login_failed(
+            device,
+            node_id=node_id,
+            host=host,
+            credential_reference=credential_reference,
+            code="login_failed",
+            message="SSH session opened but is not alive",
+            failure=_NOT_ALIVE,
+            error="session_not_alive",
+        )
+    return _with_login_parsed(
+        device.model_copy(update={"status": DeviceStatus.OK}),
         node_id=node_id,
+        login_ok=True,
+        host=host,
         credential_reference=credential_reference,
-        network_driver_override=network_driver_override,
-        username=username,
-        password=password,
-        netmiko=netmiko,
     )
-    logger.info(
-        "login-successful device %d/%d id=%s host=%s: %s run_id=%s",
-        index,
-        total,
-        device_id,
-        host,
-        outcome_name,
-        run_id,
-    )
-    return outcome_name, updated
-
-
-def _build_login_outcomes(
-    *,
-    context: WorkflowContext,
-    node_id: str,
-    results: list[tuple[str, DeviceContext]],
-    run_id: Any,
-) -> list[StepOutcome]:
-    buckets: dict[str, dict[str, DeviceContext]] = {"success": {}, "failure": {}}
-    for device_id, (outcome_name, device) in zip(context.devices.keys(), results, strict=True):
-        buckets[outcome_name][device_id] = device
-
-    counts = {name: len(buckets[name]) for name in _OUTCOME_NAMES}
-    metadata = {**context.metadata, f"{node_id}.login_counts": counts}
-
-    logger.info(
-        "login-successful finished success=%d failure=%d run_id=%s",
-        counts["success"],
-        counts["failure"],
-        run_id,
-    )
-
-    return [
-        StepOutcome(
-            name=name,
-            context=context.model_copy(
-                update={"devices": dict(buckets[name]), "metadata": metadata}
-            ),
-        )
-        for name in _OUTCOME_NAMES
-    ]
 
 
 async def execute(
@@ -283,27 +207,30 @@ async def execute(
         network_driver_override,
     )
 
-    results = await asyncio.gather(
-        *[
-            _try_login_logged(
-                index=index,
-                device_id=device_id,
-                device=device,
-                total=total,
-                run_id=log_run_id(run),
-                node_id=node_id,
-                credential_reference=credential_reference,
-                network_driver_override=network_driver_override,
-                username=username,
-                password=password,
-                netmiko=netmiko,
-            )
-            for index, (device_id, device) in enumerate(context.devices.items(), start=1)
-        ]
+    async def work(device_id: str, device: DeviceContext) -> DeviceContext | Fail:
+        return await _try_login(
+            device_id=device_id,
+            device=device,
+            node_id=node_id,
+            credential_reference=credential_reference,
+            network_driver_override=network_driver_override,
+            username=username,
+            password=password,
+            netmiko=netmiko,
+        )
+
+    batch = await run_per_device(
+        context, work, node_id=node_id, step_id=_STEP_ID, log_label=_STEP_ID
     )
-    return _build_login_outcomes(
-        context=context,
-        node_id=node_id,
-        results=results,
-        run_id=log_run_id(run),
+    counts = {"success": len(batch.ok), "failure": len(batch.failed)}
+    logger.info(
+        "login-successful finished success=%d failure=%d run_id=%s",
+        counts["success"],
+        counts["failure"],
+        log_run_id(run),
+    )
+    return outcomes_from_buckets(
+        context,
+        {"success": batch.ok, "failure": batch.failed},
+        metadata={f"{node_id}.login_counts": counts},
     )

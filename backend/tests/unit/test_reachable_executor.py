@@ -14,7 +14,6 @@ from models.workflow_context import (
     WorkflowContext,
 )
 from workflow_steps.reachable.executor import (
-    _device_failure,
     _parse_positive_int,
     _parse_positive_number,
     execute,
@@ -50,11 +49,6 @@ class ParseHelperTests(unittest.TestCase):
             _parse_positive_number({"timeout_seconds": "x"}, "timeout_seconds")
         with self.assertRaises(ValueError):
             _parse_positive_number({"timeout_seconds": 0}, "timeout_seconds")
-
-    def test_device_failure_appends_error_and_marks_failed(self) -> None:
-        failed = _device_failure(_device("d1"), node_id="n", code="c", message="m")
-        self.assertEqual(failed.status, DeviceStatus.FAILED)
-        self.assertEqual(failed.errors[-1].code, "c")
 
 
 def _run() -> MagicMock:

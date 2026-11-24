@@ -1,10 +1,11 @@
 """Breadth-first walk of the discover-network step.
 
 Pure with respect to I/O: the caller injects ``visit`` (log into one device, read its CDP
-neighbours, log out). A visit that fails raises ``VisitError``; anything else is a bug and
-propagates. The walk keeps the visited set, the queue and the reason every neighbour that
-was not followed was left out, as the product owner described it: known list, visited list,
-next device that is known but not visited.
+neighbours, log out). A visit that fails raises ``VisitError``; any other exception is a bug
+or an unexpected library error and fails **that device** like one (W3b-03): it must never lose
+the devices visited in earlier levels. The walk keeps the visited set, the queue and the
+reason every neighbour that was not followed was left out, as the product owner described it:
+known list, visited list, next device that is known but not visited.
 """
 
 from __future__ import annotations
@@ -14,7 +15,7 @@ import ipaddress
 from collections.abc import Awaitable, Callable, Iterable
 from dataclasses import dataclass, field
 
-from models.failure import FailureInfo
+from models.failure import FailureInfo, failure_from_exception
 from workflow_steps.discover_network.parsing import Neighbor, neighbor_device_type
 from workflow_steps.discover_network.scope import Prefixes, in_scope
 
@@ -113,11 +114,13 @@ class CrawlResult:
     seen: tuple[Seen, ...]
     edges: tuple[Edge, ...]
     limits_hit: tuple[str, ...]
+    resolve_errors: int = 0  # neighbour lookups that raised (the neighbour was kept as reported)
 
 
 VisitFn = Callable[[Target], Awaitable[Reading]]
 # Looks up the management address of a neighbour (Nautobot) and returns the neighbour with that
-# address in ``ip``. It never raises: when nothing is found it returns the neighbour unchanged.
+# address in ``ip``. When nothing is found it returns the neighbour unchanged; one that raises is
+# treated the same way and counted in ``CrawlResult.resolve_errors``.
 ResolveFn = Callable[[Neighbor], Awaitable[Neighbor]]
 
 
@@ -165,6 +168,7 @@ class _State:
     seen: list[Seen] = field(default_factory=list)
     edges: list[Edge] = field(default_factory=list)
     limits: list[str] = field(default_factory=list)
+    resolve_errors: int = 0
 
     def register(self, target: Target) -> None:
         """Record a target that is queued: its IP, or its names when it was given by name."""
@@ -303,6 +307,12 @@ async def _visit_level(
                 return target, await visit(target)
             except VisitError as exc:
                 return target, exc
+            except Exception as exc:
+                # Not a VisitError: only the class name is kept (``FailureInfo``), never the text.
+                failure = failure_from_exception(exc) or FailureInfo(
+                    phase="internal", kind="internal_error", exception_type=type(exc).__name__
+                )
+                return target, VisitError("unreachable", failure)
 
     return list(await asyncio.gather(*(one(t) for t in frontier)))
 
@@ -319,7 +329,11 @@ async def _resolve_neighbors(
         if not state.wants_resolution(neighbor):
             return neighbor
         async with gate:
-            return await resolve(neighbor)
+            try:
+                return await resolve(neighbor)
+            except Exception:
+                state.resolve_errors += 1
+                return neighbor
 
     return tuple(await asyncio.gather(*(one(n) for n in neighbors)))
 
@@ -391,4 +405,5 @@ async def crawl(
         seen=tuple(state.seen),
         edges=tuple(state.edges),
         limits_hit=tuple(state.limits),
+        resolve_errors=state.resolve_errors,
     )
