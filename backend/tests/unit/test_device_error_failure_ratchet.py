@@ -36,7 +36,6 @@ LEGACY_WITHOUT_FAILURE: dict[str, int] = {
     "workflow_steps/read_from_file/executor.py": 1,
     "workflow_steps/split_virtual_chassis/executor.py": 1,
     "workflow_steps/store_artifact/executor.py": 2,
-    "workflow_steps/store_in_db/executor.py": 1,
     "workflow_steps/undefined_and_unused/executor.py": 1,
 }
 

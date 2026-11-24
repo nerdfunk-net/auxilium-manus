@@ -9,14 +9,15 @@ Fan-In node is required here, unlike store-artifact's git/filesystem sinks.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import TYPE_CHECKING, Any
 
 from core.database import get_db_session
 from core.models.runs import WorkflowRun
+from models.failure import FailureInfo
 from models.workflow_context import (
     DeviceContext,
-    DeviceError,
     DeviceStatus,
     StepOutcome,
     WorkflowContext,
@@ -37,7 +38,11 @@ from workflow_steps.common.duplicate_keys import (
     DUPLICATE_KEY_FAILURE,
     find_duplicate_keys,
 )
-from workflow_steps.common.partial_outcomes import mark_device_failed
+from workflow_steps.common.partial_outcomes import (
+    device_error_from_exception,
+    fail_device_with_error,
+    mark_device_failed,
+)
 from workflow_steps.common.placeholder_template import render_placeholder_template
 from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.common.step_flags import parse_bool_flag
@@ -167,17 +172,25 @@ async def _resolve_device_data(
 
 
 def _device_failure(*, device: DeviceContext, node_id: str, exc: Exception) -> DeviceContext:
-    err = DeviceError(
+    # A ValueError sentence is written here (or by the renderer) and safe to keep; anything else,
+    # above all a SQLAlchemy error, is reduced to its class name: its text is the SQL statement
+    # and its parameters, i.e. the stored data itself (W9-04).
+    return fail_device_with_error(
+        device, device_error_from_exception(exc, node_id=node_id, step_id="store-in-db")
+    )
+
+
+def _unresolved_key_failure(*, device: DeviceContext, node_id: str) -> DeviceContext:
+    return mark_device_failed(
+        device,
         node_id=node_id,
         step_id="store-in-db",
-        code=type(exc).__name__.lower(),
-        message=str(exc),
-    )
-    return device.model_copy(
-        update={
-            "status": DeviceStatus.FAILED,
-            "errors": [*device.errors, err],
-        }
+        code="storage_key_unresolved",
+        message=(
+            f"storage_key renders empty for {device.name!r} (a placeholder has no value on this "
+            "device); an empty key would collide with every other device of that name"
+        ),
+        failure=FailureInfo(phase="config", kind="bad_request"),
     )
 
 
@@ -240,6 +253,9 @@ async def execute(
             for device_id, device in context.devices.items()
         )
         for device_id, device in context.devices.items():
+            if not rendered_keys[device_id].strip():
+                failed_devices[device_id] = _unresolved_key_failure(device=device, node_id=node_id)
+                continue
             if device_id in duplicates:
                 failed_devices[device_id] = _duplicate_key_failure(
                     device=device, node_id=node_id, rendered_key=rendered_keys[device_id]
@@ -257,11 +273,18 @@ async def execute(
                         f"No {content_source!r} content available for device {device.name}. "
                         "Ensure an upstream step produced the selected data."
                     )
-                service.store_device_data(
-                    device_name=device.name, storage_key=rendered_keys[device_id], data=data
+                # A commit and a refresh per device: off the event loop, like get-from-db.
+                await asyncio.to_thread(
+                    service.store_device_data,
+                    device_name=device.name,
+                    storage_key=rendered_keys[device_id],
+                    data=data,
                 )
                 success_devices[device_id] = device.model_copy(update={"status": DeviceStatus.OK})
             except Exception as exc:
+                # A failed flush leaves the shared session unusable until it is rolled back;
+                # without this every later device failed with PendingRollbackError (W9-04).
+                await asyncio.to_thread(db.rollback)
                 failed_devices[device_id] = _device_failure(device=device, node_id=node_id, exc=exc)
     finally:
         db.close()

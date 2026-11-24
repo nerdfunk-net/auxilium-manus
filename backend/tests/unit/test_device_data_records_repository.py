@@ -94,6 +94,18 @@ class DeviceDataRecordRepositoryTests(unittest.TestCase):
         rows = self.db.query(DeviceDataRecord).all()
         self.assertEqual(len(rows), 1)
 
+    def test_any_other_error_rolls_the_session_back_for_the_caller(self) -> None:
+        """W9-04: a failed write must leave the shared session usable for the next device."""
+        self.repo.upsert(device_name="lab", storage_key="backup", data={"a": 1})
+        self.db.add(DeviceDataRecord(device_name=None, storage_key="k", data={}))
+
+        with self.assertRaises(Exception):  # noqa: B017  # the NOT NULL violation of the flush
+            self.repo.upsert(device_name="other", storage_key="backup", data={"a": 1})
+
+        # Without the rollback this raised PendingRollbackError.
+        record = self.repo.upsert(device_name="other", storage_key="backup", data={"a": 2})
+        self.assertEqual(record.data, {"a": 2})
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,9 +1,12 @@
+
 """Tests for the git-status workflow step executor."""
 
 from __future__ import annotations
 
 import unittest
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 from models.workflow_context import DeviceContext, DeviceStatus, WorkflowContext
 from workflow_steps.git_status.executor import execute as git_status
@@ -201,3 +204,20 @@ class GitStepsOnInactiveBranchTests(unittest.IsolatedAsyncioTestCase):
         )
         _, load, _ = await self._push(context)
         load.assert_called_once()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "key", ["fetch_remote", "check_uncommitted", "check_untracked", "check_sync"]
+)
+async def test_a_bad_flag_is_a_config_error_before_the_repository_lock(key: str) -> None:
+    """W9-13: it used to be noticed inside the lock and reported as an unknown git failure."""
+    from unittest.mock import patch
+
+    from tests.unit._step_helpers import call_step, make_context
+    from workflow_steps.git_status import executor as mod
+
+    with patch.object(mod, "run_git_workflow_step") as runner:
+        with pytest.raises(ValueError, match=key):
+            await call_step(mod.execute, {"git_repository_id": 1, key: "x"}, make_context())
+    runner.assert_not_called()

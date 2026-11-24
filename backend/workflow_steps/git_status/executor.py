@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from core.models.runs import WorkflowRun
@@ -18,8 +19,22 @@ _CLEAN = "clean"
 _DIRTY = "dirty"
 
 
-def _flag(config: dict[str, Any], key: str, default: bool) -> bool:
-    return parse_bool_flag(config, key, default=default)
+@dataclass(frozen=True)
+class _StatusOptions:
+    fetch: bool
+    uncommitted: bool
+    untracked: bool
+    sync: bool
+
+
+def _parse_options(config: dict[str, Any]) -> _StatusOptions:
+    """The four flags; a bad value is a config error (``ValueError``)."""
+    return _StatusOptions(
+        fetch=parse_bool_flag(config, "fetch_remote", default=True),
+        uncommitted=parse_bool_flag(config, "check_uncommitted", default=True),
+        untracked=parse_bool_flag(config, "check_untracked", default=True),
+        sync=parse_bool_flag(config, "check_sync", default=True),
+    )
 
 
 _CHECK_PHRASES = (
@@ -63,13 +78,14 @@ def _status_operation(
     context: WorkflowContext,
 ) -> dict[str, Any]:
     del context
+    options = _parse_options(config)
     status = collect_status(
         git_service,
         repository,
-        fetch=_flag(config, "fetch_remote", True),
-        check_uncommitted=_flag(config, "check_uncommitted", True),
-        check_untracked=_flag(config, "check_untracked", True),
-        check_sync=_flag(config, "check_sync", True),
+        fetch=options.fetch,
+        check_uncommitted=options.uncommitted,
+        check_untracked=options.untracked,
+        check_sync=options.sync,
     )
     return {
         "success": True,
@@ -90,6 +106,8 @@ async def execute(
     device_sessions: DeviceSessionPool,
 ) -> list[StepOutcome]:
     del run
+    # Before the repository lock: a typo must not wait up to 90 s for it (W9-13).
+    _parse_options(config)
     return await run_git_workflow_step(
         config=config,
         context=context,

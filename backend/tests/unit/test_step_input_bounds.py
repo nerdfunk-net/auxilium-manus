@@ -11,7 +11,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from tests.unit._step_helpers import make_run, strict_xfail
+from tests.unit._step_helpers import make_run
 from workflow_steps.get_from_user import inventory_reference as inv
 from workflow_steps.reachable.executor import _parse_positive_int, _parse_positive_number
 
@@ -119,16 +119,27 @@ async def test_a_permission_error_becomes_a_config_error() -> None:
             await inv.inventory_device_text(make_run(triggered_by_id=5), {}, "12")
 
 
-@strict_xfail("W10-04", "no triggering user: the inventory is read without any permission check")
 @pytest.mark.asyncio
 async def test_a_run_without_a_triggering_user_reads_no_inventory() -> None:
     service = MagicMock()
     service.resolve_saved_inventory_devices_by_id = AsyncMock(return_value=[])
     patches = _patched(service=service)
     with patches[0], patches[1], patches[2], patches[3], patch.object(inv, "UserRepository"):
-        try:
+        with pytest.raises(ValueError, match="needs the user that triggered this run"):
             await inv.inventory_device_text(make_run(triggered_by_id=None), {}, "12")
-        except Exception:  # noqa: BLE001, S110  # a refusal of any type is fine, reading is not
-            pass
+
+    service.resolve_saved_inventory_devices_by_id.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_a_triggering_user_that_no_longer_exists_reads_no_inventory() -> None:
+    service = MagicMock()
+    service.resolve_saved_inventory_devices_by_id = AsyncMock(return_value=[])
+    patches = _patched(service=service)
+    users = patch.object(inv, "UserRepository")
+    with patches[0], patches[1], patches[2], patches[3], users as repo:
+        repo.return_value.get_by_id.return_value = None
+        with pytest.raises(ValueError, match="needs the user that triggered this run"):
+            await inv.inventory_device_text(make_run(triggered_by_id=99), {}, "12")
 
     service.resolve_saved_inventory_devices_by_id.assert_not_awaited()

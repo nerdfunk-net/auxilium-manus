@@ -77,8 +77,11 @@ async def execute(
     )
     raw_value = run_inputs[param_name]
     db = object_session(run)
+    if db is None:
+        # Without a session the inventory id would be parsed as a device name (W10-04).
+        raise RuntimeError("get-from-user: WorkflowRun has no active DB session")
     # An inventory reference carries an inventory id; read that inventory's devices.
-    if db is not None and is_inventory_reference(db, run, param_name):
+    if is_inventory_reference(db, run, param_name):
         raw_value = await inventory_device_text(run, config, raw_value)
 
     device_entries = parse_device_list_text(raw_value, default_driver=default_driver)

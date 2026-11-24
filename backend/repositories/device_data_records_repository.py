@@ -14,6 +14,14 @@ class DeviceDataRecordRepository:
         self.db = db
 
     def upsert(self, *, device_name: str, storage_key: str, data: Any) -> DeviceDataRecord:
+        try:
+            return self._upsert(device_name=device_name, storage_key=storage_key, data=data)
+        except Exception:
+            # Any failure leaves the session needing a rollback; the caller keeps using it.
+            self.db.rollback()
+            raise
+
+    def _upsert(self, *, device_name: str, storage_key: str, data: Any) -> DeviceDataRecord:
         existing = self._get(device_name, storage_key)
         if existing is not None:
             self._overwrite(existing, data)

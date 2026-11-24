@@ -14,7 +14,7 @@ _MOD = "workflow_steps.get_from_user.inventory_reference"
 
 class InventoryReferenceTests(unittest.IsolatedAsyncioTestCase):
     async def test_inventory_id_becomes_the_inventory_devices(self) -> None:
-        run = MagicMock(id=1, run_inputs={"target_devices": 1}, triggered_by_id=None)
+        run = MagicMock(id=1, run_inputs={"target_devices": 1}, triggered_by_id=5)
         service = MagicMock()
         service.resolve_saved_inventory_devices_by_id = AsyncMock(
             return_value=[
@@ -23,14 +23,18 @@ class InventoryReferenceTests(unittest.IsolatedAsyncioTestCase):
             ]
         )
         db = MagicMock()
+        user = MagicMock()
+        user.username = "alice"
         with (
             patch.object(executor, "object_session", return_value=db),
             patch.object(executor, "is_inventory_reference", return_value=True),
             patch.object(inventory_reference, "object_session", return_value=db),
+            patch(f"{_MOD}.UserRepository") as users,
             patch(f"{_MOD}._pick_source_id", return_value="src"),
             patch(f"{_MOD}.resolve_nautobot_credentials"),
             patch(f"{_MOD}.service_factory.build_nautobot_source_service", return_value=service),
         ):
+            users.return_value.get_by_id.return_value = user
             outcomes = await executor.execute(
                 config={"device_param": "target_devices"},
                 context=WorkflowContext(run_id="1", workflow_id="1"),
@@ -39,7 +43,7 @@ class InventoryReferenceTests(unittest.IsolatedAsyncioTestCase):
                 node_id="n1",
                 device_sessions=MagicMock(),
             )
-        service.resolve_saved_inventory_devices_by_id.assert_awaited_once_with(1, None)
+        service.resolve_saved_inventory_devices_by_id.assert_awaited_once_with(1, "alice")
         names = sorted(d.name for d in outcomes[0].context.devices.values())
         self.assertEqual(names, ["r1", "r2"])
 
@@ -60,6 +64,20 @@ class NoDatabaseSessionTests(unittest.IsolatedAsyncioTestCase):
         with patch(f"{_MOD}.object_session", return_value=None):
             with self.assertRaisesRegex(RuntimeError, "no active DB session"):
                 await inventory_reference.inventory_device_text(run, {}, 1)
+
+    async def test_the_step_without_a_session_does_not_read_the_id_as_a_device_name(self) -> None:
+        """W10-04: run input "1" used to become the device name "1"."""
+        run = MagicMock(id=1, run_inputs={"target_devices": "1"}, triggered_by_id=5)
+        with patch.object(executor, "object_session", return_value=None):
+            with self.assertRaisesRegex(RuntimeError, "no active DB session"):
+                await executor.execute(
+                    config={"device_param": "target_devices"},
+                    context=WorkflowContext(run_id="1", workflow_id="1"),
+                    run=run,
+                    artifact_service=MagicMock(),
+                    node_id="n1",
+                    device_sessions=MagicMock(),
+                )
 
     async def test_a_non_numeric_reference_is_a_value_error(self) -> None:
         with patch(f"{_MOD}.object_session", return_value=MagicMock()):

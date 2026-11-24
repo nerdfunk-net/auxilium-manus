@@ -66,8 +66,16 @@ async def inventory_device_text(
             f"{_STEP}: run parameter did not resolve to an inventory id (got {reference!r})"
         ) from exc
 
+    # Fail closed, like start-workflow: PersistenceService checks inventory access only when it is
+    # given a username, so a run without a triggering user (a webhook-approved change request)
+    # would otherwise read any inventory, including another user's private one (W10-04).
     user = UserRepository(db).get_by_id(run.triggered_by_id) if run.triggered_by_id else None
-    username = user.username if user else None
+    if user is None:
+        raise ValueError(
+            f"{_STEP}: reading an inventory needs the user that triggered this run; "
+            "this run has none"
+        )
+    username = user.username
 
     source_id = _pick_source_id(db, config)
     credentials = resolve_nautobot_credentials(db, source_id, step_id=_STEP)

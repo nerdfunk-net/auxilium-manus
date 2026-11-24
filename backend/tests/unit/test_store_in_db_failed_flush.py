@@ -17,7 +17,7 @@ from core.models.base import Base
 from core.models.device_data_records import DeviceDataRecord
 from models.workflow_context import DeviceStatus
 from services.device_data.device_data_service import DeviceDataService
-from tests.unit._step_helpers import call_step, make_context, make_device, make_run, strict_xfail
+from tests.unit._step_helpers import call_step, make_context, make_device, make_run
 from workflow_steps.store_in_db.executor import execute
 
 _ORIGINAL = DeviceDataService.store_device_data
@@ -67,7 +67,6 @@ async def test_a_failed_flush_fails_that_device(sessions) -> None:  # noqa: ANN0
     assert failed.status == DeviceStatus.FAILED
 
 
-@strict_xfail("W9-04", "no rollback: the failed flush leaves the shared session unusable")
 @pytest.mark.asyncio
 async def test_the_next_device_is_stored_after_a_failed_flush(sessions) -> None:  # noqa: ANN001
     with patch.object(DeviceDataService, "store_device_data", _failing_flush_for("bad")):
@@ -80,7 +79,6 @@ async def test_the_next_device_is_stored_after_a_failed_flush(sessions) -> None:
         assert [r.device_name for r in db.scalars(select(DeviceDataRecord))] == ["good"]
 
 
-@strict_xfail("W9-04", "the stored error carries the SQL statement and its parameters")
 @pytest.mark.asyncio
 async def test_the_stored_error_has_no_sql(sessions) -> None:  # noqa: ANN001
     with patch.object(DeviceDataService, "store_device_data", _failing_flush_for("bad")):
@@ -90,3 +88,61 @@ async def test_the_stored_error_has_no_sql(sessions) -> None:  # noqa: ANN001
     message = " ".join(e.message for e in failed.errors)
     assert "INSERT" not in message
     assert "device_data_records" not in message
+
+
+@pytest.mark.asyncio
+async def test_the_error_keeps_only_the_exception_class(sessions) -> None:  # noqa: ANN001
+    with patch.object(DeviceDataService, "store_device_data", _failing_flush_for("bad")):
+        outcomes = await _run("bad")
+
+    error = next(o for o in outcomes if o.name == "failure").context.devices["bad"].errors[-1]
+    assert error.message == "IntegrityError"
+    assert error.code == "integrityerror"
+    assert error.failure is not None
+
+
+@pytest.mark.asyncio
+async def test_a_value_error_keeps_its_own_sentence(sessions) -> None:  # noqa: ANN001
+    async def refuse(*_args, **_kwargs):  # noqa: ANN002, ANN003, ANN202
+        raise ValueError("store-in-db: this device holds sealed secrets")
+
+    with patch("workflow_steps.store_in_db.executor._resolve_device_data", refuse):
+        outcomes = await _run("d1")
+    error = next(o for o in outcomes if o.name == "failure").context.devices["d1"].errors[-1]
+    assert error.message == "store-in-db: this device holds sealed secrets"
+
+
+@pytest.mark.asyncio
+async def test_the_write_runs_off_the_event_loop(sessions) -> None:  # noqa: ANN001
+    import threading
+
+    seen: list[int] = []
+
+    def store(self, *, device_name, storage_key, data):  # noqa: ANN001, ANN202
+        seen.append(threading.get_ident())
+        return _ORIGINAL(self, device_name=device_name, storage_key=storage_key, data=data)
+
+    with patch.object(DeviceDataService, "store_device_data", store):
+        outcomes = await _run("a", "b")
+
+    assert {o.name for o in outcomes} == {"success"}
+    assert len(seen) == 2 and threading.get_ident() not in seen
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("template", ["{nautobot.location.name}", " {nautobot.location.name} "])
+async def test_an_empty_rendered_storage_key_fails_the_device(sessions, template) -> None:  # noqa: ANN001
+    """W9-17: an absent attribute renders as "": the record would collide with every other
+    device of that name and be invisible to get-age-of-backup."""
+    context = make_context([make_device("d1", name="d1", attribute_bags={"x": {"v": 1}})])
+    outcomes = await call_step(
+        execute,
+        {"storage_key": template, "content_source": "attribute_bags"},
+        context,
+        run=make_run(),
+    )
+    by_name = {o.name: o.context.devices for o in outcomes}
+    assert set(by_name["failure"]) == {"d1"}
+    assert by_name["failure"]["d1"].errors[-1].code == "storage_key_unresolved"
+    with sessions() as db:
+        assert list(db.scalars(select(DeviceDataRecord))) == []
