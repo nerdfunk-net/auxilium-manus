@@ -271,10 +271,10 @@ async def execute(
     node_id: str,
     device_sessions: DeviceSessionPool,
 ) -> list[StepOutcome]:
+    parsed = _parse_update_content_config(config)
     if not context.devices:
         return [StepOutcome(name="success", context=context)]
 
-    parsed = _parse_update_content_config(config)
     logger.info(
         "update-content started run_id=%s node_id=%s devices=%d content_source=%s rules=%d",
         log_run_id(run),

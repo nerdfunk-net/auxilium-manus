@@ -327,10 +327,10 @@ async def execute(
     node_id: str,
     device_sessions: DeviceSessionPool,
 ) -> list[StepOutcome]:
+    parsed = _parse_filter_config(config)
     if not context.devices:
         return [StepOutcome(name="success", context=context)]
 
-    parsed = _parse_filter_config(config)
     logger.info(
         "filter-output run_id=%s devices=%d source=%s source_node=%s source_command=%r rules=%d",
         log_run_id(run),

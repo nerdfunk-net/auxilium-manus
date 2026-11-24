@@ -55,11 +55,11 @@ async def execute(
 ) -> list[StepOutcome]:
     del artifact_service, device_sessions
 
-    if not context.devices:
-        return [StepOutcome(name="success", context=context)]
-
     storage_key = _parse_required(config, "storage_key")
     destination_path = _parse_required(config, "destination_path")
+
+    if not context.devices:
+        return [StepOutcome(name="success", context=context)]
 
     logger.info(
         "get-from-db started run_id=%s node_id=%s devices=%d storage_key=%s",

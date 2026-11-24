@@ -161,10 +161,10 @@ async def execute(
 ) -> list[StepOutcome]:
     del artifact_service
 
+    parsed = _parse_config(config)
     if not context.devices:
         return [StepOutcome(name="success", context=context)]
 
-    parsed = _parse_config(config)
     credentials, nautobot_service = _bind_nautobot(run, parsed.source_id)
     variables = build_attribute_variables(parsed.list_of_attributes)
     # The cable selection differs between Nautobot versions, so the query is built per source.

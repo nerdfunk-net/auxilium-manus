@@ -109,12 +109,12 @@ async def execute(
 ) -> list[StepOutcome]:
     del artifact_service, device_sessions  # unused: no artifacts, no SSH sessions
 
-    if not context.devices:
-        return [StepOutcome(name="success", context=context)]
-
     pyats_source_id, credential_reference, network_driver_override = _parse_config(
         config, run.run_inputs
     )
+
+    if not context.devices:
+        return [StepOutcome(name="success", context=context)]
 
     db = object_session(run)
     if db is None:

@@ -237,10 +237,10 @@ async def execute(
 ) -> list[StepOutcome]:
     del run, artifact_service, device_sessions
 
+    list_path, field, value_expr, case_sensitive = _parse_list_contains_config(config)
+
     if not context.devices:
         return [StepOutcome(name=name, context=context) for name in _OUTCOME_NAMES]
-
-    list_path, field, value_expr, case_sensitive = _parse_list_contains_config(config)
 
     logger.info(
         "list-contains started run_id=%s node_id=%s list_path=%s field=%s",

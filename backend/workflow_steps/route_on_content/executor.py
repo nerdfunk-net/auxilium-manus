@@ -297,10 +297,10 @@ async def execute(
 ) -> list[StepOutcome]:
     del run
 
+    parsed = _parse_route_config(config)
     if not context.devices:
         return [StepOutcome(name=name, context=context) for name in _OUTCOME_NAMES]
 
-    parsed = _parse_route_config(config)
     logger.info(
         "route-on-content started run_id=%s node_id=%s content_source=%s match_mode=%s",
         context.run_id,

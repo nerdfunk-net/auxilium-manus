@@ -359,9 +359,25 @@ class OpenChangeRequestExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNotNone(error.failure)
         self.assertEqual(failure.failure, error.failure)
 
-    async def test_no_devices_fails_without_staging(self) -> None:
+    async def test_no_devices_is_a_no_op_success_without_staging(self) -> None:
+        context = WorkflowContext(
+            run_id="run-uuid", workflow_id="7", devices={}, metadata={"keep": 1}
+        )
         outcomes = await execute(
             config={"git_repository_id": 3, "content_source": "running_config"},
+            context=context,
+            run=self._run(),
+            artifact_service=self.artifacts,
+            node_id=NODE_ID,
+            device_sessions=None,
+        )
+        self.assertEqual([o.name for o in outcomes], ["success"])
+        self.assertEqual(outcomes[0].context, context)
+        self.git.push.assert_not_called()
+
+    async def test_no_devices_still_reports_a_bad_config(self) -> None:
+        outcomes = await execute(
+            config={"git_repository_id": 3, "expires_after_hours": "abc"},
             context=WorkflowContext(run_id="run-uuid", workflow_id="7", devices={}),
             run=self._run(),
             artifact_service=self.artifacts,
@@ -369,7 +385,6 @@ class OpenChangeRequestExecutorTests(unittest.IsolatedAsyncioTestCase):
             device_sessions=None,
         )
         self.assertEqual([o.name for o in outcomes], ["success", "failure"])
-        self.git.push.assert_not_called()
 
     async def test_unknown_repository_fails_without_staging(self) -> None:
         context = await self._context_with_running_config()

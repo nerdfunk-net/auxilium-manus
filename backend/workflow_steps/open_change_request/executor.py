@@ -444,11 +444,8 @@ async def execute(
     except ValueError as exc:
         return _change_request_failure(context=context, node_id=node_id, message=str(exc))
     if not context.devices:
-        return _change_request_failure(
-            context=context,
-            node_id=node_id,
-            message=f"{_STEP_ID}: no devices in the input context",
-        )
+        # An empty branch is a no-op (D2): nothing to review, nothing staged, nothing pushed.
+        return [StepOutcome(name="success", context=context)]
 
     logger.info(
         "%s started run_id=%s repository_id=%s devices=%d",

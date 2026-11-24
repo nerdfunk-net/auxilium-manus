@@ -153,10 +153,10 @@ async def execute(
 ) -> list[StepOutcome]:
     del artifact_service, device_sessions
 
+    parsed = _parse_config(config)
     if not context.devices:
         return [StepOutcome(name="success", context=context)]
 
-    parsed = _parse_config(config)
     credentials, nautobot_service = _bind_nautobot(run, parsed.source_id)
 
     logger.info(

@@ -330,10 +330,10 @@ async def execute(
 ) -> list[StepOutcome]:
     del run, artifact_service
 
+    attributes = _parse_attributes(config)
+
     if not context.devices:
         return [StepOutcome(name="success", context=context)]
-
-    attributes = _parse_attributes(config)
 
     logger.info(
         "%s started run_id=%s node_id=%s attribute_count=%d",

@@ -262,9 +262,6 @@ async def execute(
     device_sessions: DeviceSessionPool,
 ) -> list[StepOutcome]:
     del artifact_service, device_sessions
-    if not context.devices:
-        return [StepOutcome(name="success", context=context)]
-
     try:
         lookback_hours = parse_int_flag(
             config,
@@ -276,6 +273,9 @@ async def execute(
     except ValueError as exc:
         raise ValueError(f"{STEP_ID}: {exc}") from exc
     dry_run = parse_bool_flag(config, "dry_run")
+
+    if not context.devices:
+        return [StepOutcome(name="success", context=context)]
 
     db = object_session(run)
     if db is None:

@@ -206,10 +206,10 @@ async def execute(
 ) -> list[StepOutcome]:
     del artifact_service, device_sessions
 
+    cfg = _DecryptConfig(config)
+
     if not context.devices:
         return [StepOutcome(name="success", context=context)]
-
-    cfg = _DecryptConfig(config)
 
     if is_cisco_algorithm(cfg.algorithm_override):
         # Keyless Cisco format: no credential, no DB session needed.

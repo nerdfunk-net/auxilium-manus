@@ -81,7 +81,7 @@ def _settings(username: str | None, masking: str = "tokens", address_map=None):
     )
 
 
-async def _run(
+async def _run_all(
     config: dict,
     context: WorkflowContext,
     *,
@@ -120,7 +120,15 @@ async def _run(
             node_id="node_1",
             device_sessions=MagicMock(),
         )
-    return outcomes[0], fake
+    return outcomes
+
+
+async def _run(config: dict, context: WorkflowContext, **kwargs):
+    provider = kwargs.get("provider") or _FakeProvider()
+    kwargs["provider"] = provider
+    outcomes = await _run_all(config, context, **kwargs)
+    by_name = {o.name: o for o in outcomes}
+    return by_name.get("failure", outcomes[0]), provider
 
 
 class ContactTheAiTests(unittest.IsolatedAsyncioTestCase):
@@ -180,6 +188,44 @@ class ContactTheAiTests(unittest.IsolatedAsyncioTestCase):
             self.assertNotIn("sk-secret-provider-text", text)
             self.assertNotIn("http://x/v1", text)
         self.assertEqual(info["reason"], "the AI provider rejected the credentials")
+
+    async def test_a_failed_call_marks_every_device_failed_with_the_reason(self) -> None:
+        outcome, _ = await _run(
+            {"prompt": "hi"},
+            _context(_device("r1"), _device("r2")),
+            provider=_FakeProvider(error=ProviderAuthError("sk-secret-provider-text")),
+        )
+        self.assertEqual(set(outcome.context.devices), {"r1", "r2"})
+        for device in outcome.context.devices.values():
+            self.assertEqual(device.status, DeviceStatus.FAILED)
+            error = device.errors[-1]
+            self.assertEqual(error.step_id, "contact-the-ai")
+            self.assertEqual(error.node_id, "node_1")
+            self.assertEqual(error.code, "contact_the_ai_failed")
+            self.assertEqual(error.message, "the AI provider rejected the credentials")
+            self.assertEqual(error.failure.kind, "auth_failed")
+            self.assertNotIn("sk-secret-provider-text", repr(error))
+            self.assertNotIn("ai", device.attribute_bags)  # no answer was stored
+
+    async def test_a_failed_call_answers_the_success_handle_empty(self) -> None:
+        fake = _FakeProvider(error=ProviderAuthError("x"))
+        outcomes = await _run_all({"prompt": "hi"}, _context(_device("r1")), provider=fake)
+        by_name = {o.name: o for o in outcomes}
+        self.assertEqual(set(by_name), {"success", "failure"})
+        self.assertEqual(by_name["success"].context.devices, {})
+        self.assertEqual(
+            by_name["success"].context.metadata["node_1.ai_response"]["status"], "failed"
+        )
+
+    async def test_a_failed_device_keeps_its_earlier_errors(self) -> None:
+        earlier = DeviceError(node_id="n0", step_id="s0", code="old", message="old")
+        outcome, _ = await _run(
+            {"prompt": "hi"},
+            _context(_device("r1", errors=[earlier])),
+            provider=_FakeProvider(error=ProviderAuthError("x")),
+        )
+        errors = outcome.context.devices["r1"].errors
+        self.assertEqual([e.code for e in errors], ["old", "contact_the_ai_failed"])
 
     async def test_unknown_provider_error_uses_default_wording(self) -> None:
         outcome, _ = await _run(
@@ -292,7 +338,7 @@ class ContactTheAiTests(unittest.IsolatedAsyncioTestCase):
             {"prompt": "hi"}, ctx, provider=_FakeProvider(error=ProviderAuthError("bad key"))
         )
         self.assertEqual(outcome.failure.kind, "auth_failed")
-        self.assertEqual(outcome.context.devices, ctx.devices)
+        self.assertEqual(set(outcome.context.devices), set(ctx.devices))
 
     async def test_timeout_fails(self) -> None:
         outcome, _ = await _run(

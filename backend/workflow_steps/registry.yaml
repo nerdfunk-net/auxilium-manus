@@ -6004,8 +6004,9 @@ plugins:
       before it is sent, and every placeholder is checked against the sharing
       switches of the AI service user (WORKFLOW_AI_USER) with the AI assistant's
       rules; a placeholder that is not allowed ends the step on failure and
-      nothing is sent. Ends on failure when the AI is unavailable; a run with
-      no device sends nothing. Fan-out note:
+      nothing is sent. Ends on failure when the AI is unavailable (every device
+      is marked failed with the reason, so Notify on Error can report it); a run
+      with no device sends nothing. Fan-out note:
       place after Fan In (or at the end of a non-fanned workflow) for one call
       per run; inside fan-out children it calls the model once per child.
     artifact_type: control_flow

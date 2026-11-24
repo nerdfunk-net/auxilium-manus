@@ -119,10 +119,10 @@ async def execute(
 ) -> list[StepOutcome]:
     del device_sessions
 
+    parsed = parse_config(config)
     if not context.devices:
         return [StepOutcome(name="success", context=context)]
 
-    parsed = parse_config(config)
     db = object_session(run)
     if db is None:
         raise RuntimeError(f"{STEP_ID}: WorkflowRun has no active DB session")

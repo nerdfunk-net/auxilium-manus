@@ -434,6 +434,22 @@ fails with one error; a routing step lists its verdict handles in `empty_handles
 `_partition_*` functions in the step packages are legacy: `tests/unit/test_private_outcome_helpers_ratchet.py` pins them
 per file, lets the number only fall and fails on a new one.
 
+### Empty branch and step-level failure (D2)
+
+- **Validate first, then look at the devices.** A step parses and validates its config before it returns for an empty
+  device list, so a config the step can never run with is reported on every run, not only on the one where devices
+  arrive. `tests/unit/test_empty_branch_validates_config.py` pins this (an AST guard over every `execute`, and one
+  unusable config per migrated step that must raise `ValueError` with no devices). Work that needs a session, a
+  credential or a remote system (`object_session`, `resolve_ssh_credential`, `_bind_nautobot`) stays after the guard.
+- **An empty branch is a no-op.** A step with `success` / `failure` handles returns `[success]` with the unchanged
+  context (`open-change-request` too: nothing to review, nothing staged); a router (`route-on-attribute`,
+  `route-on-content`, `list-contains`, `compare-data`, `login-successful`) answers every handle it declares, empty, with
+  the context and its metadata unchanged.
+- **A step-level failure marks the devices.** When the step as a whole fails (the AI is unavailable, the change request
+  cannot be opened, the git operation fails) every device is FAILED with one `DeviceError` carrying the step's
+  `FailureInfo` (`device_outcomes.whole_step_failure`), `success` is answered empty; `contact-the-ai`, `open-change-request`
+  and the git steps do it. A step that loses a remote system part-way keeps the devices already done (`abort_outcomes`).
+
 ### One per-device runner
 
 A step that works on its devices one by one hands `workflow_steps/common/device_runner.py::run_per_device(context,
@@ -1089,7 +1105,10 @@ before anything is sent (no placeholders, no `device.*`, no reserved bag `parsed
 path). The run viewer shows the answer, provider, model and target, or the failure reason, under "AI response"
 (`metadata["<node id>.ai_response"]`, `step-result-viewer/ai-response-panel.tsx`). Config: `prompt`,
 `system_prompt`, `output_attribute`, `max_output_tokens` (1-4096),
-`timeout_seconds` (1-600). Outcomes `success` / `failure`.
+`timeout_seconds` (1-600). Outcomes `success` / `failure`. A failed call (AI unavailable, prompt withheld, provider
+error, timeout, empty answer) is a whole-step failure: every device leaves through `failure` as FAILED with one
+`DeviceError` (`contact_the_ai_failed`, the fixed wording and a `FailureInfo`), so `notify-on-error` has a reason to report;
+`success` is answered empty and no answer is stored on any device.
 
 - **Whose AI settings:** a background run has no interactive user, so the step uses the settings (provider,
   key, sharing switches, proxy) of the service user named by the operator in `WORKFLOW_AI_USER`, through

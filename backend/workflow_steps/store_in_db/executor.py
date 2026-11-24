@@ -212,11 +212,11 @@ async def execute(
 ) -> list[StepOutcome]:
     del device_sessions
 
-    if not context.devices:
-        return [StepOutcome(name="success", context=context)]
-
     storage_key = _parse_storage_key(config)
     content_source = _parse_content_source(config)
+
+    if not context.devices:
+        return [StepOutcome(name="success", context=context)]
 
     logger.info(
         "store-in-db started run_id=%s node_id=%s devices=%d storage_key=%s content_source=%s",

@@ -73,10 +73,10 @@ async def execute(
 ) -> list[StepOutcome]:
     del artifact_service, device_sessions
 
+    source_path, destination_path, credential_reference, algorithm_override = _parse_config(config)
+
     if not context.devices:
         return [StepOutcome(name="success", context=context)]
-
-    source_path, destination_path, credential_reference, algorithm_override = _parse_config(config)
 
     if is_cisco_algorithm(algorithm_override):
         # Keyless Cisco format: no credential, no DB session needed.

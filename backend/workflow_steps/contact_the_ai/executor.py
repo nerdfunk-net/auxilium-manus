@@ -61,6 +61,7 @@ from services.ai_assistant.settings_service import AiRuntimeConfig, AiSettingsSe
 from services.artifacts import ArtifactService
 from services.workflow_context.secret_fields import path_is_known_secret
 from workflow_steps.common.attribute_write import set_device_attribute
+from workflow_steps.common.device_outcomes import whole_step_failure
 from workflow_steps.common.step_flags import parse_int_flag
 from workflow_steps.contact_the_ai.config import (
     DEFAULT_MAX_OUTPUT_TOKENS,
@@ -105,8 +106,25 @@ def _with_ai_metadata(
     return context.model_copy(update={"metadata": metadata})
 
 
-def _failure(summary: str, context: WorkflowContext, info: FailureInfo | None) -> list[StepOutcome]:
-    return [StepOutcome(name="failure", context=context, summary=summary, failure=info)]
+def _failure(
+    node_id: str, summary: str, context: WorkflowContext, info: FailureInfo | None
+) -> list[StepOutcome]:
+    """The step as a whole failed (D2): every device is FAILED with one ``DeviceError``.
+
+    The summary is fixed wording, never provider output or run data. The reason is also stored
+    beside the answer slot so the run viewer can show why.
+    """
+    return whole_step_failure(
+        context,
+        node_id=node_id,
+        step_id=_STEP_ID,
+        code="contact_the_ai_failed",
+        message=summary,
+        failure=info,
+        metadata={
+            f"{node_id}{AI_RESPONSE_METADATA_SUFFIX}": {"status": "failed", "reason": summary}
+        },
+    )
 
 
 # Fixed sentences per failure kind: the provider's own text (which can carry a configured base URL
@@ -207,7 +225,7 @@ async def _ask(ai: AiRuntimeConfig, *, system: str, prompt: str, max_tokens: int
         await provider.aclose()
 
 
-async def _execute(
+async def execute(
     *,
     config: dict[str, Any],
     context: WorkflowContext,
@@ -263,6 +281,7 @@ async def _execute(
     username = settings.workflow_ai_username
     if username is None:
         return _failure(
+            node_id,
             "AI is not available: WORKFLOW_AI_USER is not set",
             context,
             FailureInfo(phase="api", kind="permission_denied", hint="check_permissions"),
@@ -271,6 +290,7 @@ async def _execute(
     if user is None or not user.is_active:
         logger.warning("%s: WORKFLOW_AI_USER does not name an active user", _STEP_ID)
         return _failure(
+            node_id,
             "AI is not available: WORKFLOW_AI_USER does not name an active user",
             context,
             FailureInfo(phase="api", kind="permission_denied", hint="check_permissions"),
@@ -281,6 +301,7 @@ async def _execute(
     except AiAssistantError as exc:
         logger.warning("%s: AI not available (%s)", _STEP_ID, type(exc).__name__)
         return _failure(
+            node_id,
             f"AI is not available: {type(exc).__name__}",
             context,
             FailureInfo(
@@ -294,6 +315,7 @@ async def _execute(
     gap = _names_gap(prompt_template, ai)
     if gap is not None:
         return _failure(
+            node_id,
             f"prompt not sent: {gap}",
             context,
             FailureInfo(phase="api", kind="permission_denied", hint="check_permissions"),
@@ -303,6 +325,7 @@ async def _execute(
     if known is None:
         # Exact-match redaction is unavailable: do not send attribute content without it.
         return _failure(
+            node_id,
             "prompt not sent: credential values for redaction could not be loaded",
             context,
             FailureInfo(phase="internal", kind="internal_error", retryable=True),
@@ -331,12 +354,14 @@ async def _execute(
         system = _redact(f"{_SYSTEM_PROMPT}\n{extra_system}".strip(), ai, redactor)
     except PromptWithheldError as exc:
         return _failure(
+            node_id,
             f"prompt not sent: {exc}",
             context,
             FailureInfo(phase="api", kind="permission_denied", hint="check_permissions"),
         )
     except RedactionBudgetExceeded:
         return _failure(
+            node_id,
             "prompt not sent: too much text to redact",
             context,
             FailureInfo(phase="internal", kind="payload_too_large"),
@@ -357,6 +382,7 @@ async def _execute(
     except TimeoutError:
         logger.warning("%s: provider call timed out after %ss", _STEP_ID, timeout)
         return _failure(
+            node_id,
             f"the AI did not answer within {timeout} seconds",
             context,
             FailureInfo(phase="api", kind="timeout", retryable=True, hint="retry_later"),
@@ -364,12 +390,13 @@ async def _execute(
     except ProviderError as exc:
         logger.warning("%s: provider call failed (%s)", _STEP_ID, type(exc).__name__)
         info = _provider_failure(exc)
-        return _failure(_PROVIDER_WORDING.get(info.kind, _PROVIDER_DEFAULT), context, info)
+        return _failure(node_id, _PROVIDER_WORDING.get(info.kind, _PROVIDER_DEFAULT), context, info)
 
     # Fake addresses the model repeats go back to the real ones; tokens and secrets never do.
     answer = _clean_reply(redactor.restore_addresses(reply))
     if not answer:
         return _failure(
+            node_id,
             "the AI returned an empty answer",
             context,
             FailureInfo(phase="api", kind="invalid_response"),
@@ -408,39 +435,4 @@ async def _execute(
             context=updated,
             summary=f"AI answered ({len(answer)} characters) into {output_attribute}",
         )
-    ]
-
-
-async def execute(
-    *,
-    config: dict[str, Any],
-    context: WorkflowContext,
-    run: WorkflowRun,
-    artifact_service: ArtifactService,
-    node_id: str,
-    device_sessions: DeviceSessionPool,
-) -> list[StepOutcome]:
-    outcomes = await _execute(
-        config=config,
-        context=context,
-        run=run,
-        artifact_service=artifact_service,
-        node_id=node_id,
-        device_sessions=device_sessions,
-    )
-    # A failure keeps its context unchanged; the reason is stored beside it so the run viewer
-    # can show why (the summary is fixed wording, never provider output or run data).
-    return [
-        outcome.model_copy(
-            update={
-                "context": _with_ai_metadata(
-                    outcome.context,
-                    node_id,
-                    {"status": "failed", "reason": outcome.summary or "failed"},
-                )
-            }
-        )
-        if outcome.name == "failure"
-        else outcome
-        for outcome in outcomes
     ]

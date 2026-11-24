@@ -56,9 +56,6 @@ async def execute(
     node_id: str,
     device_sessions: DeviceSessionPool,
 ) -> list[StepOutcome]:
-    if not context.devices:
-        return [StepOutcome(name="success", context=context)]
-
     parsed = replace(
         parse_run_command_config(config),
         credential_reference=resolve_config_reference(
@@ -69,6 +66,9 @@ async def execute(
             run_inputs=run.run_inputs,
         ),
     )
+
+    if not context.devices:
+        return [StepOutcome(name="success", context=context)]
 
     db = object_session(run)
     if db is None:

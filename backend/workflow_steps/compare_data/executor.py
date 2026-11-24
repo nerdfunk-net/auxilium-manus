@@ -523,6 +523,7 @@ async def execute(
     node_id: str,
     device_sessions: DeviceSessionPool,
 ) -> list[StepOutcome]:
+    parsed = _parse_compare_config(config)
     if not context.devices:
         return [
             StepOutcome(
@@ -532,7 +533,6 @@ async def execute(
             for outcome_name in _OUTCOME_NAMES
         ]
 
-    parsed = _parse_compare_config(config)
     diff_service = GitDiffService()
 
     logger.info(

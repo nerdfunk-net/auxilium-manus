@@ -314,10 +314,10 @@ async def execute(
     node_id: str,
     device_sessions: DeviceSessionPool,
 ) -> list[StepOutcome]:
+    parsed = _parse_merge_config(config)
     if not context.devices:
         return [StepOutcome(name="success", context=context)]
 
-    parsed = _parse_merge_config(config)
     logger.info(
         "merge-content run_id=%s devices=%d mode=%s content_source=%s sources=%r",
         log_run_id(run),

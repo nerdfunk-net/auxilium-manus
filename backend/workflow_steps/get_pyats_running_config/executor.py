@@ -105,10 +105,10 @@ async def execute(
 ) -> list[StepOutcome]:
     del artifact_service, device_sessions  # unused: no artifacts, no SSH sessions
 
+    output_key = parse_output_key(config.get("output_key") or get_config()["output_key"])
+
     if not context.devices:
         return [StepOutcome(name="success", context=context)]
-
-    output_key = parse_output_key(config.get("output_key") or get_config()["output_key"])
 
     db = object_session(run)
     if db is None:

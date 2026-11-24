@@ -296,9 +296,6 @@ async def execute(
     device_sessions: DeviceSessionPool,
 ) -> list[StepOutcome]:
     del artifact_service
-    if not context.devices:
-        return [StepOutcome(name="success", context=context)]
-
     options = parse_options(config)
     reference = resolve_config_reference(
         config,
@@ -307,6 +304,9 @@ async def execute(
         literal_key="credential_reference",
         run_inputs=run.run_inputs,
     )
+    if not context.devices:
+        return [StepOutcome(name="success", context=context)]
+
     db = object_session(run)
     if db is None:
         raise RuntimeError("collect-client-data: WorkflowRun has no active DB session")

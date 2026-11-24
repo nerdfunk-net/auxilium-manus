@@ -135,10 +135,10 @@ async def execute(
     node_id: str,
     device_sessions: DeviceSessionPool,
 ) -> list[StepOutcome]:
+    parsed = _parse_config(config)
     if not context.devices:
         return [StepOutcome(name="success", context=context)]
 
-    parsed = _parse_config(config)
     db = object_session(run)
     if db is None:
         raise RuntimeError("get-device-configs: WorkflowRun has no active DB session")

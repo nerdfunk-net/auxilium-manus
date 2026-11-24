@@ -191,7 +191,7 @@ class SuccessTests(unittest.IsolatedAsyncioTestCase):
         artifacts.resolve.assert_awaited_once_with(ref)
 
     async def test_empty_context_does_nothing(self) -> None:
-        outcomes, fake = await _run({}, _context())
+        outcomes, fake = await _run(dict(BASE_CONFIG), _context())
         self.assertEqual([o.name for o in outcomes], ["success"])
         self.assertEqual(fake.calls, [])
 

@@ -176,9 +176,6 @@ async def execute(
 ) -> list[StepOutcome]:
     del artifact_service
 
-    if not context.devices:
-        return [StepOutcome(name=name, context=context) for name in _OUTCOME_NAMES]
-
     credential_reference = resolve_config_reference(
         config,
         source_key="credential_source",
@@ -187,6 +184,9 @@ async def execute(
         run_inputs=run.run_inputs,
     )
     network_driver_override = str(config.get("network_driver_override") or "").strip() or None
+
+    if not context.devices:
+        return [StepOutcome(name=name, context=context) for name in _OUTCOME_NAMES]
 
     db = object_session(run)
     if db is None:
