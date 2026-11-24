@@ -23,13 +23,7 @@ from typing import TYPE_CHECKING, Any
 from core.database import get_db_session
 from core.models.runs import WorkflowRun
 from models.failure import FailureInfo
-from models.workflow_context import (
-    DeviceContext,
-    DeviceError,
-    DeviceStatus,
-    StepOutcome,
-    WorkflowContext,
-)
+from models.workflow_context import DeviceContext, DeviceStatus, StepOutcome, WorkflowContext
 from services.artifacts import ArtifactService
 from services.device_data.device_data_service import DeviceDataService
 from services.execution.run_events_reporter import current_run_event_context, emit_run_event
@@ -43,12 +37,9 @@ from services.workflow_context.device_template import (
 )
 from workflow_steps.common.attribute_write import RESERVED_BAG_NAMES, set_device_attribute
 from workflow_steps.common.device_outcomes import build_outcomes
+from workflow_steps.common.device_runner import Fail, run_per_device
 from workflow_steps.common.file_source_root import resolve_git_root
 from workflow_steps.common.git_repository_loader import parse_repository_id
-from workflow_steps.common.partial_outcomes import (
-    device_error_from_exception,
-    fail_device_with_error,
-)
 from workflow_steps.common.placeholder_template import render_placeholder_template
 from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.common.step_flags import parse_bool_flag
@@ -169,16 +160,6 @@ def _as_utc(moment: datetime) -> datetime:
     return moment.replace(tzinfo=UTC) if moment.tzinfo is None else moment.astimezone(UTC)
 
 
-def _problem_to_error(problem: _DeviceProblem, node_id: str) -> DeviceError:
-    return DeviceError(
-        node_id=node_id,
-        step_id=_STEP_ID,
-        code=problem.code,
-        message=str(problem),
-        failure=problem.failure,
-    )
-
-
 def _with_ages(
     device: DeviceContext,
     *,
@@ -247,60 +228,65 @@ async def _report_missing_markers(parsed: _Parsed, names: list[str], total: int)
 
 async def _locate_all(
     root: Path, parsed: _Parsed, context: WorkflowContext, node_id: str
-) -> dict[str, _Backup | DeviceError]:
-    async def one(device_id: str, device: DeviceContext) -> tuple[str, _Backup | DeviceError]:
-        try:
-            backup = await asyncio.to_thread(_locate_backup, root, device, parsed, context.run_id)
-        except _DeviceProblem as problem:
-            return device_id, _problem_to_error(problem, node_id)
-        except Exception as exc:
-            logger.exception("get-age-of-backup failed for a device node_id=%s", node_id)
-            return device_id, device_error_from_exception(exc, node_id=node_id, step_id=_STEP_ID)
-        return device_id, backup
+) -> tuple[dict[str, _Backup], dict[str, DeviceContext]]:
+    """Phase 1 (git, all devices at once): the located backups and the devices that failed."""
+    backups: dict[str, _Backup] = {}
 
-    pairs = await asyncio.gather(*[one(i, d) for i, d in context.devices.items()])
-    return dict(pairs)
+    async def locate(device_id: str, device: DeviceContext) -> DeviceContext | Fail:
+        try:
+            backups[device_id] = await asyncio.to_thread(
+                _locate_backup, root, device, parsed, context.run_id
+            )
+        except _DeviceProblem as problem:
+            return Fail(code=problem.code, message=str(problem), failure=problem.failure)
+        except Exception:
+            logger.exception("get-age-of-backup failed for a device node_id=%s", node_id)
+            raise  # the runner records the class name and a FailureInfo
+        return device
+
+    batch = await run_per_device(context, locate, node_id=node_id, step_id=_STEP_ID)
+    return backups, batch.failed
 
 
 async def _apply_markers(
     context: WorkflowContext,
     parsed: _Parsed,
-    located: dict[str, _Backup | DeviceError],
+    backups: dict[str, _Backup],
     node_id: str,
     now: datetime,
 ) -> tuple[dict[str, DeviceContext], dict[str, DeviceContext]]:
-    success: dict[str, DeviceContext] = {}
-    failed: dict[str, DeviceContext] = {}
+    """Phase 2 (database, one device after the other): the ages, with the marker if asked."""
     without_marker: list[str] = []
     looked_up = 0  # devices whose marker was asked for, whether or not the lookup then worked
     db = get_db_session() if parsed.use_marker else None
     try:
         service = DeviceDataService(db) if db is not None else None
-        for device_id, device in context.devices.items():
-            found = located[device_id]
-            if isinstance(found, DeviceError):
-                failed[device_id] = fail_device_with_error(device, found)
-                continue
+
+        async def apply(device_id: str, device: DeviceContext) -> DeviceContext | Fail:
+            nonlocal looked_up
             try:
                 if service is not None:
                     looked_up += 1
                 marker = await _marker_time(service, device, parsed) if service else None
                 if service is not None and marker is None:
                     without_marker.append(device.name)
-                success[device_id] = _with_ages(
-                    device, parsed=parsed, backup=found, marker_time=marker, now=now
+                return _with_ages(
+                    device, parsed=parsed, backup=backups[device_id], marker_time=marker, now=now
                 )
-            except Exception as exc:
+            except Exception:
                 logger.exception("get-age-of-backup marker lookup failed node_id=%s", node_id)
-                failed[device_id] = fail_device_with_error(
-                    device, device_error_from_exception(exc, node_id=node_id, step_id=_STEP_ID)
-                )
+                raise  # the runner records the class name and a FailureInfo
+
+        # One session, one device after the other (concurrency=1).
+        batch = await run_per_device(
+            context, apply, node_id=node_id, step_id=_STEP_ID, concurrency=1, only=set(backups)
+        )
     finally:
         if db is not None:
             db.close()
     if without_marker:
         await _report_missing_markers(parsed, without_marker, looked_up)
-    return success, failed
+    return batch.ok, batch.failed
 
 
 async def execute(
@@ -331,8 +317,12 @@ async def execute(
         root = await resolve_git_root(
             parsed.git_repository_id, stack, allow_stale=parsed.allow_stale
         )
-        located = await _locate_all(root, parsed, context, node_id)
-    success, failed = await _apply_markers(context, parsed, located, node_id, now)
+        backups, located_failed = await _locate_all(root, parsed, context, node_id)
+    marked_ok, marked_failed = await _apply_markers(context, parsed, backups, node_id, now)
+    failed_by_id = {**located_failed, **marked_failed}
+    # Outcomes keep the order of the incoming context.
+    success = {i: marked_ok[i] for i in context.devices if i in marked_ok}
+    failed = {i: failed_by_id[i] for i in context.devices if i in failed_by_id}
 
     logger.info(
         "get-age-of-backup finished success=%d failure=%d run_id=%s",

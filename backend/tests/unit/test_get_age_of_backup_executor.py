@@ -21,6 +21,7 @@ from models.workflow_context import DeviceContext, DeviceStatus, WorkflowContext
 from services.artifacts import InMemoryArtifactService
 from services.device_data.device_data_service import DeviceDataService
 from services.execution.run_events_reporter import RunEventContext
+from services.git.commit_info import last_commit_of
 from workflow_steps.get_age_of_backup.executor import execute
 
 NOW = datetime(2026, 11, 23, 12, 0, tzinfo=UTC)
@@ -392,6 +393,136 @@ class GetAgeOfBackupExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(set(by_name["failure"].context.devices), {"d2"})
         message = self.emit.call_args.kwargs["message"]
         self.assertIn("1 of 3", message)
+
+    async def test_an_unexpected_git_error_fails_only_that_device_and_hides_its_text(self) -> None:
+        _commit(self.repo, "lab.cfg", "v1", NOW - timedelta(days=1))
+        _commit(self.repo, "lab2.cfg", "v1", NOW - timedelta(days=1))
+        secret = "git blew up at /srv/secret/path"
+        real = last_commit_of
+
+        def flaky(root: Path, relative: str):
+            if relative == "lab2.cfg":
+                raise RuntimeError(secret)
+            return real(root, relative)
+
+        with (
+            patch("workflow_steps.get_age_of_backup.executor.last_commit_of", flaky),
+            self.assertLogs("workflow_steps.get_age_of_backup.executor", level="ERROR") as logs,
+        ):
+            outcomes = await self._run(
+                config=_BASE,
+                devices={"d1": _device("d1", "lab"), "d2": _device("d2", "lab2")},
+            )
+
+        by_name = {o.name: o for o in outcomes}
+        self.assertEqual(set(by_name["success"].context.devices), {"d1"})
+        failed = by_name["failure"].context.devices["d2"]
+        self.assertEqual(failed.errors[-1].message, "RuntimeError")
+        self.assertEqual(failed.errors[-1].failure.kind, "internal_error")
+        self.assertNotIn(secret, str(failed.errors))
+        self.assertTrue(any(r.exc_info for r in logs.records))  # the traceback stays in the log
+
+    async def test_outcome_devices_keep_the_context_order(self) -> None:
+        for name in ("a", "b", "c", "d"):
+            if name != "b":
+                _commit(self.repo, f"{name}.cfg", "v1", NOW - timedelta(days=1))
+        devices = {n: _device(n, n) for n in ("d", "c", "b", "a")}
+
+        outcomes = await self._run(config=_BASE, devices=devices)
+
+        by_name = {o.name: o for o in outcomes}
+        self.assertEqual(list(by_name["success"].context.devices), ["d", "c", "a"])
+        self.assertEqual(list(by_name["failure"].context.devices), ["b"])
+
+    async def test_a_failed_marker_lookup_hides_its_text_and_logs_the_traceback(self) -> None:
+        _commit(self.repo, "lab.cfg", "v1", NOW - timedelta(days=1))
+        secret = "connection to db at 10.9.9.9 lost"
+
+        def boom(self_: DeviceDataService, *, device_name: str, storage_key: str):
+            raise RuntimeError(secret)
+
+        with (
+            patch.object(DeviceDataService, "get_device_data", boom),
+            self.assertLogs("workflow_steps.get_age_of_backup.executor", level="ERROR") as logs,
+        ):
+            outcomes = await self._run(
+                config={**_BASE, "use_marker": True, "marker_storage_key": "backup_checked"},
+                devices={"d1": _device("d1", "lab")},
+            )
+
+        failed = self._failed(outcomes, "d1")
+        self.assertEqual(failed.errors[-1].message, "RuntimeError")
+        self.assertEqual(failed.errors[-1].failure.kind, "internal_error")
+        self.assertNotIn(secret, str(failed.errors))
+        self.assertTrue(any(r.exc_info for r in logs.records))
+
+    async def test_marker_lookups_run_one_after_the_other_on_one_session(self) -> None:
+        import threading
+        import time
+
+        for name in ("a", "b", "c"):
+            _commit(self.repo, f"{name}.cfg", "v1", NOW - timedelta(days=1))
+        lock = threading.Lock()
+        state = {"now": 0, "max": 0}
+        real_get = DeviceDataService.get_device_data
+
+        def slow(self_: DeviceDataService, *, device_name: str, storage_key: str):
+            with lock:
+                state["now"] += 1
+                state["max"] = max(state["max"], state["now"])
+            time.sleep(0.05)
+            try:
+                return real_get(self_, device_name=device_name, storage_key=storage_key)
+            finally:
+                with lock:
+                    state["now"] -= 1
+
+        with patch.object(DeviceDataService, "get_device_data", slow):
+            await self._run(
+                config={**_BASE, "use_marker": True, "marker_storage_key": "backup_checked"},
+                devices={n: _device(n, n) for n in ("a", "b", "c")},
+            )
+
+        self.assertEqual(state["max"], 1)
+
+    async def test_failed_devices_of_both_phases_keep_the_context_order(self) -> None:
+        _commit(self.repo, "x.cfg", "v1", NOW - timedelta(days=1))
+        real_get = DeviceDataService.get_device_data
+
+        def flaky(self_: DeviceDataService, *, device_name: str, storage_key: str):
+            if device_name == "x":
+                raise RuntimeError("down")
+            return real_get(self_, device_name=device_name, storage_key=storage_key)
+
+        with patch.object(DeviceDataService, "get_device_data", flaky):
+            outcomes = await self._run(
+                config={**_BASE, "use_marker": True, "marker_storage_key": "backup_checked"},
+                devices={"y": _device("y", "ghost"), "x": _device("x", "x")},
+            )
+
+        failed = {o.name: o for o in outcomes}["failure"].context.devices
+        self.assertEqual(list(failed), ["y", "x"])
+
+    async def test_the_marker_session_is_closed(self) -> None:
+        _commit(self.repo, "lab.cfg", "v1", NOW - timedelta(days=1))
+        sessions: list[MagicMock] = []
+
+        def make_session() -> MagicMock:
+            real = self.Session()
+            spy = MagicMock(wraps=real)
+            sessions.append(spy)
+            return spy
+
+        with patch(
+            "workflow_steps.get_age_of_backup.executor.get_db_session", side_effect=make_session
+        ):
+            await self._run(
+                config={**_BASE, "use_marker": True, "marker_storage_key": "backup_checked"},
+                devices={"d1": _device("d1", "lab")},
+            )
+
+        self.assertEqual(len(sessions), 1)
+        sessions[0].close.assert_called_once()
 
     async def test_a_marker_key_that_renders_empty_counts_as_missing(self) -> None:
         _commit(self.repo, "lab.cfg", "v1", NOW - timedelta(days=4))

@@ -464,7 +464,7 @@ neighbour as CDP reported it (`management_ip_lookup: unavailable`). The other st
 family by family (P-C). W9 (files and git): `store-artifact` (sink, record and finalize errors: a `GitOperationError` keeps
 its text, scrubbed of URL credentials, and its `FailureInfo`; any other exception is the class name plus a record; a git
 prepare failure is a whole-step failure with the record on the outcome) and `read-from-file` run on `run_per_device`;
-`get-age-of-backup`, `open-change-request` (every failure outcome carries a `FailureInfo`, the message is scrubbed) and
+`get-age-of-backup` (two passes on `run_per_device`: the git lookups all at once while the repository lease is held, then the marker lookups one after the other on one database session; an unexpected error fails that device only and its traceback stays in the backend log), `open-change-request` (every failure outcome carries a `FailureInfo`, the message is scrubbed) and
 the git steps (`git_workflow_step`) build their outcomes with `build_outcomes` / `whole_step_failure`. W6 (Nautobot jobs and
 reads, ISE): `start-nautobot-job`, `check-nautobot-job` and `get-nautobot-attributes` run on `run_per_device`
 (`keep_text=(NautobotError,)`: the Nautobot client sanitises its messages, so their text is stored; any other exception is
