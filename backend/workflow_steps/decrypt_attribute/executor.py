@@ -43,21 +43,18 @@ from core.passphrase_cipher import (
     decrypt_with_passphrase,
     normalize_algorithm,
 )
-from models.workflow_context import (
-    DeviceContext,
-    DeviceError,
-    DeviceStatus,
-    StepOutcome,
-    WorkflowContext,
-)
+from models.failure import FailureInfo
+from models.workflow_context import DeviceContext, StepOutcome, WorkflowContext
 from services.artifacts import ArtifactService
 from services.workflow_context.attribute_path import (
     resolve_device_attribute,
     resolve_device_value,
 )
 from services.workflow_context.secret_fields import REDACTED_PLACEHOLDER, seal_secret
-from workflow_steps.common.attribute_write import set_device_attribute
+from workflow_steps.common.attribute_write import probe_destination_path, set_device_attribute
 from workflow_steps.common.credential_resolver import resolve_shared_secret_credential
+from workflow_steps.common.device_outcomes import build_outcomes
+from workflow_steps.common.device_runner import Fail, run_per_device
 
 if TYPE_CHECKING:
     from services.network.netmiko.session_pool import DeviceSessionPool
@@ -108,13 +105,10 @@ class _DecryptConfig:
         return self.destination_path or self.source_path
 
 
-def _fail_device(
-    *, device: DeviceContext, node_id: str, code: str, message: str
-) -> DeviceContext:
-    err = DeviceError(node_id=node_id, step_id=_STEP_ID, code=code, message=message)
-    return device.model_copy(
-        update={"status": DeviceStatus.FAILED, "errors": [*device.errors, err]}
-    )
+_DATA_FAILURE = FailureInfo(phase="internal", kind="bad_request")
+
+# What a decrypt helper returns: the device and "decrypted" / "skipped", or a ``Fail``.
+_Result = tuple[DeviceContext, str] | Fail
 
 
 def _decrypt_scalar(
@@ -123,21 +117,14 @@ def _decrypt_scalar(
     cfg: _DecryptConfig,
     decrypt_token: TokenDecryptor,
     node_id: str,
-) -> tuple[DeviceContext, str]:
-    """Return ``(device, result)`` where result is 'decrypted' | 'skipped' | 'failed'."""
+) -> _Result:
     source_value = resolve_device_attribute(device, cfg.source_path, reveal_secrets=False)
     if source_value == REDACTED_PLACEHOLDER:
-        return (
-            _fail_device(
-                device=device,
-                node_id=node_id,
-                code="source_sealed",
-                message=(
-                    f"source_path {cfg.source_path!r} resolves to a sealed secret; "
-                    "decrypt-attribute reads encrypted tokens only"
-                ),
-            ),
-            "failed",
+        return Fail(
+            "source_sealed",
+            f"source_path {cfg.source_path!r} resolves to a sealed secret; "
+            "decrypt-attribute reads encrypted tokens only",
+            _DATA_FAILURE,
         )
     if source_value is None:
         return device, "skipped"
@@ -151,12 +138,7 @@ def _decrypt_scalar(
             device.id,
             exc,
         )
-        return (
-            _fail_device(
-                device=device, node_id=node_id, code="decryption_failed", message=str(exc)
-            ),
-            "failed",
-        )
+        return Fail("decryption_failed", str(exc), _DATA_FAILURE)
     updated = set_device_attribute(
         device, cfg.destination_path, seal_secret(cleartext)
     )
@@ -169,23 +151,17 @@ def _decrypt_list(
     cfg: _DecryptConfig,
     decrypt_token: TokenDecryptor,
     node_id: str,
-) -> tuple[DeviceContext, str]:
+) -> _Result:
     """Decrypt ``cfg.item_field`` on every entry of the list at ``source_path``."""
     raw = resolve_device_value(device, cfg.source_path)
     if raw is None:
         return device, "skipped"
     if not isinstance(raw, list):
-        return (
-            _fail_device(
-                device=device,
-                node_id=node_id,
-                code="not_a_list",
-                message=(
-                    f"source_path {cfg.source_path!r} did not resolve to a list "
-                    "(item_field is set, so list mode is expected)"
-                ),
-            ),
-            "failed",
+        return Fail(
+            "not_a_list",
+            f"source_path {cfg.source_path!r} did not resolve to a list "
+            "(item_field is set, so list mode is expected)",
+            _DATA_FAILURE,
         )
 
     new_list: list[Any] = []
@@ -210,15 +186,7 @@ def _decrypt_list(
                 device.id,
                 message,
             )
-            return (
-                _fail_device(
-                    device=device,
-                    node_id=node_id,
-                    code="decryption_failed",
-                    message=message,
-                ),
-                "failed",
-            )
+            return Fail("decryption_failed", message, _DATA_FAILURE)
         new_list.append({**element, cfg.item_field: seal_secret(cleartext)})
         decrypted_here += 1
 
@@ -292,36 +260,24 @@ async def execute(
 
     decrypt_one = _decrypt_list if cfg.is_list_mode else _decrypt_scalar
 
-    success_devices: dict[str, DeviceContext] = {}
-    failed_devices: dict[str, DeviceContext] = {}
-    decrypted_count = 0
-    skipped_count = 0
+    # A write target that can never be written (reserved bag, bad selector shape) is a step-wide
+    # config error; what depends on one device's data fails that device only.
+    probe_destination_path(cfg.write_path)
+    skipped: set[str] = set()
 
-    for device_id, device in context.devices.items():
-        try:
-            updated, result = decrypt_one(
-                device=device,
-                cfg=cfg,
-                decrypt_token=decrypt_token,
-                node_id=node_id,
-            )
-        except ValueError:
-            # Config-level problems (bad destination_path, reserved bag) apply
-            # to every device — fail the step, don't route per-device.
-            raise
-        except Exception as exc:
-            raise RuntimeError(
-                f"{_STEP_ID}: failed for device {device_id}: {exc}"
-            ) from exc
+    async def decrypt_device(device_id: str, device: DeviceContext) -> DeviceContext | Fail:
+        result = decrypt_one(device=device, cfg=cfg, decrypt_token=decrypt_token, node_id=node_id)
+        if isinstance(result, Fail):
+            return result
+        updated, kind = result
+        if kind == "skipped":
+            skipped.add(device_id)
+        return updated
 
-        if result == "failed":
-            failed_devices[device_id] = updated
-        elif result == "decrypted":
-            success_devices[device_id] = updated
-            decrypted_count += 1
-        else:
-            success_devices[device_id] = updated
-            skipped_count += 1
+    batch = await run_per_device(context, decrypt_device, node_id=node_id, step_id=_STEP_ID)
+    success_devices, failed_devices = batch.ok, batch.failed
+    skipped_count = len(skipped)
+    decrypted_count = len(success_devices) - skipped_count
 
     failed_count = len(failed_devices)
     logger.info(
@@ -335,7 +291,6 @@ async def execute(
     )
 
     metadata = {
-        **context.metadata,
         f"{node_id}.source_path": cfg.source_path,
         f"{node_id}.destination_path": cfg.write_path,
         f"{node_id}.mode": "list" if cfg.is_list_mode else "scalar",
@@ -345,21 +300,4 @@ async def execute(
         f"{node_id}.failed_count": failed_count,
     }
 
-    outcomes = [
-        StepOutcome(
-            name="success",
-            context=context.model_copy(
-                update={"devices": success_devices, "metadata": metadata}
-            ),
-        )
-    ]
-    if failed_devices:
-        outcomes.append(
-            StepOutcome(
-                name="failure",
-                context=context.model_copy(
-                    update={"devices": failed_devices, "metadata": metadata}
-                ),
-            )
-        )
-    return outcomes
+    return build_outcomes(context, success_devices, failed_devices, metadata=metadata)

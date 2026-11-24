@@ -17,7 +17,6 @@ from core.models.runs import WorkflowRun
 from models.failure import FailureInfo
 from models.workflow_context import (
     DeviceContext,
-    DeviceError,
     DeviceStatus,
     StepOutcome,
     WorkflowContext,
@@ -25,7 +24,8 @@ from models.workflow_context import (
 from services.artifacts import ArtifactService
 from services.device_data.device_data_service import DeviceDataService
 from workflow_steps.common.attribute_write import set_device_attribute
-from workflow_steps.common.partial_outcomes import device_error_from_exception
+from workflow_steps.common.device_outcomes import build_outcomes
+from workflow_steps.common.device_runner import Fail, run_per_device
 from workflow_steps.common.placeholder_template import render_placeholder_template
 from workflow_steps.common.run_logging import log_run_id
 
@@ -42,25 +42,6 @@ def _parse_required(config: dict[str, Any], key: str) -> str:
     if not value:
         raise ValueError(f"{_STEP_ID}: {key} is required")
     return value
-
-
-def _device_failure(
-    *,
-    device: DeviceContext,
-    node_id: str,
-    code: str,
-    message: str,
-    failure: FailureInfo | None = None,
-) -> DeviceContext:
-    err = DeviceError(
-        node_id=node_id, step_id=_STEP_ID, code=code, message=message, failure=failure
-    )
-    return device.model_copy(
-        update={
-            "status": DeviceStatus.FAILED,
-            "errors": [*device.errors, err],
-        }
-    )
 
 
 async def execute(
@@ -91,39 +72,29 @@ async def execute(
     db = get_db_session()
     try:
         service = DeviceDataService(db)
-        success_devices: dict[str, DeviceContext] = {}
-        failed_devices: dict[str, DeviceContext] = {}
-        for device_id, device in context.devices.items():
-            try:
-                rendered_key = render_placeholder_template(storage_key, device)
-                # A blocking database query: keep it off the event loop.
-                record = await asyncio.to_thread(
-                    service.get_device_data, device_name=device.name, storage_key=rendered_key
+
+        async def read_device(device_id: str, device: DeviceContext) -> DeviceContext | Fail:
+            rendered_key = render_placeholder_template(storage_key, device)
+            # A blocking database query: keep it off the event loop.
+            record = await asyncio.to_thread(
+                service.get_device_data, device_name=device.name, storage_key=rendered_key
+            )
+            if record is None:
+                return Fail(
+                    "record_not_found",
+                    f"No stored data for device {device.name!r} under storage_key {rendered_key!r}",
+                    FailureInfo(phase="internal", kind="not_found"),
                 )
-                if record is None:
-                    failed_devices[device_id] = _device_failure(
-                        device=device,
-                        node_id=node_id,
-                        code="record_not_found",
-                        message=(
-                            f"No stored data for device {device.name!r} "
-                            f"under storage_key {rendered_key!r}"
-                        ),
-                    )
-                    continue
-                updated = set_device_attribute(device, destination_path, record.data)
-                success_devices[device_id] = updated.model_copy(update={"status": DeviceStatus.OK})
-            except Exception as exc:
-                err = device_error_from_exception(exc, node_id=node_id, step_id=_STEP_ID)
-                failed_devices[device_id] = _device_failure(
-                    device=device,
-                    node_id=node_id,
-                    code=err.code,
-                    message=err.message,
-                    failure=err.failure,
-                )
+            updated = set_device_attribute(device, destination_path, record.data)
+            return updated.model_copy(update={"status": DeviceStatus.OK})
+
+        # One session, one device after the other (concurrency=1).
+        batch = await run_per_device(
+            context, read_device, node_id=node_id, step_id=_STEP_ID, concurrency=1
+        )
     finally:
         db.close()
+    success_devices, failed_devices = batch.ok, batch.failed
 
     logger.info(
         "get-from-db finished success=%d failure=%d run_id=%s",
@@ -132,13 +103,4 @@ async def execute(
         log_run_id(run),
     )
 
-    outcomes = [
-        StepOutcome(name="success", context=context.model_copy(update={"devices": success_devices}))
-    ]
-    if failed_devices:
-        outcomes.append(
-            StepOutcome(
-                name="failure", context=context.model_copy(update={"devices": failed_devices})
-            )
-        )
-    return outcomes
+    return build_outcomes(context, success_devices, failed_devices)

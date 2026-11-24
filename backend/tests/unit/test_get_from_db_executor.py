@@ -156,6 +156,82 @@ class GetFromDbExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(failed.errors[-1].code, "record_not_found")
         self.assertEqual(failed.errors[-1].step_id, "get-from-db")
 
+    async def test_missing_record_records_a_failure_reason(self) -> None:
+        outcomes = await self._run(
+            config={"storage_key": "nope", "destination_path": "stored.x"},
+            devices={"device-1": _device()},
+        )
+        failure = outcomes[1].context.devices["device-1"].errors[-1].failure
+        self.assertIsNotNone(failure)
+        self.assertEqual(failure.kind, "not_found")
+
+    async def test_an_unexpected_error_fails_that_device_and_the_next_still_runs(self) -> None:
+        self._seed("second", "role", "router")
+        real = DeviceDataService.get_device_data
+        calls: list[str] = []
+
+        def flaky(service, *, device_name, storage_key):  # noqa: ANN001, ANN202
+            calls.append(device_name)
+            if device_name == "first":
+                raise RuntimeError("driver said password=hunter2")
+            return real(service, device_name=device_name, storage_key=storage_key)
+
+        with patch.object(DeviceDataService, "get_device_data", flaky):
+            outcomes = await self._run(
+                config={"storage_key": "role", "destination_path": "stored.x"},
+                devices={"d1": _device("d1", "first"), "d2": _device("d2", "second")},
+            )
+
+        by = {o.name: o.context.devices for o in outcomes}
+        self.assertEqual(calls, ["first", "second"])
+        self.assertEqual(set(by["success"]), {"d2"})
+        error = by["failure"]["d1"].errors[-1]
+        self.assertEqual(error.message, "RuntimeError")
+
+    async def test_the_shared_session_is_used_by_one_device_at_a_time(self) -> None:
+        import threading
+
+        self._seed("a", "role", "x")
+        self._seed("b", "role", "x")
+        self._seed("c", "role", "x")
+        real = DeviceDataService.get_device_data
+        guard = threading.Lock()
+        running = 0
+        peak = 0
+
+        def tracked(service, *, device_name, storage_key):  # noqa: ANN001, ANN202
+            nonlocal running, peak
+            with guard:
+                running += 1
+                peak = max(peak, running)
+            time.sleep(0.02)
+            try:
+                return real(service, device_name=device_name, storage_key=storage_key)
+            finally:
+                with guard:
+                    running -= 1
+
+        with patch.object(DeviceDataService, "get_device_data", tracked):
+            await self._run(
+                config={"storage_key": "role", "destination_path": "stored.x"},
+                devices={n: _device(n, n) for n in ("a", "b", "c")},
+            )
+
+        self.assertEqual(peak, 1)
+
+    async def test_cancellation_is_not_a_device_failure(self) -> None:
+        def cancelled(service, *, device_name, storage_key):  # noqa: ANN001, ANN202
+            raise asyncio.CancelledError
+
+        with (
+            patch.object(DeviceDataService, "get_device_data", cancelled),
+            self.assertRaises(asyncio.CancelledError),
+        ):
+            await self._run(
+                config={"storage_key": "role", "destination_path": "stored.x"},
+                devices={"d1": _device("d1", "first")},
+            )
+
     async def test_mixed_devices_split_between_outcomes(self) -> None:
         self._seed("lab", "role", "router")
         outcomes = await self._run(

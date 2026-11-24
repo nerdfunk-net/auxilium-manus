@@ -445,8 +445,11 @@ and secret text never reach the stored run). `concurrency` is `None` (all at onc
 only a sequential run may raise `AbortRun(message, failure)` (the remote system is lost): the run stops, the devices
 already done stay in the batch and `batch.aborted` feeds `abort_outcomes`. `asyncio.CancelledError` always passes
 through. Migrated: `secret-get`, `secret-set`, `secret-generate` (loop in `common/secret_manager_step.py`; a `ValueError`
-from the service now fails that device with its text, it used to abort the step). The other steps still carry their own
-loops and move family by family (P-C).
+from the service now fails that device with its text, it used to abort the step), `encrypt-attribute`, `decrypt-attribute`
+(a `destination_path` that can never be written, such as a reserved bag, is probed once with
+`attribute_write.probe_destination_path` and stays a step-wide config error; a write that fails on one device's data fails
+that device), `store-in-db` and `get-from-db` (`concurrency=1`: one shared session, one device after the other). The other
+steps still carry their own loops and move family by family (P-C).
 
 ### Step config flags
 

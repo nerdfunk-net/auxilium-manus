@@ -33,15 +33,12 @@ from services.workflow_context.secret_fields import (
     unwrap_secret,
 )
 from workflow_steps.common.content_resolver import list_exportable_content
+from workflow_steps.common.device_outcomes import build_outcomes, mark_device_failed
+from workflow_steps.common.device_runner import run_per_device
 from workflow_steps.common.duplicate_keys import (
     DUPLICATE_KEY_CODE,
     DUPLICATE_KEY_FAILURE,
     find_duplicate_keys,
-)
-from workflow_steps.common.partial_outcomes import (
-    device_error_from_exception,
-    fail_device_with_error,
-    mark_device_failed,
 )
 from workflow_steps.common.placeholder_template import render_placeholder_template
 from workflow_steps.common.run_logging import log_run_id
@@ -51,6 +48,8 @@ if TYPE_CHECKING:
     from services.network.netmiko.session_pool import DeviceSessionPool
 
 logger = logging.getLogger(__name__)
+
+_STEP_ID = "store-in-db"
 
 _CONTENT_SOURCES = frozenset(
     {"device_data", "attribute_bags", "single_attribute", "rendered_template"}
@@ -171,20 +170,11 @@ async def _resolve_device_data(
     raise ValueError(f"store-in-db: unsupported content_source {content_source!r}")
 
 
-def _device_failure(*, device: DeviceContext, node_id: str, exc: Exception) -> DeviceContext:
-    # A ValueError sentence is written here (or by the renderer) and safe to keep; anything else,
-    # above all a SQLAlchemy error, is reduced to its class name: its text is the SQL statement
-    # and its parameters, i.e. the stored data itself (W9-04).
-    return fail_device_with_error(
-        device, device_error_from_exception(exc, node_id=node_id, step_id="store-in-db")
-    )
-
-
 def _unresolved_key_failure(*, device: DeviceContext, node_id: str) -> DeviceContext:
     return mark_device_failed(
         device,
         node_id=node_id,
-        step_id="store-in-db",
+        step_id=_STEP_ID,
         code="storage_key_unresolved",
         message=(
             f"storage_key renders empty for {device.name!r} (a placeholder has no value on this "
@@ -200,7 +190,7 @@ def _duplicate_key_failure(
     return mark_device_failed(
         device,
         node_id=node_id,
-        step_id="store-in-db",
+        step_id=_STEP_ID,
         code=DUPLICATE_KEY_CODE,
         message=(
             f"another device in this step has the same name and storage key as "
@@ -237,30 +227,30 @@ async def execute(
         content_source,
     )
 
+    # storage_key is a per-device template; the record key is (device name, rendered key),
+    # so two devices of one step may not share both (the second would silently overwrite).
+    rendered_keys = {
+        device_id: render_placeholder_template(storage_key, device)
+        for device_id, device in context.devices.items()
+    }
+    duplicates = find_duplicate_keys(
+        (device_id, f"{device.name}\x00{rendered_keys[device_id]}")
+        for device_id, device in context.devices.items()
+    )
+    refused: dict[str, DeviceContext] = {}
+    for device_id, device in context.devices.items():
+        if not rendered_keys[device_id].strip():
+            refused[device_id] = _unresolved_key_failure(device=device, node_id=node_id)
+        elif device_id in duplicates:
+            refused[device_id] = _duplicate_key_failure(
+                device=device, node_id=node_id, rendered_key=rendered_keys[device_id]
+            )
+
     db = get_db_session()
     try:
         service = DeviceDataService(db)
-        success_devices: dict[str, DeviceContext] = {}
-        failed_devices: dict[str, DeviceContext] = {}
-        # storage_key is a per-device template; the record key is (device name, rendered key),
-        # so two devices of one step may not share both (the second would silently overwrite).
-        rendered_keys = {
-            device_id: render_placeholder_template(storage_key, device)
-            for device_id, device in context.devices.items()
-        }
-        duplicates = find_duplicate_keys(
-            (device_id, f"{device.name}\x00{rendered_keys[device_id]}")
-            for device_id, device in context.devices.items()
-        )
-        for device_id, device in context.devices.items():
-            if not rendered_keys[device_id].strip():
-                failed_devices[device_id] = _unresolved_key_failure(device=device, node_id=node_id)
-                continue
-            if device_id in duplicates:
-                failed_devices[device_id] = _duplicate_key_failure(
-                    device=device, node_id=node_id, rendered_key=rendered_keys[device_id]
-                )
-                continue
+
+        async def store_device(device_id: str, device: DeviceContext) -> DeviceContext:
             try:
                 data = await _resolve_device_data(
                     device,
@@ -280,14 +270,29 @@ async def execute(
                     storage_key=rendered_keys[device_id],
                     data=data,
                 )
-                success_devices[device_id] = device.model_copy(update={"status": DeviceStatus.OK})
-            except Exception as exc:
+            except Exception:
                 # A failed flush leaves the shared session unusable until it is rolled back;
                 # without this every later device failed with PendingRollbackError (W9-04).
                 await asyncio.to_thread(db.rollback)
-                failed_devices[device_id] = _device_failure(device=device, node_id=node_id, exc=exc)
+                raise
+            return device.model_copy(update={"status": DeviceStatus.OK})
+
+        # One session, one device after the other (concurrency=1). A ValueError sentence is
+        # written here (or by the renderer) and kept; anything else, above all a SQLAlchemy
+        # error, is reduced to its class name by the runner: its text is the SQL statement and
+        # its parameters, i.e. the stored data itself (W9-04).
+        batch = await run_per_device(
+            context,
+            store_device,
+            node_id=node_id,
+            step_id=_STEP_ID,
+            concurrency=1,
+            only=set(context.devices) - set(refused),
+        )
     finally:
         db.close()
+    success_devices = batch.ok
+    failed_devices = {**refused, **batch.failed}
 
     logger.info(
         "store-in-db finished success=%d failure=%d run_id=%s",
@@ -296,13 +301,4 @@ async def execute(
         log_run_id(run),
     )
 
-    outcomes = [
-        StepOutcome(name="success", context=context.model_copy(update={"devices": success_devices}))
-    ]
-    if failed_devices:
-        outcomes.append(
-            StepOutcome(
-                name="failure", context=context.model_copy(update={"devices": failed_devices})
-            )
-        )
-    return outcomes
+    return build_outcomes(context, success_devices, failed_devices)

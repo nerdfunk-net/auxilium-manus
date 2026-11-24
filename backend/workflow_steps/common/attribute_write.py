@@ -183,3 +183,13 @@ def set_device_attribute(device: DeviceContext, attribute_path: str, value: Any)
             "capabilities": device.capabilities | {Capability.ATTRIBUTES},
         }
     )
+
+
+def probe_destination_path(path: str) -> None:
+    """Raise ``ValueError`` when ``path`` can never be written, whatever the device holds.
+
+    Reserved bag names, an empty path or a malformed selector are step-wide configuration
+    errors; a write that fails because of one device's data (a selector on a value that is not
+    a list) is not caught here and stays that device's failure.
+    """
+    set_device_attribute(DeviceContext(id="probe", name="probe", hostname="probe"), path, "")

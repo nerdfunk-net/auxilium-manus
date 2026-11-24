@@ -20,8 +20,6 @@ LEGACY_WITHOUT_FAILURE: dict[str, int] = {
     "workflow_steps/batfish_validate_facts/executor.py": 4,
     "workflow_steps/compare_pyats_snapshot/executor.py": 1,
     "workflow_steps/config_to_attributes/executor.py": 1,
-    "workflow_steps/decrypt_attribute/executor.py": 1,
-    "workflow_steps/encrypt_attribute/executor.py": 1,
     "workflow_steps/filter_output/executor.py": 1,
     "workflow_steps/get_ise_devices/executor.py": 1,
     "workflow_steps/get_ise_tacacs_key/executor.py": 1,
