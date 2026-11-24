@@ -6,7 +6,7 @@ group memberships, and a TACACS+ shared secret. ``device_name``,
 ``description``, ``ip_address``, ``new_key`` and each ``device_groups`` entry
 accept either a fixed value or a ``{path.to.value}`` expression resolved per
 device against the device's attribute bags (see
-``workflow_steps.common.update_field_expression``), the same convention
+``workflow_steps.common.value_expression``), the same convention
 ``update-ise-tacacs-key`` uses for ``new_key``.
 
 A ``device_groups`` expression must resolve to an *existing* attribute: a
@@ -99,7 +99,7 @@ from workflow_steps.common.request_record import append_request_record
 from workflow_steps.common.run_session import require_session
 from workflow_steps.common.source_credentials import resolve_source
 from workflow_steps.common.step_flags import parse_bool_flag
-from workflow_steps.common.update_field_expression import (
+from workflow_steps.common.value_expression import (
     resolve_template_if_present,
     resolve_update_field_expression,
 )

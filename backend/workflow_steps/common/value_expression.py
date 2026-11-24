@@ -8,41 +8,17 @@ from typing import Any
 from models.workflow_context import DeviceContext
 from services.workflow_context.attribute_path import (
     AttributeState,
-    resolve_device_attribute,
     resolve_device_attribute_state,
-    resolve_device_value,
 )
 from services.workflow_context.secret_fields import REDACTED_PLACEHOLDER
+from workflow_steps.common.attribute_expression import (
+    BRACE_EXPRESSION,
+    resolve_path_value,
+    stringify_resolved,
+)
 from workflow_steps.common.nautobot_update_fields import (
+    DEVICE_FIELD_KEYS,
     extract_update_fields_from_nautobot_bag,
-)
-
-_DEVICE_FIELD_KEYS = frozenset(
-    {
-        "name",
-        "location",
-        "serial",
-        "role",
-        "status",
-        "device_type",
-        "platform",
-        "secrets_group",
-        "software_version",
-        "asset_tag",
-        "tags",
-        "custom_fields",
-        "primary_ip4",
-        "rack",
-        "position",
-        "face",
-    }
-)
-
-_BRACE_EXPRESSION = re.compile(
-    r"^\{\s*"
-    r"(?P<path>nautobot\.origin|[^}|]+?)"
-    r"(?:\s*\|\s*default\(\s*(?P<quote>['\"])(?P<default>.*?)(?P=quote)\s*\))?"
-    r"\s*\}$"
 )
 
 
@@ -83,21 +59,12 @@ def config_has_enabled_update_fields(raw_fields: Any) -> bool:
                     return True
             continue
 
-        if key not in _DEVICE_FIELD_KEYS:
+        if key not in DEVICE_FIELD_KEYS:
             continue
         enabled, _ = normalize_field_spec(raw)
         if enabled:
             return True
     return False
-
-
-def _stringify_resolved(value: Any) -> str | None:
-    if value is None:
-        return None
-    if isinstance(value, (dict, list)):
-        return None
-    text = str(value).strip()
-    return text or None
 
 
 def _resolve_nautobot_origin(
@@ -114,7 +81,7 @@ def _resolve_nautobot_origin(
         custom_fields = bag.get("custom_fields")
         if not isinstance(custom_fields, dict):
             return None
-        return _stringify_resolved(custom_fields.get(custom_field_name))
+        return stringify_resolved(custom_fields.get(custom_field_name))
 
     if field_key not in bag:
         return None
@@ -128,19 +95,6 @@ def _resolve_nautobot_origin(
     if isinstance(value, dict):
         return None
     return str(value).strip() or None
-
-
-def _resolve_attribute_path(
-    device: DeviceContext,
-    path: str,
-    *,
-    run_id: str | None = None,
-    reveal_secrets: bool = True,
-) -> str | None:
-    resolved = resolve_device_attribute(device, path, reveal_secrets=reveal_secrets)
-    if resolved is not None:
-        return resolved
-    return _stringify_resolved(resolve_device_value(device, path, run_id=run_id))
 
 
 def resolve_update_field_expression(
@@ -161,7 +115,7 @@ def resolve_update_field_expression(
     if not expression:
         return None
 
-    match = _BRACE_EXPRESSION.match(expression)
+    match = BRACE_EXPRESSION.match(expression)
     if not match:
         return expression
 
@@ -175,9 +129,7 @@ def resolve_update_field_expression(
             custom_field_name=custom_field_name,
         )
     else:
-        resolved = _resolve_attribute_path(
-            device, path, run_id=run_id, reveal_secrets=reveal_secrets
-        )
+        resolved = resolve_path_value(device, path, run_id=run_id, reveal_secrets=reveal_secrets)
 
     if resolved is not None:
         return resolved
@@ -200,7 +152,7 @@ def resolve_expression_if_present(
     carries ``| default('...')``, which is then used.
     """
     expression = raw_value.strip()
-    match = _BRACE_EXPRESSION.match(expression)
+    match = BRACE_EXPRESSION.match(expression)
     if not match:
         return True, expression
 
@@ -301,7 +253,7 @@ def build_resolved_update_data(
     """
     update_data: dict[str, Any] = {}
 
-    for key in _DEVICE_FIELD_KEYS:
+    for key in DEVICE_FIELD_KEYS:
         if key == "custom_fields":
             continue
         enabled, value_expr = normalize_field_spec(raw_fields.get(key))

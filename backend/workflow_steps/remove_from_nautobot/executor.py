@@ -32,7 +32,7 @@ from workflow_steps.common.partial_outcomes import (
     fail_device_with_error,
 )
 from workflow_steps.common.step_flags import parse_bool_flag
-from workflow_steps.common.update_field_expression import resolve_update_field_expression
+from workflow_steps.common.value_expression import resolve_update_field_expression
 
 if TYPE_CHECKING:
     from services.network.netmiko.session_pool import DeviceSessionPool

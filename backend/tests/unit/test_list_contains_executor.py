@@ -110,6 +110,40 @@ class ListContainsExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(entry["matched_item"]["name"], "tacacs1")
         self.assertIn(Capability.PARSED, by_name["match"].context.devices["d1"].capabilities)
 
+    async def test_field_accepts_the_reader_grammar_of_the_list_path(self) -> None:
+        # W4-07: ``field`` walks an item with the same path grammar as ``list_path``.
+        servers = {
+            "items": [
+                {
+                    "name": "a",
+                    "ports": [{"n": 1}, {"n": 2}],
+                    "hosts": [{"role": "x", "ip": "10.1.1.1"}],
+                },
+                {"name": "b", "ports": [{"n": 3}], "hosts": [{"role": "y", "ip": "10.2.2.2"}]},
+            ]
+        }
+
+        async def matched(field: str, value: str) -> list[str]:
+            outcomes = await execute(
+                config={"list_path": "parsed.servers.items", "field": field, "value": value},
+                context=WorkflowContext(
+                    run_id="r",
+                    workflow_id="w",
+                    devices={"d1": _device("d1", parsed={"servers": servers})},
+                ),
+                run=MagicMock(),
+                artifact_service=MagicMock(),
+                node_id="lc-1",
+                device_sessions=MagicMock(),
+            )
+            by_name = {o.name: o for o in outcomes}
+            return list(by_name["match"].context.devices)
+
+        self.assertEqual(await matched("ports[1].n", "2"), ["d1"])
+        self.assertEqual(await matched("hosts[role=y].ip", "10.2.2.2"), ["d1"])
+        self.assertEqual(await matched("hosts[role=y].ip", "10.1.1.1"), [])
+        self.assertEqual(await matched("ports[5].n", "2"), [])
+
     async def test_mismatch_when_value_not_in_list(self) -> None:
         run = MagicMock()
         context = WorkflowContext(

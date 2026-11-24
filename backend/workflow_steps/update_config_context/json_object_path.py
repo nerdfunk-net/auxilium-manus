@@ -2,8 +2,7 @@
 
 Distinct from ``attribute_write.py``/``attribute_merge.py``, which operate on
 ``DeviceContext.attribute_bags`` and understand reserved bag names, sealed
-secrets, and Capability bookkeeping. This module knows nothing about
-``DeviceContext`` — it walks a raw ``dict``/``list`` structure such as a
+secrets, and Capability bookkeeping. This module walks a raw ``dict``/``list`` structure such as a
 Nautobot device's ``local_config_context_data``.
 
 Path syntax: ``.``-separated segments. A segment is treated as a **list
@@ -25,14 +24,13 @@ that matches nothing raises ``ValueError`` on write (``None`` on read).
 
 from __future__ import annotations
 
-import re
 from typing import Any
 
-# Mirrors attribute_path._FILTER_SEGMENT_RE (kept local so this module stays
-# free of DeviceContext imports).
-_FILTER_SEGMENT_RE = re.compile(r"^(?P<key>[^\[\]]+)\[(?P<field>[^\[\]=]+)=(?P<value>[^\[\]]*)\]$")
-# ... and attribute_path._INDEX_SEGMENT_RE: digits only, so it can't collide with the filter.
-_INDEX_SEGMENT_RE = re.compile(r"^(?P<key>[^\[\]]+)\[(?P<index>\d+)\]$")
+from services.workflow_context.attribute_path import (
+    FILTER_SEGMENT_RE,
+    INDEX_SEGMENT_RE,
+    split_path_segments,
+)
 
 
 class _ListSegment:
@@ -57,34 +55,20 @@ class _ListSegment:
 
 
 def _list_segment(segment: str) -> _ListSegment | None:
-    match = _FILTER_SEGMENT_RE.match(segment)
+    match = FILTER_SEGMENT_RE.match(segment)
     if match:
         return _ListSegment(
             match.group("key"), field=match.group("field"), value=match.group("value")
         )
-    match = _INDEX_SEGMENT_RE.match(segment)
+    match = INDEX_SEGMENT_RE.match(segment)
     if match:
         return _ListSegment(match.group("key"), index=int(match.group("index")))
     return None
 
 
 def _split_path(path: str) -> list[str]:
-    """Split on ``.`` but not inside a ``[...]`` filter."""
-    segments: list[str] = []
-    current: list[str] = []
-    depth = 0
-    for char in path.strip():
-        if char == "[":
-            depth += 1
-        elif char == "]":
-            depth = max(0, depth - 1)
-        elif char == "." and depth == 0:
-            segments.append("".join(current))
-            current = []
-            continue
-        current.append(char)
-    segments.append("".join(current))
-    cleaned = [segment for segment in segments if segment]
+    """Split on ``.`` but not inside a ``[...]`` filter; empty segments are dropped."""
+    cleaned = [segment for segment in split_path_segments(path.strip()) if segment]
     if not cleaned:
         raise ValueError("path must not be empty")
     return cleaned

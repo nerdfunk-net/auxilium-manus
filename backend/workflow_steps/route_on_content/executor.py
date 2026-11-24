@@ -68,7 +68,7 @@ class _Ready:
 
 def _parse_route_config(config: dict[str, Any]) -> _ParsedRouteConfig:
     content_source = parse_content_source(
-        {"content_source": str(config.get("content_source") or get_config()["content_source"])}
+        config, step_id="route-on-content", default=str(get_config()["content_source"])
     )
     source_step_node_id = str(config.get("source_step_node_id") or "").strip() or None
     parsed_output_key = str(config.get("parsed_output_key") or "").strip() or None
@@ -151,6 +151,7 @@ async def _prepare_device(
         content_source=parsed.content_source,
         source_step_node_id=parsed.source_step_node_id,
         parsed_output_key=parsed.parsed_output_key,
+        step_id="route-on-content",
     )
     if not export_items:
         failed = _device_failure(

@@ -86,6 +86,27 @@ def _scalar_value(value: Any) -> str | None:
     return str(cleaned) if cleaned is not None else None
 
 
+# The fields of an update-nautobot-device spec, in the order payloads are built and reported.
+DEVICE_FIELD_KEYS: tuple[str, ...] = (
+    "name",
+    "location",
+    "serial",
+    "role",
+    "status",
+    "device_type",
+    "platform",
+    "secrets_group",
+    "software_version",
+    "asset_tag",
+    "tags",
+    "custom_fields",
+    "primary_ip4",
+    "rack",
+    "position",
+    "face",
+)
+
+
 def extract_update_fields_from_nautobot_bag(bag: dict[str, Any]) -> dict[str, Any]:
     """Extract flat update-nautobot-device fields from a nautobot attribute bag."""
     if not isinstance(bag, dict) or not bag:
@@ -93,24 +114,7 @@ def extract_update_fields_from_nautobot_bag(bag: dict[str, Any]) -> dict[str, An
 
     update_data: dict[str, Any] = {}
 
-    for key in (
-        "name",
-        "location",
-        "serial",
-        "role",
-        "status",
-        "device_type",
-        "platform",
-        "secrets_group",
-        "software_version",
-        "asset_tag",
-        "tags",
-        "custom_fields",
-        "primary_ip4",
-        "rack",
-        "position",
-        "face",
-    ):
+    for key in DEVICE_FIELD_KEYS:
         if key not in bag:
             continue
 

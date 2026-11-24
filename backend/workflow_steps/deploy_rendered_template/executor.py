@@ -96,6 +96,7 @@ async def _load_deploy_commands(
         content_source="rendered_template",
         source_step_node_id=parsed.source_step_node_id,
         parsed_output_key=parsed.parsed_output_key,
+        step_id=_STEP_ID,
     )
     if not items:
         return Fail(

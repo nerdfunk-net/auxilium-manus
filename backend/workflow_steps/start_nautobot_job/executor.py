@@ -39,7 +39,7 @@ from workflow_steps.common.partial_outcomes import device_error_from_exception
 from workflow_steps.common.request_record import append_request_record
 from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.common.step_flags import parse_int_flag
-from workflow_steps.common.update_field_expression import normalize_field_spec
+from workflow_steps.common.value_expression import normalize_field_spec
 from workflow_steps.start_nautobot_job.config import get_config
 
 if TYPE_CHECKING:

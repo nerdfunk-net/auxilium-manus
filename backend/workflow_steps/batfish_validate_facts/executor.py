@@ -139,6 +139,7 @@ async def _resolve_rendered_yaml_fragment(
         content_source="rendered_template",
         source_step_node_id=source_step_node_id,
         parsed_output_key=parsed_output_key,
+        step_id=_STEP_ID,
     )
     if not items:
         return None, (

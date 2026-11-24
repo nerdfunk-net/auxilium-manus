@@ -18,12 +18,10 @@ from services.artifacts import InMemoryArtifactService
 from workflow_steps.filter_output.executor import (
     _apply_path_rule,
     _apply_pattern_rules,
-    _build_filter_outcomes,
     _filter_json,
     _filter_text,
     _parse_filter_config,
     _parse_filter_rules,
-    _partition_device_results,
     _select_export_item,
     execute,
 )
@@ -144,23 +142,6 @@ class SelectAndPartitionTests(unittest.TestCase):
         items = [self._item("a"), self._item("b")]
         self.assertIs(_select_export_item(items, parsed=cfg), items[0])
 
-    def test_partition_splits_ok_and_failed(self) -> None:
-        d = MagicMock()
-        ok, failed = _partition_device_results([("a", d, True), ("b", d, False)])
-        self.assertEqual(list(ok), ["a"])
-        self.assertEqual(list(failed), ["b"])
-
-    def test_build_outcomes_success_only_and_with_failure(self) -> None:
-        ctx = WorkflowContext(run_id="r", workflow_id="w", devices={})
-        d = MagicMock()
-        only_success = _build_filter_outcomes(
-            context=ctx, node_id="n", success_devices={"a": d}, failed_devices={}
-        )
-        self.assertEqual([o.name for o in only_success], ["success"])
-        with_failure = _build_filter_outcomes(
-            context=ctx, node_id="n", success_devices={"a": d}, failed_devices={"b": d}
-        )
-        self.assertEqual([o.name for o in with_failure], ["success", "failure"])
 
 
 def _run() -> MagicMock:

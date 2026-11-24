@@ -95,6 +95,20 @@ class ValidateMergeDestinationTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             validate_merge_destination("device.name")
 
+    def test_rejects_a_selector_path_it_cannot_write(self) -> None:
+        # W4-07: ``key[name=x]`` would be stored as a literal dict key and enrich nothing.
+        for path in (
+            "nautobot.interfaces[name=Gi0/0]",
+            "nautobot.interfaces[0]",
+            "data[x",
+            "data.a]b",
+        ):
+            with self.subTest(path=path), self.assertRaisesRegex(ValueError, "selector"):
+                validate_merge_destination(path)
+
+    def test_a_dot_inside_a_value_is_still_just_a_path(self) -> None:
+        self.assertEqual(validate_merge_destination("data.a.b"), ("data", "a.b"))
+
     def test_rejects_device_scalar(self) -> None:
         with self.assertRaises(ValueError):
             validate_merge_destination("name")

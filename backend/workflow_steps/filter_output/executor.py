@@ -11,7 +11,6 @@ Filter rules:
 
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 import re
@@ -20,19 +19,13 @@ from typing import TYPE_CHECKING, Any
 
 from core.models.runs import WorkflowRun
 from models.workflow_context import (
-    Capability,
     DeviceContext,
-    DeviceStatus,
     StepOutcome,
     WorkflowContext,
 )
 from services.artifacts import ArtifactService
-from services.workflow_context.node_result import set_node_result
 from workflow_steps.common.content_resolver import ExportableContent, list_exportable_content
-from workflow_steps.common.partial_outcomes import (
-    device_error_from_exception,
-    fail_device_with_error,
-)
+from workflow_steps.common.content_step import StoredContent, run_content_step
 from workflow_steps.common.run_logging import log_run_id
 
 if TYPE_CHECKING:
@@ -170,145 +163,18 @@ def _select_export_item(
     return export_items[0]
 
 
-async def _filter_and_store(
-    *,
-    item: ExportableContent,
-    device_id: str,
-    device: DeviceContext,
-    node_id: str,
-    run_id: str,
-    parsed: _ParsedFilterConfig,
-    artifact_service: ArtifactService,
-) -> DeviceContext:
-    raw_content = await artifact_service.resolve(item.artifact_ref)
-    media_type = item.media_type
-
+def _filter_content(raw_content: str, media_type: str, rules: Any) -> tuple[str, str]:
+    """The filtered text and its media type (JSON stays JSON, anything else is plain text)."""
     if media_type == "application/json":
         try:
             data = json.loads(raw_content)
         except json.JSONDecodeError as exc:
             raise ValueError(f"Content is not valid JSON: {exc}") from exc
-        filtered_data = _filter_json(data, parsed.rules)
-        filtered_content = json.dumps(filtered_data, indent=2)
+        filtered_content = json.dumps(_filter_json(data, rules), indent=2)
         if not filtered_content.endswith("\n"):
             filtered_content += "\n"
-    else:
-        filtered_content = _filter_text(raw_content, parsed.rules)
-        media_type = "text/plain"
-
-    artifact_ref = await artifact_service.store(
-        content=filtered_content,
-        kind="filtered_output",
-        device_id=device_id,
-        run_id=run_id,
-        media_type=media_type,
-    )
-
-    size_bytes = len(filtered_content.encode("utf-8"))
-    updated_parsed = set_node_result(
-        device.parsed,
-        node_id,
-        "filtered_output",
-        {
-            "artifact_ref": artifact_ref.model_dump(mode="json"),
-            "step_node_id": node_id,
-            "output_key": "filtered_output",
-            "size_bytes": size_bytes,
-            "kind": "filtered_output",
-        },
-    )
-
-    return device.model_copy(
-        update={
-            "parsed": updated_parsed,
-            "capabilities": device.capabilities | {Capability.PARSED},
-            "status": DeviceStatus.OK,
-        }
-    )
-
-
-async def _filter_device(
-    *,
-    device_id: str,
-    device: DeviceContext,
-    parsed: _ParsedFilterConfig,
-    node_id: str,
-    run_id: str,
-    artifact_service: ArtifactService,
-) -> tuple[str, DeviceContext, bool]:
-    try:
-        export_items = list_exportable_content(
-            device,
-            content_source=parsed.content_source,
-            source_step_node_id=parsed.source_step_node_id,
-        )
-        if not export_items:
-            raise ValueError(
-                f"No content found for content_source={parsed.content_source!r} "
-                f"source_step_node_id={parsed.source_step_node_id!r}"
-            )
-
-        item = _select_export_item(export_items, parsed=parsed)
-        enriched = await _filter_and_store(
-            item=item,
-            device_id=device_id,
-            device=device,
-            node_id=node_id,
-            run_id=run_id,
-            parsed=parsed,
-            artifact_service=artifact_service,
-        )
-        return device_id, enriched, True
-
-    except Exception as exc:
-        logger.warning("filter-output device=%s error=%s", device_id, exc)
-        # A sentence the step wrote is kept; anything else is the class name plus a record.
-        err = device_error_from_exception(exc, node_id=node_id, step_id=_STEP_ID)
-        return device_id, fail_device_with_error(device, err), False
-
-
-def _partition_device_results(
-    results: list[tuple[str, DeviceContext, bool]],
-) -> tuple[dict[str, DeviceContext], dict[str, DeviceContext]]:
-    success_devices: dict[str, DeviceContext] = {}
-    failed_devices: dict[str, DeviceContext] = {}
-    for device_id, updated_device, ok in results:
-        if ok:
-            success_devices[device_id] = updated_device
-        else:
-            failed_devices[device_id] = updated_device
-    return success_devices, failed_devices
-
-
-def _build_filter_outcomes(
-    *,
-    context: WorkflowContext,
-    node_id: str,
-    success_devices: dict[str, DeviceContext],
-    failed_devices: dict[str, DeviceContext],
-) -> list[StepOutcome]:
-    metadata = {
-        **context.metadata,
-        f"{node_id}.filter_success_count": len(success_devices),
-        f"{node_id}.filter_failure_count": len(failed_devices),
-    }
-
-    outcomes = [
-        StepOutcome(
-            name="success",
-            context=context.model_copy(update={"devices": success_devices, "metadata": metadata}),
-        )
-    ]
-    if failed_devices:
-        outcomes.append(
-            StepOutcome(
-                name="failure",
-                context=context.model_copy(
-                    update={"devices": failed_devices, "metadata": metadata}
-                ),
-            )
-        )
-    return outcomes
+        return filtered_content, media_type
+    return _filter_text(raw_content, rules), "text/plain"
 
 
 async def execute(
@@ -334,29 +200,29 @@ async def execute(
         len(parsed.rules),
     )
 
-    results = await asyncio.gather(
-        *[
-            _filter_device(
-                device_id=device_id,
-                device=device,
-                parsed=parsed,
-                node_id=node_id,
-                run_id=context.run_id,
-                artifact_service=artifact_service,
+    async def transform(device_id: str, device: DeviceContext) -> StoredContent:
+        export_items = list_exportable_content(
+            device,
+            content_source=parsed.content_source,
+            source_step_node_id=parsed.source_step_node_id,
+            step_id=_STEP_ID,
+        )
+        if not export_items:
+            raise ValueError(
+                f"No content found for content_source={parsed.content_source!r} "
+                f"source_step_node_id={parsed.source_step_node_id!r}"
             )
-            for device_id, device in context.devices.items()
-        ]
-    )
-    success_devices, failed_devices = _partition_device_results(results)
-    logger.info(
-        "filter-output returning %d/%d devices run_id=%s",
-        len(success_devices),
-        len(context.devices),
-        log_run_id(run),
-    )
-    return _build_filter_outcomes(
-        context=context,
+        item = _select_export_item(export_items, parsed=parsed)
+        raw_content = await artifact_service.resolve(item.artifact_ref)
+        text, media_type = _filter_content(raw_content, item.media_type, parsed.rules)
+        return StoredContent(text=text, media_type=media_type)
+
+    return await run_content_step(
+        context,
+        step_id=_STEP_ID,
         node_id=node_id,
-        success_devices=success_devices,
-        failed_devices=failed_devices,
+        kind="filtered_output",
+        transform=transform,
+        artifact_service=artifact_service,
+        metadata_prefix="filter",
     )

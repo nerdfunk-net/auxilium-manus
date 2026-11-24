@@ -80,7 +80,7 @@ class _ParsedStoreConfig:
 
 def _parse_store_config(config: dict[str, Any]) -> _ParsedStoreConfig:
     return _ParsedStoreConfig(
-        content_source=parse_content_source(config),
+        content_source=parse_content_source(config, step_id=_STEP_ID),
         source_step_node_id=str(config.get("source_step_node_id") or "").strip() or None,
         parsed_output_key=str(config.get("parsed_output_key") or "").strip() or None,
     )
@@ -225,6 +225,7 @@ async def _store_for_device(
         content_source=parsed.content_source,
         source_step_node_id=parsed.source_step_node_id,
         parsed_output_key=parsed.parsed_output_key,
+        step_id=_STEP_ID,
     )
     if not export_items:
         return Fail(

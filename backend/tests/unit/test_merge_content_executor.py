@@ -16,22 +16,20 @@ from models.workflow_context import (
 )
 from services.artifacts import InMemoryArtifactService
 from workflow_steps.merge_content.executor import (
-    _build_merge_outcomes,
     _merge_items_to_string,
-    _parse_content_source,
     _parse_merge_config,
     _parse_merge_mode,
     _parse_source_step_node_ids,
-    _partition_device_results,
     execute,
 )
 
 
 class ParseHelperTests(unittest.TestCase):
     def test_content_source_default_and_invalid(self) -> None:
-        self.assertEqual(_parse_content_source({}), "command_output")
+        parsed = _parse_merge_config({"source_step_node_ids": ["n"]})
+        self.assertEqual(parsed.content_source, "command_output")
         with self.assertRaises(ValueError):
-            _parse_content_source({"content_source": "bad"})
+            _parse_merge_config({"content_source": "bad", "source_step_node_ids": ["n"]})
 
     def test_source_step_node_ids_forms(self) -> None:
         self.assertEqual(_parse_source_step_node_ids({}), [])
@@ -113,34 +111,6 @@ class MergeItemsToStringTests(unittest.TestCase):
         self.assertEqual(obj["cmdB"], "plain text")
         self.assertEqual(obj["cmdC"], "{bad json")
         self.assertEqual(media, "application/json")
-
-
-class PartitionAndOutcomeTests(unittest.TestCase):
-    def test_partition(self) -> None:
-        d = MagicMock()
-        ok, failed = _partition_device_results([("a", d, True), ("b", d, False)])
-        self.assertEqual((list(ok), list(failed)), (["a"], ["b"]))
-
-    def test_build_outcomes(self) -> None:
-        ctx = WorkflowContext(run_id="r", workflow_id="w", devices={})
-        d = MagicMock()
-        only_ok = _build_merge_outcomes(
-            context=ctx,
-            node_id="n",
-            merge_mode="text_plain",
-            success_devices={"a": d},
-            failed_devices={},
-        )
-        self.assertEqual([o.name for o in only_ok], ["success"])
-        both = _build_merge_outcomes(
-            context=ctx,
-            node_id="n",
-            merge_mode="text_plain",
-            success_devices={"a": d},
-            failed_devices={"b": d},
-        )
-        self.assertEqual([o.name for o in both], ["success", "failure"])
-        self.assertEqual(both[0].context.metadata["n.merged_content_mode"], "text_plain")
 
 
 def _run() -> MagicMock:

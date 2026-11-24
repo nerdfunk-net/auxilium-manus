@@ -154,7 +154,7 @@ def _collect_rendered_files(
     file across all devices. Raises ValueError if nothing upstream produced
     content.
     """
-    content_source = parse_content_source(config)
+    content_source = parse_content_source(config, step_id=_STEP_ID)
     source_step_node_id = str(config.get("source_step_node_id") or "").strip() or None
     parsed_output_key = str(config.get("parsed_output_key") or "").strip() or None
     filename_template = str(_config_value(config, "filename_template"))
@@ -171,6 +171,7 @@ def _collect_rendered_files(
                 content_source=content_source,
                 source_step_node_id=source_step_node_id,
                 parsed_output_key=parsed_output_key,
+                step_id=_STEP_ID,
             )
         for index, item in enumerate(items):
             extra = dict(item.extra)

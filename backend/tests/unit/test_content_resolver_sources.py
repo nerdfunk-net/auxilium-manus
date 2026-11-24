@@ -31,9 +31,7 @@ def _parsed_entry(node_id: str, key: str, kind: str, artifact_id: str = "a1") ->
     return {
         node_id: {
             key: {
-                "artifact_ref": _ref(
-                    artifact_id, kind, "application/json"
-                ).model_dump(mode="json"),
+                "artifact_ref": _ref(artifact_id, kind, "application/json").model_dump(mode="json"),
                 "kind": kind,
                 "step_node_id": node_id,
             }
@@ -44,34 +42,48 @@ def _parsed_entry(node_id: str, key: str, kind: str, artifact_id: str = "a1") ->
 class ParseContentSourceTests(unittest.TestCase):
     def test_valid_source_normalised(self) -> None:
         self.assertEqual(
-            parse_content_source({"content_source": " Running_Config "}), "running_config"
+            parse_content_source({"content_source": " Running_Config "}, step_id="store-artifact"),
+            "running_config",
         )
 
     def test_invalid_source_raises(self) -> None:
         with self.assertRaises(ValueError):
-            parse_content_source({"content_source": "bogus"})
+            parse_content_source({"content_source": "bogus"}, step_id="store-artifact")
 
 
 class ConfigSourceTests(unittest.TestCase):
     def test_running_config_present_and_absent(self) -> None:
         ref = _ref("cfg-1", "running_config")
         dev = _device(running_config_ref=ref)
-        items = list_exportable_content(dev, content_source="running_config")
+        items = list_exportable_content(
+            dev, content_source="running_config", step_id="store-artifact"
+        )
         self.assertEqual(items[0].artifact_ref.artifact_id, "cfg-1")
         self.assertEqual(
-            list_exportable_content(_device(), content_source="running_config"), []
+            list_exportable_content(
+                _device(), content_source="running_config", step_id="store-artifact"
+            ),
+            [],
         )
 
     def test_startup_config_present_and_absent(self) -> None:
         dev = _device(startup_config_ref=_ref("start-1", "startup_config"))
-        items = list_exportable_content(dev, content_source="startup_config")
+        items = list_exportable_content(
+            dev, content_source="startup_config", step_id="store-artifact"
+        )
         self.assertEqual(items[0].kind, "startup_config")
         self.assertEqual(
-            list_exportable_content(_device(), content_source="startup_config"), []
+            list_exportable_content(
+                _device(), content_source="startup_config", step_id="store-artifact"
+            ),
+            [],
         )
 
     def test_unknown_source_returns_empty(self) -> None:
-        self.assertEqual(list_exportable_content(_device(), content_source="nonsense"), [])
+        self.assertEqual(
+            list_exportable_content(_device(), content_source="nonsense", step_id="store-artifact"),
+            [],
+        )
 
 
 class CommandOutputTests(unittest.TestCase):
@@ -80,12 +92,16 @@ class CommandOutputTests(unittest.TestCase):
             command_results={
                 "run-1": [
                     CommandResult(
-                        node_id="run-1", command="show ver", success=True,
+                        node_id="run-1",
+                        command="show ver",
+                        success=True,
                         executed_at="2026-01-01T00:00:00Z",
                         output_ref=_ref("out-a", "command_output"),
                     ),
                     CommandResult(
-                        node_id="run-1", command="show run", success=True,
+                        node_id="run-1",
+                        command="show run",
+                        success=True,
                         executed_at="2026-01-02T00:00:00Z",
                         output_ref=_ref("out-b", "command_output"),
                     ),
@@ -98,13 +114,16 @@ class CommandOutputTests(unittest.TestCase):
 
     def test_command_output_requires_source_step_node_id(self) -> None:
         with self.assertRaises(ValueError):
-            list_exportable_content(self._dev_with_commands(), content_source="command_output")
+            list_exportable_content(
+                self._dev_with_commands(), content_source="command_output", step_id="store-artifact"
+            )
 
     def test_command_output_lists_results_with_output_ref(self) -> None:
         items = list_exportable_content(
             self._dev_with_commands(),
             content_source="command_output",
             source_step_node_id="run-1",
+            step_id="store-artifact",
         )
         self.assertEqual([i.extra["command"] for i in items], ["show ver", "show run"])
 
@@ -114,19 +133,25 @@ class CommandOutputTests(unittest.TestCase):
                 self._dev_with_commands(),
                 content_source="command_output",
                 source_step_node_id="other",
+                step_id="store-artifact",
             ),
             [],
         )
 
     def test_latest_command_output_picks_newest(self) -> None:
         items = list_exportable_content(
-            self._dev_with_commands(), content_source="latest_command_output"
+            self._dev_with_commands(),
+            content_source="latest_command_output",
+            step_id="store-artifact",
         )
         self.assertEqual(items[0].artifact_ref.artifact_id, "out-b")
 
     def test_latest_command_output_empty_when_no_results(self) -> None:
         self.assertEqual(
-            list_exportable_content(_device(), content_source="latest_command_output"), []
+            list_exportable_content(
+                _device(), content_source="latest_command_output", step_id="store-artifact"
+            ),
+            [],
         )
 
 
@@ -134,13 +159,18 @@ class ParsedEntrySourceTests(unittest.TestCase):
     def test_merged_content_roundtrip(self) -> None:
         dev = _device(parsed=_parsed_entry("merge-1", "merged_content", "merged_content"))
         items = list_exportable_content(
-            dev, content_source="merged_content", source_step_node_id="merge-1"
+            dev,
+            content_source="merged_content",
+            source_step_node_id="merge-1",
+            step_id="store-artifact",
         )
         self.assertEqual(items[0].kind, "merged_content")
 
     def test_merged_content_requires_node_id(self) -> None:
         with self.assertRaises(ValueError):
-            list_exportable_content(_device(), content_source="merged_content")
+            list_exportable_content(
+                _device(), content_source="merged_content", step_id="store-artifact"
+            )
 
     def test_merged_content_wrong_kind_is_empty(self) -> None:
         entry = _parsed_entry("merge-1", "merged_content", "merged_content")
@@ -148,7 +178,10 @@ class ParsedEntrySourceTests(unittest.TestCase):
         dev = _device(parsed=entry)
         self.assertEqual(
             list_exportable_content(
-                dev, content_source="merged_content", source_step_node_id="merge-1"
+                dev,
+                content_source="merged_content",
+                source_step_node_id="merge-1",
+                step_id="store-artifact",
             ),
             [],
         )
@@ -159,7 +192,10 @@ class ParsedEntrySourceTests(unittest.TestCase):
         dev = _device(parsed=entry)
         self.assertEqual(
             list_exportable_content(
-                dev, content_source="merged_content", source_step_node_id="merge-1"
+                dev,
+                content_source="merged_content",
+                source_step_node_id="merge-1",
+                step_id="store-artifact",
             ),
             [],
         )
@@ -168,7 +204,10 @@ class ParsedEntrySourceTests(unittest.TestCase):
         dev = _device(parsed={"merge-1": {"merged_content": "not-a-dict"}})
         self.assertEqual(
             list_exportable_content(
-                dev, content_source="merged_content", source_step_node_id="merge-1"
+                dev,
+                content_source="merged_content",
+                source_step_node_id="merge-1",
+                step_id="store-artifact",
             ),
             [],
         )
@@ -176,16 +215,22 @@ class ParsedEntrySourceTests(unittest.TestCase):
     def test_filtered_output_roundtrip_and_guards(self) -> None:
         dev = _device(parsed=_parsed_entry("f-1", "filtered_output", "filtered_output"))
         items = list_exportable_content(
-            dev, content_source="filtered_output", source_step_node_id="f-1"
+            dev,
+            content_source="filtered_output",
+            source_step_node_id="f-1",
+            step_id="store-artifact",
         )
         self.assertEqual(items[0].kind, "filtered_output")
         with self.assertRaises(ValueError):
-            list_exportable_content(_device(), content_source="filtered_output")
+            list_exportable_content(
+                _device(), content_source="filtered_output", step_id="store-artifact"
+            )
         self.assertEqual(
             list_exportable_content(
                 _device(parsed={"f-1": {"filtered_output": 5}}),
                 content_source="filtered_output",
                 source_step_node_id="f-1",
+                step_id="store-artifact",
             ),
             [],
         )
@@ -193,11 +238,16 @@ class ParsedEntrySourceTests(unittest.TestCase):
     def test_updated_content_roundtrip_and_guards(self) -> None:
         dev = _device(parsed=_parsed_entry("u-1", "updated_content", "updated_content"))
         items = list_exportable_content(
-            dev, content_source="updated_content", source_step_node_id="u-1"
+            dev,
+            content_source="updated_content",
+            source_step_node_id="u-1",
+            step_id="store-artifact",
         )
         self.assertEqual(items[0].kind, "updated_content")
         with self.assertRaises(ValueError):
-            list_exportable_content(_device(), content_source="updated_content")
+            list_exportable_content(
+                _device(), content_source="updated_content", step_id="store-artifact"
+            )
 
     def test_comparison_diff_wrong_kind_is_empty(self) -> None:
         entry = _parsed_entry("c-1", "comparison_diff", "comparison_diff")
@@ -205,7 +255,10 @@ class ParsedEntrySourceTests(unittest.TestCase):
         dev = _device(parsed=entry)
         self.assertEqual(
             list_exportable_content(
-                dev, content_source="comparison_diff", source_step_node_id="c-1"
+                dev,
+                content_source="comparison_diff",
+                source_step_node_id="c-1",
+                step_id="store-artifact",
             ),
             [],
         )

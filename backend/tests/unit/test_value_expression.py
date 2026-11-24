@@ -5,7 +5,7 @@ from __future__ import annotations
 import unittest
 
 from models.workflow_context import Capability, DeviceContext, DeviceStatus
-from workflow_steps.common.update_field_expression import (
+from workflow_steps.common.value_expression import (
     build_resolved_update_data,
     config_has_enabled_update_fields,
     normalize_field_spec,
@@ -60,6 +60,28 @@ class UpdateFieldExpressionTests(unittest.TestCase):
             ),
             "office-a",
         )
+
+    def test_nautobot_origin_forms_and_near_misses(self) -> None:
+        device = _device(
+            attribute_bags={
+                "nautobot": {
+                    "location": {"name": "office-a"},
+                    "originx": "no",
+                    "origin": {"x": "y"},
+                }
+            },
+        )
+
+        def resolve(raw: str, field: str = "location") -> str | None:
+            return resolve_update_field_expression(device=device, field_key=field, raw_value=raw)
+
+        self.assertEqual(resolve("{ nautobot.origin }"), "office-a")
+        self.assertEqual(resolve("{nautobot.origin | default('x')}"), "office-a")
+        self.assertEqual(resolve("{nautobot.origin}", field="serial"), None)
+        self.assertEqual(resolve("{nautobot.origin | default('x')}", field="serial"), "x")
+        # a longer name is an ordinary attribute path, not the origin shortcut
+        self.assertEqual(resolve("{nautobot.originx}"), "no")
+        self.assertEqual(resolve("{nautobot.origin.x}"), "y")
 
     def test_path_expression(self) -> None:
         device = _device(attribute_bags={"custom": {"site": "lab-7"}})

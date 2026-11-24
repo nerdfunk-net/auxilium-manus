@@ -1,7 +1,7 @@
 """Normalize and merge default values into a device's ``nautobot`` attribute bag.
 
 Used by the ``set-default-attributes`` step to seed values that ``{nautobot.origin}``
-(``workflow_steps/common/update_field_expression.py``) can later resolve, without ever
+(``workflow_steps/common/value_expression.py``) can later resolve, without ever
 calling the live Nautobot API. Both configuration modes (manual panel, git YAML)
 converge on the same flat ``{role, status, ..., custom_fields, interfaces}`` shape via
 ``normalize_defaults_block`` before being merged with ``merge_nautobot_defaults``.

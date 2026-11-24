@@ -61,7 +61,9 @@ class ContentResolverTests(unittest.TestCase):
     def test_rendered_template_requires_source_step_node_id(self) -> None:
         device = _device_with_rendered_template()
         with self.assertRaises(ValueError) as ctx:
-            list_exportable_content(device, content_source="rendered_template")
+            list_exportable_content(
+                device, content_source="rendered_template", step_id="store-artifact"
+            )
         self.assertIn("source_step_node_id", str(ctx.exception))
 
     def test_rendered_template_resolves_matching_step(self) -> None:
@@ -70,6 +72,7 @@ class ContentResolverTests(unittest.TestCase):
             device,
             content_source="rendered_template",
             source_step_node_id="render-jinja-template-3",
+            step_id="store-artifact",
         )
         self.assertEqual(len(items), 1)
         self.assertEqual(items[0].kind, "rendered_template")
@@ -83,6 +86,7 @@ class ContentResolverTests(unittest.TestCase):
             content_source="rendered_template",
             source_step_node_id="render-jinja-template-3",
             parsed_output_key="device_config",
+            step_id="store-artifact",
         )
         self.assertEqual(len(items), 1)
 
@@ -91,6 +95,7 @@ class ContentResolverTests(unittest.TestCase):
             content_source="rendered_template",
             source_step_node_id="render-jinja-template-3",
             parsed_output_key="other_key",
+            step_id="store-artifact",
         )
         self.assertEqual(missing, [])
 
@@ -100,13 +105,16 @@ class ContentResolverTests(unittest.TestCase):
             device,
             content_source="rendered_template",
             source_step_node_id="render-jinja-template-9",
+            step_id="store-artifact",
         )
         self.assertEqual(items, [])
 
     def test_pyats_snapshot_requires_source_step_node_id(self) -> None:
         device = _device_with_pyats_snapshot()
         with self.assertRaises(ValueError) as ctx:
-            list_exportable_content(device, content_source="pyats_snapshot")
+            list_exportable_content(
+                device, content_source="pyats_snapshot", step_id="store-artifact"
+            )
         self.assertIn("source_step_node_id", str(ctx.exception))
 
     def test_pyats_snapshot_resolves_matching_step(self) -> None:
@@ -115,6 +123,7 @@ class ContentResolverTests(unittest.TestCase):
             device,
             content_source="pyats_snapshot",
             source_step_node_id="get-pyats-snapshot-5",
+            step_id="store-artifact",
         )
         self.assertEqual(len(items), 1)
         self.assertEqual(items[0].kind, "pyats_snapshot")
@@ -129,6 +138,7 @@ class ContentResolverTests(unittest.TestCase):
             content_source="pyats_snapshot",
             source_step_node_id="get-pyats-snapshot-5",
             parsed_output_key="pyats_snapshot",
+            step_id="store-artifact",
         )
         self.assertEqual(len(items), 1)
 
@@ -137,6 +147,7 @@ class ContentResolverTests(unittest.TestCase):
             content_source="pyats_snapshot",
             source_step_node_id="get-pyats-snapshot-5",
             parsed_output_key="other_key",
+            step_id="store-artifact",
         )
         self.assertEqual(missing, [])
 
@@ -146,6 +157,7 @@ class ContentResolverTests(unittest.TestCase):
             device,
             content_source="pyats_snapshot",
             source_step_node_id="get-pyats-snapshot-9",
+            step_id="store-artifact",
         )
         self.assertEqual(items, [])
 
@@ -176,6 +188,7 @@ class ContentResolverTests(unittest.TestCase):
             device,
             content_source="comparison_diff",
             source_step_node_id="compare-data-2",
+            step_id="store-artifact",
         )
         self.assertEqual(len(items), 1)
         self.assertEqual(items[0].kind, "comparison_diff")

@@ -15,23 +15,21 @@ from models.workflow_context import (
 from services.artifacts import InMemoryArtifactService
 from workflow_steps.update_content.executor import (
     _apply_rules_to_text,
-    _build_update_content_outcomes,
-    _parse_content_source,
     _parse_rules,
     _parse_update_content_config,
-    _partition_device_results,
     _source_ref,
     execute,
 )
 
+_RULE = {"replace_rules": [{"pattern": "x"}]}
 _MISSING = object()
 
 
 class ParseHelperTests(unittest.TestCase):
     def test_content_source_default_and_invalid(self) -> None:
-        self.assertEqual(_parse_content_source({}), "running_config")
+        self.assertEqual(_parse_update_content_config(_RULE).content_source, "running_config")
         with self.assertRaises(ValueError):
-            _parse_content_source({"content_source": "command_output"})
+            _parse_update_content_config({**_RULE, "content_source": "command_output"})
 
     def test_parse_replace_all(self) -> None:
         def replace_all(value: object) -> bool:
@@ -111,18 +109,6 @@ class SourceRefTests(unittest.TestCase):
         )
         self.assertEqual(_source_ref(device, "running_config").artifact_id, "rc")
         self.assertEqual(_source_ref(device, "startup_config").artifact_id, "sc")
-
-
-class PartitionAndOutcomeTests(unittest.TestCase):
-    def test_partition_and_outcomes(self) -> None:
-        d = MagicMock()
-        ok, failed = _partition_device_results([("a", d, True), ("b", d, False)])
-        self.assertEqual((list(ok), list(failed)), (["a"], ["b"]))
-        ctx = WorkflowContext(run_id="r", workflow_id="w", devices={})
-        outs = _build_update_content_outcomes(
-            context=ctx, node_id="n", success_devices={"a": d}, failed_devices={"b": d}
-        )
-        self.assertEqual([o.name for o in outs], ["success", "failure"])
 
 
 def _run() -> MagicMock:

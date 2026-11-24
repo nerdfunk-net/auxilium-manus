@@ -131,6 +131,7 @@ async def _load_upload_content(
         content_source=parsed.content_source,
         source_step_node_id=parsed.source_step_node_id,
         parsed_output_key=parsed.parsed_output_key,
+        step_id=_STEP_ID,
     )
     if not items:
         return Fail(

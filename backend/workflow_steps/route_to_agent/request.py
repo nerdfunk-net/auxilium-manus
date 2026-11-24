@@ -274,7 +274,8 @@ async def _read_content(device: DeviceContext, name: str, artifact_service: Any)
     if name.startswith(COMMAND_OUTPUT_PREFIX):
         node_id = name[len(COMMAND_OUTPUT_PREFIX) :].strip()
         items = list_exportable_content(
-            device, content_source="command_output", source_step_node_id=node_id
+            device, content_source="command_output", source_step_node_id=node_id,
+            step_id=STEP_ID,
         )
         # A list, not a dict keyed by command text: the same command can run twice and both
         # outputs must reach the handler.
@@ -286,7 +287,7 @@ async def _read_content(device: DeviceContext, name: str, artifact_service: Any)
             for item in items
         ]
         return outputs or None
-    items = list_exportable_content(device, content_source=name)
+    items = list_exportable_content(device, content_source=name, step_id=STEP_ID)
     if not items:
         return None
     return await artifact_service.resolve(items[0].artifact_ref)

@@ -24,7 +24,7 @@ from workflow_steps.common.nautobot_resolve import (
 from workflow_steps.common.nautobot_source import resolve_nautobot_credentials
 from workflow_steps.common.run_session import require_session
 from workflow_steps.common.step_flags import parse_bool_flag
-from workflow_steps.common.update_field_expression import resolve_update_field_expression
+from workflow_steps.common.value_expression import resolve_update_field_expression
 from workflow_steps.exists_in_nautobot.config import get_config
 
 if TYPE_CHECKING:

@@ -34,7 +34,7 @@ from workflow_steps.common.failure_records import INVALID_INPUT
 from workflow_steps.common.nautobot_step import bind_nautobot_client
 from workflow_steps.common.partial_outcomes import NAUTOBOT_TEXT, device_error_from_exception
 from workflow_steps.common.run_logging import log_run_id
-from workflow_steps.common.update_field_expression import resolve_template_if_present
+from workflow_steps.common.value_expression import resolve_template_if_present
 
 if TYPE_CHECKING:
     from services.network.netmiko.session_pool import DeviceSessionPool

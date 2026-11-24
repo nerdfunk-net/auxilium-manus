@@ -18,16 +18,14 @@ from typing import Any, NamedTuple
 from models.workflow_context import Capability, DeviceContext, DeviceStatus, bare_hostname
 from services.nautobot.common.validators import validate_ip_address
 from services.network.netmiko.platform import UnsupportedPlatformError, resolve_netmiko_device_type
+from workflow_steps.common.attribute_write import RESERVED_BAG_NAMES
 
 DEFAULT_NETWORK_DRIVER = "cisco_ios"
 
-# attribute_bags keys the workflow engine reserves for itself — see
-# workflow_steps/common/attribute_write.py::_RESERVED_BAG_NAMES. A caller must
-# never pass one of these as `attribute_bag_name`: a device created with an
-# existing "run_input" bag key would make services/workflow_context/run_inputs.py
-# ::seed_run_input_bag treat it as already-seeded and silently skip stamping the
-# real run inputs onto it.
-_RESERVED_ATTRIBUTE_BAG_NAMES = frozenset({"parsed", "run_input"})
+# A caller must never pass a name from ``RESERVED_BAG_NAMES`` as `attribute_bag_name`: a device
+# created with an existing "run_input" bag key would make services/workflow_context/run_inputs.py
+# ::seed_run_input_bag treat it as already-seeded and silently skip stamping the real run inputs
+# onto it.
 
 
 class DeviceEntry(NamedTuple):
@@ -205,7 +203,7 @@ def device_context_from_entry(
     assert display_name is not None  # noqa: S101  # narrowing; caller already filtered empties
 
     bag_name = attribute_bag_name or source
-    if bag_name in _RESERVED_ATTRIBUTE_BAG_NAMES:
+    if bag_name in RESERVED_BAG_NAMES:
         raise ValueError(
             f"device_context_from_entry: attribute_bag_name {bag_name!r} is reserved by "
             "the workflow engine; pass an explicit non-reserved attribute_bag_name"

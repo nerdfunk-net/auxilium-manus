@@ -20,12 +20,13 @@ from services.workflow_context.attribute_path import (
     AttributeState,
     resolve_device_attribute_state,
     resolve_device_value,
+    resolve_path_in,
 )
 from services.workflow_context.node_result import set_node_result
 from services.workflow_context.secret_fields import REDACTED_PLACEHOLDER
 from workflow_steps.common.failure_records import INVALID_INPUT, MISSING_DATA
 from workflow_steps.common.step_flags import parse_bool_flag
-from workflow_steps.common.update_field_expression import resolve_update_field_expression
+from workflow_steps.common.value_expression import resolve_update_field_expression
 from workflow_steps.list_contains.config import get_config
 
 if TYPE_CHECKING:
@@ -38,16 +39,14 @@ _OUTCOME_NAMES = ("match", "mismatch", "failure")
 
 def _item_candidate(item: Any, *, field: str | None) -> Any:
     """Extract the value to compare from one list item: the item itself when
-    no field is set (a list of plain scalars), or a dotted lookup into the
-    item when it's a dict (a list of objects, e.g. parsed AAA servers)."""
+    no field is set (a list of plain scalars), or a lookup into the item when it's a
+    dict (a list of objects, e.g. parsed AAA servers); ``field`` takes the same path grammar
+    as ``list_path`` (dots, ``[n]`` and ``[field=value]``)."""
     if not field:
         return item
-    current = item
-    for part in field.split("."):
-        if not isinstance(current, dict):
-            return None
-        current = current.get(part)
-    return current
+    if not isinstance(item, dict):
+        return None
+    return resolve_path_in(item, field)
 
 
 def _find_match(

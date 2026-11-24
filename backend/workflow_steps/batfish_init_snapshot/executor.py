@@ -101,7 +101,7 @@ async def _write_device_configs(
     skipped: list[str] = []
     used_names: set[str] = set()
     for device_id, device in context.devices.items():
-        items = list_exportable_content(device, content_source="running_config")
+        items = list_exportable_content(device, content_source="running_config", step_id=_STEP_ID)
         if not items:
             skipped.append(device_id)
             continue

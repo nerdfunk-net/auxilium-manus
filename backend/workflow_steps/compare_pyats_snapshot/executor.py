@@ -270,6 +270,7 @@ def _resolve_live_export_item(
         content_source="pyats_snapshot",
         source_step_node_id=source_step_node_id,
         parsed_output_key=parsed_output_key,
+        step_id=_STEP_ID,
     )
     if not export_items:
         return None

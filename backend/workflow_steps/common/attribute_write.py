@@ -26,10 +26,8 @@ _READ_ONLY_DEVICE_FIELDS = frozenset({"id", "source", "source_id"})
 # WorkflowRun.run_inputs (see services/workflow_context/run_inputs.py) and a
 # generic write here could silently overwrite what the operator supplied at
 # trigger time for the rest of the run.
-_RESERVED_BAG_NAMES = frozenset({"parsed", "run_input"})
-
-# Public alias for reuse by other attribute writers (e.g. attribute_merge.py).
-RESERVED_BAG_NAMES = _RESERVED_BAG_NAMES
+# Shared with the other attribute writers (attribute_merge.py) and with device_list.py.
+RESERVED_BAG_NAMES = frozenset({"parsed", "run_input"})
 
 
 def _write_into_list_item(
@@ -166,7 +164,7 @@ def set_device_attribute(device: DeviceContext, attribute_path: str, value: Any)
     bag_name, remainder = path.split(".", 1)
     if bag_name in DEVICE_SCALAR_FIELDS:
         raise ValueError("use device.* prefix for device scalar fields")
-    if bag_name in _RESERVED_BAG_NAMES:
+    if bag_name in RESERVED_BAG_NAMES:
         raise ValueError(
             f"{bag_name!r} is a reserved namespace (populated by the workflow engine, "
             "not by update-attribute) and cannot be written to"

@@ -54,8 +54,8 @@ def validate_merge_destination(attribute_path: str) -> tuple[str, str]:
     Unlike :func:`attribute_write.set_device_attribute`, a bare bag name (no
     dot) is allowed — it means "merge at the root of that bag".
 
-    Raises ``ValueError`` for an empty path, a ``device.``-prefixed path, a
-    first segment that is a device scalar field, or a first segment in
+    Raises ``ValueError`` for an empty path, a ``device.``-prefixed path, a ``[..]``
+    selector, a first segment that is a device scalar field, or a first segment in
     :data:`RESERVED_BAG_NAMES` (``parsed`` / ``run_input``).
     """
     path = (attribute_path or "").strip()
@@ -63,6 +63,13 @@ def validate_merge_destination(attribute_path: str) -> tuple[str, str]:
         raise ValueError("destination path is required")
     if path.startswith("device."):
         raise ValueError("destination path cannot target device.* fields")
+    if "[" in path or "]" in path:
+        # A merge writes plain dict keys; ``key[name=x]`` would become a literal key and enrich
+        # nothing. Selector paths are written by update-attribute.
+        raise ValueError(
+            "destination path cannot hold a [..] selector; "
+            "use update-attribute to write into a list"
+        )
 
     bag_name, _, remainder = path.partition(".")
     if bag_name in DEVICE_SCALAR_FIELDS:

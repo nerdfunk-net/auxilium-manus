@@ -3,7 +3,7 @@
 Sets ``tacacsSettings.sharedSecret`` on each device in Cisco ISE. The new key
 comes from ``config["new_key"]`` — either a fixed value, or a
 ``{path.to.value}`` expression resolved per device against the device's
-attribute bags (see ``workflow_steps.common.update_field_expression``), the
+attribute bags (see ``workflow_steps.common.value_expression``), the
 same convention ``update-nautobot-device`` uses for its field values.
 
 Outcomes (DN-A): only devices that now carry the new key leave through ``"success"``.
@@ -48,7 +48,7 @@ from workflow_steps.common.device_runner import AbortRun, Fail, run_per_device
 from workflow_steps.common.partial_outcomes import abort_outcomes
 from workflow_steps.common.run_session import require_session
 from workflow_steps.common.source_credentials import resolve_source
-from workflow_steps.common.update_field_expression import resolve_update_field_expression
+from workflow_steps.common.value_expression import resolve_update_field_expression
 
 if TYPE_CHECKING:
     from services.network.netmiko.session_pool import DeviceSessionPool

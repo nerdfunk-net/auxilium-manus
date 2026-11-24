@@ -485,6 +485,18 @@ status, a transport kind) builds its own. `test_device_error_failure_ratchet.py`
   `FailureInfo` (`device_outcomes.whole_step_failure`), `success` is answered empty; `contact-the-ai`, `open-change-request`
   and the git steps do it. A step that loses a remote system part-way keeps the devices already done (`abort_outcomes`).
 
+### Content writers
+
+`filter-output`, `merge-content` and `update-content` read content a device already has, turn it into new text and
+store it as `filtered_output` / `merged_content` / `updated_content`. `workflow_steps/common/content_step.py::run_content_step`
+owns what they share: the per-device loop (`run_per_device`, so the failure contract of "One per-device runner"), the stored
+artifact, the node-result entry `parsed[<node>][<kind>]` (`artifact_ref`, `step_node_id`, `output_key`, `size_bytes`, `kind`, plus
+the step's own keys such as `match_counts`), the `PARSED` capability and the outcomes with `<node>.<prefix>_success_count` /
+`_failure_count`. A step supplies a `transform(device_id, device) -> StoredContent` and, where it names one, a code for a
+`ValueError` subclass (`nothing_to_merge`, `no_rule_matched`). `content_resolver` reads the entries back from one table
+(`_NODE_RESULT_SOURCES`); `list_exportable_content` and `parse_content_source` take the asking step's id, so a message
+names the step the operator configured.
+
 ### Import boundaries
 
 `tests/unit/test_workflow_steps_import_boundaries.py` pins four rules: `common/` imports no step; no step
@@ -752,7 +764,7 @@ All are in the `nautobot` palette category; the first two share
   interface) runs before the address is created; `result_attribute` (a bag path, never `device.*`) is
   written only when the device succeeds. A failure after the write names the IP address ID in the message.
 - **`add-ip-to-nautobot` never copies secrets.** It resolves `{path}` values with
-  `reveal_secrets=False` (`resolve_update_field_expression(..., reveal_secrets=False)`) because they are written
+  `reveal_secrets=False` (`resolve_update_field_expression(..., reveal_secrets=False)` in `common/value_expression.py`) because they are written
   to Nautobot or into an error; a sealed secret fails the device (`<field>_is_secret`). A `description` or
   `dns_name` expression that resolves to nothing fails the device, and its error messages do not repeat the
   resolved address. `get-next-free-ip` resolves its prefix and namespace values the same way (it only reads,

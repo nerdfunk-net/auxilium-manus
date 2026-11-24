@@ -47,57 +47,68 @@ AMBIGUOUS_CONTENT_FAILURE = FailureInfo(phase="command", kind="ambiguous_match")
 
 
 def parse_content_source(
-    config: dict[str, Any], *, step_id: str = "store-artifact", default: str = ""
+    config: dict[str, Any],
+    *,
+    step_id: str,
+    default: str = "",
+    allowed: frozenset[str] = CONTENT_SOURCES,
 ) -> str:
     """The configured ``content_source``; a blank one takes ``default`` (the step's own
-    ``get_config()`` value), and the error names ``step_id``."""
+    ``get_config()`` value), a value outside ``allowed`` is an error naming ``step_id``."""
     source = str(config.get("content_source") or default).strip().lower()
-    if source not in CONTENT_SOURCES:
-        raise ValueError(
-            f"{step_id}: content_source {source!r} must be one of {sorted(CONTENT_SOURCES)}"
-        )
+    if source not in allowed:
+        raise ValueError(f"{step_id}: content_source {source!r} must be one of {sorted(allowed)}")
     return source
+
+
+# Sources a step stored as ``parsed[<node>][<source>]``, each with the entry keys copied into
+# ``extra`` besides ``content_source`` and ``source_step_node_id``. ``kind`` of the entry must
+# equal the source: it is how a consumer tells the entries of different producers apart.
+_NODE_RESULT_SOURCES: dict[str, tuple[str, ...]] = {
+    "merged_content": (),
+    "comparison_diff": ("reference_path",),
+    "filtered_output": (),
+    "updated_content": (),
+}
+
+_NEEDS_SOURCE_NODE = frozenset(
+    {"command_output", "rendered_template", "pyats_snapshot", *_NODE_RESULT_SOURCES}
+)
 
 
 def list_exportable_content(
     device: DeviceContext,
     *,
     content_source: str,
+    step_id: str,
     source_step_node_id: str | None = None,
     parsed_output_key: str | None = None,
 ) -> list[ExportableContent]:
     """Return artifact refs available on the device for the chosen source."""
-    if content_source == "running_config":
-        if device.running_config_ref is None:
-            return []
-        return [
-            ExportableContent(
-                kind="running_config",
-                media_type=device.running_config_ref.media_type,
-                artifact_ref=device.running_config_ref,
-                extra={"content_source": content_source},
-            )
-        ]
+    if content_source in _NEEDS_SOURCE_NODE and not source_step_node_id:
+        raise ValueError(f"{step_id}: source_step_node_id is required for {content_source}")
 
-    if content_source == "startup_config":
-        if device.startup_config_ref is None:
+    if content_source in ("running_config", "startup_config"):
+        ref = (
+            device.running_config_ref
+            if content_source == "running_config"
+            else device.startup_config_ref
+        )
+        if ref is None:
             return []
         return [
             ExportableContent(
-                kind="startup_config",
-                media_type=device.startup_config_ref.media_type,
-                artifact_ref=device.startup_config_ref,
+                kind=content_source,
+                media_type=ref.media_type,
+                artifact_ref=ref,
                 extra={"content_source": content_source},
             )
         ]
 
     if content_source == "command_output":
-        if not source_step_node_id:
-            raise ValueError("store-artifact: source_step_node_id is required for command_output")
-        results = device.command_results.get(source_step_node_id, [])
+        results = device.command_results.get(source_step_node_id or "", [])
         return _exportable_from_command_results(
-            results,
-            source_step_node_id=source_step_node_id,
+            results, source_step_node_id=source_step_node_id or ""
         )
 
     if content_source == "latest_command_output":
@@ -105,49 +116,25 @@ def list_exportable_content(
         if latest is None:
             return []
         node_id, result = latest
-        return _exportable_from_command_results(
-            [result],
-            source_step_node_id=node_id,
-        )
+        return _exportable_from_command_results([result], source_step_node_id=node_id)
 
     if content_source == "rendered_template":
-        if not source_step_node_id:
-            raise ValueError(
-                "store-artifact: source_step_node_id is required for rendered_template"
-            )
         return _exportable_from_parsed_templates(
             device,
-            source_step_node_id=source_step_node_id,
+            source_step_node_id=source_step_node_id or "",
             parsed_output_key=parsed_output_key,
         )
 
-    if content_source == "merged_content":
-        if not source_step_node_id:
-            raise ValueError("store-artifact: source_step_node_id is required for merged_content")
-        return _exportable_from_merged_content(device, source_step_node_id=source_step_node_id)
-
-    if content_source == "comparison_diff":
-        if not source_step_node_id:
-            raise ValueError("store-artifact: source_step_node_id is required for comparison_diff")
-        return _exportable_from_comparison_diff(device, source_step_node_id=source_step_node_id)
-
-    if content_source == "filtered_output":
-        if not source_step_node_id:
-            raise ValueError("store-artifact: source_step_node_id is required for filtered_output")
-        return _exportable_from_filtered_output(device, source_step_node_id=source_step_node_id)
-
-    if content_source == "updated_content":
-        if not source_step_node_id:
-            raise ValueError("store-artifact: source_step_node_id is required for updated_content")
-        return _exportable_from_updated_content(device, source_step_node_id=source_step_node_id)
-
     if content_source == "pyats_snapshot":
-        if not source_step_node_id:
-            raise ValueError("store-artifact: source_step_node_id is required for pyats_snapshot")
         return _exportable_from_pyats_snapshot(
             device,
-            source_step_node_id=source_step_node_id,
+            source_step_node_id=source_step_node_id or "",
             parsed_output_key=parsed_output_key,
+        )
+
+    if content_source in _NODE_RESULT_SOURCES:
+        return _exportable_from_node_result(
+            device, content_source, source_step_node_id=source_step_node_id or ""
         )
 
     return []
@@ -272,111 +259,23 @@ def _exportable_from_pyats_snapshot(
     return items
 
 
-def _exportable_from_merged_content(
-    device: DeviceContext,
-    *,
-    source_step_node_id: str,
+def _exportable_from_node_result(
+    device: DeviceContext, source: str, *, source_step_node_id: str
 ) -> list[ExportableContent]:
-    raw = get_node_result(device.parsed, source_step_node_id, "merged_content")
+    raw = get_node_result(device.parsed, source_step_node_id, source)
     if not isinstance(raw, dict):
         return []
     artifact_raw = raw.get("artifact_ref")
     if not isinstance(artifact_raw, dict) or not artifact_raw.get("artifact_id"):
         return []
-    if raw.get("kind") != "merged_content":
+    if raw.get("kind") != source:
         return []
     artifact_ref = ArtifactRef.model_validate(artifact_raw)
+    extra: dict[str, Any] = {"content_source": source, "source_step_node_id": source_step_node_id}
+    extra.update({key: raw.get(key) for key in _NODE_RESULT_SOURCES[source]})
     return [
         ExportableContent(
-            kind="merged_content",
-            media_type=artifact_ref.media_type,
-            artifact_ref=artifact_ref,
-            extra={
-                "content_source": "merged_content",
-                "source_step_node_id": source_step_node_id,
-            },
-        )
-    ]
-
-
-def _exportable_from_comparison_diff(
-    device: DeviceContext,
-    *,
-    source_step_node_id: str,
-) -> list[ExportableContent]:
-    raw = get_node_result(device.parsed, source_step_node_id, "comparison_diff")
-    if not isinstance(raw, dict):
-        return []
-    artifact_raw = raw.get("artifact_ref")
-    if not isinstance(artifact_raw, dict) or not artifact_raw.get("artifact_id"):
-        return []
-    if raw.get("kind") != "comparison_diff":
-        return []
-    artifact_ref = ArtifactRef.model_validate(artifact_raw)
-    return [
-        ExportableContent(
-            kind="comparison_diff",
-            media_type=artifact_ref.media_type,
-            artifact_ref=artifact_ref,
-            extra={
-                "content_source": "comparison_diff",
-                "source_step_node_id": source_step_node_id,
-                "reference_path": raw.get("reference_path"),
-            },
-        )
-    ]
-
-
-def _exportable_from_filtered_output(
-    device: DeviceContext,
-    *,
-    source_step_node_id: str,
-) -> list[ExportableContent]:
-    raw = get_node_result(device.parsed, source_step_node_id, "filtered_output")
-    if not isinstance(raw, dict):
-        return []
-    artifact_raw = raw.get("artifact_ref")
-    if not isinstance(artifact_raw, dict) or not artifact_raw.get("artifact_id"):
-        return []
-    if raw.get("kind") != "filtered_output":
-        return []
-    artifact_ref = ArtifactRef.model_validate(artifact_raw)
-    return [
-        ExportableContent(
-            kind="filtered_output",
-            media_type=artifact_ref.media_type,
-            artifact_ref=artifact_ref,
-            extra={
-                "content_source": "filtered_output",
-                "source_step_node_id": source_step_node_id,
-            },
-        )
-    ]
-
-
-def _exportable_from_updated_content(
-    device: DeviceContext,
-    *,
-    source_step_node_id: str,
-) -> list[ExportableContent]:
-    raw = get_node_result(device.parsed, source_step_node_id, "updated_content")
-    if not isinstance(raw, dict):
-        return []
-    artifact_raw = raw.get("artifact_ref")
-    if not isinstance(artifact_raw, dict) or not artifact_raw.get("artifact_id"):
-        return []
-    if raw.get("kind") != "updated_content":
-        return []
-    artifact_ref = ArtifactRef.model_validate(artifact_raw)
-    return [
-        ExportableContent(
-            kind="updated_content",
-            media_type=artifact_ref.media_type,
-            artifact_ref=artifact_ref,
-            extra={
-                "content_source": "updated_content",
-                "source_step_node_id": source_step_node_id,
-            },
+            kind=source, media_type=artifact_ref.media_type, artifact_ref=artifact_ref, extra=extra
         )
     ]
 

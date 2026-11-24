@@ -32,7 +32,7 @@ from services.workflow_context.secret_fields import (
     unwrap_all_secrets,
     unwrap_secret,
 )
-from workflow_steps.common.content_resolver import list_exportable_content
+from workflow_steps.common.content_resolver import list_exportable_content, parse_content_source
 from workflow_steps.common.device_outcomes import build_outcomes, mark_device_failed
 from workflow_steps.common.device_runner import run_per_device
 from workflow_steps.common.duplicate_keys import (
@@ -56,13 +56,6 @@ _CONTENT_SOURCES = frozenset(
 )
 
 
-def _parse_content_source(config: dict[str, Any]) -> str:
-    content_source = str(config.get("content_source") or "").strip().lower()
-    if content_source not in _CONTENT_SOURCES:
-        raise ValueError(f"store-in-db: content_source must be one of {sorted(_CONTENT_SOURCES)}")
-    return content_source
-
-
 async def _resolve_rendered_template(
     device: DeviceContext,
     *,
@@ -81,6 +74,7 @@ async def _resolve_rendered_template(
         content_source="rendered_template",
         source_step_node_id=source_step_node_id,
         parsed_output_key=parsed_output_key,
+        step_id=_STEP_ID,
     )
     if not items:
         return None
@@ -206,7 +200,7 @@ async def execute(
     del device_sessions
 
     storage_key = require_text(config, "storage_key", step_id=_STEP_ID)
-    content_source = _parse_content_source(config)
+    content_source = parse_content_source(config, step_id=_STEP_ID, allowed=_CONTENT_SOURCES)
 
     if not context.devices:
         return [StepOutcome(name="success", context=context)]

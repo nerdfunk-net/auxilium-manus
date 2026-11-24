@@ -17,9 +17,7 @@ from typing import TYPE_CHECKING, Any
 from core.models.runs import WorkflowRun
 from models.workflow_context import (
     ArtifactRef,
-    Capability,
     DeviceContext,
-    DeviceStatus,
     StepOutcome,
     WorkflowContext,
 )
@@ -29,11 +27,8 @@ from services.workflow_context.attribute_regex import (
     apply_regex_content_replace,
     compile_pattern,
 )
-from services.workflow_context.node_result import set_node_result
-from workflow_steps.common.partial_outcomes import (
-    device_error_from_exception,
-    fail_device_with_error,
-)
+from workflow_steps.common.content_resolver import parse_content_source
+from workflow_steps.common.content_step import StoredContent, run_content_step
 from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.common.step_flags import parse_bool_flag
 
@@ -63,15 +58,6 @@ class _ParsedUpdateContentConfig:
 
 class _NoRuleMatched(ValueError):  # noqa: N818 - internal signal, mapped to a device error code
     """Every rule matched zero times on this device."""
-
-
-def _parse_content_source(config: dict[str, Any]) -> str:
-    source = str(config.get("content_source") or "running_config").strip().lower()
-    if source not in _SUPPORTED_SOURCES:
-        raise ValueError(
-            f"update-content: content_source {source!r} must be one of {sorted(_SUPPORTED_SOURCES)}"
-        )
-    return source
 
 
 def _parse_rules(config: dict[str, Any]) -> list[_ReplaceRule]:
@@ -108,7 +94,9 @@ def _parse_rules(config: dict[str, Any]) -> list[_ReplaceRule]:
 
 def _parse_update_content_config(config: dict[str, Any]) -> _ParsedUpdateContentConfig:
     return _ParsedUpdateContentConfig(
-        content_source=_parse_content_source(config),
+        content_source=parse_content_source(
+            config, step_id=_STEP_ID, default="running_config", allowed=_SUPPORTED_SOURCES
+        ),
         rules=_parse_rules(config),
         fail_if_no_match=parse_bool_flag(config, "fail_if_no_match", default=False),
     )
@@ -135,136 +123,6 @@ def _apply_rules_to_text(text: str, rules: list[_ReplaceRule]) -> tuple[str, lis
     return current, match_counts
 
 
-async def _update_and_store(
-    *,
-    source_ref: ArtifactRef,
-    device_id: str,
-    device: DeviceContext,
-    node_id: str,
-    run_id: str,
-    parsed: _ParsedUpdateContentConfig,
-    artifact_service: ArtifactService,
-) -> DeviceContext:
-    raw_content = await artifact_service.resolve(source_ref)
-    # Off the event loop: re.sub over a multi-megabyte config would stall every other device.
-    updated_text, match_counts = await asyncio.to_thread(
-        _apply_rules_to_text, raw_content, parsed.rules
-    )
-    if parsed.fail_if_no_match and not any(match_counts):
-        # A typo'd pattern would otherwise let a later upload step push the unchanged config.
-        raise _NoRuleMatched("no replace rule matched anything in this device's content")
-
-    artifact_ref = await artifact_service.store(
-        content=updated_text,
-        kind="updated_content",
-        device_id=device_id,
-        run_id=run_id,
-        media_type=source_ref.media_type,
-    )
-
-    size_bytes = len(updated_text.encode("utf-8"))
-    updated_parsed = set_node_result(
-        device.parsed,
-        node_id,
-        "updated_content",
-        {
-            "artifact_ref": artifact_ref.model_dump(mode="json"),
-            "step_node_id": node_id,
-            "output_key": "updated_content",
-            "size_bytes": size_bytes,
-            "kind": "updated_content",
-            "match_counts": match_counts,
-        },
-    )
-
-    return device.model_copy(
-        update={
-            "parsed": updated_parsed,
-            "capabilities": device.capabilities | {Capability.PARSED},
-            "status": DeviceStatus.OK,
-        }
-    )
-
-
-async def _update_device(
-    *,
-    device_id: str,
-    device: DeviceContext,
-    parsed: _ParsedUpdateContentConfig,
-    node_id: str,
-    run_id: str,
-    artifact_service: ArtifactService,
-) -> tuple[str, DeviceContext, bool]:
-    try:
-        source_ref = _source_ref(device, parsed.content_source)
-        if source_ref is None:
-            raise ValueError(
-                f"{parsed.content_source} is not available on this device — add a "
-                "Get Configs step upstream of update-content"
-            )
-        enriched = await _update_and_store(
-            source_ref=source_ref,
-            device_id=device_id,
-            device=device,
-            node_id=node_id,
-            run_id=run_id,
-            parsed=parsed,
-            artifact_service=artifact_service,
-        )
-        return device_id, enriched, True
-
-    except Exception as exc:
-        logger.warning("update-content device=%s error=%s", device_id, type(exc).__name__)
-        err = device_error_from_exception(exc, node_id=node_id, step_id=_STEP_ID)
-        if isinstance(exc, _NoRuleMatched):
-            err = err.model_copy(update={"code": "no_rule_matched"})
-        return device_id, fail_device_with_error(device, err), False
-
-
-def _partition_device_results(
-    results: list[tuple[str, DeviceContext, bool]],
-) -> tuple[dict[str, DeviceContext], dict[str, DeviceContext]]:
-    success_devices: dict[str, DeviceContext] = {}
-    failed_devices: dict[str, DeviceContext] = {}
-    for device_id, updated_device, ok in results:
-        if ok:
-            success_devices[device_id] = updated_device
-        else:
-            failed_devices[device_id] = updated_device
-    return success_devices, failed_devices
-
-
-def _build_update_content_outcomes(
-    *,
-    context: WorkflowContext,
-    node_id: str,
-    success_devices: dict[str, DeviceContext],
-    failed_devices: dict[str, DeviceContext],
-) -> list[StepOutcome]:
-    metadata = {
-        **context.metadata,
-        f"{node_id}.update_content_success_count": len(success_devices),
-        f"{node_id}.update_content_failure_count": len(failed_devices),
-    }
-
-    outcomes = [
-        StepOutcome(
-            name="success",
-            context=context.model_copy(update={"devices": success_devices, "metadata": metadata}),
-        )
-    ]
-    if failed_devices:
-        outcomes.append(
-            StepOutcome(
-                name="failure",
-                context=context.model_copy(
-                    update={"devices": failed_devices, "metadata": metadata}
-                ),
-            )
-        )
-    return outcomes
-
-
 async def execute(
     *,
     config: dict[str, Any],
@@ -287,29 +145,34 @@ async def execute(
         len(parsed.rules),
     )
 
-    results = await asyncio.gather(
-        *[
-            _update_device(
-                device_id=device_id,
-                device=device,
-                parsed=parsed,
-                node_id=node_id,
-                run_id=context.run_id,
-                artifact_service=artifact_service,
+    async def transform(device_id: str, device: DeviceContext) -> StoredContent:
+        source_ref = _source_ref(device, parsed.content_source)
+        if source_ref is None:
+            raise ValueError(
+                f"{parsed.content_source} is not available on this device — add a "
+                "Get Configs step upstream of update-content"
             )
-            for device_id, device in context.devices.items()
-        ]
-    )
-    success_devices, failed_devices = _partition_device_results(results)
-    logger.info(
-        "update-content finished success=%d failure=%d run_id=%s",
-        len(success_devices),
-        len(failed_devices),
-        log_run_id(run),
-    )
-    return _build_update_content_outcomes(
-        context=context,
+        raw_content = await artifact_service.resolve(source_ref)
+        # Off the event loop: re.sub over a multi-megabyte config would stall every other device.
+        updated_text, match_counts = await asyncio.to_thread(
+            _apply_rules_to_text, raw_content, parsed.rules
+        )
+        if parsed.fail_if_no_match and not any(match_counts):
+            # A typo'd pattern would otherwise let a later upload step push the unchanged config.
+            raise _NoRuleMatched("no replace rule matched anything in this device's content")
+        return StoredContent(
+            text=updated_text,
+            media_type=source_ref.media_type,
+            entry={"match_counts": match_counts},
+        )
+
+    return await run_content_step(
+        context,
+        step_id=_STEP_ID,
         node_id=node_id,
-        success_devices=success_devices,
-        failed_devices=failed_devices,
+        kind="updated_content",
+        transform=transform,
+        artifact_service=artifact_service,
+        metadata_prefix="update_content",
+        code_overrides={_NoRuleMatched: "no_rule_matched"},
     )

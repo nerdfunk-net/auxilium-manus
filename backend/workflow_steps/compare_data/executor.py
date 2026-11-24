@@ -213,6 +213,7 @@ def _resolve_compare_export_item(
         content_source=parsed.content_source,
         source_step_node_id=parsed.source_step_node_id,
         parsed_output_key=parsed.parsed_output_key,
+        step_id="compare-data",
     )
     if not export_items:
         return None

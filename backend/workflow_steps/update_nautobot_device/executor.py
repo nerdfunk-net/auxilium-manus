@@ -46,7 +46,7 @@ from workflow_steps.common.redundancy_groups_config import (
 from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.common.run_session import require_session
 from workflow_steps.common.step_flags import parse_bool_flag
-from workflow_steps.common.update_field_expression import (
+from workflow_steps.common.value_expression import (
     build_resolved_update_data,
     config_has_enabled_update_fields,
     normalize_field_spec,
