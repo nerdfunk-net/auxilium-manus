@@ -13,6 +13,21 @@ from typing import Any
 from models.workflow_context import DeviceContext
 
 _IDENTIFIER_KEYS = ("id", "name", "ip_address")
+_IDENTIFIER_MODES = ("from_context", "explicit")
+
+
+def parse_identifier_mode(raw_identifier: Any, *, step_id: str) -> str:
+    """``from_context`` (default) or ``explicit``; any other text is a config error (W5-14).
+
+    A mistyped mode ("explicti") used to mean ``from_context``, the opposite of what was meant.
+    """
+    raw = raw_identifier if isinstance(raw_identifier, dict) else {}
+    mode = str(raw.get("mode") or "from_context").strip().lower()
+    if mode not in _IDENTIFIER_MODES:
+        raise ValueError(
+            f"{step_id}: device_identifier.mode must be one of {', '.join(_IDENTIFIER_MODES)}"
+        )
+    return mode
 
 
 def parse_explicit_identifier(raw_identifier: Any, *, step_id: str) -> dict[str, str]:

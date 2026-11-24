@@ -53,6 +53,10 @@ class NautobotAmbiguousMatchError(NautobotError):
     """More than one Nautobot object matches one workflow device (C3-03)."""
 
 
+class NoParentPrefixError(NautobotAPIError):
+    """An IP address cannot be created because no prefix of its namespace holds it (W5-12)."""
+
+
 class NautobotNotFoundError(NautobotAPIError):
     """Raised when a Nautobot resource is not found."""
 

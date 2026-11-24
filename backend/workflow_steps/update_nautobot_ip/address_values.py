@@ -20,8 +20,8 @@ from dataclasses import dataclass
 from models.workflow_context import DeviceContext
 from services.workflow_context.attribute_path import resolve_device_attribute
 from services.workflow_context.secret_fields import REDACTED_PLACEHOLDER
+from workflow_steps.common.nautobot_plan_fields import PlanError, bad_request_failure
 from workflow_steps.common.update_field_expression import resolve_update_field_expression
-from workflow_steps.update_nautobot_ip.lookups import PlanError, bad_request_failure
 
 _PLACEHOLDER = re.compile(r"\{([A-Za-z0-9_.]+)\}")
 _WHOLE_EXPRESSION = re.compile(r"^\{[^{}]+\}$")

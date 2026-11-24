@@ -6,6 +6,7 @@ import logging
 
 from services.nautobot.common.rest import rest_query
 
+from ..common.exceptions import NautobotAmbiguousMatchError
 from ..common.utils import graphql_errors_summary
 from ..common.validators import is_valid_uuid
 from .base_resolver import BaseResolver
@@ -52,6 +53,7 @@ class NetworkResolver(BaseResolver):
 
         Raises:
             ValueError: If namespace not found
+            NautobotAmbiguousMatchError: If the name matches more than one namespace
         """
         # If already a UUID, return directly
         if is_valid_uuid(namespace_name):
@@ -75,6 +77,9 @@ class NetworkResolver(BaseResolver):
             raise ValueError(graphql_errors_summary(result["errors"], "while resolving namespace"))
 
         namespaces = result.get("data", {}).get("namespaces", [])
+        if len({item["id"] for item in namespaces}) > 1:
+            # A first match could read from or write to the wrong namespace (W5-15).
+            raise NautobotAmbiguousMatchError("A namespace name matches more than one namespace")
         if namespaces:
             namespace_id = namespaces[0]["id"]
             logger.info("Resolved namespace '%s' to UUID %s", namespace_name, namespace_id)

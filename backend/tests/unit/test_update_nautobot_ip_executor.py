@@ -14,9 +14,9 @@ from models.workflow_context import (
 )
 from services.nautobot.common.exceptions import NautobotAPIError, NautobotNotFoundError
 from services.workflow_context.secret_fields import REDACTED_PLACEHOLDER
+from workflow_steps.common import nautobot_plan_fields as plan_fields
 from workflow_steps.common.nautobot_prefix_lookup import not_found
 from workflow_steps.update_nautobot_ip import executor as mod
-from workflow_steps.update_nautobot_ip import lookups
 from workflow_steps.update_nautobot_ip.executor import _parse_config, execute
 
 _NS_ID = "11111111-1111-1111-1111-111111111111"
@@ -264,7 +264,7 @@ class ExecuteTests(unittest.IsolatedAsyncioTestCase):
         def resolve(*, field_key: str, raw_value: str, **_: Any) -> str:
             return REDACTED_PLACEHOLDER if field_key == "description" else raw_value
 
-        with patch.object(lookups, "resolve_update_field_expression", side_effect=resolve):
+        with patch.object(plan_fields, "resolve_update_field_expression", side_effect=resolve):
             out, common = await _run(_config(description="{x.y}"), _context(_device("a")))
         self.assertEqual(out["failure"].devices["a"].errors[0].code, "description_is_secret")
         common.update_ip_address.assert_not_awaited()

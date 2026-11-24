@@ -4,37 +4,40 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, NamedTuple
 
-from sqlalchemy.orm import object_session
-
-import service_factory
 from core.models.runs import WorkflowRun
 from models.failure import FailureInfo
 from models.workflow_context import (
     DeviceContext,
-    DeviceError,
     StepOutcome,
     WorkflowContext,
 )
 from services.artifacts import ArtifactService
-from services.nautobot.client import NautobotService
-from services.nautobot.credentials import NautobotCredentials
+from services.nautobot.common.exceptions import NautobotAmbiguousMatchError
+from services.nautobot.credentials_bound_client import CredentialsBoundNautobotClient
+from services.nautobot.devices.common import DeviceCommonService
 from workflow_steps.common.attribute_write import set_device_attribute
-from workflow_steps.common.nautobot_source import resolve_nautobot_credentials
+from workflow_steps.common.nautobot_plan_fields import (
+    PlanError,
+    ambiguous_failure,
+    bad_request_failure,
+    failed,
+    not_found_failure,
+    resolve_field,
+)
+from workflow_steps.common.nautobot_step import bind_nautobot_client
 from workflow_steps.common.partial_outcomes import (
     device_error_from_exception,
     fail_device_with_error,
 )
 from workflow_steps.common.step_flags import parse_int_flag
-from workflow_steps.common.update_field_expression import resolve_update_field_expression
 from workflow_steps.get_next_free_ip.config import get_config
 from workflow_steps.get_next_free_ip.lookup import (
     AVAILABLE_IPS_CAP,
     LookupFailure,
     fetch_available_ips,
     resolve_containing_prefix,
-    resolve_namespace_id,
     resolve_prefix_id,
 )
 from workflow_steps.get_next_free_ip.pool import (
@@ -54,8 +57,12 @@ _STEP_ID = "get-next-free-ip"
 _OUTCOME_NAMES = ("success", "failure")
 _MAX_COUNT = 100
 
-# (namespace, prefix) as the devices resolved them.
-_GroupKey = tuple[str, str]
+
+class _GroupKey(NamedTuple):
+    """(namespace, prefix) as the devices resolved them."""
+
+    namespace: str
+    prefix: str
 
 
 @dataclass(frozen=True)
@@ -103,49 +110,65 @@ def _parse_config(config: dict[str, Any]) -> _ParsedConfig:
     )
 
 
-def _bind_nautobot(run: WorkflowRun, source_id: str) -> tuple[NautobotCredentials, NautobotService]:
-    db = object_session(run)
-    if db is None:
-        raise RuntimeError(f"{_STEP_ID}: WorkflowRun has no active DB session")
-    credentials = resolve_nautobot_credentials(db, source_id, step_id=_STEP_ID)
-    return credentials, service_factory.get_nautobot_app_service()
+@dataclass(frozen=True)
+class _Bound:
+    common: DeviceCommonService
+    client: CredentialsBoundNautobotClient
+
+
+def _bind_nautobot(run: WorkflowRun, source_id: str) -> _Bound:
+    client = bind_nautobot_client(run, source_id, step_id=_STEP_ID)
+    return _Bound(DeviceCommonService(client), client)
+
+
+async def _resolve_namespace(bound: _Bound, namespace: str) -> str:
+    """The namespace UUID (a UUID is used as it is); several matches or none fail the device."""
+    try:
+        return await bound.common.resolve_namespace_id(namespace)
+    except NautobotAmbiguousMatchError as exc:
+        raise LookupFailure(
+            "namespace_ambiguous",
+            f"Namespace {namespace!r} matches more than one namespace in Nautobot",
+            ambiguous_failure(),
+        ) from exc
+    except ValueError as exc:
+        raise LookupFailure(
+            "namespace_not_found",
+            f"Namespace {namespace!r} not found in Nautobot",
+            not_found_failure(),
+        ) from exc
 
 
 def _failed(
-    device: DeviceContext,
-    *,
-    node_id: str,
-    code: str,
-    message: str,
-    failure: FailureInfo | None = None,
+    device: DeviceContext, *, node_id: str, code: str, message: str, failure: FailureInfo
 ) -> DeviceContext:
-    error = DeviceError(
-        node_id=node_id, step_id=_STEP_ID, code=code, message=message, failure=failure
-    )
-    return fail_device_with_error(device, error)
+    return failed(_STEP_ID, device, node_id=node_id, code=code, message=message, failure=failure)
 
 
 def _resolve_group_key(
     parsed: _ParsedConfig, device: DeviceContext, run_id: str
-) -> tuple[_GroupKey | None, tuple[str, str] | None]:
-    """``((namespace, prefix), None)``, or ``(None, (code, message))`` for an unusable device."""
-    namespace = resolve_update_field_expression(
-        device=device, field_key="namespace", raw_value=parsed.namespace_expression, run_id=run_id
-    )
-    if not namespace:
-        return None, (
-            "namespace_unresolved",
-            f"namespace expression {parsed.namespace_expression!r} resolved to nothing",
-        )
-    prefix = resolve_update_field_expression(
-        device=device, field_key="prefix", raw_value=parsed.prefix_expression, run_id=run_id
-    )
-    if not prefix:
-        return None, (
-            "prefix_unresolved",
-            f"prefix expression {parsed.prefix_expression!r} resolved to nothing",
-        )
-    return (namespace, prefix), None
+) -> _GroupKey | PlanError:
+    """``(namespace, prefix)`` as the device resolves them, or the plan error for the device.
+
+    Both go into Nautobot queries and into error text, so a value taken from a secret is refused
+    (W5-04) like in the sibling steps (``resolve_field``).
+    """
+    resolved: list[str] = []
+    for field, raw in (
+        ("namespace", parsed.namespace_expression),
+        ("prefix", parsed.prefix_expression),
+    ):
+        value = resolve_field(device, run_id, field, raw)
+        if isinstance(value, tuple):
+            return value
+        if not value:
+            return (
+                f"{field}_unresolved",
+                f"{field} expression {raw!r} resolved to nothing",
+                bad_request_failure(),
+            )
+        resolved.append(value)
+    return _GroupKey(*resolved)
 
 
 @dataclass(frozen=True)
@@ -161,8 +184,7 @@ async def _resolve_target(
     *,
     key: _GroupKey,
     expression: str,
-    service: NautobotService,
-    credentials: NautobotCredentials,
+    bound: _Bound,
 ) -> _Target:
     namespace, prefix = key
     host = bare_address(prefix)
@@ -174,16 +196,16 @@ async def _resolve_target(
             f"{exc} (prefix setting {expression!r})",
             FailureInfo(phase="config", kind="bad_request", hint="check_request"),
         ) from exc
-    namespace_id = await resolve_namespace_id(service, credentials, namespace)
+    namespace_id = await _resolve_namespace(bound, namespace)
     if host is not None:
         # A device address has no prefix length: use the most specific prefix that holds it.
         prefix_id, found = await resolve_containing_prefix(
-            service, credentials, str(host), namespace_id, namespace_label=namespace
+            bound.client, str(host), namespace_id, namespace_label=namespace
         )
         network = parse_prefix(found)
     else:
         prefix_id = await resolve_prefix_id(
-            service, credentials, str(network), namespace_id, namespace_label=namespace
+            bound.client, str(network), namespace_id, namespace_label=namespace
         )
     return _Target(
         prefix_id=prefix_id, network=network, label=f"{network} (namespace {namespace!r})"
@@ -195,8 +217,7 @@ async def _load_pool(
     parsed: _ParsedConfig,
     target: _Target,
     devices: int,
-    service: NautobotService,
-    credentials: NautobotCredentials,
+    bound: _Bound,
 ) -> tuple[list[str], bool]:
     """Free addresses at/after the start offset, and whether the fetch window was cut short.
 
@@ -205,7 +226,7 @@ async def _load_pool(
     """
     wanted = window_size(parsed.start_offset, parsed.count, devices, cap=AVAILABLE_IPS_CAP * 1000)
     limit = min(wanted, AVAILABLE_IPS_CAP)
-    available = await fetch_available_ips(service, credentials, target.prefix_id, limit=limit)
+    available = await fetch_available_ips(bound.client, target.prefix_id, limit=limit)
     window_cut = wanted > AVAILABLE_IPS_CAP and len(available) >= AVAILABLE_IPS_CAP
     return free_addresses_from(available, target.network, parsed.start_offset), window_cut
 
@@ -236,8 +257,7 @@ async def _serve_group(
     target: _Target,
     members: list[DeviceContext],
     node_id: str,
-    service: NautobotService,
-    credentials: NautobotCredentials,
+    bound: _Bound,
 ) -> dict[str, tuple[str, DeviceContext]]:
     """Bucket every device that uses one prefix, handing out addresses in device order."""
     try:
@@ -245,8 +265,7 @@ async def _serve_group(
             parsed=parsed,
             target=target,
             devices=len(members),
-            service=service,
-            credentials=credentials,
+            bound=bound,
         )
     except Exception as exc:
         return _fail_all(members, node_id, exc)
@@ -317,7 +336,7 @@ async def execute(
     if not context.devices:
         return _build_outcomes(context=context, node_id=node_id, buckets=buckets)
 
-    credentials, service = _bind_nautobot(run, parsed.source_id)
+    bound = _bind_nautobot(run, parsed.source_id)
     logger.info(
         "get-next-free-ip started run_id=%s node_id=%s devices=%d count=%d start_offset=%d",
         context.run_id,
@@ -330,12 +349,12 @@ async def execute(
     keyed: list[tuple[_GroupKey, DeviceContext]] = []
     outcome_by_device: dict[str, tuple[str, DeviceContext]] = {}
     for device in context.devices.values():
-        key, problem = _resolve_group_key(parsed, device, context.run_id)
-        if key is None or problem is not None:
-            code, message = problem or ("prefix_unresolved", "prefix did not resolve")
+        key = _resolve_group_key(parsed, device, context.run_id)
+        if not isinstance(key, _GroupKey):
+            code, message, failure = key
             outcome_by_device[device.id] = (
                 "failure",
-                _failed(device, node_id=node_id, code=code, message=message),
+                _failed(device, node_id=node_id, code=code, message=message, failure=failure),
             )
             continue
         keyed.append((key, device))
@@ -350,8 +369,7 @@ async def execute(
                 targets[key] = await _resolve_target(
                     key=key,
                     expression=parsed.prefix_expression,
-                    service=service,
-                    credentials=credentials,
+                    bound=bound,
                 )
             except Exception as exc:
                 targets[key] = exc
@@ -372,8 +390,7 @@ async def execute(
                 target=target,
                 members=members,
                 node_id=node_id,
-                service=service,
-                credentials=credentials,
+                bound=bound,
             )
         )
 

@@ -15,6 +15,7 @@ from models.workflow_context import (
 from services.nautobot.common.exceptions import NautobotAmbiguousMatchError, NautobotNotFoundError
 from services.nautobot.managers.vlan_manager import VlanPartialUpdateError
 from services.workflow_context.secret_fields import REDACTED_PLACEHOLDER
+from workflow_steps.common import nautobot_plan_fields as plan_fields
 from workflow_steps.update_nautobot_vlan import executor as mod
 from workflow_steps.update_nautobot_vlan.executor import _parse_config, execute, split_locations
 
@@ -230,7 +231,7 @@ class ExecuteTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(out["failure"].devices["a"].errors[0].code, "vlan_group_not_found")
 
     async def test_secret_values_are_refused(self) -> None:
-        real = mod.resolve_update_field_expression
+        real = plan_fields.resolve_update_field_expression
 
         def fake(*, field_key, **kwargs):
             if field_key == "description":
@@ -238,7 +239,7 @@ class ExecuteTests(unittest.IsolatedAsyncioTestCase):
             return real(field_key=field_key, **kwargs)
 
         dev = _device("a", attribute_bags={"custom": {"d": "s"}})
-        with patch.object(mod, "resolve_update_field_expression", side_effect=fake):
+        with patch.object(plan_fields, "resolve_update_field_expression", side_effect=fake):
             out, common = await _run(_config(description="{custom.d}"), _context(dev))
         self.assertEqual(out["failure"].devices["a"].errors[0].code, "description_is_secret")
         common.update_vlan.assert_not_called()

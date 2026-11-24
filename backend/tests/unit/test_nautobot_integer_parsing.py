@@ -9,20 +9,21 @@ import pytest
 
 from tests.unit._step_helpers import make_device
 from workflow_steps.add_nautobot_metadata.executor import _DeviceFailure, _parse_height
-from workflow_steps.update_nautobot_vlan.executor import _parse_config, _plan_device
+from workflow_steps.common.nautobot_object_update import plan_device
+from workflow_steps.update_nautobot_vlan.executor import _SPEC, _parse_config, _request
 
 
 def _plan(vid: str):  # noqa: ANN202
     parsed = _parse_config(
         {"nautobot_source_id": "src", "vid": vid, "name": "v", "locations_mode": "add"}
     )
-    return _plan_device(parsed, make_device("d1"), "run-1")
+    return plan_device(_SPEC, _request(parsed), make_device("d1"), "run-1")
 
 
 def test_a_plain_vid_is_planned() -> None:
     plan = _plan("100")
 
-    assert plan.vid == 100
+    assert plan.key == "100"
 
 
 @pytest.mark.parametrize("vid", ["0", "4095", "abc", "1.5", "-3"])

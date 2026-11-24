@@ -333,7 +333,7 @@ class DeviceCommonService:
         self,
         ip_address: str,
         namespace_id: str,
-        status_name: str = "active",
+        status: str = "active",
         add_prefixes_automatically: bool = False,
         use_assigned_ip_if_exists: bool = False,
         **kwargs,
@@ -342,7 +342,7 @@ class DeviceCommonService:
         return await self.ip_manager.ensure_ip_address_exists(
             ip_address,
             namespace_id,
-            status_name,
+            status,
             add_prefixes_automatically,
             use_assigned_ip_if_exists,
             **kwargs,

@@ -11,7 +11,7 @@ from sqlalchemy.orm import object_session
 
 import service_factory
 from core.models.runs import WorkflowRun
-from models.failure import failure_from_exception
+from models.failure import FailureInfo, failure_from_exception
 from models.workflow_context import (
     DeviceContext,
     DeviceError,
@@ -37,6 +37,7 @@ from workflow_steps.common.nautobot_source import resolve_nautobot_credentials
 from workflow_steps.common.nautobot_target import (
     explicit_device_context,
     parse_explicit_identifier,
+    parse_identifier_mode,
 )
 from workflow_steps.common.redundancy_groups_config import (
     DEFAULT_REDUNDANCY_STATUS,
@@ -194,9 +195,7 @@ def _parse_config(config: dict[str, Any]) -> _ParsedConfig:
         )
 
     raw_identifier = config.get("device_identifier") or {}
-    identifier_mode = "from_context"
-    if isinstance(raw_identifier, dict):
-        identifier_mode = str(raw_identifier.get("mode") or "from_context")
+    identifier_mode = parse_identifier_mode(raw_identifier, step_id=_STEP_ID)
 
     explicit_identifier = (
         parse_explicit_identifier(raw_identifier, step_id=_STEP_ID)
@@ -291,10 +290,11 @@ def _fail_device(
     code: str | None = None,
     message: str | None = None,
     exc: Exception | None = None,
+    failure: FailureInfo | None = None,
 ) -> tuple[str, DeviceContext | None, bool, str | None]:
     error_code = code or (type(exc).__name__.lower() if exc is not None else "error")
     error_message = message or (str(exc) if exc is not None else "Unknown error")
-    failure = failure_from_exception(exc) if exc is not None else None
+    failure = failure or (failure_from_exception(exc) if exc is not None else None)
 
     if device is None:
         placeholder = DeviceContext(
@@ -457,9 +457,18 @@ async def _update_one_device(
             redundancy_group_status=parsed.redundancy_group_status,
         )
         if int(result.get("interfaces_failed") or 0) > 0:
-            raise RuntimeError(
-                f"{result.get('interfaces_failed')} interface update(s) failed for device "
-                f"{result.get('device_name') or device_key}"
+            # The device fields and the other interfaces are already written (W5-14).
+            return _fail_device(
+                device_key=device_key,
+                device=device,
+                node_id=node_id,
+                code="device_partially_updated",
+                message=(
+                    f"{result.get('interfaces_failed')} interface update(s) failed for device "
+                    f"{result.get('device_name') or device_key}; the device fields and the other "
+                    "interfaces are already written in Nautobot; run the step again to complete it"
+                ),
+                failure=FailureInfo(phase="api", kind="unknown", retryable=True),
             )
         return _apply_update_result(device_key=device_key, device=device, result=result)
     except Exception as exc:

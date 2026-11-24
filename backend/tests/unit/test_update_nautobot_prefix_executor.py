@@ -10,6 +10,7 @@ from models.workflow_context import Capability, DeviceContext, DeviceStatus, Wor
 from services.nautobot.common.exceptions import NautobotNotFoundError
 from services.nautobot.managers.location_assignments import PartialUpdateError
 from services.workflow_context.secret_fields import REDACTED_PLACEHOLDER
+from workflow_steps.common import nautobot_plan_fields as plan_fields
 from workflow_steps.update_nautobot_prefix import executor as mod
 from workflow_steps.update_nautobot_prefix.executor import _parse_config, execute
 
@@ -163,6 +164,19 @@ class ManualModeTests(unittest.IsolatedAsyncioTestCase):
         out, _ = await _run(_config(prefix_id="", prefix="10.0.0.5/24"), _context(_device("a")))
         self.assertEqual(out["failure"].devices["a"].errors[0].code, "prefix_invalid")
 
+    async def test_namespace_is_ignored_when_the_prefix_id_is_set(self) -> None:
+        # A UUID selects the prefix by itself: its namespace is neither looked up nor needed.
+        out, common = await _run(_config(namespace="NoSuchNamespace"), _context(_device("a")))
+        self.assertIn("a", out["success"].devices)
+        common.resolve_namespace_id.assert_not_awaited()
+        common.find_prefixes.assert_not_awaited()
+
+    async def test_prefix_id_is_written_in_lower_case(self) -> None:
+        mixed = "ABCDEF12-3456-7890-ABCD-EF1234567890"
+        out, common = await _run(_config(prefix_id=mixed), _context(_device("a")))
+        self.assertIn("a", out["success"].devices)
+        self.assertEqual(common.update_prefix.await_args.args[0], mixed.lower())
+
     async def test_unchanged_is_counted(self) -> None:
         common = MagicMock()
         common.update_prefix = AsyncMock(return_value=False)
@@ -198,14 +212,14 @@ class ManualModeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(common.resolve_status_id.await_count, 1)
 
     async def test_secret_values_are_refused(self) -> None:
-        real = mod.resolve_update_field_expression
+        real = plan_fields.resolve_update_field_expression
 
         def fake(**kwargs: Any) -> str | None:
             if kwargs["field_key"] == "status":
                 return REDACTED_PLACEHOLDER
             return real(**kwargs)
 
-        with patch.object(mod, "resolve_update_field_expression", side_effect=fake):
+        with patch.object(plan_fields, "resolve_update_field_expression", side_effect=fake):
             out, common = await _run(_config(status="{secrets.x}"), _context(_device("a")))
         self.assertEqual(out["failure"].devices["a"].errors[0].code, "status_is_secret")
         common.update_prefix.assert_not_awaited()

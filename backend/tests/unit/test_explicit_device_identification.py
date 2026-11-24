@@ -173,3 +173,37 @@ class TestUpdateDeviceExplicitMode:
             )
         assert list(outcomes[0].context.devices) == ["r1"]
         assert update_service.update_device.call_args.kwargs["device_identifier"] == {"id": _UUID}
+
+
+# --- W5-14: a mistyped identifier mode is a config error, not "from_context" -----------------
+
+
+@pytest.mark.parametrize("bad_mode", ["explicti", "Explicit-ish", "context", "none"])
+def test_unknown_identifier_mode_is_a_config_error_in_both_steps(bad_mode: str) -> None:
+    device_config = {
+        "nautobot_source_id": "src-1",
+        "device_identifier": {"mode": bad_mode, "name": "r1"},
+        "update_fields": {"name": {"enabled": True, "value": "new"}},
+    }
+    with pytest.raises(ValueError, match="device_identifier.mode"):
+        device_mod._parse_config(device_config)
+    with pytest.raises(ValueError, match="device_identifier.mode"):
+        context_mod._parse_config(
+            {
+                "nautobot_source_id": "src-1",
+                "device_identifier": {"mode": bad_mode, "name": "r1"},
+                "updates": [{"path": "a", "value_source": {"type": "fixed", "value": "1"}}],
+            }
+        )
+
+
+def test_missing_or_from_context_mode_still_means_the_context_devices() -> None:
+    fields = {"name": {"enabled": True, "value": "x"}}
+    base = {"nautobot_source_id": "src-1", "update_fields": fields}
+    assert device_mod._parse_config(base).identifier_mode == "from_context"
+    assert (
+        device_mod._parse_config(
+            {**base, "device_identifier": {"mode": " From_Context "}}
+        ).identifier_mode
+        == "from_context"
+    )

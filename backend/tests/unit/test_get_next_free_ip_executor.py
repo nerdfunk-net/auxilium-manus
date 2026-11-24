@@ -11,6 +11,7 @@ from models.workflow_context import (
     DeviceStatus,
     WorkflowContext,
 )
+from services.nautobot.devices.common import DeviceCommonService
 from workflow_steps.get_next_free_ip import executor as mod
 from workflow_steps.get_next_free_ip.executor import _parse_config, execute
 
@@ -52,12 +53,10 @@ def _avail(*hosts: int) -> list[dict]:
     return [{"ip_version": 4, "address": f"192.168.178.{h}/24"} for h in hosts]
 
 
-def _rest(*, namespaces=None, prefixes=None, available=None):
-    """A rest_request stub answering the three lookups in order of the endpoint."""
+def _rest(*, prefixes=None, available=None):
+    """A rest_request stub answering the prefix and available-ips lookups by endpoint."""
 
-    async def handler(*, endpoint: str, credentials, method: str = "GET", data=None):
-        if endpoint.startswith("ipam/namespaces/"):
-            return {"results": [{"id": _NS_ID}] if namespaces is None else namespaces}
+    async def handler(*, endpoint: str, method: str = "GET", data=None):
         if endpoint.startswith("ipam/prefixes/?"):
             return {"results": [{"id": _PREFIX_ID}] if prefixes is None else prefixes}
         if endpoint.startswith(f"ipam/prefixes/{_PREFIX_ID}/available-ips/"):
@@ -67,10 +66,14 @@ def _rest(*, namespaces=None, prefixes=None, available=None):
     return handler
 
 
-async def _run(config: dict, context: WorkflowContext, rest=None):
+async def _run(config: dict, context: WorkflowContext, rest=None, namespaces=None):
+    """Run the step; ``namespaces`` is what the GraphQL namespace lookup returns."""
     service = MagicMock()
     service.rest_request = AsyncMock(side_effect=rest or _rest())
-    with patch.object(mod, "_bind_nautobot", return_value=(MagicMock(), service)):
+    rows = [{"id": _NS_ID}] if namespaces is None else namespaces
+    service.graphql_query = AsyncMock(return_value={"data": {"namespaces": rows}})
+    bound = mod._Bound(common=DeviceCommonService(service), client=service)
+    with patch.object(mod, "_bind_nautobot", return_value=bound):
         outcomes = await execute(
             config=config,
             context=context,
@@ -132,9 +135,9 @@ class ExecuteTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(_value(out["success"].devices["a"]), "192.168.178.1")
         self.assertEqual(out["failure"].devices, {})
         endpoints = [c.kwargs["endpoint"] for c in service.rest_request.call_args_list]
-        self.assertIn("namespace=" + _NS_ID, endpoints[1])
-        self.assertIn("prefix=192.168.178.0%2F24", endpoints[1])
-        self.assertIn("limit=2", endpoints[2])
+        self.assertIn("namespace=" + _NS_ID, endpoints[0])
+        self.assertIn("prefix=192.168.178.0%2F24", endpoints[0])
+        self.assertIn("limit=2", endpoints[1])
 
     async def test_count_gives_a_list(self) -> None:
         out, _ = await _run(_config(count=2), _context(_device("a")))
@@ -149,7 +152,7 @@ class ExecuteTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("c", out["failure"].devices)
         self.assertEqual(out["failure"].devices["c"].errors[0].code, "not_enough_free_ips")
         self.assertEqual(out["failure"].devices["c"].status, DeviceStatus.FAILED)
-        self.assertEqual(service.rest_request.call_count, 3)
+        self.assertEqual(service.rest_request.call_count, 2)
 
     async def test_start_offset_skips_lower_addresses(self) -> None:
         rest = _rest(available=_avail(3, 9, 10, 11))
@@ -165,8 +168,7 @@ class ExecuteTests(unittest.IsolatedAsyncioTestCase):
             _config(prefix="{custom.net}", namespace="{custom.ns}"), _context(dev)
         )
         self.assertIn("a", out["success"].devices)
-        first = service.rest_request.call_args_list[0].kwargs["endpoint"]
-        self.assertIn("name=Lab", first)
+        self.assertEqual(service.graphql_query.call_args.args[1], {"name": ["Lab"]})
 
     async def test_unresolved_prefix_expression_fails_device_only(self) -> None:
         good = _device("good", attribute_bags={"custom": {"net": "192.168.178.0/24"}})
@@ -174,6 +176,37 @@ class ExecuteTests(unittest.IsolatedAsyncioTestCase):
         out, _ = await _run(_config(prefix="{custom.net}"), _context(good, bad))
         self.assertIn("good", out["success"].devices)
         self.assertEqual(out["failure"].devices["bad"].errors[0].code, "prefix_unresolved")
+
+    async def test_sealed_prefix_is_refused_and_never_echoed(self) -> None:
+        # W5-04: the prefix goes into a Nautobot query and into error text; a secret must not.
+        from services.workflow_context.secret_fields import seal_secret
+
+        sealed = seal_secret("10.99.0.0/33")
+        good = _device("good", attribute_bags={"custom": {"net": "192.168.178.0/24"}})
+        bad = _device("bad", attribute_bags={"custom": {"net": sealed}})
+        out, service = await _run(_config(prefix="{custom.net}"), _context(good, bad))
+        self.assertIn("good", out["success"].devices)
+        error = out["failure"].devices["bad"].errors[0]
+        self.assertEqual(error.code, "prefix_is_secret")
+        self.assertIsNotNone(error.failure)
+        self.assertNotIn("10.99.0.0", error.message)
+        for call in service.rest_request.call_args_list:
+            self.assertNotIn("10.99.0.0", call.kwargs["endpoint"])
+
+    async def test_sealed_namespace_is_refused_and_never_echoed(self) -> None:
+        from services.workflow_context.secret_fields import seal_secret
+
+        bad = _device("bad", attribute_bags={"custom": {"ns": seal_secret("TopSecretNs")}})
+        out, service = await _run(_config(namespace="{custom.ns}"), _context(bad))
+        error = out["failure"].devices["bad"].errors[0]
+        self.assertEqual(error.code, "namespace_is_secret")
+        self.assertIsNotNone(error.failure)
+        self.assertNotIn("TopSecretNs", error.message)
+        service.rest_request.assert_not_called()
+
+    async def test_unresolved_expression_records_a_failure_kind(self) -> None:
+        out, _ = await _run(_config(prefix="{custom.net}"), _context(_device("bad")))
+        self.assertEqual(out["failure"].devices["bad"].errors[0].failure.kind, "bad_request")
 
     async def test_invalid_prefix_text_fails_device(self) -> None:
         out, service = await _run(_config(prefix="not-a-prefix"), _context(_device("a")))
@@ -197,7 +230,7 @@ class ExecuteTests(unittest.IsolatedAsyncioTestCase):
             rest,
         )
         self.assertEqual(_value(out["success"].devices["a"]), "192.168.178.1")
-        lookup = service.rest_request.call_args_list[1].kwargs["endpoint"]
+        lookup = service.rest_request.call_args_list[0].kwargs["endpoint"]
         self.assertIn("contains=192.168.178.240", lookup)
         self.assertIn("namespace=" + _NS_ID, lookup)
 
@@ -215,18 +248,17 @@ class ExecuteTests(unittest.IsolatedAsyncioTestCase):
             _rest(available=free),
         )
         self.assertEqual(_value(out["success"].devices["a"]), "10.0.0.7")
-        lookup = service.rest_request.call_args_list[1].kwargs["endpoint"]
+        lookup = service.rest_request.call_args_list[0].kwargs["endpoint"]
         self.assertIn("prefix=10.0.0.0%2F24", lookup)
 
     async def test_unknown_namespace_fails(self) -> None:
-        out, _ = await _run(_config(), _context(_device("a")), _rest(namespaces=[]))
+        out, _ = await _run(_config(), _context(_device("a")), _rest(), namespaces=[])
         self.assertEqual(out["failure"].devices["a"].errors[0].code, "namespace_not_found")
 
     async def test_namespace_uuid_is_not_looked_up(self) -> None:
         out, service = await _run(_config(namespace=_NS_ID), _context(_device("a")))
         self.assertIn("a", out["success"].devices)
-        endpoints = [c.kwargs["endpoint"] for c in service.rest_request.call_args_list]
-        self.assertFalse(any(e.startswith("ipam/namespaces/") for e in endpoints))
+        service.graphql_query.assert_not_called()
 
     async def test_prefix_not_found(self) -> None:
         out, _ = await _run(_config(), _context(_device("a")), _rest(prefixes=[]))
@@ -277,8 +309,9 @@ class ExecuteTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(out["failure"].devices["a"].errors[0].code, "not_enough_free_ips")
 
     async def test_namespace_with_more_rows_is_ambiguous(self) -> None:
-        rest = _rest(namespaces=[{"id": _NS_ID}, {"id": _PREFIX_ID}])
-        out, _ = await _run(_config(), _context(_device("a")), rest)
+        out, _ = await _run(
+            _config(), _context(_device("a")), namespaces=[{"id": _NS_ID}, {"id": _PREFIX_ID}]
+        )
         self.assertEqual(out["failure"].devices["a"].errors[0].code, "namespace_ambiguous")
 
     async def test_prefix_id_that_is_not_a_uuid_is_refused(self) -> None:

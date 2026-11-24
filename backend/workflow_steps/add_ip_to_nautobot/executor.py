@@ -25,6 +25,7 @@ from models.workflow_context import (
 )
 from services.artifacts import ArtifactService
 from services.nautobot.client import NautobotService
+from services.nautobot.common.exceptions import NoParentPrefixError
 from services.nautobot.common.rest import rest_query
 from services.nautobot.credentials import NautobotCredentials
 from services.nautobot.credentials_bound_client import CredentialsBoundNautobotClient
@@ -264,10 +265,6 @@ async def _full_address(
     return f"{host}/{mask}"
 
 
-def _is_missing_prefix(exc: Exception) -> bool:
-    return "no suitable parent prefix" in str(exc).lower()
-
-
 @dataclass(frozen=True)
 class _Target:
     """Device and interface ids, resolved before anything is written."""
@@ -364,15 +361,15 @@ async def _process(
         return "failure", _failed(
             device, node_id=node_id, code=exc.code, message=str(exc), failure=exc.failure
         )
+    except NoParentPrefixError:
+        return "failure", _failed(
+            device,
+            node_id=node_id,
+            code="prefix_not_found",
+            message="No parent prefix exists for the address; enable create_prefix",
+            failure=_not_found_failure(),
+        )
     except Exception as exc:
-        if _is_missing_prefix(exc):
-            return "failure", _failed(
-                device,
-                node_id=node_id,
-                code="prefix_not_found",
-                message="No parent prefix exists for the address; enable create_prefix",
-                failure=_not_found_failure(),
-            )
         error = device_error_from_exception(exc, node_id=node_id, step_id=_STEP_ID)
         return "failure", fail_device_with_error(device, error)
 
@@ -389,7 +386,7 @@ async def _process(
                 node_id=node_id,
                 code=code,
                 message=f"{message} (IP address {ip_id})",
-                failure=_not_found_failure(),
+                failure=_attach_failure(code),
             )
 
     if parsed.result_attribute:
@@ -408,13 +405,29 @@ async def _resolve_cached(
     return cache[key]
 
 
+# The looked-up name is never repeated: it can come from a device attribute (W5-12).
+_LOOKUP_MESSAGES = {
+    "namespace_not_found": "The namespace was not found in Nautobot",
+    "status_not_found": "The status was not found for IP addresses in Nautobot",
+}
+
+
+def _attach_failure(code: str) -> FailureInfo:
+    """The IP exists but cannot be attached: a conflict or a refusal, not a missing object."""
+    if code == "ip_assigned_elsewhere":
+        return FailureInfo(phase="api", kind="already_exists", hint="check_request")
+    if code == "primary_ip_failed":
+        return FailureInfo(phase="api", kind="bad_request", hint="check_request")
+    return _not_found_failure()
+
+
 def _lookup_error(exc: Exception, code: str, node_id: str, device: DeviceContext) -> DeviceContext:
     if isinstance(exc, ValueError):
         return _failed(
             device,
             node_id=node_id,
             code=code,
-            message=str(exc),
+            message=_LOOKUP_MESSAGES[code],
             failure=_not_found_failure(),
         )
     return fail_device_with_error(

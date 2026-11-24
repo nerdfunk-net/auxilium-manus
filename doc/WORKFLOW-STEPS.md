@@ -501,6 +501,8 @@ that it belongs to that content type. `GET /sources/nautobot/statuses` (allow-li
 
 ### Interface fields of `update-nautobot-device`
 
+`device_identifier.mode` of `update-nautobot-device` and `update-config-context` is `from_context` (default) or `explicit`; any other text is a config error. When interface updates fail after the device fields were written, Update Device fails the device with `device_partially_updated` (the message says to run the step again).
+
 Interfaces come from one of three sources (`interfaces_source`): `manual` rows, `nautobot_origin`
 (every interface of the device's `nautobot` bag) or `parsed_list` (one interface per row of a
 list on the device, e.g. TextFSM `show interfaces`: `parsed_list.source_path`, `field_map`
@@ -612,8 +614,12 @@ All are in the `nautobot` palette category; the first two share
   `reveal_secrets=False` (`resolve_update_field_expression(..., reveal_secrets=False)`) because they are written
   to Nautobot or into an error; a sealed secret fails the device (`<field>_is_secret`). A `description` or
   `dns_name` expression that resolves to nothing fails the device, and its error messages do not repeat the
-  resolved address. `get-next-free-ip` only reads Nautobot with its prefix and namespace values and still
-  resolves them with the default (revealing) setting.
+  resolved address. `get-next-free-ip` resolves its prefix and namespace values the same way (it only reads,
+  but the values go into Nautobot queries and error text): a sealed secret fails the device
+  (`prefix_is_secret` / `namespace_is_secret`). It looks the namespace up through the shared service, so two
+  namespaces of one name fail the device (`namespace_ambiguous`). `add-ip-to-nautobot` records
+  `ip_assigned_elsewhere` as `already_exists` and `primary_ip_failed` as `bad_request`; its "enable
+  `create_prefix`" hint comes from the typed `NoParentPrefixError`, not from message text.
 
 - **`update-nautobot-ip` ("Update IP") changes an existing address.** It is identified by its Nautobot
   UUID (`ip_id`, a fixed value or a `{path}`, typically the `result_attribute` of Add IP to Nautobot); an

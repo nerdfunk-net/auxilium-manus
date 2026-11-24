@@ -55,6 +55,7 @@ from workflow_steps.common.nautobot_source import resolve_nautobot_credentials
 from workflow_steps.common.nautobot_target import (
     explicit_device_context,
     parse_explicit_identifier,
+    parse_identifier_mode,
 )
 from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.common.step_flags import parse_bool_flag
@@ -213,7 +214,7 @@ def _parse_config(config: dict[str, Any]) -> _ParsedConfig:
     raw_identifier = config.get("device_identifier") or {}
     if not isinstance(raw_identifier, dict):
         raw_identifier = {}
-    identifier_mode = str(raw_identifier.get("mode") or "from_context").strip()
+    identifier_mode = parse_identifier_mode(raw_identifier, step_id=_STEP_ID)
     explicit_identifier = (
         parse_explicit_identifier(raw_identifier, step_id=_STEP_ID)
         if identifier_mode == "explicit"

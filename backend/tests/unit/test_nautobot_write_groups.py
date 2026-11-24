@@ -17,6 +17,7 @@ import pytest
 from models.workflow_context import DeviceStatus
 from services.nautobot.common.exceptions import NautobotAPIError
 from tests.unit._step_helpers import call_step, make_context, make_device, make_run
+from workflow_steps.common import nautobot_plan_fields as plan_fields
 from workflow_steps.common.nautobot_write_groups import write_once_per_group
 from workflow_steps.update_nautobot_prefix import executor as prefix_mod
 from workflow_steps.update_nautobot_vlan import executor as vlan_mod
@@ -140,7 +141,7 @@ class TestSameObjectDifferentValues:
         common = _vlan_common(table)
         config = {**_VLAN_CFG, "status": "", "description": "{name}"}
         with patch.object(
-            vlan_mod,
+            plan_fields,
             "resolve_update_field_expression",
             side_effect=lambda **kw: (
                 kw["device"].name if kw["field_key"] == "description" else kw["raw_value"]
@@ -162,7 +163,7 @@ class TestSameObjectDifferentValues:
             "locations_mode": "add",
         }
         with patch.object(
-            prefix_mod,
+            plan_fields,
             "resolve_update_field_expression",
             side_effect=lambda **kw: {
                 "prefix": "10.0.0.0/24" if kw["device"].name == "a" else "10.0.1.0/24"

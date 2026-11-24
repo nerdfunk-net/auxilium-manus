@@ -160,7 +160,7 @@ class InterfaceIpOps(InterfaceOpsBase):
             ip_id = await self.common.ensure_ip_address_exists(
                 ip_address=ip_address,
                 namespace_id=namespace_id,
-                status_name=status,
+                status=status,
                 add_prefixes_automatically=add_prefixes_automatically,
                 **ip_kwargs,
             )

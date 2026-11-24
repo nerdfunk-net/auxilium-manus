@@ -11,7 +11,7 @@ from models.workflow_context import (
     DeviceStatus,
     WorkflowContext,
 )
-from services.nautobot.common.exceptions import NautobotAPIError
+from services.nautobot.common.exceptions import NautobotAPIError, NoParentPrefixError
 from workflow_steps.add_ip_to_nautobot import executor as mod
 from workflow_steps.add_ip_to_nautobot.executor import _parse_config, execute
 
@@ -225,12 +225,34 @@ class ExecuteTests(unittest.IsolatedAsyncioTestCase):
     async def test_missing_parent_prefix_error_is_explained(self) -> None:
         common = MagicMock()
         common.ensure_ip_address_exists = AsyncMock(
-            side_effect=NautobotAPIError("Cannot create IP: No suitable parent prefix exists")
+            side_effect=NoParentPrefixError("Cannot create IP: No suitable parent prefix exists")
         )
         out, _ = await _run(_config(), _context(_device("a")), common=common)
         error = out["failure"].devices["a"].errors[0]
         self.assertEqual(error.code, "prefix_not_found")
         self.assertIn("create_prefix", error.message)
+
+    async def test_the_prefix_hint_does_not_depend_on_the_wording(self) -> None:
+        # W5-12: only the typed error gives the hint; a message that merely sounds alike does not.
+        common = MagicMock()
+        common.ensure_ip_address_exists = AsyncMock(
+            side_effect=NautobotAPIError("Cannot create IP: No suitable parent prefix exists")
+        )
+        out, _ = await _run(_config(), _context(_device("a")), common=common)
+        self.assertNotEqual(out["failure"].devices["a"].errors[0].code, "prefix_not_found")
+
+    async def test_lookup_error_never_repeats_the_looked_up_name(self) -> None:
+        common = MagicMock()
+        common.resolve_status_id = AsyncMock(side_effect=ValueError("Status 'TopSecret' not found"))
+        out, _ = await _run(_config(status="x"), _context(_device("a")), common=common)
+        error = out["failure"].devices["a"].errors[0]
+        self.assertEqual(error.code, "status_not_found")
+        self.assertNotIn("TopSecret", error.message)
+
+        common = MagicMock()
+        common.resolve_namespace_id = AsyncMock(side_effect=ValueError("Namespace 'Hidden' gone"))
+        out, _ = await _run(_config(namespace="x"), _context(_device("a")), common=common)
+        self.assertNotIn("Hidden", out["failure"].devices["a"].errors[0].message)
 
     async def test_nautobot_error_is_reduced_to_class_name(self) -> None:
         common = MagicMock()
@@ -279,6 +301,7 @@ class ExecuteTests(unittest.IsolatedAsyncioTestCase):
         )
         error = out["failure"].devices["a"].errors[0]
         self.assertEqual(error.code, "ip_assigned_elsewhere")
+        self.assertEqual(error.failure.kind, "already_exists")
         self.assertIn(_IP_ID, error.message)
         self.assertNotIn("was created", error.message)
         common.assign_ip_to_interface.assert_not_called()
@@ -294,6 +317,7 @@ class ExecuteTests(unittest.IsolatedAsyncioTestCase):
         )
         device = out["failure"].devices["a"]
         self.assertEqual(device.errors[0].code, "primary_ip_failed")
+        self.assertEqual(device.errors[0].failure.kind, "bad_request")
         self.assertNotIn("custom", device.attribute_bags)
 
     async def test_set_primary_refuses_ipv6_before_writing(self) -> None:
@@ -336,14 +360,6 @@ class ExecuteTests(unittest.IsolatedAsyncioTestCase):
         error = out["failure"].devices["a"].errors[0]
         self.assertEqual(error.code, "ip_invalid")
         self.assertNotIn("top-secret-text", error.message)
-
-    async def test_raw_nautobot_missing_prefix_message_is_recognised(self) -> None:
-        common = MagicMock()
-        common.ensure_ip_address_exists = AsyncMock(
-            side_effect=NautobotAPIError("No suitable parent Prefix for IP")
-        )
-        out, _ = await _run(_config(), _context(_device("a")), common=common)
-        self.assertEqual(out["failure"].devices["a"].errors[0].code, "prefix_not_found")
 
     async def test_device_not_in_nautobot(self) -> None:
         out, _ = await _run(_config(interface_name="Vlan1"), _context(_device("a")), device_id=None)

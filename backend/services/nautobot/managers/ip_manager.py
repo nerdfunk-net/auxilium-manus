@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING
 from services.nautobot.common.rest import rest_paginate, rest_query
 from services.nautobot.common.validators import is_valid_uuid
 
-from ..common.exceptions import NautobotAPIError
+from ..common.exceptions import NautobotAPIError, NoParentPrefixError
 
 if TYPE_CHECKING:
     from services.nautobot.api_protocol import NautobotApi
@@ -100,11 +100,11 @@ class IPManager:
         self,
         ip_address: str,
         namespace_id: str,
-        status_name: str,
+        status: str,
         **kwargs,
     ) -> dict:
         status_id = await self.metadata_resolver.resolve_status_id(
-            status_name, content_type="ipam.ipaddress"
+            status, content_type="ipam.ipaddress"
         )
         return {
             "address": ip_address,
@@ -250,7 +250,7 @@ class IPManager:
             ip_address,
             error_message,
         )
-        raise NautobotAPIError(
+        raise NoParentPrefixError(
             f"Cannot create IP address {ip_address}: No suitable parent "
             "prefix exists. Please either create the parent prefix manually "
             "or enable automatic prefix creation in the form."
@@ -260,7 +260,7 @@ class IPManager:
         self,
         ip_address: str,
         namespace_id: str,
-        status_name: str = "active",
+        status: str = "active",
         add_prefixes_automatically: bool = False,
         use_assigned_ip_if_exists: bool = False,
         **kwargs,
@@ -274,7 +274,7 @@ class IPManager:
 
         logger.info("Creating new IP address: %s", ip_address)
         ip_create_data = await self._build_ip_create_payload(
-            ip_address, namespace_id, status_name, **kwargs
+            ip_address, namespace_id, status, **kwargs
         )
         try:
             return await self._create_ip_address(ip_create_data)

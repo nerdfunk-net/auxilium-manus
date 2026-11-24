@@ -9,7 +9,7 @@ from __future__ import annotations
 import unittest
 from unittest.mock import AsyncMock, MagicMock
 
-from services.nautobot.common.exceptions import NautobotAPIError
+from services.nautobot.common.exceptions import NautobotAmbiguousMatchError, NautobotAPIError
 from services.nautobot.resolvers.base_resolver import BaseResolver
 from services.nautobot.resolvers.device_resolver import DeviceResolver
 from services.nautobot.resolvers.metadata_resolver import MetadataResolver
@@ -459,6 +459,16 @@ class NetworkResolverTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_resolve_namespace_id_found(self) -> None:
         svc = _service(graphql={"data": {"namespaces": [{"id": _UUID}]}})
+        self.assertEqual(await NetworkResolver(svc).resolve_namespace_id("Global"), _UUID)
+
+    async def test_resolve_namespace_id_refuses_two_namespaces_of_one_name(self) -> None:
+        # W5-15: a first match could write to / read from the wrong namespace.
+        svc = _service(graphql={"data": {"namespaces": [{"id": _UUID}, {"id": _UUID2}]}})
+        with self.assertRaises(NautobotAmbiguousMatchError):
+            await NetworkResolver(svc).resolve_namespace_id("Global")
+
+    async def test_resolve_namespace_id_accepts_the_same_namespace_twice(self) -> None:
+        svc = _service(graphql={"data": {"namespaces": [{"id": _UUID}, {"id": _UUID}]}})
         self.assertEqual(await NetworkResolver(svc).resolve_namespace_id("Global"), _UUID)
 
     async def test_resolve_namespace_id_raises_on_errors(self) -> None:

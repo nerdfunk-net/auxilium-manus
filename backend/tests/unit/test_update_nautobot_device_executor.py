@@ -125,13 +125,19 @@ class UpdateOneDeviceTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(ok)
         self.assertEqual(rid, "nb-1")
 
-    async def test_interface_failure_raises_and_is_caught(self) -> None:
+    async def test_interface_failure_says_the_device_is_partly_written(self) -> None:
+        # W5-14: the fields and the other interfaces are already in Nautobot at this point.
         key, dev, ok, _ = await self._run_one(
             resolve_id="nb-1",
             update_result={"device_id": "nb-1", "device_name": "r1", "interfaces_failed": 2},
         )
         self.assertFalse(ok)
-        self.assertEqual(dev.errors[-1].code, "runtimeerror")
+        error = dev.errors[-1]
+        self.assertEqual(error.code, "device_partially_updated")
+        self.assertIn("2 interface update(s) failed", error.message)
+        self.assertIn("run the step again", error.message)
+        self.assertIsNotNone(error.failure)
+        self.assertTrue(error.failure.retryable)
 
     async def test_update_exception_is_caught(self) -> None:
         key, dev, ok, _ = await self._run_one(

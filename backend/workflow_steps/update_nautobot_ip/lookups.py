@@ -16,13 +16,17 @@ from models.workflow_context import DeviceContext, DeviceError
 from services.nautobot.common.exceptions import NautobotNotFoundError
 from services.nautobot.credentials_bound_client import CredentialsBoundNautobotClient
 from services.nautobot.devices.common import DeviceCommonService
-from services.workflow_context.secret_fields import REDACTED_PLACEHOLDER
+from workflow_steps.common.nautobot_plan_fields import (
+    PlanError,
+    bad_request_failure,
+    not_found_failure,
+)
+from workflow_steps.common.nautobot_plan_fields import failed as shared_failed
 from workflow_steps.common.nautobot_prefix_lookup import LookupFailure, find_containing_prefix
 from workflow_steps.common.partial_outcomes import (
     device_error_from_exception,
     fail_device_with_error,
 )
-from workflow_steps.common.update_field_expression import resolve_update_field_expression
 
 STEP_ID = "update-nautobot-ip"
 IP_CONTENT_TYPE = "ipam.ipaddress"
@@ -30,24 +34,12 @@ IP_CONTENT_TYPE = "ipam.ipaddress"
 FIELDS = ("namespace", "type", "role", "status", "dns_name", "description")
 IP_TYPES = ("host", "dhcp", "slaac")
 
-PlanError = tuple[str, str, FailureInfo]
-
-
-def not_found_failure() -> FailureInfo:
-    return FailureInfo(phase="api", kind="not_found", hint="check_request")
-
-
-def bad_request_failure() -> FailureInfo:
-    return FailureInfo(phase="config", kind="bad_request", hint="check_request")
-
-
 def failed(
     device: DeviceContext, *, node_id: str, code: str, message: str, failure: FailureInfo
 ) -> DeviceContext:
-    error = DeviceError(
-        node_id=node_id, step_id=STEP_ID, code=code, message=message, failure=failure
+    return shared_failed(
+        STEP_ID, device, node_id=node_id, code=code, message=message, failure=failure
     )
-    return fail_device_with_error(device, error)
 
 
 @dataclass(frozen=True)
@@ -62,37 +54,6 @@ class Plan:
     ip_id: str
     values: dict[str, str]
     namespace: str | None = None
-
-
-def resolve_fields(
-    device: DeviceContext, run_id: str, pairs: tuple[tuple[str, str], ...]
-) -> dict[str, str] | PlanError:
-    """Resolve ``(field, expression)`` pairs for one device; an empty expression is skipped.
-
-    The values end up in a Nautobot request and in error text, so a value taken from a secret is
-    refused and an expression that resolves to nothing fails the device.
-    """
-    resolved: dict[str, str] = {}
-    for field, raw in pairs:
-        if not raw:
-            continue
-        value = resolve_update_field_expression(
-            device=device, field_key=field, raw_value=raw, run_id=run_id, reveal_secrets=False
-        )
-        if value == REDACTED_PLACEHOLDER:
-            return (
-                f"{field}_is_secret",
-                f"{field} expression {raw!r} points to a secret, which this step does not copy",
-                bad_request_failure(),
-            )
-        if value is None:
-            return (
-                f"{field}_unresolved",
-                f"{field} expression {raw!r} resolved to nothing",
-                bad_request_failure(),
-            )
-        resolved[field] = value.strip()
-    return resolved
 
 
 @dataclass(frozen=True)

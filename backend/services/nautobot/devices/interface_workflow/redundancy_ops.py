@@ -94,7 +94,7 @@ class InterfaceRedundancyOps(InterfaceOpsBase):
                 return await self.common.ensure_ip_address_exists(
                     ip_address=address,
                     namespace_id=namespace_id,
-                    status_name=str(interface.get("status") or "active"),
+                    status=str(interface.get("status") or "active"),
                     add_prefixes_automatically=add_prefixes,
                 )
             except NautobotAPIError as exc:

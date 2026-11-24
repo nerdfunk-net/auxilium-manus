@@ -15,16 +15,18 @@ import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy.orm import object_session
-
-import service_factory
 from core.models.runs import WorkflowRun
 from models.workflow_context import DeviceContext, StepOutcome, WorkflowContext
 from services.artifacts import ArtifactService
 from services.nautobot.common.validators import is_valid_uuid
 from services.nautobot.credentials_bound_client import CredentialsBoundNautobotClient
 from services.nautobot.devices.common import DeviceCommonService
-from workflow_steps.common.nautobot_source import resolve_nautobot_credentials
+from workflow_steps.common.nautobot_plan_fields import (
+    PlanError,
+    bad_request_failure,
+    resolve_fields,
+)
+from workflow_steps.common.nautobot_step import bind_nautobot_client
 from workflow_steps.common.partial_outcomes import fail_device_with_error
 from workflow_steps.common.step_flags import parse_bool_flag
 from workflow_steps.update_nautobot_ip.interfaces_mode import run_from_interfaces
@@ -32,12 +34,9 @@ from workflow_steps.update_nautobot_ip.lookups import (
     FIELDS,
     STEP_ID,
     Plan,
-    PlanError,
-    bad_request_failure,
     failed,
     lookup_error,
     parent_finder,
-    resolve_fields,
     resolve_ids,
     split_values,
     write_error,
@@ -109,11 +108,7 @@ def _parse_config(config: dict[str, Any]) -> _ParsedConfig:
 
 
 def _bind_nautobot(run: WorkflowRun, source_id: str) -> _Bound:
-    db = object_session(run)
-    if db is None:
-        raise RuntimeError(f"{STEP_ID}: WorkflowRun has no active DB session")
-    credentials = resolve_nautobot_credentials(db, source_id, step_id=STEP_ID)
-    client = CredentialsBoundNautobotClient(service_factory.get_nautobot_app_service(), credentials)
+    client = bind_nautobot_client(run, source_id, step_id=STEP_ID)
     return _Bound(DeviceCommonService(client), client)
 
 

@@ -9,7 +9,7 @@ from __future__ import annotations
 import unittest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from services.nautobot.common.exceptions import NautobotAPIError
+from services.nautobot.common.exceptions import NautobotAPIError, NoParentPrefixError
 from services.nautobot.managers.device_manager import DeviceManager
 from services.nautobot.managers.interface_manager import InterfaceManager
 from services.nautobot.managers.ip_manager import IPManager
@@ -75,7 +75,8 @@ class IPManagerTests(unittest.IsolatedAsyncioTestCase):
             {"count": 0},
             NautobotAPIError("No suitable parent Prefix exists"),
         ]
-        with self.assertRaises(NautobotAPIError):
+        # W5-12: a typed error, so a caller never has to match the wording of the message.
+        with self.assertRaises(NoParentPrefixError):
             await self._manager(nautobot).ensure_ip_address_exists("10.0.0.1/24", "ns")
 
     async def test_unrelated_create_error_propagates(self) -> None:

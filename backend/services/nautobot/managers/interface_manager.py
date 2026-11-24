@@ -152,7 +152,7 @@ class InterfaceManager:
         ip_id = await self.ip_manager.ensure_ip_address_exists(
             ip_address=ip_address,
             namespace_id=namespace_id,
-            status_name="active",
+            status="active",
             add_prefixes_automatically=add_prefixes_automatically,
             use_assigned_ip_if_exists=use_assigned_ip_if_exists,
         )
