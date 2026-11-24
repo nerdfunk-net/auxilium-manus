@@ -50,7 +50,7 @@ async def _run(config: dict, context: WorkflowContext, *, generate_field):
     service = MagicMock()
     service.generate_field = generate_field
     with (
-        patch.object(shared, "object_session", return_value=MagicMock()),
+        patch("workflow_steps.common.run_session.object_session", return_value=MagicMock()),
         patch.object(shared, "SecretManagerService", return_value=service),
     ):
         return await execute(

@@ -27,7 +27,7 @@ _GLOBAL = MailSettings(
     verify_tls=True,
     from_address="manus@admin.example",
 )
-_SESSION = "workflow_steps.send_mail.executor.object_session"
+_SESSION = "workflow_steps.common.run_session.object_session"
 
 
 def _device(device_id: str, *, name: str | None = None, attribute_bags: dict | None = None):

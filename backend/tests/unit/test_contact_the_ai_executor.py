@@ -100,7 +100,9 @@ async def _run_all(
     else:
         service.require_runtime_config.return_value = ai or _ai()
     with ExitStack() as stack:
-        stack.enter_context(patch(f"{_MOD}.object_session", return_value=MagicMock()))
+        stack.enter_context(
+            patch("workflow_steps.common.run_session.object_session", return_value=MagicMock())
+        )
         stack.enter_context(patch(f"{_MOD}.settings", _settings(username, masking, address_map)))
         stack.enter_context(patch(f"{_MOD}.AiSettingsService.from_session", return_value=service))
         users = MagicMock()
@@ -300,7 +302,12 @@ class ContactTheAiTests(unittest.IsolatedAsyncioTestCase):
             service = MagicMock()
             service.require_runtime_config.return_value = _ai()
             with ExitStack() as stack:
-                stack.enter_context(patch(f"{_MOD}.object_session", return_value=MagicMock()))
+                stack.enter_context(
+                    patch(
+                        "workflow_steps.common.run_session.object_session",
+                        return_value=MagicMock(),
+                    )
+                )
                 stack.enter_context(patch(f"{_MOD}.settings", _settings("AI-Service")))
                 stack.enter_context(
                     patch(f"{_MOD}.AiSettingsService.from_session", return_value=service)

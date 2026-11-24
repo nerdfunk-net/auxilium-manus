@@ -109,7 +109,7 @@ async def _run(
 ):
     fake = client or FakeClient()
     with (
-        patch.object(mod, "object_session", return_value=MagicMock()),
+        patch("workflow_steps.common.run_session.object_session", return_value=MagicMock()),
         patch.object(mod, "resolve_agent_connection", return_value=connection or _connection()),
         patch.object(mod.service_factory, "build_agent_client", return_value=fake),
     ):
@@ -530,7 +530,7 @@ class ConfigValidationTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_unknown_source_is_a_config_error(self) -> None:
         with (
-            patch.object(mod, "object_session", return_value=MagicMock()),
+            patch("workflow_steps.common.run_session.object_session", return_value=MagicMock()),
             patch.object(mod, "resolve_agent_connection", side_effect=ValueError("no such source")),
             self.assertRaises(ValueError),
         ):

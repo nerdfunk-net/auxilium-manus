@@ -85,7 +85,7 @@ class _Patched:
 
     def __enter__(self):
         self._patches = [
-            patch(f"{EXEC}.object_session", return_value=MagicMock()),
+            patch("workflow_steps.common.run_session.object_session", return_value=MagicMock()),
             patch("service_factory.build_aci_source_config_service", return_value=self.aci_source),
             patch(f"{EXEC}.resolve_nautobot_credentials", return_value=MagicMock()),
             patch("service_factory.build_aci_subnet_service", return_value=self.subnets),

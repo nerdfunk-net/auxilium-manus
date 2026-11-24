@@ -24,8 +24,6 @@ import asyncio
 import logging
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy.orm import object_session
-
 import service_factory
 from core.models.runs import WorkflowRun
 from models.workflow_context import (
@@ -47,6 +45,7 @@ from workflow_steps.common.pyats_batch import (
     validate_and_group_devices,
 )
 from workflow_steps.common.run_logging import log_run_id
+from workflow_steps.common.run_session import require_session
 from workflow_steps.get_pyats_running_config.config import get_config
 
 if TYPE_CHECKING:
@@ -121,9 +120,7 @@ async def execute(
     if not context.devices:
         return [StepOutcome(name="success", context=context)]
 
-    db = object_session(run)
-    if db is None:
-        raise RuntimeError(f"{_STEP_ID}: WorkflowRun has no active DB session")
+    db = require_session(run, _STEP_ID)
 
     logger.info(
         "%s started run_id=%s node_id=%s devices=%d output_key=%s",

@@ -87,7 +87,7 @@ class DiscoverNetworkExecutorTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self) -> None:
         self.pool = AsyncMock()
         for target, value in (
-            (f"{MODULE}.object_session", {"return_value": MagicMock()}),
+            ("workflow_steps.common.run_session.object_session", {"return_value": MagicMock()}),
             (f"{MODULE}.resolve_ssh_credential", {"return_value": ("admin", "secret")}),
             (
                 f"{MODULE}.settings",

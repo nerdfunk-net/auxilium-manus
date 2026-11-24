@@ -6,8 +6,6 @@ import logging
 from dataclasses import dataclass
 from typing import Any
 
-from sqlalchemy.orm import object_session
-
 from core.models.runs import WorkflowRun
 from models.workflow_context import (
     Capability,
@@ -29,6 +27,7 @@ from workflow_steps.common.read_timeout import parse_read_timeout
 from workflow_steps.common.retry_config import parse_retry_backoff_seconds
 from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.common.run_param_reference import resolve_config_reference
+from workflow_steps.common.run_session import require_session
 
 logger = logging.getLogger(__name__)
 
@@ -144,9 +143,7 @@ async def execute(
     if not context.devices:
         return [StepOutcome(name="success", context=context)]
 
-    db = object_session(run)
-    if db is None:
-        raise RuntimeError("get-device-configs: WorkflowRun has no active DB session")
+    db = require_session(run, "get-device-configs")
 
     credential_reference = resolve_config_reference(
         config,

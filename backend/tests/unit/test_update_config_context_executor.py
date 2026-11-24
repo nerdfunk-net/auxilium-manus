@@ -878,7 +878,7 @@ class UpdateOneDeviceTests(unittest.IsolatedAsyncioTestCase):
 
 class ExecuteTests(unittest.IsolatedAsyncioTestCase):
     async def test_no_db_session_raises(self) -> None:
-        with patch.object(mod, "object_session", return_value=None):
+        with patch("workflow_steps.common.run_session.object_session", return_value=None):
             with self.assertRaises(RuntimeError):
                 await execute(
                     config=_attribute_config("tacacs", mode="write"),
@@ -899,7 +899,7 @@ class ExecuteTests(unittest.IsolatedAsyncioTestCase):
         device = _device("d1", tacacs={"shared_secret": {"port": 49}})
         ctx = WorkflowContext(run_id="r", workflow_id="w", devices={"d1": device})
         with (
-            patch.object(mod, "object_session", return_value=MagicMock()),
+            patch("workflow_steps.common.run_session.object_session", return_value=MagicMock()),
             patch.object(
                 mod,
                 "_build_update_service",

@@ -40,7 +40,7 @@ BASE_CONFIG = {
 
 async def _run(config: dict, context: WorkflowContext):
     with (
-        patch.object(mod, "object_session", return_value=MagicMock()),
+        patch("workflow_steps.common.run_session.object_session", return_value=MagicMock()),
         patch.object(
             mod,
             "resolve_shared_secret_credential",
@@ -163,7 +163,7 @@ class DecryptAttributeExecutorTests(unittest.IsolatedAsyncioTestCase):
             {"d1": _device("d1", attribute_bags={"run_input": {"pw": "topsecret"}})}
         )
         with (
-            patch.object(enc_mod, "object_session", return_value=MagicMock()),
+            patch("workflow_steps.common.run_session.object_session", return_value=MagicMock()),
             patch.object(
                 enc_mod,
                 "resolve_shared_secret_credential",
@@ -322,7 +322,7 @@ def _cc(config_context: dict) -> dict:
 class DecryptAttributeCiscoTests(unittest.IsolatedAsyncioTestCase):
     async def _run_keyless(self, config: dict, context: WorkflowContext):
         with (
-            patch.object(mod, "object_session", return_value=None),
+            patch("workflow_steps.common.run_session.object_session", return_value=None),
             patch.object(mod, "resolve_shared_secret_credential") as resolver,
         ):
             outcomes = await execute(

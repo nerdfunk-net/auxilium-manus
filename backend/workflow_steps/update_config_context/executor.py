@@ -25,8 +25,6 @@ from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy.orm import object_session
-
 import service_factory
 from core.models.runs import WorkflowRun
 from models.failure import FailureInfo
@@ -60,6 +58,7 @@ from workflow_steps.common.nautobot_target import (
 )
 from workflow_steps.common.partial_outcomes import NAUTOBOT_TEXT, device_error_from_exception
 from workflow_steps.common.run_logging import log_run_id
+from workflow_steps.common.run_session import require_session
 from workflow_steps.common.step_flags import parse_bool_flag
 from workflow_steps.common.template_content import load_stored_template
 
@@ -618,9 +617,7 @@ async def execute(
     if parsed.identifier_mode != "explicit" and not context.devices:
         return [StepOutcome(name="success", context=context)]
 
-    db = object_session(run)
-    if db is None:
-        raise RuntimeError(f"{_STEP_ID}: WorkflowRun has no active DB session")
+    db = require_session(run, _STEP_ID)
 
     nautobot_service, credentials, update_service = _build_update_service(db, parsed.source_id)
     device_items = _resolve_device_items(parsed.identifier_mode, context)

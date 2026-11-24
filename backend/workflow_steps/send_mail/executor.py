@@ -25,8 +25,6 @@ import re
 from email.utils import parseaddr
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy.orm import object_session
-
 from core.models.runs import WorkflowRun
 from models.workflow_context import StepOutcome, WorkflowContext
 from services.artifacts import ArtifactService
@@ -38,6 +36,7 @@ from workflow_steps.common.run_message_template import (
     render_for_all_devices,
     render_for_first_device,
 )
+from workflow_steps.common.run_session import require_session
 
 if TYPE_CHECKING:
     from services.network.netmiko.session_pool import DeviceSessionPool
@@ -113,9 +112,7 @@ async def execute(
         _reject_header_breaks(label, value)
     recipients = _parse_recipients(to_rendered)
 
-    db = object_session(run)
-    if db is None:
-        raise RuntimeError(f"{_STEP_ID}: WorkflowRun has no active DB session")
+    db = require_session(run, _STEP_ID)
     try:
         # MailService reads the global settings and resolves the global credential
         # (acting_user_id=None: a user's private credential is never used here).

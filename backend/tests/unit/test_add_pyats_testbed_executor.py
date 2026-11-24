@@ -29,7 +29,7 @@ class AddPyatsTestbedExecutorTests(unittest.IsolatedAsyncioTestCase):
         run.triggered_by_id = 42
         db = MagicMock()
         with (
-            patch("workflow_steps.add_pyats_testbed.executor.object_session", return_value=db),
+            patch("workflow_steps.common.run_session.object_session", return_value=db),
             patch(
                 "workflow_steps.add_pyats_testbed.executor.resolve_generic_credential",
                 return_value=("admin", "secret"),
@@ -76,7 +76,7 @@ class AddPyatsTestbedExecutorTests(unittest.IsolatedAsyncioTestCase):
         )
         with (
             patch(
-                "workflow_steps.add_pyats_testbed.executor.object_session",
+                "workflow_steps.common.run_session.object_session",
                 return_value=MagicMock(),
             ),
             patch(
@@ -108,7 +108,7 @@ class AddPyatsTestbedExecutorTests(unittest.IsolatedAsyncioTestCase):
         run.triggered_by_id = None
         db = MagicMock()
         with (
-            patch("workflow_steps.add_pyats_testbed.executor.object_session", return_value=db),
+            patch("workflow_steps.common.run_session.object_session", return_value=db),
             patch(
                 "workflow_steps.add_pyats_testbed.executor.resolve_generic_credential",
                 return_value=("admin", "secret"),

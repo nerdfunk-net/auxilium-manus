@@ -46,7 +46,7 @@ def _service(*, devices: list[dict[str, str]] | None = None) -> tuple[MagicMock,
 
 async def _run_device(config: dict[str, Any], nautobot: MagicMock, update_service: MagicMock):
     with (
-        patch_object_session(device_mod.__name__),
+        patch_object_session(),
         patch.object(
             device_mod,
             "_build_update_service",
@@ -160,7 +160,7 @@ class TestUpdateDeviceExplicitMode:
             "update_fields": {"name": {"enabled": True, "value": "new"}},
         }
         with (
-            patch_object_session(device_mod.__name__),
+            patch_object_session(),
             patch.object(
                 device_mod,
                 "_build_update_service",

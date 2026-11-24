@@ -76,8 +76,6 @@ import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal
 
-from sqlalchemy.orm import object_session
-
 import service_factory
 from core.models.runs import WorkflowRun
 from models.failure import FailureInfo
@@ -98,6 +96,7 @@ from workflow_steps.common.device_runner import AbortRun, Fail, run_per_device
 from workflow_steps.common.failure_records import INVALID_INPUT
 from workflow_steps.common.partial_outcomes import abort_outcomes
 from workflow_steps.common.request_record import append_request_record
+from workflow_steps.common.run_session import require_session
 from workflow_steps.common.source_credentials import resolve_source
 from workflow_steps.common.step_flags import parse_bool_flag
 from workflow_steps.common.update_field_expression import (
@@ -293,9 +292,7 @@ def _parse_config(config: dict[str, Any]) -> _ParsedConfig:
 
 
 def _resolve_source_credentials(run: WorkflowRun, source_id: str) -> ISECredentials:
-    db = object_session(run)
-    if db is None:
-        raise RuntimeError(f"{_STEP_ID}: WorkflowRun has no active DB session")
+    db = require_session(run, _STEP_ID)
 
     source_config_service = service_factory.build_ise_source_config_service(db)
     return resolve_source(

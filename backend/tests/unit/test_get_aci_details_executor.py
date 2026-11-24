@@ -79,7 +79,7 @@ class _Patched:
 
     def __enter__(self):
         self._patches = [
-            patch(f"{FACTS_MODULE}.object_session", return_value=self._db),
+            patch("workflow_steps.common.run_session.object_session", return_value=self._db),
             patch(
                 "service_factory.build_aci_source_config_service", return_value=self.source_config
             ),

@@ -17,9 +17,6 @@ import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy.orm import object_session
-
-import service_factory
 from core.models.runs import WorkflowRun
 from models.workflow_context import (
     Capability,
@@ -30,7 +27,6 @@ from models.workflow_context import (
 )
 from services.artifacts import ArtifactService
 from services.nautobot.common.exceptions import NautobotError
-from services.nautobot.credentials_bound_client import CredentialsBoundNautobotClient
 from services.nautobot.devices.common import DeviceCommonService
 from services.nautobot.devices.uuid_resolver import UUID_RESOURCE_TYPES, resolve_nautobot_uuid
 from services.nautobot.jobs import NautobotJobsService
@@ -38,7 +34,7 @@ from services.workflow_context.secret_fields import REDACTED_PLACEHOLDER, redact
 from workflow_steps.common.attribute_expression import resolve_attribute_expression
 from workflow_steps.common.device_outcomes import build_outcomes
 from workflow_steps.common.device_runner import Fail, run_per_device
-from workflow_steps.common.nautobot_source import resolve_nautobot_credentials
+from workflow_steps.common.nautobot_step import bind_nautobot_client
 from workflow_steps.common.partial_outcomes import device_error_from_exception
 from workflow_steps.common.request_record import append_request_record
 from workflow_steps.common.run_logging import log_run_id
@@ -467,12 +463,7 @@ async def execute(
     if not context.devices:
         return [StepOutcome(name="success", context=context)]
 
-    db = object_session(run)
-    if db is None:
-        raise RuntimeError(f"{_STEP_ID}: WorkflowRun has no active DB session")
-
-    credentials = resolve_nautobot_credentials(db, parsed.source_id, step_id=_STEP_ID)
-    client = CredentialsBoundNautobotClient(service_factory.get_nautobot_app_service(), credentials)
+    client = bind_nautobot_client(run, parsed.source_id, step_id=_STEP_ID)
     jobs_service = NautobotJobsService(client)
     device_common = DeviceCommonService(client)
     variable_types = {

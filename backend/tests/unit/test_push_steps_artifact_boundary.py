@@ -50,7 +50,7 @@ async def _run(*, resolve: Any) -> list[Any]:
     artifacts = InMemoryArtifactService()
     with (
         patch_ssh_credential(_UPLOAD),
-        patch_object_session(_UPLOAD),
+        patch_object_session(),
         patch(f"{_UPLOAD}.NetmikoService") as netmiko_cls,
         patch.object(artifacts, "resolve", new=AsyncMock(side_effect=resolve)),
     ):
@@ -110,7 +110,7 @@ async def _run_deploy(*, resolve: Any = None, store: Any = _store_ok) -> list[An
     artifacts = InMemoryArtifactService()
     with (
         patch_ssh_credential(_DEPLOY),
-        patch_object_session(_DEPLOY),
+        patch_object_session(),
         patch(f"{_DEPLOY}.NetmikoService") as netmiko_cls,
         patch.object(
             artifacts, "resolve", new=AsyncMock(side_effect=resolve, return_value="hostname x\n")
@@ -174,7 +174,7 @@ async def _run_merge(*, store: Any) -> list[Any]:
     result = NetmikoCommandResult(success=True, output="[OK]", command_outputs={})
     with (
         patch_ssh_credential(_MERGE),
-        patch_object_session(_MERGE),
+        patch_object_session(),
         patch(f"{_MERGE}.NetmikoService") as netmiko_cls,
         patch.object(artifacts, "store", new=AsyncMock(side_effect=store)),
     ):
@@ -221,7 +221,7 @@ async def _run_upload_netmiko_error(error: Exception, seen_paths: list[str]) -> 
 
     with (
         patch_ssh_credential(_UPLOAD),
-        patch_object_session(_UPLOAD),
+        patch_object_session(),
         patch(f"{_UPLOAD}.NetmikoService") as netmiko_cls,
         patch.object(artifacts, "resolve", new=AsyncMock(return_value="hostname x\n")),
     ):
@@ -257,7 +257,7 @@ async def test_a_failed_upload_keeps_its_transfer_record() -> None:
     artifacts = InMemoryArtifactService()
     with (
         patch_ssh_credential(_UPLOAD),
-        patch_object_session(_UPLOAD),
+        patch_object_session(),
         patch(f"{_UPLOAD}.NetmikoService") as netmiko_cls,
         patch.object(artifacts, "resolve", new=AsyncMock(return_value="hostname x\n")),
     ):
@@ -291,7 +291,7 @@ async def test_deploy_connection_error_hides_its_text_and_a_failed_deploy_keeps_
 
     with (
         patch_ssh_credential(_DEPLOY),
-        patch_object_session(_DEPLOY),
+        patch_object_session(),
         patch(f"{_DEPLOY}.NetmikoService") as netmiko_cls,
         patch.object(artifacts, "resolve", new=AsyncMock(return_value="hostname x\n")),
     ):
@@ -321,7 +321,7 @@ async def test_merge_connection_error_hides_its_text() -> None:
 
     with (
         patch_ssh_credential(_MERGE),
-        patch_object_session(_MERGE),
+        patch_object_session(),
         patch(f"{_MERGE}.NetmikoService") as netmiko_cls,
     ):
         netmiko_cls.return_value.merge_config = merge

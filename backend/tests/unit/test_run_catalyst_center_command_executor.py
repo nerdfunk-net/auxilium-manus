@@ -51,7 +51,7 @@ class _Harness:
 
     def __enter__(self):
         self._patches = [
-            patch(f"{MODULE}.object_session", return_value=MagicMock()),
+            patch("workflow_steps.common.run_session.object_session", return_value=MagicMock()),
             patch(
                 "service_factory.build_catalyst_center_source_config_service",
                 return_value=self.source_config,

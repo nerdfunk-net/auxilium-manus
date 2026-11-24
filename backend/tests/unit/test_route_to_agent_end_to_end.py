@@ -107,7 +107,7 @@ async def _run(agent: FakeAgent, *devices: DeviceContext):
 
     context = WorkflowContext(run_id="r", workflow_id="w", devices={d.id: d for d in devices})
     with (
-        patch.object(mod, "object_session", return_value=MagicMock()),
+        patch("workflow_steps.common.run_session.object_session", return_value=MagicMock()),
         patch.object(mod, "resolve_agent_connection", return_value=_connection()),
         patch.object(mod.service_factory, "build_agent_client", side_effect=build),
     ):

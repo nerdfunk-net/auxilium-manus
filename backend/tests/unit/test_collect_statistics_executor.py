@@ -33,7 +33,7 @@ def _patches(*, workflow_result=None, job_statistics_repo=None):
     repo_instance = job_statistics_repo or MagicMock()
     return (
         patch(
-            "workflow_steps.common.notification_context.object_session",
+            "workflow_steps.common.run_session.object_session",
             return_value=MagicMock(),
         ),
         patch(
@@ -186,7 +186,7 @@ class CollectStatisticsExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(outcomes[0].name, "success")
 
     async def test_missing_db_session_raises_runtime_error(self) -> None:
-        with patch("workflow_steps.common.notification_context.object_session", return_value=None):
+        with patch("workflow_steps.common.run_session.object_session", return_value=None):
             device = DeviceContext(id="d1", name="router1", hostname="router1")
             with self.assertRaises(RuntimeError):
                 await execute(

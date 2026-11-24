@@ -27,7 +27,7 @@ _MOD = "workflow_steps.configure_replace_config.executor"
 async def _run(error: Exception) -> list:  # noqa: ANN202
     device = _device_with_testbed()
     with (
-        patch(f"{_MOD}.object_session", return_value=MagicMock()),
+        patch("workflow_steps.common.run_session.object_session", return_value=MagicMock()),
         patch("workflow_steps.common.pyats_batch.PyATSSourceConfigService") as config_service,
         patch(f"{_MOD}.service_factory") as service_factory,
     ):
@@ -78,7 +78,7 @@ def _ok_response(device_id: str) -> dict:
 
 async def _run_two(config: dict, run_job, artifact_service=None) -> list:  # noqa: ANN001, ANN202
     with (
-        patch(f"{_MOD}.object_session", return_value=MagicMock()),
+        patch("workflow_steps.common.run_session.object_session", return_value=MagicMock()),
         patch("workflow_steps.common.pyats_batch.PyATSSourceConfigService") as config_service,
         patch(f"{_MOD}.service_factory") as service_factory,
     ):

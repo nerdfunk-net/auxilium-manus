@@ -166,7 +166,7 @@ class HttpInteropTests(unittest.IsolatedAsyncioTestCase):
             "output_keys": ["location"],
         }
         with (
-            patch.object(step_executor, "object_session", return_value=MagicMock()),
+            patch("workflow_steps.common.run_session.object_session", return_value=MagicMock()),
             patch.object(
                 step_executor,
                 "resolve_agent_connection",

@@ -31,8 +31,6 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy.orm import object_session
-
 import service_factory
 from core.models.runs import WorkflowRun
 from models.workflow_context import StepOutcome, WorkflowContext
@@ -40,6 +38,7 @@ from services.artifacts import ArtifactService
 from services.mattermost.common.exceptions import MattermostAPIError
 from workflow_steps.common.mattermost_source import resolve_mattermost_credentials
 from workflow_steps.common.run_message_template import render_for_all_devices
+from workflow_steps.common.run_session import require_session
 from workflow_steps.notify_mattermost.config import get_config
 
 if TYPE_CHECKING:
@@ -106,9 +105,7 @@ async def execute(
             )
         ]
 
-    db = object_session(run)
-    if db is None:
-        raise RuntimeError(f"{_STEP_ID}: WorkflowRun has no active DB session")
+    db = require_session(run, _STEP_ID)
 
     credentials = resolve_mattermost_credentials(db, source_id, step_id=_STEP_ID)
 

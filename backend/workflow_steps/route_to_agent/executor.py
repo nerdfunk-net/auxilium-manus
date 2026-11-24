@@ -17,8 +17,6 @@ import asyncio
 import logging
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy.orm import object_session
-
 import service_factory
 from core.models.runs import WorkflowRun
 from models.failure import FailureInfo
@@ -35,6 +33,7 @@ from services.artifacts import ArtifactService
 from workflow_steps.common.agent_source import resolve_agent_connection
 from workflow_steps.common.attribute_write import set_device_attribute
 from workflow_steps.common.partial_outcomes import fail_device_with_error
+from workflow_steps.common.run_session import require_session
 from workflow_steps.route_to_agent.output import check_output, describe_failure
 from workflow_steps.route_to_agent.request import (
     STEP_ID,
@@ -123,9 +122,7 @@ async def execute(
     if not context.devices:
         return [StepOutcome(name="success", context=context)]
 
-    db = object_session(run)
-    if db is None:
-        raise RuntimeError(f"{STEP_ID}: WorkflowRun has no active DB session")
+    db = require_session(run, STEP_ID)
     connection: AgentConnection = resolve_agent_connection(
         db, parsed.agent_source_id, step_id=STEP_ID
     )

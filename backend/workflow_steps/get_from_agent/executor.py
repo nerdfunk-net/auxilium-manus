@@ -13,8 +13,6 @@ import ipaddress
 import logging
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy.orm import object_session
-
 import service_factory
 from core.models.runs import WorkflowRun
 from core.safe_hosts import validate_device_host
@@ -31,6 +29,7 @@ from workflow_steps.common.device_list import (
 )
 from workflow_steps.common.fan_out import build_fan_out_metadata
 from workflow_steps.common.run_logging import log_run_id
+from workflow_steps.common.run_session import require_session
 from workflow_steps.get_from_agent.request import STEP_ID, build_inputs, parse_config
 
 if TYPE_CHECKING:
@@ -110,9 +109,7 @@ async def execute(
 
     parsed = parse_config(config)
     inputs = build_inputs(parsed, run.run_inputs)
-    db = object_session(run)
-    if db is None:
-        raise RuntimeError(f"{STEP_ID}: WorkflowRun has no active DB session")
+    db = require_session(run, STEP_ID)
     connection: AgentConnection = resolve_agent_connection(
         db, parsed.agent_source_id, step_id=STEP_ID
     )

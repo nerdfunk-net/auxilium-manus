@@ -14,7 +14,6 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy.orm import object_session
 
 import service_factory
 from core.config import settings
@@ -57,6 +56,7 @@ from workflow_steps.common.partial_outcomes import (
     fail_device_with_error,
 )
 from workflow_steps.common.run_logging import log_run_id
+from workflow_steps.common.run_session import require_session
 from workflow_steps.common.step_flags import parse_bool_flag, parse_int_flag, record_dry_run
 from workflow_steps.get_catalyst_center_client_data.mapping import map_clients
 
@@ -277,9 +277,7 @@ async def execute(
     if not context.devices:
         return [StepOutcome(name="success", context=context)]
 
-    db = object_session(run)
-    if db is None:
-        raise RuntimeError(f"{STEP_ID}: WorkflowRun has no active DB session")
+    db = require_session(run, STEP_ID)
     split = split_targets(context.devices, step_id=STEP_ID, node_id=node_id)
     credentials = resolve_source_credentials(db, list(split.by_source), step_id=STEP_ID)
     duplicates = find_duplicate_keys(

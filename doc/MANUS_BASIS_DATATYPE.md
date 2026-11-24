@@ -367,7 +367,7 @@ async def execute(
     *,
     config: dict[str, Any],          # step's pluginConfig (incl. credential references)
     context: WorkflowContext,         # assembled & merged from all parents by the engine
-    run: WorkflowRun,                 # ORM instance — use object_session(run) for DB
+    run: WorkflowRun,                 # ORM instance — require_session(run, step_id) for DB
     artifact_service: ArtifactService,  # injected by the engine
     node_id: str,                     # this step's graph node id — use for keying
     device_sessions: DeviceSessionPool,  # run-segment-scoped pooled SSH sessions

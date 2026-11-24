@@ -5,8 +5,6 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy.orm import object_session
-
 import service_factory
 from core.models.runs import WorkflowRun
 from models.sources_nautobot import DeviceInfo, LogicalCondition, LogicalOperation
@@ -17,6 +15,7 @@ from workflow_steps.common.fan_out import build_fan_out_metadata
 from workflow_steps.common.nautobot_source import resolve_nautobot_credentials
 from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.common.run_param_reference import resolve_config_reference
+from workflow_steps.common.run_session import require_session
 
 if TYPE_CHECKING:
     from services.network.netmiko.session_pool import DeviceSessionPool
@@ -146,9 +145,7 @@ async def execute(
     if not source_id:
         raise ValueError("get-nautobot-devices: nautobot_source_id is not configured")
 
-    db = object_session(run)
-    if db is None:
-        raise RuntimeError("get-nautobot-devices: WorkflowRun has no active DB session")
+    db = require_session(run, "get-nautobot-devices")
 
     credentials = resolve_nautobot_credentials(db, source_id, step_id="get-nautobot-devices")
     source_service = service_factory.build_nautobot_source_service(credentials, db)

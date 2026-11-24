@@ -10,8 +10,6 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable
 from typing import Any
 
-from sqlalchemy.orm import object_session
-
 from core.models.runs import WorkflowRun
 from models.workflow_context import DeviceContext, StepOutcome, WorkflowContext
 from services.aci.common.exceptions import AciError
@@ -25,6 +23,7 @@ from workflow_steps.common.fact_entries import (
     ok_entry,
     parse_output_key_config,
 )
+from workflow_steps.common.run_session import require_session
 
 __all__ = [
     "ACI_ERROR_CODE",
@@ -72,9 +71,7 @@ async def run_fact_step(
     if not context.devices:
         return [StepOutcome(name="success", context=context)]
 
-    db = object_session(run)
-    if db is None:
-        raise RuntimeError(f"{step_id}: WorkflowRun has no active DB session")
+    db = require_session(run, step_id)
 
     split = split_targets(context.devices, step_id=step_id, node_id=node_id)
     credentials = resolve_source_credentials(db, list(split.by_source), step_id=step_id)

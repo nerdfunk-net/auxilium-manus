@@ -130,7 +130,7 @@ class ConfigureReplaceConfigExecutorTests(unittest.IsolatedAsyncioTestCase):
 
         with (
             patch(
-                "workflow_steps.configure_replace_config.executor.object_session", return_value=db
+                "workflow_steps.common.run_session.object_session", return_value=db
             ),
             patch(
                 "workflow_steps.common.pyats_batch.PyATSSourceConfigService"
@@ -598,7 +598,7 @@ class ConfigureReplaceJobLimitTests(unittest.IsolatedAsyncioTestCase):
             devices[f"d{i}"] = device
         with (
             patch(
-                "workflow_steps.configure_replace_config.executor.object_session",
+                "workflow_steps.common.run_session.object_session",
                 return_value=MagicMock(),
             ),
             patch(

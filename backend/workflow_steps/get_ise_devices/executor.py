@@ -7,7 +7,7 @@ import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy.orm import Session, object_session
+from sqlalchemy.orm import Session
 
 import service_factory
 from core.models.runs import WorkflowRun
@@ -31,6 +31,7 @@ from workflow_steps.common.device_builders import (
 from workflow_steps.common.fan_out import build_fan_out_metadata
 from workflow_steps.common.ise_lookup import fetch_ise_device_details, paginate_ise_summaries
 from workflow_steps.common.nautobot_source import resolve_nautobot_credentials
+from workflow_steps.common.run_session import require_session
 from workflow_steps.common.source_credentials import resolve_source
 from workflow_steps.common.step_flags import parse_bool_flag
 
@@ -375,9 +376,7 @@ async def execute(
 
     parsed = _parse_get_ise_devices_config(config)
 
-    db = object_session(run)
-    if db is None:
-        raise RuntimeError("get-ise-devices: WorkflowRun has no active DB session")
+    db = require_session(run, "get-ise-devices")
 
     device_service, nautobot_source_service = _build_ise_services(db, parsed)
 

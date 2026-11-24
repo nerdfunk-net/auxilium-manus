@@ -7,7 +7,6 @@ from typing import TYPE_CHECKING, Any
 
 from nautobot_read.client import NautobotError
 from nautobot_read.queries.virtual_chassis import fetch_virtual_chassis
-from sqlalchemy.orm import object_session
 
 import service_factory
 from core.models.runs import WorkflowRun
@@ -22,6 +21,7 @@ from services.nautobot.graphql_client import NautobotServiceClient
 from workflow_steps.common.fan_out import build_fan_out_metadata
 from workflow_steps.common.nautobot_source import resolve_nautobot_credentials
 from workflow_steps.common.run_logging import log_run_id
+from workflow_steps.common.run_session import require_session
 from workflow_steps.get_virtual_chassis.stack import (
     STEP_ID,
     build_stack_devices,
@@ -102,9 +102,7 @@ async def execute(
         raise ValueError(f"{STEP_ID}: nautobot_source_id is not configured")
     settings = parse_settings(config)
 
-    db = object_session(run)
-    if db is None:
-        raise RuntimeError(f"{STEP_ID}: WorkflowRun has no active DB session")
+    db = require_session(run, STEP_ID)
     credentials = resolve_nautobot_credentials(db, source_id, step_id=STEP_ID)
     nautobot_service = service_factory.get_nautobot_app_service()
 

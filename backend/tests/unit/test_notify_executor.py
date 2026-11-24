@@ -34,7 +34,7 @@ def _patches(*, workflow_result=None, notification_repo=None):
     notification_repo_instance = notification_repo or MagicMock()
     return (
         patch(
-            "workflow_steps.common.notification_context.object_session",
+            "workflow_steps.common.run_session.object_session",
             return_value=MagicMock(),
         ),
         patch(
@@ -181,7 +181,7 @@ class NotifyExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(outcomes[0].name, "success")
 
     async def test_missing_db_session_raises_runtime_error(self) -> None:
-        with patch("workflow_steps.common.notification_context.object_session", return_value=None):
+        with patch("workflow_steps.common.run_session.object_session", return_value=None):
             with self.assertRaises(RuntimeError):
                 await execute(
                     config={"message": "hello", "severity": "info"},

@@ -26,9 +26,9 @@ class InventoryReferenceTests(unittest.IsolatedAsyncioTestCase):
         user = MagicMock()
         user.username = "alice"
         with (
-            patch.object(executor, "object_session", return_value=db),
+            patch("workflow_steps.common.run_session.object_session", return_value=db),
             patch.object(executor, "is_inventory_reference", return_value=True),
-            patch.object(inventory_reference, "object_session", return_value=db),
+            patch("workflow_steps.common.run_session.object_session", return_value=db),
             patch(f"{_MOD}.UserRepository") as users,
             patch(f"{_MOD}._pick_source_id", return_value="src"),
             patch(f"{_MOD}.resolve_nautobot_credentials"),
@@ -61,14 +61,14 @@ class InventoryReferenceTests(unittest.IsolatedAsyncioTestCase):
 class NoDatabaseSessionTests(unittest.IsolatedAsyncioTestCase):
     async def test_a_run_without_a_session_is_a_runtime_error(self) -> None:
         run = MagicMock(id=1, triggered_by_id=None)
-        with patch(f"{_MOD}.object_session", return_value=None):
+        with patch("workflow_steps.common.run_session.object_session", return_value=None):
             with self.assertRaisesRegex(RuntimeError, "no active DB session"):
                 await inventory_reference.inventory_device_text(run, {}, 1)
 
     async def test_the_step_without_a_session_does_not_read_the_id_as_a_device_name(self) -> None:
         """W10-04: run input "1" used to become the device name "1"."""
         run = MagicMock(id=1, run_inputs={"target_devices": "1"}, triggered_by_id=5)
-        with patch.object(executor, "object_session", return_value=None):
+        with patch("workflow_steps.common.run_session.object_session", return_value=None):
             with self.assertRaisesRegex(RuntimeError, "no active DB session"):
                 await executor.execute(
                     config={"device_param": "target_devices"},
@@ -80,6 +80,6 @@ class NoDatabaseSessionTests(unittest.IsolatedAsyncioTestCase):
                 )
 
     async def test_a_non_numeric_reference_is_a_value_error(self) -> None:
-        with patch(f"{_MOD}.object_session", return_value=MagicMock()):
+        with patch("workflow_steps.common.run_session.object_session", return_value=MagicMock()):
             with self.assertRaisesRegex(ValueError, "did not resolve to an inventory id"):
                 await inventory_reference.inventory_device_text(MagicMock(), {}, "abc")

@@ -33,7 +33,7 @@ class GetDeviceConfigsExecutorTests(unittest.IsolatedAsyncioTestCase):
         run.__class__ = MagicMock()
         with (
             patch(
-                "workflow_steps.get_device_configs.executor.object_session",
+                "workflow_steps.common.run_session.object_session",
                 return_value=db,
             ),
             patch(
@@ -91,7 +91,7 @@ class GetDeviceConfigsExecutorTests(unittest.IsolatedAsyncioTestCase):
         run.__class__ = MagicMock()
         with (
             patch(
-                "workflow_steps.get_device_configs.executor.object_session",
+                "workflow_steps.common.run_session.object_session",
                 return_value=db,
             ),
             patch(
@@ -130,7 +130,7 @@ class GetDeviceConfigsExecutorTests(unittest.IsolatedAsyncioTestCase):
         db = MagicMock()
         with (
             patch(
-                "workflow_steps.get_device_configs.executor.object_session",
+                "workflow_steps.common.run_session.object_session",
                 return_value=db,
             ),
             patch(
@@ -172,7 +172,7 @@ class GetDeviceConfigsExecutorTests(unittest.IsolatedAsyncioTestCase):
         db = MagicMock()
         with (
             patch(
-                "workflow_steps.get_device_configs.executor.object_session",
+                "workflow_steps.common.run_session.object_session",
                 return_value=db,
             ),
             patch(
@@ -217,7 +217,7 @@ class GetDeviceConfigsExecutorTests(unittest.IsolatedAsyncioTestCase):
         db = MagicMock()
         with (
             patch(
-                "workflow_steps.get_device_configs.executor.object_session",
+                "workflow_steps.common.run_session.object_session",
                 return_value=db,
             ),
             patch(
@@ -278,7 +278,7 @@ class GetDeviceConfigsExecutorTests(unittest.IsolatedAsyncioTestCase):
         db = MagicMock()
         with (
             patch(
-                "workflow_steps.get_device_configs.executor.object_session",
+                "workflow_steps.common.run_session.object_session",
                 return_value=db,
             ),
             patch(
@@ -321,7 +321,7 @@ class GetDeviceConfigsExecutorTests(unittest.IsolatedAsyncioTestCase):
         db = MagicMock()
         with (
             patch(
-                "workflow_steps.get_device_configs.executor.object_session",
+                "workflow_steps.common.run_session.object_session",
                 return_value=db,
             ),
             patch(
@@ -380,7 +380,7 @@ class GetDeviceConfigsExecutorTests(unittest.IsolatedAsyncioTestCase):
         run.id = 1
         with (
             patch(
-                "workflow_steps.get_device_configs.executor.object_session",
+                "workflow_steps.common.run_session.object_session",
                 return_value=MagicMock(),
             ),
             patch(

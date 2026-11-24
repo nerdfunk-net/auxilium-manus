@@ -139,7 +139,7 @@ async def test_a_failing_artifact_store_fails_that_snapshot_device_only() -> Non
     shim.run_job = AsyncMock(return_value=answers)
     mod = "workflow_steps.get_pyats_snapshot.executor"
     with (
-        patch(f"{mod}.object_session", return_value=MagicMock()),
+        patch("workflow_steps.common.run_session.object_session", return_value=MagicMock()),
         patch("workflow_steps.common.pyats_batch.PyATSSourceConfigService") as config_service,
         patch(f"{mod}.service_factory") as factory,
     ):
@@ -185,7 +185,7 @@ async def test_an_unexpected_error_for_one_device_does_not_fail_the_comparison_s
 
     mod = "workflow_steps.compare_pyats_snapshot.executor"
     with (
-        patch(f"{mod}.object_session", return_value=MagicMock()),
+        patch("workflow_steps.common.run_session.object_session", return_value=MagicMock()),
         patch(f"{mod}.resolve_source_credentials", return_value=({}, {})),
         patch(f"{mod}.shim_concurrency", create=True, new=AsyncMock(return_value=2)),
         patch("workflow_steps.common.pyats_batch.shim_concurrency", AsyncMock(return_value=2)),
@@ -262,7 +262,7 @@ async def test_devices_are_compared_at_most_as_many_at_once_as_the_shim_runs() -
 
     mod = "workflow_steps.compare_pyats_snapshot.executor"
     with (
-        patch(f"{mod}.object_session", return_value=MagicMock()),
+        patch("workflow_steps.common.run_session.object_session", return_value=MagicMock()),
         patch(f"{mod}.resolve_source_credentials", return_value=({}, {})),
         patch("workflow_steps.common.pyats_batch.shim_concurrency", AsyncMock(return_value=2)),
         patch(f"{mod}.service_factory"),

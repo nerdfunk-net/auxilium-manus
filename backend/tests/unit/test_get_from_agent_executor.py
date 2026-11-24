@@ -72,7 +72,7 @@ async def _run(config: dict[str, Any], client: FakeClient, *, run_inputs=None, c
     run = SimpleNamespace(id=7, uuid="run-uuid", run_inputs=run_inputs or {})
     context = WorkflowContext(run_id="run-1", workflow_id="wf-1", devices={})
     with (
-        patch.object(mod, "object_session", return_value=MagicMock()),
+        patch("workflow_steps.common.run_session.object_session", return_value=MagicMock()),
         patch.object(mod, "resolve_agent_connection", return_value=connection or _connection()),
         patch.object(mod.service_factory, "build_agent_client", return_value=client),
     ):

@@ -5,8 +5,6 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy.orm import object_session
-
 import service_factory
 from core.models.runs import WorkflowRun
 from models.workflow_context import (
@@ -29,6 +27,7 @@ from workflow_steps.common.catalyst_center_targets import (
     split_targets,
 )
 from workflow_steps.common.device_runner import Fail, run_per_device
+from workflow_steps.common.run_session import require_session
 
 if TYPE_CHECKING:
     from services.network.netmiko.session_pool import DeviceSessionPool
@@ -82,9 +81,7 @@ async def execute(
     if not context.devices:
         return [StepOutcome(name="success", context=context)]
 
-    db = object_session(run)
-    if db is None:
-        raise RuntimeError(f"{STEP_ID}: WorkflowRun has no active DB session")
+    db = require_session(run, STEP_ID)
 
     split = split_targets(context.devices, step_id=STEP_ID, node_id=node_id)
     credentials = resolve_source_credentials(db, list(split.by_source), step_id=STEP_ID)

@@ -64,7 +64,7 @@ async def _run_execute(
     service = MagicMock()
     service.graphql_query = AsyncMock(return_value=payload if payload is not None else _PAYLOAD)
     with (
-        patch.object(mod, "object_session", return_value=MagicMock()),
+        patch("workflow_steps.common.run_session.object_session", return_value=MagicMock()),
         patch.object(mod, "resolve_nautobot_credentials", return_value=MagicMock()),
         patch.object(mod.service_factory, "get_nautobot_app_service", return_value=service),
     ):

@@ -40,8 +40,6 @@ import ipaddress
 import logging
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy.orm import object_session
-
 import service_factory
 from core.models.runs import WorkflowRun
 from models.failure import FailureInfo
@@ -61,6 +59,7 @@ from workflow_steps.common.ise_lookup import (
     paginate_ise_summaries,
 )
 from workflow_steps.common.partial_outcomes import abort_outcomes
+from workflow_steps.common.run_session import require_session
 from workflow_steps.common.source_credentials import resolve_source
 from workflow_steps.common.step_flags import parse_bool_flag
 from workflow_steps.get_ise_tacacs_key.config import get_config
@@ -329,9 +328,7 @@ async def _find_tacacs_key(
 
 
 def _resolve_ise_device_service(run: WorkflowRun, source_id: str) -> ISENetworkDeviceService:
-    db = object_session(run)
-    if db is None:
-        raise RuntimeError(f"{_STEP_ID}: WorkflowRun has no active DB session")
+    db = require_session(run, _STEP_ID)
 
     source_config_service = service_factory.build_ise_source_config_service(db)
     credentials = resolve_source(

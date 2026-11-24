@@ -13,8 +13,6 @@ import json
 import logging
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy.orm import object_session
-
 import service_factory
 from core.models.runs import WorkflowRun
 from models.workflow_context import StepOutcome, WorkflowContext
@@ -24,6 +22,7 @@ from services.nautobot.common.exceptions import NautobotError
 from workflow_steps.common.aci_targets import resolve_source_credentials
 from workflow_steps.common.fact_entries import parse_output_key_config
 from workflow_steps.common.nautobot_source import resolve_nautobot_credentials
+from workflow_steps.common.run_session import require_session
 from workflow_steps.common.step_flags import parse_bool_flag
 from workflow_steps.compare_aci_subnets.compare import compare_subnets, parse_scope_prefixes
 
@@ -92,9 +91,7 @@ async def execute(
         key_name="output_key",
     )
 
-    db = object_session(run)
-    if db is None:
-        raise RuntimeError(f"{STEP_ID}: WorkflowRun has no active DB session")
+    db = require_session(run, STEP_ID)
     aci_credentials = resolve_source_credentials(db, [aci_source], step_id=STEP_ID)[aci_source]
     nautobot_credentials = resolve_nautobot_credentials(db, nautobot_source, step_id=STEP_ID)
 

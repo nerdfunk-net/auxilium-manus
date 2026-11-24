@@ -6,7 +6,7 @@ import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy.orm import Session, object_session
+from sqlalchemy.orm import Session
 
 import service_factory
 from core.models.runs import WorkflowRun
@@ -22,6 +22,7 @@ from services.catalyst_center.device_service import CatalystCenterDeviceService
 from services.catalyst_center.source_config_service import CatalystCenterSourceNotFoundError
 from workflow_steps.common.device_builders import device_context_from_catalyst_center
 from workflow_steps.common.fan_out import build_fan_out_metadata
+from workflow_steps.common.run_session import require_session
 from workflow_steps.common.step_flags import parse_bool_flag
 
 if TYPE_CHECKING:
@@ -106,9 +107,7 @@ async def execute(
 
     parsed = _parse_config(config)
 
-    db = object_session(run)
-    if db is None:
-        raise RuntimeError(f"{STEP_ID}: WorkflowRun has no active DB session")
+    db = require_session(run, STEP_ID)
 
     device_service = _build_device_service(db, parsed.source_id)
 

@@ -5,8 +5,6 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from sqlalchemy.orm import object_session
-
 from core.models.runs import WorkflowRun
 from models.failure import FailureInfo
 from models.workflow_context import (
@@ -28,6 +26,7 @@ from workflow_steps.common.device_runner import Fail, run_per_device
 from workflow_steps.common.partial_outcomes import device_error_from_exception
 from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.common.run_param_reference import resolve_config_reference
+from workflow_steps.common.run_session import require_session
 
 logger = logging.getLogger(__name__)
 
@@ -188,9 +187,7 @@ async def execute(
     if not context.devices:
         return [StepOutcome(name=name, context=context) for name in _OUTCOME_NAMES]
 
-    db = object_session(run)
-    if db is None:
-        raise RuntimeError("login-successful: WorkflowRun has no active DB session")
+    db = require_session(run, "login-successful")
 
     username, password = resolve_ssh_credential(
         db, credential_reference, acting_user_id=run.triggered_by_id

@@ -12,8 +12,6 @@ import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy.orm import object_session
-
 import service_factory
 from core.models.runs import WorkflowRun
 from models.failure import FailureInfo
@@ -46,6 +44,7 @@ from workflow_steps.common.partial_outcomes import (
     device_error_from_exception,
     fail_device_with_error,
 )
+from workflow_steps.common.run_session import require_session
 from workflow_steps.common.step_flags import parse_bool_flag, parse_int_flag
 from workflow_steps.common.update_field_expression import resolve_update_field_expression
 
@@ -139,9 +138,7 @@ def _parse_config(config: dict[str, Any]) -> _ParsedConfig:
 
 
 def _bind_nautobot(run: WorkflowRun, source_id: str) -> _Bound:
-    db = object_session(run)
-    if db is None:
-        raise RuntimeError(f"{_STEP_ID}: WorkflowRun has no active DB session")
+    db = require_session(run, _STEP_ID)
     credentials = resolve_nautobot_credentials(db, source_id, step_id=_STEP_ID)
     service = service_factory.get_nautobot_app_service()
     client = CredentialsBoundNautobotClient(service, credentials)

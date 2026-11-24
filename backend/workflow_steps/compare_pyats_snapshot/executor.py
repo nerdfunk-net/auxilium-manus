@@ -39,8 +39,6 @@ import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy.orm import object_session
-
 import service_factory
 from core.models.runs import WorkflowRun
 from models.workflow_context import (
@@ -66,6 +64,7 @@ from workflow_steps.common.partial_outcomes import device_error_from_exception
 from workflow_steps.common.pyats_batch import resolve_source_credentials
 from workflow_steps.common.pyats_features import parse_feature_list
 from workflow_steps.common.run_logging import log_run_id
+from workflow_steps.common.run_session import require_session
 from workflow_steps.common.step_flags import parse_bool_flag
 from workflow_steps.compare_data.reference_reader import read_reference_text
 from workflow_steps.compare_pyats_snapshot.config import get_config
@@ -575,9 +574,7 @@ async def execute(
     if not context.devices:
         return [StepOutcome(name=outcome_name, context=context) for outcome_name in _OUTCOME_NAMES]
 
-    db = object_session(run)
-    if db is None:
-        raise RuntimeError(f"{_STEP_ID}: WorkflowRun has no active DB session")
+    db = require_session(run, _STEP_ID)
 
     logger.info(
         "%s started run_id=%s node_id=%s devices=%d features=%s source_step_node_id=%s "

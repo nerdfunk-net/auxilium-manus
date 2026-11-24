@@ -83,10 +83,16 @@ async def _run(
     run = MagicMock()
     run.id = 1
     with (
-        patch(f"{_MODULE}.object_session", return_value=MagicMock()),
-        patch(f"{_MODULE}.resolve_nautobot_credentials", return_value=MagicMock()),
+        patch("workflow_steps.common.run_session.object_session", return_value=MagicMock()),
+        patch(
+            "workflow_steps.common.nautobot_step.resolve_nautobot_credentials",
+            return_value=MagicMock(),
+        ),
         patch("service_factory.get_nautobot_app_service", return_value=MagicMock()),
-        patch(f"{_MODULE}.CredentialsBoundNautobotClient", return_value=MagicMock()),
+        patch(
+            "workflow_steps.common.nautobot_step.CredentialsBoundNautobotClient",
+            return_value=MagicMock(),
+        ),
         patch(f"{_MODULE}.MetadataCreationService", return_value=service),
     ):
         return await execute(

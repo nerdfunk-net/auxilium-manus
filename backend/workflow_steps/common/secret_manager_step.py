@@ -19,8 +19,6 @@ from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from typing import Any
 
-from sqlalchemy.orm import object_session
-
 from core.models.runs import WorkflowRun
 from models.workflow_context import DeviceContext, StepOutcome, WorkflowContext
 from services.secret_manager.exceptions import SecretManagerError
@@ -28,6 +26,7 @@ from services.secret_manager.service import SecretManagerService
 from workflow_steps.common.device_outcomes import build_outcomes
 from workflow_steps.common.device_runner import AbortRun, Fail, run_per_device
 from workflow_steps.common.partial_outcomes import abort_outcomes
+from workflow_steps.common.run_session import require_session
 from workflow_steps.common.secret_paths import resolve_secret_paths, secret_manager_failure
 
 logger = logging.getLogger(__name__)
@@ -62,9 +61,7 @@ async def run_secret_step(
     if not context.devices:
         return [StepOutcome(name="success", context=context)]
 
-    db = object_session(run)
-    if db is None:
-        raise RuntimeError(f"{spec.step_id}: WorkflowRun has no active DB session")
+    db = require_session(run, spec.step_id)
     service = SecretManagerService(db)
 
     logger.info(

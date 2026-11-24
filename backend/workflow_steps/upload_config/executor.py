@@ -10,8 +10,6 @@ import tempfile
 from dataclasses import dataclass, replace
 from typing import Any
 
-from sqlalchemy.orm import object_session
-
 from core.models.runs import WorkflowRun
 from models.failure import FailureInfo
 from models.workflow_context import (
@@ -39,6 +37,7 @@ from workflow_steps.common.device_runner import Fail, run_per_device
 from workflow_steps.common.failure_records import INVALID_INPUT, MISSING_DATA
 from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.common.run_param_reference import resolve_config_reference
+from workflow_steps.common.run_session import require_session
 from workflow_steps.common.step_flags import parse_bool_flag
 
 logger = logging.getLogger(__name__)
@@ -319,9 +318,7 @@ async def execute(
         ),
     )
 
-    db = object_session(run)
-    if db is None:
-        raise RuntimeError("upload-config: WorkflowRun has no active DB session")
+    db = require_session(run, "upload-config")
     username, password = resolve_ssh_credential(
         db, parsed.credential_reference, acting_user_id=run.triggered_by_id
     )

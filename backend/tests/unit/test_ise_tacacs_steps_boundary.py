@@ -31,7 +31,7 @@ def _service() -> MagicMock:
 
 async def _call(mod: Any, config: dict[str, Any], service: MagicMock, *devices: Any) -> dict:
     with (
-        patch.object(mod, "object_session", return_value=MagicMock()),
+        patch("workflow_steps.common.run_session.object_session", return_value=MagicMock()),
         patch("service_factory.build_ise_source_config_service", return_value=MagicMock()),
         patch(f"{mod.__name__}.resolve_source", return_value=MagicMock()),
         patch("service_factory.build_ise_network_device_service", return_value=service),
@@ -202,7 +202,7 @@ async def test_get_failure_outcome_summary_counts_the_misses() -> None:
     service.get_device_by_name = AsyncMock(side_effect=ISENotFoundError("none"))
     context = make_context([make_device("A"), make_device("B")])
     with (
-        patch.object(get_mod, "object_session", return_value=MagicMock()),
+        patch("workflow_steps.common.run_session.object_session", return_value=MagicMock()),
         patch("service_factory.build_ise_source_config_service", return_value=MagicMock()),
         patch(f"{get_mod.__name__}.resolve_source", return_value=MagicMock()),
         patch("service_factory.build_ise_network_device_service", return_value=service),
@@ -220,7 +220,7 @@ async def test_update_rejection_carries_the_failure_record_and_summaries() -> No
     a = make_device("A", source="ise", attribute_bags={"custom": {"k": "x"}})
     context = make_context([a])
     with (
-        patch.object(update_mod, "object_session", return_value=MagicMock()),
+        patch("workflow_steps.common.run_session.object_session", return_value=MagicMock()),
         patch("service_factory.build_ise_source_config_service", return_value=MagicMock()),
         patch(f"{update_mod.__name__}.resolve_source", return_value=MagicMock()),
         patch("service_factory.build_ise_network_device_service", return_value=service),

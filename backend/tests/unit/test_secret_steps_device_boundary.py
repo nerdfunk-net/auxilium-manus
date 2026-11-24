@@ -63,7 +63,7 @@ def _service(case: _Case, side_effect: Callable[..., Any]) -> MagicMock:
 
 async def _run(case: _Case, service: MagicMock) -> Any:
     with (
-        patch_object_session(shared.__name__),
+        patch_object_session(),
         patch.object(shared, "SecretManagerService", return_value=service),
     ):
         return await call_step(case.module.execute, case.config, _context(), run=make_run())

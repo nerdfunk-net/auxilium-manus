@@ -75,7 +75,7 @@ def _patches(device_service: MagicMock):
     source_config_service.resolve_credentials.return_value = MagicMock()
     return (
         patch(
-            "workflow_steps.add_to_ise.executor.object_session",
+            "workflow_steps.common.run_session.object_session",
             return_value=MagicMock(),
         ),
         patch(

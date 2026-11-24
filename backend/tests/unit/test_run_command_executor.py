@@ -32,7 +32,7 @@ class RunCommandExecutorTests(unittest.IsolatedAsyncioTestCase):
         db = MagicMock()
         with (
             patch(
-                "workflow_steps.run_command.executor.object_session",
+                "workflow_steps.common.run_session.object_session",
                 return_value=db,
             ),
             patch(
@@ -83,7 +83,7 @@ class RunCommandExecutorTests(unittest.IsolatedAsyncioTestCase):
         parsed = [{"hostname": "r1"}, {"hostname": "r2"}]
         with (
             patch(
-                "workflow_steps.run_command.executor.object_session",
+                "workflow_steps.common.run_session.object_session",
                 return_value=db,
             ),
             patch(
@@ -136,7 +136,7 @@ class RunCommandExecutorTests(unittest.IsolatedAsyncioTestCase):
         db = MagicMock()
         with (
             patch(
-                "workflow_steps.run_command.executor.object_session",
+                "workflow_steps.common.run_session.object_session",
                 return_value=db,
             ),
             patch(
@@ -195,7 +195,7 @@ class RunCommandExecutorTests(unittest.IsolatedAsyncioTestCase):
         db = MagicMock()
         with (
             patch(
-                "workflow_steps.run_command.executor.object_session",
+                "workflow_steps.common.run_session.object_session",
                 return_value=db,
             ),
             patch(
@@ -279,7 +279,7 @@ class RunCommandExecutorTests(unittest.IsolatedAsyncioTestCase):
         db = MagicMock()
         with (
             patch(
-                "workflow_steps.run_command.executor.object_session",
+                "workflow_steps.common.run_session.object_session",
                 return_value=db,
             ),
             patch(
@@ -324,7 +324,7 @@ class RunCommandExecutorTests(unittest.IsolatedAsyncioTestCase):
         db = MagicMock()
         with (
             patch(
-                "workflow_steps.run_command.executor.object_session",
+                "workflow_steps.common.run_session.object_session",
                 return_value=db,
             ),
             patch(
@@ -392,7 +392,7 @@ class RunCommandExecutorTests(unittest.IsolatedAsyncioTestCase):
         db = MagicMock()
         with (
             patch(
-                "workflow_steps.run_command.executor.object_session",
+                "workflow_steps.common.run_session.object_session",
                 return_value=db,
             ),
             patch(
@@ -458,7 +458,7 @@ class RunCommandExecutorTests(unittest.IsolatedAsyncioTestCase):
         db = MagicMock()
         with (
             patch(
-                "workflow_steps.run_command.executor.object_session",
+                "workflow_steps.common.run_session.object_session",
                 return_value=db,
             ),
             patch(
@@ -519,7 +519,7 @@ class RunCommandExecutorTests(unittest.IsolatedAsyncioTestCase):
         db = MagicMock()
         with (
             patch(
-                "workflow_steps.run_command.executor.object_session",
+                "workflow_steps.common.run_session.object_session",
                 return_value=db,
             ),
             patch(
@@ -567,7 +567,7 @@ class RunCommandExecutorTests(unittest.IsolatedAsyncioTestCase):
         db = MagicMock()
         with (
             patch(
-                "workflow_steps.run_command.executor.object_session",
+                "workflow_steps.common.run_session.object_session",
                 return_value=db,
             ),
             patch(
@@ -616,7 +616,7 @@ class RunCommandExecutorTests(unittest.IsolatedAsyncioTestCase):
         db = MagicMock()
         with (
             patch(
-                "workflow_steps.run_command.executor.object_session",
+                "workflow_steps.common.run_session.object_session",
                 return_value=db,
             ),
             patch(
@@ -659,7 +659,7 @@ class RunCommandExecutorTests(unittest.IsolatedAsyncioTestCase):
         db = MagicMock()
         with (
             patch(
-                "workflow_steps.run_command.executor.object_session",
+                "workflow_steps.common.run_session.object_session",
                 return_value=db,
             ),
             patch(
@@ -706,7 +706,7 @@ class RunCommandExecutorTests(unittest.IsolatedAsyncioTestCase):
         db = MagicMock()
         with (
             patch(
-                "workflow_steps.run_command.executor.object_session",
+                "workflow_steps.common.run_session.object_session",
                 return_value=db,
             ),
             patch(
@@ -794,7 +794,7 @@ class RunCommandExecutorTests(unittest.IsolatedAsyncioTestCase):
         db = MagicMock()
         with (
             patch(
-                "workflow_steps.run_command.executor.object_session",
+                "workflow_steps.common.run_session.object_session",
                 return_value=db,
             ),
             patch(
@@ -840,7 +840,7 @@ class RunCommandExecutorTests(unittest.IsolatedAsyncioTestCase):
         db = MagicMock()
         with (
             patch(
-                "workflow_steps.run_command.executor.object_session",
+                "workflow_steps.common.run_session.object_session",
                 return_value=db,
             ),
             patch(
@@ -887,7 +887,7 @@ class RunCommandExecutorTests(unittest.IsolatedAsyncioTestCase):
         db = MagicMock()
         with (
             patch(
-                "workflow_steps.run_command.executor.object_session",
+                "workflow_steps.common.run_session.object_session",
                 return_value=db,
             ),
             patch(
@@ -965,7 +965,7 @@ class RunCommandExecutorTests(unittest.IsolatedAsyncioTestCase):
         db = MagicMock()
         with (
             patch(
-                "workflow_steps.run_command.executor.object_session",
+                "workflow_steps.common.run_session.object_session",
                 return_value=db,
             ),
             patch(
@@ -1010,7 +1010,7 @@ class RunCommandExecutorTests(unittest.IsolatedAsyncioTestCase):
         db = MagicMock()
         with (
             patch(
-                "workflow_steps.run_command.executor.object_session",
+                "workflow_steps.common.run_session.object_session",
                 return_value=db,
             ),
             patch(

@@ -63,7 +63,7 @@ class DeployRenderedTemplateExecutorTests(unittest.IsolatedAsyncioTestCase):
         artifact_service = InMemoryArtifactService()
         with (
             patch(
-                "workflow_steps.deploy_rendered_template.executor.object_session",
+                "workflow_steps.common.run_session.object_session",
                 return_value=db,
             ),
             patch(
@@ -109,7 +109,7 @@ class DeployRenderedTemplateExecutorTests(unittest.IsolatedAsyncioTestCase):
         artifact_service = InMemoryArtifactService()
         with (
             patch(
-                "workflow_steps.deploy_rendered_template.executor.object_session",
+                "workflow_steps.common.run_session.object_session",
                 return_value=MagicMock(),
             ),
             patch(
@@ -146,7 +146,7 @@ class DeployRenderedTemplateExecutorTests(unittest.IsolatedAsyncioTestCase):
         artifact_service = InMemoryArtifactService()
         with (
             patch(
-                "workflow_steps.deploy_rendered_template.executor.object_session",
+                "workflow_steps.common.run_session.object_session",
                 return_value=db,
             ),
             patch(
@@ -183,7 +183,7 @@ class DeployRenderedTemplateExecutorTests(unittest.IsolatedAsyncioTestCase):
         artifact_service = InMemoryArtifactService()
         with (
             patch(
-                "workflow_steps.deploy_rendered_template.executor.object_session",
+                "workflow_steps.common.run_session.object_session",
                 return_value=db,
             ),
             patch(
@@ -227,7 +227,7 @@ class DeployRenderedTemplateExecutorTests(unittest.IsolatedAsyncioTestCase):
         artifact_service = InMemoryArtifactService()
         with (
             patch(
-                "workflow_steps.deploy_rendered_template.executor.object_session",
+                "workflow_steps.common.run_session.object_session",
                 return_value=db,
             ),
             patch(
@@ -280,7 +280,7 @@ class DeployRenderedTemplateExecutorTests(unittest.IsolatedAsyncioTestCase):
         artifact_service = InMemoryArtifactService()
         with (
             patch(
-                "workflow_steps.deploy_rendered_template.executor.object_session",
+                "workflow_steps.common.run_session.object_session",
                 return_value=db,
             ),
             patch(
@@ -333,7 +333,7 @@ class DeployRenderedTemplateExecutorTests(unittest.IsolatedAsyncioTestCase):
         artifact_service = InMemoryArtifactService()
         with (
             patch(
-                "workflow_steps.deploy_rendered_template.executor.object_session",
+                "workflow_steps.common.run_session.object_session",
                 return_value=db,
             ),
             patch(
@@ -372,7 +372,7 @@ class DeployRenderedTemplateExecutorTests(unittest.IsolatedAsyncioTestCase):
         artifact_service = InMemoryArtifactService()
         with (
             patch(
-                "workflow_steps.deploy_rendered_template.executor.object_session",
+                "workflow_steps.common.run_session.object_session",
                 return_value=db,
             ),
             patch(
@@ -427,7 +427,7 @@ class DeployRenderedTemplateExecutorTests(unittest.IsolatedAsyncioTestCase):
         artifact_service = InMemoryArtifactService()
         with (
             patch(
-                "workflow_steps.deploy_rendered_template.executor.object_session",
+                "workflow_steps.common.run_session.object_session",
                 return_value=db,
             ),
             patch(
@@ -476,7 +476,7 @@ class DeployRenderedTemplateExecutorTests(unittest.IsolatedAsyncioTestCase):
         artifact_service = InMemoryArtifactService()
         with (
             patch(
-                "workflow_steps.deploy_rendered_template.executor.object_session",
+                "workflow_steps.common.run_session.object_session",
                 return_value=db,
             ),
             patch(
@@ -513,7 +513,7 @@ class DeployRenderedTemplateExecutorTests(unittest.IsolatedAsyncioTestCase):
         artifact_service = InMemoryArtifactService()
         with (
             patch(
-                "workflow_steps.deploy_rendered_template.executor.object_session",
+                "workflow_steps.common.run_session.object_session",
                 return_value=db,
             ),
             patch(
@@ -572,7 +572,7 @@ class DeployRenderedTemplateExecutorTests(unittest.IsolatedAsyncioTestCase):
         db = MagicMock()
         with (
             patch(
-                "workflow_steps.deploy_rendered_template.executor.object_session",
+                "workflow_steps.common.run_session.object_session",
                 return_value=db,
             ),
             patch(
@@ -613,7 +613,7 @@ class DeployRenderedTemplateExecutorTests(unittest.IsolatedAsyncioTestCase):
         resolve_mock = AsyncMock(return_value=RENDERED_TEXT)
         with (
             patch(
-                "workflow_steps.deploy_rendered_template.executor.object_session",
+                "workflow_steps.common.run_session.object_session",
                 return_value=db,
             ),
             patch(
@@ -658,7 +658,7 @@ class DeployRenderedTemplateExecutorTests(unittest.IsolatedAsyncioTestCase):
         artifact_service = InMemoryArtifactService()
         with (
             patch(
-                "workflow_steps.deploy_rendered_template.executor.object_session",
+                "workflow_steps.common.run_session.object_session",
                 return_value=db,
             ),
             patch(

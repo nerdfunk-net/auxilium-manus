@@ -79,7 +79,7 @@ def _patches(*, setting=None, creation_service_instance=None):
         )
     return (
         patch(
-            "workflow_steps.add_to_nautobot.executor.object_session",
+            "workflow_steps.common.run_session.object_session",
             return_value=MagicMock(),
         ),
         resolve_patch,

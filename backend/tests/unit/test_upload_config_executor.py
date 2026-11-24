@@ -94,7 +94,7 @@ class UploadConfigExecutorTests(unittest.IsolatedAsyncioTestCase):
 
         with (
             patch(
-                "workflow_steps.upload_config.executor.object_session",
+                "workflow_steps.common.run_session.object_session",
                 return_value=db,
             ),
             patch(
@@ -160,7 +160,7 @@ class UploadConfigExecutorTests(unittest.IsolatedAsyncioTestCase):
                 update={"primary_ip4": f"10.0.0.{index}/24", "name": f"router{index}"}
             )
         with (
-            patch("workflow_steps.upload_config.executor.object_session", return_value=MagicMock()),
+            patch("workflow_steps.common.run_session.object_session", return_value=MagicMock()),
             patch(
                 "workflow_steps.upload_config.executor.resolve_ssh_credential",
                 return_value=("admin", "secret"),
@@ -191,7 +191,7 @@ class UploadConfigExecutorTests(unittest.IsolatedAsyncioTestCase):
         artifact_service = InMemoryArtifactService()
         with (
             patch(
-                "workflow_steps.upload_config.executor.object_session",
+                "workflow_steps.common.run_session.object_session",
                 return_value=db,
             ),
             patch(
@@ -226,7 +226,7 @@ class UploadConfigExecutorTests(unittest.IsolatedAsyncioTestCase):
         artifact_service = InMemoryArtifactService()
         with (
             patch(
-                "workflow_steps.upload_config.executor.object_session",
+                "workflow_steps.common.run_session.object_session",
                 return_value=db,
             ),
             patch(
@@ -341,7 +341,7 @@ class UploadConfigExecutorTests(unittest.IsolatedAsyncioTestCase):
         artifact_service = InMemoryArtifactService()
         with (
             patch(
-                "workflow_steps.upload_config.executor.object_session",
+                "workflow_steps.common.run_session.object_session",
                 return_value=db,
             ),
             patch(
@@ -379,7 +379,7 @@ class UploadConfigExecutorTests(unittest.IsolatedAsyncioTestCase):
         artifact_service = InMemoryArtifactService()
         with (
             patch(
-                "workflow_steps.upload_config.executor.object_session",
+                "workflow_steps.common.run_session.object_session",
                 return_value=db,
             ),
             patch(
@@ -418,7 +418,7 @@ class UploadConfigExecutorTests(unittest.IsolatedAsyncioTestCase):
         db = MagicMock()
         with (
             patch(
-                "workflow_steps.upload_config.executor.object_session",
+                "workflow_steps.common.run_session.object_session",
                 return_value=db,
             ),
             patch(
@@ -466,7 +466,7 @@ class UploadConfigExecutorTests(unittest.IsolatedAsyncioTestCase):
         output = f".Done!\nverify /md5 (bootflash:new-config.cfg) = {expected_digest}\n"
         with (
             patch(
-                "workflow_steps.upload_config.executor.object_session",
+                "workflow_steps.common.run_session.object_session",
                 return_value=db,
             ),
             patch(
@@ -519,7 +519,7 @@ class UploadConfigExecutorTests(unittest.IsolatedAsyncioTestCase):
         output = f".Done!\nverify /sha512 (bootflash:new-config.cfg) = {wrong_digest}\n"
         with (
             patch(
-                "workflow_steps.upload_config.executor.object_session",
+                "workflow_steps.common.run_session.object_session",
                 return_value=db,
             ),
             patch(
@@ -565,7 +565,7 @@ class UploadConfigExecutorTests(unittest.IsolatedAsyncioTestCase):
         artifact_service = InMemoryArtifactService()
         with (
             patch(
-                "workflow_steps.upload_config.executor.object_session",
+                "workflow_steps.common.run_session.object_session",
                 return_value=db,
             ),
             patch(
@@ -636,7 +636,7 @@ class UploadConfigExecutorTests(unittest.IsolatedAsyncioTestCase):
         output = f".Done!\nverify /md5 (bootflash:new-config.cfg) = {expected_digest}\n"
         with (
             patch(
-                "workflow_steps.upload_config.executor.object_session",
+                "workflow_steps.common.run_session.object_session",
                 return_value=db,
             ),
             patch(
@@ -687,7 +687,7 @@ class UploadConfigExecutorTests(unittest.IsolatedAsyncioTestCase):
         device = _device_with_updated_content().model_copy(update={"network_driver": "arista_eos"})
         with (
             patch(
-                "workflow_steps.upload_config.executor.object_session",
+                "workflow_steps.common.run_session.object_session",
                 return_value=db,
             ),
             patch(
@@ -751,7 +751,7 @@ class UploadConfigExecutorTests(unittest.IsolatedAsyncioTestCase):
         output = f".Done!\nverify /md5 (nvram:manus-config) = {device_reported_digest}\n"
         with (
             patch(
-                "workflow_steps.upload_config.executor.object_session",
+                "workflow_steps.common.run_session.object_session",
                 return_value=db,
             ),
             patch(

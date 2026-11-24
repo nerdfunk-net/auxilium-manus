@@ -69,7 +69,7 @@ def _devices(*names: str) -> Any:
 
 @pytest.mark.asyncio
 async def test_get_device_configs_reads_through_the_pool(pool: DeviceSessionPool) -> None:
-    with patch_ssh_credential(_CONFIGS), patch_object_session(_CONFIGS):
+    with patch_ssh_credential(_CONFIGS), patch_object_session():
         outcomes = await call_step(
             get_device_configs,
             {"credential_reference": "lab-ssh", "config_format": "running"},
@@ -89,7 +89,7 @@ async def test_get_device_configs_reads_through_the_pool(pool: DeviceSessionPool
 @pytest.mark.asyncio
 async def test_merge_config_one_unreachable_device_fails_alone(pool: DeviceSessionPool) -> None:
     _BaseSession.refuse = {"10.0.0.2"}
-    with patch_ssh_credential(_MERGE), patch_object_session(_MERGE):
+    with patch_ssh_credential(_MERGE), patch_object_session():
         outcomes = await call_step(
             merge_config,
             {"credential_reference": "lab-ssh", "source_filename": "flash:partial.cfg"},

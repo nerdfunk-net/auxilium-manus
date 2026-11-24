@@ -30,7 +30,7 @@ async def _run(config: dict, run_inputs: dict) -> tuple[AsyncMock, AsyncMock]:
     device = make_device("a", primary_ip4="10.0.0.1/24", network_driver="cisco_ios")
     with (
         patch_ssh_credential(_MOD) as credential,
-        patch_object_session(_MOD),
+        patch_object_session(),
         patch(f"{_MOD}.NetmikoService") as netmiko_cls,
     ):
         netmiko_cls.return_value.get_configs = AsyncMock(

@@ -13,7 +13,7 @@ from workflow_steps.common.nautobot_step import bind_nautobot_client
 
 def test_a_run_without_a_session_names_the_step() -> None:
     with (
-        patch.object(nautobot_step, "object_session", return_value=None),
+        patch("workflow_steps.common.run_session.object_session", return_value=None),
         pytest.raises(RuntimeError, match="update-nautobot-vlan: WorkflowRun has no active DB"),
     ):
         bind_nautobot_client(MagicMock(), "src-1", step_id="update-nautobot-vlan")
@@ -24,7 +24,7 @@ def test_credentials_are_resolved_for_the_source_and_step() -> None:
     credentials = MagicMock()
     service = MagicMock()
     with (
-        patch.object(nautobot_step, "object_session", return_value=db),
+        patch("workflow_steps.common.run_session.object_session", return_value=db),
         patch.object(
             nautobot_step, "resolve_nautobot_credentials", return_value=credentials
         ) as resolve,

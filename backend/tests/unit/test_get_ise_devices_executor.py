@@ -28,7 +28,7 @@ def _patches(device_service: MagicMock):
     source_config_service.resolve_credentials.return_value = MagicMock()
     return (
         patch(
-            "workflow_steps.get_ise_devices.executor.object_session",
+            "workflow_steps.common.run_session.object_session",
             return_value=MagicMock(),
         ),
         patch(
@@ -409,7 +409,7 @@ class GetIseDevicesExecutorTests(unittest.IsolatedAsyncioTestCase):
         source_config_service.resolve_credentials.side_effect = ISESourceNotFoundError("missing")
         with (
             patch(
-                "workflow_steps.get_ise_devices.executor.object_session",
+                "workflow_steps.common.run_session.object_session",
                 return_value=MagicMock(),
             ),
             patch(

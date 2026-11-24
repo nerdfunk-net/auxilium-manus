@@ -19,9 +19,6 @@ import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy.orm import object_session
-
-import service_factory
 from core.models.runs import WorkflowRun
 from models.failure import FailureInfo, failure_from_exception
 from models.workflow_context import (
@@ -37,14 +34,13 @@ from services.nautobot.common.exceptions import (
     NautobotError,
     NautobotValidationError,
 )
-from services.nautobot.credentials_bound_client import CredentialsBoundNautobotClient
 from services.nautobot.jobs import NautobotJobsService
 from workflow_steps.check_nautobot_job.config import get_config
 from workflow_steps.common.attribute_expression import resolve_attribute_expression
 from workflow_steps.common.device_location_sync import uuid_or_none
 from workflow_steps.common.device_outcomes import build_outcomes
 from workflow_steps.common.device_runner import Fail, run_per_device
-from workflow_steps.common.nautobot_source import resolve_nautobot_credentials
+from workflow_steps.common.nautobot_step import bind_nautobot_client
 from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.common.step_flags import parse_int_flag
 
@@ -226,12 +222,7 @@ async def execute(
     if not context.devices:
         return [StepOutcome(name="success", context=context)]
 
-    db = object_session(run)
-    if db is None:
-        raise RuntimeError(f"{_STEP_ID}: WorkflowRun has no active DB session")
-
-    credentials = resolve_nautobot_credentials(db, parsed.source_id, step_id=_STEP_ID)
-    client = CredentialsBoundNautobotClient(service_factory.get_nautobot_app_service(), credentials)
+    client = bind_nautobot_client(run, parsed.source_id, step_id=_STEP_ID)
     jobs_service = NautobotJobsService(client)
     run_id = str(context.run_id) if context.run_id else None
 

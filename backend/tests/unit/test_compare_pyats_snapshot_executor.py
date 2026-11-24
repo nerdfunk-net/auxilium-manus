@@ -79,7 +79,7 @@ class ComparePyatsSnapshotExecutorTests(unittest.IsolatedAsyncioTestCase):
 
             with (
                 patch(
-                    "workflow_steps.compare_pyats_snapshot.executor.object_session",
+                    "workflow_steps.common.run_session.object_session",
                     return_value=db,
                 ),
                 patch(

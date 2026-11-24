@@ -13,7 +13,7 @@ from workflow_steps.get_pyats_running_config.executor import execute
 
 _CONFIG_SERVICE_TARGET = "workflow_steps.common.pyats_batch.PyATSSourceConfigService"
 _SERVICE_FACTORY_TARGET = "workflow_steps.get_pyats_running_config.executor.service_factory"
-_OBJECT_SESSION_TARGET = "workflow_steps.get_pyats_running_config.executor.object_session"
+_OBJECT_SESSION_TARGET = "workflow_steps.common.run_session.object_session"
 
 
 def _device_with_testbed(

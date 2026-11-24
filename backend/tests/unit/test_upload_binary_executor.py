@@ -130,7 +130,7 @@ class UploadBinaryExecutorTests(unittest.IsolatedAsyncioTestCase):
             return await fakes[kwargs["host"]].send_commands(**kwargs)
 
         with (
-            patch(f"{_MOD}.object_session", return_value=MagicMock()),
+            patch("workflow_steps.common.run_session.object_session", return_value=MagicMock()),
             patch(f"{_MOD}.resolve_ssh_credential", return_value=("admin", "secret")),
             patch(f"{_MOD}.resolve_git_root", new=_fake_git_root),
             patch(f"{_MOD}.NetmikoService") as netmiko_cls,

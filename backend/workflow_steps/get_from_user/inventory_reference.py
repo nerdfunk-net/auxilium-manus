@@ -11,7 +11,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from sqlalchemy.orm import Session, object_session
+from sqlalchemy.orm import Session
 
 import service_factory
 from core.models.runs import WorkflowRun
@@ -21,6 +21,7 @@ from services.settings.settings_service import SettingsService
 from services.workflow.device_lines import device_line
 from workflow_steps.common.nautobot_source import resolve_nautobot_credentials
 from workflow_steps.common.run_logging import log_run_id
+from workflow_steps.common.run_session import require_session
 
 logger = logging.getLogger(__name__)
 
@@ -56,9 +57,7 @@ async def inventory_device_text(
     run: WorkflowRun, config: dict[str, Any], reference: Any
 ) -> str:
     """Device lines for the inventory whose id is ``reference``."""
-    db = object_session(run)
-    if db is None:
-        raise RuntimeError(f"{_STEP}: WorkflowRun has no active DB session")
+    db = require_session(run, _STEP)
     try:
         inventory_id = int(str(reference).strip())
     except (TypeError, ValueError) as exc:

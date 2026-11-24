@@ -133,7 +133,7 @@ async def _execute(devices: dict[str, DeviceContext], netmiko: _Netmiko) -> list
     config = {**get_config(), "credential_reference": "lab", "follow_neighbors": True}
     config["permitted_prefixes"] = ["10.1.0.0/16"]
     with (
-        patch(f"{MODULE}.object_session", return_value=MagicMock()),
+        patch("workflow_steps.common.run_session.object_session", return_value=MagicMock()),
         patch(f"{MODULE}.resolve_ssh_credential", return_value=("admin", "secret")),
         patch(f"{MODULE}.settings", MagicMock(discover_network_follow_enabled=True)),
         patch(f"{MODULE}.NetmikoService", return_value=netmiko),

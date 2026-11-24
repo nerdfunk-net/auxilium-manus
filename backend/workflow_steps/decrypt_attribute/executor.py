@@ -29,8 +29,6 @@ import logging
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy.orm import object_session
-
 from core.cisco_secret import (
     ALGORITHM_CISCO_TYPE7,
     CiscoSecretError,
@@ -55,6 +53,7 @@ from workflow_steps.common.attribute_write import probe_destination_path, set_de
 from workflow_steps.common.credential_resolver import resolve_shared_secret_credential
 from workflow_steps.common.device_outcomes import build_outcomes
 from workflow_steps.common.device_runner import Fail, run_per_device
+from workflow_steps.common.run_session import require_session
 
 if TYPE_CHECKING:
     from services.network.netmiko.session_pool import DeviceSessionPool
@@ -228,9 +227,7 @@ async def execute(
     else:
         if not cfg.credential_reference:
             raise ValueError(f"{_STEP_ID}: credential_reference is required")
-        db = object_session(run)
-        if db is None:
-            raise RuntimeError(f"{_STEP_ID}: WorkflowRun has no active DB session")
+        db = require_session(run, _STEP_ID)
 
         cred_algorithm, passphrase = resolve_shared_secret_credential(
             db, cfg.credential_reference, acting_user_id=getattr(run, "triggered_by_id", None)

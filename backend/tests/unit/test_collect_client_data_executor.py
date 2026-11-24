@@ -131,7 +131,7 @@ class CollectClientDataExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.Session = sessionmaker(bind=engine)
         for target, value in (
             (f"{MODULE}.get_db_session", {"side_effect": lambda: self.Session()}),
-            (f"{MODULE}.object_session", {"return_value": MagicMock()}),
+            ("workflow_steps.common.run_session.object_session", {"return_value": MagicMock()}),
             (
                 f"{MODULE}.resolve_ssh_credential",
                 {"return_value": ("admin", "secret")},

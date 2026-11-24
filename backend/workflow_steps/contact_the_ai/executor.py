@@ -36,8 +36,6 @@ import re
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy.orm import object_session
-
 from core.address_masking import build_masker
 from core.config import settings
 from core.models.runs import WorkflowRun
@@ -62,6 +60,7 @@ from services.artifacts import ArtifactService
 from services.workflow_context.secret_fields import path_is_known_secret
 from workflow_steps.common.attribute_write import set_device_attribute
 from workflow_steps.common.device_outcomes import whole_step_failure
+from workflow_steps.common.run_session import require_session
 from workflow_steps.common.step_flags import parse_int_flag
 from workflow_steps.contact_the_ai.config import (
     DEFAULT_MAX_OUTPUT_TOKENS,
@@ -274,9 +273,7 @@ async def execute(
             )
         ]
 
-    db = object_session(run)
-    if db is None:
-        raise RuntimeError(f"{_STEP_ID}: WorkflowRun has no active DB session")
+    db = require_session(run, _STEP_ID)
 
     username = settings.workflow_ai_username
     if username is None:

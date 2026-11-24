@@ -53,7 +53,7 @@ def _failed(outcomes, device_id: str):
 def _gdc_netmiko(get_configs: AsyncMock) -> Generator[None]:
     with (
         patch_ssh_credential(_GDC),
-        patch_object_session(_GDC),
+        patch_object_session(),
         patch(f"{_GDC}.NetmikoService") as netmiko_cls,
     ):
         netmiko_cls.return_value.get_configs = get_configs
@@ -264,7 +264,7 @@ async def test_read_config_artifact_store_error_fails_only_that_device() -> None
 def _login_netmiko(test_login: AsyncMock) -> Generator[None]:
     with (
         patch_ssh_credential(_LOGIN),
-        patch_object_session(_LOGIN),
+        patch_object_session(),
         patch(f"{_LOGIN}.NetmikoService") as netmiko_cls,
     ):
         netmiko_cls.return_value.test_login = test_login

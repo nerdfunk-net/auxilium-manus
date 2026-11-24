@@ -31,7 +31,7 @@ class LoginSuccessfulExecutorTests(unittest.IsolatedAsyncioTestCase):
         db = MagicMock()
         with (
             patch(
-                "workflow_steps.login_successful.executor.object_session",
+                "workflow_steps.common.run_session.object_session",
                 return_value=db,
             ),
             patch(
@@ -72,7 +72,7 @@ class LoginSuccessfulExecutorTests(unittest.IsolatedAsyncioTestCase):
         db = MagicMock()
         with (
             patch(
-                "workflow_steps.login_successful.executor.object_session",
+                "workflow_steps.common.run_session.object_session",
                 return_value=db,
             ),
             patch(
@@ -111,7 +111,7 @@ class LoginSuccessfulExecutorTests(unittest.IsolatedAsyncioTestCase):
         db = MagicMock()
         with (
             patch(
-                "workflow_steps.login_successful.executor.object_session",
+                "workflow_steps.common.run_session.object_session",
                 return_value=db,
             ),
             patch(
@@ -151,7 +151,7 @@ class LoginSuccessfulExecutorTests(unittest.IsolatedAsyncioTestCase):
         db = MagicMock()
         with (
             patch(
-                "workflow_steps.login_successful.executor.object_session",
+                "workflow_steps.common.run_session.object_session",
                 return_value=db,
             ),
             patch(
@@ -180,7 +180,7 @@ class LoginSuccessfulExecutorTests(unittest.IsolatedAsyncioTestCase):
         db = MagicMock()
         with (
             patch(
-                "workflow_steps.login_successful.executor.object_session",
+                "workflow_steps.common.run_session.object_session",
                 return_value=db,
             ),
             patch(

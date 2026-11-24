@@ -265,7 +265,7 @@ async def execute(
 |--------------------|-----------------------|----------------------------------------------------|
 | `config`           | `dict[str, Any]`      | `pluginConfig` from the canvas node                |
 | `context`          | `WorkflowContext`     | Merged upstream step outcomes for this node        |
-| `run`              | `WorkflowRun`         | ORM instance — use `object_session(run)` for DB   |
+| `run`              | `WorkflowRun`         | ORM instance — `require_session(run, step_id)` for DB  |
 | `artifact_service` | `ArtifactService`     | Store/retrieve bulky content via `ArtifactRef`     |
 | `node_id`          | `str`                 | React Flow node id (for metadata namespacing)      |
 | `device_sessions`  | `DeviceSessionPool`   | Run-segment-scoped pool of live Netmiko sessions — see "Device sessions" below |
@@ -475,7 +475,7 @@ status, a transport kind) builds its own. `test_device_error_failure_ratchet.py`
   device list, so a config the step can never run with is reported on every run, not only on the one where devices
   arrive. `tests/unit/test_empty_branch_validates_config.py` pins this (an AST guard over every `execute`, and one
   unusable config per migrated step that must raise `ValueError` with no devices). Work that needs a session, a
-  credential or a remote system (`object_session`, `resolve_ssh_credential`, `_bind_nautobot`) stays after the guard.
+  credential or a remote system (`require_session`, `resolve_ssh_credential`, `_bind_nautobot`) stays after the guard.
 - **An empty branch is a no-op.** A step with `success` / `failure` handles returns `[success]` with the unchanged
   context (`open-change-request` too: nothing to review, nothing staged); a router (`route-on-attribute`,
   `route-on-content`, `list-contains`, `compare-data`, `login-successful`) answers every handle it declares, empty, with
@@ -484,6 +484,10 @@ status, a transport kind) builds its own. `test_device_error_failure_ratchet.py`
   cannot be opened, the git operation fails) every device is FAILED with one `DeviceError` carrying the step's
   `FailureInfo` (`device_outcomes.whole_step_failure`), `success` is answered empty; `contact-the-ai`, `open-change-request`
   and the git steps do it. A step that loses a remote system part-way keeps the devices already done (`abort_outcomes`).
+
+### The run's database session
+
+A step gets its session with `workflow_steps.common.run_session.require_session(run, step_id)`; a run without one raises `RuntimeError("<step_id>: WorkflowRun has no active DB session")`. Nothing else in `workflow_steps/` may call `object_session` (`tests/unit/test_object_session_ratchet.py`); tests patch `workflow_steps.common.run_session.object_session` (`patch_object_session()`).
 
 ### One per-device runner
 

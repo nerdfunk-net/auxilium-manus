@@ -48,7 +48,7 @@ def _enc_ctx(**bags_by_device: Any) -> Any:
 
 async def _run(mod: Any, config: dict[str, Any], context: Any) -> Any:
     with (
-        patch_object_session(mod.__name__),
+        patch_object_session(),
         patch.object(mod, "resolve_shared_secret_credential", return_value=_CRED),
     ):
         return await call_step(mod.execute, config, context, run=make_run())

@@ -33,8 +33,6 @@ import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy.orm import object_session
-
 import service_factory
 from core.models.runs import WorkflowRun
 from models.failure import FailureInfo
@@ -48,6 +46,7 @@ from workflow_steps.common.attribute_write import set_device_attribute
 from workflow_steps.common.device_outcomes import build_outcomes
 from workflow_steps.common.device_runner import AbortRun, Fail, run_per_device
 from workflow_steps.common.partial_outcomes import abort_outcomes
+from workflow_steps.common.run_session import require_session
 from workflow_steps.common.source_credentials import resolve_source
 from workflow_steps.common.update_field_expression import resolve_update_field_expression
 
@@ -93,9 +92,7 @@ def _parse_config(config: dict[str, Any]) -> _ParsedConfig:
 
 
 def _build_ise_device_service(run: WorkflowRun, source_id: str) -> ISENetworkDeviceService:
-    db = object_session(run)
-    if db is None:
-        raise RuntimeError(f"{_STEP_ID}: WorkflowRun has no active DB session")
+    db = require_session(run, _STEP_ID)
 
     source_config_service = service_factory.build_ise_source_config_service(db)
     credentials = resolve_source(

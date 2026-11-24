@@ -12,7 +12,7 @@ from workflow_steps.common.batfish_context import (
     store_batfish_snapshot,
 )
 
-_OBJECT_SESSION_TARGET = "workflow_steps.common.batfish_context.object_session"
+_OBJECT_SESSION_TARGET = "workflow_steps.common.run_session.object_session"
 _CONFIG_SERVICE_TARGET = "workflow_steps.common.batfish_context.BatfishSourceConfigService"
 
 

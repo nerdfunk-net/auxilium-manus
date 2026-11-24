@@ -55,7 +55,7 @@ class GetPyatsSnapshotExecutorTests(unittest.IsolatedAsyncioTestCase):
         db = MagicMock()
         artifact_service = InMemoryArtifactService()
         with (
-            patch("workflow_steps.get_pyats_snapshot.executor.object_session", return_value=db),
+            patch("workflow_steps.common.run_session.object_session", return_value=db),
             patch(_CONFIG_SERVICE_TARGET) as config_service_cls,
             patch(_SERVICE_FACTORY_TARGET) as service_factory_mock,
         ):
@@ -106,7 +106,7 @@ class GetPyatsSnapshotExecutorTests(unittest.IsolatedAsyncioTestCase):
         run.id = 1
         db = MagicMock()
         with (
-            patch("workflow_steps.get_pyats_snapshot.executor.object_session", return_value=db),
+            patch("workflow_steps.common.run_session.object_session", return_value=db),
             patch(_CONFIG_SERVICE_TARGET) as config_service_cls,
             patch(_SERVICE_FACTORY_TARGET) as service_factory_mock,
         ):
@@ -154,7 +154,7 @@ class GetPyatsSnapshotExecutorTests(unittest.IsolatedAsyncioTestCase):
         run.id = 1
         db = MagicMock()
         with (
-            patch("workflow_steps.get_pyats_snapshot.executor.object_session", return_value=db),
+            patch("workflow_steps.common.run_session.object_session", return_value=db),
             patch(_CONFIG_SERVICE_TARGET) as config_service_cls,
             patch(_SERVICE_FACTORY_TARGET) as service_factory_mock,
         ):
@@ -193,7 +193,7 @@ class GetPyatsSnapshotExecutorTests(unittest.IsolatedAsyncioTestCase):
         run.id = 1
         with (
             patch(
-                "workflow_steps.get_pyats_snapshot.executor.object_session",
+                "workflow_steps.common.run_session.object_session",
                 return_value=MagicMock(),
             ),
             patch(_CONFIG_SERVICE_TARGET) as config_service_cls,
@@ -230,7 +230,7 @@ class GetPyatsSnapshotExecutorTests(unittest.IsolatedAsyncioTestCase):
         db = MagicMock()
         device = DeviceContext(id="device-1", name="r1", hostname="r1", status=DeviceStatus.OK)
         with (
-            patch("workflow_steps.get_pyats_snapshot.executor.object_session", return_value=db),
+            patch("workflow_steps.common.run_session.object_session", return_value=db),
             patch(_SERVICE_FACTORY_TARGET) as service_factory_mock,
         ):
             shim = MagicMock()
@@ -260,7 +260,7 @@ class GetPyatsSnapshotExecutorTests(unittest.IsolatedAsyncioTestCase):
         run.id = 1
         db = MagicMock()
         with (
-            patch("workflow_steps.get_pyats_snapshot.executor.object_session", return_value=db),
+            patch("workflow_steps.common.run_session.object_session", return_value=db),
             patch(_CONFIG_SERVICE_TARGET) as config_service_cls,
             patch(_SERVICE_FACTORY_TARGET) as service_factory_mock,
         ):
@@ -323,7 +323,7 @@ class GetPyatsSnapshotExecutorTests(unittest.IsolatedAsyncioTestCase):
             "device-2": _device_with_testbed("device-2"),
         }
         with (
-            patch("workflow_steps.get_pyats_snapshot.executor.object_session", return_value=db),
+            patch("workflow_steps.common.run_session.object_session", return_value=db),
             patch(_CONFIG_SERVICE_TARGET) as config_service_cls,
             patch(_SERVICE_FACTORY_TARGET) as service_factory_mock,
         ):
@@ -361,7 +361,7 @@ class GetPyatsSnapshotExecutorTests(unittest.IsolatedAsyncioTestCase):
             "device-2": _device_with_testbed("device-2", source_id="lab-b"),
         }
         with (
-            patch("workflow_steps.get_pyats_snapshot.executor.object_session", return_value=db),
+            patch("workflow_steps.common.run_session.object_session", return_value=db),
             patch(_CONFIG_SERVICE_TARGET) as config_service_cls,
             patch(_SERVICE_FACTORY_TARGET) as service_factory_mock,
         ):
@@ -399,7 +399,7 @@ class GetPyatsSnapshotExecutorTests(unittest.IsolatedAsyncioTestCase):
             "device-2": _device_with_testbed("device-2"),
         }
         with (
-            patch("workflow_steps.get_pyats_snapshot.executor.object_session", return_value=db),
+            patch("workflow_steps.common.run_session.object_session", return_value=db),
             patch(_CONFIG_SERVICE_TARGET) as config_service_cls,
             patch(_SERVICE_FACTORY_TARGET) as service_factory_mock,
         ):

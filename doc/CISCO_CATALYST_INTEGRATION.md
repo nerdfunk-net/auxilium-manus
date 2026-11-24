@@ -564,7 +564,7 @@ The fact-service fixtures are trimmed copies of real sandbox payloads.
 `CatalystCenterService` directly and calls the services with in-memory `CatalystCenterCredentials` — no DB rows, no
 vault entries, and only read-only calls. The Cisco DevNet always-on sandbox is `https://sandboxdnac2.cisco.com`
 (credentials are published on Cisco DevNet; do not commit them). It needs `verify_ssl=false`. To run the real executor
-without a DB, patch `object_session` and `service_factory.build_catalyst_center_source_config_service`, and call
+without a DB, patch `workflow_steps.common.run_session.object_session` (`tests/unit/_step_helpers.py::patch_object_session`) and `service_factory.build_catalyst_center_source_config_service`, and call
 `service_factory.set_catalyst_center_app_service(...)`.
 
 Browser UI automation is not available in every environment here; if it is not, say so and give a manual click-through

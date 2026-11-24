@@ -41,8 +41,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy.orm import object_session
-
 import service_factory
 from core.models.runs import WorkflowRun
 from models.workflow_context import StepOutcome, WorkflowContext
@@ -66,6 +64,7 @@ from workflow_steps.common.git_repository_loader import load_git_repository, req
 from workflow_steps.common.partial_outcomes import mark_device_failed
 from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.common.run_param_reference import resolve_config_reference
+from workflow_steps.common.run_session import require_session
 from workflow_steps.common.step_flags import parse_bool_flag, parse_int_flag
 
 if TYPE_CHECKING:
@@ -287,9 +286,7 @@ async def execute(
         raise ValueError(f"{_STEP_ID}: batfish_source_id is required")
     retain = parse_int_flag(merged_config, "retain_snapshots", default=0, step_id=_STEP_ID)
 
-    db = object_session(run)
-    if db is None:
-        raise RuntimeError(f"{_STEP_ID}: WorkflowRun has no active DB session")
+    db = require_session(run, _STEP_ID)
 
     connection = resolve_batfish_connection(db, source_id, step_id=_STEP_ID)
 

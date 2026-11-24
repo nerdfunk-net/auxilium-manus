@@ -126,7 +126,7 @@ async def _run_command(
 ) -> Any:
     with (
         _CommandHarness(run_commands=run_commands),
-        patch_object_session("workflow_steps.run_catalyst_center_command.executor"),
+        patch_object_session(),
     ):
         return await call_step(
             run_command,
@@ -224,7 +224,7 @@ async def test_command_a_parser_that_raises_fails_only_that_device() -> None:
     ):
         with (
             _CommandHarness(run_commands=results),
-            patch_object_session("workflow_steps.run_catalyst_center_command.executor"),
+            patch_object_session(),
         ):
             outcomes = await call_step(
                 run_command,

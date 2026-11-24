@@ -18,8 +18,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy.orm import object_session
-
 from models.workflow_context import Capability, DeviceContext, DeviceStatus, WorkflowContext
 from services.batfish.common.exceptions import BatfishValidationError
 from services.batfish.credentials import BatfishConnection
@@ -29,6 +27,7 @@ from services.batfish.query_helpers import (
 )
 from services.batfish.source_config_service import BatfishSourceConfigService
 from services.settings.source_config_base import SourceNotFoundError
+from workflow_steps.common.run_session import require_session
 
 if TYPE_CHECKING:
     from core.models.runs import WorkflowRun
@@ -111,9 +110,7 @@ async def resolve_batfish_snapshot_ref(
     if not (source_id and network):
         return resolve_batfish_snapshot(context)
 
-    db = object_session(run)
-    if db is None:
-        raise RuntimeError("resolve_batfish_snapshot_ref: WorkflowRun has no active DB session")
+    db = require_session(run, "resolve_batfish_snapshot_ref")
     connection = resolve_batfish_connection(db, source_id, step_id=step_id)
 
     # Must happen before anything below touches BatfishService._get_session()

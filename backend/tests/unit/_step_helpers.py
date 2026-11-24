@@ -14,7 +14,7 @@ Adopt it in the files a refactoring touches; there is no mass rewrite of the old
 from __future__ import annotations
 
 from collections.abc import Callable, Generator, Iterable
-from contextlib import ExitStack, contextmanager
+from contextlib import contextmanager
 from typing import Any
 from unittest.mock import MagicMock, patch
 
@@ -126,12 +126,10 @@ def patch_ssh_credential(
 
 
 @contextmanager
-def patch_object_session(*modules: str, db: Any = None) -> Generator[Any]:
-    """Make ``object_session(run)`` return ``db`` (a MagicMock when omitted) in ``modules``."""
+def patch_object_session(*, db: Any = None) -> Generator[Any]:
+    """Make the session a step gets from its run (``require_session``) a MagicMock, or ``db``."""
     session = db if db is not None else MagicMock(name="db")
-    with ExitStack() as stack:
-        for module in modules:
-            stack.enter_context(patch(f"{module}.object_session", return_value=session))
+    with patch("workflow_steps.common.run_session.object_session", return_value=session):
         yield session
 
 

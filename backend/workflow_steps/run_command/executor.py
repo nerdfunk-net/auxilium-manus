@@ -10,8 +10,6 @@ import logging
 from dataclasses import replace
 from typing import Any
 
-from sqlalchemy.orm import object_session
-
 from core.models.runs import WorkflowRun
 from models.workflow_context import StepOutcome, WorkflowContext
 from services.artifacts import ArtifactService
@@ -20,6 +18,7 @@ from services.network.netmiko.session_pool import DeviceSessionPool
 from workflow_steps.common.credential_resolver import resolve_ssh_credential
 from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.common.run_param_reference import resolve_config_reference
+from workflow_steps.common.run_session import require_session
 from workflow_steps.run_command.config_mode import run_config_mode
 from workflow_steps.run_command.enrichment import enrich_with_genie, enrich_with_textfsm
 from workflow_steps.run_command.exec_mode import run_exec_mode
@@ -70,9 +69,7 @@ async def execute(
     if not context.devices:
         return [StepOutcome(name="success", context=context)]
 
-    db = object_session(run)
-    if db is None:
-        raise RuntimeError("run-command: WorkflowRun has no active DB session")
+    db = require_session(run, "run-command")
 
     username, password = resolve_ssh_credential(
         db, parsed.credential_reference, acting_user_id=run.triggered_by_id

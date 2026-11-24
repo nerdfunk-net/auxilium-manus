@@ -18,7 +18,7 @@ from workflow_steps.batfish_init_snapshot.executor import execute
 
 _CONFIG_SERVICE_TARGET = "workflow_steps.common.batfish_context.BatfishSourceConfigService"
 _SERVICE_FACTORY_TARGET = "workflow_steps.batfish_init_snapshot.executor.service_factory"
-_OBJECT_SESSION_TARGET = "workflow_steps.batfish_init_snapshot.executor.object_session"
+_OBJECT_SESSION_TARGET = "workflow_steps.common.run_session.object_session"
 _LOAD_GIT_REPOSITORY_TARGET = "workflow_steps.batfish_init_snapshot.executor.load_git_repository"
 _CLONE_OR_PULL_TARGET = "workflow_steps.batfish_init_snapshot.executor.agit_checkout"
 _COLLECT_GIT_SOURCE_FILES_TARGET = (

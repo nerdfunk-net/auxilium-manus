@@ -13,8 +13,6 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy.orm import object_session
-
 from core.config import settings
 from core.models.runs import WorkflowRun
 from models.failure import FailureInfo, failure_from_exception
@@ -31,6 +29,7 @@ from workflow_steps.common.credential_resolver import resolve_ssh_credential
 from workflow_steps.common.device_outcomes import build_outcomes, mark_device_failed
 from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.common.run_param_reference import resolve_config_reference
+from workflow_steps.common.run_session import require_session
 from workflow_steps.common.step_flags import record_dry_run
 from workflow_steps.discover_network.crawler import (
     CrawlResult,
@@ -299,9 +298,7 @@ async def execute(
     if not context.devices:
         return [StepOutcome(name="success", context=context)]
 
-    db = object_session(run)
-    if db is None:
-        raise RuntimeError("discover-network: WorkflowRun has no active DB session")
+    db = require_session(run, "discover-network")
     username, password = resolve_ssh_credential(db, reference, acting_user_id=run.triggered_by_id)
 
     logger.info(

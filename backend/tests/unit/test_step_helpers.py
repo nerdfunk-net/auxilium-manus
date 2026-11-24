@@ -14,6 +14,7 @@ from tests.unit._step_helpers import (
     patch_object_session,
     patch_ssh_credential,
 )
+from workflow_steps.common.run_session import require_session
 
 
 def test_make_run_rejects_an_attribute_the_model_does_not_have() -> None:
@@ -69,8 +70,8 @@ def test_patch_helpers_replace_the_names_the_step_module_imported() -> None:
 
     with (
         patch_ssh_credential("workflow_steps.run_command.executor") as credential,
-        patch_object_session("workflow_steps.run_command.executor") as db,
+        patch_object_session() as db,
     ):
         assert mod.resolve_ssh_credential(None, "ref", acting_user_id=3) == ("admin", "secret")
-        assert mod.object_session(make_run()) is db
+        assert require_session(make_run(), "run-command") is db
         credential.assert_called_once_with(None, "ref", acting_user_id=3)

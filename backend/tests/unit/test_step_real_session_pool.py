@@ -87,7 +87,7 @@ def _devices(*names: str) -> Any:
 
 
 async def _run(pool: DeviceSessionPool, context: Any, *, reference: str = "lab-ssh") -> Any:
-    with patch_ssh_credential(_RUN_COMMAND) as credential, patch_object_session(_RUN_COMMAND):
+    with patch_ssh_credential(_RUN_COMMAND) as credential, patch_object_session():
         outcomes = await call_step(
             run_command,
             {"credential_reference": reference, "commands": ["show version"], "parser": "none"},

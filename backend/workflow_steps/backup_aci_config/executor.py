@@ -13,8 +13,6 @@ import logging
 import re
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy.orm import object_session
-
 import service_factory
 from core.models.runs import WorkflowRun
 from models.workflow_context import StepOutcome, WorkflowContext
@@ -24,6 +22,7 @@ from services.artifacts.sinks.git_sink import GitArtifactSink
 from workflow_steps.common.aci_targets import resolve_source_credentials
 from workflow_steps.common.fact_entries import parse_output_key_config
 from workflow_steps.common.git_repository_loader import load_git_repository, parse_repository_id
+from workflow_steps.common.run_session import require_session
 from workflow_steps.common.step_flags import parse_bool_flag
 
 if TYPE_CHECKING:
@@ -119,9 +118,7 @@ async def execute(
         key_name="output_key",
     )
 
-    db = object_session(run)
-    if db is None:
-        raise RuntimeError(f"{STEP_ID}: WorkflowRun has no active DB session")
+    db = require_session(run, STEP_ID)
     credentials = resolve_source_credentials(db, [source_id], step_id=STEP_ID)[source_id]
     repository = load_git_repository(repository_id)
 

@@ -54,14 +54,14 @@ class ParseConfigTests(unittest.TestCase):
 class BindNautobotTests(unittest.TestCase):
     def test_no_db_session_raises(self) -> None:
         run = MagicMock()
-        with patch.object(mod, "object_session", return_value=None):
+        with patch("workflow_steps.common.run_session.object_session", return_value=None):
             with self.assertRaises(RuntimeError):
                 _bind_nautobot(run, "src-1")
 
     def test_resolver_error_propagates(self) -> None:
         run = MagicMock()
         with (
-            patch.object(mod, "object_session", return_value=MagicMock()),
+            patch("workflow_steps.common.run_session.object_session", return_value=MagicMock()),
             patch.object(
                 mod,
                 "resolve_nautobot_credentials",
@@ -75,7 +75,7 @@ class BindNautobotTests(unittest.TestCase):
         run = MagicMock()
         creds = MagicMock(url="https://nb")
         with (
-            patch.object(mod, "object_session", return_value=MagicMock()),
+            patch("workflow_steps.common.run_session.object_session", return_value=MagicMock()),
             patch.object(mod, "resolve_nautobot_credentials", return_value=creds),
             patch.object(mod.service_factory, "get_nautobot_app_service", return_value="svc"),
         ):

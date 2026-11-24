@@ -86,9 +86,9 @@ class _Patched:
 
     def __enter__(self):
         self._patches = [
-            patch(f"{FACTS_MODULE}.object_session", return_value=MagicMock()),
+            patch("workflow_steps.common.run_session.object_session", return_value=MagicMock()),
             patch(
-                "workflow_steps.find_aci_endpoints.executor.object_session",
+                "workflow_steps.common.run_session.object_session",
                 return_value=MagicMock(),
             ),
             patch(

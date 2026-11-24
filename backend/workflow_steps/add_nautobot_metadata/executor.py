@@ -15,9 +15,6 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy.orm import object_session
-
-import service_factory
 from core.models.runs import WorkflowRun
 from models.failure import FailureInfo
 from models.workflow_context import (
@@ -29,13 +26,12 @@ from models.workflow_context import (
     WorkflowContext,
 )
 from services.artifacts import ArtifactService
-from services.nautobot.credentials_bound_client import CredentialsBoundNautobotClient
 from services.nautobot.metadata_creation import (
     MetadataCreationService,
     MetadataReferenceNotFoundError,
 )
 from workflow_steps.common.failure_records import INVALID_INPUT
-from workflow_steps.common.nautobot_source import resolve_nautobot_credentials
+from workflow_steps.common.nautobot_step import bind_nautobot_client
 from workflow_steps.common.partial_outcomes import NAUTOBOT_TEXT, device_error_from_exception
 from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.common.update_field_expression import resolve_template_if_present
@@ -322,12 +318,7 @@ async def execute(
     if not context.devices:
         return [StepOutcome(name="success", context=context)]
 
-    db = object_session(run)
-    if db is None:
-        raise RuntimeError(f"{_STEP_ID}: WorkflowRun has no active DB session")
-
-    credentials = resolve_nautobot_credentials(db, parsed.source_id, step_id=_STEP_ID)
-    client = CredentialsBoundNautobotClient(service_factory.get_nautobot_app_service(), credentials)
+    client = bind_nautobot_client(run, parsed.source_id, step_id=_STEP_ID)
     service = MetadataCreationService(client)
     shared = _SharedCalls()
 

@@ -213,10 +213,10 @@ async def test_execute_binds_the_source_credentials_and_routes_by_status() -> No
     jobs = MagicMock()
     jobs.get_job_result = AsyncMock(side_effect=[{"status": "SUCCESS"}, {"status": "FAILURE"}])
     with (
-        patch_object_session(_MOD),
-        patch(f"{_MOD}.resolve_nautobot_credentials") as credentials,
-        patch(f"{_MOD}.CredentialsBoundNautobotClient"),
-        patch(f"{_MOD}.service_factory"),
+        patch_object_session(),
+        patch("workflow_steps.common.nautobot_step.resolve_nautobot_credentials") as credentials,
+        patch("workflow_steps.common.nautobot_step.CredentialsBoundNautobotClient"),
+        patch("workflow_steps.common.nautobot_step.service_factory"),
         patch(f"{_MOD}.NautobotJobsService", return_value=jobs),
     ):
         outcomes = await call_step(
@@ -242,7 +242,7 @@ async def test_execute_without_devices_is_a_no_op_success() -> None:
 
 @pytest.mark.asyncio
 async def test_execute_without_a_db_session_is_a_runtime_error() -> None:
-    with patch(f"{_MOD}.object_session", return_value=None):
+    with patch("workflow_steps.common.run_session.object_session", return_value=None):
         with pytest.raises(RuntimeError, match="no active DB session"):
             await call_step(
                 mod.execute,

@@ -31,7 +31,7 @@ async def test_a_bad_mode_key_fails_before_any_credential_or_service_lookup(
     config: dict[str, object], needle: str
 ) -> None:
     with (
-        patch(f"{_MOD}.object_session") as session,
+        patch("workflow_steps.common.run_session.object_session") as session,
         patch(f"{_MOD}._build_ise_services") as build,
     ):
         with pytest.raises(ValueError, match=needle):
@@ -62,7 +62,7 @@ async def test_a_nautobot_failure_during_subnet_expansion_fails_the_step() -> No
         "nautobot_source_id": "nb",
     }
     with (
-        patch(f"{_MOD}.object_session", return_value=MagicMock()),
+        patch("workflow_steps.common.run_session.object_session", return_value=MagicMock()),
         patch(f"{_MOD}._build_ise_services", return_value=(device_service, nautobot)),
     ):
         with pytest.raises(InventoryEvaluationError):

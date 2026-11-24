@@ -70,7 +70,7 @@ class _Harness:
 
     def __enter__(self):
         self._patches = [
-            patch(f"{MODULE}.object_session", return_value=MagicMock()),
+            patch("workflow_steps.common.run_session.object_session", return_value=MagicMock()),
             patch("service_factory.build_aci_source_config_service", self.build_source_config),
             patch("service_factory.build_aci_device_service", self.build_device_service),
         ]
@@ -251,7 +251,7 @@ class ConfigErrorTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("more than 2 devices", message)
 
     async def test_missing_db_session(self) -> None:
-        with patch(f"{MODULE}.object_session", return_value=None):
+        with patch("workflow_steps.common.run_session.object_session", return_value=None):
             with self.assertRaises(RuntimeError):
                 await _run(_config())
 

@@ -67,7 +67,9 @@ def test_reachable_caps_the_timeout_at_sixty_seconds() -> None:
 
 def _patched(*, service: MagicMock) -> Any:
     return (
-        patch.object(inv, "object_session", return_value=MagicMock(name="db")),
+        patch(
+            "workflow_steps.common.run_session.object_session", return_value=MagicMock(name="db")
+        ),
         patch.object(inv, "_pick_source_id", return_value="src"),
         patch.object(inv, "resolve_nautobot_credentials", return_value=MagicMock()),
         patch.object(inv.service_factory, "build_nautobot_source_service", return_value=service),
@@ -76,7 +78,7 @@ def _patched(*, service: MagicMock) -> Any:
 
 @pytest.mark.asyncio
 async def test_inventory_reference_without_a_db_session_is_a_runtime_error() -> None:
-    with patch.object(inv, "object_session", return_value=None):
+    with patch("workflow_steps.common.run_session.object_session", return_value=None):
         with pytest.raises(RuntimeError, match="no active DB session"):
             await inv.inventory_device_text(make_run(), {}, "1")
 
@@ -84,7 +86,7 @@ async def test_inventory_reference_without_a_db_session_is_a_runtime_error() -> 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("reference", ["abc", "", None])
 async def test_inventory_reference_must_be_an_inventory_id(reference: Any) -> None:
-    with patch.object(inv, "object_session", return_value=MagicMock()):
+    with patch("workflow_steps.common.run_session.object_session", return_value=MagicMock()):
         with pytest.raises(ValueError, match="inventory id"):
             await inv.inventory_device_text(make_run(), {}, reference)
 

@@ -445,7 +445,7 @@ class RedundancyGroupsConfigTests(unittest.IsolatedAsyncioTestCase):
 
 class ExecuteTests(unittest.IsolatedAsyncioTestCase):
     async def test_no_db_session_raises(self) -> None:
-        with patch.object(mod, "object_session", return_value=None):
+        with patch("workflow_steps.common.run_session.object_session", return_value=None):
             with self.assertRaises(RuntimeError):
                 await execute(
                     config=_CFG,
@@ -465,7 +465,7 @@ class ExecuteTests(unittest.IsolatedAsyncioTestCase):
         run.id = 1
         ctx = WorkflowContext(run_id="r", workflow_id="w", devices={"d1": _device("d1")})
         with (
-            patch.object(mod, "object_session", return_value=MagicMock()),
+            patch("workflow_steps.common.run_session.object_session", return_value=MagicMock()),
             patch.object(
                 mod, "_build_update_service",
                 return_value=(MagicMock(), MagicMock(), update_service),

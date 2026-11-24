@@ -178,7 +178,7 @@ class BatfishOspfFactsExecutorTests(unittest.IsolatedAsyncioTestCase):
         with (
             patch(_SERVICE_FACTORY_TARGET) as service_factory_mock,
             patch(
-                "workflow_steps.common.batfish_context.object_session",
+                "workflow_steps.common.run_session.object_session",
                 return_value=MagicMock(),
             ),
             patch(

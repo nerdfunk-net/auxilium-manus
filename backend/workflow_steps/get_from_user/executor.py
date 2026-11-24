@@ -20,8 +20,6 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy.orm import object_session
-
 from core.models.runs import WorkflowRun
 from models.workflow_context import StepOutcome, WorkflowContext
 from services.artifacts import ArtifactService
@@ -33,6 +31,7 @@ from workflow_steps.common.device_list import (
 )
 from workflow_steps.common.fan_out import build_fan_out_metadata
 from workflow_steps.common.run_logging import log_run_id
+from workflow_steps.common.run_session import require_session
 from workflow_steps.get_from_user.inventory_reference import (
     inventory_device_text,
     is_inventory_reference,
@@ -76,10 +75,8 @@ async def execute(
         or DEFAULT_NETWORK_DRIVER
     )
     raw_value = run_inputs[param_name]
-    db = object_session(run)
-    if db is None:
-        # Without a session the inventory id would be parsed as a device name (W10-04).
-        raise RuntimeError("get-from-user: WorkflowRun has no active DB session")
+    # Without a session the inventory id would be parsed as a device name (W10-04).
+    db = require_session(run, "get-from-user")
     # An inventory reference carries an inventory id; read that inventory's devices.
     if is_inventory_reference(db, run, param_name):
         raw_value = await inventory_device_text(run, config, raw_value)

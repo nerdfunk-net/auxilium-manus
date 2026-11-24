@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from sqlalchemy.orm import Session, object_session
+from sqlalchemy.orm import Session
 
 from core.models.runs import WorkflowRun
 from core.models.workflows import Workflow
 from repositories.workflow_repository import WorkflowRepository
+from workflow_steps.common.run_session import require_session
 
 
 def resolve_run_workflow(run: WorkflowRun, *, step_id: str) -> tuple[Session, Workflow, str | None]:
@@ -16,9 +17,7 @@ def resolve_run_workflow(run: WorkflowRun, *, step_id: str) -> tuple[Session, Wo
     errors for the same conditions. ``step_id`` (e.g. ``"notify"``) is only
     used to prefix error messages.
     """
-    db = object_session(run)
-    if db is None:
-        raise RuntimeError(f"{step_id}: WorkflowRun has no active DB session")
+    db = require_session(run, step_id)
 
     result = WorkflowRepository(db).get_by_id(run.workflow_id)
     if result is None:

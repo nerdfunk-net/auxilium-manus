@@ -140,7 +140,7 @@ class _Patched:
 
     def __enter__(self):
         self._patches = [
-            patch(f"{EXEC}.object_session", return_value=MagicMock()),
+            patch("workflow_steps.common.run_session.object_session", return_value=MagicMock()),
             patch("service_factory.build_aci_source_config_service", return_value=self.aci_source),
             patch("service_factory.build_aci_config_export_service", return_value=self.service),
             patch(f"{EXEC}.load_git_repository", return_value={"id": 7, "name": "backups"}),

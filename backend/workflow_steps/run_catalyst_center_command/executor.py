@@ -7,8 +7,6 @@ import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy.orm import object_session
-
 import service_factory
 from core.models.runs import WorkflowRun
 from models.catalyst_center import CatalystCenterCommandResult, CatalystCenterCommandStatus
@@ -40,6 +38,7 @@ from workflow_steps.common.partial_outcomes import (
     device_error_from_exception,
     fail_device_with_error,
 )
+from workflow_steps.common.run_session import require_session
 from workflow_steps.common.step_flags import parse_int_flag
 from workflow_steps.common.textfsm_parse import parse_with_textfsm
 
@@ -312,9 +311,7 @@ async def execute(
     if not context.devices:
         return [StepOutcome(name="success", context=context)]
 
-    db = object_session(run)
-    if db is None:
-        raise RuntimeError(f"{STEP_ID}: WorkflowRun has no active DB session")
+    db = require_session(run, STEP_ID)
 
     split = split_targets(context.devices, step_id=STEP_ID, node_id=node_id)
     credentials = resolve_source_credentials(db, list(split.by_source), step_id=STEP_ID)

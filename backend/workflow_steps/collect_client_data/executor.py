@@ -16,7 +16,6 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy.orm import object_session
 
 from core.config import settings
 from core.database import get_db_session
@@ -60,6 +59,7 @@ from workflow_steps.common.partial_outcomes import (
 )
 from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.common.run_param_reference import resolve_config_reference
+from workflow_steps.common.run_session import require_session
 from workflow_steps.common.step_flags import record_dry_run
 
 if TYPE_CHECKING:
@@ -310,9 +310,7 @@ async def execute(
     if not context.devices:
         return [StepOutcome(name="success", context=context)]
 
-    db = object_session(run)
-    if db is None:
-        raise RuntimeError("collect-client-data: WorkflowRun has no active DB session")
+    db = require_session(run, "collect-client-data")
     username, password = resolve_ssh_credential(db, reference, acting_user_id=run.triggered_by_id)
     credentials = (username, password, reference)
     netmiko = NetmikoService(pool=device_sessions)

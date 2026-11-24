@@ -49,7 +49,7 @@ async def _run(
 ):
     run = MagicMock(id=5, triggered_by_id=7, run_inputs=run_inputs or {})
     with (
-        patch.object(mod, "object_session", return_value=MagicMock()),
+        patch("workflow_steps.common.run_session.object_session", return_value=MagicMock()),
         patch.object(mod, "resolve_nautobot_credentials", return_value=MagicMock()),
         patch.object(mod, "_acting_username", return_value=username),
         patch.object(mod.service_factory, "build_nautobot_source_service", return_value=service),

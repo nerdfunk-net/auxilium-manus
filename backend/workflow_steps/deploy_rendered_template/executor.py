@@ -6,8 +6,6 @@ import logging
 from dataclasses import dataclass, replace
 from typing import Any
 
-from sqlalchemy.orm import object_session
-
 from core.models.runs import WorkflowRun
 from models.workflow_context import (
     CommandResult,
@@ -31,6 +29,7 @@ from workflow_steps.common.read_timeout import parse_read_timeout
 from workflow_steps.common.retry_config import parse_retry_backoff_seconds
 from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.common.run_param_reference import resolve_config_reference
+from workflow_steps.common.run_session import require_session
 from workflow_steps.common.step_flags import parse_bool_flag, record_dry_run
 
 logger = logging.getLogger(__name__)
@@ -347,9 +346,7 @@ async def execute(
     if not context.devices:
         return [StepOutcome(name="success", context=context)]
 
-    db = object_session(run)
-    if db is None:
-        raise RuntimeError("deploy-rendered-template: WorkflowRun has no active DB session")
+    db = require_session(run, "deploy-rendered-template")
 
     username, password = resolve_ssh_credential(
         db, parsed.credential_reference, acting_user_id=run.triggered_by_id

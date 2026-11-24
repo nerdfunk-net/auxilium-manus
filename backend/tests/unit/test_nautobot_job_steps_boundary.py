@@ -50,10 +50,10 @@ async def _start(run_job: AsyncMock, *names: str) -> dict[str, Any]:
         "max_concurrency": 1,
     }
     with (
-        patch_object_session(mod),
-        patch(f"{mod}.resolve_nautobot_credentials"),
-        patch(f"{mod}.CredentialsBoundNautobotClient"),
-        patch(f"{mod}.service_factory"),
+        patch_object_session(),
+        patch("workflow_steps.common.nautobot_step.resolve_nautobot_credentials"),
+        patch("workflow_steps.common.nautobot_step.CredentialsBoundNautobotClient"),
+        patch("workflow_steps.common.nautobot_step.service_factory"),
         patch(f"{mod}.NautobotJobsService", return_value=jobs),
         patch(f"{mod}.DeviceCommonService"),
     ):
@@ -130,10 +130,10 @@ async def _check(get_job_result: AsyncMock, *names: str) -> dict[str, Any]:
         "interval_seconds": 0,
     }
     with (
-        patch_object_session(mod),
-        patch(f"{mod}.resolve_nautobot_credentials"),
-        patch(f"{mod}.CredentialsBoundNautobotClient"),
-        patch(f"{mod}.service_factory"),
+        patch_object_session(),
+        patch("workflow_steps.common.nautobot_step.resolve_nautobot_credentials"),
+        patch("workflow_steps.common.nautobot_step.CredentialsBoundNautobotClient"),
+        patch("workflow_steps.common.nautobot_step.service_factory"),
         patch(f"{mod}.NautobotJobsService", return_value=jobs),
     ):
         outcomes = await call_step(

@@ -409,10 +409,16 @@ class MaxConcurrencyTests(unittest.IsolatedAsyncioTestCase):
         }
         with (
             patch.object(mod, "_start_job_for_device", side_effect=fake_start),
-            patch.object(mod, "object_session", return_value=MagicMock()),
-            patch.object(mod, "resolve_nautobot_credentials", return_value=MagicMock()),
-            patch.object(mod.service_factory, "get_nautobot_app_service", return_value=MagicMock()),
-            patch.object(mod, "CredentialsBoundNautobotClient", return_value=MagicMock()),
+            patch("workflow_steps.common.run_session.object_session", return_value=MagicMock()),
+            patch(
+                "workflow_steps.common.nautobot_step.resolve_nautobot_credentials",
+                return_value=MagicMock(),
+            ),
+            patch("service_factory.get_nautobot_app_service", return_value=MagicMock()),
+            patch(
+                "workflow_steps.common.nautobot_step.CredentialsBoundNautobotClient",
+                return_value=MagicMock(),
+            ),
             patch.object(mod, "NautobotJobsService", return_value=MagicMock()),
             patch.object(mod, "DeviceCommonService", return_value=MagicMock()),
         ):

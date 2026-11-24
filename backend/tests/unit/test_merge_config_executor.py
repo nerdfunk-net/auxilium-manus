@@ -47,7 +47,7 @@ def _ok_result(confirmed: list[str] | None = None) -> NetmikoCommandResult:
 class MergeConfigExecutorTests(unittest.IsolatedAsyncioTestCase):
     async def test_stores_command_result_and_artifact(self) -> None:
         with (
-            patch(f"{_EXEC}.object_session", return_value=MagicMock()),
+            patch("workflow_steps.common.run_session.object_session", return_value=MagicMock()),
             patch(f"{_EXEC}.resolve_ssh_credential", return_value=("admin", "secret")),
             patch(f"{_EXEC}.NetmikoService") as netmiko_cls,
         ):
@@ -75,7 +75,7 @@ class MergeConfigExecutorTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_auto_answered_prompt_in_summary_and_warns(self) -> None:
         with (
-            patch(f"{_EXEC}.object_session", return_value=MagicMock()),
+            patch("workflow_steps.common.run_session.object_session", return_value=MagicMock()),
             patch(f"{_EXEC}.resolve_ssh_credential", return_value=("admin", "secret")),
             patch(f"{_EXEC}.NetmikoService") as netmiko_cls,
         ):
@@ -102,7 +102,7 @@ class MergeConfigExecutorTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_no_prompt_answered_summary_is_plain(self) -> None:
         with (
-            patch(f"{_EXEC}.object_session", return_value=MagicMock()),
+            patch("workflow_steps.common.run_session.object_session", return_value=MagicMock()),
             patch(f"{_EXEC}.resolve_ssh_credential", return_value=("admin", "secret")),
             patch(f"{_EXEC}.NetmikoService") as netmiko_cls,
         ):
@@ -125,7 +125,7 @@ class MergeConfigExecutorTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_copy_error_produces_failure_outcome(self) -> None:
         with (
-            patch(f"{_EXEC}.object_session", return_value=MagicMock()),
+            patch("workflow_steps.common.run_session.object_session", return_value=MagicMock()),
             patch(f"{_EXEC}.resolve_ssh_credential", return_value=("admin", "secret")),
             patch(f"{_EXEC}.NetmikoService") as netmiko_cls,
         ):
@@ -161,7 +161,7 @@ class MergeConfigExecutorTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_credential_fixed_passes_literal_name(self) -> None:
         with (
-            patch(f"{_EXEC}.object_session", return_value=MagicMock()),
+            patch("workflow_steps.common.run_session.object_session", return_value=MagicMock()),
             patch(
                 f"{_EXEC}.resolve_ssh_credential", return_value=("admin", "secret")
             ) as resolve,
@@ -187,7 +187,7 @@ class MergeConfigExecutorTests(unittest.IsolatedAsyncioTestCase):
         run = _run()
         run.run_inputs = {"ssh_cred": "team-b-ssh"}
         with (
-            patch(f"{_EXEC}.object_session", return_value=MagicMock()),
+            patch("workflow_steps.common.run_session.object_session", return_value=MagicMock()),
             patch(
                 f"{_EXEC}.resolve_ssh_credential", return_value=("admin", "secret")
             ) as resolve,
@@ -212,7 +212,7 @@ class MergeConfigExecutorTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_credential_run_param_missing_key_raises(self) -> None:
         with (
-            patch(f"{_EXEC}.object_session", return_value=MagicMock()),
+            patch("workflow_steps.common.run_session.object_session", return_value=MagicMock()),
             patch(f"{_EXEC}.resolve_ssh_credential", return_value=("admin", "secret")),
             patch(f"{_EXEC}.NetmikoService"),
         ):
@@ -232,7 +232,7 @@ class MergeConfigExecutorTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_network_driver_override_forwarded(self) -> None:
         with (
-            patch(f"{_EXEC}.object_session", return_value=MagicMock()),
+            patch("workflow_steps.common.run_session.object_session", return_value=MagicMock()),
             patch(f"{_EXEC}.resolve_ssh_credential", return_value=("admin", "secret")),
             patch(
                 f"{_EXEC}.resolve_connection_device_type", return_value="cisco_nxos"
@@ -277,7 +277,7 @@ class MergeConfigExecutorTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_read_timeout_forwarded(self) -> None:
         with (
-            patch(f"{_EXEC}.object_session", return_value=MagicMock()),
+            patch("workflow_steps.common.run_session.object_session", return_value=MagicMock()),
             patch(f"{_EXEC}.resolve_ssh_credential", return_value=("admin", "secret")),
             patch(f"{_EXEC}.NetmikoService") as netmiko_cls,
         ):
@@ -316,7 +316,7 @@ class MergeConfigExecutorTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_retry_backoff_seconds_passed_through(self) -> None:
         with (
-            patch(f"{_EXEC}.object_session", return_value=MagicMock()),
+            patch("workflow_steps.common.run_session.object_session", return_value=MagicMock()),
             patch(f"{_EXEC}.resolve_ssh_credential", return_value=("admin", "secret")),
             patch(f"{_EXEC}.NetmikoService") as netmiko_cls,
         ):
@@ -342,7 +342,7 @@ class MergeConfigExecutorTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_retry_backoff_seconds_defaults_to_no_retry(self) -> None:
         with (
-            patch(f"{_EXEC}.object_session", return_value=MagicMock()),
+            patch("workflow_steps.common.run_session.object_session", return_value=MagicMock()),
             patch(f"{_EXEC}.resolve_ssh_credential", return_value=("admin", "secret")),
             patch(f"{_EXEC}.NetmikoService") as netmiko_cls,
         ):
@@ -382,7 +382,7 @@ class MergeConfigExecutorTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_missing_db_session_raises_runtime_error(self) -> None:
         with (
-            patch(f"{_EXEC}.object_session", return_value=None),
+            patch("workflow_steps.common.run_session.object_session", return_value=None),
             patch(f"{_EXEC}.resolve_ssh_credential", return_value=("admin", "secret")),
             patch(f"{_EXEC}.NetmikoService"),
         ):
@@ -417,7 +417,7 @@ class MergeConfigExecutorTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_fan_out_over_multiple_devices(self) -> None:
         with (
-            patch(f"{_EXEC}.object_session", return_value=MagicMock()),
+            patch("workflow_steps.common.run_session.object_session", return_value=MagicMock()),
             patch(f"{_EXEC}.resolve_ssh_credential", return_value=("admin", "secret")),
             patch(f"{_EXEC}.NetmikoService") as netmiko_cls,
         ):
@@ -472,7 +472,7 @@ class MergeConfigExecutorTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_missing_host_fails_device_without_calling_merge(self) -> None:
         with (
-            patch(f"{_EXEC}.object_session", return_value=MagicMock()),
+            patch("workflow_steps.common.run_session.object_session", return_value=MagicMock()),
             patch(f"{_EXEC}.resolve_ssh_credential", return_value=("admin", "secret")),
             patch(f"{_EXEC}.NetmikoService") as netmiko_cls,
         ):
@@ -499,7 +499,7 @@ class MergeConfigExecutorTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_merge_config_exception_fails_device(self) -> None:
         with (
-            patch(f"{_EXEC}.object_session", return_value=MagicMock()),
+            patch("workflow_steps.common.run_session.object_session", return_value=MagicMock()),
             patch(f"{_EXEC}.resolve_ssh_credential", return_value=("admin", "secret")),
             patch(f"{_EXEC}.NetmikoService") as netmiko_cls,
         ):

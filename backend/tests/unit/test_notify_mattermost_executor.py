@@ -50,7 +50,7 @@ def _patches(*, config_service: MagicMock | None = None, client: MagicMock | Non
     resolved_client = client or _client()
     return (
         patch(
-            "workflow_steps.notify_mattermost.executor.object_session",
+            "workflow_steps.common.run_session.object_session",
             return_value=MagicMock(),
         ),
         patch(
@@ -314,7 +314,7 @@ class NotifyMattermostExecutorTests(unittest.IsolatedAsyncioTestCase):
                 )
 
     async def test_missing_db_session_raises_runtime_error(self) -> None:
-        with patch("workflow_steps.notify_mattermost.executor.object_session", return_value=None):
+        with patch("workflow_steps.common.run_session.object_session", return_value=None):
             with self.assertRaises(RuntimeError):
                 await execute(
                     config=_BASE_CONFIG,

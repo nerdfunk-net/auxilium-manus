@@ -64,7 +64,7 @@ class _Harness:
 
     def __enter__(self):
         self._patches = [
-            patch(f"{MODULE}.object_session", return_value=MagicMock()),
+            patch("workflow_steps.common.run_session.object_session", return_value=MagicMock()),
             patch(
                 "service_factory.build_catalyst_center_source_config_service",
                 self.build_source_config,
@@ -223,7 +223,10 @@ class SourceResolutionTests(unittest.IsolatedAsyncioTestCase):
             await _run(_config())
 
     async def test_missing_db_session_is_a_runtime_error(self) -> None:
-        with _Harness(), patch(f"{MODULE}.object_session", return_value=None):
+        with (
+            _Harness(),
+            patch("workflow_steps.common.run_session.object_session", return_value=None),
+        ):
             with self.assertRaisesRegex(RuntimeError, "no active DB session"):
                 await _run(_config())
 
