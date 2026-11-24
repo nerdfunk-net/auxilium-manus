@@ -9,7 +9,6 @@ deleted. The workflow's devices are not used and pass through unchanged.
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import re
 from typing import TYPE_CHECKING, Any
@@ -22,7 +21,6 @@ from models.workflow_context import StepOutcome, WorkflowContext
 from services.aci.common.exceptions import AciAPIError, AciAuthError, AciValidationError
 from services.artifacts import ArtifactService
 from services.artifacts.sinks.git_sink import GitArtifactSink
-from services.git.repo_lock import acquire_git_repo_lock, release_git_repo_lock
 from workflow_steps.common.aci_targets import resolve_source_credentials
 from workflow_steps.common.fact_entries import parse_output_key_config
 from workflow_steps.common.git_repository_loader import load_git_repository, parse_repository_id
@@ -143,26 +141,18 @@ async def execute(
         )
 
     sink = _build_sink(repository, subdirectory, commit=commit, push=push)
-    # Held across prepare -> writes -> finalize so two runs never interleave in one working tree.
-    lease = await asyncio.to_thread(acquire_git_repo_lock, repository_id)
-    try:
-        await sink.prepare()
-        try:
-            for path, content in sorted(export.files.items()):
-                await sink.write_text(
-                    relative_path=path,
-                    content=content,
-                    workflow_id=context.workflow_id,
-                    run_id=context.run_id,
-                )
-            stale = [] if tenants else _stale_files(sink, export.files)
-            result = await sink.finalize(message)
-        except BaseException:
-            # A half-written tree would make the next run's pull fail: put back what we touched.
-            await asyncio.shield(sink.discard_written())
-            raise
-    finally:
-        await asyncio.to_thread(release_git_repo_lock, lease)
+    # The session holds the repository lock from prepare to finalize, puts a half-written tree
+    # back on any failure and re-checks the lease before the commit.
+    async with sink.session():
+        for path, content in sorted(export.files.items()):
+            await sink.write_text(
+                relative_path=path,
+                content=content,
+                workflow_id=context.workflow_id,
+                run_id=context.run_id,
+            )
+        stale = [] if tenants else _stale_files(sink, export.files)
+        result = await sink.finalize(message)
 
     entry: dict[str, Any] = {
         "git_repository_id": sink.repository_ref,

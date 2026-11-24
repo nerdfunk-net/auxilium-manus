@@ -10,6 +10,7 @@ separate runs -- never race on the shared working tree.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 from dataclasses import dataclass
 from pathlib import Path
@@ -31,8 +32,8 @@ from services.artifacts.sinks import (
     GitArtifactSink,
     StoredExport,
 )
+from services.artifacts.sinks.git_sink import GitSinkPrepareError
 from services.general.general_settings_service import GeneralSettingsService
-from services.git.repo_lock import acquire_git_repo_lock, release_git_repo_lock
 from services.workflow_context.device_template import (
     TemplateRenderOptions,
     parse_strict_templates,
@@ -183,34 +184,25 @@ def _device_failure(
     )
 
 
-async def _prepare_git_sink_or_fail(
-    *,
-    git_sink: GitArtifactSink | None,
-    context: WorkflowContext,
-    node_id: str,
-    run_id: Any,
-) -> list[StepOutcome] | None:
-    if git_sink is None:
-        return None
-    try:
-        await git_sink.prepare()
-    except Exception as exc:
-        logger.error("store-artifact git prepare failed run_id=%s: %s", run_id, exc)
-        failed_devices = {
-            device_id: _device_failure(device=device, node_id=node_id, exc=exc)
-            for device_id, device in context.devices.items()
-        }
-        return [
-            StepOutcome(
-                name="success",
-                context=context.model_copy(update={"devices": {}}),
-            ),
-            StepOutcome(
-                name="failure",
-                context=context.model_copy(update={"devices": failed_devices}),
-            ),
-        ]
-    return None
+def _prepare_failure_outcomes(
+    *, context: WorkflowContext, node_id: str, run_id: Any, error: GitSinkPrepareError
+) -> list[StepOutcome]:
+    cause = error.__cause__ if isinstance(error.__cause__, Exception) else error
+    logger.error("store-artifact git prepare failed run_id=%s: %s", run_id, cause)
+    failed_devices = {
+        device_id: _device_failure(device=device, node_id=node_id, exc=cause)
+        for device_id, device in context.devices.items()
+    }
+    return [
+        StepOutcome(
+            name="success",
+            context=context.model_copy(update={"devices": {}}),
+        ),
+        StepOutcome(
+            name="failure",
+            context=context.model_copy(update={"devices": failed_devices}),
+        ),
+    ]
 
 
 async def _store_for_device(
@@ -310,15 +302,15 @@ async def _finalize_git_sink(
     metadata: dict[str, Any],
     success_devices: dict[str, DeviceContext],
     failed_devices: dict[str, DeviceContext],
-    lease: Any = None,
 ) -> None:
-    if git_sink is None or not git_sink.has_writes or not success_devices:
+    if git_sink is None or not git_sink.has_writes:
+        return
+    if not success_devices:
+        # every device failed: nothing is committed, so put back what a failed device wrote
+        await asyncio.shield(git_sink.discard_written())
         return
     try:
-        if lease is not None:
-            # A lease that expired while the files were written means another run may have
-            # touched the tree: do not commit or push into it (C1-07).
-            lease.ensure_held()
+        # the sink re-checks the lease and puts the tree back when this fails (W8-03, W9-02)
         finalize_result = await git_sink.finalize(_render_commit_message(config, context))
         if finalize_result is not None:
             metadata[f"{node_id}.git_export"] = {
@@ -395,55 +387,40 @@ async def execute(
         sink.destination,
     )
 
-    # Held across prepare -> per-device writes -> finalize, not just one
-    # GitService call -- two concurrent callers (fan-out children, independent
-    # sibling branches, or separate runs) against the same repository must
-    # not interleave their clone/pull/write/commit/push sequences.
-    git_repository_id = git_sink.repository_id if git_sink is not None else None
-    lease = None
-    if git_repository_id is not None:
-        lease = await asyncio.to_thread(acquire_git_repo_lock, git_repository_id)
-
+    # The sink's session holds the repository lock across prepare -> per-device writes ->
+    # finalize: two concurrent callers (fan-out children, sibling branches, separate runs)
+    # against one repository must not interleave their clone/pull/write/commit/push sequences.
+    sink_session = git_sink.session() if git_sink is not None else contextlib.nullcontext()
     try:
-        prepare_failure = await _prepare_git_sink_or_fail(
-            git_sink=git_sink,
-            context=context,
-            node_id=node_id,
-            run_id=run.id,
-        )
-        if prepare_failure is not None:
-            return prepare_failure
-
-        results = await asyncio.gather(
-            *[
-                _store_for_device(
-                    device_id=device_id,
-                    device=device,
-                    parsed=parsed,
-                    sink=sink,
-                    config=config,
-                    node_id=node_id,
-                    context=context,
-                    artifact_service=artifact_service,
-                )
-                for device_id, device in context.devices.items()
-            ]
-        )
-        success_devices, failed_devices, all_stored = _partition_store_results(results)
-        await _finalize_git_sink(
-            git_sink=git_sink,
-            config=config,
-            context=context,
-            node_id=node_id,
-            run_id=run.id,
-            metadata=metadata,
-            success_devices=success_devices,
-            failed_devices=failed_devices,
-            lease=lease,
-        )
-    finally:
-        if lease is not None:
-            await asyncio.to_thread(release_git_repo_lock, lease)
+        async with sink_session:
+            results = await asyncio.gather(
+                *[
+                    _store_for_device(
+                        device_id=device_id,
+                        device=device,
+                        parsed=parsed,
+                        sink=sink,
+                        config=config,
+                        node_id=node_id,
+                        context=context,
+                        artifact_service=artifact_service,
+                    )
+                    for device_id, device in context.devices.items()
+                ]
+            )
+            success_devices, failed_devices, all_stored = _partition_store_results(results)
+            await _finalize_git_sink(
+                git_sink=git_sink,
+                config=config,
+                context=context,
+                node_id=node_id,
+                run_id=run.id,
+                metadata=metadata,
+                success_devices=success_devices,
+                failed_devices=failed_devices,
+            )
+    except GitSinkPrepareError as exc:
+        return _prepare_failure_outcomes(context=context, node_id=node_id, run_id=run.id, error=exc)
     if all_stored:
         metadata[f"{node_id}.stored_artifacts"] = all_stored
     logger.info(

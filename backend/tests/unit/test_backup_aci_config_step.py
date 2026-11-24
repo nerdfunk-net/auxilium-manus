@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import unittest
+from contextlib import asynccontextmanager
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -13,6 +14,7 @@ from services.aci.common.exceptions import AciAPIError, AciValidationError
 from services.aci.config_export_service import AciConfigExport
 from services.aci.source_config_service import AciSourceNotFoundError
 from services.artifacts import InMemoryArtifactService
+from services.artifacts.sinks.git_sink import GitSinkPrepareError
 from services.execution.step_registry import STEP_REGISTRY
 from services.plugin_registry.plugin_registry_service import PluginRegistryService
 from workflow_steps.backup_aci_config.config import get_config
@@ -82,8 +84,27 @@ class FakeSink:
         )
         self.has_writes = False
         self.discarded = 0
-        self.repository_id = 7
         self.repository_ref = "backups"
+        self.session_opened = 0
+        self.session_closed = 0
+
+    @asynccontextmanager
+    async def session(self):
+        """The contract of ``GitArtifactSink.session`` (tested for real in
+        ``test_git_sink_session.py``): lock + prepare, put the tree back on an error, release."""
+        self.session_opened += 1
+        try:
+            try:
+                await self.prepare()
+            except Exception as exc:
+                raise GitSinkPrepareError(str(exc)) from exc
+            try:
+                yield self
+            except BaseException:
+                await self.discard_written()
+                raise
+        finally:
+            self.session_closed += 1
 
     async def prepare(self) -> None:
         if self.fail_on == "prepare":
@@ -110,16 +131,11 @@ class FakeSink:
 
 
 class _Patched:
-    def __init__(self, export=EXPORT, sink=None, export_error=None, lease_fails=False) -> None:
+    def __init__(self, export=EXPORT, sink=None, export_error=None) -> None:
         self.sink = sink or FakeSink()
         self.service = MagicMock()
         self.service.export = AsyncMock(return_value=export, side_effect=export_error)
         self.aci_source = MagicMock()
-        self.lease = MagicMock()
-        self.acquire = MagicMock(
-            side_effect=RuntimeError("lock busy") if lease_fails else None, return_value=self.lease
-        )
-        self.release = MagicMock()
         self.build_sink = MagicMock(return_value=self.sink)
 
     def __enter__(self):
@@ -129,8 +145,6 @@ class _Patched:
             patch("service_factory.build_aci_config_export_service", return_value=self.service),
             patch(f"{EXEC}.load_git_repository", return_value={"id": 7, "name": "backups"}),
             patch(f"{EXEC}._build_sink", self.build_sink),
-            patch(f"{EXEC}.acquire_git_repo_lock", self.acquire),
-            patch(f"{EXEC}.release_git_repo_lock", self.release),
         ]
         for p in self._patches:
             p.start()
@@ -191,11 +205,10 @@ class ExecutorTests(unittest.IsolatedAsyncioTestCase):
             outcomes = await _run()
         self.assertEqual([o.name for o in outcomes], ["success"])
 
-    async def test_the_lock_is_held_from_prepare_to_finalize_and_always_released(self) -> None:
+    async def test_the_session_is_opened_once_and_always_closed(self) -> None:
         with _Patched() as p:
             await _run()
-        p.acquire.assert_called_once_with(7)
-        p.release.assert_called_once_with(p.lease)
+        self.assertEqual((p.sink.session_opened, p.sink.session_closed), (1, 1))
 
     async def test_a_failure_after_the_first_write_puts_the_working_tree_back(self) -> None:
         sink = FakeSink(fail_on="finalize")
@@ -232,7 +245,7 @@ class ExecutorTests(unittest.IsolatedAsyncioTestCase):
         with _Patched(sink=FakeSink(fail_on="finalize")) as p:
             with self.assertRaises(RuntimeError):
                 await _run()
-        p.release.assert_called_once_with(p.lease)
+        self.assertEqual((p.sink.session_opened, p.sink.session_closed), (1, 1))
 
     async def test_a_failed_read_writes_nothing_and_fails_the_step_naming_the_objects(self) -> None:
         export = AciConfigExport(
@@ -244,7 +257,7 @@ class ExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("tenants/SnV.json", str(caught.exception))
         self.assertIn("too big", str(caught.exception))
         self.assertEqual(p.sink.writes, {})
-        p.acquire.assert_not_called()  # nothing was started in the repository
+        self.assertEqual(p.sink.session_opened, 0)  # nothing was started in the repository
 
     async def test_stale_tenant_files_are_reported_not_deleted(self) -> None:
         sink = FakeSink(existing=("Heroes.json", "Gone.json", "README.md"))
@@ -311,7 +324,7 @@ class ExecutorTests(unittest.IsolatedAsyncioTestCase):
                     await _run(config)
                 self.assertIn(STEP_ID, str(caught.exception))
                 p.service.export.assert_not_awaited()
-                p.acquire.assert_not_called()
+                self.assertEqual(p.sink.session_opened, 0)
 
     async def test_an_unknown_aci_source_is_a_configuration_error(self) -> None:
         with _Patched() as p:
@@ -337,7 +350,7 @@ class ExecutorTests(unittest.IsolatedAsyncioTestCase):
         with _Patched(sink=FakeSink(fail_on="prepare")) as p:
             with self.assertRaises(RuntimeError):
                 await _run()
-        p.release.assert_called_once_with(p.lease)
+        self.assertEqual((p.sink.session_opened, p.sink.session_closed), (1, 1))
 
     async def test_a_missing_repository_is_a_configuration_error(self) -> None:
         with _Patched():

@@ -24,14 +24,16 @@ The lock has an owner: every acquisition stores a random token, release is compa
 the lease while it is held. A holder that lost its lease finds out at its next
 ``GitRepoLease.ensure_held()`` instead of silently working unprotected (C1-07).
 
-Two ways to use it:
+Ways to use it:
 
 - ``git_repo_lock(git_repository_id)`` -- a context manager, for a single
   synchronous block of git work (``open-change-request``, the git-clone/pull/
   push steps via ``git_workflow_step.py``).
-- ``acquire_git_repo_lock``/``release_git_repo_lock`` -- the split primitives,
-  for a caller whose critical section spans multiple ``await`` points/method
-  calls (``store-artifact``'s prepare -> write* -> finalize lifecycle).
+- ``async_scope(git_repo_lock(...))`` (``services/git/tree_scope.py``) -- the cancel-safe
+  async form; ``GitArtifactSink.session()`` uses it for a critical section that spans several
+  ``await`` points (``store-artifact``, ``backup-aci-config``: prepare -> write* -> finalize).
+- ``acquire_git_repo_lock``/``release_git_repo_lock`` -- the split primitives underneath.
+  Do not call them from async code: a task cancelled while the acquire waits leaks the lease.
 """
 
 from __future__ import annotations

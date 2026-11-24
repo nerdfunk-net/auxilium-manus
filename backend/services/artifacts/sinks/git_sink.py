@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import hashlib
 import logging
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -12,6 +15,8 @@ from typing import Any
 from services.artifacts.sinks.base import ArtifactSink, StoredExport
 from services.git.paths import list_files_in_repo_dir, write_text_within_repo
 from services.git.paths import repo_path as get_repo_path
+from services.git.repo_lock import GitRepoLease, git_repo_lock
+from services.git.tree_scope import async_scope
 from services.workflow_context.device_template import sanitize_relative_path
 
 logger = logging.getLogger(__name__)
@@ -28,8 +33,16 @@ class GitFinalizeResult:
     message: str
 
 
+class GitSinkPrepareError(RuntimeError):
+    """``prepare()`` failed inside ``GitArtifactSink.session()``; the cause is chained."""
+
+
 class GitArtifactSink(ArtifactSink):
-    """Write exports into a local git working tree with optional pull/commit/push."""
+    """Write exports into a local git working tree with optional pull/commit/push.
+
+    Use it through ``async with sink.session():`` -- the session owns the repository lock for
+    the whole prepare -> write* -> finalize lifecycle (D5, W9-01/W9-02/W8-03).
+    """
 
     def __init__(
         self,
@@ -48,6 +61,7 @@ class GitArtifactSink(ArtifactSink):
         self._written_paths: list[str] = []
         self._repo: Any = None
         self._lock = asyncio.Lock()
+        self._lease: GitRepoLease | None = None
 
         import service_factory
 
@@ -61,12 +75,7 @@ class GitArtifactSink(ArtifactSink):
     def repository_ref(self) -> str:
         return str(self._repository.get("source_id") or self._repository.get("id") or "")
 
-    @property
-    def repository_id(self) -> int | None:
-        """The GitRepository row's primary key -- for the caller to hold a
-        per-repository advisory lock (services.git.repo_lock) across this
-        sink's whole prepare -> write* -> finalize lifecycle, not just one
-        GitService call."""
+    def _repository_id(self) -> int | None:
         raw = self._repository.get("id")
         try:
             return int(raw) if raw is not None else None
@@ -96,6 +105,38 @@ class GitArtifactSink(ArtifactSink):
         # ``sanitize_relative_path`` (inside ``_repo_relative_path``) refuses paths that escape;
         # the listing itself refuses a symlink at any component, as the writes do.
         return list_files_in_repo_dir(self._repo_root(), self._repo_relative_path(relative_dir))
+
+    @asynccontextmanager
+    async def session(self) -> AsyncIterator[GitArtifactSink]:
+        """Hold the repository lock across prepare -> writes -> finalize, then release it.
+
+        * the acquire is cancel-safe (``async_scope`` shields the polling thread and releases a
+          lease it takes after the task was cancelled, W9-01);
+        * a failing ``prepare()`` raises ``GitSinkPrepareError`` (cause chained);
+        * any error in the body puts back what this sink wrote (W9-02);
+        * ``finalize()`` re-checks the lease before it commits or pushes (W8-03).
+
+        A repository without an id is not locked (nothing to lock on).
+        """
+        repository_id = self._repository_id()
+        scope: Any = (
+            git_repo_lock(repository_id) if repository_id is not None else contextlib.nullcontext()
+        )
+        async with async_scope(scope) as lease:
+            self._lease = lease
+            try:
+                try:
+                    await self.prepare()
+                except Exception as exc:
+                    raise GitSinkPrepareError(str(exc)) from exc
+                try:
+                    yield self
+                except BaseException:
+                    # a half-written tree would make the next pull fail
+                    await asyncio.shield(self.discard_written())
+                    raise
+            finally:
+                self._lease = None
 
     async def prepare(self) -> None:
         """Open or clone the repository and optionally pull latest changes."""
@@ -197,11 +238,23 @@ class GitArtifactSink(ArtifactSink):
         """Commit and/or push files written during this step."""
         if not self._written_paths:
             return None
+        if self._lease is not None:
+            # A lease that expired while the files were written means another run may have
+            # touched the tree: do not commit or push into it (C1-07, W8-03).
+            try:
+                self._lease.ensure_held()
+            except BaseException:
+                await asyncio.shield(self.discard_written())
+                raise
         if not self._commit_after_write and not self._push_after_write:
             return None
 
-        async with self._lock:
-            return await asyncio.to_thread(self._finalize_sync, commit_message)
+        try:
+            async with self._lock:
+                return await asyncio.to_thread(self._finalize_sync, commit_message)
+        except BaseException:
+            await asyncio.shield(self.discard_written())
+            raise
 
     def _finalize_sync(self, commit_message: str) -> GitFinalizeResult:
         if self._repo is None:
