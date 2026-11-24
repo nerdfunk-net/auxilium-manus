@@ -183,7 +183,9 @@ class ExtractFactsStepTests(unittest.IsolatedAsyncioTestCase):
         parsed = await self._run(AsyncMock(side_effect=RuntimeError("batfish down")))
         self.assertNotIn("HSRP_Details", parsed["Interfaces"]["Vlan200"])
         self.assertEqual(parsed["Interfaces"]["Vlan200"]["HSRP_Groups"], ["0"])
-        self.assertIn("batfish down", parsed["HSRP_Details_Error"])
+        # The class name only: the text of a Batfish error is the coordinator's, not ours.
+        self.assertIn("RuntimeError", parsed["HSRP_Details_Error"])
+        self.assertNotIn("batfish down", parsed["HSRP_Details_Error"])
 
     async def test_hsrp_failure_is_in_the_outcome_summary(self) -> None:
         outcome = await self._step_outcome(AsyncMock(side_effect=RuntimeError("batfish down")))

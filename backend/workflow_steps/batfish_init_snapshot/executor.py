@@ -49,11 +49,13 @@ from models.workflow_context import StepOutcome, WorkflowContext
 from repositories.run_repository import RunRepository
 from services.artifacts import ArtifactService
 from services.batfish.common.exceptions import BatfishAPIError
-from services.batfish.source_config_service import BatfishSourceConfigService
 from services.git.sync import agit_checkout
 from services.workflow_context.device_template import sanitize_path_segment
 from workflow_steps.batfish_init_snapshot.config import get_config
-from workflow_steps.common.batfish_context import store_batfish_snapshot
+from workflow_steps.common.batfish_context import (
+    resolve_batfish_connection,
+    store_batfish_snapshot,
+)
 from workflow_steps.common.batfish_git_source import (
     collect_git_source_files,
     copy_git_source_files_into,
@@ -288,7 +290,7 @@ async def execute(
     if db is None:
         raise RuntimeError(f"{_STEP_ID}: WorkflowRun has no active DB session")
 
-    connection = BatfishSourceConfigService(db).resolve_connection(source_id)
+    connection = resolve_batfish_connection(db, source_id, step_id=_STEP_ID)
 
     # network_name is either typed in the step or read from a run parameter, so a
     # schedule can supply it (blank still falls back to the per-workflow default).

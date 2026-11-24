@@ -61,6 +61,7 @@ from services.workflow_context.device_template import (
 from services.workflow_context.node_result import set_node_result
 from workflow_steps.common.content_resolver import ExportableContent, list_exportable_content
 from workflow_steps.common.device_runner import Fail, run_per_device
+from workflow_steps.common.partial_outcomes import device_error_from_exception
 from workflow_steps.common.pyats_batch import resolve_source_credentials
 from workflow_steps.common.pyats_features import parse_feature_list
 from workflow_steps.common.run_logging import log_run_id
@@ -375,7 +376,9 @@ async def _load_reference_snapshot(
     except FileNotFoundError as exc:
         return Fail("missing_reference", str(exc))
     except Exception as exc:  # noqa: BLE001 - surfaced to the operator as a device failure
-        return Fail("reference_error", str(exc))
+        # The class name and a closed record: the text of a reader error can carry paths.
+        error = device_error_from_exception(exc, node_id=node_id, step_id=_STEP_ID)
+        return Fail("reference_error", error.message, error.failure)
 
     try:
         return _ReferenceSnapshot(path=reference_path, data=json.loads(reference_text))
@@ -423,7 +426,7 @@ async def _diff_features(
                 use_snapshot_excludes=use_snapshot_excludes,
             )
         except (PyATSAPIError, PyATSValidationError) as exc:
-            return Fail("shim_error", f"{feature}: {exc}")
+            return Fail("shim_error", f"{feature}: {exc}", exc.failure)
 
         excluded = _string_tuple(response.get("excluded"))
         not_applied = _string_tuple(response.get("not_applied"))

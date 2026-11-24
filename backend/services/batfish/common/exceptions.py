@@ -4,9 +4,21 @@ from __future__ import annotations
 
 from typing import Any
 
+from models.failure import FailureInfo
+
 
 class BatfishError(Exception):
-    """Base exception for Batfish operations."""
+    """Base exception for Batfish operations.
+
+    :attr:`failure` is the structured, non-sensitive classification the step runner records when
+    a step raises one (see ``models.failure``); it never copies the message.
+    """
+
+    @property
+    def failure(self) -> FailureInfo:
+        from services.batfish.common.failure import classify_batfish_exception
+
+        return classify_batfish_exception(self)
 
 
 class FilterNotFoundError(RuntimeError):

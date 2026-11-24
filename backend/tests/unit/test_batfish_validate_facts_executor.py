@@ -300,6 +300,7 @@ class BatfishValidateFactsRenderedYamlModeTests(unittest.IsolatedAsyncioTestCase
         failed = outcomes_by_name["failure"].context.devices["device-1"]
         self.assertEqual(failed.status, DeviceStatus.FAILED)
         self.assertEqual(failed.errors[0].code, "missing_content")
+        self.assertEqual(failed.errors[0].failure.kind, "not_found")
 
     async def test_node_key_mismatch_routes_to_failure(self) -> None:
         artifact_service = InMemoryArtifactService()
@@ -335,6 +336,36 @@ class BatfishValidateFactsRenderedYamlModeTests(unittest.IsolatedAsyncioTestCase
         outcomes_by_name = {o.name: o for o in outcomes}
         failed = outcomes_by_name["failure"].context.devices["device-1"]
         self.assertEqual(failed.errors[0].code, "node_key_mismatch")
+        self.assertEqual(failed.errors[0].failure.kind, "not_found")
+
+    async def test_a_device_without_a_name_fails_with_a_bad_request_record(self) -> None:
+        artifact_service = InMemoryArtifactService()
+        device = await _device_with_rendered_yaml(
+            artifact_service,
+            device_id="device-1",
+            device_name="   ",
+            yaml_text="version: '1.0'\nnodes:\n  r1:\n    Hostname: x\n",
+            source_step_node_id="render-node",
+        )
+        context = _context_with_snapshot({"device-1": device})
+
+        with patch(_SERVICE_FACTORY_TARGET) as service_factory_mock:
+            batfish = MagicMock()
+            batfish.validate_facts = AsyncMock()
+            service_factory_mock.get_batfish_app_service.return_value = batfish
+            outcomes = await execute(
+                config={"facts_source": "rendered_yaml", "source_step_node_id": "render-node"},
+                context=context,
+                run=MagicMock(id=1),
+                artifact_service=artifact_service,
+                node_id="node-1",
+                device_sessions=MagicMock(),
+            )
+
+        failed = {o.name: o for o in outcomes}["failure"].context.devices["device-1"]
+        self.assertEqual(failed.errors[0].code, "missing_name")
+        self.assertEqual(failed.errors[0].failure.kind, "bad_request")
+        self.assertEqual(failed.errors[0].failure.phase, "config")
 
     async def test_node_key_mismatch_lists_at_most_ten_candidates(self) -> None:
         """W7-10: the whole corpus keys list was stored in every failing device's error."""
@@ -597,6 +628,7 @@ class BatfishValidateFactsGitModeTests(unittest.IsolatedAsyncioTestCase):
         outcomes_by_name = {o.name: o for o in outcomes}
         failed = outcomes_by_name["failure"].context.devices["device-1"]
         self.assertEqual(failed.errors[0].code, "node_key_mismatch")
+        self.assertEqual(failed.errors[0].failure.kind, "not_found")
 
     async def test_empty_expected_facts_route_to_failure(self) -> None:
         devices = {"device-1": _device("device-1", "R1")}

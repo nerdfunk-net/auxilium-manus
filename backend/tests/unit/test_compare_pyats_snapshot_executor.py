@@ -454,7 +454,9 @@ class ComparePyatsSnapshotExecutorTests(unittest.IsolatedAsyncioTestCase):
         failure_outcome = next(o for o in outcomes if o.name == "failure")
         error = failure_outcome.context.devices["device-1"].errors[0]
         self.assertEqual(error.code, "reference_error")
-        self.assertIn("denied", error.message)
+        self.assertEqual(error.message, "PermissionError")  # the class name, never the text
+        self.assertNotIn("denied", error.message)
+        self.assertEqual(error.failure.kind, "internal_error")
 
     async def test_missing_reference_file_fails_device(self) -> None:
         device = _device_with_snapshot(

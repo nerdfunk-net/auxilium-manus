@@ -21,12 +21,14 @@ from typing import TYPE_CHECKING, Any
 from sqlalchemy.orm import object_session
 
 from models.workflow_context import Capability, DeviceContext, DeviceStatus, WorkflowContext
+from services.batfish.common.exceptions import BatfishValidationError
 from services.batfish.credentials import BatfishConnection
 from services.batfish.query_helpers import (
     assert_batfish_network_exists,
     resolve_latest_snapshot_name,
 )
 from services.batfish.source_config_service import BatfishSourceConfigService
+from services.settings.source_config_base import SourceNotFoundError
 
 if TYPE_CHECKING:
     from core.models.runs import WorkflowRun
@@ -72,12 +74,30 @@ def parse_direct_target(config: dict[str, Any], *, step_id: str = "batfish") -> 
     return source_id, network
 
 
+def resolve_batfish_connection(db: Any, source_id: str, *, step_id: str) -> BatfishConnection:
+    """The connection of a Batfish source; a missing or refused source is a ``ValueError``.
+
+    The lookup raises ``BatfishSourceNotFoundError`` / ``BatfishValidationError``, which are not
+    configuration errors to the step runner: the author would read "An unexpected internal error"
+    for a deleted or mistyped source (W7-01). The sentence is fixed (no host, no lookup text).
+    """
+    try:
+        return BatfishSourceConfigService(db).resolve_connection(source_id)
+    except SourceNotFoundError as exc:
+        raise ValueError(f"{step_id}: Batfish source {source_id!r} was not found") from exc
+    except BatfishValidationError as exc:
+        raise ValueError(
+            f"{step_id}: Batfish source {source_id!r} cannot be used: its address is not allowed"
+        ) from exc
+
+
 async def resolve_batfish_snapshot_ref(
     *,
     context: WorkflowContext,
     config: dict[str, Any],
     run: WorkflowRun,
     batfish: BatfishService,
+    step_id: str = "batfish",
 ) -> BatfishSnapshotRef:
     """Resolve the snapshot a query step should read.
 
@@ -94,7 +114,7 @@ async def resolve_batfish_snapshot_ref(
     db = object_session(run)
     if db is None:
         raise RuntimeError("resolve_batfish_snapshot_ref: WorkflowRun has no active DB session")
-    connection = BatfishSourceConfigService(db).resolve_connection(source_id)
+    connection = resolve_batfish_connection(db, source_id, step_id=step_id)
 
     # Must happen before anything below touches BatfishService._get_session()
     # for this network (both the resolve_latest_snapshot_name call below and

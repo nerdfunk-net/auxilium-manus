@@ -80,6 +80,7 @@ class BatfishExtractFactsExecutorTests(unittest.IsolatedAsyncioTestCase):
         failed = by_name["failure"].context.devices["device-2"]
         self.assertEqual(failed.status, DeviceStatus.FAILED)
         self.assertEqual(failed.errors[-1].code, "node_not_found")
+        self.assertEqual(failed.errors[-1].failure.kind, "not_found")
         self.assertIn("r2", failed.parsed["batfish_extract_facts"]["error"])
 
     async def test_missing_node_does_not_trip_the_capability_guard(self) -> None:

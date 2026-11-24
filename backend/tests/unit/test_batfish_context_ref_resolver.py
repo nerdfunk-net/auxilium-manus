@@ -228,3 +228,43 @@ class ResolveBatfishSnapshotRefTests(unittest.IsolatedAsyncioTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ResolveBatfishConnectionTests(unittest.TestCase):
+    """W7-01: a missing or refused source is a configuration error, never an internal one."""
+
+    def _resolve(self, error: Exception | None):
+        from workflow_steps.common.batfish_context import resolve_batfish_connection
+
+        with patch(_CONFIG_SERVICE_TARGET) as service_cls:
+            if error is not None:
+                service_cls.return_value.resolve_connection.side_effect = error
+            else:
+                service_cls.return_value.resolve_connection.return_value = BatfishConnection(
+                    host="h", port=1
+                )
+            return resolve_batfish_connection(MagicMock(), "lab", step_id="batfish-test")
+
+    def test_a_known_source_resolves(self) -> None:
+        self.assertEqual(self._resolve(None), BatfishConnection(host="h", port=1))
+
+    def test_an_unknown_source_is_a_value_error_naming_step_and_source(self) -> None:
+        from services.batfish.source_config_service import BatfishSourceNotFoundError
+
+        with self.assertRaises(ValueError) as caught:
+            self._resolve(BatfishSourceNotFoundError("secret-detail-from-the-lookup"))
+        message = str(caught.exception)
+        self.assertIn("batfish-test", message)
+        self.assertIn("'lab'", message)
+        self.assertIn("was not found", message)
+        self.assertNotIn("secret-detail", message)
+        self.assertIsInstance(caught.exception.__cause__, BatfishSourceNotFoundError)
+
+    def test_a_source_the_host_policy_refuses_is_a_value_error(self) -> None:
+        from services.batfish.common.exceptions import BatfishValidationError
+
+        with self.assertRaises(ValueError) as caught:
+            self._resolve(BatfishValidationError("host 10.9.9.9 is not allowed"))
+        self.assertIn("batfish-test", str(caught.exception))
+        self.assertIn("cannot be used", str(caught.exception))
+        self.assertNotIn("10.9.9.9", str(caught.exception))

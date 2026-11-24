@@ -434,6 +434,20 @@ fails with one error; a routing step lists its verdict handles in `empty_handles
 `_partition_*` functions in the step packages are legacy: `tests/unit/test_private_outcome_helpers_ratchet.py` pins them
 per file, lets the number only fall and fails on a new one.
 
+### Failure records of Batfish and pyATS (P-E, D3)
+
+- **Batfish:** `BatfishError.failure` (`services/batfish/common/failure.py::classify_batfish_exception`) classifies from the
+  exception class and the transport cause chain, never from text: `bad_request` (validation, a question that returned no
+  table), `timeout` / `refused` / `dns` / `no_route` from the cause, otherwise `server_error`. A step that raises one is
+  recorded with that kind instead of `internal_error`; the sentence stays withheld. A Batfish source that is missing or
+  refused by the host policy is a `ValueError` (`batfish_context.resolve_batfish_connection`, the one resolver of
+  `batfish-init-snapshot` and the query steps), so the author reads a configuration error.
+- **pyATS:** a chunk-level shim failure keeps its `PyATSError.failure` (`timeout`, `auth_failed`, `server_error`, ...) in the
+  per-device result (`run_batched`), and `get-pyats-running-config`, `get-pyats-snapshot`, `configure-replace-config` and
+  `compare-pyats-snapshot` copy it onto the `DeviceError`. A device-level error from the shim (what the device printed)
+  keeps its text capped at 300 characters with a generic `command_error`; an unexpected error is the class name plus
+  `internal_error`. `batfish-extract-facts` stores the class name only when the HSRP question fails.
+
 ### Empty branch and step-level failure (D2)
 
 - **Validate first, then look at the devices.** A step parses and validates its config before it returns for an empty

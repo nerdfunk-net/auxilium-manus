@@ -57,6 +57,7 @@ import yaml
 
 import service_factory
 from core.models.runs import WorkflowRun
+from models.failure import FailureInfo
 from models.workflow_context import (
     Capability,
     DeviceContext,
@@ -89,6 +90,10 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _STEP_ID = "batfish-validate-facts"
+
+# What the assistant may see without the content opt-in: a closed vocabulary (models/failure.py).
+_NOT_USABLE = FailureInfo(phase="config", kind="bad_request")  # the device cannot be matched
+_NO_MATCH = FailureInfo(phase="config", kind="not_found")  # no expected facts for this device
 _OUTCOME_NAMES = ("match", "mismatch", "failure")
 _FACTS_SOURCES = frozenset({"rendered_yaml", "field", "git"})
 
@@ -234,6 +239,7 @@ async def _prepare_contribution(
             step_id=_STEP_ID,
             code="missing_name",
             message="Device has no name to use as a Batfish node key",
+            failure=_NOT_USABLE,
         )
 
     if facts_source == "field":
@@ -271,6 +277,7 @@ async def _prepare_contribution(
                     f"device's name ({device.name!r}, case-insensitive); found: "
                     f"{_candidate_names(git_facts_corpus)}"
                 ),
+                failure=_NO_MATCH,
             )
         return node_name, git_facts_corpus[node_name]
 
@@ -289,6 +296,7 @@ async def _prepare_contribution(
             step_id=_STEP_ID,
             code="missing_content",
             message=error or "No expected-facts content resolved",
+            failure=_NO_MATCH,
         )
     lowered = {str(key).strip().lower(): value for key, value in nodes_fragment.items()}
     if node_name not in lowered:
@@ -300,6 +308,7 @@ async def _prepare_contribution(
                 f"Rendered facts YAML has no node key matching this device's name "
                 f"({device.name!r}, case-insensitive); found: {_candidate_names(nodes_fragment)}"
             ),
+            failure=_NO_MATCH,
         )
     return node_name, lowered[node_name]
 

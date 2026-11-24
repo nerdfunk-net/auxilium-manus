@@ -174,6 +174,26 @@ def _chunk(
     return [items[i : i + chunk_size] for i in range(0, len(items), chunk_size)]
 
 
+# A device-level error is whatever the device printed; it keeps its text, capped, because the
+# operator needs it ("Authentication failed") but a banner or a dump must not fill the stored run.
+MAX_SHIM_TEXT = 300
+_GENERIC_DEVICE_ERROR = "pyATS shim reported failure for this device"
+_DEVICE_LEVEL_FAILURE = FailureInfo(phase="command", kind="command_error")
+
+
+def shim_device_failure(result: dict[str, Any] | None) -> tuple[str, FailureInfo]:
+    """The message and the classification of a failed per-device shim result.
+
+    A chunk-level failure carries the classification of its ``PyATSError`` (``run_batched``); a
+    device-level error from the shim does not, and is a generic ``command_error``.
+    """
+    carried = (result or {}).get("failure")
+    text = str((result or {}).get("error") or "").strip() or _GENERIC_DEVICE_ERROR
+    if len(text) > MAX_SHIM_TEXT:
+        text = f"{text[:MAX_SHIM_TEXT]}…"
+    return text, carried if isinstance(carried, FailureInfo) else _DEVICE_LEVEL_FAILURE
+
+
 async def shim_concurrency(shim: Any, credentials: Any, *, default: int = 4) -> int:
     """How many jobs the shim runs at once (its /health/pyats limit), so a step never makes it
     queue work for a client that may have given up (C4-01, C4R-04)."""
@@ -227,13 +247,16 @@ async def run_batched(
             )
             return dict(response.get("results") or {})
         except (PyATSAPIError, PyATSValidationError) as exc:
-            error = str(exc)
+            error, failure = str(exc), exc.failure
         except Exception as exc:
             # A malformed answer (a proxy page instead of JSON) or any other unexpected error
             # fails this chunk only, and only its class name is kept (W7-03).
             error = type(exc).__name__
+            failure = FailureInfo(
+                phase="internal", kind="internal_error", exception_type=type(exc).__name__
+            )
         return {
-            device_id: {"success": False, "error": error, "commands": {}}
+            device_id: {"success": False, "error": error, "failure": failure, "commands": {}}
             for device_id, _shim_device in chunk
         }
 

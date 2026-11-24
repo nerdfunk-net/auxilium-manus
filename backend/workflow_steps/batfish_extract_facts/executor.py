@@ -27,6 +27,7 @@ from typing import TYPE_CHECKING, Any
 
 import service_factory
 from core.models.runs import WorkflowRun
+from models.failure import FailureInfo
 from models.workflow_context import (
     Capability,
     DeviceContext,
@@ -109,7 +110,8 @@ async def _with_hsrp_groups(
         )
     except Exception as exc:
         logger.warning("%s: hsrpProperties failed, HSRP groups not added: %s", _STEP_ID, exc)
-        message = f"hsrpProperties failed: {exc}"
+        # The class name only: the text of a Batfish error is the coordinator's, not ours.
+        message = f"hsrpProperties failed ({type(exc).__name__})"
         return mark_hsrp_error(facts, message), message
     return merge_hsrp_into_facts(facts, rows), None
 
@@ -194,6 +196,7 @@ async def execute(
                         step_id=_STEP_ID,
                         code="node_not_found",
                         message=message,
+                        failure=FailureInfo(phase="config", kind="not_found"),
                     ),
                 ],
             }

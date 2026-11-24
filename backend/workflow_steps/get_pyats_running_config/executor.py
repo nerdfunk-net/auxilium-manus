@@ -42,6 +42,7 @@ from workflow_steps.common.jinja_render import parse_output_key
 from workflow_steps.common.pyats_batch import (
     resolve_source_credentials,
     run_batched,
+    shim_device_failure,
     validate_and_group_devices,
 )
 from workflow_steps.common.run_logging import log_run_id
@@ -65,11 +66,11 @@ def _shape_result(
     result: dict[str, Any] | None,
 ) -> DeviceContext | Fail:
     if not result or not result.get("success", False):
-        message = (result or {}).get("error") or "pyATS shim reported failure for this device"
+        message, failure = shim_device_failure(result)
         logger.warning(
             "%s device connect/parse failed device=%s error=%s", _STEP_ID, device_id, message
         )
-        return Fail("device_error", message)
+        return Fail("device_error", message, failure)
 
     commands = result.get("commands") or {}
     running_entry = commands.get(_RUNNING_COMMAND)

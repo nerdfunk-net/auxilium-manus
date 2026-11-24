@@ -92,7 +92,11 @@ from services.workflow_context.node_result import set_node_result
 from services.workflow_context.secret_fields import unwrap_secret
 from workflow_steps.common.device_outcomes import build_outcomes
 from workflow_steps.common.device_runner import Fail, run_per_device
-from workflow_steps.common.pyats_batch import resolve_source_credentials, shim_concurrency
+from workflow_steps.common.pyats_batch import (
+    resolve_source_credentials,
+    shim_concurrency,
+    shim_device_failure,
+)
 from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.common.step_flags import parse_bool_flag, parse_int_flag
 from workflow_steps.configure_replace_config.config import get_config
@@ -237,8 +241,8 @@ async def _run_shim_job(
 
     result = (response.get("results") or {}).get(shim_device["name"])
     if not result or not result.get("success", False):
-        message = (result or {}).get("error") or "pyATS shim reported failure for this device"
-        return False, {}, message
+        message, failure = shim_device_failure(result)
+        return False, {}, _ShimError(message, failure)
 
     return True, result.get("commands") or {}, None
 

@@ -84,7 +84,10 @@ async def test_a_chunk_with_a_malformed_answer_fails_only_that_chunk() -> None:
 async def test_an_answer_that_is_not_a_mapping_fails_its_chunk() -> None:
     results = await _batched(AsyncMock(return_value=["not", "a", "dict"]), [("a", {})], 5)
 
-    assert results["a"] == {"success": False, "error": "AttributeError", "commands": {}}
+    assert results["a"]["success"] is False
+    assert results["a"]["error"] == "AttributeError"
+    assert results["a"]["commands"] == {}
+    assert results["a"]["failure"].kind == "internal_error"
 
 
 @pytest.mark.asyncio

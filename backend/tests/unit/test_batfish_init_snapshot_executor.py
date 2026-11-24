@@ -16,7 +16,7 @@ from services.batfish.common.exceptions import BatfishAPIError
 from services.batfish.credentials import BatfishConnection
 from workflow_steps.batfish_init_snapshot.executor import execute
 
-_CONFIG_SERVICE_TARGET = "workflow_steps.batfish_init_snapshot.executor.BatfishSourceConfigService"
+_CONFIG_SERVICE_TARGET = "workflow_steps.common.batfish_context.BatfishSourceConfigService"
 _SERVICE_FACTORY_TARGET = "workflow_steps.batfish_init_snapshot.executor.service_factory"
 _OBJECT_SESSION_TARGET = "workflow_steps.batfish_init_snapshot.executor.object_session"
 _LOAD_GIT_REPOSITORY_TARGET = "workflow_steps.batfish_init_snapshot.executor.load_git_repository"
@@ -642,3 +642,31 @@ class BatfishInitSnapshotGitModeTests(unittest.IsolatedAsyncioTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class UnknownSourceTests(unittest.IsolatedAsyncioTestCase):
+    async def test_an_unknown_source_is_a_configuration_error(self) -> None:
+        from services.batfish.source_config_service import BatfishSourceNotFoundError
+
+        with (
+            patch(_OBJECT_SESSION_TARGET, return_value=MagicMock()),
+            patch(_CONFIG_SERVICE_TARGET) as service_cls,
+        ):
+            service_cls.return_value.resolve_connection.side_effect = BatfishSourceNotFoundError(
+                "gone"
+            )
+            with self.assertRaises(ValueError) as caught:
+                await execute(
+                    config={"batfish_source_id": "lab", "snapshot_source": "device_configs"},
+                    context=WorkflowContext(
+                        run_id="r",
+                        workflow_id="1",
+                        devices={"d": DeviceContext(id="d", name="d", hostname="d")},
+                    ),
+                    run=MagicMock(id=1, run_inputs={}),
+                    artifact_service=MagicMock(),
+                    node_id="n",
+                    device_sessions=MagicMock(),
+                )
+        self.assertIn("batfish-init-snapshot", str(caught.exception))
+        self.assertIn("'lab'", str(caught.exception))
