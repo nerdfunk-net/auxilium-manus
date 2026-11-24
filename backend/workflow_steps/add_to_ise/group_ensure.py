@@ -16,7 +16,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from services.ise.common.exceptions import ISEValidationError
+from services.ise.common.exceptions import ALREADY_EXISTS_CODE, ISEValidationError
 
 if TYPE_CHECKING:
     from services.ise.network_device_group_service import ISENetworkDeviceGroupService
@@ -24,7 +24,6 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _SEPARATOR = "#"
-_ALREADY_EXISTS_MARKER = "already exist"
 
 
 class DeviceGroupEnsurer:
@@ -73,6 +72,6 @@ class DeviceGroupEnsurer:
                 )
         except ISEValidationError as exc:
             # Lost a race with another writer: the group now exists, which is the goal.
-            if _ALREADY_EXISTS_MARKER not in str(exc).lower():
+            if exc.code != ALREADY_EXISTS_CODE:
                 raise
         logger.info("add-to-ise: created ISE network device group '%s'", path)

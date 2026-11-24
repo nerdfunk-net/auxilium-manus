@@ -37,6 +37,7 @@ from workflow_steps.common.nautobot_plan_fields import (
 )
 from workflow_steps.common.nautobot_write_groups import write_once_per_group
 from workflow_steps.common.partial_outcomes import (
+    NAUTOBOT_TEXT,
     device_error_from_exception,
     fail_device_with_error,
 )
@@ -254,7 +255,9 @@ def _lookup_error(
             failure=not_found_failure(),
         )
     return fail_device_with_error(
-        device, device_error_from_exception(exc, node_id=node_id, step_id=spec.step_id)
+        device, device_error_from_exception(
+            exc, node_id=node_id, step_id=spec.step_id, keep_text=NAUTOBOT_TEXT
+        )
     )
 
 
@@ -345,7 +348,9 @@ async def _update(
             False,
         )
     except Exception as exc:
-        error = device_error_from_exception(exc, node_id=node_id, step_id=spec.step_id)
+        error = device_error_from_exception(
+            exc, node_id=node_id, step_id=spec.step_id, keep_text=NAUTOBOT_TEXT
+        )
         return "failure", fail_device_with_error(device, error), False
     return "success", device, changed
 

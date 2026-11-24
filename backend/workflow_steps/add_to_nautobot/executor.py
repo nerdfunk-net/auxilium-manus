@@ -33,6 +33,7 @@ from workflow_steps.common.nautobot_interfaces import (
 )
 from workflow_steps.common.nautobot_source import resolve_nautobot_credentials
 from workflow_steps.common.nautobot_update_fields import extract_update_fields_from_nautobot_bag
+from workflow_steps.common.partial_outcomes import NAUTOBOT_TEXT, device_error_from_exception
 from workflow_steps.common.redundancy_groups_config import (
     DEFAULT_REDUNDANCY_STATUS,
     parse_redundancy_groups,
@@ -381,13 +382,16 @@ async def _create_one_device(
             code = "device_already_exists"
         else:
             code = type(exc).__name__.lower()
+        error = device_error_from_exception(
+            exc, node_id=node_id, step_id=_STEP_ID, keep_text=NAUTOBOT_TEXT
+        )
         return _fail_device(
             device=device,
             device_key=device_key,
             node_id=node_id,
             code=code,
-            message=str(exc),
-            failure=_create_failure(exc),
+            message=error.message,
+            failure=_create_failure(exc) or error.failure,
         )
 
 

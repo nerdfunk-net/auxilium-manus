@@ -24,6 +24,7 @@ from workflow_steps.common.nautobot_plan_fields import (
 from workflow_steps.common.nautobot_plan_fields import failed as shared_failed
 from workflow_steps.common.nautobot_prefix_lookup import LookupFailure, find_containing_prefix
 from workflow_steps.common.partial_outcomes import (
+    NAUTOBOT_TEXT,
     device_error_from_exception,
     fail_device_with_error,
 )
@@ -145,7 +146,9 @@ def lookup_error(code: str, exc: Exception, node_id: str, device: DeviceContext)
             failure=not_found_failure(),
         )
     return fail_device_with_error(
-        device, device_error_from_exception(exc, node_id=node_id, step_id=STEP_ID)
+        device, device_error_from_exception(
+        exc, node_id=node_id, step_id=STEP_ID, keep_text=NAUTOBOT_TEXT
+    )
     )
 
 
@@ -184,4 +187,6 @@ def write_error(exc: Exception, node_id: str) -> DeviceError:
             message="The IP address was not found in Nautobot",
             failure=not_found_failure(),
         )
-    return device_error_from_exception(exc, node_id=node_id, step_id=STEP_ID)
+    return device_error_from_exception(
+        exc, node_id=node_id, step_id=STEP_ID, keep_text=NAUTOBOT_TEXT
+    )

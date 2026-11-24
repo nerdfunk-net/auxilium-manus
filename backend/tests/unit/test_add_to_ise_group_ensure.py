@@ -64,8 +64,16 @@ class DeviceGroupEnsurerTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_already_exists_on_create_is_tolerated(self) -> None:
         service = _service({"Location#All Locations"})
-        service.create_child_group = AsyncMock(side_effect=ISEValidationError("Already Exists"))
+        service.create_child_group = AsyncMock(
+            side_effect=ISEValidationError("Already Exists", code="already_exists")
+        )
         await DeviceGroupEnsurer(service).ensure("Location#All Locations#Test")
+
+    async def test_message_text_alone_does_not_count_as_already_exists(self) -> None:
+        service = _service({"Location#All Locations"})
+        service.create_child_group = AsyncMock(side_effect=ISEValidationError("Already Exists"))
+        with self.assertRaises(ISEValidationError):
+            await DeviceGroupEnsurer(service).ensure("Location#All Locations#Test")
 
     async def test_other_validation_error_propagates(self) -> None:
         service = _service({"Location#All Locations"})

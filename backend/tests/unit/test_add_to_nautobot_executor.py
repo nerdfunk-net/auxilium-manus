@@ -595,6 +595,48 @@ class AddToNautobotExecutorTests(unittest.IsolatedAsyncioTestCase):
         for device in failure_outcome.context.devices.values():
             self.assertIs(device.status, DeviceStatus.FAILED)
 
+    async def test_an_unexpected_create_error_shows_only_its_class_name(self) -> None:
+        secret = "driver text with 10.9.9.9 and a token"
+        create_device = AsyncMock(side_effect=RuntimeError(secret))
+        p1, p2, p3, p4, p5 = _patches(
+            setting=_setting(), creation_service_instance=_creation_service(create_device)
+        )
+        with p1, p2, p3, p4, p5:
+            outcomes = await execute(
+                config=_BASE_CONFIG,
+                context=_context({"dev-1": _device("dev-1", name="router1")}),
+                run=_run(),
+                artifact_service=MagicMock(),
+                node_id="node-1",
+                device_sessions=MagicMock(),
+            )
+        failed = next(o for o in outcomes if o.name == "failure").context.devices["dev-1"]
+        self.assertEqual(failed.errors[-1].message, "RuntimeError")
+        self.assertNotIn(secret, repr(failed.errors))
+        self.assertEqual(failed.errors[-1].failure.kind, "internal_error")
+
+    async def test_a_nautobot_create_error_keeps_its_sanitised_text(self) -> None:
+        create_device = AsyncMock(
+            side_effect=NautobotAPIError(
+                "REST request failed with status 400: role: this field is required",
+                http_status=400,
+            )
+        )
+        p1, p2, p3, p4, p5 = _patches(
+            setting=_setting(), creation_service_instance=_creation_service(create_device)
+        )
+        with p1, p2, p3, p4, p5:
+            outcomes = await execute(
+                config=_BASE_CONFIG,
+                context=_context({"dev-1": _device("dev-1", name="router1")}),
+                run=_run(),
+                artifact_service=MagicMock(),
+                node_id="node-1",
+                device_sessions=MagicMock(),
+            )
+        failed = next(o for o in outcomes if o.name == "failure").context.devices["dev-1"]
+        self.assertIn("role: this field is required", failed.errors[-1].message)
+
     async def test_duplicate_device_error_gets_stable_code(self) -> None:
         create_device = AsyncMock(
             side_effect=NautobotAPIError(

@@ -77,7 +77,7 @@ async def test_a_device_that_already_exists_keeps_its_exists_handle_on_abort() -
     created = device_service.create_device.return_value
     device_service.create_device = AsyncMock(
         side_effect=[
-            ISEValidationError("device already exists"),
+            ISEValidationError("device already exists", code="already_exists"),
             created,
             ISEAPIError("ISE ERS request failed with status 401"),
         ]

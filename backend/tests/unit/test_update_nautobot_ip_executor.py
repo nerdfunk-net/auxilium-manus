@@ -250,15 +250,27 @@ class ExecuteTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(error.code, "ip_not_found")
         self.assertEqual(out["failure"].devices["a"].status, DeviceStatus.FAILED)
 
-    async def test_nautobot_refusal_fails_device_without_raw_text(self) -> None:
+    async def test_nautobot_refusal_keeps_the_sanitised_client_text(self) -> None:
+        # The client cleans and caps its 400 text; it is the reason the operator can act on.
         common = MagicMock()
         common.update_ip_address = AsyncMock(
-            side_effect=NautobotAPIError("secret-ish body", http_status=400)
+            side_effect=NautobotAPIError(
+                "REST request failed with status 400: address: taken", http_status=400
+            )
         )
         out, _ = await _run(_config(namespace="Other"), _context(_device("a")), common=common)
         error = out["failure"].devices["a"].errors[0]
-        self.assertNotIn("secret-ish", error.message)
-        self.assertIsNotNone(error.failure)
+        self.assertIn("address: taken", error.message)
+        self.assertEqual(error.failure.kind, "bad_request")
+
+    async def test_an_unexpected_error_fails_the_device_without_raw_text(self) -> None:
+        common = MagicMock()
+        common.update_ip_address = AsyncMock(side_effect=RuntimeError("secret-ish body"))
+        out, _ = await _run(_config(namespace="Other"), _context(_device("a")), common=common)
+        error = out["failure"].devices["a"].errors[0]
+        self.assertEqual(error.message, "RuntimeError")
+        self.assertNotIn("secret-ish", repr(error))
+        self.assertEqual(error.failure.kind, "internal_error")
 
     async def test_sealed_secret_is_refused(self) -> None:
         def resolve(*, field_key: str, raw_value: str, **_: Any) -> str:

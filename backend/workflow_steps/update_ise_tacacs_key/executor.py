@@ -37,6 +37,7 @@ from sqlalchemy.orm import object_session
 
 import service_factory
 from core.models.runs import WorkflowRun
+from models.failure import FailureInfo
 from models.workflow_context import DeviceContext, StepOutcome, WorkflowContext
 from services.artifacts import ArtifactService
 from services.ise.common.exceptions import ISEAPIError, ISENotFoundError, ISEValidationError
@@ -142,6 +143,7 @@ async def _update_one_device(
         return Fail(
             code="tacacs_key_unresolved",
             message=f"new_key expression did not resolve to a value for '{device.name}'",
+            failure=FailureInfo(phase="config", kind="bad_request"),
         )
 
     try:
@@ -160,6 +162,7 @@ async def _update_one_device(
         return Fail(
             code="ise_device_not_found",
             message=f"could not locate device '{device.name}' in ISE source '{parsed.source_id}'",
+            failure=FailureInfo(phase="api", kind="not_found"),
         )
 
     try:

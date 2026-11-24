@@ -29,6 +29,7 @@ from services.nautobot.credentials_bound_client import CredentialsBoundNautobotC
 from services.nautobot.devices.common import DeviceCommonService
 from workflow_steps.common.nautobot_plan_fields import bad_request_failure, resolve_fields
 from workflow_steps.common.partial_outcomes import (
+    NAUTOBOT_TEXT,
     device_error_from_exception,
     fail_device_with_error,
 )
@@ -156,7 +157,9 @@ async def _prepare(
     try:
         shared = await common.shared_ip_ids([ref.id for ref in refs], _own_interface_ids(bag))
     except Exception as exc:
-        error = device_error_from_exception(exc, node_id=node_id, step_id=STEP_ID)
+        error = device_error_from_exception(
+            exc, node_id=node_id, step_id=STEP_ID, keep_text=NAUTOBOT_TEXT
+        )
         return fail_device_with_error(device, error)
 
     items: list[_Item] = []

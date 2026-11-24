@@ -739,7 +739,10 @@ class AddToIseExecutorTests(unittest.IsolatedAsyncioTestCase):
         device_service = _device_service()
         device_service.create_device = AsyncMock(
             side_effect=[
-                ISEValidationError("Network Device Create failed: Device Name Already Exists"),
+                ISEValidationError(
+                    "Network Device Create failed: Device Name Already Exists",
+                    code="already_exists",
+                ),
                 {"id": "ise-2"},
             ]
         )
@@ -767,12 +770,37 @@ class AddToIseExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(by_name["success"].context.metadata["node-1.exists_count"], 1)
         self.assertEqual(by_name["success"].context.metadata["node-1.created_count"], 1)
 
+    async def test_a_message_that_merely_says_already_exists_is_a_failure(self) -> None:
+        # An address conflict can be worded the same way; only the client's code decides.
+        device_service = _device_service()
+        device_service.create_device = AsyncMock(
+            side_effect=ISEValidationError("IP address already exists in device other-sw")
+        )
+        p1, p2, p3 = _patches(device_service)
+        with p1, p2, p3:
+            outcomes = await execute(
+                config=_BASE_CONFIG,
+                context=_context({"dev-1": _device("dev-1", name="router1")}),
+                run=_run(),
+                artifact_service=MagicMock(),
+                node_id="node-1",
+                device_sessions=MagicMock(),
+            )
+
+        by_name = {o.name: o for o in outcomes}
+        self.assertEqual(list(by_name["failure"].context.devices), ["dev-1"])
+        self.assertEqual(
+            by_name["failure"].context.devices["dev-1"].errors[-1].code,
+            "ise_device_create_rejected",
+        )
+        self.assertNotIn("dev-1", by_name["exists"].context.devices)
+
     async def test_request_and_response_recorded_in_requests_not_bags(self) -> None:
         device_service = _device_service()
         device_service.create_device = AsyncMock(
             side_effect=[
                 {"id": "ise-1", "location": "https://ise/x"},
-                ISEValidationError("Device Name Already Exists"),
+                ISEValidationError("Device Name Already Exists", code="already_exists"),
                 ISEValidationError("Illegal IP Address"),
             ]
         )

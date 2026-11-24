@@ -135,6 +135,7 @@ async def test_get_unexpected_error_fails_only_that_device_and_hides_text() -> N
     assert error.failure is not None
     assert error.failure.kind == "internal_error"
     assert result["failure"].devices["C"].errors[-1].code == "tacacs_key_not_found"
+    assert result["failure"].devices["C"].errors[-1].failure.kind == "not_found"
 
 
 @pytest.mark.asyncio

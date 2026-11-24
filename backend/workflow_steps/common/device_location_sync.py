@@ -26,6 +26,7 @@ from models.failure import FailureInfo
 from models.workflow_context import DeviceContext, DeviceError, StepOutcome, WorkflowContext
 from services.nautobot.common.validators import is_valid_uuid
 from workflow_steps.common.partial_outcomes import (
+    NAUTOBOT_TEXT,
     device_error_from_exception,
     fail_device_with_error,
 )
@@ -160,7 +161,9 @@ def _finish_device(
         else:
             unchanged += 1
     if first_error is not None:
-        error = device_error_from_exception(first_error, node_id=node_id, step_id=spec.step_id)
+        error = device_error_from_exception(
+            first_error, node_id=node_id, step_id=spec.step_id, keep_text=NAUTOBOT_TEXT
+        )
         message = f"{failed} of {len(work.refs)} {spec.noun} could not be updated: {error.message}"
         return "failure", fail_device_with_error(
             work.device, error.model_copy(update={"message": message})

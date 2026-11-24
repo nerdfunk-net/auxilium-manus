@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from models.failure import FailureHint, FailureInfo, FailureKind
 from services.ise.common.exceptions import (
+    ALREADY_EXISTS_CODE,
     ISEAPIError,
     ISEError,
     ISENotFoundError,
@@ -41,7 +42,7 @@ def _kind(exc: ISEError) -> FailureKind:
     if isinstance(exc, ISENotFoundError):
         return "not_found"
     if isinstance(exc, ISEValidationError):
-        return "bad_request"
+        return "already_exists" if exc.code == ALREADY_EXISTS_CODE else "bad_request"
     if isinstance(exc, ISEAPIError):
         if exc.code == "timeout":
             return "timeout"

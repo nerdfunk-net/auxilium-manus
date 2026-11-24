@@ -18,7 +18,6 @@ STEPS_ROOT = Path(__file__).resolve().parents[2] / "workflow_steps"
 LEGACY_WITHOUT_FAILURE: dict[str, int] = {
     "workflow_steps/config_to_attributes/executor.py": 1,
     "workflow_steps/filter_output/executor.py": 1,
-    "workflow_steps/get_ise_devices/executor.py": 1,
     "workflow_steps/get_virtual_chassis/stack.py": 1,
     "workflow_steps/list_contains/executor.py": 1,
     "workflow_steps/undefined_and_unused/executor.py": 1,

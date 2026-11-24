@@ -513,5 +513,35 @@ class EmptyDeviceSetTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(outcomes[0].context.devices, {})
 
 
+class FailDeviceTextPolicyTests(unittest.TestCase):
+    """The text of an exception is stored only when it is a sanitised Nautobot error."""
+
+    def _error(self, exc: Exception):
+        from models.workflow_context import DeviceContext
+        from workflow_steps.update_nautobot_device import executor as step
+
+        device = DeviceContext(id="d1", name="d1", hostname="d1")
+        _key, failed, _ok, *_rest = (*step._fail_device(
+            device_key="d1", device=device, node_id="n", exc=exc
+        ),)
+        return failed.errors[-1]
+
+    def test_an_unexpected_error_shows_only_its_class_name(self) -> None:
+        secret = "driver text with 10.9.9.9 and a token"
+        error = self._error(RuntimeError(secret))
+        self.assertEqual(error.message, "RuntimeError")
+        self.assertNotIn(secret, repr(error))
+        self.assertEqual(error.failure.kind, "internal_error")
+
+    def test_a_nautobot_error_keeps_its_sanitised_text(self) -> None:
+        from services.nautobot.common.exceptions import NautobotAPIError
+
+        error = self._error(
+            NautobotAPIError("REST request failed with status 400: name: taken", http_status=400)
+        )
+        self.assertIn("name: taken", error.message)
+        self.assertEqual(error.failure.kind, "bad_request")
+
+
 if __name__ == "__main__":
     unittest.main()

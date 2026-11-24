@@ -448,6 +448,21 @@ per file, lets the number only fall and fails on a new one.
   keeps its text capped at 300 characters with a generic `command_error`; an unexpected error is the class name plus
   `internal_error`. `batfish-extract-facts` stores the class name only when the HSRP question fails.
 
+### Which exception text a failed device stores (P-E, D3)
+
+`device_error_from_exception(exc, ..., keep_text=...)` is the one place that turns an exception into a stored message:
+the text of a `ValueError` / `FileNotFoundError` (the step wrote it) is kept, anything else is reduced to the class
+name plus a `FailureInfo`, so driver, SQL and secret text never reach the stored run. `keep_text` names the integration
+errors whose text is sanitised at the source:
+
+- **Nautobot** (`partial_outcomes.NAUTOBOT_TEXT`): every Nautobot read and write step passes it. The REST 400 text is
+  cleaned and capped by the client, and it is the only place the operator reads why a write was refused
+  (`name: this name is taken`).
+- **ISE**: the client collapses whitespace and caps an ERS 400 at 300 characters, and sets `code="already_exists"` itself
+  when a title says the object is already there (`ISEValidationError.code`). `add-to-ise` (the `exists` handle) and the
+  group ensurer decide by that code, never by message text, so an address conflict worded the same way is a failure.
+- **SSH driver, git and database** errors keep the class name and the `FailureInfo` only.
+
 ### Empty branch and step-level failure (D2)
 
 - **Validate first, then look at the devices.** A step parses and validates its config before it returns for an empty

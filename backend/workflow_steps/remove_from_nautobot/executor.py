@@ -27,6 +27,7 @@ from services.nautobot.devices.common import DeviceCommonService
 from services.workflow_context.secret_fields import REDACTED_PLACEHOLDER
 from workflow_steps.common.nautobot_step import bind_nautobot_client
 from workflow_steps.common.partial_outcomes import (
+    NAUTOBOT_TEXT,
     device_error_from_exception,
     fail_device_with_error,
 )
@@ -231,7 +232,9 @@ async def _remove(
     except Exception as exc:
         # Nautobot cannot delete a device and its addresses atomically: addresses removed
         # earlier stay removed. The device fails and the message lists them for the operator.
-        error = device_error_from_exception(exc, node_id=node_id, step_id=_STEP_ID)
+        error = device_error_from_exception(
+            exc, node_id=node_id, step_id=_STEP_ID, keep_text=NAUTOBOT_TEXT
+        )
         if removed:
             error = error.model_copy(
                 update={

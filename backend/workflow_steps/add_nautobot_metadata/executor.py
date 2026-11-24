@@ -19,7 +19,7 @@ from sqlalchemy.orm import object_session
 
 import service_factory
 from core.models.runs import WorkflowRun
-from models.failure import FailureInfo, failure_from_exception
+from models.failure import FailureInfo
 from models.workflow_context import (
     Capability,
     DeviceContext,
@@ -35,6 +35,7 @@ from services.nautobot.metadata_creation import (
     MetadataReferenceNotFoundError,
 )
 from workflow_steps.common.nautobot_source import resolve_nautobot_credentials
+from workflow_steps.common.partial_outcomes import NAUTOBOT_TEXT, device_error_from_exception
 from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.common.update_field_expression import resolve_template_if_present
 
@@ -276,9 +277,10 @@ async def _process_device(
             False,
         )
     except Exception as exc:
-        failed = _fail(
-            device, node_id, type(exc).__name__.lower(), str(exc), failure_from_exception(exc)
+        error = device_error_from_exception(
+            exc, node_id=node_id, step_id=_STEP_ID, keep_text=NAUTOBOT_TEXT
         )
+        failed = _fail(device, node_id, error.code, error.message, error.failure)
         return device_key, failed, False
     return device_key, _enrich(device, bag_updates), True
 

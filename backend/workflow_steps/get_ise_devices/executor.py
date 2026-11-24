@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session, object_session
 
 import service_factory
 from core.models.runs import WorkflowRun
+from models.failure import FailureInfo
 from models.sources_nautobot import DeviceInfo, LogicalCondition, LogicalOperation
 from models.workflow_context import (
     DeviceContext,
@@ -345,6 +346,7 @@ def _build_get_ise_devices_outcome(
                         step_id="get-ise-devices",
                         code="ise_device_not_found",
                         message=f"device '{name}' is not known to ISE source '{source_id}'",
+                        failure=FailureInfo(phase="api", kind="not_found"),
                     )
                 ],
             )

@@ -41,6 +41,7 @@ from workflow_steps.common.nautobot_prefix_lookup import (
 from workflow_steps.common.nautobot_resolve import resolve_nautobot_device_id
 from workflow_steps.common.nautobot_source import resolve_nautobot_credentials
 from workflow_steps.common.partial_outcomes import (
+    NAUTOBOT_TEXT,
     device_error_from_exception,
     fail_device_with_error,
 )
@@ -370,14 +371,18 @@ async def _process(
             failure=_not_found_failure(),
         )
     except Exception as exc:
-        error = device_error_from_exception(exc, node_id=node_id, step_id=_STEP_ID)
+        error = device_error_from_exception(
+            exc, node_id=node_id, step_id=_STEP_ID, keep_text=NAUTOBOT_TEXT
+        )
         return "failure", fail_device_with_error(device, error)
 
     if target is not None:
         try:
             problem = await _attach(parsed, bound, ip_id, target)
         except Exception as exc:
-            error = device_error_from_exception(exc, node_id=node_id, step_id=_STEP_ID)
+            error = device_error_from_exception(
+            exc, node_id=node_id, step_id=_STEP_ID, keep_text=NAUTOBOT_TEXT
+        )
             return "failure", fail_device_with_error(device, error)
         if problem is not None:
             code, message = problem
@@ -431,7 +436,9 @@ def _lookup_error(exc: Exception, code: str, node_id: str, device: DeviceContext
             failure=_not_found_failure(),
         )
     return fail_device_with_error(
-        device, device_error_from_exception(exc, node_id=node_id, step_id=_STEP_ID)
+        device, device_error_from_exception(
+            exc, node_id=node_id, step_id=_STEP_ID, keep_text=NAUTOBOT_TEXT
+        )
     )
 
 

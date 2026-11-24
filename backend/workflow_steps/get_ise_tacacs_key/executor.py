@@ -44,6 +44,7 @@ from sqlalchemy.orm import object_session
 
 import service_factory
 from core.models.runs import WorkflowRun
+from models.failure import FailureInfo
 from models.workflow_context import DeviceContext, StepOutcome, WorkflowContext
 from services.artifacts import ArtifactService
 from services.ise.common.exceptions import ISEAPIError, ISENotFoundError, ISEValidationError
@@ -399,6 +400,7 @@ async def _process_devices_for_tacacs_key(
                     f"No enabled priority tier found a TACACS+ key for '{device.name}' "
                     f"in ISE source '{source_id}'"
                 ),
+                failure=FailureInfo(phase="api", kind="not_found"),
             )
         with_secret = set_device_attribute(device, "tacacs.shared_secret", seal_secret(secret))
         # Record which lookup tier succeeded (one of _TIER_TYPES) so downstream steps and run

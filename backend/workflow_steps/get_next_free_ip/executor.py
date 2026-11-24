@@ -28,6 +28,7 @@ from workflow_steps.common.nautobot_plan_fields import (
 )
 from workflow_steps.common.nautobot_step import bind_nautobot_client
 from workflow_steps.common.partial_outcomes import (
+    NAUTOBOT_TEXT,
     device_error_from_exception,
     fail_device_with_error,
 )
@@ -247,7 +248,9 @@ def _fail_all(
             )
             for d in members
         }
-    error = device_error_from_exception(exc, node_id=node_id, step_id=_STEP_ID)
+    error = device_error_from_exception(
+        exc, node_id=node_id, step_id=_STEP_ID, keep_text=NAUTOBOT_TEXT
+    )
     return {d.id: ("failure", fail_device_with_error(d, error)) for d in members}
 
 

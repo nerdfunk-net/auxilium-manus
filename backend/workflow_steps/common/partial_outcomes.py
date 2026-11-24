@@ -15,7 +15,12 @@ from models.workflow_context import (
     StepOutcome,
     WorkflowContext,
 )
+from services.nautobot.common.exceptions import NautobotError
 from workflow_steps.common.device_outcomes import mark_device_failed
+
+# Exception classes whose text is safe to store (D3): the Nautobot client sanitises its messages at
+# the source, and the reason Nautobot refused a write is the only thing the operator can act on.
+NAUTOBOT_TEXT: tuple[type[BaseException], ...] = (NautobotError,)
 
 
 def device_error_from_exception(

@@ -88,7 +88,7 @@ from models.workflow_context import (
     WorkflowContext,
 )
 from services.artifacts import ArtifactService
-from services.ise.common.exceptions import ISEAPIError, ISEValidationError
+from services.ise.common.exceptions import ALREADY_EXISTS_CODE, ISEAPIError, ISEValidationError
 from services.ise.credentials import ISECredentials
 from services.workflow_context.attribute_path import resolve_device_value
 from services.workflow_context.secret_expression import require_secret_expression
@@ -111,11 +111,6 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _STEP_ID = "add-to-ise"
-# Fragment of the ISE ERS 400 message for a duplicate device name
-# ("Network Device Create failed: Device Name Already Exists"). Matched
-# case-insensitively and loosely so minor wording changes across ISE versions
-# still route to the "exists" outcome.
-_ALREADY_EXISTS_MARKER = "already exist"
 _ISE_CREATE_ENDPOINT = "/ers/config/networkdevice"
 _CONNECT_MODE_OFF = "OFF"
 _CONNECT_MODES = frozenset({_CONNECT_MODE_OFF, "ON_LEGACY", "ON_DRAFT_COMPLIANT"})
@@ -580,7 +575,7 @@ async def _create_one_device(
     try:
         created = await device_service.create_device(device_payload)
     except ISEValidationError as exc:
-        if _ALREADY_EXISTS_MARKER in str(exc).lower():
+        if exc.code == ALREADY_EXISTS_CODE:
             logger.info(
                 "%s: device '%s' already exists in ISE source '%s': %s",
                 _STEP_ID,

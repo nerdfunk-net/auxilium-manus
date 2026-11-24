@@ -4,13 +4,16 @@ from __future__ import annotations
 
 from models.failure import FailureInfo
 
+# ``ISEError.code`` of a 400 whose title says the object is already there (one place decides).
+ALREADY_EXISTS_CODE = "already_exists"
+
 
 class ISEError(Exception):
     """Base exception for Cisco ISE operations.
 
     ``http_status`` and ``code`` are the structured facts behind the message and feed
-    :attr:`failure`. ``code`` is ``timeout``, ``transport`` or ``invalid_response``; never text
-    taken from a response.
+    :attr:`failure`. ``code`` is ``timeout``, ``transport``, ``invalid_response`` or
+    ``already_exists``; never text taken from a response.
     """
 
     def __init__(

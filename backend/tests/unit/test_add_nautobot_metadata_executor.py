@@ -278,6 +278,35 @@ class LocationTests(unittest.IsolatedAsyncioTestCase):
         failed = _by_name(outcomes)["failure"].context.devices["d1"]
         self.assertEqual(failed.errors[0].code, "reference_not_found")
 
+    async def test_an_unexpected_error_shows_only_its_class_name(self) -> None:
+        secret = "driver text with 10.9.9.9 and a token"
+        outcomes = await _run(
+            _LOCATION_CONFIG,
+            {"d1": _device("d1", _LOCATION_CUSTOM)},
+            _service(ensure_location=AsyncMock(side_effect=RuntimeError(secret))),
+        )
+        failed = _by_name(outcomes)["failure"].context.devices["d1"]
+        self.assertEqual(failed.errors[0].message, "RuntimeError")
+        self.assertNotIn(secret, repr(failed.errors))
+        self.assertEqual(failed.errors[0].failure.kind, "internal_error")
+
+    async def test_a_nautobot_error_keeps_its_sanitised_text(self) -> None:
+        outcomes = await _run(
+            _LOCATION_CONFIG,
+            {"d1": _device("d1", _LOCATION_CUSTOM)},
+            _service(
+                ensure_location=AsyncMock(
+                    side_effect=NautobotAPIError(
+                        "REST request failed with status 400: name: this name is taken",
+                        http_status=400,
+                    )
+                )
+            ),
+        )
+        failed = _by_name(outcomes)["failure"].context.devices["d1"]
+        self.assertIn("name: this name is taken", failed.errors[0].message)
+        self.assertEqual(failed.errors[0].failure.kind, "bad_request")
+
     async def test_api_error_for_one_device_leaves_the_other_successful(self) -> None:
         async def ensure(**kwargs: Any) -> EnsureResult:
             if kwargs["name"] == "Bad":

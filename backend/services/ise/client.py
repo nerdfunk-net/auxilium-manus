@@ -11,6 +11,7 @@ import httpx
 from core.safe_urls import UnsafeURLError, validate_source_transport_async
 from core.ssl_config import create_verified_ssl_context, verify_option
 from services.ise.common.exceptions import (
+    ALREADY_EXISTS_CODE,
     ISEAPIError,
     ISENotFoundError,
     ISEValidationError,
@@ -18,6 +19,10 @@ from services.ise.common.exceptions import (
 from services.ise.credentials import ISECredentials
 
 logger = logging.getLogger(__name__)
+
+# The text of an ISE 400 is persisted in a step's error: one line, capped.
+MAX_ERROR_TEXT = 300
+_ALREADY_EXISTS_FRAGMENT = "already exist"
 
 
 class ISEService:
@@ -126,21 +131,41 @@ class ISEService:
         if response.status_code == 404:
             raise ISENotFoundError(f"ISE resource not found: {endpoint}", http_status=404)
         if response.status_code == 400:
-            raise ISEValidationError(self._extract_error_message(response), http_status=400)
+            titles = self._error_titles(response)
+            raise ISEValidationError(
+                self._error_text(titles),
+                http_status=400,
+                code=ALREADY_EXISTS_CODE if self._says_already_exists(titles) else None,
+            )
         raise ISEAPIError(
             f"ISE ERS request failed with status {response.status_code} for endpoint {endpoint}",
             http_status=response.status_code,
         )
 
     @staticmethod
-    def _extract_error_message(response: httpx.Response) -> str:
+    def _error_titles(response: httpx.Response) -> list[str]:
         try:
             payload = response.json()
         except ValueError:
-            return "ISE rejected the request (400 Bad Request)"
+            return []
         messages = payload.get("ERSResponse", {}).get("messages", [])
-        texts = [str(m["title"]) for m in messages if isinstance(m, dict) and m.get("title")]
-        return "; ".join(texts) if texts else "ISE rejected the request (400 Bad Request)"
+        return [str(m["title"]) for m in messages if isinstance(m, dict) and m.get("title")]
+
+    @staticmethod
+    def _says_already_exists(titles: list[str]) -> bool:
+        # ISE words a duplicate name as "... Device Name Already Exists"; matched loosely so a
+        # change of wording across versions still counts. The decision is made here, once.
+        return any(_ALREADY_EXISTS_FRAGMENT in title.lower() for title in titles)
+
+    @staticmethod
+    def _error_text(titles: list[str]) -> str:
+        """The titles joined, whitespace collapsed and capped (the text is persisted)."""
+        text = " ".join("; ".join(titles).split())
+        if not text:
+            return "ISE rejected the request (400 Bad Request)"
+        if len(text) > MAX_ERROR_TEXT:
+            return f"{text[:MAX_ERROR_TEXT]}\u2026"
+        return text
 
     @staticmethod
     def _id_from_location(location: str | None) -> str | None:

@@ -101,6 +101,53 @@ class ISEClientTests(unittest.IsolatedAsyncioTestCase):
             )
         self.assertIn("Mandatory fields missing", str(ctx.exception))
 
+    async def _post_400(self, *titles: str) -> ISEValidationError:
+        self.mock_client.request.return_value = httpx.Response(
+            400,
+            json={"ERSResponse": {"messages": [{"title": t, "type": "ERROR"} for t in titles]}},
+        )
+        with self.assertRaises(ISEValidationError) as ctx:
+            await self.service.ers_request(
+                "networkdevice", _credentials(), method="POST", data={"NetworkDevice": {}}
+            )
+        return ctx.exception
+
+    async def test_a_duplicate_name_400_carries_the_already_exists_code(self) -> None:
+        exc = await self._post_400("Network Device Create failed: Device Name Already Exists")
+        self.assertEqual(exc.code, "already_exists")
+        self.assertEqual(exc.failure.kind, "already_exists")
+
+    async def test_any_other_400_has_no_code(self) -> None:
+        exc = await self._post_400("Validation Error - Mandatory fields missing: [Name]")
+        self.assertIsNone(exc.code)
+        self.assertEqual(exc.failure.kind, "bad_request")
+
+    async def test_the_400_text_is_cleaned_and_capped(self) -> None:
+        exc = await self._post_400("first line\nsecond\tline  " + "x" * 2000)
+        text = str(exc)
+        self.assertNotIn("\n", text)
+        self.assertNotIn("\t", text)
+        self.assertTrue(text.startswith("first line second line "))
+        self.assertEqual(len(text), 301)
+        self.assertTrue(text.endswith("\u2026"))
+
+    async def test_a_400_without_usable_titles_gets_the_default_sentence(self) -> None:
+        for response in (
+            httpx.Response(400, text="<html>proxy page</html>"),
+            httpx.Response(400, json={"ERSResponse": {"messages": []}}),
+        ):
+            self.mock_client.request.return_value = response
+            with self.assertRaises(ISEValidationError) as ctx:
+                await self.service.ers_request(
+                    "networkdevice", _credentials(), method="POST", data={"NetworkDevice": {}}
+                )
+            self.assertEqual(str(ctx.exception), "ISE rejected the request (400 Bad Request)")
+            self.assertIsNone(ctx.exception.code)
+
+    async def test_a_short_400_text_is_not_changed(self) -> None:
+        exc = await self._post_400("Validation Error - A", "Validation Error - B")
+        self.assertEqual(str(exc), "Validation Error - A; Validation Error - B")
+
     async def test_500_raises_api_error(self) -> None:
         self.mock_client.request.return_value = httpx.Response(500, text="boom")
         with self.assertRaises(ISEAPIError):

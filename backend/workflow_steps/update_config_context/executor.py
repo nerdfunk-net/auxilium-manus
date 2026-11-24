@@ -29,7 +29,6 @@ from sqlalchemy.orm import object_session
 
 import service_factory
 from core.models.runs import WorkflowRun
-from models.failure import failure_from_exception
 from models.workflow_context import (
     DeviceContext,
     DeviceError,
@@ -57,6 +56,7 @@ from workflow_steps.common.nautobot_target import (
     parse_explicit_identifier,
     parse_identifier_mode,
 )
+from workflow_steps.common.partial_outcomes import NAUTOBOT_TEXT, device_error_from_exception
 from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.common.step_flags import parse_bool_flag
 from workflow_steps.common.template_content import load_stored_template
@@ -444,9 +444,16 @@ def _fail_device(
     message: str | None = None,
     exc: Exception | None = None,
 ) -> tuple[str, DeviceContext | None, bool]:
-    error_code = code or (type(exc).__name__.lower() if exc is not None else "error")
-    error_message = message or (str(exc) if exc is not None else "Unknown error")
-    failure = failure_from_exception(exc) if exc is not None else None
+    from_exc = (
+        device_error_from_exception(
+            exc, node_id=node_id, step_id=_STEP_ID, keep_text=NAUTOBOT_TEXT
+        )
+        if exc is not None
+        else None
+    )
+    error_code = code or (from_exc.code if from_exc else "error")
+    error_message = message or (from_exc.message if from_exc else "Unknown error")
+    failure = from_exc.failure if from_exc else None
 
     if device is None:
         placeholder = DeviceContext(

@@ -259,6 +259,7 @@ class UpdateIseTacacsKeyExecutorTests(unittest.IsolatedAsyncioTestCase):
         updated = outcomes[1].context.devices["dev-1"]
         self.assertEqual(updated.status, DeviceStatus.FAILED)
         self.assertEqual(updated.errors[-1].code, "tacacs_key_unresolved")
+        self.assertEqual(updated.errors[-1].failure.kind, "bad_request")
         self.assertEqual(outcomes[0].context.metadata["node-1.failed_count"], 1)
 
     async def test_ise_sourced_device_trusts_device_id(self) -> None:
@@ -321,6 +322,7 @@ class UpdateIseTacacsKeyExecutorTests(unittest.IsolatedAsyncioTestCase):
         updated = outcomes[1].context.devices["dev-1"]
         self.assertEqual(updated.status, DeviceStatus.FAILED)
         self.assertEqual(updated.errors[-1].code, "ise_device_not_found")
+        self.assertEqual(updated.errors[-1].failure.kind, "not_found")
 
     async def test_rejected_update_leaves_through_failure(self) -> None:
         device_service = _device_service()

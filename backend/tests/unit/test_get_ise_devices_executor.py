@@ -105,6 +105,7 @@ class GetIseDevicesExecutorTests(unittest.IsolatedAsyncioTestCase):
         stub = outcomes[1].context.devices["missing-device"]
         self.assertEqual(stub.status, DeviceStatus.FAILED)
         self.assertEqual(stub.errors[-1].code, "ise_device_not_found")
+        self.assertEqual(stub.errors[-1].failure.kind, "not_found")
         device = outcome.context.devices["abc-1"]
         self.assertEqual(device.name, "router1")
         self.assertEqual(device.primary_ip4, "10.0.0.1")
