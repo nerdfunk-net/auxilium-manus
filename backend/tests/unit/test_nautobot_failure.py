@@ -121,7 +121,7 @@ def test_step_level_record_for_a_raw_client_error() -> None:
 def _parsed(max_checks: int = 1) -> check_job._ParsedConfig:
     return check_job._ParsedConfig(
         source_id="s",
-        job_uuid_expr="jr-1",
+        job_uuid_expr="11111111-1111-1111-1111-111111111111",
         max_checks=max_checks,
         interval_seconds=0,
         bag_name="nautobot_job",

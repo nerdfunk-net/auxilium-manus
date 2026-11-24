@@ -37,7 +37,7 @@ from services.nautobot.credentials_bound_client import CredentialsBoundNautobotC
 from services.nautobot.devices.common import DeviceCommonService
 from services.nautobot.devices.uuid_resolver import UUID_RESOURCE_TYPES, resolve_nautobot_uuid
 from services.nautobot.jobs import NautobotJobsService
-from services.workflow_context.secret_fields import redact_secrets_in_data
+from services.workflow_context.secret_fields import REDACTED_PLACEHOLDER, redact_secrets_in_data
 from workflow_steps.common.attribute_expression import resolve_attribute_expression
 from workflow_steps.common.nautobot_source import resolve_nautobot_credentials
 from workflow_steps.common.request_record import append_request_record
@@ -190,7 +190,8 @@ def _coerce_value(name: str, resolved: str, var_type: str) -> Any:
         try:
             return int(resolved)
         except ValueError as exc:
-            raise ValueError(f"parameter '{name}' must be an integer, got {resolved!r}") from exc
+            # The value is not echoed: it can come from a device attribute.
+            raise ValueError(f"parameter '{name}' must be an integer") from exc
 
     if var_type in _BOOLEAN_TYPES:
         # A resolved per-device value, not step config; it raises on a typo (guard opt-outs below).
@@ -199,14 +200,14 @@ def _coerce_value(name: str, resolved: str, var_type: str) -> Any:
             return True
         if normalized in ("false", "0", "no", ""):  # check_flag_parsing: ok
             return False
-        raise ValueError(f"parameter '{name}' must be a boolean, got {resolved!r}")
+        raise ValueError(f"parameter '{name}' must be a boolean")
 
     if var_type in _JSON_LIKE_TYPES:
         split = _split_multi_value(resolved)
         if split is not None:
             return split
         if resolved.strip().startswith("[") or resolved.strip().startswith("{"):
-            raise ValueError(f"parameter '{name}' must be valid JSON, got {resolved!r}")
+            raise ValueError(f"parameter '{name}' must be valid JSON")
         if var_type in _MULTI_VALUE_TYPES:
             return [resolved]
         return resolved
@@ -241,6 +242,24 @@ async def _resolve_uuid_value(
     )
 
 
+def _resolve_param_value(
+    device: DeviceContext, name: str, spec: _ParamSpec, *, run_id: str | None
+) -> str | None:
+    """One parameter's value for one device; a sealed secret is refused, never sent to a job.
+
+    ``reveal_secrets=False`` like every sibling step that copies a value into a request: the
+    value would end up in the job request record and in Nautobot (W6-05).
+    """
+    resolved = resolve_attribute_expression(
+        device, spec.value, run_id=run_id, reveal_secrets=False
+    )
+    if resolved == REDACTED_PLACEHOLDER:
+        raise ValueError(
+            f"parameter '{name}' points to a secret, which this step does not copy into a job"
+        )
+    return resolved
+
+
 async def _resolve_device_params(
     *,
     device: DeviceContext,
@@ -253,7 +272,7 @@ async def _resolve_device_params(
     data: dict[str, Any] = {}
 
     for name, spec in required_params.items():
-        resolved = resolve_attribute_expression(device, spec.value, run_id=run_id)
+        resolved = _resolve_param_value(device, name, spec, run_id=run_id)
         if resolved is None:
             raise ValueError(f"required parameter '{name}' has no value for this device")
         var_type = variable_types.get(name, "")
@@ -271,7 +290,7 @@ async def _resolve_device_params(
     for name, (enabled, spec) in optional_params.items():
         if not enabled:
             continue
-        resolved = resolve_attribute_expression(device, spec.value, run_id=run_id)
+        resolved = _resolve_param_value(device, name, spec, run_id=run_id)
         if resolved is None:
             continue
         var_type = variable_types.get(name, "")

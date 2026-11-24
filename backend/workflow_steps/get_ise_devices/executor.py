@@ -168,7 +168,8 @@ async def _resolve_devices_via_nautobot(
     """
     condition = LogicalCondition(field="primary_prefix", operator="within_include", value=cidr)
     operation = LogicalOperation(operation_type="AND", conditions=[condition])
-    devices, _ = await nautobot_source_service.preview_inventory([operation])
+    # strict: a failed evaluation must not read as "no devices" and keep the raw subnet entry.
+    devices, _ = await nautobot_source_service.preview_inventory([operation], strict=True)
     return devices
 
 
@@ -180,6 +181,28 @@ class _ParsedGetIseDevicesConfig:
     nautobot_source_id: str
 
 
+def _validate_mode_keys(config: dict[str, Any], query_mode: str) -> None:
+    """The input of the chosen query mode, checked with the rest of the config, before any
+    credential lookup or ISE request (W6-16)."""
+    if query_mode == "name":
+        names = config.get("device_names")
+        if not isinstance(names, list) or not names:
+            raise ValueError("get-ise-devices: device_names is required for query_mode 'name'")
+        if not all(isinstance(name, str) for name in names):
+            raise ValueError("get-ise-devices: device_names must be a list of names")
+    elif query_mode == "group":
+        if not str(config.get("group_name") or "").strip():
+            raise ValueError("get-ise-devices: group_name is required for query_mode 'group'")
+    else:
+        cidr = str(config.get("cidr") or "").strip()
+        if not cidr:
+            raise ValueError("get-ise-devices: cidr is required for query_mode 'cidr'")
+        try:
+            ipaddress.ip_network(cidr, strict=False)
+        except ValueError as exc:
+            raise ValueError(f"get-ise-devices: invalid cidr '{cidr}': {exc}") from exc
+
+
 def _parse_get_ise_devices_config(config: dict[str, Any]) -> _ParsedGetIseDevicesConfig:
     source_id = (config.get("ise_source_id") or "").strip()
     if not source_id:
@@ -188,6 +211,8 @@ def _parse_get_ise_devices_config(config: dict[str, Any]) -> _ParsedGetIseDevice
     query_mode = config.get("query_mode", "name")
     if query_mode not in _QUERY_MODES:
         raise ValueError(f"get-ise-devices: unsupported query_mode '{query_mode}'")
+
+    _validate_mode_keys(config, query_mode)
 
     resolve_to_devices = parse_bool_flag(config, "resolve_to_devices", default=False)
     nautobot_source_id = (config.get("nautobot_source_id") or "").strip()

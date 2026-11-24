@@ -8,6 +8,9 @@ from unittest.mock import AsyncMock
 from models.workflow_context import DeviceContext
 from workflow_steps.check_nautobot_job import executor as mod
 
+_JOB = "11111111-1111-1111-1111-111111111111"
+_JOB_2 = "22222222-2222-2222-2222-222222222222"
+
 
 def _device(did: str = "d1", **bags: object) -> DeviceContext:
     return DeviceContext(
@@ -23,7 +26,7 @@ class CheckJobForDeviceStatusShapeTests(unittest.IsolatedAsyncioTestCase):
         )
         parsed = mod._ParsedConfig(
             source_id="src-1",
-            job_uuid_expr="jr-1",
+            job_uuid_expr=_JOB,
             max_checks=1,
             interval_seconds=0,
             bag_name="nautobot_job",
@@ -47,7 +50,7 @@ class CheckJobForDeviceStatusShapeTests(unittest.IsolatedAsyncioTestCase):
         )
         parsed = mod._ParsedConfig(
             source_id="src-1",
-            job_uuid_expr="jr-1",
+            job_uuid_expr=_JOB,
             max_checks=1,
             interval_seconds=0,
             bag_name="nautobot_job",
@@ -69,7 +72,7 @@ class CheckJobForDeviceStatusShapeTests(unittest.IsolatedAsyncioTestCase):
         jobs_service.get_job_result = AsyncMock(return_value={"status": "SUCCESS"})
         parsed = mod._ParsedConfig(
             source_id="src-1",
-            job_uuid_expr="jr-1",
+            job_uuid_expr=_JOB,
             max_checks=1,
             interval_seconds=0,
             bag_name="nautobot_job",
@@ -90,7 +93,7 @@ class CheckJobForDeviceStatusShapeTests(unittest.IsolatedAsyncioTestCase):
         jobs_service.get_job_result = AsyncMock(return_value={"status": {"value": None}})
         parsed = mod._ParsedConfig(
             source_id="src-1",
-            job_uuid_expr="jr-1",
+            job_uuid_expr=_JOB,
             max_checks=1,
             interval_seconds=0,
             bag_name="nautobot_job",
@@ -136,7 +139,7 @@ class StillRunningTests(unittest.IsolatedAsyncioTestCase):
         jobs_service = AsyncMock()
         jobs_service.get_job_result = AsyncMock(return_value={"status": "STARTED"})
         parsed = mod._ParsedConfig(
-            source_id="s", job_uuid_expr="jr", max_checks=1, interval_seconds=0, bag_name="b"
+            source_id="s", job_uuid_expr=_JOB, max_checks=1, interval_seconds=0, bag_name="b"
         )
         _key, failed, ok = await mod._check_job_for_device(
             device_key="d1",
@@ -158,12 +161,12 @@ class CustomBagNameTests(unittest.IsolatedAsyncioTestCase):
         jobs_service.get_job_result = AsyncMock(return_value={"status": "SUCCESS"})
         parsed = mod._ParsedConfig(
             source_id="src-1",
-            job_uuid_expr="jr-2",
+            job_uuid_expr=_JOB_2,
             max_checks=1,
             interval_seconds=0,
             bag_name="update_job",
         )
-        device = _device("d1", nautobot_job={"job_result_id": "jr-1", "status": "SUCCESS"})
+        device = _device("d1", nautobot_job={"job_result_id": _JOB, "status": "SUCCESS"})
         key, updated, ok = await mod._check_job_for_device(
             device_key="d1",
             device=device,
@@ -173,21 +176,21 @@ class CustomBagNameTests(unittest.IsolatedAsyncioTestCase):
             run_id=None,
         )
         self.assertTrue(ok)
-        self.assertEqual(updated.attribute_bags["nautobot_job"]["job_result_id"], "jr-1")
-        self.assertEqual(updated.attribute_bags["update_job"]["job_result_id"], "jr-2")
+        self.assertEqual(updated.attribute_bags["nautobot_job"]["job_result_id"], _JOB)
+        self.assertEqual(updated.attribute_bags["update_job"]["job_result_id"], _JOB_2)
 
     async def test_matching_bag_name_merges_onto_start_job_bag(self) -> None:
         jobs_service = AsyncMock()
         jobs_service.get_job_result = AsyncMock(return_value={"status": "SUCCESS"})
         parsed = mod._ParsedConfig(
             source_id="src-1",
-            job_uuid_expr="jr-1",
+            job_uuid_expr=_JOB,
             max_checks=1,
             interval_seconds=0,
             bag_name="onboard_job",
         )
         device = _device(
-            "d1", onboard_job={"job_result_id": "jr-1", "job_id": "job-1", "request": {}}
+            "d1", onboard_job={"job_result_id": _JOB, "job_id": "job-1", "request": {}}
         )
         key, updated, ok = await mod._check_job_for_device(
             device_key="d1",

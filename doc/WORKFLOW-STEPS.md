@@ -334,8 +334,11 @@ fewer devices than selected fails unless `allow_partial_snapshot`; skipped devic
 new `failure` handle), `batfish-validate-facts` (empty expected facts fail the device),
 `open-change-request` (identical configs leave through the new `unchanged` handle, no change request),
 `route-on-attribute` (an unmatched device leaves through `failure`; route names `success`/`failure`
-are reserved), `update-attribute` (a sealed source fails that device through the new `failure`
-handle), `compare-data` / `route-on-content` (several exportable items fail the device with
+are reserved), `update-attribute` (a sealed source in regex or template mode, a selector into a bag of another shape
+or an unexpected error fails that device through `failure`; missing required fields fail the step once, at
+parse time), `list-contains` (a sealed `value` fails the device, `value_is_secret`), `start-nautobot-job`
+(a parameter that points to a sealed secret fails the device; coercion errors never repeat the value),
+`compare-data` / `route-on-content` (several exportable items fail the device with
 `ambiguous_match`), `merge-content` (nothing to merge fails the device; repeated `json_merged` keys
 become `<key>#2`), `config-to-attributes` (devices without parsed data fail), `get-ise-devices`
 (names ISE does not know leave through `failure`).

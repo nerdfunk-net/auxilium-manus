@@ -41,6 +41,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _STEP_ID = "get-nautobot-attributes"
+_CONCURRENCY = 5
 
 
 @dataclass(frozen=True)
@@ -59,7 +60,10 @@ async def _fetch_device(
     query: str,
 ) -> dict[str, Any] | None:
     vars_with_id = {"deviceId": device_id, **variables}
-    response = await nautobot_service.graphql_query(query, vars_with_id, credentials)
+    # strict: an `errors` answer (permission, schema) is a failure with its cause, not "no data".
+    response = await nautobot_service.graphql_query(
+        query, vars_with_id, credentials, strict=True
+    )
     device = (response.get("data") or {}).get("device")
     if device is None:
         logger.warning(
@@ -259,9 +263,12 @@ async def execute(
         parsed.list_of_attributes,
     )
 
-    results = await asyncio.gather(
-        *[
-            _enrich_device(
+    # At most this many devices are read at once (each one is two Nautobot queries).
+    gate = asyncio.Semaphore(_CONCURRENCY)
+
+    async def enrich(device_id: str, device: DeviceContext) -> tuple[str, DeviceContext, bool]:
+        async with gate:
+            return await _enrich_device(
                 device_id=device_id,
                 device=device,
                 node_id=node_id,
@@ -272,8 +279,9 @@ async def execute(
                 case_insensitive_lookup=parsed.case_insensitive_lookup,
                 normalize_cables=parsed.normalize_cables,
             )
-            for device_id, device in context.devices.items()
-        ]
+
+    results = await asyncio.gather(
+        *[enrich(device_id, device) for device_id, device in context.devices.items()]
     )
     success_devices, failed_devices = _partition_device_results(results)
     logger.info(

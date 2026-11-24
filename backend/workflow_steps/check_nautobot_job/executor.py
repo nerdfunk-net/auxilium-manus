@@ -38,6 +38,7 @@ from services.nautobot.credentials_bound_client import CredentialsBoundNautobotC
 from services.nautobot.jobs import NautobotJobsService
 from workflow_steps.check_nautobot_job.config import get_config
 from workflow_steps.common.attribute_expression import resolve_attribute_expression
+from workflow_steps.common.device_location_sync import uuid_or_none
 from workflow_steps.common.nautobot_source import resolve_nautobot_credentials
 from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.common.step_flags import parse_int_flag
@@ -161,6 +162,19 @@ async def _check_job_for_device(
             exc=ValueError("job_uuid has no value for this device"),
         )
         return key, failed, False
+
+    # The id goes into a REST path: only a UUID may (W6-10). The value is never echoed.
+    checked_uuid = uuid_or_none(job_uuid)
+    if checked_uuid is None:
+        key, failed = _fail_device(
+            device_key=device_key,
+            device=device,
+            node_id=node_id,
+            exc=ValueError("job_uuid is not a Nautobot job result UUID"),
+            failure=FailureInfo(phase="config", kind="bad_request"),
+        )
+        return key, failed, False
+    job_uuid = checked_uuid
 
     status: str | None = None
     last_error: Exception | None = None

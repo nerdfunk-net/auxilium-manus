@@ -160,26 +160,44 @@ async def _tier_name_any(cache: _NameLookupCache) -> str | None:
     return extract_tacacs_shared_secret(detail)
 
 
+class _LocationGroups:
+    """The detail records of each ``Location#...`` group, listed once per step run: the group
+    depends only on the location, so devices of one location share it (W6-07). A failed
+    listing is not remembered, the next device asks again."""
+
+    def __init__(self, device_service: ISENetworkDeviceService) -> None:
+        self._service = device_service
+        self._details: dict[str, list[dict[str, Any]]] = {}
+        self._locks: dict[str, asyncio.Lock] = {}
+
+    async def details(self, group_name: str) -> list[dict[str, Any]]:
+        lock = self._locks.setdefault(group_name, asyncio.Lock())
+        async with lock:
+            if group_name not in self._details:
+                summaries = await paginate_ise_summaries(
+                    lambda page: self._service.list_devices_by_group(
+                        group_name, page=page, size=_LIST_PAGE_SIZE
+                    )
+                )
+                self._details[group_name] = (
+                    await fetch_ise_device_details(self._service, summaries) if summaries else []
+                )
+            return self._details[group_name]
+
+
 async def _tier_location_group(
     device: DeviceContext,
     device_service: ISENetworkDeviceService,
     group_prefix: str,
+    groups: _LocationGroups | None = None,
 ) -> str | None:
     location_name = (device.attribute_bags.get("nautobot", {}).get("location") or {}).get("name")
     if not location_name:
         return None
 
     full_group_name = f"Location#{group_prefix}#{location_name}"
-    summaries = await paginate_ise_summaries(
-        lambda page: device_service.list_devices_by_group(
-            full_group_name, page=page, size=_LIST_PAGE_SIZE
-        )
-    )
-    if not summaries:
-        return None
-
-    details = await fetch_ise_device_details(device_service, summaries)
-    for detail in details:
+    groups = groups or _LocationGroups(device_service)
+    for detail in await groups.details(full_group_name):
         secret = extract_tacacs_shared_secret(detail)
         if secret:
             return secret
@@ -272,9 +290,11 @@ async def _find_tacacs_key(
     priority: list[dict[str, Any]],
     location_group_prefix: str,
     inventory: _IseInventory | None = None,
+    location_groups: _LocationGroups | None = None,
 ) -> tuple[str | None, str | None]:
     """Try each enabled tier in configured order; return (secret, matched_tier)."""
     inventory = inventory or _IseInventory(device_service)
+    location_groups = location_groups or _LocationGroups(device_service)
     name_cache = _NameLookupCache(device_service, device.name)
 
     for item in priority:
@@ -287,7 +307,9 @@ async def _find_tacacs_key(
             elif tier_type == "name_any":
                 secret = await _tier_name_any(name_cache)
             elif tier_type == "location_group":
-                secret = await _tier_location_group(device, device_service, location_group_prefix)
+                secret = await _tier_location_group(
+                    device, device_service, location_group_prefix, location_groups
+                )
             elif tier_type == "ip_prefix_scan":
                 secret = await _tier_ip_prefix_scan(device, device_service)
             else:
@@ -368,6 +390,7 @@ async def _process_devices_for_tacacs_key(
     updated_devices: dict[str, DeviceContext] = {}  # key found now, or already present
     missing_devices: dict[str, DeviceContext] = {}  # no enabled tier found a key
     inventory = _IseInventory(device_service)  # one inventory download per step run
+    location_groups = _LocationGroups(device_service)  # one listing per location group
     found_count = 0
     already_present_count = 0
 
@@ -385,6 +408,7 @@ async def _process_devices_for_tacacs_key(
                 priority=priority,
                 location_group_prefix=location_group_prefix,
                 inventory=inventory,
+                location_groups=location_groups,
             )
         except ISEAPIError as exc:
             logger.warning(

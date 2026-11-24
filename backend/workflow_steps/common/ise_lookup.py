@@ -14,10 +14,16 @@ import logging
 from collections.abc import Awaitable, Callable
 from typing import Any
 
-from services.ise.common.exceptions import ISENotFoundError
+from services.ise.common.exceptions import ISEAPIError, ISENotFoundError
 from services.ise.network_device_service import ISENetworkDeviceService
 
 logger = logging.getLogger(__name__)
+
+# A server that keeps answering with ``nextPage`` must not pin a step until its timeout (W6-07).
+# ERS pages hold up to 100 entries, so this is far above any real inventory.
+MAX_PAGES = 1000
+# Detail requests per listing, unless the caller asks for another number.
+DETAIL_CONCURRENCY = 8
 
 
 async def paginate_ise_summaries(
@@ -25,22 +31,22 @@ async def paginate_ise_summaries(
 ) -> list[dict[str, Any]]:
     """Collect every ``resources`` entry from a paginated ISE SearchResult."""
     summaries: list[dict[str, Any]] = []
-    page = 1
-    while True:
+    for page in range(1, MAX_PAGES + 1):
         result = await fetch_page(page)
         search_result = result.get("SearchResult", {})
         summaries.extend(search_result.get("resources", []))
         if not search_result.get("nextPage"):
-            break
-        page += 1
-    return summaries
+            return summaries
+    raise ISEAPIError(
+        f"ISE kept returning a next page after {MAX_PAGES} pages", code="invalid_response"
+    )
 
 
 async def fetch_ise_device_details(
     device_service: ISENetworkDeviceService,
     summaries: list[dict[str, Any]],
     *,
-    concurrency: int = 1,
+    concurrency: int = DETAIL_CONCURRENCY,
 ) -> list[dict[str, Any]]:
     """Resolve list summaries (id/name only) into full device detail dicts.
 

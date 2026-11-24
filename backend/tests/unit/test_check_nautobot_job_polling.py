@@ -23,13 +23,16 @@ from tests.unit._step_helpers import (
 )
 from workflow_steps.check_nautobot_job import executor as mod
 
+_JOB = "11111111-1111-1111-1111-111111111111"
+_JOB_2 = "22222222-2222-2222-2222-222222222222"
+
 _MOD = "workflow_steps.check_nautobot_job.executor"
 
 
 def _parsed(**overrides: Any) -> Any:
     values = {
         "source_id": "src",
-        "job_uuid_expr": "jr-1",
+        "job_uuid_expr": _JOB,
         "max_checks": 3,
         "interval_seconds": 0,
         "bag_name": "nautobot_job",
@@ -172,6 +175,31 @@ async def test_an_unresolved_job_uuid_fails_the_device_without_polling() -> None
     service.get_job_result.assert_not_awaited()
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "hostile", ["x/../../dcim/devices/?limit=1", "jr-1", _JOB + "/"]
+)
+async def test_a_job_id_that_is_not_a_uuid_never_reaches_the_rest_path(hostile: str) -> None:
+    """W6-10: the value comes from device data and is put into ``/api/extras/job-results/<id>/``."""
+    service = MagicMock()
+    service.get_job_result = AsyncMock()
+
+    _key, device, ok = await mod._check_job_for_device(
+        device_key="d1",
+        device=make_device("d1", attribute_bags={"custom": {"job": hostile}}),
+        node_id="n",
+        jobs_service=service,
+        parsed=_parsed(job_uuid_expr="{custom.job}"),
+        run_id=None,
+    )
+
+    assert not ok and device.status == DeviceStatus.FAILED
+    error = device.errors[-1]
+    assert error.failure is not None and error.failure.kind == "bad_request"
+    assert hostile not in error.message
+    service.get_job_result.assert_not_awaited()
+
+
 # ── execute ────────────────────────────────────────────────────────────────────────────────────
 
 
@@ -188,7 +216,7 @@ async def test_execute_binds_the_source_credentials_and_routes_by_status() -> No
     ):
         outcomes = await call_step(
             mod.execute,
-            {"nautobot_source_id": "src", "job_uuid": "jr-1", "max_checks": 1},
+            {"nautobot_source_id": "src", "job_uuid": _JOB, "max_checks": 1},
             make_context([make_device("a"), make_device("b")]),
             run=make_run(),
         )
