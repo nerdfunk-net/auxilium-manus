@@ -420,6 +420,20 @@ or a stopped match fails only the devices that evaluate it (`failure` outcome, c
 process, so a typo in a pattern shows at run time, per device, not at save. A malformed expression
 (syntax, unknown function, empty pattern) fails the save (`invalid_route_expression`) and the run (`ValueError`). An empty, reserved (`success`/`failure`) or duplicate route outcome name fails the save too (`invalid_route_outcome`), with the same rules the executor applies.
 
+### One outcome API
+
+A step that fails a device, splits per-device results or builds its outcomes uses
+`workflow_steps/common/device_outcomes.py`, not a private copy: `mark_device_failed(device, *, node_id, step_id, code,
+message, failure=None, **updates)` (error history kept, input never mutated; `failed_device` is the older name),
+`DeviceResult(device_id, device, ok)` with `partition_results(results)`, `build_outcomes(context, succeeded, failed, *,
+metadata=, success_summary=, failure_summary=)` (`success` always, `failure` only with failed devices),
+`outcomes_from_buckets(context, buckets, *, metadata=)` (every handle, empty ones included, for the routers) and
+`whole_step_failure(context, *, node_id, step_id, code, message, failure=, metadata=, empty_handles=)` (every device
+fails with one error; a routing step lists its verdict handles in `empty_handles`). `abort_outcomes` and
+`device_error_from_exception` stay in `partial_outcomes.py`. The older private `_fail*`, `_build_*outcomes` and
+`_partition_*` functions in the step packages are legacy: `tests/unit/test_private_outcome_helpers_ratchet.py` pins them
+per file, lets the number only fall and fails on a new one.
+
 ### Step config flags
 
 Every boolean and whole-number step setting is read with `workflow_steps/common/step_flags.py`:

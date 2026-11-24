@@ -15,23 +15,7 @@ from models.workflow_context import (
     StepOutcome,
     WorkflowContext,
 )
-
-
-def mark_device_failed(
-    device: DeviceContext,
-    *,
-    node_id: str,
-    step_id: str,
-    code: str,
-    message: str,
-    failure: FailureInfo | None = None,
-) -> DeviceContext:
-    error = DeviceError(
-        node_id=node_id, step_id=step_id, code=code, message=message, failure=failure
-    )
-    return device.model_copy(
-        update={"status": DeviceStatus.FAILED, "errors": [*device.errors, error]}
-    )
+from workflow_steps.common.device_outcomes import mark_device_failed
 
 
 def device_error_from_exception(
