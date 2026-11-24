@@ -534,7 +534,7 @@ async def execute(
                 device_id=device_id,
                 device=device,
                 total=total,
-                run_id=run.id,
+                run_id=log_run_id(run),
                 node_id=node_id,
                 context_run_id=context.run_id,
                 parsed=parsed,

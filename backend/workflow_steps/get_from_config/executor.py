@@ -193,7 +193,7 @@ async def execute(
             "narrow the directory or file filter"
         )
     devices_by_id = _devices_from_config_matches(
-        matches, git_repository_id=parsed.git_repository_id, run_id=run.id
+        matches, git_repository_id=parsed.git_repository_id, run_id=log_run_id(run)
     )
     logger.info(
         "get-from-config finished devices=%d matches=%d files_scanned=%d run_id=%s",

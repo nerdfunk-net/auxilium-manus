@@ -415,13 +415,15 @@ async def execute(
                 config=config,
                 context=context,
                 node_id=node_id,
-                run_id=run.id,
+                run_id=log_run_id(run),
                 metadata=metadata,
                 success_devices=success_devices,
                 failed_devices=failed_devices,
             )
     except GitSinkPrepareError as exc:
-        return _prepare_failure_outcomes(context=context, node_id=node_id, run_id=run.id, error=exc)
+        return _prepare_failure_outcomes(
+            context=context, node_id=node_id, run_id=log_run_id(run), error=exc
+        )
     if all_stored:
         metadata[f"{node_id}.stored_artifacts"] = all_stored
     logger.info(

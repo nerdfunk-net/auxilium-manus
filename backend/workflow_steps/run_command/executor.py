@@ -79,11 +79,11 @@ async def execute(
     )
     netmiko = NetmikoService(pool=device_sessions)
     total = len(context.devices)
-    _log_start(run.id, total, parsed)
+    _log_start(log_run_id(run), total, parsed)
     run_kwargs: dict[str, Any] = {
         "context": context,
         "node_id": node_id,
-        "run_id": run.id,
+        "run_id": log_run_id(run),
         "parsed": parsed,
         "username": username,
         "password": password,
@@ -113,7 +113,7 @@ async def execute(
             success_devices=success_devices,
             raw_outputs_by_device=raw_outputs_by_device,
             parsed_output_key=parsed.parsed_output_key,
-            run_id=run.id,
+            run_id=log_run_id(run),
         )
     elif parsed.parser_mode == "genie":
         success_devices = await enrich_with_genie(
@@ -123,7 +123,7 @@ async def execute(
             parsed_output_key=parsed.parsed_output_key,
             network_driver_override=parsed.network_driver_override,
             db=db,
-            run_id=run.id,
+            run_id=log_run_id(run),
         )
 
     logger.info(

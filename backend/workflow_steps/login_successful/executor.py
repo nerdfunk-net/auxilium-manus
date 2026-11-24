@@ -290,7 +290,7 @@ async def execute(
                 device_id=device_id,
                 device=device,
                 total=total,
-                run_id=run.id,
+                run_id=log_run_id(run),
                 node_id=node_id,
                 credential_reference=credential_reference,
                 network_driver_override=network_driver_override,
@@ -305,5 +305,5 @@ async def execute(
         context=context,
         node_id=node_id,
         results=results,
-        run_id=run.id,
+        run_id=log_run_id(run),
     )
