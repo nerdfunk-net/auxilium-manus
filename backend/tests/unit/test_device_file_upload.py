@@ -5,22 +5,19 @@ from __future__ import annotations
 import unittest
 from unittest.mock import AsyncMock, MagicMock
 
-from models.workflow_context import DeviceContext, DeviceStatus, WorkflowContext
+from models.workflow_context import DeviceContext, WorkflowContext
 from services.network.netmiko.connection import CommandResult as NetmikoCommandResult
 from services.network.netmiko.connection import FileTransferResult
 from workflow_steps.common.device_file_upload import (
     RemoteTarget,
-    build_upload_outcomes,
     delete_remote_file,
-    fail_device,
-    fail_device_from_exception,
     parse_socket_timeout,
-    partition_device_results,
     record_transfer,
     remote_file_exists,
-    run_on_devices,
+    upload_outcomes,
     verify_remote_digest,
 )
+from workflow_steps.common.device_runner import Batch
 
 
 def _device(device_id: str = "d1") -> DeviceContext:
@@ -36,23 +33,11 @@ class ParseSocketTimeoutTests(unittest.TestCase):
                 parse_socket_timeout({"socket_timeout": bad}, step_id="s")
 
 
-class FailAndRecordTests(unittest.TestCase):
-    def test_fail_device_marks_failed_without_touching_the_original(self) -> None:
-        device = _device()
-        device_id, failed, ok = fail_device(
-            device=device, device_id="d1", node_id="n", step_id="s", code="c", message="m"
-        )
-        self.assertEqual((device_id, ok), ("d1", False))
-        self.assertEqual(failed.status, DeviceStatus.FAILED)
-        self.assertEqual(failed.errors[-1].code, "c")
-        self.assertEqual(device.errors, [])
-
+class RecordTransferTests(unittest.TestCase):
     def test_record_transfer_success_returns_no_failure(self) -> None:
         results, failed = record_transfer(
             device=_device(),
-            device_id="d1",
             node_id="n",
-            step_id="s",
             command="cmd",
             result=FileTransferResult(success=True, file_transferred=True, file_verified=True),
             ok_summary="done",
@@ -63,52 +48,41 @@ class FailAndRecordTests(unittest.TestCase):
         self.assertTrue(results["n"][0].success)
 
     def test_record_transfer_failure_keeps_the_record_on_the_failed_device(self) -> None:
+        device = _device()
         _, failed = record_transfer(
-            device=_device(),
-            device_id="d1",
+            device=device,
             node_id="n",
-            step_id="s",
             command="cmd",
             result=FileTransferResult(success=False, error="SCP disabled"),
             ok_summary="done",
             default_error="boom",
         )
         assert failed is not None
-        _, device, ok = failed
-        self.assertFalse(ok)
-        self.assertEqual(device.errors[-1].code, "upload_failed")
-        self.assertEqual(device.errors[-1].message, "SCP disabled")
-        self.assertEqual(device.command_results["n"][0].summary, "SCP disabled")
+        self.assertEqual((failed.code, failed.message), ("upload_failed", "SCP disabled"))
+        # the record rides on the device the runner marks failed; the original is untouched
+        assert failed.device is not None
+        self.assertEqual(failed.device.command_results["n"][0].summary, "SCP disabled")
+        self.assertEqual(device.command_results, {})
 
 
-class RunAndOutcomeTests(unittest.IsolatedAsyncioTestCase):
-    async def test_runs_every_device_and_splits_the_outcomes(self) -> None:
+class UploadOutcomesTests(unittest.TestCase):
+    def test_summaries_and_handles(self) -> None:
         context = WorkflowContext(
             run_id="r", workflow_id="w", devices={"a": _device("a"), "b": _device("b")}
         )
+        batch = Batch(ok={"a": context.devices["a"]}, failed={"b": context.devices["b"]})
 
-        async def _work(device_id, device):
-            if device_id == "a":
-                return device_id, device, True
-            return fail_device(
-                device=device, device_id=device_id, node_id="n", step_id="s", code="c", message="m"
-            )
+        outcomes = upload_outcomes(context, batch, noun="binary")
 
-        results = await run_on_devices(step_label="s", context=context, run_id=1, work=_work)
-        ok, failed = partition_device_results(results)
-        self.assertEqual((list(ok), list(failed)), (["a"], ["b"]))
-
-        outcomes = build_upload_outcomes(
-            context=context, success_devices=ok, failed_devices=failed, noun="binary"
-        )
         self.assertEqual([o.name for o in outcomes], ["success", "failure"])
         self.assertEqual(outcomes[0].summary, "uploaded binary to 1 device(s)")
+        self.assertEqual(outcomes[1].summary, "1 device(s) failed")
 
     def test_no_failure_outcome_when_nothing_failed(self) -> None:
         context = WorkflowContext(run_id="r", workflow_id="w", devices={})
-        outcomes = build_upload_outcomes(
-            context=context, success_devices={}, failed_devices={}, noun="config"
-        )
+
+        outcomes = upload_outcomes(context, Batch(), noun="config")
+
         self.assertEqual([o.name for o in outcomes], ["success"])
 
 
@@ -205,18 +179,3 @@ class RemoteHelperTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(await delete_remote_file(failing, file_system="flash:", filename="x"))
         refused = _target(AsyncMock(return_value=_answer("", success=False, error="no")))
         self.assertFalse(await delete_remote_file(refused, file_system="flash:", filename="x"))
-
-
-class FailFromExceptionTests(unittest.TestCase):
-    def test_driver_text_is_reduced_to_the_class_name_but_step_text_is_kept(self) -> None:
-        for exc, message in (
-            (ConnectionError("password=hunter2 refused"), "ConnectionError"),
-            (ValueError("destination is wrong"), "destination is wrong"),
-        ):
-            _, failed, ok = fail_device_from_exception(
-                device=_device(), device_id="d1", node_id="n", step_id="s", exc=exc
-            )
-            self.assertFalse(ok)
-            self.assertEqual(failed.status, DeviceStatus.FAILED)
-            self.assertEqual(failed.errors[-1].message, message)
-            self.assertIsNotNone(failed.errors[-1].failure)

@@ -20,7 +20,6 @@ for the stored transcript, and the success/failure StepOutcome shape.
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from dataclasses import dataclass, replace
 from typing import Any
@@ -28,11 +27,9 @@ from typing import Any
 from sqlalchemy.orm import object_session
 
 from core.models.runs import WorkflowRun
-from models.failure import FailureInfo, failure_from_exception
 from models.workflow_context import (
     CommandResult,
     DeviceContext,
-    DeviceError,
     DeviceStatus,
     StepOutcome,
     WorkflowContext,
@@ -44,6 +41,8 @@ from services.network.netmiko.platform import resolve_connection_device_type
 from services.network.netmiko.service import NetmikoService
 from services.network.netmiko.session_pool import DeviceSessionPool
 from workflow_steps.common.credential_resolver import resolve_ssh_credential
+from workflow_steps.common.device_outcomes import build_outcomes
+from workflow_steps.common.device_runner import Fail, run_per_device
 from workflow_steps.common.read_timeout import parse_read_timeout
 from workflow_steps.common.retry_config import parse_retry_backoff_seconds
 from workflow_steps.common.run_logging import log_run_id
@@ -85,25 +84,6 @@ def _parse_merge_config(config: dict[str, Any]) -> _ParsedMergeConfig:
     )
 
 
-def _fail_device(
-    *,
-    device: DeviceContext,
-    device_id: str,
-    node_id: str,
-    code: str,
-    message: str,
-    command_results: dict[str, list[CommandResult]] | None = None,
-    failure: FailureInfo | None = None,
-) -> tuple[str, DeviceContext, bool]:
-    err = DeviceError(
-        node_id=node_id, step_id=_STEP_ID, code=code, message=message, failure=failure
-    )
-    update: dict[str, Any] = {"status": DeviceStatus.FAILED, "errors": [*device.errors, err]}
-    if command_results is not None:
-        update["command_results"] = command_results
-    return device_id, device.model_copy(update=update), False
-
-
 async def _merge_on_device(
     *,
     device_id: str,
@@ -116,46 +96,30 @@ async def _merge_on_device(
     password: str,
     netmiko: NetmikoService,
     artifact_service: ArtifactService,
-) -> tuple[str, DeviceContext, bool]:
+) -> DeviceContext | Fail:
     host = bare_hostname(device.primary_ip4, device.hostname)
     if not host:
-        return _fail_device(
-            device=device,
-            device_id=device_id,
-            node_id=node_id,
-            code="missing_host",
-            message=f"Device {device_id} has no hostname or primary IP",
-        )
+        return Fail("missing_host", f"Device {device_id} has no hostname or primary IP")
 
     command = f"copy {parsed.source_filename} running-config"
 
-    try:
-        device_type = resolve_connection_device_type(
-            network_driver=device.network_driver,
-            platform=device.platform,
-            override=parsed.network_driver_override,
-        )
-        result = await netmiko.merge_config(
-            host=host,
-            network_driver=device.network_driver,
-            platform=device.platform,
-            username=username,
-            password=password,
-            source_filename=parsed.source_filename,
-            device_type=device_type,
-            credential_reference=parsed.credential_reference,
-            read_timeout=parsed.read_timeout,
-            retry=parsed.retry,
-        )
-    except Exception as exc:
-        return _fail_device(
-            device=device,
-            device_id=device_id,
-            node_id=node_id,
-            code=type(exc).__name__.lower(),
-            message=str(exc),
-            failure=failure_from_exception(exc),
-        )
+    device_type = resolve_connection_device_type(
+        network_driver=device.network_driver,
+        platform=device.platform,
+        override=parsed.network_driver_override,
+    )
+    result = await netmiko.merge_config(
+        host=host,
+        network_driver=device.network_driver,
+        platform=device.platform,
+        username=username,
+        password=password,
+        source_filename=parsed.source_filename,
+        device_type=device_type,
+        credential_reference=parsed.credential_reference,
+        read_timeout=parsed.read_timeout,
+        retry=parsed.retry,
+    )
 
     answered = list(result.confirmed_prompts)
     if answered:
@@ -191,108 +155,15 @@ async def _merge_on_device(
     updated_command_results = dict(device.command_results)
     updated_command_results[node_id] = [step_result]
 
+    recorded = device.model_copy(update={"command_results": updated_command_results})
     if not result.success:
-        return _fail_device(
-            device=device,
-            device_id=device_id,
-            node_id=node_id,
-            code="merge_failed",
-            message=result.error or f"{command!r} failed",
-            command_results=updated_command_results,
-            failure=result.failure,
+        return Fail(
+            "merge_failed",
+            result.error or f"{command!r} failed",
+            result.failure,
+            device=recorded,
         )
-
-    enriched = device.model_copy(
-        update={"status": DeviceStatus.OK, "command_results": updated_command_results}
-    )
-    return device_id, enriched, True
-
-
-async def _merge_on_device_logged(
-    *,
-    index: int,
-    total: int,
-    device_id: str,
-    device: DeviceContext,
-    node_id: str,
-    run_id: Any,
-    context_run_id: str,
-    parsed: _ParsedMergeConfig,
-    username: str,
-    password: str,
-    netmiko: NetmikoService,
-    artifact_service: ArtifactService,
-) -> tuple[str, DeviceContext, bool]:
-    host = bare_hostname(device.primary_ip4, device.hostname) or "(no host)"
-    logger.info(
-        "%s device %d/%d id=%s host=%s: connecting run_id=%s",
-        _STEP_ID,
-        index,
-        total,
-        device_id,
-        host,
-        run_id,
-    )
-    result = await _merge_on_device(
-        device_id=device_id,
-        device=device,
-        node_id=node_id,
-        run_id=run_id,
-        context_run_id=context_run_id,
-        parsed=parsed,
-        username=username,
-        password=password,
-        netmiko=netmiko,
-        artifact_service=artifact_service,
-    )
-    logger.info(
-        "%s device %d/%d id=%s host=%s: %s run_id=%s",
-        _STEP_ID,
-        index,
-        total,
-        device_id,
-        host,
-        "ok" if result[2] else "failed",
-        run_id,
-    )
-    return result
-
-
-def _partition(
-    results: list[tuple[str, DeviceContext, bool]],
-) -> tuple[dict[str, DeviceContext], dict[str, DeviceContext]]:
-    success: dict[str, DeviceContext] = {}
-    failed: dict[str, DeviceContext] = {}
-    for device_id, updated_device, ok in results:
-        (success if ok else failed)[device_id] = updated_device
-    return success, failed
-
-
-def _build_outcomes(
-    *,
-    context: WorkflowContext,
-    success_devices: dict[str, DeviceContext],
-    failed_devices: dict[str, DeviceContext],
-    source_filename: str,
-) -> list[StepOutcome]:
-    outcomes = [
-        StepOutcome(
-            name="success",
-            context=context.model_copy(update={"devices": success_devices}),
-            summary=(
-                f"merged {source_filename} into running-config on {len(success_devices)} device(s)"
-            ),
-        )
-    ]
-    if failed_devices:
-        outcomes.append(
-            StepOutcome(
-                name="failure",
-                context=context.model_copy(update={"devices": failed_devices}),
-                summary=f"{len(failed_devices)} device(s) failed",
-            )
-        )
-    return outcomes
+    return recorded.model_copy(update={"status": DeviceStatus.OK})
 
 
 async def execute(
@@ -339,38 +210,38 @@ async def execute(
         parsed.read_timeout,
     )
 
-    results = await asyncio.gather(
-        *[
-            _merge_on_device_logged(
-                index=index,
-                total=total,
-                device_id=device_id,
-                device=device,
-                node_id=node_id,
-                run_id=log_run_id(run),
-                context_run_id=context.run_id,
-                parsed=parsed,
-                username=username,
-                password=password,
-                netmiko=netmiko,
-                artifact_service=artifact_service,
-            )
-            for index, (device_id, device) in enumerate(context.devices.items(), start=1)
-        ]
+    async def _work(device_id: str, device: DeviceContext) -> DeviceContext | Fail:
+        return await _merge_on_device(
+            device_id=device_id,
+            device=device,
+            node_id=node_id,
+            run_id=log_run_id(run),
+            context_run_id=context.run_id,
+            parsed=parsed,
+            username=username,
+            password=password,
+            netmiko=netmiko,
+            artifact_service=artifact_service,
+        )
+
+    # Connection and artifact errors fail that device only (the runner's boundary).
+    batch = await run_per_device(
+        context, _work, node_id=node_id, step_id=_STEP_ID, log_label=_STEP_ID
     )
-    success_devices, failed_devices = _partition(results)
 
     logger.info(
         "%s finished success=%d failure=%d run_id=%s",
         _STEP_ID,
-        len(success_devices),
-        len(failed_devices),
+        len(batch.ok),
+        len(batch.failed),
         log_run_id(run),
     )
-
-    return _build_outcomes(
-        context=context,
-        success_devices=success_devices,
-        failed_devices=failed_devices,
-        source_filename=parsed.source_filename,
+    return build_outcomes(
+        context,
+        batch.ok,
+        batch.failed,
+        success_summary=(
+            f"merged {parsed.source_filename} into running-config on {len(batch.ok)} device(s)"
+        ),
+        failure_summary=f"{len(batch.failed)} device(s) failed",
     )

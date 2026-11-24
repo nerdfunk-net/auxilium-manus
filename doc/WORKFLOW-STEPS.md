@@ -450,7 +450,9 @@ from the service now fails that device with its text, it used to abort the step)
 `attribute_write.probe_destination_path` and stays a step-wide config error; a write that fails on one device's data fails
 that device), `store-in-db` and `get-from-db` (`concurrency=1`: one shared session, one device after the other) and
 `configure-replace-config` (`concurrency` = the shim's own job limit; `Fail(device=...)` records the error on the device
-that already carries its diff artifact refs). The other
+that already carries its diff artifact refs), `deploy-rendered-template`, `merge-config`, `upload-config` and `upload-binary`
+(artifact I/O and connection errors fail that device only; their error text is no longer stored, only the class name plus a
+`FailureInfo`; `log_label=` writes the per-device "connecting / ok / failed" lines). The other
 steps still carry their own loops and move family by family (P-C).
 
 ### Step config flags

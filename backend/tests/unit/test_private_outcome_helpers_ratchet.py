@@ -31,7 +31,6 @@ LEGACY_PRIVATE_HELPERS: dict[str, int] = {
     "workflow_steps/compare_data/executor.py": 1,
     "workflow_steps/compare_pyats_snapshot/executor.py": 1,
     "workflow_steps/contact_the_ai/executor.py": 1,
-    "workflow_steps/deploy_rendered_template/executor.py": 3,
     "workflow_steps/discover_network/executor.py": 2,
     "workflow_steps/enrich_attributes/executor.py": 1,
     "workflow_steps/exists_in_nautobot/executor.py": 2,
@@ -48,7 +47,6 @@ LEGACY_PRIVATE_HELPERS: dict[str, int] = {
     "workflow_steps/get_virtual_chassis/stack.py": 1,
     "workflow_steps/list_contains/executor.py": 1,
     "workflow_steps/login_successful/executor.py": 1,
-    "workflow_steps/merge_config/executor.py": 2,
     "workflow_steps/merge_content/executor.py": 2,
     "workflow_steps/open_change_request/executor.py": 1,
     "workflow_steps/parse_cisco_config/executor.py": 2,
@@ -68,7 +66,6 @@ LEGACY_PRIVATE_HELPERS: dict[str, int] = {
     "workflow_steps/update_ise_tacacs_key/executor.py": 1,
     "workflow_steps/update_nautobot_device/executor.py": 2,
     "workflow_steps/update_nautobot_ip/executor.py": 1,
-    "workflow_steps/upload_binary/executor.py": 1,
 }
 
 

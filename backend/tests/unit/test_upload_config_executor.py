@@ -555,6 +555,8 @@ class UploadConfigExecutorTests(unittest.IsolatedAsyncioTestCase):
         failed_device = next(o for o in outcomes if o.name == "failure").context.devices["device-1"]
         self.assertEqual(failed_device.errors[-1].code, "verify_failed")
         self.assertIn(wrong_digest, failed_device.errors[-1].message)
+        # the transfer and the verify rows stay on the failed device
+        self.assertEqual(len(failed_device.command_results["upload-1"]), 2)
 
     async def test_verify_content_unparseable_output_routes_to_failure(self) -> None:
         run = MagicMock()

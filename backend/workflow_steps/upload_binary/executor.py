@@ -36,19 +36,15 @@ from services.network.netmiko.service import NetmikoService
 from services.network.netmiko.session_pool import DeviceSessionPool
 from workflow_steps.common.credential_resolver import resolve_ssh_credential
 from workflow_steps.common.device_file_upload import (
-    DeviceResult,
     RemoteTarget,
-    build_upload_outcomes,
     delete_remote_file,
-    fail_device,
-    fail_device_from_exception,
     parse_socket_timeout,
-    partition_device_results,
     record_transfer,
     remote_file_exists,
-    run_on_devices,
+    upload_outcomes,
     verify_remote_digest,
 )
+from workflow_steps.common.device_runner import Batch, Fail, run_per_device
 from workflow_steps.common.file_source_root import resolve_git_root
 from workflow_steps.common.git_repository_loader import parse_repository_id
 from workflow_steps.common.read_timeout import parse_read_timeout
@@ -167,33 +163,21 @@ async def _upload_on_device(
     username: str,
     password: str,
     netmiko: NetmikoService,
-) -> DeviceResult:
+) -> DeviceContext | Fail:
     host = bare_hostname(device.primary_ip4, device.hostname)
     if not host:
-        return fail_device(
-            device=device,
-            device_id=device_id,
-            node_id=node_id,
-            step_id=_STEP_ID,
-            code="missing_host",
-            message=f"Device {device_id} has no hostname or primary IP",
-        )
-    try:
-        return await _transfer_and_verify(
-            device_id=device_id,
-            device=device,
-            node_id=node_id,
-            host=host,
-            parsed=parsed,
-            snapshot=snapshot,
-            username=username,
-            password=password,
-            netmiko=netmiko,
-        )
-    except Exception as exc:  # per device: connect/auth/scp errors must not abort the step
-        return fail_device_from_exception(
-            device=device, device_id=device_id, node_id=node_id, step_id=_STEP_ID, exc=exc
-        )
+        return Fail("missing_host", f"Device {device_id} has no hostname or primary IP")
+    return await _transfer_and_verify(
+        device_id=device_id,
+        device=device,
+        node_id=node_id,
+        host=host,
+        parsed=parsed,
+        snapshot=snapshot,
+        username=username,
+        password=password,
+        netmiko=netmiko,
+    )
 
 
 async def _transfer_and_verify(
@@ -207,7 +191,7 @@ async def _transfer_and_verify(
     username: str,
     password: str,
     netmiko: NetmikoService,
-) -> DeviceResult:
+) -> DeviceContext | Fail:
     device_type = resolve_connection_device_type(
         network_driver=device.network_driver,
         platform=device.platform,
@@ -226,23 +210,19 @@ async def _transfer_and_verify(
     on_device = f"{parsed.file_system}{parsed.destination_filename}"
     rows: list[CommandResult] = []
 
-    def _fail(code: str, message: str, failure: Any = None) -> DeviceResult:
-        return fail_device(
-            device=device,
-            device_id=device_id,
-            node_id=node_id,
-            step_id=_STEP_ID,
-            code=code,
-            message=message,
-            failure=failure,
-            command_results=_with_rows(device, node_id, rows),
+    def _record_and_fail(code: str, message: str, failure: Any = None) -> Fail:
+        carrying_rows = device.model_copy(
+            update={"command_results": _with_rows(device, node_id, rows)}
         )
+        return Fail(code, message, failure, device=carrying_rows)
 
     exists, error, failure = await remote_file_exists(
         target, read_timeout=parsed.read_timeout, **named
     )
     if exists is None:
-        return _fail("exists_check_failed", error or f"could not look for {on_device}", failure)
+        return _record_and_fail(
+            "exists_check_failed", error or f"could not look for {on_device}", failure
+        )
 
     if exists:
         before = await verify_remote_digest(
@@ -266,15 +246,15 @@ async def _transfer_and_verify(
                     ),
                 )
             )
-            return device_id, _ok(device, node_id, rows), True
+            return _ok(device, node_id, rows)
         if before.device_digest is None:
-            return _fail(
+            return _record_and_fail(
                 "verify_failed",
                 before.message or "md5 of the existing file is unreadable",
                 before.failure,
             )
         if not parsed.overwrite:
-            return _fail(
+            return _record_and_fail(
                 "file_exists",
                 f"{on_device} exists with a different md5 ({before.device_digest}) and "
                 "overwrite is off",
@@ -298,9 +278,7 @@ async def _transfer_and_verify(
     )
     results, failed_transfer = record_transfer(
         device=device,
-        device_id=device_id,
         node_id=node_id,
-        step_id=_STEP_ID,
         command=_STEP_ID,
         result=result,
         ok_summary=f"copied {snapshot.size_bytes} bytes to {on_device}",
@@ -308,7 +286,9 @@ async def _transfer_and_verify(
     )
     rows.extend(results[node_id])
     if failed_transfer is not None:
-        return _fail("upload_failed", result.error or "Binary upload failed", result.failure)
+        return _record_and_fail(
+            "upload_failed", result.error or "Binary upload failed", result.failure
+        )
 
     after = await verify_remote_digest(
         target,
@@ -328,12 +308,12 @@ async def _transfer_and_verify(
             if removed
             else ("the file could NOT be removed from the device")
         )
-        return _fail(
+        return _record_and_fail(
             "verify_failed",
             f"{after.message or 'md5 not verified'}; {suffix}",
             after.failure,
         )
-    return device_id, _ok(device, node_id, rows), True
+    return _ok(device, node_id, rows)
 
 
 def _ok(device: DeviceContext, node_id: str, rows: list[CommandResult]) -> DeviceContext:
@@ -387,7 +367,7 @@ async def execute(
         parsed.destination_filename,
     )
 
-    results: list[DeviceResult] = []
+    batch = Batch()
     if context.devices:
         snapshot = await _take_snapshot(parsed)
         try:
@@ -398,7 +378,7 @@ async def execute(
                 snapshot.md5,
             )
 
-            async def _work(device_id: str, device: DeviceContext) -> DeviceResult:
+            async def _work(device_id: str, device: DeviceContext) -> DeviceContext | Fail:
                 return await _upload_on_device(
                     device_id=device_id,
                     device=device,
@@ -410,22 +390,17 @@ async def execute(
                     netmiko=netmiko,
                 )
 
-            results = await run_on_devices(
-                step_label=_STEP_ID, context=context, run_id=run_id, work=_work
+            # Connect/auth/SCP errors fail that device only (the runner's boundary).
+            batch = await run_per_device(
+                context, _work, node_id=node_id, step_id=_STEP_ID, log_label=_STEP_ID
             )
         finally:
             snapshot.discard()
 
-    success_devices, failed_devices = partition_device_results(results)
     logger.info(
         "upload-binary finished success=%d failure=%d run_id=%s",
-        len(success_devices),
-        len(failed_devices),
+        len(batch.ok),
+        len(batch.failed),
         run_id,
     )
-    return build_upload_outcomes(
-        context=context,
-        success_devices=success_devices,
-        failed_devices=failed_devices,
-        noun="binary",
-    )
+    return upload_outcomes(context, batch, noun="binary")

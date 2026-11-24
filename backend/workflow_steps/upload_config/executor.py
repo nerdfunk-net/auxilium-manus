@@ -29,17 +29,13 @@ from services.network.netmiko.session_pool import DeviceSessionPool
 from workflow_steps.common.content_resolver import CONTENT_SOURCES, list_exportable_content
 from workflow_steps.common.credential_resolver import resolve_ssh_credential
 from workflow_steps.common.device_file_upload import (
-    DeviceResult,
     RemoteTarget,
-    build_upload_outcomes,
-    fail_device,
-    fail_device_from_exception,
     parse_socket_timeout,
-    partition_device_results,
     record_transfer,
-    run_on_devices,
+    upload_outcomes,
     verify_remote_digest,
 )
+from workflow_steps.common.device_runner import Fail, run_per_device
 from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.common.run_param_reference import resolve_config_reference
 from workflow_steps.common.step_flags import parse_bool_flag
@@ -127,11 +123,9 @@ def _parse_upload_config(config: dict[str, Any]) -> _ParsedUploadConfig:
 async def _load_upload_content(
     *,
     device: DeviceContext,
-    device_id: str,
-    node_id: str,
     parsed: _ParsedUploadConfig,
     artifact_service: ArtifactService,
-) -> str | DeviceResult:
+) -> str | Fail:
     items = list_exportable_content(
         device,
         content_source=parsed.content_source,
@@ -139,13 +133,9 @@ async def _load_upload_content(
         parsed_output_key=parsed.parsed_output_key,
     )
     if not items:
-        return fail_device(
-            device=device,
-            device_id=device_id,
-            node_id=node_id,
-            step_id=_STEP_ID,
-            code=f"{parsed.content_source}_missing",
-            message=f"No {parsed.content_source} found for the configured source",
+        return Fail(
+            f"{parsed.content_source}_missing",
+            f"No {parsed.content_source} found for the configured source",
         )
     return await artifact_service.resolve(items[0].artifact_ref)
 
@@ -206,26 +196,15 @@ async def _upload_on_device(
     password: str,
     netmiko: NetmikoService,
     artifact_service: ArtifactService,
-) -> DeviceResult:
+) -> DeviceContext | Fail:
     host = bare_hostname(device.primary_ip4, device.hostname)
     if not host:
-        return fail_device(
-            device=device,
-            device_id=device_id,
-            node_id=node_id,
-            step_id=_STEP_ID,
-            code="missing_host",
-            message=f"Device {device_id} has no hostname or primary IP",
-        )
+        return Fail("missing_host", f"Device {device_id} has no hostname or primary IP")
 
     loaded = await _load_upload_content(
-        device=device,
-        device_id=device_id,
-        node_id=node_id,
-        parsed=parsed,
-        artifact_service=artifact_service,
+        device=device, parsed=parsed, artifact_service=artifact_service
     )
-    if isinstance(loaded, tuple):
+    if isinstance(loaded, Fail):
         return loaded
     content_text = loaded
 
@@ -257,10 +236,6 @@ async def _upload_on_device(
             device_type=device_type,
             credential_reference=parsed.credential_reference,
         )
-    except Exception as exc:  # per device: connect/auth/scp errors must not abort the step
-        return fail_device_from_exception(
-            device=device, device_id=device_id, node_id=node_id, step_id=_STEP_ID, exc=exc
-        )
     finally:
         if tmp_path:
             with contextlib.suppress(OSError):
@@ -268,9 +243,7 @@ async def _upload_on_device(
 
     updated_command_results, failed_transfer = record_transfer(
         device=device,
-        device_id=device_id,
         node_id=node_id,
-        step_id=_STEP_ID,
         command="upload-config",
         result=result,
         ok_summary=(
@@ -304,15 +277,11 @@ async def _upload_on_device(
             verify_command_result,
         ]
         if not verify_ok:
-            return fail_device(
-                device=device,
-                device_id=device_id,
-                node_id=node_id,
-                step_id=_STEP_ID,
-                code="verify_failed",
-                message=verify_message or "Content verification failed",
-                failure=verify_failure,
-                command_results=updated_command_results,
+            return Fail(
+                "verify_failed",
+                verify_message or "Content verification failed",
+                verify_failure,
+                device=device.model_copy(update={"command_results": updated_command_results}),
             )
 
     enriched = device.model_copy(
@@ -321,7 +290,7 @@ async def _upload_on_device(
             "command_results": updated_command_results,
         }
     )
-    return device_id, enriched, True
+    return enriched
 
 
 async def execute(
@@ -364,7 +333,7 @@ async def execute(
         parsed.destination_filename,
     )
 
-    async def _work(device_id: str, device: DeviceContext) -> DeviceResult:
+    async def _work(device_id: str, device: DeviceContext) -> DeviceContext | Fail:
         return await _upload_on_device(
             device_id=device_id,
             device=device,
@@ -376,18 +345,14 @@ async def execute(
             artifact_service=artifact_service,
         )
 
-    results = await run_on_devices(step_label=_STEP_ID, context=context, run_id=run_id, work=_work)
-
-    success_devices, failed_devices = partition_device_results(results)
+    # Connect/auth/SCP errors and artifact I/O fail that device only (the runner's boundary).
+    batch = await run_per_device(
+        context, _work, node_id=node_id, step_id=_STEP_ID, log_label=_STEP_ID
+    )
     logger.info(
         "upload-config finished success=%d failure=%d run_id=%s",
-        len(success_devices),
-        len(failed_devices),
+        len(batch.ok),
+        len(batch.failed),
         run_id,
     )
-    return build_upload_outcomes(
-        context=context,
-        success_devices=success_devices,
-        failed_devices=failed_devices,
-        noun="config",
-    )
+    return upload_outcomes(context, batch, noun="config")

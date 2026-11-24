@@ -521,7 +521,9 @@ class MergeConfigExecutorTests(unittest.IsolatedAsyncioTestCase):
         by_name = {o.name: o for o in outcomes}
         failed = by_name["failure"].context.devices["device-1"]
         self.assertEqual(failed.errors[-1].code, "runtimeerror")
-        self.assertIn("connect fail", failed.errors[-1].message)
+        # the exception text (driver, host, credentials) is never stored: class name only
+        self.assertEqual(failed.errors[-1].message, "RuntimeError")
+        self.assertNotIn("connect fail", repr(failed.errors))
 
 
 if __name__ == "__main__":

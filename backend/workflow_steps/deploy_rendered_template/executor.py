@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from dataclasses import dataclass, replace
 from typing import Any
@@ -10,11 +9,9 @@ from typing import Any
 from sqlalchemy.orm import object_session
 
 from core.models.runs import WorkflowRun
-from models.failure import FailureInfo, failure_from_exception
 from models.workflow_context import (
     CommandResult,
     DeviceContext,
-    DeviceError,
     DeviceStatus,
     StepOutcome,
     WorkflowContext,
@@ -27,6 +24,8 @@ from services.network.netmiko.service import NetmikoService
 from services.network.netmiko.session_pool import DeviceSessionPool
 from workflow_steps.common.content_resolver import list_exportable_content
 from workflow_steps.common.credential_resolver import resolve_ssh_credential
+from workflow_steps.common.device_outcomes import build_outcomes
+from workflow_steps.common.device_runner import Fail, run_per_device
 from workflow_steps.common.read_timeout import parse_read_timeout
 from workflow_steps.common.retry_config import parse_retry_backoff_seconds
 from workflow_steps.common.run_logging import log_run_id
@@ -91,39 +90,12 @@ def _parse_deploy_config(config: dict[str, Any]) -> _ParsedDeployConfig:
     )
 
 
-def _fail_device(
-    *,
-    device: DeviceContext,
-    device_id: str,
-    node_id: str,
-    code: str,
-    message: str,
-    failure: FailureInfo | None = None,
-) -> tuple[str, DeviceContext, bool]:
-    err = DeviceError(
-        node_id=node_id,
-        step_id=_STEP_ID,
-        code=code,
-        message=message,
-        failure=failure,
-    )
-    failed = device.model_copy(
-        update={
-            "status": DeviceStatus.FAILED,
-            "errors": [*device.errors, err],
-        }
-    )
-    return device_id, failed, False
-
-
 async def _load_deploy_commands(
     *,
     device: DeviceContext,
-    device_id: str,
-    node_id: str,
     parsed: _ParsedDeployConfig,
     artifact_service: ArtifactService,
-) -> list[str] | tuple[str, DeviceContext, bool]:
+) -> list[str] | Fail:
     items = list_exportable_content(
         device,
         content_source="rendered_template",
@@ -131,25 +103,15 @@ async def _load_deploy_commands(
         parsed_output_key=parsed.parsed_output_key,
     )
     if not items:
-        return _fail_device(
-            device=device,
-            device_id=device_id,
-            node_id=node_id,
-            code="rendered_template_missing",
-            message="No rendered template found for the configured source step",
+        return Fail(
+            "rendered_template_missing", "No rendered template found for the configured source step"
         )
     rendered_text = await artifact_service.resolve(items[0].artifact_ref)
     # Split on "\n" only: the template renderer rejects every other line separator inside values,
     # so the two sides cannot disagree about where a command ends.
     commands = [line.rstrip("\r") for line in rendered_text.split("\n") if line.strip()]
     if not commands:
-        return _fail_device(
-            device=device,
-            device_id=device_id,
-            node_id=node_id,
-            code="empty_rendered_template",
-            message="Rendered template produced no commands",
-        )
+        return Fail("empty_rendered_template", "Rendered template produced no commands")
     return commands
 
 
@@ -271,36 +233,21 @@ async def _store_deploy_command_results(
 def _apply_deploy_result(
     *,
     device: DeviceContext,
-    device_id: str,
     node_id: str,
     result: Any,
     step_results: list[CommandResult],
-) -> tuple[str, DeviceContext, bool]:
+) -> DeviceContext | Fail:
     updated_command_results = dict(device.command_results)
     updated_command_results[node_id] = step_results
+    recorded = device.model_copy(update={"command_results": updated_command_results})
     if not result.success:
-        err = DeviceError(
-            node_id=node_id,
-            step_id=_STEP_ID,
-            code="deploy_failed",
-            message=result.error or "Deploying rendered template failed",
-            failure=getattr(result, "failure", None),
+        return Fail(
+            "deploy_failed",
+            result.error or "Deploying rendered template failed",
+            getattr(result, "failure", None),
+            device=recorded,
         )
-        failed = device.model_copy(
-            update={
-                "status": DeviceStatus.FAILED,
-                "errors": [*device.errors, err],
-                "command_results": updated_command_results,
-            }
-        )
-        return device_id, failed, False
-    enriched = device.model_copy(
-        update={
-            "status": DeviceStatus.OK,
-            "command_results": updated_command_results,
-        }
-    )
-    return device_id, enriched, True
+    return recorded.model_copy(update={"status": DeviceStatus.OK})
 
 
 async def _deploy_on_device(
@@ -315,29 +262,19 @@ async def _deploy_on_device(
     password: str,
     netmiko: NetmikoService,
     artifact_service: ArtifactService,
-) -> tuple[str, DeviceContext, bool]:
+) -> DeviceContext | Fail:
     host = bare_hostname(device.primary_ip4, device.hostname)
     if not host:
-        return _fail_device(
-            device=device,
-            device_id=device_id,
-            node_id=node_id,
-            code="missing_host",
-            message=f"Device {device_id} has no hostname or primary IP",
-        )
+        return Fail("missing_host", f"Device {device_id} has no hostname or primary IP")
 
     loaded = await _load_deploy_commands(
-        device=device,
-        device_id=device_id,
-        node_id=node_id,
-        parsed=parsed,
-        artifact_service=artifact_service,
+        device=device, parsed=parsed, artifact_service=artifact_service
     )
-    if isinstance(loaded, tuple):
+    if isinstance(loaded, Fail):
         return loaded
 
     if parsed.dry_run:
-        updated = record_dry_run(
+        return record_dry_run(
             device=device,
             node_id=node_id,
             payload={
@@ -349,132 +286,31 @@ async def _deploy_on_device(
                 "source_step_node_id": parsed.source_step_node_id,
             },
         )
-        return device_id, updated, True
 
-    try:
-        result = await _run_deploy_config(
-            host=host,
-            device=device,
-            device_id=device_id,
-            node_id=node_id,
-            run_id=run_id,
-            parsed=parsed,
-            username=username,
-            password=password,
-            commands=loaded,
-            netmiko=netmiko,
-        )
-        step_results = await _store_deploy_command_results(
-            result=result,
-            commands=loaded,
-            device_id=device_id,
-            node_id=node_id,
-            context_run_id=context_run_id,
-            parsed=parsed,
-            artifact_service=artifact_service,
-        )
-        return _apply_deploy_result(
-            device=device,
-            device_id=device_id,
-            node_id=node_id,
-            result=result,
-            step_results=step_results,
-        )
-    except Exception as exc:
-        return _fail_device(
-            device=device,
-            device_id=device_id,
-            node_id=node_id,
-            code=type(exc).__name__.lower(),
-            message=str(exc),
-            failure=failure_from_exception(exc),
-        )
-
-
-async def _deploy_on_device_logged(
-    *,
-    index: int,
-    device_id: str,
-    device: DeviceContext,
-    total: int,
-    run_id: Any,
-    node_id: str,
-    context_run_id: str,
-    parsed: _ParsedDeployConfig,
-    username: str,
-    password: str,
-    netmiko: NetmikoService,
-    artifact_service: ArtifactService,
-) -> tuple[str, DeviceContext, bool]:
-    host = bare_hostname(device.primary_ip4, device.hostname) or "(no host)"
-    logger.info(
-        "deploy-rendered-template device %d/%d id=%s host=%s: connecting run_id=%s",
-        index,
-        total,
-        device_id,
-        host,
-        run_id,
-    )
-    result = await _deploy_on_device(
-        device_id=device_id,
+    result = await _run_deploy_config(
+        host=host,
         device=device,
+        device_id=device_id,
         node_id=node_id,
         run_id=run_id,
-        context_run_id=context_run_id,
         parsed=parsed,
         username=username,
         password=password,
+        commands=loaded,
         netmiko=netmiko,
+    )
+    step_results = await _store_deploy_command_results(
+        result=result,
+        commands=loaded,
+        device_id=device_id,
+        node_id=node_id,
+        context_run_id=context_run_id,
+        parsed=parsed,
         artifact_service=artifact_service,
     )
-    _, _, ok = result
-    logger.info(
-        "deploy-rendered-template device %d/%d id=%s host=%s: %s run_id=%s",
-        index,
-        total,
-        device_id,
-        host,
-        "ok" if ok else "failed",
-        run_id,
+    return _apply_deploy_result(
+        device=device, node_id=node_id, result=result, step_results=step_results
     )
-    return result
-
-
-def _partition_device_results(
-    results: list[tuple[str, DeviceContext, bool]],
-) -> tuple[dict[str, DeviceContext], dict[str, DeviceContext]]:
-    success_devices: dict[str, DeviceContext] = {}
-    failed_devices: dict[str, DeviceContext] = {}
-    for device_id, updated_device, ok in results:
-        if ok:
-            success_devices[device_id] = updated_device
-        else:
-            failed_devices[device_id] = updated_device
-    return success_devices, failed_devices
-
-
-def _build_deploy_outcomes(
-    *,
-    context: WorkflowContext,
-    success_devices: dict[str, DeviceContext],
-    failed_devices: dict[str, DeviceContext],
-) -> list[StepOutcome]:
-    outcomes = [
-        StepOutcome(
-            name="success",
-            context=context.model_copy(update={"devices": success_devices}),
-            summary=f"deployed rendered template to {len(success_devices)} device(s)",
-        )
-    ]
-    if failed_devices:
-        outcomes.append(
-            StepOutcome(
-                name="failure",
-                context=context.model_copy(update={"devices": failed_devices}),
-                summary=f"{len(failed_devices)} device(s) failed",
-            )
-        )
-    return outcomes
 
 
 async def execute(
@@ -527,37 +363,35 @@ async def execute(
         parsed.dry_run,
     )
 
-    results = await asyncio.gather(
-        *[
-            _deploy_on_device_logged(
-                index=index,
-                device_id=device_id,
-                device=device,
-                total=total,
-                run_id=log_run_id(run),
-                node_id=node_id,
-                context_run_id=context.run_id,
-                parsed=parsed,
-                username=username,
-                password=password,
-                netmiko=netmiko,
-                artifact_service=artifact_service,
-            )
-            for index, (device_id, device) in enumerate(context.devices.items(), start=1)
-        ]
-    )
+    async def _work(device_id: str, device: DeviceContext) -> DeviceContext | Fail:
+        return await _deploy_on_device(
+            device_id=device_id,
+            device=device,
+            node_id=node_id,
+            run_id=log_run_id(run),
+            context_run_id=context.run_id,
+            parsed=parsed,
+            username=username,
+            password=password,
+            netmiko=netmiko,
+            artifact_service=artifact_service,
+        )
 
-    success_devices, failed_devices = _partition_device_results(results)
+    # Template, artifact and connection errors fail that device only (the runner's boundary).
+    batch = await run_per_device(
+        context, _work, node_id=node_id, step_id=_STEP_ID, log_label=_STEP_ID
+    )
 
     logger.info(
         "deploy-rendered-template finished success=%d failure=%d run_id=%s",
-        len(success_devices),
-        len(failed_devices),
+        len(batch.ok),
+        len(batch.failed),
         log_run_id(run),
     )
-
-    return _build_deploy_outcomes(
-        context=context,
-        success_devices=success_devices,
-        failed_devices=failed_devices,
+    return build_outcomes(
+        context,
+        batch.ok,
+        batch.failed,
+        success_summary=f"deployed rendered template to {len(batch.ok)} device(s)",
+        failure_summary=f"{len(batch.failed)} device(s) failed",
     )

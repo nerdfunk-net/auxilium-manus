@@ -282,3 +282,31 @@ async def test_fail_can_carry_the_device_the_error_is_recorded_on() -> None:
     assert failed.hostname == "0!"  # the work's own copy, not the input device
     assert failed.status == DeviceStatus.FAILED
     assert failed.errors[-1].code == "diff_mismatch"
+
+
+@pytest.mark.asyncio
+async def test_log_label_writes_a_start_and_a_finish_line_per_device(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    async def work(device_id: str, device: DeviceContext) -> DeviceContext | Fail:
+        return Fail("c", "m") if device_id == "1" else device
+
+    ctx = make_context([make_device("0", hostname="10.0.0.1"), make_device("1")], run_id="run-9")
+    with caplog.at_level("INFO", logger="workflow_steps.common.device_runner"):
+        await run_per_device(ctx, work, node_id="n", step_id="s", log_label="my-step")
+
+    lines = [r.getMessage() for r in caplog.records]
+    assert "my-step device 1/2 id=0 host=10.0.0.1: connecting run_id=run-9" in lines
+    assert "my-step device 1/2 id=0 host=10.0.0.1: ok run_id=run-9" in lines
+    assert any("device 2/2 id=1" in line and ": failed run_id=run-9" in line for line in lines)
+
+
+@pytest.mark.asyncio
+async def test_no_log_label_no_device_lines(caplog: pytest.LogCaptureFixture) -> None:
+    async def work(device_id: str, device: DeviceContext) -> DeviceContext:
+        return device
+
+    with caplog.at_level("INFO", logger="workflow_steps.common.device_runner"):
+        await run_per_device(_ctx(2), work, node_id="n", step_id="s")
+
+    assert caplog.records == []

@@ -23,16 +23,19 @@ pyATS batch protocol (a chunk of devices per call).
 from __future__ import annotations
 
 import asyncio
+import logging
 from collections.abc import Awaitable, Callable, Collection
 from dataclasses import dataclass, field
 
 from models.failure import FailureInfo
-from models.workflow_context import DeviceContext, WorkflowContext
+from models.workflow_context import DeviceContext, WorkflowContext, bare_hostname
 from workflow_steps.common.device_outcomes import mark_device_failed
 from workflow_steps.common.partial_outcomes import (
     device_error_from_exception,
     fail_device_with_error,
 )
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -80,8 +83,13 @@ async def run_per_device(
     step_id: str,
     concurrency: int | None = None,
     only: Collection[str] | None = None,
+    log_label: str | None = None,
 ) -> Batch:
-    """Run ``work`` for the devices of ``context`` (all, or those in ``only``)."""
+    """Run ``work`` for the devices of ``context`` (all, or those in ``only``).
+
+    ``log_label`` (a step name) writes one "connecting" and one "ok / failed" line per device,
+    with its position, id and host, for the steps whose devices take a while.
+    """
     if concurrency is not None and concurrency < 1:
         raise ValueError(f"concurrency must be at least 1, got {concurrency}")
     sequential = concurrency == 1
@@ -91,7 +99,30 @@ async def run_per_device(
         if only is None or device_id in only
     ]
 
+    positions = {device_id: n for n, (device_id, _device) in enumerate(devices, start=1)}
+
+    def _log(device_id: str, device: DeviceContext, state: str) -> None:
+        if log_label is None:
+            return
+        host = bare_hostname(device.primary_ip4, device.hostname) or "(no host)"
+        logger.info(
+            "%s device %d/%d id=%s host=%s: %s run_id=%s",
+            log_label,
+            positions[device_id],
+            len(devices),
+            device_id,
+            host,
+            state,
+            context.run_id,
+        )
+
     async def _one(device_id: str, device: DeviceContext) -> tuple[DeviceContext, bool]:
+        _log(device_id, device, "connecting")
+        outcome = await _guarded(device_id, device)
+        _log(device_id, device, "ok" if outcome[1] else "failed")
+        return outcome
+
+    async def _guarded(device_id: str, device: DeviceContext) -> tuple[DeviceContext, bool]:
         try:
             result = await work(device_id, device)
         except AbortRun:
