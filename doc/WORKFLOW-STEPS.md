@@ -472,7 +472,13 @@ the class name plus a record, and a job already started is never lost because a 
 keeps the request and response on a failed device through `Fail(device=...)`. `add-to-ise` runs one device after the other
 (`concurrency=1`), a lost ISE connection is `AbortRun` (the created devices keep `success`, `exists` keeps its handle), and
 one bad value fails that device only (a non-ASCII digit in a prefix is `netmask_invalid`). `run_per_device` takes
-`keep_text=` for such integrations; `device_error_from_exception` has the same parameter.
+`keep_text=` for such integrations; `device_error_from_exception` has the same parameter. W7 (pyATS and Batfish): `get-pyats-running-config`, `get-pyats-snapshot` and `compare-pyats-snapshot`
+run on `run_per_device` (the compare step with `concurrency` = the shim's job limit and its match / mismatch verdict kept
+per device; the get-steps over the devices that passed validation, `only=`). The batch call itself stays in
+`common/pyats_batch.py` (chunks of devices per shim job are not part of the runner): a chunk whose answer is malformed or
+raises fails that chunk only (the class name is the error), a sealed password that cannot be decrypted fails that device
+(`credential_unreadable`), and the artifact store of `get-pyats-snapshot` is inside the per-device boundary.
+`batfish-validate-facts` fails a device whose expected facts cannot be prepared (artifact read, template) instead of the step.
 
 ### Step config flags
 

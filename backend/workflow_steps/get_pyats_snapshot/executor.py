@@ -38,12 +38,13 @@ from core.models.runs import WorkflowRun
 from models.workflow_context import (
     Capability,
     DeviceContext,
-    DeviceError,
     DeviceStatus,
     StepOutcome,
     WorkflowContext,
 )
 from services.artifacts import ArtifactService
+from workflow_steps.common.device_outcomes import build_outcomes
+from workflow_steps.common.device_runner import Fail, run_per_device
 from workflow_steps.common.jinja_render import parse_output_key
 from workflow_steps.common.pyats_batch import (
     resolve_source_credentials,
@@ -67,33 +68,23 @@ def _parse_features(config: dict[str, Any]) -> list[str]:
     return parse_feature_list(config.get("features"), step_id=_STEP_ID)
 
 
-def _fail_device(
-    *, device: DeviceContext, node_id: str, code: str, message: str
-) -> DeviceContext:
-    err = DeviceError(node_id=node_id, step_id=_STEP_ID, code=code, message=message)
-    return device.model_copy(
-        update={"status": DeviceStatus.FAILED, "errors": [*device.errors, err]}
-    )
-
-
 async def _shape_and_store_result(
     *,
     device_id: str,
     device: DeviceContext,
-    node_id: str,
     output_key: str,
     features: list[str],
     run_id: str,
+    node_id: str,
     artifact_service: ArtifactService,
     result: dict[str, Any] | None,
-) -> tuple[str, DeviceContext, bool]:
+) -> DeviceContext | Fail:
     if not result or not result.get("success", False):
         message = (result or {}).get("error") or "pyATS shim reported failure for this device"
         logger.warning(
             "%s device connect/learn failed device=%s error=%s", _STEP_ID, device_id, message
         )
-        failed = _fail_device(device=device, node_id=node_id, code="device_error", message=message)
-        return device_id, failed, False
+        return Fail("device_error", message)
 
     commands = result.get("commands") or {}
     feature_results: dict[str, dict[str, Any]] = {}
@@ -120,10 +111,7 @@ async def _shape_and_store_result(
         logger.warning(
             "%s every feature failed device=%s error=%s", _STEP_ID, device_id, message
         )
-        failed = _fail_device(
-            device=device, node_id=node_id, code="snapshot_failed", message=message
-        )
-        return device_id, failed, False
+        return Fail("snapshot_failed", message)
 
     content = json.dumps(feature_results, indent=2, default=str)
     artifact_ref = await artifact_service.store(
@@ -145,24 +133,13 @@ async def _shape_and_store_result(
     }
     parsed = dict(device.parsed)
     parsed[output_key] = entry
-    enriched = device.model_copy(
+    return device.model_copy(
         update={
             "parsed": parsed,
             "capabilities": device.capabilities | {Capability.PARSED},
             "status": DeviceStatus.OK,
         }
     )
-    return device_id, enriched, True
-
-
-def _partition(
-    results: list[tuple[str, DeviceContext, bool]],
-) -> tuple[dict[str, DeviceContext], dict[str, DeviceContext]]:
-    success: dict[str, DeviceContext] = {}
-    failed: dict[str, DeviceContext] = {}
-    for device_id, updated_device, ok in results:
-        (success if ok else failed)[device_id] = updated_device
-    return success, failed
 
 
 async def execute(
@@ -230,24 +207,25 @@ async def execute(
         for group_result in group_results:
             raw_results.update(group_result)
 
-    shaped = await asyncio.gather(
-        *[
-            _shape_and_store_result(
-                device_id=device_id,
-                device=context.devices[device_id],
-                node_id=node_id,
-                output_key=output_key,
-                features=features,
-                run_id=context.run_id,
-                artifact_service=artifact_service,
-                result=raw_results.get(device_id),
-            )
-            for source_id, device_group in groups.items()
-            for device_id, _shim_device in device_group
-        ]
-    )
-    success_devices, newly_failed = _partition(shaped)
-    failed_devices.update(newly_failed)
+    grouped = {device_id for device_group in groups.values() for device_id, _ in device_group}
+
+    async def work(device_id: str, device: DeviceContext) -> DeviceContext | Fail:
+        return await _shape_and_store_result(
+            device_id=device_id,
+            device=device,
+            output_key=output_key,
+            features=features,
+            run_id=context.run_id,
+            node_id=node_id,
+            artifact_service=artifact_service,
+            result=raw_results.get(device_id),
+        )
+
+    # The artifact store is inside the per-device boundary: one failing store fails that device
+    # and keeps the shim results of the others (W7-03).
+    batch = await run_per_device(context, work, node_id=node_id, step_id=_STEP_ID, only=grouped)
+    success_devices = batch.ok
+    failed_devices.update(batch.failed)
 
     logger.info(
         "%s finished success=%d failure=%d run_id=%s",
@@ -257,13 +235,4 @@ async def execute(
         log_run_id(run),
     )
 
-    outcomes = [
-        StepOutcome(name="success", context=context.model_copy(update={"devices": success_devices}))
-    ]
-    if failed_devices:
-        outcomes.append(
-            StepOutcome(
-                name="failure", context=context.model_copy(update={"devices": failed_devices})
-            )
-        )
-    return outcomes
+    return build_outcomes(context, success_devices, failed_devices)

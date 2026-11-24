@@ -79,7 +79,7 @@ from workflow_steps.common.jinja_render import (
     build_jinja_context,
     render_jinja_template,
 )
-from workflow_steps.common.partial_outcomes import mark_device_failed
+from workflow_steps.common.partial_outcomes import device_error_from_exception, mark_device_failed
 from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.common.step_flags import parse_bool_flag
 
@@ -369,15 +369,20 @@ async def execute(
     node_fragments: dict[str, dict[str, Any]] = {}  # node_name -> fact fields
 
     for device_id, device in context.devices.items():
-        result = await _prepare_contribution(
-            device=device,
-            node_id=node_id,
-            facts_source=facts_source,
-            merged_config=merged_config,
-            context=context,
-            artifact_service=artifact_service,
-            git_facts_corpus=git_facts_corpus,
-        )
+        try:
+            result = await _prepare_contribution(
+                device=device,
+                node_id=node_id,
+                facts_source=facts_source,
+                merged_config=merged_config,
+                context=context,
+                artifact_service=artifact_service,
+                git_facts_corpus=git_facts_corpus,
+            )
+        except Exception as exc:
+            # An artifact that cannot be read or a template that fails fails this device only
+            # (W7-03): only the text of an error this step wrote itself is kept.
+            result = device_error_from_exception(exc, node_id=node_id, step_id=_STEP_ID)
         if isinstance(result, DeviceError):
             failed = device.model_copy(
                 update={"status": DeviceStatus.FAILED, "errors": [*device.errors, result]}

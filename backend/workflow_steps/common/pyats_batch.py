@@ -26,7 +26,7 @@ import asyncio
 from typing import TYPE_CHECKING, Any
 
 from models.failure import FailureInfo
-from models.workflow_context import DeviceContext, DeviceError, DeviceStatus
+from models.workflow_context import DeviceContext
 from services.pyats.common.exceptions import PyATSAPIError, PyATSValidationError
 from services.pyats.credentials import PyATSCredentials
 from services.pyats.source_config_service import (
@@ -34,6 +34,7 @@ from services.pyats.source_config_service import (
     PyATSSourceNotFoundError,
 )
 from services.workflow_context.secret_fields import unwrap_secret
+from workflow_steps.common.device_outcomes import mark_device_failed
 
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session
@@ -59,23 +60,6 @@ def resolve_source_credentials(
         except (PyATSSourceNotFoundError, PyATSValidationError) as exc:
             errors[source_id] = str(exc)
     return credentials, errors
-
-
-def _fail_device(
-    *,
-    device: DeviceContext,
-    node_id: str,
-    step_id: str,
-    code: str,
-    message: str,
-    failure: FailureInfo | None = None,
-) -> DeviceContext:
-    err = DeviceError(
-        node_id=node_id, step_id=step_id, code=code, message=message, failure=failure
-    )
-    return device.model_copy(
-        update={"status": DeviceStatus.FAILED, "errors": [*device.errors, err]}
-    )
 
 
 def validate_and_group_devices(
@@ -108,8 +92,8 @@ def validate_and_group_devices(
     for device_id, device in devices.items():
         bag = device.attribute_bags.get("pyats_testbed")
         if not isinstance(bag, dict):
-            failures[device_id] = _fail_device(
-                device=device,
+            failures[device_id] = mark_device_failed(
+                device,
                 node_id=node_id,
                 step_id=step_id,
                 code="missing_testbed",
@@ -122,8 +106,8 @@ def validate_and_group_devices(
             message = source_errors.get(
                 source_id, f"pyATS source {source_id!r} could not be resolved"
             )
-            failures[device_id] = _fail_device(
-                device=device,
+            failures[device_id] = mark_device_failed(
+                device,
                 node_id=node_id,
                 step_id=step_id,
                 code="source_error",
@@ -131,10 +115,23 @@ def validate_and_group_devices(
             )
             continue
 
-        password = unwrap_secret(bag.get("password"))
+        try:
+            password = unwrap_secret(bag.get("password"))
+        except ValueError as exc:
+            # A sealed password that cannot be decrypted (key rotated, an older seal): this
+            # device cannot log in, the others can (W7-03).
+            failures[device_id] = mark_device_failed(
+                device,
+                node_id=node_id,
+                step_id=step_id,
+                code="credential_unreadable",
+                message=str(exc),
+                failure=FailureInfo(phase="config", kind="bad_request"),
+            )
+            continue
         if not password:
-            failures[device_id] = _fail_device(
-                device=device,
+            failures[device_id] = mark_device_failed(
+                device,
                 node_id=node_id,
                 step_id=step_id,
                 code="missing_credential",
@@ -149,8 +146,8 @@ def validate_and_group_devices(
             None,
         )
         if missing is not None:
-            failures[device_id] = _fail_device(
-                device=device,
+            failures[device_id] = mark_device_failed(
+                device,
                 node_id=node_id,
                 step_id=step_id,
                 code=f"missing_{missing}",
@@ -228,13 +225,17 @@ async def run_batched(
                 commands=commands,
                 timeout_seconds=timeout_seconds,
             )
+            return dict(response.get("results") or {})
         except (PyATSAPIError, PyATSValidationError) as exc:
             error = str(exc)
-            return {
-                device_id: {"success": False, "error": error, "commands": {}}
-                for device_id, _shim_device in chunk
-            }
-        return dict(response.get("results") or {})
+        except Exception as exc:
+            # A malformed answer (a proxy page instead of JSON) or any other unexpected error
+            # fails this chunk only, and only its class name is kept (W7-03).
+            error = type(exc).__name__
+        return {
+            device_id: {"success": False, "error": error, "commands": {}}
+            for device_id, _shim_device in chunk
+        }
 
     chunk_results = await asyncio.gather(
         *[_run_chunk(chunk) for chunk in _chunk(device_group, chunk_size)]

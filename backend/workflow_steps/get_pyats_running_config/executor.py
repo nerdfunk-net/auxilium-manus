@@ -31,12 +31,13 @@ from core.models.runs import WorkflowRun
 from models.workflow_context import (
     Capability,
     DeviceContext,
-    DeviceError,
     DeviceStatus,
     StepOutcome,
     WorkflowContext,
 )
 from services.artifacts import ArtifactService
+from workflow_steps.common.device_outcomes import build_outcomes
+from workflow_steps.common.device_runner import Fail, run_per_device
 from workflow_steps.common.jinja_render import parse_output_key
 from workflow_steps.common.pyats_batch import (
     resolve_source_credentials,
@@ -56,79 +57,41 @@ _RUNNING_COMMAND = "show running-config"
 _COMMANDS = [_RUNNING_COMMAND]
 
 
-def _fail_device(
-    *, device: DeviceContext, node_id: str, code: str, message: str
-) -> DeviceContext:
-    err = DeviceError(node_id=node_id, step_id=_STEP_ID, code=code, message=message)
-    return device.model_copy(
-        update={"status": DeviceStatus.FAILED, "errors": [*device.errors, err]}
-    )
-
-
 def _shape_result(
     *,
     device_id: str,
     device: DeviceContext,
-    node_id: str,
     output_key: str,
     result: dict[str, Any] | None,
-) -> tuple[str, DeviceContext, bool]:
+) -> DeviceContext | Fail:
     if not result or not result.get("success", False):
         message = (result or {}).get("error") or "pyATS shim reported failure for this device"
         logger.warning(
             "%s device connect/parse failed device=%s error=%s", _STEP_ID, device_id, message
         )
-        failed = _fail_device(device=device, node_id=node_id, code="device_error", message=message)
-        return device_id, failed, False
+        return Fail("device_error", message)
 
     commands = result.get("commands") or {}
     running_entry = commands.get(_RUNNING_COMMAND)
     if not running_entry:
-        failed = _fail_device(
-            device=device,
-            node_id=node_id,
-            code="parse_failed",
-            message=f"{_RUNNING_COMMAND}: the shim returned no result for this command",
+        return Fail(
+            "parse_failed", f"{_RUNNING_COMMAND}: the shim returned no result for this command"
         )
-        return device_id, failed, False
     if running_entry.get("error"):
-        failed = _fail_device(
-            device=device,
-            node_id=node_id,
-            code="parse_failed",
-            message=f"{_RUNNING_COMMAND}: {running_entry['error']}",
-        )
-        return device_id, failed, False
+        return Fail("parse_failed", f"{_RUNNING_COMMAND}: {running_entry['error']}")
     if running_entry.get("parsed") is None:
-        failed = _fail_device(
-            device=device,
-            node_id=node_id,
-            code="parse_failed",
-            message=f"{_RUNNING_COMMAND}: the shim returned no parsed data",
-        )
-        return device_id, failed, False
+        return Fail("parse_failed", f"{_RUNNING_COMMAND}: the shim returned no parsed data")
 
     entry = {"running": running_entry.get("parsed")}
     parsed = dict(device.parsed)
     parsed[output_key] = entry
-    enriched = device.model_copy(
+    return device.model_copy(
         update={
             "parsed": parsed,
             "capabilities": device.capabilities | {Capability.PARSED},
             "status": DeviceStatus.OK,
         }
     )
-    return device_id, enriched, True
-
-
-def _partition(
-    results: list[tuple[str, DeviceContext, bool]],
-) -> tuple[dict[str, DeviceContext], dict[str, DeviceContext]]:
-    success: dict[str, DeviceContext] = {}
-    failed: dict[str, DeviceContext] = {}
-    for device_id, updated_device, ok in results:
-        (success if ok else failed)[device_id] = updated_device
-    return success, failed
 
 
 async def execute(
@@ -193,19 +156,19 @@ async def execute(
         for group_result in group_results:
             raw_results.update(group_result)
 
-    shaped = [
-        _shape_result(
+    grouped = {device_id for device_group in groups.values() for device_id, _ in device_group}
+
+    async def work(device_id: str, device: DeviceContext) -> DeviceContext | Fail:
+        return _shape_result(
             device_id=device_id,
-            device=context.devices[device_id],
-            node_id=node_id,
+            device=device,
             output_key=output_key,
             result=raw_results.get(device_id),
         )
-        for source_id, device_group in groups.items()
-        for device_id, _shim_device in device_group
-    ]
-    success_devices, newly_failed = _partition(shaped)
-    failed_devices.update(newly_failed)
+
+    batch = await run_per_device(context, work, node_id=node_id, step_id=_STEP_ID, only=grouped)
+    success_devices = batch.ok
+    failed_devices.update(batch.failed)
 
     logger.info(
         "%s finished success=%d failure=%d run_id=%s",
@@ -215,13 +178,4 @@ async def execute(
         log_run_id(run),
     )
 
-    outcomes = [
-        StepOutcome(name="success", context=context.model_copy(update={"devices": success_devices}))
-    ]
-    if failed_devices:
-        outcomes.append(
-            StepOutcome(
-                name="failure", context=context.model_copy(update={"devices": failed_devices})
-            )
-        )
-    return outcomes
+    return build_outcomes(context, success_devices, failed_devices)

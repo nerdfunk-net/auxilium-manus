@@ -34,7 +34,6 @@ exactly what differs rather than only Genie's str(Diff) text.
 
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 from dataclasses import dataclass
@@ -47,7 +46,6 @@ from core.models.runs import WorkflowRun
 from models.workflow_context import (
     Capability,
     DeviceContext,
-    DeviceError,
     DeviceStatus,
     StepOutcome,
     WorkflowContext,
@@ -62,6 +60,7 @@ from services.workflow_context.device_template import (
 )
 from services.workflow_context.node_result import set_node_result
 from workflow_steps.common.content_resolver import ExportableContent, list_exportable_content
+from workflow_steps.common.device_runner import Fail, run_per_device
 from workflow_steps.common.pyats_batch import resolve_source_credentials
 from workflow_steps.common.pyats_features import parse_feature_list
 from workflow_steps.common.run_logging import log_run_id
@@ -77,16 +76,6 @@ logger = logging.getLogger(__name__)
 
 _STEP_ID = "compare-pyats-snapshot"
 _OUTCOME_NAMES = ("match", "mismatch", "failure")
-
-
-def _fail_device(
-    *, device: DeviceContext, device_id: str, node_id: str, code: str, message: str
-) -> tuple[str, DeviceContext, str, dict[str, Any] | None]:
-    err = DeviceError(node_id=node_id, step_id=_STEP_ID, code=code, message=message)
-    failed = device.model_copy(
-        update={"status": DeviceStatus.FAILED, "errors": [*device.errors, err]}
-    )
-    return device_id, failed, "failure", None
 
 
 _ALL_FEATURES_KEY = "all"
@@ -294,6 +283,7 @@ def _resolve_live_export_item(
     return item
 
 
+# (device id, device, bucket, record) of a device that was compared; a failure is a ``Fail``.
 _DeviceResult = tuple[str, DeviceContext, str, dict[str, Any] | None]
 
 
@@ -316,35 +306,19 @@ def _credentials_for_device(
     node_id: str,
     source_credentials: dict[str, PyATSCredentials],
     source_errors: dict[str, str],
-) -> PyATSCredentials | _DeviceResult:
+) -> PyATSCredentials | Fail:
     bag = device.attribute_bags.get("pyats_testbed")
     if not isinstance(bag, dict):
-        return _fail_device(
-            device=device,
-            device_id=device_id,
-            node_id=node_id,
-            code="missing_testbed",
-            message="No pyats_testbed bag found -- add an Add Testbed step upstream",
+        return Fail(
+            "missing_testbed", "No pyats_testbed bag found -- add an Add Testbed step upstream"
         )
 
     source_id = str(bag.get("pyats_source_id") or "")
     if source_id in source_errors:
-        return _fail_device(
-            device=device,
-            device_id=device_id,
-            node_id=node_id,
-            code="source_error",
-            message=source_errors[source_id],
-        )
+        return Fail("source_error", source_errors[source_id])
     shim_credentials = source_credentials.get(source_id)
     if shim_credentials is None:
-        return _fail_device(
-            device=device,
-            device_id=device_id,
-            node_id=node_id,
-            code="source_error",
-            message=f"pyATS source {source_id!r} could not be resolved",
-        )
+        return Fail("source_error", f"pyATS source {source_id!r} could not be resolved")
     return shim_credentials
 
 
@@ -356,7 +330,7 @@ async def _load_live_snapshot(
     source_step_node_id: str,
     parsed_output_key: str | None,
     artifact_service: ArtifactService,
-) -> _LiveSnapshot | _DeviceResult:
+) -> _LiveSnapshot | Fail:
     item = _resolve_live_export_item(
         device,
         device_id,
@@ -364,28 +338,17 @@ async def _load_live_snapshot(
         parsed_output_key=parsed_output_key,
     )
     if item is None:
-        return _fail_device(
-            device=device,
-            device_id=device_id,
-            node_id=node_id,
-            code="missing_content",
-            message=(
-                "No pyats_snapshot content available for this device. "
-                "Add an upstream Get Snapshot step."
-            ),
+        return Fail(
+            "missing_content",
+            "No pyats_snapshot content available for this device. "
+            "Add an upstream Get Snapshot step.",
         )
 
     try:
         live_text = await artifact_service.resolve(item.artifact_ref)
         return _LiveSnapshot(item=item, data=json.loads(live_text))
     except json.JSONDecodeError:
-        return _fail_device(
-            device=device,
-            device_id=device_id,
-            node_id=node_id,
-            code="invalid_snapshot",
-            message="Live snapshot artifact is not valid JSON",
-        )
+        return Fail("invalid_snapshot", "Live snapshot artifact is not valid JSON")
 
 
 async def _load_reference_snapshot(
@@ -396,7 +359,7 @@ async def _load_reference_snapshot(
     item: Any,
     config: dict[str, Any],
     context_run_id: str,
-) -> _ReferenceSnapshot | _DeviceResult:
+) -> _ReferenceSnapshot | Fail:
     reference_path = render_device_template(
         str(config.get("filename_template") or "").strip(),
         device,
@@ -410,31 +373,15 @@ async def _load_reference_snapshot(
     try:
         reference_text = await read_reference_text(config=config, relative_path=reference_path)
     except FileNotFoundError as exc:
-        return _fail_device(
-            device=device,
-            device_id=device_id,
-            node_id=node_id,
-            code="missing_reference",
-            message=str(exc),
-        )
+        return Fail("missing_reference", str(exc))
     except Exception as exc:  # noqa: BLE001 - surfaced to the operator as a device failure
-        return _fail_device(
-            device=device,
-            device_id=device_id,
-            node_id=node_id,
-            code="reference_error",
-            message=str(exc),
-        )
+        return Fail("reference_error", str(exc))
 
     try:
         return _ReferenceSnapshot(path=reference_path, data=json.loads(reference_text))
     except json.JSONDecodeError:
-        return _fail_device(
-            device=device,
-            device_id=device_id,
-            node_id=node_id,
-            code="invalid_snapshot",
-            message="Reference snapshot file is not valid JSON snapshot content",
+        return Fail(
+            "invalid_snapshot", "Reference snapshot file is not valid JSON snapshot content"
         )
 
 
@@ -453,31 +400,19 @@ async def _diff_features(
     exclude_keys: list[str],
     use_snapshot_excludes: bool,
     shim_credentials: PyATSCredentials,
-) -> list[_FeatureResult] | _DeviceResult:
+) -> list[_FeatureResult] | Fail:
     shim = service_factory.get_pyats_app_service()
     feature_results: list[_FeatureResult] = []
     for feature in features:
         live_data, live_error = _extract_feature(live_snapshot, feature, side="Live")
         if live_error is not None:
-            return _fail_device(
-                device=device,
-                device_id=device_id,
-                node_id=node_id,
-                code="missing_feature",
-                message=live_error,
-            )
+            return Fail("missing_feature", live_error)
 
         reference_data, reference_error = _extract_feature(
             reference_snapshot, feature, side="Reference"
         )
         if reference_error is not None:
-            return _fail_device(
-                device=device,
-                device_id=device_id,
-                node_id=node_id,
-                code="missing_feature",
-                message=reference_error,
-            )
+            return Fail("missing_feature", reference_error)
 
         try:
             response = await shim.diff(
@@ -488,13 +423,7 @@ async def _diff_features(
                 use_snapshot_excludes=use_snapshot_excludes,
             )
         except (PyATSAPIError, PyATSValidationError) as exc:
-            return _fail_device(
-                device=device,
-                device_id=device_id,
-                node_id=node_id,
-                code="shim_error",
-                message=f"{feature}: {exc}",
-            )
+            return Fail("shim_error", f"{feature}: {exc}")
 
         excluded = _string_tuple(response.get("excluded"))
         not_applied = _string_tuple(response.get("not_applied"))
@@ -537,7 +466,7 @@ async def _compare_one_device(
     source_credentials: dict[str, PyATSCredentials],
     source_errors: dict[str, str],
     artifact_service: ArtifactService,
-) -> _DeviceResult:
+) -> _DeviceResult | Fail:
     shim_credentials = _credentials_for_device(
         device=device,
         device_id=device_id,
@@ -545,7 +474,7 @@ async def _compare_one_device(
         source_credentials=source_credentials,
         source_errors=source_errors,
     )
-    if isinstance(shim_credentials, tuple):
+    if isinstance(shim_credentials, Fail):
         return shim_credentials
 
     live = await _load_live_snapshot(
@@ -556,7 +485,7 @@ async def _compare_one_device(
         parsed_output_key=parsed_output_key,
         artifact_service=artifact_service,
     )
-    if isinstance(live, tuple):
+    if isinstance(live, Fail):
         return live
 
     reference = await _load_reference_snapshot(
@@ -567,7 +496,7 @@ async def _compare_one_device(
         config=config,
         context_run_id=context_run_id,
     )
-    if isinstance(reference, tuple):
+    if isinstance(reference, Fail):
         return reference
 
     feature_results = await _diff_features(
@@ -581,7 +510,7 @@ async def _compare_one_device(
         use_snapshot_excludes=use_snapshot_excludes,
         shim_credentials=shim_credentials,
     )
-    if isinstance(feature_results, tuple):
+    if isinstance(feature_results, Fail):
         return feature_results
 
     return await _build_device_result(
@@ -659,42 +588,49 @@ async def execute(
     # work that may outlive the client's timeout (C4R-04).
     from workflow_steps.common.pyats_batch import shim_concurrency
 
-    gate = asyncio.Semaphore(
-        await shim_concurrency(
-            service_factory.get_pyats_app_service(),
-            next(iter(source_credentials.values()), None),
-        )
+    limit = await shim_concurrency(
+        service_factory.get_pyats_app_service(),
+        next(iter(source_credentials.values()), None),
     )
+    verdicts: dict[str, tuple[str, dict[str, Any] | None]] = {}
 
-    async def _guarded_compare(**kwargs: Any) -> Any:
-        async with gate:
-            return await _compare_one_device(**kwargs)
+    async def work(device_id: str, device: DeviceContext) -> DeviceContext | Fail:
+        result = await _compare_one_device(
+            device_id=device_id,
+            device=device,
+            node_id=node_id,
+            features=features,
+            source_step_node_id=source_step_node_id,
+            parsed_output_key=parsed_output_key,
+            config=merged_config,
+            exclude_keys=exclude_keys,
+            use_snapshot_excludes=use_snapshot_excludes,
+            context_run_id=context.run_id,
+            source_credentials=source_credentials,
+            source_errors=source_errors,
+            artifact_service=artifact_service,
+        )
+        if isinstance(result, Fail):
+            return result
+        _device_id, updated_device, bucket_name, record = result
+        verdicts[device_id] = (bucket_name, record)
+        return updated_device
 
-    results = await asyncio.gather(
-        *[
-            _guarded_compare(
-                device_id=device_id,
-                device=device,
-                node_id=node_id,
-                features=features,
-                source_step_node_id=source_step_node_id,
-                parsed_output_key=parsed_output_key,
-                config=merged_config,
-                exclude_keys=exclude_keys,
-                use_snapshot_excludes=use_snapshot_excludes,
-                context_run_id=context.run_id,
-                source_credentials=source_credentials,
-                source_errors=source_errors,
-                artifact_service=artifact_service,
-            )
-            for device_id, device in context.devices.items()
-        ]
+    # Bounded by what the shim runs at once; an unbounded gather of per-feature jobs makes it queue
+    # work that may outlive the client's timeout (C4R-04). Any error of one device (a missing
+    # artifact, a malformed shim answer) fails that device only (W7-03).
+    batch = await run_per_device(
+        context, work, node_id=node_id, step_id=_STEP_ID, concurrency=limit
     )
 
     buckets: dict[str, dict[str, DeviceContext]] = {"match": {}, "mismatch": {}, "failure": {}}
     comparison_records: list[dict[str, Any]] = []
-    for device_id, updated_device, bucket_name, record in results:
-        buckets[bucket_name][device_id] = updated_device
+    for device_id in context.devices:
+        if device_id in batch.failed:
+            buckets["failure"][device_id] = batch.failed[device_id]
+            continue
+        bucket_name, record = verdicts[device_id]
+        buckets[bucket_name][device_id] = batch.ok[device_id]
         if record is not None:
             comparison_records.append(record)
 
