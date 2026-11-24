@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from jinja2 import TemplateSyntaxError, UndefinedError
+from jinja2 import TemplateSyntaxError, UndefinedError, meta
 from jinja2.sandbox import SandboxedEnvironment
 
 from models.failure import FailureInfo, FailureKind
@@ -137,22 +137,40 @@ def build_jinja_context(
     return context
 
 
-def validate_jinja_template(template: str) -> None:
-    """Parse a template and raise JinjaTemplateError on syntax errors."""
+def _syntax_error(template: str, exc: TemplateSyntaxError) -> JinjaTemplateError:
+    line = exc.lineno + _leading_lines_stripped(template) if exc.lineno else None
+    return JinjaTemplateError(
+        f"Jinja syntax error: {exc}",
+        failure=_template_failure("template_syntax", exc, line=line),
+    )
+
+
+def _require_text(template: str) -> str:
     stripped = template.strip()
     if not stripped:
         raise JinjaTemplateError(
             "Template is empty",
             failure=_template_failure("template_syntax", ValueError(), line=None),
         )
+    return stripped
+
+
+def validate_jinja_template(template: str) -> None:
+    """Parse a template and raise JinjaTemplateError on syntax errors."""
+    stripped = _require_text(template)
     try:
         _jinja_env.parse(stripped)
     except TemplateSyntaxError as exc:
-        line = exc.lineno + _leading_lines_stripped(template) if exc.lineno else None
-        raise JinjaTemplateError(
-            f"Jinja syntax error: {exc}",
-            failure=_template_failure("template_syntax", exc, line=line),
-        ) from exc
+        raise _syntax_error(template, exc) from exc
+
+
+def template_variables(template: str) -> frozenset[str]:
+    """The top-level names a template reads from its context (a syntax error yields none; the
+    render reports it)."""
+    try:
+        return frozenset(meta.find_undeclared_variables(_jinja_env.parse(template.strip())))
+    except TemplateSyntaxError:
+        return frozenset()
 
 
 def render_jinja_template(
@@ -162,10 +180,11 @@ def render_jinja_template(
 
     By default a ``{{ value }}`` containing a line break is rejected (S4-08): external data is
     untrusted input to device command lines."""
-    validate_jinja_template(template)
+    stripped = _require_text(template)
     env = _jinja_env if allow_multiline_values else _jinja_env_strict
     try:
-        compiled = env.from_string(template.strip())
+        # One parse: ``from_string`` raises the same syntax errors the validator reports.
+        compiled = env.from_string(stripped)
         rendered = compiled.render(**context)
     except UnsafeTemplateValueError as exc:
         exc.failure = FailureInfo(
@@ -176,6 +195,8 @@ def render_jinja_template(
             line=_render_line(exc, offset=_leading_lines_stripped(template)),
         )
         raise
+    except TemplateSyntaxError as exc:
+        raise _syntax_error(template, exc) from exc
     except UndefinedError as exc:
         raise JinjaTemplateError(
             f"Undefined template variable: {exc}",

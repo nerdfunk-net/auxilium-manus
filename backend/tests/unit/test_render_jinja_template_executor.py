@@ -259,6 +259,69 @@ class RenderJinjaTemplateExecutorTests(unittest.IsolatedAsyncioTestCase):
         content = await artifact_service.resolve(ArtifactRef.model_validate(entry["artifact_ref"]))
         self.assertEqual(content, "Ethernet0/0 / 15.2 / count=2")
 
+class CommandArtifactReadTests(unittest.IsolatedAsyncioTestCase):
+    """W3a-15: upstream command artifacts are read only for a template that names them."""
+
+    async def _render(self, template: str) -> tuple[int, str]:
+        artifacts = InMemoryArtifactService()
+        ref = await artifacts.store(
+            content="Cisco IOS", kind="command_output", device_id="d1", run_id="run-1"
+        )
+        device = DeviceContext(
+            id="d1",
+            name="lab",
+            hostname="lab",
+            capabilities={Capability.IDENTITY},
+            status=DeviceStatus.OK,
+            command_results={
+                "run-1": [
+                    CommandResult(
+                        node_id="run-1", command="show version", success=True, output_ref=ref
+                    )
+                ]
+            },
+        )
+        reads: list[str] = []
+        original = artifacts.resolve
+
+        async def _counting(artifact_ref):  # noqa: ANN001, ANN202
+            reads.append(artifact_ref.artifact_id)
+            return await original(artifact_ref)
+
+        with patch.object(artifacts, "resolve", _counting):
+            outcomes = await execute(
+                config={"output_key": "out", "template": template},
+                context=WorkflowContext(
+                    run_id="run-1", workflow_id="wf-1", devices={"d1": device}
+                ),
+                run=MagicMock(id=1),
+                artifact_service=artifacts,
+                node_id="render-1",
+                device_sessions=MagicMock(),
+            )
+        entry = outcomes[0].context.devices["d1"].parsed["out"]
+        rendered = await original(ArtifactRef.model_validate(entry["artifact_ref"]))
+        return len(reads), rendered
+
+    async def test_a_template_without_command_variables_reads_nothing(self) -> None:
+        reads, rendered = await self._render("hostname {{ device.hostname }}")
+
+        self.assertEqual(reads, 0)
+        self.assertEqual(rendered, "hostname lab")
+
+    async def test_each_command_variable_still_reads_the_artifacts(self) -> None:
+        for template in (
+            "{{ command.raw }}",
+            "{{ commands[0].raw }}",
+            "{{ commands_by_name['show version'].raw }}",
+            "{% for c in commands %}{{ c.raw }}{% endfor %}",
+        ):
+            with self.subTest(template=template):
+                reads, rendered = await self._render(template)
+                self.assertEqual(reads, 1)
+                self.assertEqual(rendered, "Cisco IOS")
+
+
 class RenderJinjaTemplateStoredTemplateTests(unittest.IsolatedAsyncioTestCase):
     """The production path: the panel and the gallery write ``template_id`` (W13-08)."""
 

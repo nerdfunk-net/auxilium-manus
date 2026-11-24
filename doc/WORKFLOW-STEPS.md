@@ -535,6 +535,13 @@ row of a failure, `copy running-config startup-config` row); each step passes it
 - **TextFSM media type.** `CommandResult.structured_commands` lists the commands whose output came back as a TextFSM structure.
   `run-command` stores those as `application/json` and every other output (also the raw fallback when no template matched) as
   `text/plain`; the `parsed` entry of a raw fallback has `parsed: None` and an error, whatever the text looks like.
+- **Run Command config mode on the runner.** `run-command` in config mode runs on `run_per_device` like exec mode's
+  siblings do (no private gather and partition); the stored message of an exception is still the driver text of that step
+  (open decision S4, W3a-10).
+- **Render step hand-over (W3a-15).** `render_jinja_template` parses a template once per device (`from_string` raises the
+  validator's syntax errors, same message, failure record and line); upstream command artifacts are read only when the template
+  names `command`, `commands` or `commands_by_name` (`jinja_render.template_variables`); workflow validation warns
+  (`duplicate_render_output_key`, tier 1) when a render step below another one on its path writes the same `output_key`.
 - **One-token names.** `device_file_upload.parse_device_token` refuses a space or line break in `file_system`,
   `destination_filename` (`upload-config`, `upload-binary`, `configure-replace-config`) and `source_filename` (`merge-config`).
 

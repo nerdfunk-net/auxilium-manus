@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import unittest
+from unittest.mock import patch
+
+from jinja2.sandbox import SandboxedEnvironment
 
 from models.workflow_context import Capability, DeviceContext, DeviceStatus
 from services.workflow_context.secret_fields import seal_secret
@@ -10,8 +13,68 @@ from workflow_steps.common.jinja_render import (
     JinjaTemplateError,
     build_jinja_context,
     render_jinja_template,
+    template_variables,
     validate_jinja_template,
 )
+
+
+class JinjaRenderParseTests(unittest.TestCase):
+    """W3a-15: a render parses the template once, and keeps the validator's errors."""
+
+    def test_a_render_parses_the_template_once(self) -> None:
+        calls: list[str] = []
+        original = SandboxedEnvironment._parse
+
+        def _counting(self, source, name, filename):  # noqa: ANN001, ANN202
+            calls.append(source)
+            return original(self, source, name, filename)
+
+        with patch.object(SandboxedEnvironment, "_parse", _counting):
+            self.assertEqual(render_jinja_template("a {{ v }}", {"v": 1}), "a 1")
+
+        self.assertEqual(len(calls), 1)
+
+    def test_a_syntax_error_is_reported_like_the_validator_does(self) -> None:
+        template = "ok\n{% if %}"
+        with self.assertRaises(JinjaTemplateError) as validated:
+            validate_jinja_template(template)
+        with self.assertRaises(JinjaTemplateError) as rendered:
+            render_jinja_template(template, {})
+
+        self.assertEqual(str(rendered.exception), str(validated.exception))
+        self.assertEqual(rendered.exception.failure, validated.exception.failure)
+        assert rendered.exception.failure is not None
+        self.assertEqual(rendered.exception.failure.kind, "template_syntax")
+        self.assertEqual(rendered.exception.failure.line, 2)
+
+    def test_the_syntax_error_line_counts_the_blank_lines_before_the_template(self) -> None:
+        with self.assertRaises(JinjaTemplateError) as rendered:
+            render_jinja_template("\n\nok\n{% if %}", {})
+
+        assert rendered.exception.failure is not None
+        self.assertEqual(rendered.exception.failure.line, 4)
+
+    def test_an_empty_template_is_reported_like_the_validator_does(self) -> None:
+        with self.assertRaises(JinjaTemplateError) as validated:
+            validate_jinja_template("  \n ")
+        with self.assertRaises(JinjaTemplateError) as rendered:
+            render_jinja_template("  \n ", {})
+
+        self.assertEqual(str(rendered.exception), "Template is empty")
+        self.assertEqual(rendered.exception.failure, validated.exception.failure)
+
+
+class TemplateVariablesTests(unittest.TestCase):
+    def test_lists_the_top_level_names_read_from_the_context(self) -> None:
+        template = "{{ device.name }} {% for c in commands %}{{ c.raw }}{% endfor %}"
+
+        self.assertEqual(template_variables(template), {"device", "commands"})
+
+    def test_a_locally_declared_name_is_not_a_context_variable(self) -> None:
+        self.assertEqual(template_variables("{% set command = 1 %}{{ command }}"), frozenset())
+
+    def test_a_syntax_error_yields_no_names(self) -> None:
+        self.assertEqual(template_variables("{% if %}"), frozenset())
 
 
 class JinjaRenderTests(unittest.TestCase):

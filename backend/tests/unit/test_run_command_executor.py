@@ -6,11 +6,13 @@ import json
 import unittest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from models.failure import FailureInfo
 from models.workflow_context import Capability, DeviceContext, DeviceStatus, WorkflowContext
 from services.artifacts import InMemoryArtifactService
 from services.network.netmiko.connection import CommandResult as NetmikoCommandResult
 from services.network.netmiko.connection import DeployResult as NetmikoDeployResult
 from services.pyats.common.exceptions import PyATSAPIError
+from workflow_steps.common.failure_records import INVALID_INPUT
 from workflow_steps.run_command.executor import execute
 
 
@@ -889,6 +891,84 @@ class RunCommandExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(preview["execution_mode"], "exec_mode")
         self.assertEqual(preview["commands"], ["show version"])
         self.assertEqual(device.status, DeviceStatus.OK)
+
+    async def _config_mode(self, devices: dict[str, DeviceContext], deploy: AsyncMock):  # noqa: ANN202
+        with (
+            patch("workflow_steps.common.run_session.object_session", return_value=MagicMock()),
+            patch(
+                "workflow_steps.run_command.executor.resolve_ssh_credential",
+                return_value=("admin", "secret"),
+            ),
+            patch("workflow_steps.run_command.executor.NetmikoService") as netmiko_cls,
+        ):
+            netmiko_cls.return_value.deploy_config = deploy
+            return await execute(
+                config={
+                    "credential_reference": "lab-ssh",
+                    "commands": ["interface Gi0/0", "no shutdown"],
+                    "execution_mode": "config_mode",
+                },
+                context=WorkflowContext(run_id="run-uuid-1", workflow_id="wf-1", devices=devices),
+                run=MagicMock(id=1),
+                artifact_service=InMemoryArtifactService(),
+                node_id="node-1",
+                device_sessions=MagicMock(),
+            )
+
+    async def test_config_mode_exception_fails_only_that_device(self) -> None:
+        async def _deploy(**kwargs):  # noqa: ANN202, ANN003
+            if kwargs["host"] == "bad":
+                raise ConnectionError("no route")
+            return NetmikoDeployResult(success=True, config_output="ok")
+
+        bad = _device("bad").model_copy(update={"hostname": "bad", "primary_ip4": None})
+        outcomes = await self._config_mode(
+            {"good": _device("good"), "bad": bad}, AsyncMock(side_effect=_deploy)
+        )
+
+        by_name = {o.name: o for o in outcomes}
+        self.assertEqual(set(by_name["success"].context.devices), {"good"})
+        failed = by_name["failure"].context.devices["bad"]
+        self.assertEqual(failed.status, DeviceStatus.FAILED)
+        self.assertEqual(failed.errors[-1].code, "connectionerror")
+        self.assertEqual(failed.errors[-1].step_id, "run-command")
+        # the driver text is still stored for this step (open decision S4, W3a-10)
+        self.assertEqual(failed.errors[-1].message, "no route")
+        self.assertEqual(by_name["success"].summary, "ran 2 command(s) on 1 device(s)")
+        self.assertEqual(by_name["failure"].summary, "1 device(s) failed")
+
+    async def test_config_mode_device_without_host_fails_without_deploying(self) -> None:
+        nohost = _device("nohost").model_copy(update={"hostname": None, "primary_ip4": None})
+        deploy = AsyncMock()
+
+        outcomes = await self._config_mode({"nohost": nohost}, deploy)
+
+        deploy.assert_not_called()
+        failed = next(o for o in outcomes if o.name == "failure").context.devices["nohost"]
+        self.assertEqual(failed.errors[-1].code, "missing_host")
+        self.assertEqual(failed.errors[-1].failure, INVALID_INPUT)
+
+    async def test_config_mode_rejected_commands_keep_the_stored_rows_on_the_failed_device(
+        self,
+    ) -> None:
+        deploy = AsyncMock(
+            return_value=NetmikoDeployResult(
+                success=False,
+                config_output="x",
+                error="refused",
+                failure=FailureInfo(phase="config", kind="config_rejected"),
+            )
+        )
+
+        outcomes = await self._config_mode({"d": _device("d")}, deploy)
+
+        failed = next(o for o in outcomes if o.name == "failure").context.devices["d"]
+        self.assertEqual(failed.errors[-1].code, "command_failed")
+        self.assertEqual(failed.errors[-1].message, "refused")
+        self.assertEqual(
+            failed.errors[-1].failure, FailureInfo(phase="config", kind="config_rejected")
+        )
+        self.assertEqual(len(failed.command_results["node-1"]), 1)
 
     async def test_dry_run_config_mode_skips_netmiko_and_populates_dry_run_results(self) -> None:
         run = MagicMock()

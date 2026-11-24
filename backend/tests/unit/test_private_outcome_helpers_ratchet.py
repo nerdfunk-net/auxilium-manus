@@ -35,7 +35,6 @@ LEGACY_PRIVATE_HELPERS: dict[str, int] = {
     "workflow_steps/remove_from_nautobot/executor.py": 2,
     "workflow_steps/render_jinja_template/executor.py": 2,
     "workflow_steps/route_on_content/executor.py": 1,
-    "workflow_steps/run_command/config_mode.py": 1,
     "workflow_steps/run_command/exec_mode.py": 1,
     "workflow_steps/undefined_and_unused/executor.py": 1,
     "workflow_steps/update_config_context/executor.py": 2,

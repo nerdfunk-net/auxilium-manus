@@ -265,6 +265,78 @@ class GraphTopologyFindingTests(unittest.TestCase):
         self.assertEqual(warned, ["C"])
 
 
+class DuplicateRenderKeyTests(unittest.TestCase):
+    """W3a-15: two render steps on one path with the same output_key overwrite each other."""
+
+    def setUp(self) -> None:
+        self.svc = _service(
+            _registry(
+                _plugin("step"), _plugin("render-jinja-template", optional_fields=["output_key"])
+            ),
+            {"render-jinja-template": {"output_key": "device_config"}},
+        )
+
+    def _warned(self, nodes: list[dict[str, Any]], edges: list[dict[str, Any]]):
+        result = self.svc.validate(nodes, edges, acting_user_id=None)
+        return [
+            (f.node_id, f.severity, f.tier)
+            for f in result.findings
+            if f.code == "duplicate_render_output_key"
+        ], result
+
+    def _render(self, node_id: str, key: str | None = None, **extra: Any) -> dict[str, Any]:
+        config = {"output_key": key} if key is not None else {}
+        return _gnode(node_id, "render-jinja-template", config=config, **extra)
+
+    def test_default_key_twice_on_one_path_warns_on_the_later_node(self) -> None:
+        warned, result = self._warned(
+            [self._render("R1"), self._render("R2")], [_gedge("R1", "R2")]
+        )
+
+        self.assertEqual(warned, [("R2", "warning", 1)])
+        self.assertFalse(result.has_errors)
+
+    def test_an_explicit_key_equal_to_the_default_counts_as_the_same_key(self) -> None:
+        warned, _ = self._warned(
+            [self._render("R1"), self._render("R2", "device_config")], [_gedge("R1", "R2")]
+        )
+
+        self.assertEqual([w[0] for w in warned], ["R2"])
+
+    def test_a_key_with_surrounding_blanks_counts_as_the_same_key(self) -> None:
+        warned, _ = self._warned(
+            [self._render("R1", "k"), self._render("R2", " k ")], [_gedge("R1", "R2")]
+        )
+
+        self.assertEqual([w[0] for w in warned], ["R2"])
+
+    def test_different_keys_do_not_warn(self) -> None:
+        warned, _ = self._warned(
+            [self._render("R1"), self._render("R2", "other")], [_gedge("R1", "R2")]
+        )
+
+        self.assertEqual(warned, [])
+
+    def test_the_same_key_on_parallel_branches_does_not_warn(self) -> None:
+        nodes = [_gnode("A"), self._render("R1"), self._render("R2")]
+        warned, _ = self._warned(nodes, [_gedge("A", "R1"), _gedge("A", "R2")])
+
+        self.assertEqual(warned, [])
+
+    def test_the_warning_reaches_a_node_further_down_the_path(self) -> None:
+        nodes = [self._render("R1"), _gnode("X"), self._render("R2")]
+        warned, _ = self._warned(nodes, [_gedge("R1", "X"), _gedge("X", "R2")])
+
+        self.assertEqual([w[0] for w in warned], ["R2"])
+
+    def test_a_disabled_render_step_does_not_warn(self) -> None:
+        warned, _ = self._warned(
+            [self._render("R1", disabled=True), self._render("R2")], [_gedge("R1", "R2")]
+        )
+
+        self.assertEqual(warned, [])
+
+
 class SharedSecretCredentialTests(unittest.TestCase):
     def _svc(self) -> WorkflowValidationService:
         return _service(

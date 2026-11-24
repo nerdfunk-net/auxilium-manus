@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from typing import Any
 
@@ -19,9 +18,10 @@ from services.network.netmiko.connection import DeployResult
 from services.network.netmiko.platform import resolve_connection_device_type
 from services.network.netmiko.service import NetmikoService
 from workflow_steps.common.config_push import store_push_result
+from workflow_steps.common.device_runner import Fail, run_per_device
 from workflow_steps.common.failure_records import INVALID_INPUT
 from workflow_steps.common.step_flags import record_dry_run
-from workflow_steps.run_command.outcomes import fail_device
+from workflow_steps.run_command.constants import STEP_ID
 from workflow_steps.run_command.parsing import ParsedRunCommandConfig
 
 logger = logging.getLogger(__name__)
@@ -76,30 +76,21 @@ async def _run_command_config_mode(
 def _apply_run_command_config_mode_result(
     *,
     device: DeviceContext,
-    device_id: str,
     node_id: str,
     result: DeployResult,
     step_results: list[CommandResult],
-) -> tuple[str, DeviceContext, bool]:
+) -> DeviceContext | Fail:
     updated_command_results = dict(device.command_results)
     updated_command_results[node_id] = step_results
+    recorded = device.model_copy(update={"command_results": updated_command_results})
     if not result.success:
-        return fail_device(
-            device=device,
-            device_id=device_id,
-            node_id=node_id,
-            code="command_failed",
-            message=result.error or "run-command (config_mode) failed",
-            command_results=updated_command_results,
-            failure=result.failure,
+        return Fail(
+            "command_failed",
+            result.error or "run-command (config_mode) failed",
+            result.failure,
+            device=recorded,
         )
-    enriched = device.model_copy(
-        update={
-            "status": DeviceStatus.OK,
-            "command_results": updated_command_results,
-        }
-    )
-    return device_id, enriched, True
+    return recorded.model_copy(update={"status": DeviceStatus.OK})
 
 
 async def _run_config_mode_on_device(
@@ -114,20 +105,17 @@ async def _run_config_mode_on_device(
     password: str,
     netmiko: NetmikoService,
     artifact_service: ArtifactService,
-) -> tuple[str, DeviceContext, bool]:
+) -> DeviceContext | Fail:
     host = bare_hostname(device.primary_ip4, device.hostname)
     if not host:
-        return fail_device(
-            device=device,
-            device_id=device_id,
-            node_id=node_id,
-            code="missing_host",
+        return Fail(
+            "missing_host",
+            f"Device {device_id} has no hostname or primary IP",
             failure=INVALID_INPUT,
-            message=f"Device {device_id} has no hostname or primary IP",
         )
 
     if parsed.dry_run:
-        updated = record_dry_run(
+        return record_dry_run(
             device=device,
             node_id=node_id,
             payload={
@@ -138,7 +126,6 @@ async def _run_config_mode_on_device(
                 "write_config_after_execution": parsed.write_config_after_execution,
             },
         )
-        return device_id, updated, True
 
     try:
         result = await _run_command_config_mode(
@@ -162,83 +149,11 @@ async def _run_config_mode_on_device(
             artifact_service=artifact_service,
         )
         return _apply_run_command_config_mode_result(
-            device=device,
-            device_id=device_id,
-            node_id=node_id,
-            result=result,
-            step_results=step_results,
+            device=device, node_id=node_id, result=result, step_results=step_results
         )
     except Exception as exc:
-        return fail_device(
-            device=device,
-            device_id=device_id,
-            node_id=node_id,
-            code=type(exc).__name__.lower(),
-            message=str(exc),
-            failure=failure_from_exception(exc),
-        )
-
-
-async def _run_config_mode_on_device_logged(
-    *,
-    index: int,
-    device_id: str,
-    device: DeviceContext,
-    total: int,
-    run_id: Any,
-    node_id: str,
-    context_run_id: str,
-    parsed: ParsedRunCommandConfig,
-    username: str,
-    password: str,
-    netmiko: NetmikoService,
-    artifact_service: ArtifactService,
-) -> tuple[str, DeviceContext, bool]:
-    host = bare_hostname(device.primary_ip4, device.hostname) or "(no host)"
-    logger.info(
-        "run-command (config_mode) device %d/%d id=%s host=%s: connecting run_id=%s",
-        index,
-        total,
-        device_id,
-        host,
-        run_id,
-    )
-    result = await _run_config_mode_on_device(
-        device_id=device_id,
-        device=device,
-        node_id=node_id,
-        run_id=run_id,
-        context_run_id=context_run_id,
-        parsed=parsed,
-        username=username,
-        password=password,
-        netmiko=netmiko,
-        artifact_service=artifact_service,
-    )
-    _, _, ok = result
-    logger.info(
-        "run-command (config_mode) device %d/%d id=%s host=%s: %s run_id=%s",
-        index,
-        total,
-        device_id,
-        host,
-        "ok" if ok else "failed",
-        run_id,
-    )
-    return result
-
-
-def _partition_config_mode_device_results(
-    results: list[tuple[str, DeviceContext, bool]],
-) -> tuple[dict[str, DeviceContext], dict[str, DeviceContext]]:
-    success_devices: dict[str, DeviceContext] = {}
-    failed_devices: dict[str, DeviceContext] = {}
-    for device_id, updated_device, ok in results:
-        if ok:
-            success_devices[device_id] = updated_device
-        else:
-            failed_devices[device_id] = updated_device
-    return success_devices, failed_devices
+        # The driver text is stored for this step as it always was (open decision S4, W3a-10).
+        return Fail(type(exc).__name__.lower(), str(exc), failure_from_exception(exc))
 
 
 async def run_config_mode(
@@ -253,24 +168,22 @@ async def run_config_mode(
     artifact_service: ArtifactService,
 ) -> tuple[dict[str, DeviceContext], dict[str, DeviceContext]]:
     """Send ``parsed.commands`` in config mode to every device; return (success, failed)."""
-    total = len(context.devices)
-    results = await asyncio.gather(
-        *[
-            _run_config_mode_on_device_logged(
-                index=index,
-                device_id=device_id,
-                device=device,
-                total=total,
-                run_id=run_id,
-                node_id=node_id,
-                context_run_id=context.run_id,
-                parsed=parsed,
-                username=username,
-                password=password,
-                netmiko=netmiko,
-                artifact_service=artifact_service,
-            )
-            for index, (device_id, device) in enumerate(context.devices.items(), start=1)
-        ]
+
+    async def _work(device_id: str, device: DeviceContext) -> DeviceContext | Fail:
+        return await _run_config_mode_on_device(
+            device_id=device_id,
+            device=device,
+            node_id=node_id,
+            run_id=run_id,
+            context_run_id=context.run_id,
+            parsed=parsed,
+            username=username,
+            password=password,
+            netmiko=netmiko,
+            artifact_service=artifact_service,
+        )
+
+    batch = await run_per_device(
+        context, _work, node_id=node_id, step_id=STEP_ID, log_label="run-command (config_mode)"
     )
-    return _partition_config_mode_device_results(results)
+    return dict(batch.ok), dict(batch.failed)

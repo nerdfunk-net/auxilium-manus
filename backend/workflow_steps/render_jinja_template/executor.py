@@ -23,6 +23,7 @@ from workflow_steps.common.jinja_render import (
     JinjaTemplateError,
     build_jinja_context,
     render_jinja_template,
+    template_variables,
     validate_jinja_template,
 )
 from workflow_steps.common.run_logging import log_run_id
@@ -34,6 +35,9 @@ if TYPE_CHECKING:
     from services.network.netmiko.session_pool import DeviceSessionPool
 
 logger = logging.getLogger(__name__)
+
+# The names `_build_command_context` adds to the template namespace.
+_COMMAND_VARIABLES = frozenset({"commands", "commands_by_name", "command"})
 
 
 def _resolve_template(config: dict[str, Any]) -> str:
@@ -165,6 +169,7 @@ async def _render_and_store_device(
     run: WorkflowRun,
     artifact_service: ArtifactService,
     allow_multiline_values: bool = False,
+    uses_commands: bool = True,
 ) -> tuple[str, DeviceContext, bool]:
     try:
         jinja_context = build_jinja_context(
@@ -172,7 +177,8 @@ async def _render_and_store_device(
             run_id=context.run_id,
             workflow_id=context.workflow_id,
         )
-        jinja_context.update(await _build_command_context(device, artifact_service))
+        if uses_commands:
+            jinja_context.update(await _build_command_context(device, artifact_service))
         # Pure and CPU-bound: keep the event loop (heartbeats, other devices) responsive.
         rendered = await asyncio.to_thread(
             render_jinja_template,
@@ -289,6 +295,10 @@ async def execute(
     if not context.devices:
         return [StepOutcome(name="success", context=context)]
 
+    # Every command artifact of every upstream step is read per device: only when the template
+    # names one of the command variables.
+    uses_commands = not _COMMAND_VARIABLES.isdisjoint(template_variables(template))
+
     logger.info(
         "render-jinja-template run_id=%s devices=%d output_key=%s",
         log_run_id(run),
@@ -308,6 +318,7 @@ async def execute(
                 run=run,
                 artifact_service=artifact_service,
                 allow_multiline_values=allow_multiline_values,
+                uses_commands=uses_commands,
             )
             for device_id, device in context.devices.items()
         ]

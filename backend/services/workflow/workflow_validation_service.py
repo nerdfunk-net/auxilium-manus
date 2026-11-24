@@ -288,6 +288,52 @@ class WorkflowValidationService:
             )
         return self._config_defaults_cache[plugin_id].get(field_name)
 
+    def _duplicate_render_key_warnings(
+        self, nodes: list[dict[str, Any]], edges: list[dict[str, Any]]
+    ) -> list[ValidationFinding]:
+        """Warn when a render step below another one on its path writes the same ``output_key``.
+
+        The second render overwrites the first on every device, so a deploy of the first one
+        fails late with "No rendered template found" (W3a-15).
+        """
+        keyed: dict[str, str] = {}
+        default_key: str | None = None  # read lazily: most workflows have no render step
+        for node in nodes:
+            data = node.get("data")
+            if (
+                node.get("id") is None
+                or not isinstance(data, dict)
+                or data.get("kind") != "render-jinja-template"
+                or _gr._is_author_disabled(node)
+            ):
+                continue
+            config = data.get("pluginConfig")
+            raw = config.get("output_key") if isinstance(config, dict) else None
+            if not raw and default_key is None:
+                default_key = str(self._config_default("render-jinja-template", "output_key") or "")
+            keyed[node["id"]] = str(raw or default_key).strip()
+
+        findings: list[ValidationFinding] = []
+        for node_id in keyed:
+            below = downstream_node_ids(node_id, nodes, edges)
+            for other_id in sorted(below & keyed.keys()):
+                if keyed[other_id] != keyed[node_id]:
+                    continue
+                findings.append(
+                    ValidationFinding(
+                        node_id=other_id,
+                        tier=1,
+                        severity="warning",
+                        code="duplicate_render_output_key",
+                        message=(
+                            f"This render step writes output_key '{keyed[other_id]}', which a "
+                            "render step above it already writes: it overwrites that result on "
+                            "every device."
+                        ),
+                    )
+                )
+        return findings
+
     def validate(
         self,
         canvas_nodes: list[dict[str, Any]],
@@ -309,6 +355,7 @@ class WorkflowValidationService:
                 )
             )
         findings.extend(_graph_reshaping_warnings(canvas_nodes, canvas_edges or []))
+        findings.extend(self._duplicate_render_key_warnings(canvas_nodes, canvas_edges or []))
 
         for node in canvas_nodes:
             node_id = node.get("id")
