@@ -37,10 +37,6 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-def _default_config() -> dict[str, Any]:
-    return get_config()
-
-
 def _resolve_template(config: dict[str, Any]) -> str:
     """Resolve the Jinja2 template body for this step.
 
@@ -286,7 +282,7 @@ async def execute(
     node_id: str,
     device_sessions: DeviceSessionPool,
 ) -> list[StepOutcome]:
-    output_key = parse_output_key(config.get("output_key") or _default_config()["output_key"])
+    output_key = parse_output_key(config.get("output_key") or get_config()["output_key"])
     template = _resolve_template(config)
     # Off by default: a data value with a line break would become extra device commands (S4-08).
     allow_multiline_values = parse_bool_flag(config, "allow_multiline_values")

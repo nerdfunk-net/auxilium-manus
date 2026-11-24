@@ -42,19 +42,15 @@ class SealedSourceError(ValueError):
 _VALID_MODES = frozenset({"fixed", "regex", "template"})
 
 
-def _default_attribute() -> dict[str, Any]:
-    return get_default_attribute()
-
-
 def _parse_mode(raw: Any) -> str:
-    mode = str(raw or _default_attribute()["mode"]).strip().lower()
+    mode = str(raw or get_default_attribute()["mode"]).strip().lower()
     if mode not in _VALID_MODES:
         raise ValueError(f"{_STEP_ID}: mode must be 'fixed', 'regex' or 'template'")
     return mode
 
 
 def _parse_destination_path(raw: Any) -> str:
-    destination_path = str(raw or _default_attribute()["destination_path"]).strip()
+    destination_path = str(raw or get_default_attribute()["destination_path"]).strip()
     if not destination_path:
         raise ValueError(f"{_STEP_ID}: destination_path is required")
     return destination_path
@@ -62,7 +58,7 @@ def _parse_destination_path(raw: Any) -> str:
 
 def _parse_regex_flags(raw: Any) -> RegexFlagsConfig:
     return RegexFlagsConfig.from_mapping(
-        raw if raw is not None else _default_attribute()["regex_flags"]
+        raw if raw is not None else get_default_attribute()["regex_flags"]
     )
 
 
@@ -70,7 +66,7 @@ def _normalize_attribute_entry(raw: Any, *, index: int) -> dict[str, Any]:
     if not isinstance(raw, dict):
         raise ValueError(f"{_STEP_ID}: attributes[{index}] must be an object")
 
-    defaults = _default_attribute()
+    defaults = get_default_attribute()
     mode = _parse_mode(raw.get("mode", defaults["mode"]))
     destination_path = _parse_destination_path(
         raw.get("destination_path", defaults["destination_path"])

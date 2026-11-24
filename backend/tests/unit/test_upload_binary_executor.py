@@ -55,6 +55,7 @@ class FakeDevice:
         self.corrupt_on_copy = False
         self.verify_after_copy: CommandResult | None = None  # overrides the answer after a copy
         self.delete_ok = True
+        self.verify_after_copy_raises: Exception | None = None
         self.copy_result = FileTransferResult(success=True, file_transferred=True)
         self.upload_error: Exception | None = None
         self._copied = False
@@ -80,6 +81,8 @@ class FakeDevice:
                 return CommandResult(success=True, output="%Error opening flash:/x (No such file)")
             return CommandResult(success=True, output="Directory of flash:/x")
         if command.startswith("verify /md5"):
+            if self._copied and self.verify_after_copy_raises is not None:
+                raise self.verify_after_copy_raises
             if self._copied and self.verify_after_copy is not None:
                 return self.verify_after_copy
             return CommandResult(success=True, output=f"verify /md5 (flash:x) = {self.md5}")
@@ -262,6 +265,32 @@ class UploadBinaryExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(error.code, "verify_failed")
         self.assertIn("Pattern not detected", error.message)
         self.assertTrue(any(c.startswith("delete /force") for c in fake.commands))
+
+    async def test_verify_that_raises_after_the_copy_deletes_it_and_keeps_the_rows(self) -> None:
+        # W3a-14: a dropped connection during the verify must not leave the image on the device.
+        fake = FakeDevice(events=self.events)
+        fake.verify_after_copy_raises = ConnectionError("session lost for admin / secret")
+        outcomes, _ = await self._run(_config(), {"device-1": _device()}, {"10.0.0.1": fake})
+
+        failed = self._only(outcomes, "failure")
+        error = failed.errors[-1]
+        self.assertEqual(error.code, "verify_failed")
+        self.assertIn("ConnectionError", error.message)
+        self.assertNotIn("secret", error.message)  # the driver text stays out of the run
+        self.assertIsNotNone(error.failure)
+        self.assertEqual(error.failure.exception_type, "ConnectionError")
+        self.assertIn("removed from the device", error.message)
+        self.assertTrue(any(c.startswith("delete /force flash:cat9k.bin") for c in fake.commands))
+        self.assertIsNone(fake.md5)
+        rows = failed.command_results["ub-1"]  # the evidence collected so far survives
+        self.assertTrue(any("copied" in row.summary for row in rows))
+
+    async def test_verify_that_raises_and_a_failed_delete_says_so(self) -> None:
+        fake = FakeDevice(events=self.events)
+        fake.verify_after_copy_raises = ConnectionError("lost")
+        fake.delete_ok = False
+        outcomes, _ = await self._run(_config(), {"device-1": _device()}, {"10.0.0.1": fake})
+        self.assertIn("could NOT be removed", self._only(outcomes, "failure").errors[-1].message)
 
     async def test_failed_delete_is_reported(self) -> None:
         fake = FakeDevice(events=self.events)

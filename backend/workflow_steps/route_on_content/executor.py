@@ -55,18 +55,14 @@ class _ParsedRouteConfig:
     store_matched_text: bool = False
 
 
-def _default_config() -> dict[str, Any]:
-    return get_config()
-
-
 def _parse_route_config(config: dict[str, Any]) -> _ParsedRouteConfig:
     content_source = parse_content_source(
-        {"content_source": str(config.get("content_source") or _default_config()["content_source"])}
+        {"content_source": str(config.get("content_source") or get_config()["content_source"])}
     )
     source_step_node_id = str(config.get("source_step_node_id") or "").strip() or None
     parsed_output_key = str(config.get("parsed_output_key") or "").strip() or None
 
-    match_mode = str(config.get("match_mode") or _default_config()["match_mode"]).strip().lower()
+    match_mode = str(config.get("match_mode") or get_config()["match_mode"]).strip().lower()
     if match_mode not in _MATCH_MODES:
         raise ValueError(
             f"route-on-content: match_mode {match_mode!r} must be one of {sorted(_MATCH_MODES)}"
@@ -83,11 +79,11 @@ def _parse_route_config(config: dict[str, Any]) -> _ParsedRouteConfig:
         match_mode=match_mode,
         pattern=pattern,
         case_sensitive=parse_bool_flag(
-            {**_default_config(), **config}, "case_sensitive", default=False
+            {**get_config(), **config}, "case_sensitive", default=False
         ),
-        multiline=parse_bool_flag({**_default_config(), **config}, "multiline", default=False),
+        multiline=parse_bool_flag({**get_config(), **config}, "multiline", default=False),
         store_matched_text=parse_bool_flag(
-            {**_default_config(), **config}, "store_matched_text", default=False
+            {**get_config(), **config}, "store_matched_text", default=False
         ),
     )
 

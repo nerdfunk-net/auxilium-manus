@@ -28,6 +28,7 @@ from workflow_steps.common.device_outcomes import build_outcomes
 from workflow_steps.common.device_runner import Fail, run_per_device
 from workflow_steps.common.placeholder_template import render_placeholder_template
 from workflow_steps.common.run_logging import log_run_id
+from workflow_steps.common.step_flags import require_text
 
 if TYPE_CHECKING:
     from services.network.netmiko.session_pool import DeviceSessionPool
@@ -35,13 +36,6 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _STEP_ID = "get-from-db"
-
-
-def _parse_required(config: dict[str, Any], key: str) -> str:
-    value = str(config.get(key) or "").strip()
-    if not value:
-        raise ValueError(f"{_STEP_ID}: {key} is required")
-    return value
 
 
 async def execute(
@@ -55,8 +49,8 @@ async def execute(
 ) -> list[StepOutcome]:
     del artifact_service, device_sessions
 
-    storage_key = _parse_required(config, "storage_key")
-    destination_path = _parse_required(config, "destination_path")
+    storage_key = require_text(config, "storage_key", step_id=_STEP_ID)
+    destination_path = require_text(config, "destination_path", step_id=_STEP_ID)
 
     if not context.devices:
         return [StepOutcome(name="success", context=context)]

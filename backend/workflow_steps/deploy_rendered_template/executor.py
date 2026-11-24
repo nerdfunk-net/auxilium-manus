@@ -31,6 +31,7 @@ from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.common.run_param_reference import resolve_config_reference
 from workflow_steps.common.run_session import require_session
 from workflow_steps.common.step_flags import parse_bool_flag, record_dry_run
+from workflow_steps.deploy_rendered_template.config import get_config
 
 logger = logging.getLogger(__name__)
 
@@ -53,14 +54,8 @@ class _ParsedDeployConfig:
     retry: RetryPolicy
 
 
-def _default_config() -> dict[str, Any]:
-    from workflow_steps.deploy_rendered_template.config import get_config
-
-    return get_config()
-
-
 def _parse_execution_mode(config: dict[str, Any]) -> str:
-    mode = str(config.get("execution_mode") or _default_config()["execution_mode"]).strip().lower()
+    mode = str(config.get("execution_mode") or get_config()["execution_mode"]).strip().lower()
     if mode not in _EXECUTION_MODES:
         raise ValueError(
             f"deploy-rendered-template: execution_mode must be one of {sorted(_EXECUTION_MODES)}"
@@ -81,7 +76,7 @@ def _parse_deploy_config(config: dict[str, Any]) -> _ParsedDeployConfig:
         execution_mode=_parse_execution_mode(config),
         write_config_after_execution=parse_bool_flag(config, "write_config_after_execution"),
         read_timeout=parse_read_timeout(
-            config, step_id=_STEP_ID, default=_default_config()["read_timeout"]
+            config, step_id=_STEP_ID, default=get_config()["read_timeout"]
         ),
         auto_confirm_prompts=parse_bool_flag(config, "auto_confirm_prompts"),
         fail_on_cli_error=parse_bool_flag(config, "fail_on_cli_error", default=True),

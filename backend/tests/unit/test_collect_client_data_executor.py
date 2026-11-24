@@ -8,6 +8,7 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from sqlalchemy import Table, create_engine, select
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -20,11 +21,16 @@ from core.models.client_data import (
     ClientMacAddress,
     ClientPortNeighbor,
 )
+from models.client_data import TooManyRowsError
 from models.failure import FailureInfo
 from models.workflow_context import DeviceContext, WorkflowContext
 from services.artifacts import InMemoryArtifactService
 from services.network.netmiko.connection import CommandResult as NetmikoCommandResult
-from workflow_steps.collect_client_data.collector import collect_from_device
+from workflow_steps.collect_client_data.collector import (
+    DeviceTarget,
+    collect_from_device,
+    too_many_rows_error,
+)
 from workflow_steps.collect_client_data.config import get_config
 from workflow_steps.collect_client_data.executor import execute
 
@@ -424,6 +430,69 @@ class CollectClientDataExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(error.code, "too_many_rows")
         self.assertIn("MAC", error.message)
 
+    async def test_a_value_error_before_the_store_is_not_reported_as_a_storage_failure(
+        self,
+    ) -> None:
+        # W3b-10 (2): only the storage call may say "could not be stored".
+        async def broken(**_kwargs: Any):
+            raise ValueError("bad table layout")
+
+        with patch(f"{MODULE}.collect_from_device", broken):
+            outcomes = await self._run(
+                {"d1": _device("d1", "core1", "10.0.0.1")}, _FakeNetmiko({"10.0.0.1": CORE1})
+            )
+
+        error = self._by_name(outcomes, "failure")["d1"].errors[-1]
+        self.assertEqual(error.code, "valueerror")
+        self.assertEqual(error.message, "bad table layout")
+
+    async def test_a_database_error_while_storing_keeps_only_the_class_name(self) -> None:
+        def broken(**_kwargs: Any):
+            raise SQLAlchemyError("INSERT INTO client_x VALUES ('secret')")
+
+        with patch(f"{MODULE}._store_sync", broken):
+            outcomes = await self._run(
+                {"d1": _device("d1", "core1", "10.0.0.1")}, _FakeNetmiko({"10.0.0.1": CORE1})
+            )
+
+        error = self._by_name(outcomes, "failure")["d1"].errors[-1]
+        self.assertEqual(error.code, "storage_failed")
+        self.assertEqual(error.message, "The collected data could not be stored")
+        self.assertEqual(error.failure.exception_type, "SQLAlchemyError")
+
+    async def test_a_storage_value_error_is_a_storage_failure(self) -> None:
+        # The service validates names and session ids with ValueError; that is a storage problem.
+        def broken(*_args: Any, **_kwargs: Any):
+            raise ValueError("device_name must be 1-255 characters")
+
+        with patch(f"{MODULE}.ClientDataService.store_device_collection", broken):
+            outcomes = await self._run(
+                {"d1": _device("d1", "core1", "10.0.0.1")}, _FakeNetmiko({"10.0.0.1": CORE1})
+            )
+
+        error = self._by_name(outcomes, "failure")["d1"].errors[-1]
+        self.assertEqual(error.code, "storage_failed")
+
+    async def test_both_row_cap_checks_say_the_same_thing(self) -> None:
+        collector_error = too_many_rows_error(TooManyRowsError("arp", 5))
+        self.assertEqual(collector_error.code, "too_many_rows")
+        self.assertEqual(collector_error.failure.kind, "payload_too_large")
+        self.assertIn("arp table", collector_error.message)
+        self.assertIn("(5)", collector_error.message)
+
+    def test_the_target_does_not_show_its_password_in_a_repr(self) -> None:
+        target = DeviceTarget(
+            host="h",
+            device_type="cisco_ios",
+            network_driver=None,
+            platform=None,
+            username="admin",
+            password="SECRETPW",
+            credential_reference="ref",
+        )
+        self.assertNotIn("SECRETPW", repr(target))
+        self.assertNotIn("admin", repr(target))
+
     async def test_the_storage_layer_refuses_too_many_rows_even_if_the_collector_let_them_by(
         self,
     ) -> None:
@@ -440,7 +509,9 @@ class CollectClientDataExecutorTests(unittest.IsolatedAsyncioTestCase):
                 {"d1": _device("d1", "core1", "10.0.0.1")}, _FakeNetmiko({"10.0.0.1": CORE1})
             )
 
-        self.assertEqual(self._by_name(outcomes, "failure")["d1"].errors[-1].code, "too_many_rows")
+        error = self._by_name(outcomes, "failure")["d1"].errors[-1]
+        self.assertEqual(error.code, "too_many_rows")
+        self.assertEqual(error.failure.kind, "payload_too_large")
         self.assertEqual(self._all(ClientDataCollection), [])
 
     async def test_a_conflicting_write_of_the_same_device_name_fails_as_duplicate_key(self) -> None:

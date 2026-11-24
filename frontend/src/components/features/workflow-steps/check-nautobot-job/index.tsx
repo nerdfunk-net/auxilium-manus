@@ -22,7 +22,7 @@ import {
 import { NautobotSourceSelectDialog } from "../shared/nautobot-source-select-dialog";
 import { CheckNautobotJobHelpPanel } from "./help-panel";
 
-const MAX_TOTAL_WAIT_SECONDS = 120;
+const MAX_TOTAL_WAIT_SECONDS = 600;
 const DEFAULT_JOB_UUID = "{nautobot_job.job_result_id}";
 const DEFAULT_BAG_NAME = "nautobot_job";
 

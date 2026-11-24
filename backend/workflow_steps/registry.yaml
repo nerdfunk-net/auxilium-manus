@@ -2701,6 +2701,13 @@ plugins:
           example:
             - interfaces
             - custom_fields
+        - name: case_insensitive_lookup
+          description: >
+            Look the workflow device up in Nautobot by name ignoring letter case. Off by
+            default: the name must match exactly.
+          data_type: boolean
+          required: false
+          default: false
         - name: normalize_cables
           description: >
             With the cables group: give cables the same shape on every Nautobot version.
@@ -3265,9 +3272,9 @@ plugins:
           example: LAB.local.zz
         - name: name_match
           description: >
-            "exact" (default) sends the name to Nautobot as a filter; "contains"
-            (case-insensitive) and "regex" (search, case-sensitive unless (?i)) read all
-            virtual chassis and filter them in the step.
+            "exact" (default, the whole name, ignoring case), "contains"
+            (case-insensitive) and "regex" (search, case-sensitive unless (?i)); all three
+            read the virtual chassis and filter them in the step.
           data_type: string
           required: false
           default: exact
@@ -4072,7 +4079,7 @@ plugins:
           default: 10
         - name: interval_seconds
           description: >
-            Seconds to wait between checks. max_checks × interval_seconds must not exceed 120s.
+            Seconds to wait between checks. max_checks × interval_seconds must not exceed 600s.
           data_type: integer
           required: true
           default: 5

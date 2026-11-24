@@ -19,10 +19,6 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-def _default_config() -> dict[str, Any]:
-    return get_config()
-
-
 def render_message_template(template: str, device: DeviceContext) -> str:
     """Replace ``{path.to.value}`` placeholders with the device's resolved
     attribute values. A path that resolves to nothing renders as an empty
@@ -48,7 +44,7 @@ async def execute(
 ) -> list[StepOutcome]:
     del run, artifact_service
 
-    message = str(config.get("message") or _default_config()["message"] or "").strip()
+    message = str(config.get("message") or get_config()["message"] or "").strip()
     if not message:
         raise ValueError("log-message: message is required")
 

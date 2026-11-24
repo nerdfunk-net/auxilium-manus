@@ -73,6 +73,41 @@ class GetFromConfigExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn(Capability.IDENTITY, device.capabilities)
         self.assertEqual(device.attribute_bags["git"]["file_path"], "configs/router1.cfg")
 
+    async def test_the_config_parser_runs_off_the_event_loop(self) -> None:
+        # W4-12: parsing every matching file inline would block the worker's loop.
+        import threading
+
+        seen: list[int] = []
+
+        def parse(text: str, hint: object) -> dict:
+            seen.append(threading.get_ident())
+            return {"hostname": "router1"}
+
+        matches = [
+            GitContentMatch(
+                file_path="configs/router1.cfg",
+                content="hostname router1\n! FINDME\n",
+                line_number=2,
+                line_content="! FINDME",
+                commit=None,
+                commit_message=None,
+                commit_date=None,
+            )
+        ]
+        patches = self._patch_common(matches=matches)
+        with patches[0], patches[1], patches[2], patch(f"{_MODULE}.parse_cisco_config_text", parse):
+            await get_from_config(
+                config={"git_repository_id": 7, "search_text": "FINDME"},
+                context=self.context,
+                run=self.run,
+                artifact_service=self.artifact_service,
+                node_id="get-from-config-1",
+                device_sessions=MagicMock(),
+            )
+
+        self.assertEqual(len(seen), 1)
+        self.assertNotEqual(seen[0], threading.get_ident())
+
     async def test_dedups_matches_with_same_hostname(self) -> None:
         matches = [
             GitContentMatch(

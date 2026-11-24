@@ -37,6 +37,7 @@ from workflow_steps.common.run_message_template import (
     render_for_first_device,
 )
 from workflow_steps.common.run_session import require_session
+from workflow_steps.common.step_flags import require_text
 
 if TYPE_CHECKING:
     from services.network.netmiko.session_pool import DeviceSessionPool
@@ -46,13 +47,6 @@ logger = logging.getLogger(__name__)
 _STEP_ID = "send-mail"
 _RECIPIENT_SPLIT = re.compile(r"[,;]")
 _BARE_ADDRESS = re.compile(r"^[^@\s<>,;]+@[^@\s<>,;]+$")
-
-
-def _required_text(config: dict[str, Any], key: str) -> str:
-    value = str(config.get(key) or "").strip()
-    if not value:
-        raise ValueError(f"{_STEP_ID}: {key} is not configured")
-    return value
 
 
 def _reject_header_breaks(label: str, value: str) -> None:
@@ -86,9 +80,9 @@ async def execute(
 ) -> list[StepOutcome]:
     del artifact_service, device_sessions
 
-    to_template = _required_text(config, "to")
-    subject_template = _required_text(config, "subject")
-    body_template = _required_text(config, "body")
+    to_template = require_text(config, "to", step_id=_STEP_ID)
+    subject_template = require_text(config, "subject", step_id=_STEP_ID)
+    body_template = require_text(config, "body", step_id=_STEP_ID)
 
     to_rendered = render_for_first_device(to_template, context)
     subject = render_for_first_device(subject_template, context)

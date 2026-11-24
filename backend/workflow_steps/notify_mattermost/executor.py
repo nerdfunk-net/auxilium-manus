@@ -39,6 +39,7 @@ from services.mattermost.common.exceptions import MattermostAPIError
 from workflow_steps.common.mattermost_source import resolve_mattermost_credentials
 from workflow_steps.common.run_message_template import render_for_all_devices
 from workflow_steps.common.run_session import require_session
+from workflow_steps.common.step_flags import require_text
 from workflow_steps.notify_mattermost.config import get_config
 
 if TYPE_CHECKING:
@@ -57,10 +58,6 @@ def _truncate_post(text: str) -> str:
     return f"{text[:MATTERMOST_MAX_POST]}… ({len(text) - MATTERMOST_MAX_POST} more characters)"
 
 
-def _default_config() -> dict[str, Any]:
-    return get_config()
-
-
 async def execute(
     *,
     config: dict[str, Any],
@@ -72,22 +69,10 @@ async def execute(
 ) -> list[StepOutcome]:
     del artifact_service, device_sessions
 
-    defaults = _default_config()
-    source_id = str(config.get("mattermost_source_id") or "").strip()
-    if not source_id:
-        raise ValueError(f"{_STEP_ID}: mattermost_source_id is not configured")
-
-    team_name = str(config.get("team_name") or "").strip()
-    if not team_name:
-        raise ValueError(f"{_STEP_ID}: team_name is not configured")
-
-    channel_name = str(config.get("channel_name") or "").strip()
-    if not channel_name:
-        raise ValueError(f"{_STEP_ID}: channel_name is not configured")
-
-    message = str(config.get("message") or defaults["message"] or "").strip()
-    if not message:
-        raise ValueError(f"{_STEP_ID}: message is not configured")
+    source_id = require_text(config, "mattermost_source_id", step_id=_STEP_ID)
+    team_name = require_text(config, "team_name", step_id=_STEP_ID)
+    channel_name = require_text(config, "channel_name", step_id=_STEP_ID)
+    message = require_text(config, "message", step_id=_STEP_ID, default=get_config()["message"])
 
     rendered = render_for_all_devices(message, context)
     if rendered is None:

@@ -47,17 +47,12 @@ from workflow_steps.common.retry_config import parse_retry_backoff_seconds
 from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.common.run_param_reference import resolve_config_reference
 from workflow_steps.common.run_session import require_session
+from workflow_steps.merge_config.config import get_config
 
 logger = logging.getLogger(__name__)
 
 _STEP_ID = "merge-config"
 _ARTIFACT_KIND = "command_output"
-
-
-def _default_config() -> dict[str, Any]:
-    from workflow_steps.merge_config.config import get_config
-
-    return get_config()
 
 
 @dataclass(frozen=True)
@@ -78,7 +73,7 @@ def _parse_merge_config(config: dict[str, Any]) -> _ParsedMergeConfig:
         source_filename=source_filename,
         network_driver_override=str(config.get("network_driver_override") or "").strip() or None,
         read_timeout=parse_read_timeout(
-            config, step_id=_STEP_ID, default=_default_config()["read_timeout"]
+            config, step_id=_STEP_ID, default=get_config()["read_timeout"]
         ),
         retry=parse_retry_backoff_seconds(config, step_id=_STEP_ID),
     )

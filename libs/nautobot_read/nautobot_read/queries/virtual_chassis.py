@@ -1,8 +1,9 @@
 """Virtual chassis queries (a Cisco stack: several member devices behind one master's IP).
 
 Shared by the assistant / MCP tools and by the ``get-virtual-chassis`` workflow step. The step
-imports ``fetch_virtual_chassis``, ``pick_master`` and ``member_record`` from here, so the
-GraphQL selection and the shape of a member record exist once.
+imports ``fetch_virtual_chassis``, ``pick_master``, ``member_record``, ``ordered_members``,
+``address_of`` and ``platform_of`` from here, so the GraphQL selection and the shape of a member
+record exist once.
 """
 
 from __future__ import annotations

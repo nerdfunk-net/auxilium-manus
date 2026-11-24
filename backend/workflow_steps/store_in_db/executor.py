@@ -42,7 +42,7 @@ from workflow_steps.common.duplicate_keys import (
 )
 from workflow_steps.common.placeholder_template import render_placeholder_template
 from workflow_steps.common.run_logging import log_run_id
-from workflow_steps.common.step_flags import parse_bool_flag
+from workflow_steps.common.step_flags import parse_bool_flag, require_text
 
 if TYPE_CHECKING:
     from services.network.netmiko.session_pool import DeviceSessionPool
@@ -54,13 +54,6 @@ _STEP_ID = "store-in-db"
 _CONTENT_SOURCES = frozenset(
     {"device_data", "attribute_bags", "single_attribute", "rendered_template"}
 )
-
-
-def _parse_storage_key(config: dict[str, Any]) -> str:
-    storage_key = str(config.get("storage_key") or "").strip()
-    if not storage_key:
-        raise ValueError("store-in-db: storage_key is required")
-    return storage_key
 
 
 def _parse_content_source(config: dict[str, Any]) -> str:
@@ -212,7 +205,7 @@ async def execute(
 ) -> list[StepOutcome]:
     del device_sessions
 
-    storage_key = _parse_storage_key(config)
+    storage_key = require_text(config, "storage_key", step_id=_STEP_ID)
     content_source = _parse_content_source(config)
 
     if not context.devices:

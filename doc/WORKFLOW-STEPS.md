@@ -545,6 +545,7 @@ stored text of such an exception is the class name plus a `FailureInfo`. The per
 
 Every boolean and whole-number step setting is read with `workflow_steps/common/step_flags.py`:
 `parse_bool_flag(config, key, default=...)` and `parse_int_flag(config, key, default=..., minimum=..., maximum=...)`.
+A required text setting is read with `require_text(config, key, step_id=..., default=...)` (stripped; blank raises `<step>: <key> is required`).
 `"false"`, `"0"`, `"no"`, `"off"` and `""` are false, `"true"`, `"1"`, `"yes"`, `"on"` are true, `None` means the default,
 and any other string (`"ture"`) fails the step with a configuration error naming the key. Do not write
 `bool(config.get(...))`, `config.get(...) is True` or a private `_parse_bool`: `scripts/check_flag_parsing.py` (CI) fails
@@ -1123,6 +1124,7 @@ Copies one file (an IOS / IOS-XE image) from a git repository to every device ov
   (`NetmikoDeviceSession.upload_file(verify_file=...)`: Netmiko's own check has a fixed 300 s timeout), then the step's own
   `verify /md5` with `read_timeout` (5-600 s, default 600). A copy whose checksum is wrong, unreadable or timed out is removed with
   `delete /force` (the message says whether the removal worked), so a failed step does not leave a bootable-looking image behind.
+  This holds when the verify itself raises (a dropped connection after the copy): the file is removed, the failed device keeps the rows collected so far, and the message carries the class name only.
   The stored command rows only say "verified" when the device's checksum matched.
 - **No inline transfer, on purpose.** Netmiko's inline mode is text only (it reads the file as UTF-8 and types it
   through the CLI with a TCL `puts`); a binary would fail to decode or arrive corrupted, and an image would take

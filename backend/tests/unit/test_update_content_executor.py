@@ -173,6 +173,41 @@ class ExecuteTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("secret ***", updated)
         self.assertEqual(entry["match_counts"], [1])
 
+    async def test_the_regex_work_runs_off_the_event_loop(self) -> None:
+        # W4-15: re.sub over a large config must not stall the worker's loop.
+        import threading
+        from unittest.mock import patch
+
+        seen: list[int] = []
+
+        def rules(text: str, parsed_rules: object) -> tuple[str, list[int]]:
+            seen.append(threading.get_ident())
+            return text, [1]
+
+        artifacts = InMemoryArtifactService()
+        ref = await artifacts.store(
+            content="a\n", kind="running_config", device_id="d1", run_id="run-1"
+        )
+        device = DeviceContext(
+            id="d1",
+            name="d1",
+            hostname="d1",
+            status=DeviceStatus.OK,
+            running_config_ref=ref,
+            capabilities={Capability.IDENTITY},
+        )
+        with patch("workflow_steps.update_content.executor._apply_rules_to_text", rules):
+            await execute(
+                config={"replace_rules": [{"pattern": "a", "replacement": "b"}]},
+                context=WorkflowContext(run_id="run-1", workflow_id="w", devices={"d1": device}),
+                run=_run(),
+                artifact_service=artifacts,
+                node_id="uc-1",
+                device_sessions=MagicMock(),
+            )
+        self.assertEqual(len(seen), 1)
+        self.assertNotEqual(seen[0], threading.get_ident())
+
     async def test_missing_source_config_routes_to_failure(self) -> None:
         device = DeviceContext(
             id="d1",

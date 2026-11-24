@@ -66,9 +66,9 @@ export function CheckNautobotJobHelpPanel() {
           <br />
           <span className="text-muted-foreground">→ up to 50s worst case</span>
         </HelpExample>
-        <HelpWarning title="120s ceiling">
+        <HelpWarning title="600s ceiling">
           <p>
-            <HelpCode>max_checks × interval_seconds</HelpCode> must not exceed 120 seconds — the
+            <HelpCode>max_checks × interval_seconds</HelpCode> must not exceed 600 seconds — the
             step fails to start otherwise. This bounds how long the run occupies a worker slot
             while polling; it is a plain loop inside the step, not a durable wait.
           </p>

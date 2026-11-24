@@ -36,10 +36,6 @@ logger = logging.getLogger(__name__)
 _OUTCOME_NAMES = ("match", "mismatch", "failure")
 
 
-def _default_config() -> dict[str, Any]:
-    return get_config()
-
-
 def _item_candidate(item: Any, *, field: str | None) -> Any:
     """Extract the value to compare from one list item: the item itself when
     no field is set (a list of plain scalars), or a dotted lookup into the
@@ -102,7 +98,7 @@ def _parse_list_contains_config(
         raise ValueError("list-contains: value is required")
 
     case_sensitive = parse_bool_flag(
-        {**_default_config(), **config}, "case_sensitive", default=False
+        {**get_config(), **config}, "case_sensitive", default=False
     )
     return list_path, field, value_expr, case_sensitive
 

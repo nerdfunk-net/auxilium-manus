@@ -20,6 +20,7 @@ from dataclasses import dataclass, replace
 from typing import Any
 
 from core.models.runs import WorkflowRun
+from models.failure import FailureInfo
 from models.workflow_context import (
     CommandResult,
     DeviceContext,
@@ -46,6 +47,7 @@ from workflow_steps.common.device_runner import Batch, Fail, run_per_device
 from workflow_steps.common.failure_records import INVALID_INPUT
 from workflow_steps.common.file_source_root import resolve_git_root
 from workflow_steps.common.git_repository_loader import parse_repository_id
+from workflow_steps.common.partial_outcomes import device_error_from_exception
 from workflow_steps.common.read_timeout import parse_read_timeout
 from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.common.run_param_reference import resolve_config_reference
@@ -214,7 +216,7 @@ async def _transfer_and_verify(
     on_device = f"{parsed.file_system}{parsed.destination_filename}"
     rows: list[CommandResult] = []
 
-    def _record_and_fail(code: str, message: str, failure: Any = None) -> Fail:
+    def _record_and_fail(code: str, message: str, failure: FailureInfo | None = None) -> Fail:
         carrying_rows = device.model_copy(
             update={"command_results": _with_rows(device, node_id, rows)}
         )
@@ -294,30 +296,43 @@ async def _transfer_and_verify(
             "upload_failed", result.error or "Binary upload failed", result.failure
         )
 
-    after = await verify_remote_digest(
-        target,
-        node_id=node_id,
-        algorithm=_VERIFY_ALGORITHM,
-        local_digest=snapshot.md5,
-        read_timeout=parsed.read_timeout,
-        **named,
-    )
+    try:
+        after = await verify_remote_digest(
+            target,
+            node_id=node_id,
+            algorithm=_VERIFY_ALGORITHM,
+            local_digest=snapshot.md5,
+            read_timeout=parsed.read_timeout,
+            **named,
+        )
+    except Exception as exc:
+        # A dropped connection after the copy: the image is on the device and unverified.
+        error = device_error_from_exception(exc, node_id=node_id, step_id=_STEP_ID)
+        removed = await delete_remote_file(target, read_timeout=parsed.read_timeout, **named)
+        return _record_and_fail(
+            "verify_failed",
+            f"md5 could not be verified ({error.message}); {_removal_note(removed)}",
+            error.failure,
+        )
     rows.append(after.command_result)
     if not after.ok:
         # The copy is on the device but not proven good: remove it rather than leave an image
         # that looks bootable behind a failed step.
         removed = await delete_remote_file(target, read_timeout=parsed.read_timeout, **named)
-        suffix = (
-            "the file was removed from the device"
-            if removed
-            else ("the file could NOT be removed from the device")
-        )
         return _record_and_fail(
             "verify_failed",
-            f"{after.message or 'md5 not verified'}; {suffix}",
+            f"{after.message or 'md5 not verified'}; {_removal_note(removed)}",
             after.failure,
         )
     return _ok(device, node_id, rows)
+
+
+def _removal_note(removed: bool) -> str:
+    return (
+        "the file was removed from the device"
+        if removed
+        else "the file could NOT be removed from the device"
+    )
 
 
 def _ok(device: DeviceContext, node_id: str, rows: list[CommandResult]) -> DeviceContext:

@@ -22,7 +22,7 @@ from services.workflow_context.attribute_path import DEBUG_LOGS_METADATA_SUFFIX
 from workflow_steps.common.mattermost_source import resolve_mattermost_credentials
 from workflow_steps.common.notification_context import resolve_run_workflow
 from workflow_steps.common.placeholder_template import render_placeholder_template
-from workflow_steps.common.step_flags import parse_bool_flag
+from workflow_steps.common.step_flags import parse_bool_flag, require_text
 from workflow_steps.notify_on_error.config import get_config
 
 if TYPE_CHECKING:
@@ -48,10 +48,6 @@ def _parse_max_messages(config: dict[str, Any], default: int) -> int:
     return value
 
 
-def _default_config() -> dict[str, Any]:
-    return get_config()
-
-
 async def execute(
     *,
     config: dict[str, Any],
@@ -63,10 +59,8 @@ async def execute(
 ) -> list[StepOutcome]:
     del artifact_service, device_sessions
 
-    defaults = _default_config()
-    message = str(config.get("message") or defaults["message"] or "").strip()
-    if not message:
-        raise ValueError(f"{_STEP_ID}: message is required")
+    defaults = get_config()
+    message = require_text(config, "message", step_id=_STEP_ID, default=defaults["message"])
 
     max_messages = _parse_max_messages(config, int(defaults["max_messages"]))
     notify_local = parse_bool_flag(config, "notify_local", default=True)
@@ -80,12 +74,9 @@ async def execute(
     team_name = str(config.get("team_name") or "").strip()
     channel_name = str(config.get("channel_name") or "").strip()
     if notify_mattermost:
-        if not mattermost_source_id:
-            raise ValueError(f"{_STEP_ID}: mattermost_source_id is not configured")
-        if not team_name:
-            raise ValueError(f"{_STEP_ID}: team_name is not configured")
-        if not channel_name:
-            raise ValueError(f"{_STEP_ID}: channel_name is not configured")
+        mattermost_source_id = require_text(config, "mattermost_source_id", step_id=_STEP_ID)
+        team_name = require_text(config, "team_name", step_id=_STEP_ID)
+        channel_name = require_text(config, "channel_name", step_id=_STEP_ID)
 
     db, workflow, owner_username = resolve_run_workflow(run, step_id=_STEP_ID)
 

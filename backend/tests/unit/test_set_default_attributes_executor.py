@@ -32,6 +32,31 @@ def _context(devices: dict[str, DeviceContext]) -> WorkflowContext:
     return WorkflowContext(run_id="run-1", workflow_id="wf-1", devices=devices)
 
 
+class SetDefaultAttributesConfigShapeTests(unittest.IsolatedAsyncioTestCase):
+    """W4-11: a list where a mapping belongs is a configuration error, not an internal error."""
+
+    async def _execute(self, config: dict) -> None:
+        await execute(
+            config=config,
+            context=_context({"dev-1": _device("dev-1")}),
+            run=_run(),
+            artifact_service=MagicMock(),
+            node_id="node-1",
+            device_sessions=MagicMock(),
+        )
+
+    async def test_attributes_must_be_a_mapping(self) -> None:
+        with self.assertRaisesRegex(ValueError, "set-default-attributes: attributes must be"):
+            await self._execute({**get_config(), "attributes": ["role"]})
+
+    async def test_git_settings_must_be_a_mapping(self) -> None:
+        with self.assertRaisesRegex(ValueError, "set-default-attributes: git must be"):
+            await self._execute({**get_config(), "mode": "git", "git": "repo-1"})
+
+    async def test_a_missing_attributes_block_is_still_an_empty_default_set(self) -> None:
+        await self._execute({**get_config(), "attributes": None})
+
+
 class SetDefaultAttributesManualModeTests(unittest.IsolatedAsyncioTestCase):
     async def test_seeds_empty_bag(self) -> None:
         config = {

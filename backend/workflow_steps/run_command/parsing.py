@@ -11,21 +11,16 @@ from workflow_steps.common.jinja_render import parse_output_key
 from workflow_steps.common.read_timeout import parse_read_timeout
 from workflow_steps.common.retry_config import parse_retry_backoff_seconds
 from workflow_steps.common.step_flags import parse_bool_flag
+from workflow_steps.run_command.config import get_config
 from workflow_steps.run_command.constants import STEP_ID
 
 _EXECUTION_MODES = {"config_mode", "exec_mode"}
 
 
-def _default_config() -> dict[str, Any]:
-    from workflow_steps.run_command.config import get_config
-
-    return get_config()
-
-
 def _parse_commands(config: dict[str, Any]) -> list[str]:
     raw = config.get("commands")
     if raw is None:
-        raw = _default_config().get("commands", [])
+        raw = get_config().get("commands", [])
     if isinstance(raw, str):
         stripped = raw.strip()
         if not stripped:
@@ -60,7 +55,7 @@ def _parse_parser_mode(config: dict[str, Any]) -> str:
     """
     raw = config.get("parser")
     if raw is None:
-        raw = _default_config()["parser"]
+        raw = get_config()["parser"]
     mode = str(raw).strip().lower()
     if mode not in _PARSER_MODES:
         raise ValueError(
@@ -70,7 +65,7 @@ def _parse_parser_mode(config: dict[str, Any]) -> str:
 
 
 def _parse_execution_mode(config: dict[str, Any]) -> str:
-    mode = str(config.get("execution_mode") or _default_config()["execution_mode"]).strip().lower()
+    mode = str(config.get("execution_mode") or get_config()["execution_mode"]).strip().lower()
     if mode not in _EXECUTION_MODES:
         raise ValueError(f"run-command: execution_mode must be one of {sorted(_EXECUTION_MODES)}")
     return mode
@@ -137,7 +132,7 @@ def parse_run_command_config(config: dict[str, Any]) -> ParsedRunCommandConfig:
     parsed_output_key = ""
     if parser_mode != "none":
         parsed_output_key = parse_output_key(
-            config.get("parsed_output_key") or _default_config()["parsed_output_key"]
+            config.get("parsed_output_key") or get_config()["parsed_output_key"]
         )
 
     return ParsedRunCommandConfig(
@@ -150,7 +145,7 @@ def parse_run_command_config(config: dict[str, Any]) -> ParsedRunCommandConfig:
         execution_mode=execution_mode,
         write_config_after_execution=write_config_after_execution,
         read_timeout=parse_read_timeout(
-            config, step_id=STEP_ID, default=_default_config()["read_timeout"]
+            config, step_id=STEP_ID, default=get_config()["read_timeout"]
         ),
         auto_confirm_prompts=auto_confirm_prompts,
         fail_on_cli_error=parse_bool_flag(config, "fail_on_cli_error", default=True),

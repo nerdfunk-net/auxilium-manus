@@ -12,6 +12,7 @@ from services.artifacts import ArtifactService
 from services.workflow_context.attribute_path import DEBUG_LOGS_METADATA_SUFFIX
 from workflow_steps.common.notification_context import resolve_run_workflow
 from workflow_steps.common.placeholder_template import render_placeholder_template
+from workflow_steps.common.step_flags import require_text
 from workflow_steps.notify.config import get_config
 
 if TYPE_CHECKING:
@@ -19,13 +20,10 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+_STEP_ID = "notify"
 _VALID_SEVERITIES = {"info", "warning", "error"}
 # At most this many rows per execution, then one row that says how many devices were left out.
 MAX_NOTIFICATIONS_PER_STEP = 100
-
-
-def _default_config() -> dict[str, Any]:
-    return get_config()
 
 
 async def execute(
@@ -39,11 +37,10 @@ async def execute(
 ) -> list[StepOutcome]:
     del artifact_service, device_sessions
 
-    message = str(config.get("message") or _default_config()["message"] or "").strip()
-    if not message:
-        raise ValueError("notify: message is required")
+    defaults = get_config()
+    message = require_text(config, "message", step_id=_STEP_ID, default=defaults["message"])
 
-    severity = str(config.get("severity") or _default_config()["severity"] or "").strip().lower()
+    severity = str(config.get("severity") or defaults["severity"] or "").strip().lower()
     if severity not in _VALID_SEVERITIES:
         raise ValueError(f"notify: invalid severity {severity!r}")
 

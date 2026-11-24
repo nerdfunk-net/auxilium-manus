@@ -10,7 +10,7 @@ the whole device.
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from models.client_data import (
@@ -71,8 +71,8 @@ class DeviceTarget:
     device_type: str
     network_driver: str | None
     platform: str | None
-    username: str
-    password: str
+    username: str = field(repr=False)
+    password: str = field(repr=False)
     credential_reference: str
 
 
@@ -242,17 +242,22 @@ def _require_something(
         )
 
 
+def too_many_rows_error(exc: TooManyRowsError) -> CollectionError:
+    """The device failure for a table above the row cap (one wording for both checks)."""
+    return CollectionError(
+        "too_many_rows",
+        f"The {exc.table} table has more rows than CLIENT_DATA_MAX_ROWS_PER_TABLE "
+        f"({exc.limit}) allows; nothing was stored for this device",
+        FailureInfo(phase="command", kind="payload_too_large"),
+    )
+
+
 def _enforce_row_cap(ip_count: int, mac_count: int, max_rows: int, neighbor_count: int = 0) -> None:
     """Fail the device before DNS and storage when a table is above the cap."""
     try:
         check_row_cap(ip_count, mac_count, max_rows, neighbor_count)
     except TooManyRowsError as exc:
-        raise CollectionError(
-            "too_many_rows",
-            f"The {exc.table} table has more rows than CLIENT_DATA_MAX_ROWS_PER_TABLE "
-            f"({exc.limit}) allows; nothing was stored for this device",
-            FailureInfo(phase="command", kind="payload_too_large"),
-        ) from exc
+        raise too_many_rows_error(exc) from exc
 
 
 async def collect_from_device(

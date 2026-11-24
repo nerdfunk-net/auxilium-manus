@@ -10,6 +10,8 @@ from core.models.runs import WorkflowRun
 from models.workflow_context import Capability, DeviceContext, StepOutcome, WorkflowContext
 from services.artifacts import ArtifactService
 from workflow_steps.common.attribute_defaults import (
+    NAMED_REFERENCE_KEYS,
+    SCALAR_KEYS,
     merge_nautobot_defaults,
     normalize_defaults_block,
 )
@@ -25,8 +27,6 @@ logger = logging.getLogger(__name__)
 
 _STEP_ID = "set-default-attributes"
 _SUPPORTED_TYPES = frozenset({"device"})
-_NAMED_REFERENCE_FIELDS = ("role", "status", "location", "platform", "secrets_group", "rack")
-_SCALAR_FIELDS = ("software_version", "serial", "asset_tag", "face", "position", "interface_type")
 
 
 def _enabled_value(spec: Any) -> str | None:
@@ -39,7 +39,7 @@ def _enabled_value(spec: Any) -> str | None:
 def _defaults_from_manual_config(attributes: dict[str, Any]) -> dict[str, Any]:
     raw: dict[str, Any] = {}
 
-    for key in (*_NAMED_REFERENCE_FIELDS, *_SCALAR_FIELDS, "tags"):
+    for key in (*NAMED_REFERENCE_KEYS, *SCALAR_KEYS, "tags"):
         value = _enabled_value(attributes.get(key))
         if value is not None:
             raw[key] = value
@@ -71,8 +71,17 @@ def _defaults_from_manual_config(attributes: dict[str, Any]) -> dict[str, Any]:
     return raw
 
 
+def _mapping(config: dict[str, Any], key: str) -> dict[str, Any]:
+    value = config.get(key)
+    if value is None:
+        return {}
+    if not isinstance(value, dict):
+        raise ValueError(f"{_STEP_ID}: {key} must be a mapping")
+    return value
+
+
 def _defaults_from_git(config: dict[str, Any]) -> dict[str, Any]:
-    git_config = config.get("git") or {}
+    git_config = _mapping(config, "git")
     raw_repository_id = git_config.get("git_repository_id")
     git_repository_id = parse_repository_id(raw_repository_id, step_id=_STEP_ID)
     filename_pattern = str(git_config.get("filename_pattern") or "").strip()
@@ -108,7 +117,7 @@ async def execute(
     mode = str(config.get("mode") or "manual").strip().lower()
 
     if mode == "manual":
-        raw_defaults = _defaults_from_manual_config(config.get("attributes") or {})
+        raw_defaults = _defaults_from_manual_config(_mapping(config, "attributes"))
     elif mode == "git":
         raw_defaults = await asyncio.get_running_loop().run_in_executor(
             None, lambda: _defaults_from_git(config)

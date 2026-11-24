@@ -42,10 +42,6 @@ _STEP_ID = "route-on-attribute"
 _MAX_REGEX_PASSES = 4
 
 
-def _default_config() -> dict[str, Any]:
-    return get_config()
-
-
 def _normalize_value(value: str, *, case_sensitive: bool) -> str:
     return value if case_sensitive else value.casefold()
 
@@ -53,7 +49,7 @@ def _normalize_value(value: str, *, case_sensitive: bool) -> str:
 def _parse_routes(config: dict[str, Any]) -> list[dict[str, Any]]:
     raw_routes = config.get("routes")
     if raw_routes is None:
-        raw_routes = _default_config()["routes"]
+        raw_routes = get_config()["routes"]
     if not isinstance(raw_routes, list) or not raw_routes:
         raise ValueError("route-on-attribute: at least one route is required")
 
@@ -226,14 +222,14 @@ async def execute(
     del run, artifact_service
 
     attribute_path = str(
-        config.get("attribute_path") or _default_config()["attribute_path"]
+        config.get("attribute_path") or get_config()["attribute_path"]
     ).strip()
     if not attribute_path:
         raise ValueError("route-on-attribute: attribute_path is required")
 
     routes = _parse_routes(config)
     case_sensitive = parse_bool_flag(
-        config, "case_sensitive", default=_default_config()["case_sensitive"], step_id=_STEP_ID
+        config, "case_sensitive", default=get_config()["case_sensitive"], step_id=_STEP_ID
     )
     default_outcome = str(config.get("default_outcome") or "").strip() or None
     if default_outcome in _RESERVED_OUTCOMES:

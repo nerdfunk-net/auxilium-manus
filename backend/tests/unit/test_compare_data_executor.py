@@ -234,6 +234,53 @@ class CompareDataExecutorTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertIn("---", diff_text)
 
+    async def test_the_diff_runs_off_the_event_loop(self) -> None:
+        # W4-15: difflib over large configs must not stall the worker's loop.
+        import threading
+
+        from services.git.diff import GitDiffService
+
+        seen: list[int] = []
+        real = GitDiffService.compare_text_content
+
+        def recording(self_: GitDiffService, source: str, reference: str):
+            seen.append(threading.get_ident())
+            return real(self_, source, reference)
+
+        run = MagicMock()
+        run.id = 42
+        artifact_service = InMemoryArtifactService()
+        device = _device_with_running_config()
+        with tempfile.TemporaryDirectory() as tmp:
+            ref_dir = Path(tmp) / "references"
+            ref_dir.mkdir()
+            (ref_dir / "lab.cfg").write_text("hostname lab-old\n", encoding="utf-8")
+            with (
+                patch("workflow_steps.compare_data.reference_reader.settings") as settings_mock,
+                patch.object(
+                    artifact_service, "resolve", new=AsyncMock(return_value="hostname lab-new\n")
+                ),
+                patch.object(GitDiffService, "compare_text_content", recording),
+            ):
+                settings_mock.data_directory = Path(tmp)
+                await execute(
+                    config={
+                        "content_source": "running_config",
+                        "reference_location": "filesystem",
+                        "reference_subdirectory": "references",
+                        "filename_template": "{device.name}.cfg",
+                    },
+                    context=WorkflowContext(
+                        run_id="run-uuid-1", workflow_id="wf-1", devices={"device-1": device}
+                    ),
+                    run=run,
+                    artifact_service=artifact_service,
+                    node_id="compare-data-1",
+                    device_sessions=MagicMock(),
+                )
+        self.assertEqual(len(seen), 1)
+        self.assertNotEqual(seen[0], threading.get_ident())
+
     async def test_pyats_snapshot_mismatch_stores_text_diff(self) -> None:
         run = MagicMock()
         run.id = 42

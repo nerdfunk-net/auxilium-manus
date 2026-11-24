@@ -7,7 +7,20 @@ from typing import Any
 from models.workflow_context import DeviceContext, DeviceStatus
 from services.workflow_context.flags import parse_bool_flag, parse_int_flag
 
-__all__ = ["parse_bool_flag", "parse_int_flag", "record_dry_run"]
+__all__ = ["parse_bool_flag", "parse_int_flag", "record_dry_run", "require_text"]
+
+
+def require_text(
+    config: dict[str, Any], key: str, *, step_id: str, default: str | None = None
+) -> str:
+    """The stripped text of ``config[key]``, or of ``default`` when the key is unset or empty.
+
+    Blank after stripping is a configuration error naming the step and the key.
+    """
+    value = str(config.get(key) or default or "").strip()
+    if not value:
+        raise ValueError(f"{step_id}: {key} is required")
+    return value
 
 
 def record_dry_run(

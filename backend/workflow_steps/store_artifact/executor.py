@@ -58,6 +58,7 @@ from workflow_steps.common.git_repository_loader import load_git_repository, req
 from workflow_steps.common.partial_outcomes import device_error_from_exception
 from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.common.step_flags import parse_bool_flag
+from workflow_steps.store_artifact.config import get_config
 
 if TYPE_CHECKING:
     from services.network.netmiko.session_pool import DeviceSessionPool
@@ -75,12 +76,6 @@ class _ParsedStoreConfig:
     content_source: str
     source_step_node_id: str | None
     parsed_output_key: str | None
-
-
-def _default_config() -> dict[str, Any]:
-    from workflow_steps.store_artifact.config import get_config
-
-    return get_config()
 
 
 def _parse_store_config(config: dict[str, Any]) -> _ParsedStoreConfig:
@@ -102,7 +97,7 @@ def _build_sink(config: dict[str, Any], *, base_dir: Path) -> ArtifactSink:
     if destination == "filesystem":
         output_subdirectory = str(
             config.get("output_subdirectory")
-            or _default_config().get("output_subdirectory")
+            or get_config().get("output_subdirectory")
             or "exports"
         ).strip()
         return FilesystemArtifactSink(
@@ -120,14 +115,14 @@ def _build_sink(config: dict[str, Any], *, base_dir: Path) -> ArtifactSink:
             repository,
             repository_subdirectory=str(
                 config.get("repository_subdirectory")
-                or _default_config().get("repository_subdirectory")
+                or get_config().get("repository_subdirectory")
                 or ""
             ),
-            pull_before_write=parse_bool_flag({**_default_config(), **config}, "pull_before_write"),
+            pull_before_write=parse_bool_flag({**get_config(), **config}, "pull_before_write"),
             commit_after_write=parse_bool_flag(
-                {**_default_config(), **config}, "commit_after_write"
+                {**get_config(), **config}, "commit_after_write"
             ),
-            push_after_write=parse_bool_flag({**_default_config(), **config}, "push_after_write"),
+            push_after_write=parse_bool_flag({**get_config(), **config}, "push_after_write"),
         )
     raise ValueError(f"store-artifact: unsupported destination {destination!r}")
 
@@ -135,7 +130,7 @@ def _build_sink(config: dict[str, Any], *, base_dir: Path) -> ArtifactSink:
 def _filename_template(config: dict[str, Any]) -> str:
     return str(
         config.get("filename_template")
-        or _default_config().get("filename_template")
+        or get_config().get("filename_template")
         or "{device.name}_{run.timestamp}.cfg"
     ).strip()
 
@@ -143,7 +138,7 @@ def _filename_template(config: dict[str, Any]) -> str:
 def _commit_message_template(config: dict[str, Any]) -> str:
     return str(
         config.get("commit_message_template")
-        or _default_config().get("commit_message_template")
+        or get_config().get("commit_message_template")
         or "commit {timestamp}"
     ).strip()
 

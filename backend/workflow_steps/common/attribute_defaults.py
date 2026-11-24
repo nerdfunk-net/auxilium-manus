@@ -12,8 +12,8 @@ from __future__ import annotations
 import copy
 from typing import Any
 
-_NAMED_REFERENCE_KEYS = ("role", "status", "location", "platform", "secrets_group", "rack")
-_SCALAR_KEYS = ("software_version", "serial", "asset_tag", "face", "position", "interface_type")
+NAMED_REFERENCE_KEYS = ("role", "status", "location", "platform", "secrets_group", "rack")
+SCALAR_KEYS = ("software_version", "serial", "asset_tag", "face", "position", "interface_type")
 # Not a bag key: it sets ``type`` on the bag's interfaces (``_apply_default_interface_type``).
 _INTERFACE_TYPE_KEY = "interface_type"
 
@@ -232,7 +232,7 @@ def normalize_defaults_block(raw: dict[str, Any] | None) -> dict[str, Any]:
 
     defaults: dict[str, Any] = {}
 
-    for key in _NAMED_REFERENCE_KEYS:
+    for key in NAMED_REFERENCE_KEYS:
         if key in raw:
             value = _named_reference_default(raw[key])
             if value:
@@ -248,7 +248,7 @@ def normalize_defaults_block(raw: dict[str, Any] | None) -> dict[str, Any]:
         if device_type:
             defaults["device_type"] = device_type
 
-    for key in _SCALAR_KEYS:
+    for key in SCALAR_KEYS:
         if key in raw and raw[key] is not None:
             text = str(raw[key]).strip()
             if text:

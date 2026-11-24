@@ -146,7 +146,10 @@ async def _update_and_store(
     artifact_service: ArtifactService,
 ) -> DeviceContext:
     raw_content = await artifact_service.resolve(source_ref)
-    updated_text, match_counts = _apply_rules_to_text(raw_content, parsed.rules)
+    # Off the event loop: re.sub over a multi-megabyte config would stall every other device.
+    updated_text, match_counts = await asyncio.to_thread(
+        _apply_rules_to_text, raw_content, parsed.rules
+    )
     if parsed.fail_if_no_match and not any(match_counts):
         # A typo'd pattern would otherwise let a later upload step push the unchanged config.
         raise _NoRuleMatched("no replace rule matched anything in this device's content")

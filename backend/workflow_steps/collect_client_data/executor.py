@@ -41,6 +41,7 @@ from workflow_steps.collect_client_data.collector import (
     DeviceTarget,
     collect_from_device,
     phase_one_commands,
+    too_many_rows_error,
 )
 from workflow_steps.collect_client_data.commands import SUPPORTED_DEVICE_TYPES
 from workflow_steps.collect_client_data.dns import HostnameResolver, reverse_lookup
@@ -73,6 +74,10 @@ _UNSUPPORTED_PLATFORM = FailureInfo(
 )
 
 
+class _StorageRejected(Exception):  # noqa: N818 - internal signal, never leaves the module
+    """The storage service refused the values (its own ``ValueError``), not a step error."""
+
+
 def _store_sync(
     *,
     session_id: str,
@@ -98,6 +103,8 @@ def _store_sync(
             collected_at=collected_at,
             target_host=target_host,
         )
+    except ValueError as exc:  # the service validates names and session ids with ValueError
+        raise _StorageRejected(type(exc).__name__) from exc
     finally:
         db.close()
 
@@ -254,15 +261,9 @@ async def _collect_one(
         return _duplicate_failure(device, node_id), False
     except TooManyRowsError as exc:
         # The storage layer's own check (the collector normally catches this first).
-        return _fail(
-            device,
-            node_id,
-            "too_many_rows",
-            f"The {exc.table} table has more rows than CLIENT_DATA_MAX_ROWS_PER_TABLE "
-            f"({exc.limit}) allows; nothing was stored for this device",
-            FailureInfo(phase="command", kind="payload_too_large"),
-        ), False
-    except (SQLAlchemyError, ValueError) as exc:
+        failed = too_many_rows_error(exc)
+        return _fail(device, node_id, failed.code, failed.message, failed.failure), False
+    except (SQLAlchemyError, _StorageRejected) as exc:
         # Database text can carry SQL and bound values: keep the class name only.
         logger.warning("client data storage failed error=%s", type(exc).__name__)
         message = "The collected data could not be stored"

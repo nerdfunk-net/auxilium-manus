@@ -34,10 +34,6 @@ _STEP_ID = "reachable"
 _OUTCOME_NAMES = ("success", "failure")
 
 
-def _default_config() -> dict[str, Any]:
-    return get_config()
-
-
 # Bounds: a typo must not turn one step into a billion pings or an hour-long wait.
 MAX_PING_COUNT = 20
 MAX_TIMEOUT_SECONDS = 60.0
@@ -49,7 +45,7 @@ def _parse_positive_int(config: dict[str, Any], key: str) -> int:
     return parse_int_flag(
         config,
         key,
-        default=_default_config()[key],
+        default=get_config()[key],
         minimum=1,
         maximum=MAX_PING_COUNT,
         step_id=_STEP_ID,
@@ -57,7 +53,7 @@ def _parse_positive_int(config: dict[str, Any], key: str) -> int:
 
 
 def _parse_positive_number(config: dict[str, Any], key: str) -> float:
-    raw = config.get(key, _default_config()[key])
+    raw = config.get(key, get_config()[key])
     if isinstance(raw, bool):
         raise ValueError(f"{_STEP_ID}: {key} must be a number")
     try:

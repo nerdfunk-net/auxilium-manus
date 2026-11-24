@@ -192,8 +192,11 @@ async def execute(
             f"get-from-config: the repository has more than {files_scanned} matching files; "
             "narrow the directory or file filter"
         )
-    devices_by_id = _devices_from_config_matches(
-        matches, git_repository_id=parsed.git_repository_id, run_id=log_run_id(run)
+    devices_by_id = await asyncio.to_thread(
+        _devices_from_config_matches,
+        matches,
+        git_repository_id=parsed.git_repository_id,
+        run_id=log_run_id(run),
     )
     logger.info(
         "get-from-config finished devices=%d matches=%d files_scanned=%d run_id=%s",

@@ -31,12 +31,8 @@ _OUTPUT_FORMATS = frozenset({"json", "pretty_text"})
 _FILE_APPEND_SEPARATOR = "\n\n---\n\n"
 
 
-def _default_config() -> dict[str, Any]:
-    return get_config()
-
-
 def _parse_config(config: dict[str, Any]) -> dict[str, Any]:
-    defaults = _default_config()
+    defaults = get_config()
     output_destination = (
         str(config.get("output_destination") or defaults["output_destination"]).strip().lower()
     )

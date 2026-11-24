@@ -60,32 +60,28 @@ class _ParsedCompareConfig:
     ignore_trailing_whitespace: bool
 
 
-def _default_config() -> dict[str, Any]:
-    return get_config()
-
-
 def _parse_compare_config(config: dict[str, Any]) -> _ParsedCompareConfig:
     validate_reference_config(config)
     return _ParsedCompareConfig(
         content_source=parse_content_source(
-            config, step_id="compare-data", default=str(_default_config()["content_source"])
+            config, step_id="compare-data", default=str(get_config()["content_source"])
         ),
         source_step_node_id=str(config.get("source_step_node_id") or "").strip() or None,
         parsed_output_key=str(config.get("parsed_output_key") or "").strip() or None,
         reference_location=(
             str(
                 config.get("reference_location")
-                or _default_config().get("reference_location")
+                or get_config().get("reference_location")
                 or "filesystem"
             )
             .strip()
             .lower()
         ),
         normalize_line_endings=parse_bool_flag(
-            {**_default_config(), **config}, "normalize_line_endings", default=True
+            {**get_config(), **config}, "normalize_line_endings", default=True
         ),
         ignore_trailing_whitespace=parse_bool_flag(
-            {**_default_config(), **config}, "ignore_trailing_whitespace", default=False
+            {**get_config(), **config}, "ignore_trailing_whitespace", default=False
         ),
     )
 
@@ -189,7 +185,7 @@ def _render_reference_path(
 ) -> str:
     template = str(
         config.get("filename_template")
-        or _default_config().get("filename_template")
+        or get_config().get("filename_template")
         or "{device.name}.cfg"
     ).strip()
     extra = dict(item.extra)
@@ -315,9 +311,9 @@ async def _build_compare_mismatch_result(
         **item.extra,
     }
 
-    diff_result = diff_service.compare_text_content(
-        normalized_source,
-        normalized_reference,
+    # Off the event loop: a difflib pass over large configs would stall every other device.
+    diff_result = await asyncio.to_thread(
+        diff_service.compare_text_content, normalized_source, normalized_reference
     )
     diff_text = "\n".join(diff_result.diff_lines)
     diff_ref = await artifact_service.store(
