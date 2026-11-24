@@ -13,12 +13,12 @@ import service_factory
 from models.workflow_context import DeviceContext
 from services.catalyst_center.common.exceptions import CatalystCenterValidationError
 from services.catalyst_center.credentials import CatalystCenterCredentials
-from services.catalyst_center.source_config_service import CatalystCenterSourceNotFoundError
 from workflow_steps.common.device_outcomes import (
     TargetSplit,
     build_outcomes,
     failed_device,
 )
+from workflow_steps.common.source_credentials import resolve_source
 
 CATALYST_CENTER_SOURCE = "catalyst_center"
 
@@ -61,10 +61,7 @@ def resolve_source_credentials(
     source_config = service_factory.build_catalyst_center_source_config_service(db)
     resolved: dict[str, CatalystCenterCredentials] = {}
     for source_id in source_ids:
-        try:
-            resolved[source_id] = source_config.resolve_credentials(source_id)
-        except CatalystCenterSourceNotFoundError as exc:
-            raise ValueError(f"{step_id}: Catalyst Center source '{source_id}' not found") from exc
-        except CatalystCenterValidationError as exc:
-            raise ValueError(f"{step_id}: {exc}") from exc
+        resolved[source_id] = resolve_source(
+            source_config, source_id, step_id=step_id, invalid=CatalystCenterValidationError
+        )
     return resolved

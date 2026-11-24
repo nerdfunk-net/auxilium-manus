@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 import service_factory
 from services.mattermost.common.exceptions import MattermostValidationError
 from services.mattermost.credentials import MattermostCredentials
-from services.mattermost.source_config_service import MattermostSourceNotFoundError
+from workflow_steps.common.source_credentials import resolve_source
 
 
 def resolve_mattermost_credentials(
@@ -20,9 +20,6 @@ def resolve_mattermost_credentials(
     so both raise the same error for the same condition.
     """
     config_service = service_factory.build_mattermost_source_config_service(db)
-    try:
-        return config_service.resolve_credentials(source_id)
-    except MattermostSourceNotFoundError as exc:
-        raise ValueError(f"{step_id}: Mattermost source '{source_id}' not found") from exc
-    except MattermostValidationError as exc:
-        raise ValueError(f"{step_id}: {exc}") from exc
+    return resolve_source(
+        config_service, source_id, step_id=step_id, invalid=MattermostValidationError
+    )

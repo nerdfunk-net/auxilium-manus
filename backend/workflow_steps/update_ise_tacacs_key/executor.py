@@ -48,11 +48,11 @@ from models.workflow_context import (
 from services.artifacts import ArtifactService
 from services.ise.common.exceptions import ISEAPIError, ISENotFoundError, ISEValidationError
 from services.ise.network_device_service import ISENetworkDeviceService
-from services.ise.source_config_service import ISESourceNotFoundError
 from services.workflow_context.secret_expression import require_secret_expression
 from services.workflow_context.secret_fields import seal_secret
 from workflow_steps.common.attribute_write import set_device_attribute
 from workflow_steps.common.partial_outcomes import abort_outcomes
+from workflow_steps.common.source_credentials import resolve_source
 from workflow_steps.common.update_field_expression import resolve_update_field_expression
 
 if TYPE_CHECKING:
@@ -131,12 +131,9 @@ def _build_ise_device_service(run: WorkflowRun, source_id: str) -> ISENetworkDev
         raise RuntimeError(f"{_STEP_ID}: WorkflowRun has no active DB session")
 
     source_config_service = service_factory.build_ise_source_config_service(db)
-    try:
-        credentials = source_config_service.resolve_credentials(source_id)
-    except ISESourceNotFoundError as exc:
-        raise ValueError(f"{_STEP_ID}: ISE source '{source_id}' not found") from exc
-    except ISEValidationError as exc:
-        raise ValueError(f"{_STEP_ID}: {exc}") from exc
+    credentials = resolve_source(
+        source_config_service, source_id, step_id=_STEP_ID, invalid=ISEValidationError
+    )
 
     return service_factory.build_ise_network_device_service(credentials)
 

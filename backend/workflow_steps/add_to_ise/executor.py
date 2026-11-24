@@ -92,13 +92,13 @@ from models.workflow_context import (
 from services.artifacts import ArtifactService
 from services.ise.common.exceptions import ISEAPIError, ISEValidationError
 from services.ise.credentials import ISECredentials
-from services.ise.source_config_service import ISESourceNotFoundError
 from services.workflow_context.attribute_path import resolve_device_value
 from services.workflow_context.secret_expression import require_secret_expression
 from services.workflow_context.secret_fields import seal_secret
 from workflow_steps.add_to_ise.group_ensure import DeviceGroupEnsurer
 from workflow_steps.common.partial_outcomes import abort_outcomes
 from workflow_steps.common.request_record import append_request_record
+from workflow_steps.common.source_credentials import resolve_source
 from workflow_steps.common.step_flags import parse_bool_flag
 from workflow_steps.common.update_field_expression import (
     resolve_template_if_present,
@@ -306,12 +306,9 @@ def _resolve_source_credentials(run: WorkflowRun, source_id: str) -> ISECredenti
         raise RuntimeError(f"{_STEP_ID}: WorkflowRun has no active DB session")
 
     source_config_service = service_factory.build_ise_source_config_service(db)
-    try:
-        return source_config_service.resolve_credentials(source_id)
-    except ISESourceNotFoundError as exc:
-        raise ValueError(f"{_STEP_ID}: ISE source '{source_id}' not found") from exc
-    except ISEValidationError as exc:
-        raise ValueError(f"{_STEP_ID}: {exc}") from exc
+    return resolve_source(
+        source_config_service, source_id, step_id=_STEP_ID, invalid=ISEValidationError
+    )
 
 
 def _build_ise_device_service(run: WorkflowRun, source_id: str) -> ISENetworkDeviceService:

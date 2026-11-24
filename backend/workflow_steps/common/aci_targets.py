@@ -16,8 +16,8 @@ import service_factory
 from models.workflow_context import DeviceContext
 from services.aci.common.exceptions import AciValidationError
 from services.aci.credentials import AciCredentials
-from services.aci.source_config_service import AciSourceNotFoundError
 from workflow_steps.common.device_outcomes import TargetSplit, failed_device
+from workflow_steps.common.source_credentials import resolve_source
 
 ACI_SOURCE = "aci"
 
@@ -77,10 +77,7 @@ def resolve_source_credentials(
     source_config = service_factory.build_aci_source_config_service(db)
     resolved: dict[str, AciCredentials] = {}
     for source_id in source_ids:
-        try:
-            resolved[source_id] = source_config.resolve_credentials(source_id)
-        except AciSourceNotFoundError as exc:
-            raise ValueError(f"{step_id}: Cisco ACI source '{source_id}' not found") from exc
-        except AciValidationError as exc:
-            raise ValueError(f"{step_id}: {exc}") from exc
+        resolved[source_id] = resolve_source(
+            source_config, source_id, step_id=step_id, invalid=AciValidationError
+        )
     return resolved

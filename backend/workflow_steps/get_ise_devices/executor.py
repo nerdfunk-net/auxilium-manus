@@ -22,7 +22,6 @@ from models.workflow_context import (
 from services.artifacts import ArtifactService
 from services.ise.common.exceptions import ISEAPIError, ISENotFoundError, ISEValidationError
 from services.ise.network_device_service import ISENetworkDeviceService
-from services.ise.source_config_service import ISESourceNotFoundError
 from services.sources.nautobot.source_service import NautobotSourceService
 from workflow_steps.common.device_builders import (
     device_context_from_ise,
@@ -31,6 +30,7 @@ from workflow_steps.common.device_builders import (
 from workflow_steps.common.fan_out import build_fan_out_metadata
 from workflow_steps.common.ise_lookup import fetch_ise_device_details, paginate_ise_summaries
 from workflow_steps.common.nautobot_source import resolve_nautobot_credentials
+from workflow_steps.common.source_credentials import resolve_source
 from workflow_steps.common.step_flags import parse_bool_flag
 
 if TYPE_CHECKING:
@@ -234,12 +234,12 @@ def _build_ise_services(
     parsed: _ParsedGetIseDevicesConfig,
 ) -> tuple[ISENetworkDeviceService, NautobotSourceService | None]:
     source_config_service = service_factory.build_ise_source_config_service(db)
-    try:
-        credentials = source_config_service.resolve_credentials(parsed.source_id)
-    except ISESourceNotFoundError as exc:
-        raise ValueError(f"get-ise-devices: ISE source '{parsed.source_id}' not found") from exc
-    except ISEValidationError as exc:
-        raise ValueError(f"get-ise-devices: {exc}") from exc
+    credentials = resolve_source(
+        source_config_service,
+        parsed.source_id,
+        step_id="get-ise-devices",
+        invalid=ISEValidationError,
+    )
 
     device_service = service_factory.build_ise_network_device_service(credentials)
 
