@@ -145,6 +145,66 @@ def _search_lines(regex, request: dict) -> list[dict]:
     return results
 
 
+def _search_many(regex, request: dict) -> list[dict]:
+    """For each ``{text, pattern}``: ``{status, match, groups}``.
+
+    ``status`` is ``match``, ``nomatch``, ``invalid`` (empty or bad pattern) or ``stopped``
+    (took too long). ``match`` and every group are cut to ``max_text`` characters. A bad or slow
+    pattern only spoils its own answer; answers never echo the pattern.
+    """
+    import re
+    import signal
+    import time
+
+    flags = regex.RegexFlagsConfig.from_mapping(request.get("flags") or {})
+    max_text = int(request.get("max_text", 200))
+    timed = hasattr(signal, "setitimer")
+    if timed:
+        signal.signal(signal.SIGALRM, _on_alarm)
+    deadline = time.monotonic() + BATCH_SECONDS
+    compiled: dict[str, re.Pattern[str] | str] = {}
+    results: list[dict] = []
+    for item in request["items"]:
+        pattern = item["pattern"]
+        remaining = deadline - time.monotonic()
+        if not pattern:
+            results.append({"status": "invalid"})
+            continue
+        if remaining <= 0:
+            results.append({"status": "stopped"})
+            continue
+        if timed:
+            signal.setitimer(signal.ITIMER_REAL, min(ITEM_SECONDS, remaining))
+        try:
+            entry = compiled.get(pattern)
+            if entry is None:
+                try:
+                    entry = regex.compile_pattern(pattern, flags)
+                except ValueError, RecursionError, OverflowError:
+                    entry = "invalid"
+                compiled[pattern] = entry
+            if isinstance(entry, str):
+                results.append({"status": entry})
+                continue
+            found = entry.search(item["text"])
+            if found is None:
+                results.append({"status": "nomatch"})
+            else:
+                results.append(
+                    {
+                        "status": "match",
+                        "match": found.group(0)[:max_text],
+                        "groups": [None if g is None else g[:max_text] for g in found.groups()],
+                    }
+                )
+        except _ItemTimeout, MemoryError:
+            results.append({"status": "stopped"})
+        finally:
+            if timed:
+                signal.setitimer(signal.ITIMER_REAL, 0)
+    return results
+
+
 def main() -> None:
     _limit_resources()
     request = json.load(sys.stdin)
@@ -169,6 +229,8 @@ def main() -> None:
             )
         elif request["op"] == "search_lines":
             result = _search_lines(regex, request)
+        elif request["op"] == "search_many":
+            result = _search_many(regex, request)
         elif request["op"] == "match_many":
             result = _match_many(request["items"])
         else:

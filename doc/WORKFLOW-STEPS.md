@@ -485,6 +485,17 @@ status, a transport kind) builds its own. `test_device_error_failure_ratchet.py`
   `FailureInfo` (`device_outcomes.whole_step_failure`), `success` is answered empty; `contact-the-ai`, `open-change-request`
   and the git steps do it. A step that loses a remote system part-way keeps the devices already done (`abort_outcomes`).
 
+### Author regexes on device or Nautobot data
+
+A pattern an author writes and that runs on content the worker does not control (`route-on-content`
+on a device config, `get-virtual-chassis` name filter and index regex on Nautobot names) never runs
+in the worker process: `re` holds the GIL while it matches, so `(a+)+$` would stall every other step.
+`workflow_steps/common/regex_search.py::search_many` sends the questions to the killable child
+(`core/regex_isolated.py`, op `search_many`) in batches of at most 50 items / 4 MB; each pattern has
+its own time limit. An unusable answer is `invalid` (bad pattern) or `stopped` (too slow, or the batch
+failed): `route-on-content` fails that device (`invalid_regex` / `regex_stopped`), `get-virtual-chassis`
+fails the step naming the setting.
+
 ### The run's database session
 
 A step gets its session with `workflow_steps.common.run_session.require_session(run, step_id)`; a run without one raises `RuntimeError("<step_id>: WorkflowRun has no active DB session")`. Nothing else in `workflow_steps/` may call `object_session` (`tests/unit/test_object_session_ratchet.py`); tests patch `workflow_steps.common.run_session.object_session` (`patch_object_session()`).

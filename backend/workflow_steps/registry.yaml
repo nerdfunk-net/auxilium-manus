@@ -4998,7 +4998,8 @@ plugins:
     overview: Branch workflow paths by searching content for text or a pattern.
     description: >
       Search device content for fixed text or a regular expression and branch
-      on whether it was found.
+      on whether it was found. A regular expression
+      runs in an isolated process; one that takes too much time fails that device.
     artifact_type: control_flow
     palette_category: routing
     directory: route_on_content

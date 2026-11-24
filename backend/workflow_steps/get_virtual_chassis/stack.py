@@ -9,6 +9,7 @@ that marker is what later steps use to address one member of a parsed command ou
 from __future__ import annotations
 
 import re
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -28,6 +29,7 @@ from models.workflow_context import (
     bare_hostname,
 )
 from workflow_steps.common.failure_records import MISSING_DATA
+from workflow_steps.common.regex_search import RegexAnswer, RegexQuestion, search_many
 from workflow_steps.common.step_flags import parse_bool_flag
 from workflow_steps.common.virtual_chassis import (
     DEFAULT_INDEX_KEY,
@@ -50,9 +52,9 @@ class StackSettings:
 
     name_filter: str
     name_match: str
-    name_filter_regex: re.Pattern[str] | None
+    name_filter_pattern: str | None
     split_members: bool
-    index_regex: re.Pattern[str]
+    index_pattern: str
     index_offset: int
     index_default: int
     attribute_bag: str
@@ -71,15 +73,17 @@ def _as_int(config: dict[str, Any], key: str, default: int) -> int:
         raise ValueError(f"{STEP_ID}: {key} must be an integer (got {raw!r})") from exc
 
 
-def _compile(pattern: str, key: str) -> re.Pattern[str]:
+def _validated_pattern(pattern: str, key: str) -> str:
+    """The pattern, once it is known to be a valid regular expression (it is never run here)."""
     if not pattern.strip():
         raise ValueError(f"{STEP_ID}: {key} must not be empty")
     if len(pattern) > MAX_REGEX_LENGTH:
         raise ValueError(f"{STEP_ID}: {key} is longer than {MAX_REGEX_LENGTH} characters")
     try:
-        return re.compile(pattern)
+        re.compile(pattern)
     except re.error as exc:
         raise ValueError(f"{STEP_ID}: {key} is not a valid regular expression: {exc}") from exc
+    return pattern
 
 
 def parse_settings(config: dict[str, Any]) -> StackSettings:
@@ -89,16 +93,20 @@ def parse_settings(config: dict[str, Any]) -> StackSettings:
         raise ValueError(f"{STEP_ID}: name_match must be one of {', '.join(NAME_MATCH_MODES)}")
 
     name_filter = str(config.get("name_filter") or "").strip()
-    name_filter_regex = (
-        _compile(name_filter, "name_filter") if name_match == "regex" and name_filter else None
+    name_filter_pattern = (
+        _validated_pattern(name_filter, "name_filter")
+        if name_match == "regex" and name_filter
+        else None
     )
 
     return StackSettings(
         name_filter=name_filter,
         name_match=name_match,
-        name_filter_regex=name_filter_regex,
+        name_filter_pattern=name_filter_pattern,
         split_members=parse_bool_flag(config, "split_members"),
-        index_regex=_compile(str(config.get("index_regex") or DEFAULT_INDEX_REGEX), "index_regex"),
+        index_pattern=_validated_pattern(
+            str(config.get("index_regex") or DEFAULT_INDEX_REGEX), "index_regex"
+        ),
         index_offset=_as_int(config, "index_offset", -1),
         index_default=_as_int(config, "index_default", 0),
         attribute_bag=bag_name(config, step_id=STEP_ID),
@@ -106,29 +114,65 @@ def parse_settings(config: dict[str, Any]) -> StackSettings:
     )
 
 
-def matches_name(name: str, settings: StackSettings) -> bool:
-    """Whether a virtual chassis name passes the step's name filter (empty = all)."""
+Answers = Mapping[str, RegexAnswer]
+"""The isolated worker's answer for each text the step's pattern was asked about."""
+
+_STOPPED_MESSAGE = "{step}: {key} was stopped: it used too much time or memory on a name"
+
+
+async def _ask(pattern: str, texts: Iterable[str], *, key: str) -> Answers:
+    names = sorted(set(texts))
+    answers = await search_many([RegexQuestion(text=name, pattern=pattern) for name in names])
+    if any(a.status in ("stopped", "invalid") for a in answers):
+        raise ValueError(_STOPPED_MESSAGE.format(step=STEP_ID, key=key))
+    return dict(zip(names, answers, strict=True))
+
+
+async def answer_name_filter(vcs: Sequence[dict[str, Any]], settings: StackSettings) -> Answers:
+    """Ask the worker the name filter for every chassis name (nothing unless mode is regex)."""
+    if settings.name_filter_pattern is None:
+        return {}
+    names = [str(vc.get("name") or "") for vc in vcs]
+    return await _ask(settings.name_filter_pattern, names, key="name_filter")
+
+
+async def answer_member_indexes(vcs: Sequence[dict[str, Any]], settings: StackSettings) -> Answers:
+    """Ask the worker the index regex for every member name of the chassis that stay."""
+    names = [
+        member_record(member, master=None)["name"] for vc in vcs for member in ordered_members(vc)
+    ]
+    return await _ask(settings.index_pattern, names, key="index_regex")
+
+
+def matches_name(name: str, settings: StackSettings, answers: Answers) -> bool:
+    """Whether a virtual chassis name passes the step's name filter (empty = all).
+
+    ``answers`` holds the worker's answers of ``answer_name_filter`` (used in regex mode only).
+    """
     if not settings.name_filter:
         return True
     if settings.name_match == "contains":
         return settings.name_filter.lower() in name.lower()
-    if settings.name_filter_regex is not None:
-        return settings.name_filter_regex.search(name) is not None
+    if settings.name_filter_pattern is not None:
+        return answers[name].found
     # Exact ignores case, like the assistant's get_virtual_chassis: "lab.local.zz" finds the
     # stack Nautobot stores as "LAB.local.zz" (an exact match is no longer sent to Nautobot).
     return name.casefold() == settings.name_filter.casefold()
 
 
-def member_index(name: str, settings: StackSettings) -> int:
+def member_index(name: str, settings: StackSettings, answers: Answers) -> int:
     """Sequence number of a member: captured number + offset, or the default.
 
     The first capture group is used (the whole match when the pattern has no group). A
     name that does not match, or whose capture is not an integer, gets ``index_default``.
+    ``answers`` holds the worker's answers of ``answer_member_indexes``.
     """
-    match = settings.index_regex.search(name)
-    if match is None:
+    answer = answers[name]
+    if not answer.found:
         return settings.index_default
-    raw = match.group(1) if settings.index_regex.groups else match.group(0)
+    raw = answer.groups[0] if answer.groups else answer.match
+    if raw is None:
+        return settings.index_default
     try:
         return int(raw) + settings.index_offset
     except TypeError, ValueError:
@@ -136,7 +180,11 @@ def member_index(name: str, settings: StackSettings) -> int:
 
 
 def _member_record(
-    member: dict[str, Any], *, settings: StackSettings, master: dict[str, Any] | None
+    member: dict[str, Any],
+    *,
+    settings: StackSettings,
+    master: dict[str, Any] | None,
+    index_answers: Answers,
 ) -> dict[str, Any]:
     """The shared member record plus this step's stack index and the member's own platform.
 
@@ -149,7 +197,7 @@ def _member_record(
         **record,
         "platform": platform,
         "network_driver": network_driver,
-        settings.index_key: member_index(record["name"], settings),
+        settings.index_key: member_index(record["name"], settings, index_answers),
     }
 
 
@@ -173,7 +221,12 @@ def _unusable_stack_device(
 
 
 def build_stack_devices(
-    vc: dict[str, Any], settings: StackSettings, *, source_id: str, node_id: str
+    vc: dict[str, Any],
+    settings: StackSettings,
+    *,
+    source_id: str,
+    node_id: str,
+    index_answers: Answers,
 ) -> list[DeviceContext]:
     """Turn one GraphQL ``virtual_chassis`` object into workflow devices.
 
@@ -207,7 +260,9 @@ def build_stack_devices(
             for device_id, name in identities
         ]
 
-    records = [_member_record(m, settings=settings, master=master) for m in members]
+    records = [_member_record(m, settings=settings, master=master, index_answers=index_answers)
+        for m in members
+    ]
     platform_name, network_driver = platform_of(master)
     master_name = str(master.get("name") or "")
 

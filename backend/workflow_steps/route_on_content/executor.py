@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from core.models.runs import WorkflowRun
@@ -30,6 +30,7 @@ from workflow_steps.common.content_resolver import (
 from workflow_steps.common.failure_records import INVALID_INPUT, MISSING_DATA
 from workflow_steps.common.partial_outcomes import device_error_from_exception
 from workflow_steps.common.placeholder_template import render_placeholder_template
+from workflow_steps.common.regex_search import RegexAnswer, RegexQuestion, search_many
 from workflow_steps.common.step_flags import parse_bool_flag
 from workflow_steps.route_on_content.config import get_config
 
@@ -53,6 +54,16 @@ class _ParsedRouteConfig:
     case_sensitive: bool
     multiline: bool
     store_matched_text: bool = False
+
+
+@dataclass(frozen=True)
+class _Ready:
+    """A device whose regex still has to be answered by the isolated worker."""
+
+    device_id: str
+    device: DeviceContext
+    rendered_pattern: str
+    content_text: str = field(repr=False)
 
 
 def _parse_route_config(config: dict[str, Any]) -> _ParsedRouteConfig:
@@ -98,20 +109,6 @@ def _match_fixed_text(
     return False, None
 
 
-def _match_regex(
-    content_text: str, pattern: str, *, case_sensitive: bool, multiline: bool
-) -> tuple[bool, str | None]:
-    flags = 0
-    if multiline:
-        flags |= re.MULTILINE
-    if not case_sensitive:
-        flags |= re.IGNORECASE
-    found = re.compile(pattern, flags).search(content_text)
-    if found is None:
-        return False, None
-    return True, found.group(0)[:_MATCHED_TEXT_MAX_LENGTH]
-
-
 def _matched_text_entry(parsed: _ParsedRouteConfig, matched_text: str | None) -> dict[str, str]:
     """The matched text for the stored result, only when the author asked for it (W10-02).
 
@@ -140,14 +137,15 @@ def _device_failure(
     )
 
 
-async def _process_device(
+async def _prepare_device(
     *,
     device_id: str,
     device: DeviceContext,
     parsed: _ParsedRouteConfig,
     node_id: str,
     artifact_service: ArtifactService,
-) -> tuple[str, DeviceContext, str]:
+) -> tuple[str, DeviceContext, str] | _Ready:
+    """Read the content and render the pattern; a regex match is answered later, in a batch."""
     export_items = list_exportable_content(
         device,
         content_source=parsed.content_source,
@@ -209,28 +207,35 @@ async def _process_device(
         )
         return device_id, failed, "failure"
 
-    try:
-        if parsed.match_mode == "fixed_text":
-            matched, matched_text = _match_fixed_text(
-                content_text, rendered_pattern, case_sensitive=parsed.case_sensitive
-            )
-        else:
-            matched, matched_text = _match_regex(
-                content_text,
-                rendered_pattern,
-                case_sensitive=parsed.case_sensitive,
-                multiline=parsed.multiline,
-            )
-    except re.error as exc:
-        failed = _device_failure(
+    if parsed.match_mode == "regex":
+        return _Ready(
+            device_id=device_id,
             device=device,
-            node_id=node_id,
-            code="invalid_regex",
-            failure=INVALID_INPUT,
-            message=f"invalid regular expression {rendered_pattern!r}: {exc}",
+            rendered_pattern=rendered_pattern,
+            content_text=content_text,
         )
-        return device_id, failed, "failure"
+    matched, matched_text = _match_fixed_text(
+        content_text, rendered_pattern, case_sensitive=parsed.case_sensitive
+    )
+    return _finish(
+        device_id=device_id,
+        device=device,
+        parsed=parsed,
+        node_id=node_id,
+        matched=matched,
+        matched_text=matched_text,
+    )
 
+
+def _finish(
+    *,
+    device_id: str,
+    device: DeviceContext,
+    parsed: _ParsedRouteConfig,
+    node_id: str,
+    matched: bool,
+    matched_text: str | None,
+) -> tuple[str, DeviceContext, str]:
     device_parsed = set_node_result(
         device.parsed,
         node_id,
@@ -253,6 +258,34 @@ async def _process_device(
         }
     )
     return device_id, enriched, "match" if matched else "mismatch"
+
+
+def _answer_regex(
+    ready: _Ready, answer: RegexAnswer, *, parsed: _ParsedRouteConfig, node_id: str
+) -> tuple[str, DeviceContext, str]:
+    if answer.status in ("invalid", "stopped"):
+        stopped = answer.status == "stopped"
+        failed = _device_failure(
+            device=ready.device,
+            node_id=node_id,
+            code="regex_stopped" if stopped else "invalid_regex",
+            failure=INVALID_INPUT,
+            message=(
+                f"the regular expression {ready.rendered_pattern!r} was stopped: it used too "
+                "much time or memory on this content"
+                if stopped
+                else f"invalid regular expression {ready.rendered_pattern!r}"
+            ),
+        )
+        return ready.device_id, failed, "failure"
+    return _finish(
+        device_id=ready.device_id,
+        device=ready.device,
+        parsed=parsed,
+        node_id=node_id,
+        matched=answer.found,
+        matched_text=answer.match,
+    )
 
 
 def _build_route_outcomes(
@@ -309,9 +342,9 @@ async def execute(
         parsed.match_mode,
     )
 
-    results = await asyncio.gather(
+    prepared = await asyncio.gather(
         *[
-            _process_device(
+            _prepare_device(
                 device_id=device_id,
                 device=device,
                 parsed=parsed,
@@ -321,4 +354,17 @@ async def execute(
             for device_id, device in context.devices.items()
         ]
     )
+    ready = [item for item in prepared if isinstance(item, _Ready)]
+    # The author's pattern never runs in this process: ``re`` holds the GIL while it matches.
+    answers = await search_many(
+        [RegexQuestion(text=r.content_text, pattern=r.rendered_pattern) for r in ready],
+        ignore_case=not parsed.case_sensitive,
+        multiline=parsed.multiline,
+        max_text=_MATCHED_TEXT_MAX_LENGTH,
+    )
+    answered = {
+        id(r): _answer_regex(r, a, parsed=parsed, node_id=node_id)
+        for r, a in zip(ready, answers, strict=True)
+    }
+    results = [answered[id(item)] if isinstance(item, _Ready) else item for item in prepared]
     return _build_route_outcomes(context=context, node_id=node_id, results=results)

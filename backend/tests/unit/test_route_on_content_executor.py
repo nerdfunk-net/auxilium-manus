@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import unittest
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from models.workflow_context import (
     Capability,
@@ -12,6 +12,7 @@ from models.workflow_context import (
     WorkflowContext,
 )
 from services.artifacts import InMemoryArtifactService
+from workflow_steps.common.regex_search import RegexAnswer
 from workflow_steps.route_on_content.executor import _parse_route_config, execute
 
 
@@ -277,6 +278,73 @@ class RouteOnContentExecutorTests(unittest.IsolatedAsyncioTestCase):
         error = by_name["failure"].context.devices["dev-1"].errors[0]
         self.assertEqual(error.code, "missing_content")
         self.assertEqual(error.failure.kind, "not_found")
+
+    async def test_a_catastrophic_pattern_fails_only_its_device_and_does_not_stall(self) -> None:
+        # W10-06: the author's regex runs in the isolated worker, with a time limit.
+        import time
+
+        artifact_service = InMemoryArtifactService()
+        slow = await _device_with_config(
+            artifact_service, device_id="slow", content="a" * 40 + "!\n"
+        )
+        quick = await _device_with_config(artifact_service, device_id="quick", content="ok\n")
+        started = time.monotonic()
+        outcomes = await execute(
+            config={"match_mode": "regex", "pattern": "(a+)+$"},
+            context=WorkflowContext(
+                run_id="run-1", workflow_id="wf-1", devices={"slow": slow, "quick": quick}
+            ),
+            run=_run(),
+            artifact_service=artifact_service,
+            node_id="node-1",
+            device_sessions=MagicMock(),
+        )
+        self.assertLess(time.monotonic() - started, 5)
+        by_name = {o.name: o for o in outcomes}
+        self.assertEqual(list(by_name["failure"].context.devices), ["slow"])
+        error = by_name["failure"].context.devices["slow"].errors[0]
+        self.assertEqual(error.code, "regex_stopped")
+        self.assertEqual(error.failure.kind, "bad_request")
+        self.assertEqual(list(by_name["mismatch"].context.devices), ["quick"])
+
+    async def test_regex_matching_goes_through_the_isolated_search(self) -> None:
+        artifact_service = InMemoryArtifactService()
+        device = await _device_with_config(
+            artifact_service, device_id="dev-1", content="line\ntacacs-server host 10.0.0.5\n"
+        )
+        seen: list[object] = []
+
+        async def fake_search(questions, **kwargs):
+            seen.append((list(questions), kwargs))
+            return [RegexAnswer(status="match", match="tacacs-server host")]
+
+        with patch(
+            "workflow_steps.route_on_content.executor.search_many", fake_search
+        ):
+            outcomes = await execute(
+                config={
+                    "match_mode": "regex",
+                    "pattern": "tacacs-server host",
+                    "multiline": True,
+                    "case_sensitive": True,
+                },
+                context=WorkflowContext(
+                    run_id="run-1", workflow_id="wf-1", devices={"dev-1": device}
+                ),
+                run=_run(),
+                artifact_service=artifact_service,
+                node_id="node-1",
+                device_sessions=MagicMock(),
+            )
+        (questions, kwargs), = seen
+        self.assertEqual(len(questions), 1)
+        self.assertEqual(questions[0].pattern, "tacacs-server host")
+        self.assertIn("tacacs-server", questions[0].text)
+        self.assertEqual(kwargs["ignore_case"], False)
+        self.assertEqual(kwargs["multiline"], True)
+        self.assertEqual(
+            [o.name for o in outcomes if o.context.devices], ["match"]
+        )
 
     async def test_invalid_regex_routes_to_failure(self) -> None:
         artifact_service = InMemoryArtifactService()

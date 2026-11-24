@@ -901,7 +901,10 @@ is covered by unit tests only. Open items:
 - **Isolate the remaining Jinja/regex steps (S4-07).** `/templates/render` and the regex probes now run
   in a killable child (`core/regex_isolated.py`, `services/ai_assistant/render_isolated.py`). The Hatchet
   steps `render-jinja-template` and `update-content` still evaluate author-written content in the
-  worker process (authors are trusted); a batch API for the isolated runner is needed before moving them.
+  worker process (authors are trusted). `route-on-content`, `get-virtual-chassis` (name filter and
+  index regex) already search through the isolated runner (`workflow_steps/common/regex_search.py`,
+  op `search_many`); `filter-output` and `config_to_attributes/primary_ipv4.py` compile config patterns
+  in-process and are the next candidates.
 
 - **Container hardening trial (S6-09).** The compose files drop all capabilities but the few
   `start.sh`/supervisord need and set `no-new-privileges`, PID and memory limits, but `read_only: true`

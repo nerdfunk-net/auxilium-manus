@@ -24,6 +24,8 @@ from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.common.run_session import require_session
 from workflow_steps.get_virtual_chassis.stack import (
     STEP_ID,
+    answer_member_indexes,
+    answer_name_filter,
     build_stack_devices,
     matches_name,
     parse_settings,
@@ -118,11 +120,18 @@ async def execute(
     )
 
     fetched = await _fetch_virtual_chassis(nautobot_service, credentials)
-    chassis = [vc for vc in fetched if matches_name(str(vc.get("name") or ""), settings)]
+    # The author's patterns run in the isolated regex worker, never in this process (W6-11).
+    name_answers = await answer_name_filter(fetched, settings)
+    chassis = [
+        vc for vc in fetched if matches_name(str(vc.get("name") or ""), settings, name_answers)
+    ]
+    index_answers = await answer_member_indexes(chassis, settings)
     devices = [
         device
         for vc in chassis
-        for device in build_stack_devices(vc, settings, source_id=source_id, node_id=node_id)
+        for device in build_stack_devices(
+            vc, settings, source_id=source_id, node_id=node_id, index_answers=index_answers
+        )
     ]
 
     outcomes = _stack_outcomes(

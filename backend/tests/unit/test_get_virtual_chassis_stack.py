@@ -7,6 +7,9 @@ from typing import Any
 
 from models.workflow_context import Capability, DeviceStatus
 from workflow_steps.get_virtual_chassis.stack import (
+    StackSettings,
+    answer_member_indexes,
+    answer_name_filter,
     build_stack_devices,
     matches_name,
     member_index,
@@ -15,6 +18,20 @@ from workflow_steps.get_virtual_chassis.stack import (
 )
 
 _NODE = "node-1"
+
+
+async def _idx(name: str, settings: StackSettings) -> int:
+    vc = {"id": "v", "name": "v", "members": [_member(name, 1, master=True, ip="10.0.0.1/24")]}
+    return member_index(name, settings, await answer_member_indexes([vc], settings))
+
+
+async def _match(name: str, settings: StackSettings) -> bool:
+    return matches_name(name, settings, await answer_name_filter([{"name": name}], settings))
+
+
+async def _build(vc: dict[str, Any], settings: StackSettings, **kwargs: Any):
+    answers = await answer_member_indexes([vc], settings)
+    return build_stack_devices(vc, settings, index_answers=answers, **kwargs)
 
 
 def _member(
@@ -104,55 +121,113 @@ class ParseSettingsTests(unittest.TestCase):
         self.assertEqual((s.index_offset, s.index_default), (-2, 5))
 
 
-class MemberIndexTests(unittest.TestCase):
-    def test_master_without_marker_gets_default(self) -> None:
-        self.assertEqual(member_index("LAB.local.zz", parse_settings({})), 0)
+class MemberIndexTests(unittest.IsolatedAsyncioTestCase):
+    async def test_master_without_marker_gets_default(self) -> None:
+        self.assertEqual(await _idx("LAB.local.zz", parse_settings({})), 0)
 
-    def test_second_member_is_offset_to_one(self) -> None:
-        self.assertEqual(member_index("LAB:2.local.zz", parse_settings({})), 1)
+    async def test_second_member_is_offset_to_one(self) -> None:
+        self.assertEqual(await _idx("LAB:2.local.zz", parse_settings({})), 1)
 
-    def test_multi_digit(self) -> None:
-        self.assertEqual(member_index("LAB:10.local.zz", parse_settings({})), 9)
+    async def test_multi_digit(self) -> None:
+        self.assertEqual(await _idx("LAB:10.local.zz", parse_settings({})), 9)
 
-    def test_custom_separator_and_no_offset(self) -> None:
+    async def test_custom_separator_and_no_offset(self) -> None:
         s = parse_settings({"index_regex": r"-sw(\d+)", "index_offset": 0})
-        self.assertEqual(member_index("LAB-sw3.local.zz", s), 3)
+        self.assertEqual(await _idx("LAB-sw3.local.zz", s), 3)
 
-    def test_custom_default(self) -> None:
-        self.assertEqual(member_index("LAB.local.zz", parse_settings({"index_default": 7})), 7)
+    async def test_custom_default(self) -> None:
+        self.assertEqual(await _idx("LAB.local.zz", parse_settings({"index_default": 7})), 7)
 
-    def test_regex_without_group_uses_whole_match(self) -> None:
+    async def test_regex_without_group_uses_whole_match(self) -> None:
         s = parse_settings({"index_regex": r"\d+", "index_offset": 0})
-        self.assertEqual(member_index("LAB2.local.zz", s), 2)
+        self.assertEqual(await _idx("LAB2.local.zz", s), 2)
 
-    def test_non_numeric_capture_falls_back_to_default(self) -> None:
+    async def test_non_numeric_capture_falls_back_to_default(self) -> None:
         s = parse_settings({"index_regex": r":(\w)"})
-        self.assertEqual(member_index("LAB:x.local.zz", s), 0)
+        self.assertEqual(await _idx("LAB:x.local.zz", s), 0)
 
 
-class MatchesNameTests(unittest.TestCase):
-    def test_empty_filter_matches_all(self) -> None:
-        self.assertTrue(matches_name("anything", parse_settings({})))
+class MatchesNameTests(unittest.IsolatedAsyncioTestCase):
+    async def test_empty_filter_matches_all(self) -> None:
+        self.assertTrue(await _match("anything", parse_settings({})))
 
-    def test_exact(self) -> None:
+    async def test_exact(self) -> None:
         s = parse_settings({"name_filter": "LAB.local.zz"})
-        self.assertTrue(matches_name("LAB.local.zz", s))
-        self.assertFalse(matches_name("LAB.local.zz2", s))
+        self.assertTrue(await _match("LAB.local.zz", s))
+        self.assertFalse(await _match("LAB.local.zz2", s))
 
-    def test_exact_ignores_case_like_the_assistant_tool(self) -> None:
+    async def test_exact_ignores_case_like_the_assistant_tool(self) -> None:
         s = parse_settings({"name_filter": "lab.LOCAL.zz"})
-        self.assertTrue(matches_name("LAB.local.zz", s))
-        self.assertFalse(matches_name("xLAB.local.zz", s))
+        self.assertTrue(await _match("LAB.local.zz", s))
+        self.assertFalse(await _match("xLAB.local.zz", s))
 
-    def test_contains_is_case_insensitive(self) -> None:
+    async def test_contains_is_case_insensitive(self) -> None:
         s = parse_settings({"name_match": "contains", "name_filter": "lab"})
-        self.assertTrue(matches_name("LAB.local.zz", s))
-        self.assertFalse(matches_name("core.local.zz", s))
+        self.assertTrue(await _match("LAB.local.zz", s))
+        self.assertFalse(await _match("core.local.zz", s))
 
-    def test_regex_uses_search(self) -> None:
+    async def test_regex_uses_search(self) -> None:
         s = parse_settings({"name_match": "regex", "name_filter": r"^LAB\."})
-        self.assertTrue(matches_name("LAB.local.zz", s))
-        self.assertFalse(matches_name("xLAB.local.zz", s))
+        self.assertTrue(await _match("LAB.local.zz", s))
+        self.assertFalse(await _match("xLAB.local.zz", s))
+
+
+class IsolatedRegexTests(unittest.IsolatedAsyncioTestCase):
+    """W6-11: the author's patterns run in the isolated worker and a stalled one fails the step."""
+
+    async def test_catastrophic_name_filter_is_stopped(self) -> None:
+        s = parse_settings({"name_match": "regex", "name_filter": r"(a+)+$"})
+        with self.assertRaisesRegex(ValueError, "get-virtual-chassis: name_filter was stopped"):
+            await answer_name_filter([{"name": "a" * 40 + "!"}], s)
+
+    async def test_catastrophic_index_regex_is_stopped(self) -> None:
+        s = parse_settings({"index_regex": r"(a+)+$"})
+        vc = {"id": "v", "name": "v", "members": [_member("a" * 40 + "!", 1, master=True)]}
+        with self.assertRaisesRegex(ValueError, "get-virtual-chassis: index_regex was stopped"):
+            await answer_member_indexes([vc], s)
+
+    async def test_the_name_filter_is_not_asked_unless_the_mode_is_regex(self) -> None:
+        for settings in (
+            parse_settings({}),
+            parse_settings({"name_filter": "lab"}),
+            parse_settings({"name_match": "contains", "name_filter": "lab"}),
+        ):
+            self.assertEqual(await answer_name_filter([{"name": "LAB"}], settings), {})
+
+    async def test_an_invalid_answer_is_a_stopped_pattern_too(self) -> None:
+        from unittest.mock import patch
+
+        from workflow_steps.common.regex_search import RegexAnswer
+
+        async def invalid(questions, **kwargs):
+            return [RegexAnswer(status="invalid")] * len(questions)
+
+        s = parse_settings({"name_match": "regex", "name_filter": "x"})
+        with (
+            patch("workflow_steps.get_virtual_chassis.stack.search_many", invalid),
+            self.assertRaisesRegex(ValueError, "name_filter was stopped"),
+        ):
+            await answer_name_filter([{"name": "n"}], s)
+
+    async def test_the_worker_is_asked_each_name_once(self) -> None:
+        from unittest.mock import patch
+
+        from workflow_steps.common.regex_search import RegexAnswer
+
+        asked: list[int] = []
+
+        async def counting(questions, **kwargs):
+            asked.append(len(questions))
+            return [RegexAnswer(status="nomatch")] * len(questions)
+
+        with patch("workflow_steps.get_virtual_chassis.stack.search_many", counting):
+            await answer_member_indexes([_vc(), _vc()], parse_settings({}))
+        self.assertEqual(asked, [2])
+
+    async def test_every_member_name_is_asked_once(self) -> None:
+        s = parse_settings({})
+        answers = await answer_member_indexes([_vc(), _vc()], s)
+        self.assertEqual(sorted(answers), ["LAB.local.zz", "LAB:2.local.zz"])
 
 
 class PickMasterTests(unittest.TestCase):
@@ -168,9 +243,9 @@ class PickMasterTests(unittest.TestCase):
         self.assertIsNone(pick_master([]))
 
 
-class BuildUnsplitTests(unittest.TestCase):
-    def test_one_device_per_stack(self) -> None:
-        devices = build_stack_devices(_vc(), parse_settings({}), source_id="src", node_id=_NODE)
+class BuildUnsplitTests(unittest.IsolatedAsyncioTestCase):
+    async def test_one_device_per_stack(self) -> None:
+        devices = await _build(_vc(), parse_settings({}), source_id="src", node_id=_NODE)
         self.assertEqual(len(devices), 1)
         dev = devices[0]
         self.assertEqual(dev.id, "id-LAB.local.zz")  # master's device id, not the VC id
@@ -182,8 +257,8 @@ class BuildUnsplitTests(unittest.TestCase):
         self.assertEqual(dev.status, DeviceStatus.OK)
         self.assertIn(Capability.IDENTITY, dev.capabilities)
 
-    def test_members_listed_in_bag(self) -> None:
-        dev = build_stack_devices(_vc(), parse_settings({}), source_id="src", node_id=_NODE)[0]
+    async def test_members_listed_in_bag(self) -> None:
+        dev = (await _build(_vc(), parse_settings({}), source_id="src", node_id=_NODE))[0]
         bag = dev.attribute_bags["virtual_chassis"]
         self.assertEqual(bag["vc_id"], "vc-1")
         self.assertEqual(bag["member_count"], 2)
@@ -193,25 +268,25 @@ class BuildUnsplitTests(unittest.TestCase):
         self.assertTrue(bag["members"][0]["is_master"])
         self.assertEqual(bag["master"]["name"], "LAB.local.zz")
 
-    def test_custom_bag_and_key(self) -> None:
+    async def test_custom_bag_and_key(self) -> None:
         s = parse_settings({"attribute_bag": "stack", "index_key": "idx"})
-        dev = build_stack_devices(_vc(), s, source_id="src", node_id=_NODE)[0]
+        dev = (await _build(_vc(), s, source_id="src", node_id=_NODE))[0]
         self.assertIn("stack", dev.attribute_bags)
         self.assertEqual(dev.attribute_bags["stack"]["members"][1]["idx"], 1)
 
 
-class BuildSplitTests(unittest.TestCase):
-    def test_one_device_per_member_sharing_master_ip(self) -> None:
+class BuildSplitTests(unittest.IsolatedAsyncioTestCase):
+    async def test_one_device_per_member_sharing_master_ip(self) -> None:
         s = parse_settings({"split_members": True})
-        devices = build_stack_devices(_vc(), s, source_id="src", node_id=_NODE)
+        devices = await _build(_vc(), s, source_id="src", node_id=_NODE)
         self.assertEqual([d.name for d in devices], ["LAB.local.zz", "LAB:2.local.zz"])
         self.assertEqual({d.primary_ip4 for d in devices}, {"10.0.0.1/24"})
         self.assertEqual({d.hostname for d in devices}, {"10.0.0.1"})
         self.assertEqual([d.id for d in devices], ["id-LAB.local.zz", "id-LAB:2.local.zz"])
 
-    def test_index_written_to_chosen_bag(self) -> None:
+    async def test_index_written_to_chosen_bag(self) -> None:
         s = parse_settings({"split_members": True, "attribute_bag": "stack", "index_key": "n"})
-        devices = build_stack_devices(_vc(), s, source_id="src", node_id=_NODE)
+        devices = await _build(_vc(), s, source_id="src", node_id=_NODE)
         self.assertEqual([d.attribute_bags["stack"]["n"] for d in devices], [0, 1])
         second = devices[1].attribute_bags["stack"]
         self.assertEqual(second["serial"], "SN2")
@@ -222,9 +297,9 @@ class BuildSplitTests(unittest.TestCase):
         self.assertEqual(second["member_count"], 2)
 
 
-class NoMasterIpTests(unittest.TestCase):
-    def test_unsplit_marks_device_failed(self) -> None:
-        devices = build_stack_devices(
+class NoMasterIpTests(unittest.IsolatedAsyncioTestCase):
+    async def test_unsplit_marks_device_failed(self) -> None:
+        devices = await _build(
             _vc(master_ip=None), parse_settings({}), source_id="src", node_id=_NODE
         )
         self.assertEqual(len(devices), 1)
@@ -233,8 +308,8 @@ class NoMasterIpTests(unittest.TestCase):
         self.assertEqual(devices[0].errors[0].failure.kind, "not_found")
         self.assertEqual(devices[0].errors[0].node_id, _NODE)
 
-    def test_split_marks_every_member_failed(self) -> None:
-        devices = build_stack_devices(
+    async def test_split_marks_every_member_failed(self) -> None:
+        devices = await _build(
             _vc(master_ip=None),
             parse_settings({"split_members": True}),
             source_id="src",
@@ -243,9 +318,9 @@ class NoMasterIpTests(unittest.TestCase):
         self.assertEqual(len(devices), 2)
         self.assertTrue(all(d.status == DeviceStatus.FAILED for d in devices))
 
-    def test_vc_without_members_yields_failed_stack_device(self) -> None:
+    async def test_vc_without_members_yields_failed_stack_device(self) -> None:
         vc = {"id": "vc-9", "name": "EMPTY", "members": []}
-        devices = build_stack_devices(vc, parse_settings({}), source_id="src", node_id=_NODE)
+        devices = await _build(vc, parse_settings({}), source_id="src", node_id=_NODE)
         self.assertEqual(len(devices), 1)
         self.assertEqual(devices[0].id, "vc-9")
         self.assertEqual(devices[0].status, DeviceStatus.FAILED)

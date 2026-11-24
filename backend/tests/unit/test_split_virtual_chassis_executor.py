@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import unittest
 from typing import Any
 from unittest.mock import MagicMock
@@ -14,6 +15,7 @@ from models.workflow_context import (
     WorkflowContext,
 )
 from services.workflow_context.attribute_path import resolve_device_attribute
+from workflow_steps.common.regex_search import RegexAnswer
 from workflow_steps.get_virtual_chassis.stack import (
     StackSettings,
     build_stack_devices,
@@ -22,6 +24,21 @@ from workflow_steps.get_virtual_chassis.stack import (
 from workflow_steps.split_virtual_chassis.executor import execute
 from workflow_steps.split_virtual_chassis.members import parse_settings as parse_split_settings
 from workflow_steps.split_virtual_chassis.members import split_stack_device
+
+
+def _build_stack_devices(vc, settings: StackSettings, **kwargs):
+    """``build_stack_devices`` with the index answers the worker would give (pure ``re``)."""
+    answers = {}
+    for member in vc.get("members") or []:
+        name = str(member.get("name"))
+        found = re.search(settings.index_pattern, name)
+        answers[name] = (
+            RegexAnswer(status="nomatch")
+            if found is None
+            else RegexAnswer(status="match", match=found.group(0), groups=found.groups())
+        )
+    return build_stack_devices(vc, settings, index_answers=answers, **kwargs)
+
 
 _MASTER_ID = "360889df-735f-4663-8cbd-b731a6975eaa"
 _MEMBER2_ID = "75eb94cb-28b9-4cd0-b853-025566a61f85"
@@ -68,7 +85,7 @@ def _vc() -> dict[str, Any]:
 def _stack_device(*, with_parsed: bool = True) -> DeviceContext:
     """The unsplit device get-virtual-chassis produces, after run-command."""
     settings: StackSettings = parse_settings({})
-    (device,) = build_stack_devices(_vc(), settings, source_id="src", node_id="n0")
+    (device,) = _build_stack_devices(_vc(), settings, source_id="src", node_id="n0")
     if not with_parsed:
         return device
     return device.model_copy(
@@ -118,7 +135,7 @@ class SplitStackDeviceTests(unittest.TestCase):
 
     def test_member_bag_matches_split_mode_shape(self) -> None:
         stack = _stack_device()
-        split_mode = build_stack_devices(
+        split_mode = _build_stack_devices(
             _vc(), parse_settings({"split_members": True}), source_id="src", node_id="n0"
         )
         members = split_stack_device(stack, parse_split_settings({}))
@@ -131,8 +148,8 @@ class SplitStackDeviceTests(unittest.TestCase):
         # W6-12: a mixed stack (member 2 is plain IOS) splits the same way at both points.
         vc = _vc()
         vc["members"][1]["platform"] = {"name": "Cisco IOS", "network_driver": "cisco_ios"}
-        (stack,) = build_stack_devices(vc, parse_settings({}), source_id="src", node_id="n0")
-        split_mode = build_stack_devices(
+        (stack,) = _build_stack_devices(vc, parse_settings({}), source_id="src", node_id="n0")
+        split_mode = _build_stack_devices(
             vc, parse_settings({"split_members": True}), source_id="src", node_id="n0"
         )
         members = split_stack_device(stack, parse_split_settings({}))
@@ -185,7 +202,7 @@ class SplitStackDeviceTests(unittest.TestCase):
         self.assertIsNone(split_stack_device(plain, parse_split_settings({})))
 
     def test_already_split_member_is_not_splittable(self) -> None:
-        (member, *_) = build_stack_devices(
+        (member, *_) = _build_stack_devices(
             _vc(), parse_settings({"split_members": True}), source_id="src", node_id="n0"
         )
         self.assertIsNone(split_stack_device(member, parse_split_settings({})))
@@ -198,7 +215,7 @@ class SplitStackDeviceTests(unittest.TestCase):
 
     def test_custom_attribute_bag(self) -> None:
         settings = parse_settings({"attribute_bag": "vc"})
-        (stack,) = build_stack_devices(_vc(), settings, source_id="src", node_id="n0")
+        (stack,) = _build_stack_devices(_vc(), settings, source_id="src", node_id="n0")
         members = split_stack_device(stack, parse_split_settings({"attribute_bag": "vc"}))
         assert members is not None
         self.assertEqual(members[1].attribute_bags["vc"]["position"], 2)
