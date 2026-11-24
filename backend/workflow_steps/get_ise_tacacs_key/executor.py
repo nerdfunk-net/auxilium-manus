@@ -44,19 +44,15 @@ from sqlalchemy.orm import object_session
 
 import service_factory
 from core.models.runs import WorkflowRun
-from models.workflow_context import (
-    DeviceContext,
-    DeviceError,
-    DeviceStatus,
-    StepOutcome,
-    WorkflowContext,
-)
+from models.workflow_context import DeviceContext, StepOutcome, WorkflowContext
 from services.artifacts import ArtifactService
 from services.ise.common.exceptions import ISEAPIError, ISENotFoundError, ISEValidationError
 from services.ise.network_device_service import ISENetworkDeviceService
 from services.workflow_context.attribute_path import resolve_device_value
 from services.workflow_context.secret_fields import seal_secret, secret_is_present
 from workflow_steps.common.attribute_write import set_device_attribute
+from workflow_steps.common.device_outcomes import build_outcomes
+from workflow_steps.common.device_runner import AbortRun, Fail, run_per_device
 from workflow_steps.common.ise_lookup import (
     device_ip_list_matches,
     extract_tacacs_shared_secret,
@@ -331,21 +327,6 @@ async def _find_tacacs_key(
     return None, None
 
 
-def _mark_not_found(device: DeviceContext, *, node_id: str, source_id: str) -> DeviceContext:
-    error = DeviceError(
-        node_id=node_id,
-        step_id=_STEP_ID,
-        code="tacacs_key_not_found",
-        message=(
-            f"No enabled priority tier found a TACACS+ key for '{device.name}' "
-            f"in ISE source '{source_id}'"
-        ),
-    )
-    return device.model_copy(
-        update={"status": DeviceStatus.FAILED, "errors": [*device.errors, error]}
-    )
-
-
 def _resolve_ise_device_service(run: WorkflowRun, source_id: str) -> ISENetworkDeviceService:
     db = object_session(run)
     if db is None:
@@ -376,27 +357,21 @@ def _ise_unreachable_outcome(
 
 async def _process_devices_for_tacacs_key(
     *,
-    devices: dict[str, DeviceContext],
+    context: WorkflowContext,
     device_service: ISENetworkDeviceService,
     priority: list[dict[str, Any]],
     location_group_prefix: str,
     node_id: str,
     source_id: str,
-    context: WorkflowContext,
-) -> tuple[dict[str, DeviceContext], dict[str, DeviceContext], int, int] | list[StepOutcome]:
-    updated_devices: dict[str, DeviceContext] = {}  # key found now, or already present
-    missing_devices: dict[str, DeviceContext] = {}  # no enabled tier found a key
+) -> list[StepOutcome]:
     inventory = _IseInventory(device_service)  # one inventory download per step run
     location_groups = _LocationGroups(device_service)  # one listing per location group
-    found_count = 0
-    already_present_count = 0
+    found: set[str] = set()  # key found now (the rest of the successes already had one)
 
-    for device_id, device in devices.items():
+    async def work(device_id: str, device: DeviceContext) -> DeviceContext | Fail:
         existing_secret = (device.attribute_bags.get("tacacs") or {}).get("shared_secret")
         if secret_is_present(existing_secret):
-            updated_devices[device_id] = device
-            already_present_count += 1
-            continue
+            return device
 
         try:
             secret, matched_tier = await _find_tacacs_key(
@@ -415,53 +390,69 @@ async def _process_devices_for_tacacs_key(
                 device.name,
                 exc,
             )
-            return abort_outcomes(
-                context=context,
-                node_id=node_id,
-                step_id=_STEP_ID,
-                done_ok=updated_devices,
-                done_failed=missing_devices,
-                message=f"lost connection to ISE source '{source_id}'",
-                failure=exc.failure,
-            )
-        except ValueError:
-            raise
-        except Exception as exc:
-            raise RuntimeError(f"{_STEP_ID}: failed for device '{device.name}': {exc}") from exc
+            raise AbortRun(f"lost connection to ISE source '{source_id}'", exc.failure) from exc
 
-        if secret:
-            with_secret = set_device_attribute(device, "tacacs.shared_secret", seal_secret(secret))
-            # Record which lookup tier succeeded (one of _TIER_TYPES) so
-            # downstream steps and run output can tell how the key was found.
-            updated_devices[device_id] = set_device_attribute(
-                with_secret, _KEY_STRATEGY_PATH, matched_tier
+        if not secret:
+            return Fail(
+                code="tacacs_key_not_found",
+                message=(
+                    f"No enabled priority tier found a TACACS+ key for '{device.name}' "
+                    f"in ISE source '{source_id}'"
+                ),
             )
-            found_count += 1
-            logger.info(
-                "%s: found tacacs key for device=%s tier=%s", _STEP_ID, device.name, matched_tier
-            )
-        else:
-            missing_devices[device_id] = _mark_not_found(
-                device, node_id=node_id, source_id=source_id
-            )
+        with_secret = set_device_attribute(device, "tacacs.shared_secret", seal_secret(secret))
+        # Record which lookup tier succeeded (one of _TIER_TYPES) so downstream steps and run
+        # output can tell how the key was found.
+        found.add(device_id)
+        logger.info(
+            "%s: found tacacs key for device=%s tier=%s", _STEP_ID, device.name, matched_tier
+        )
+        return set_device_attribute(with_secret, _KEY_STRATEGY_PATH, matched_tier)
 
-    return updated_devices, missing_devices, found_count, already_present_count
+    # One device after the other (the inventory and location caches are shared): a lost ISE
+    # connection stops the run and the devices already done keep their result (DN-A).
+    batch = await run_per_device(
+        context, work, node_id=node_id, step_id=_STEP_ID, concurrency=1
+    )
+    if batch.aborted is not None:
+        return abort_outcomes(
+            context=context,
+            node_id=node_id,
+            step_id=_STEP_ID,
+            done_ok=batch.ok,
+            done_failed=batch.failed,
+            message=batch.aborted.message,
+            failure=batch.aborted.failure,
+        )
 
-
-def _build_tacacs_result_metadata(
-    context: WorkflowContext,
-    node_id: str,
-    found_count: int,
-    already_present_count: int,
-    not_found_count: int,
-) -> dict[str, Any]:
-    return {
-        **context.metadata,
-        f"{node_id}.total": len(context.devices),
-        f"{node_id}.found_count": found_count,
-        f"{node_id}.already_present_count": already_present_count,
-        f"{node_id}.not_found_count": not_found_count,
-    }
+    found_count = len(found)
+    already_present_count = len(batch.ok) - found_count
+    not_found_count = len(batch.failed)
+    logger.info(
+        "%s finished node_id=%s found=%d already_present=%d not_found=%d run_id=%s",
+        _STEP_ID,
+        node_id,
+        found_count,
+        already_present_count,
+        not_found_count,
+        context.run_id,
+    )
+    return build_outcomes(
+        context,
+        batch.ok,
+        batch.failed,
+        metadata={
+            f"{node_id}.total": len(context.devices),
+            f"{node_id}.found_count": found_count,
+            f"{node_id}.already_present_count": already_present_count,
+            f"{node_id}.not_found_count": not_found_count,
+        },
+        success_summary=(
+            f"found {found_count}, already had key {already_present_count}, "
+            f"not found {not_found_count}"
+        ),
+        failure_summary=f"no key found for {not_found_count} device(s)",
+    )
 
 
 async def execute(
@@ -501,52 +492,11 @@ async def execute(
         logger.warning("%s: could not reach ISE source '%s': %s", _STEP_ID, source_id, exc)
         return [_ise_unreachable_outcome(context, source_id, exc, prefix="could not reach")]
 
-    loop_result = await _process_devices_for_tacacs_key(
-        devices=context.devices,
+    return await _process_devices_for_tacacs_key(
+        context=context,
         device_service=device_service,
         priority=priority,
         location_group_prefix=location_group_prefix,
         node_id=node_id,
         source_id=source_id,
-        context=context,
     )
-    if isinstance(loop_result, list):
-        return loop_result
-
-    updated_devices, missing_devices, found_count, already_present_count = loop_result
-    not_found_count = len(missing_devices)
-    metadata = _build_tacacs_result_metadata(
-        context, node_id, found_count, already_present_count, not_found_count
-    )
-
-    logger.info(
-        "%s finished node_id=%s found=%d already_present=%d not_found=%d run_id=%s",
-        _STEP_ID,
-        node_id,
-        found_count,
-        already_present_count,
-        not_found_count,
-        context.run_id,
-    )
-
-    outcomes = [
-        StepOutcome(
-            name="success",
-            context=context.model_copy(update={"devices": updated_devices, "metadata": metadata}),
-            summary=(
-                f"found {found_count}, already had key {already_present_count}, "
-                f"not found {not_found_count}"
-            ),
-        )
-    ]
-    if missing_devices:
-        outcomes.append(
-            StepOutcome(
-                name="failure",
-                context=context.model_copy(
-                    update={"devices": missing_devices, "metadata": metadata}
-                ),
-                summary=f"no key found for {not_found_count} device(s)",
-            )
-        )
-    return outcomes

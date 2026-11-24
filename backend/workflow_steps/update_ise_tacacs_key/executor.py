@@ -31,26 +31,21 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy.orm import object_session
 
 import service_factory
 from core.models.runs import WorkflowRun
-from models.failure import FailureInfo
-from models.workflow_context import (
-    DeviceContext,
-    DeviceError,
-    DeviceStatus,
-    StepOutcome,
-    WorkflowContext,
-)
+from models.workflow_context import DeviceContext, StepOutcome, WorkflowContext
 from services.artifacts import ArtifactService
 from services.ise.common.exceptions import ISEAPIError, ISENotFoundError, ISEValidationError
 from services.ise.network_device_service import ISENetworkDeviceService
 from services.workflow_context.secret_expression import require_secret_expression
 from services.workflow_context.secret_fields import seal_secret
 from workflow_steps.common.attribute_write import set_device_attribute
+from workflow_steps.common.device_outcomes import build_outcomes
+from workflow_steps.common.device_runner import AbortRun, Fail, run_per_device
 from workflow_steps.common.partial_outcomes import abort_outcomes
 from workflow_steps.common.source_credentials import resolve_source
 from workflow_steps.common.update_field_expression import resolve_update_field_expression
@@ -67,35 +62,6 @@ _STEP_ID = "update-ise-tacacs-key"
 class _ParsedConfig:
     source_id: str
     raw_new_key: str
-
-
-@dataclass(frozen=True)
-class _UpdateOneResult:
-    kind: Literal["ok", "fail", "abort"]
-    device: DeviceContext | None = None
-    # "abort" carries the cause; execute() turns it into the partial outcomes (DN-A).
-    failure: FailureInfo | None = None
-    message: str = ""
-
-    @property
-    def ok(self) -> bool:
-        return self.kind == "ok"
-
-
-def _mark_failed(
-    device: DeviceContext,
-    *,
-    node_id: str,
-    code: str,
-    message: str,
-    failure: FailureInfo | None = None,
-) -> DeviceContext:
-    error = DeviceError(
-        node_id=node_id, step_id=_STEP_ID, code=code, message=message, failure=failure
-    )
-    return device.model_copy(
-        update={"status": DeviceStatus.FAILED, "errors": [*device.errors, error]}
-    )
 
 
 async def _resolve_ise_device_id(
@@ -163,9 +129,9 @@ async def _update_one_device(
     device: DeviceContext,
     device_service: ISENetworkDeviceService,
     parsed: _ParsedConfig,
-    node_id: str,
     run_id: str | None,
-) -> _UpdateOneResult:
+) -> DeviceContext | Fail:
+    """The device with its new key, or a ``Fail``; raises ``AbortRun`` when ISE is lost."""
     new_key_value = resolve_update_field_expression(
         device=device,
         field_key="new_key",
@@ -173,14 +139,9 @@ async def _update_one_device(
         run_id=run_id,
     )
     if not new_key_value:
-        return _UpdateOneResult(
-            kind="fail",
-            device=_mark_failed(
-                device,
-                node_id=node_id,
-                code="tacacs_key_unresolved",
-                message=f"new_key expression did not resolve to a value for '{device.name}'",
-            ),
+        return Fail(
+            code="tacacs_key_unresolved",
+            message=f"new_key expression did not resolve to a value for '{device.name}'",
         )
 
     try:
@@ -193,23 +154,12 @@ async def _update_one_device(
             device.name,
             exc,
         )
-        return _UpdateOneResult(
-            kind="abort",
-            failure=exc.failure,
-            message=f"lost connection to ISE source '{parsed.source_id}'",
-        )
+        raise AbortRun(f"lost connection to ISE source '{parsed.source_id}'", exc.failure) from exc
 
     if not ise_device_id:
-        return _UpdateOneResult(
-            kind="fail",
-            device=_mark_failed(
-                device,
-                node_id=node_id,
-                code="ise_device_not_found",
-                message=(
-                    f"could not locate device '{device.name}' in ISE source '{parsed.source_id}'"
-                ),
-            ),
+        return Fail(
+            code="ise_device_not_found",
+            message=f"could not locate device '{device.name}' in ISE source '{parsed.source_id}'",
         )
 
     try:
@@ -218,15 +168,10 @@ async def _update_one_device(
         merged_tacacs = {**current_tacacs, "sharedSecret": new_key_value}
         await device_service.update_device(ise_device_id, {"tacacsSettings": merged_tacacs})
     except (ISENotFoundError, ISEValidationError) as exc:
-        return _UpdateOneResult(
-            kind="fail",
-            device=_mark_failed(
-                device,
-                node_id=node_id,
-                code="tacacs_key_update_rejected",
-                message=f"ISE rejected the TACACS+ key update for '{device.name}': {exc}",
-                failure=exc.failure,
-            ),
+        return Fail(
+            code="tacacs_key_update_rejected",
+            message=f"ISE rejected the TACACS+ key update for '{device.name}': {exc}",
+            failure=exc.failure,
         )
     except ISEAPIError as exc:
         logger.warning(
@@ -236,58 +181,11 @@ async def _update_one_device(
             device.name,
             exc,
         )
-        return _UpdateOneResult(
-            kind="abort",
-            failure=exc.failure,
-            message=f"lost connection to ISE source '{parsed.source_id}'",
-        )
+        raise AbortRun(f"lost connection to ISE source '{parsed.source_id}'", exc.failure) from exc
 
     updated = set_device_attribute(device, "tacacs.shared_secret", seal_secret(new_key_value))
     logger.info("%s: updated tacacs key for device=%s", _STEP_ID, device.name)
-    return _UpdateOneResult(kind="ok", device=updated)
-
-
-def _build_outcomes(
-    *,
-    context: WorkflowContext,
-    node_id: str,
-    updated_devices: dict[str, DeviceContext],
-    failed_devices: dict[str, DeviceContext],
-) -> list[StepOutcome]:
-    metadata = {
-        **context.metadata,
-        f"{node_id}.total": len(context.devices),
-        f"{node_id}.updated_count": len(updated_devices),
-        f"{node_id}.failed_count": len(failed_devices),
-    }
-
-    logger.info(
-        "%s finished node_id=%s updated=%d failed=%d run_id=%s",
-        _STEP_ID,
-        node_id,
-        len(updated_devices),
-        len(failed_devices),
-        context.run_id,
-    )
-
-    outcomes = [
-        StepOutcome(
-            name="success",
-            context=context.model_copy(update={"devices": updated_devices, "metadata": metadata}),
-            summary=f"updated {len(updated_devices)}, failed {len(failed_devices)}",
-        )
-    ]
-    if failed_devices:
-        outcomes.append(
-            StepOutcome(
-                name="failure",
-                context=context.model_copy(
-                    update={"devices": failed_devices, "metadata": metadata}
-                ),
-                summary=f"{len(failed_devices)} device(s) not updated",
-            )
-        )
-    return outcomes
+    return updated
 
 
 async def execute(
@@ -319,34 +217,44 @@ async def execute(
     if preflight is not None:
         return preflight
 
-    updated_devices: dict[str, DeviceContext] = {}  # ISE accepted the key
-    failed_devices: dict[str, DeviceContext] = {}  # not found / rejected / key unresolved
-
-    for device_id, device in context.devices.items():
-        result = await _update_one_device(
-            device=device,
-            device_service=device_service,
-            parsed=parsed,
-            node_id=node_id,
-            run_id=context.run_id,
+    async def work(_device_id: str, device: DeviceContext) -> DeviceContext | Fail:
+        return await _update_one_device(
+            device=device, device_service=device_service, parsed=parsed, run_id=context.run_id
         )
-        if result.kind == "abort":
-            return abort_outcomes(
-                context=context,
-                node_id=node_id,
-                step_id=_STEP_ID,
-                done_ok=updated_devices,
-                done_failed=failed_devices,
-                message=result.message,
-                failure=result.failure,
-            )
 
-        assert result.device is not None  # noqa: S101  # type narrowing on result.kind
-        (updated_devices if result.ok else failed_devices)[device_id] = result.device
+    # One device after the other: a lost ISE connection stops the run (AbortRun) and the devices
+    # already done keep their result (DN-A).
+    batch = await run_per_device(
+        context, work, node_id=node_id, step_id=_STEP_ID, concurrency=1
+    )
+    if batch.aborted is not None:
+        return abort_outcomes(
+            context=context,
+            node_id=node_id,
+            step_id=_STEP_ID,
+            done_ok=batch.ok,
+            done_failed=batch.failed,
+            message=batch.aborted.message,
+            failure=batch.aborted.failure,
+        )
 
-    return _build_outcomes(
-        context=context,
-        node_id=node_id,
-        updated_devices=updated_devices,
-        failed_devices=failed_devices,
+    logger.info(
+        "%s finished node_id=%s updated=%d failed=%d run_id=%s",
+        _STEP_ID,
+        node_id,
+        len(batch.ok),
+        len(batch.failed),
+        context.run_id,
+    )
+    return build_outcomes(
+        context,
+        batch.ok,
+        batch.failed,
+        metadata={
+            f"{node_id}.total": len(context.devices),
+            f"{node_id}.updated_count": len(batch.ok),
+            f"{node_id}.failed_count": len(batch.failed),
+        },
+        success_summary=f"updated {len(batch.ok)}, failed {len(batch.failed)}",
+        failure_summary=f"{len(batch.failed)} device(s) not updated",
     )
