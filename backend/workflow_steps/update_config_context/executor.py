@@ -52,6 +52,10 @@ from workflow_steps.common.jinja_render import build_jinja_context, render_jinja
 from workflow_steps.common.json_object_path import get_at_path, set_at_path, top_level_key
 from workflow_steps.common.nautobot_resolve import resolve_nautobot_device_id
 from workflow_steps.common.nautobot_source import resolve_nautobot_credentials
+from workflow_steps.common.nautobot_target import (
+    explicit_device_context,
+    parse_explicit_identifier,
+)
 from workflow_steps.common.step_flags import parse_bool_flag
 from workflow_steps.common.template_content import load_stored_template
 
@@ -81,7 +85,7 @@ class _UpdateEntry:
 class _ParsedConfig:
     source_id: str
     identifier_mode: str
-    device_identifier: dict[str, Any]
+    device_identifier: dict[str, str]
     mode: str
     # write/append: the single path + value source. For update these stay
     # empty/None — see ``updates``.
@@ -209,6 +213,11 @@ def _parse_config(config: dict[str, Any]) -> _ParsedConfig:
     if not isinstance(raw_identifier, dict):
         raw_identifier = {}
     identifier_mode = str(raw_identifier.get("mode") or "from_context").strip()
+    explicit_identifier = (
+        parse_explicit_identifier(raw_identifier, step_id=_STEP_ID)
+        if identifier_mode == "explicit"
+        else {}
+    )
 
     mode = str(config.get("mode") or "write").strip().lower()
     if mode not in _MODES:
@@ -226,7 +235,7 @@ def _parse_config(config: dict[str, Any]) -> _ParsedConfig:
     return _ParsedConfig(
         source_id=source_id,
         identifier_mode=identifier_mode,
-        device_identifier=raw_identifier,
+        device_identifier=explicit_identifier,
         mode=mode,
         path=path,
         value_source=value_source,
@@ -241,22 +250,6 @@ def _resolve_device_items(
     if identifier_mode == "explicit":
         return [("explicit", None)]
     return list(context.devices.items())
-
-
-def _explicit_device_context(raw_identifier: dict[str, Any]) -> DeviceContext:
-    """Build a placeholder device from an explicit id/name/ip_address so the
-    same resolve_nautobot_device_id() path handles both from_context and
-    explicit identifier modes."""
-    explicit_id = str(raw_identifier.get("id") or "").strip()
-    explicit_name = str(raw_identifier.get("name") or "").strip()
-    explicit_ip = str(raw_identifier.get("ip_address") or "").strip()
-    return DeviceContext(
-        id=explicit_id or "explicit",
-        name=explicit_name,
-        hostname=explicit_name or explicit_id or "explicit",
-        source="nautobot",
-        primary_ip4=explicit_ip or None,
-    )
 
 
 def _build_update_service(
@@ -509,7 +502,7 @@ async def _update_one_device(
         else:
             rendered_path = _render_path(parsed.path, device)
         target = (
-            device if device is not None else _explicit_device_context(parsed.device_identifier)
+            device if device is not None else explicit_device_context(parsed.device_identifier)
         )
         nautobot_device_id = await resolve_nautobot_device_id(
             nautobot_service=nautobot_service,

@@ -39,6 +39,7 @@ from services.nautobot.managers.vlan_manager import (
 from services.workflow_context.secret_fields import REDACTED_PLACEHOLDER
 from workflow_steps.common.location_list import split_locations
 from workflow_steps.common.nautobot_source import resolve_nautobot_credentials
+from workflow_steps.common.nautobot_write_groups import write_once_per_group
 from workflow_steps.common.partial_outcomes import (
     device_error_from_exception,
     fail_device_with_error,
@@ -529,11 +530,22 @@ async def execute(
     gate = asyncio.Semaphore(_CONCURRENCY)
     found: dict[tuple[int, str | None], list[str]] = {}
 
-    async def run_one(item: _Resolved) -> tuple[str, DeviceContext, bool]:
-        async with gate:
-            return await _update(bound, item, parsed.locations_mode, found, node_id)
+    async def write(item: _Resolved) -> tuple[str, DeviceContext, bool]:
+        return await _update(bound, item, parsed.locations_mode, found, node_id)
 
-    done = await asyncio.gather(*[run_one(item) for item in ready])
+    # Devices that resolve to one object with the same values share one write (W5-01, D6).
+    done = await write_once_per_group(
+        ready,
+        target_of=lambda item: (item.plan.vlan_id, item.plan.vid, item.group_id),
+        group_of=lambda item: (
+            (item.plan.vlan_id, item.plan.vid, item.group_id),
+            tuple(sorted(item.fields.items())),
+            item.location_ids,
+        ),
+        device_of=lambda item: item.plan.device,
+        write=write,
+        gate=gate,
+    )
     updated = 0
     for item, (bucket, device, changed) in zip(ready, done, strict=True):
         results[item.plan.device.id] = (bucket, device)

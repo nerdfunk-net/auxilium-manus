@@ -12,7 +12,6 @@ from workflow_steps.update_nautobot_device.executor import (
     _apply_update_result,
     _build_update_service,
     _fail_device,
-    _resolve_device_identifier,
     _strip_empty,
     _update_one_device,
     execute,
@@ -33,39 +32,6 @@ class StripEmptyTests(unittest.TestCase):
         self.assertIsNone(_strip_empty("   "))
         self.assertEqual(_strip_empty("  x "), "x")
         self.assertEqual(_strip_empty(5), 5)
-
-
-class ResolveDeviceIdentifierTests(unittest.TestCase):
-    def test_explicit_mode_uses_configured_id_and_name(self) -> None:
-        ident = _resolve_device_identifier(
-            config={"device_identifier": {"mode": "explicit", "id": " abc ", "name": ""}},
-            device=_device(),
-            nautobot_device_id=None,
-        )
-        self.assertEqual(ident, {"id": "abc"})
-
-    def test_from_context_prefers_resolved_nautobot_id(self) -> None:
-        ident = _resolve_device_identifier(
-            config={}, device=_device(), nautobot_device_id="nb-1"
-        )
-        self.assertEqual(ident, {"id": "nb-1"})
-
-    def test_from_context_falls_back_to_name_then_ip(self) -> None:
-        by_name = _resolve_device_identifier(
-            config={}, device=_device("r1"), nautobot_device_id=None
-        )
-        self.assertEqual(by_name, {"name": "r1"})
-        no_name = DeviceContext(id="d1", name="", hostname="d1", primary_ip4="10.0.0.9")
-        by_ip = _resolve_device_identifier(config={}, device=no_name, nautobot_device_id=None)
-        self.assertEqual(by_ip, {"ip_address": "10.0.0.9"})
-
-    def test_explicit_mode_without_values_falls_through_to_context(self) -> None:
-        ident = _resolve_device_identifier(
-            config={"device_identifier": {"mode": "explicit"}},
-            device=_device("r1"),
-            nautobot_device_id=None,
-        )
-        self.assertEqual(ident, {"name": "r1"})
 
 
 class BuildUpdateServiceTests(unittest.TestCase):

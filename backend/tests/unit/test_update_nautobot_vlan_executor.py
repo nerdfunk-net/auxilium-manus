@@ -280,7 +280,13 @@ class ExecuteTests(unittest.IsolatedAsyncioTestCase):
     async def test_nautobot_refusal_fails_only_that_device(self) -> None:
         common = MagicMock()
         common.update_vlan = AsyncMock(side_effect=[RuntimeError("boom"), True])
-        out, _ = await _run(_config(), _context(_device("a"), _device("b")), common=common)
+        # Different descriptions: two writes. (Devices with one fixed target and the same values
+        # share a single write and its result, see test_nautobot_write_groups.py.)
+        devices = [
+            _device(name, attribute_bags={"custom": {"d": name}}) for name in ("a", "b")
+        ]
+        out, _ = await _run(_config(description="{custom.d}"), _context(*devices), common=common)
+        self.assertEqual(common.update_vlan.call_count, 2)
         self.assertEqual((len(out["success"].devices), len(out["failure"].devices)), (1, 1))
 
     async def test_no_devices_returns_empty_outcomes(self) -> None:

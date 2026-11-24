@@ -3810,7 +3810,8 @@ plugins:
         - name: device_identifier
           description: >
             How to identify the device. Use from_context for workflow devices, or
-            explicit with id or name when running standalone.
+            explicit with id, name or ip_address when running standalone (resolved
+            strictly: two devices of one name fail; an empty identifier is a config error).
           data_type: object
           required: false
           example:
@@ -4107,7 +4108,8 @@ plugins:
         - name: device_identifier
           description: >
             How to identify the device. Use from_context for workflow devices, or
-            explicit with id or name when running standalone.
+            explicit with id, name or ip_address when running standalone (resolved
+            strictly: two devices of one name fail; an empty identifier is a config error).
           data_type: object
           required: false
           example:

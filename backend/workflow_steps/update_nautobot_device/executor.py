@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from sqlalchemy.orm import object_session
@@ -34,6 +34,10 @@ from workflow_steps.common.nautobot_interfaces import (
 )
 from workflow_steps.common.nautobot_resolve import resolve_nautobot_device_id
 from workflow_steps.common.nautobot_source import resolve_nautobot_credentials
+from workflow_steps.common.nautobot_target import (
+    explicit_device_context,
+    parse_explicit_identifier,
+)
 from workflow_steps.common.redundancy_groups_config import (
     DEFAULT_REDUNDANCY_STATUS,
     parse_redundancy_groups,
@@ -80,6 +84,8 @@ class _ParsedConfig:
     sync_interfaces: bool
     identifier_mode: str
     dry_run: bool
+    # id / name / ip_address of the device named by mode 'explicit'; empty in from_context mode.
+    explicit_identifier: dict[str, str] = field(default_factory=dict)
     parsed_list_path: str = ""
     parsed_list_field_map: dict[str, str] | None = None
     parsed_list_fixed_values: dict[str, str] | None = None
@@ -95,38 +101,6 @@ def _strip_empty(value: Any) -> Any:
         stripped = value.strip()
         return stripped if stripped else None
     return value
-
-
-def _resolve_device_identifier(
-    *,
-    config: dict[str, Any],
-    device: DeviceContext,
-    nautobot_device_id: str | None,
-) -> dict[str, Any]:
-    raw_identifier = config.get("device_identifier") or {}
-    mode = "from_context"
-    if isinstance(raw_identifier, dict):
-        mode = str(raw_identifier.get("mode") or "from_context").strip()
-
-    if mode == "explicit" and isinstance(raw_identifier, dict):
-        explicit_id = _strip_empty(raw_identifier.get("id"))
-        explicit_name = _strip_empty(raw_identifier.get("name"))
-        if explicit_id or explicit_name:
-            identifier: dict[str, Any] = {}
-            if explicit_id:
-                identifier["id"] = explicit_id
-            if explicit_name:
-                identifier["name"] = explicit_name
-            return identifier
-
-    identifier = {}
-    if nautobot_device_id:
-        identifier["id"] = nautobot_device_id
-    elif device.name:
-        identifier["name"] = device.name
-    elif device.primary_ip4:
-        identifier["ip_address"] = device.primary_ip4
-    return identifier
 
 
 def _clean_str_map(raw: Any, *, what: str) -> dict[str, str]:
@@ -223,6 +197,12 @@ def _parse_config(config: dict[str, Any]) -> _ParsedConfig:
     if isinstance(raw_identifier, dict):
         identifier_mode = str(raw_identifier.get("mode") or "from_context")
 
+    explicit_identifier = (
+        parse_explicit_identifier(raw_identifier, step_id=_STEP_ID)
+        if identifier_mode == "explicit"
+        else {}
+    )
+
     if interfaces_source in {"nautobot_origin", "parsed_list"} and identifier_mode == "explicit":
         raise ValueError(
             f"{_STEP_ID}: interfaces_source {interfaces_source!r} requires devices from an "
@@ -262,6 +242,7 @@ def _parse_config(config: dict[str, Any]) -> _ParsedConfig:
         default_prefix_length=default_prefix_length,
         sync_interfaces=sync_interfaces,
         identifier_mode=identifier_mode,
+        explicit_identifier=explicit_identifier,
         dry_run=parse_bool_flag(config, "dry_run", default=False),
         parsed_list_path=parsed_list_path,
         parsed_list_field_map=parsed_list_field_map,
@@ -415,32 +396,27 @@ async def _update_one_device(
     parsed: _ParsedConfig,
 ) -> tuple[str, DeviceContext | None, bool, str | None]:
     try:
-        nautobot_device_id: str | None = None
-        if device is not None:
-            nautobot_device_id = await resolve_nautobot_device_id(
-                nautobot_service=nautobot_service,
-                credentials=credentials,
-                device=device,
-            )
-            if nautobot_device_id is None:
-                return _fail_device(
-                    device_key=device_key,
-                    device=device,
-                    node_id=node_id,
-                    code="not_found",
-                    message=(
-                        f"No Nautobot device found for workflow device {device_key} "
-                        f"(name={device.name!r}, ip={device.primary_ip4!r})"
-                    ),
-                )
-
-        device_identifier = _resolve_device_identifier(
-            config=config,
-            device=device or DeviceContext(id=device_key, name=device_key, hostname=device_key),
-            nautobot_device_id=nautobot_device_id,
+        # Strict for every mode: an explicit identifier is resolved like a context device, so two
+        # devices of one name fail instead of the first one being written (W5-02, D7).
+        target = device or explicit_device_context(parsed.explicit_identifier)
+        nautobot_device_id = await resolve_nautobot_device_id(
+            nautobot_service=nautobot_service,
+            credentials=credentials,
+            device=target,
         )
-        if not any(device_identifier.get(k) for k in ("id", "name", "ip_address")):
-            raise ValueError("device identifier must include id, name, or ip_address")
+        if nautobot_device_id is None:
+            return _fail_device(
+                device_key=device_key,
+                device=device,
+                node_id=node_id,
+                code="not_found",
+                message=(
+                    f"No Nautobot device found for workflow device {device_key} "
+                    f"(name={target.name!r}, ip={target.primary_ip4!r})"
+                ),
+            )
+
+        device_identifier = {"id": nautobot_device_id}
 
         resolved = device or DeviceContext(id=device_key, name=device_key, hostname=device_key)
 

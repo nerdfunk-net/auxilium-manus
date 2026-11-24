@@ -12,7 +12,6 @@ from workflow_steps.update_config_context import executor as mod
 from workflow_steps.update_config_context.executor import (
     _apply_mode,
     _apply_updates,
-    _explicit_device_context,
     _parse_config,
     _render_path,
     _resolve_value,
@@ -156,17 +155,6 @@ class ParseConfigTests(unittest.TestCase):
             }
         )
         self.assertEqual(parsed.value_source.template_id, 7)
-
-
-class ExplicitDeviceContextTests(unittest.TestCase):
-    def test_uses_id_when_given(self) -> None:
-        device = _explicit_device_context({"id": "abc-123"})
-        self.assertEqual(device.id, "abc-123")
-        self.assertEqual(device.source, "nautobot")
-
-    def test_falls_back_to_name(self) -> None:
-        device = _explicit_device_context({"name": "router1"})
-        self.assertEqual(device.name, "router1")
 
 
 class ResolveValueTests(unittest.TestCase):
