@@ -157,6 +157,16 @@ export function RouteOnContentHelpPanel() {
         </HelpExample>
       </HelpSection>
 
+      <HelpSection title="Matched text">
+        <p>
+          By default the step stores only whether the pattern matched. Turn on{" "}
+          <HelpCode>store_matched_text</HelpCode> to keep the matched text (up to 200
+          characters, secrets masked) in the step result. Leave it off when the pattern
+          can match a line that holds a key or password: the result is readable by
+          everyone who may read runs.
+        </p>
+      </HelpSection>
+
       <HelpSection title="Outcomes">
         <ul className="list-disc space-y-1 pl-4">
           <li>

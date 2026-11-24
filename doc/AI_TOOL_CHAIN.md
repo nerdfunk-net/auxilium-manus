@@ -2832,7 +2832,7 @@ live question.
   `executor.py`) and adds only what is workflow-specific (name match modes, `index_regex` / `stack_index`, `DeviceContext`,
   `FAILED` devices for a stack without a master IP). The step reaches Nautobot through `NautobotServiceClient`
   (`services/nautobot/graphql_client.py`, moved out of the assistant reader so a step does not import the assistant).
-  A change to what a member record holds is made once, in the library. `list_virtual_chassis` returns one compact row
+  `platform_of` (a member's own platform and driver) is also in the library; the step puts it on the member record, not in the bag, and `split-virtual-chassis` restores it, so a mixed-platform stack splits the same at inventory time and later (W6-12); it is not part of the tool output. A change to what a member record holds is made once, in the library. `list_virtual_chassis` returns one compact row
   per stack (name, master, `member_count`, member names in stack order; `name_contains` uses `name__ic`);
   `get_virtual_chassis` takes a name (resolved against the `virtual_chassis` vocabulary, so a miss lists the closest
   and available names) or an id and returns every member (position, priority, device type, `is_master`, and with the

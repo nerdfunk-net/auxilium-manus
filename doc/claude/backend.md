@@ -50,7 +50,7 @@ class MyDeviceService:
         device_id = await self.common.resolve_device_by_name("router1")
         status_id = await self.common.resolve_status_id("active")
         ip_id = await self.common.ensure_ip_address_exists(
-            ip_address="10.0.0.1/24", namespace_id="...", status_name="active"
+            ip_address="10.0.0.1/24", namespace_id="...", status="active"
         )
 ```
 

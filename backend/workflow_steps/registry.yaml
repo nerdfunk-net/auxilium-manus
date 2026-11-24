@@ -5488,7 +5488,9 @@ plugins:
     metadata:
       configuration_input:
         - name: source_path
-          description: Dot path to the encrypted attribute value (ciphertext token).
+          description: >
+            Dot path to the encrypted attribute value (ciphertext token). A value that is a
+            sealed secret fails the device (source_sealed).
           data_type: string
           required: true
           example: nautobot.config_context.secrets.enable_password
