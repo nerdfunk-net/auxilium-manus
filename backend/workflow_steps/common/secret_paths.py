@@ -12,7 +12,7 @@ from __future__ import annotations
 import re
 
 from models.failure import FailureInfo
-from models.workflow_context import DeviceContext, DeviceError, DeviceStatus
+from models.workflow_context import DeviceContext
 from services.secret_manager.exceptions import (
     SecretManagerAuthError,
     SecretManagerError,
@@ -24,12 +24,12 @@ from services.workflow_context.device_template import (
     TemplateRenderOptions,
     render_device_template,
 )
+from workflow_steps.common.device_outcomes import mark_device_failed
 from workflow_steps.common.duplicate_keys import (
     DUPLICATE_KEY_CODE,
     DUPLICATE_KEY_FAILURE,
     find_duplicate_keys,
 )
-from workflow_steps.common.partial_outcomes import mark_device_failed
 
 INVALID_PATH_CODE = "invalid_secret_path"
 INVALID_PATH_FAILURE = FailureInfo(phase="internal", kind="bad_request")
@@ -64,16 +64,6 @@ def secret_manager_failure(exc: SecretManagerError) -> FailureInfo:
             phase="api", kind="server_error", retryable=True, exception_type=type(exc).__name__
         )
     return FailureInfo(phase="api", kind="unknown", exception_type=type(exc).__name__)
-
-
-def fail_device(
-    *, device: DeviceContext, node_id: str, step_id: str, code: str, message: str
-) -> DeviceContext:
-    """Mark one device failed with a plain error (no structured ``FailureInfo``)."""
-    err = DeviceError(node_id=node_id, step_id=step_id, code=code, message=message)
-    return device.model_copy(
-        update={"status": DeviceStatus.FAILED, "errors": [*device.errors, err]}
-    )
 
 
 def resolve_secret_paths(

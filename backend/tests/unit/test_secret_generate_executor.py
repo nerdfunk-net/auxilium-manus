@@ -15,7 +15,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from models.workflow_context import Capability, DeviceContext, DeviceStatus, WorkflowContext
 from services.secret_manager.exceptions import SecretManagerUnavailableError
 from services.workflow_context.secret_fields import is_sealed_secret, unwrap_secret
-from workflow_steps.secret_generate import executor as mod
+from workflow_steps.common import secret_manager_step as shared
 from workflow_steps.secret_generate.executor import execute
 
 BASE_CONFIG = {
@@ -50,8 +50,8 @@ async def _run(config: dict, context: WorkflowContext, *, generate_field):
     service = MagicMock()
     service.generate_field = generate_field
     with (
-        patch.object(mod, "object_session", return_value=MagicMock()),
-        patch.object(mod, "SecretManagerService", return_value=service),
+        patch.object(shared, "object_session", return_value=MagicMock()),
+        patch.object(shared, "SecretManagerService", return_value=service),
     ):
         return await execute(
             config=config,

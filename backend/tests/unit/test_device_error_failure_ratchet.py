@@ -18,7 +18,6 @@ STEPS_ROOT = Path(__file__).resolve().parents[2] / "workflow_steps"
 LEGACY_WITHOUT_FAILURE: dict[str, int] = {
     "workflow_steps/batfish_extract_facts/executor.py": 1,
     "workflow_steps/batfish_validate_facts/executor.py": 4,
-    "workflow_steps/common/secret_paths.py": 1,
     "workflow_steps/compare_pyats_snapshot/executor.py": 1,
     "workflow_steps/config_to_attributes/executor.py": 1,
     "workflow_steps/decrypt_attribute/executor.py": 1,

@@ -1,10 +1,9 @@
 """secret-get / secret-set / secret-generate: what one device's failure does to the others.
 
-P-T write-first for the per-device runner (D1, W10-09): a failure that is not a
-``SecretManagerError`` is a failure of that device. Today it aborts the whole step with a
-``RuntimeError`` that carries the exception text. The ``strict_xfail`` tests become plain tests
-when the runner lands; the others pin what must not change (connection loss aborts the step
-and keeps the devices already done).
+A failure that is not a ``SecretManagerError`` is a failure of that device only, and its text is
+never stored (the per-device runner, D1, W10-09). Connection loss aborts the step and keeps the
+devices already done. Written first in P-T, the two unexpected-error tests were strict xfails
+until the secret trio moved onto ``run_per_device``.
 """
 
 from __future__ import annotations
@@ -24,8 +23,8 @@ from tests.unit._step_helpers import (
     make_device,
     make_run,
     patch_object_session,
-    strict_xfail,
 )
+from workflow_steps.common import secret_manager_step as shared
 from workflow_steps.secret_generate import executor as generate_mod
 from workflow_steps.secret_get import executor as get_mod
 from workflow_steps.secret_set import executor as set_mod
@@ -63,10 +62,9 @@ def _service(case: _Case, side_effect: Callable[..., Any]) -> MagicMock:
 
 
 async def _run(case: _Case, service: MagicMock) -> Any:
-    module = case.module.__name__
     with (
-        patch_object_session(module),
-        patch.object(case.module, "SecretManagerService", return_value=service),
+        patch_object_session(shared.__name__),
+        patch.object(shared, "SecretManagerService", return_value=service),
     ):
         return await call_step(case.module.execute, case.config, _context(), run=make_run())
 
@@ -109,7 +107,6 @@ async def test_connection_loss_aborts_and_keeps_the_devices_already_done(step: s
     assert by_name["failure"]["b"].status == DeviceStatus.FAILED
 
 
-@strict_xfail("W10-09", "an unexpected exception aborts the step instead of failing one device")
 @pytest.mark.asyncio
 @pytest.mark.parametrize("step", list(_CASES))
 async def test_an_unexpected_error_fails_only_that_device(step: str) -> None:
@@ -124,7 +121,6 @@ async def test_an_unexpected_error_fails_only_that_device(step: str) -> None:
     assert by_name["failure"]["a"].status == DeviceStatus.FAILED
 
 
-@strict_xfail("W10-09", "the RuntimeError text (the vault error) reaches the stored run")
 @pytest.mark.asyncio
 @pytest.mark.parametrize("step", list(_CASES))
 async def test_an_unexpected_error_text_is_not_stored(step: str) -> None:
@@ -140,3 +136,76 @@ async def test_an_unexpected_error_text_is_not_stored(step: str) -> None:
         e.message for o in outcomes for d in o.context.devices.values() for e in d.errors
     )
     assert _SECRET not in stored
+
+
+@pytest.mark.asyncio
+async def test_a_miss_records_a_failure_reason() -> None:
+    case = _CASES["secret-get"]
+
+    outcomes = await _run(case, _service(case, lambda *_a, **_k: None))
+
+    error = {o.name: o for o in outcomes}["failure"].context.devices["a"].errors[-1]
+    assert error.code == "secret_not_found"
+    assert error.failure is not None and error.failure.kind == "not_found"
+
+
+@pytest.mark.asyncio
+async def test_an_unusable_source_records_a_failure_reason() -> None:
+    case = _CASES["secret-set"]
+    config = {**case.config, "source_path": "run_input.missing"}
+    case = _Case(case.module, case.method, config, case.ok_result, run_input=True)
+
+    outcomes = await _run(case, _service(case, lambda *_a, **_k: None))
+
+    error = {o.name: o for o in outcomes}["failure"].context.devices["a"].errors[-1]
+    assert error.code == "source_unresolved"
+    assert error.failure is not None and error.failure.kind == "bad_request"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("step", list(_CASES))
+async def test_a_value_error_from_the_service_fails_that_device_with_its_text(step: str) -> None:
+    case = _CASES[step]
+    service = _service(case, _fails_nth_device(case, ValueError("field is not allowed")))
+
+    outcomes = await _run(case, service)
+
+    by_name = {o.name: o.context.devices for o in outcomes}
+    assert set(by_name["success"]) == {"b"}
+    assert by_name["failure"]["a"].errors[-1].message == "field is not allowed"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("step", list(_CASES))
+async def test_cancellation_is_not_turned_into_a_device_failure(step: str) -> None:
+    import asyncio
+
+    case = _CASES[step]
+    service = _service(case, _fails_nth_device(case, asyncio.CancelledError()))
+
+    with pytest.raises(asyncio.CancelledError):
+        await _run(case, service)
+
+
+_COUNT_KEYS = {
+    "secret-get": ({"found_count": 1, "missing_count": 1}, "found 1, missing 1"),
+    "secret-set": ({"written_count": 1, "failed_count": 1}, "written 1, failed 1"),
+    "secret-generate": ({"generated_count": 1}, "generated 1, failed 1"),
+}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("step", list(_CASES))
+async def test_counts_and_summary_keep_their_names(step: str) -> None:
+    case = _CASES[step]
+    service = _service(case, _fails_nth_device(case, ValueError("no")))
+    keys, summary = _COUNT_KEYS[step]
+
+    outcomes = await _run(case, service)
+
+    by = {o.name: o for o in outcomes}
+    metadata = by["success"].context.metadata
+    for key, value in keys.items():
+        assert metadata[f"node-1.{key}"] == value
+    assert ("node-1.failed_count" in metadata) == ("failed_count" in keys)
+    assert by["success"].summary == summary

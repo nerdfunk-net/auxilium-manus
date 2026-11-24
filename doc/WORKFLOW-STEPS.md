@@ -434,6 +434,20 @@ fails with one error; a routing step lists its verdict handles in `empty_handles
 `_partition_*` functions in the step packages are legacy: `tests/unit/test_private_outcome_helpers_ratchet.py` pins them
 per file, lets the number only fall and fails on a new one.
 
+### One per-device runner
+
+A step that works on its devices one by one hands `workflow_steps/common/device_runner.py::run_per_device(context,
+work, *, node_id, step_id, concurrency=None, only=None)` an async `work(device_id, device)` and gets a `Batch(ok, failed,
+aborted)`. `work` returns the updated device, returns `Fail(code, message, failure=None)` for a failure it names itself,
+or raises: an unexpected exception fails **that device only**, with `device_error_from_exception` (the text of a
+`ValueError` / `FileNotFoundError` is kept, anything else is reduced to the class name plus a `FailureInfo`; driver, SQL
+and secret text never reach the stored run). `concurrency` is `None` (all at once), `n` (semaphore) or `1` (in order);
+only a sequential run may raise `AbortRun(message, failure)` (the remote system is lost): the run stops, the devices
+already done stay in the batch and `batch.aborted` feeds `abort_outcomes`. `asyncio.CancelledError` always passes
+through. Migrated: `secret-get`, `secret-set`, `secret-generate` (loop in `common/secret_manager_step.py`; a `ValueError`
+from the service now fails that device with its text, it used to abort the step). The other steps still carry their own
+loops and move family by family (P-C).
+
 ### Step config flags
 
 Every boolean and whole-number step setting is read with `workflow_steps/common/step_flags.py`:

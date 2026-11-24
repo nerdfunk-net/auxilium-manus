@@ -21,23 +21,17 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy.orm import object_session
-
 from core.models.runs import WorkflowRun
 from models.workflow_context import DeviceContext, StepOutcome, WorkflowContext
 from services.artifacts import ArtifactService
-from services.secret_manager.exceptions import SecretManagerError
 from services.secret_manager.policy import SecretCharset, SecretGenerationPolicy
 from services.secret_manager.service import SecretManagerService
 from services.secret_manager.validation import validate_field
 from services.workflow_context.device_template import parse_strict_templates
 from services.workflow_context.secret_fields import seal_secret
 from workflow_steps.common.attribute_write import set_device_attribute
-from workflow_steps.common.partial_outcomes import abort_outcomes
-from workflow_steps.common.secret_paths import (
-    resolve_secret_paths,
-    secret_manager_failure,
-)
+from workflow_steps.common.device_runner import Fail
+from workflow_steps.common.secret_manager_step import SecretStepSpec, run_secret_step
 from workflow_steps.common.step_flags import parse_int_flag
 
 if TYPE_CHECKING:
@@ -101,104 +95,39 @@ async def execute(
     del artifact_service, device_sessions
 
     connection_id, path_template, field, destination_path, policy = _parse_config(config)
-    strict = parse_strict_templates(config)
-
-    if not context.devices:
-        return [StepOutcome(name="success", context=context)]
-
-    db = object_session(run)
-    if db is None:
-        raise RuntimeError(f"{_STEP_ID}: WorkflowRun has no active DB session")
-
-    service = SecretManagerService(db)
-
     logger.info(
-        "%s started run_id=%s node_id=%s devices=%d charset=%s length=%d",
+        "%s policy node_id=%s charset=%s length=%d run_id=%s",
         _STEP_ID,
-        context.run_id,
         node_id,
-        len(context.devices),
         policy.charset.value,
         policy.length,
-    )
-
-    paths, path_failures = resolve_secret_paths(
-        devices=context.devices,
-        path_template=path_template,
-        strict=strict,
-        run_id=context.run_id,
-        node_id=node_id,
-        step_id=_STEP_ID,
-    )
-    failed_devices: dict[str, DeviceContext] = dict(path_failures)
-    generated_devices: dict[str, DeviceContext] = {}
-    generated_count = 0
-
-    for device_id, device in context.devices.items():
-        if device_id not in paths:
-            continue
-        path = paths[device_id]
-        try:
-            _version, value = await service.generate_field(connection_id, path, field, policy)
-        except SecretManagerError as exc:
-            logger.warning(
-                "%s: lost connection to secret manager connection=%s: %s",
-                _STEP_ID,
-                connection_id,
-                exc,
-            )
-            return abort_outcomes(
-                context=context,
-                node_id=node_id,
-                step_id=_STEP_ID,
-                done_ok=generated_devices,
-                done_failed=failed_devices,
-                message=f"lost connection to secret manager connection {connection_id}",
-                failure=secret_manager_failure(exc),
-            )
-        except ValueError:
-            raise
-        except Exception as exc:
-            raise RuntimeError(f"{_STEP_ID}: failed for device '{device.name}': {exc}") from exc
-
-        generated_devices[device_id] = set_device_attribute(
-            device, destination_path, seal_secret(value)
-        )
-        generated_count += 1
-        del value  # never referenced again — must not leak into metadata/logs
-
-    metadata = {
-        **context.metadata,
-        f"{node_id}.path_template": path_template,
-        f"{node_id}.field": field,
-        f"{node_id}.destination_path": destination_path,
-        f"{node_id}.charset": policy.charset.value,
-        f"{node_id}.length": policy.length,
-        f"{node_id}.generated_count": generated_count,
-    }
-
-    logger.info(
-        "%s finished node_id=%s generated=%d run_id=%s",
-        _STEP_ID,
-        node_id,
-        generated_count,
         context.run_id,
     )
 
-    outcomes = [
-        StepOutcome(
-            name="success",
-            context=context.model_copy(update={"devices": generated_devices, "metadata": metadata}),
-            summary=f"generated {generated_count}, failed {len(failed_devices)}",
-        )
-    ]
-    if failed_devices:
-        outcomes.append(
-            StepOutcome(
-                name="failure",
-                context=context.model_copy(
-                    update={"devices": failed_devices, "metadata": metadata}
-                ),
-            )
-        )
-    return outcomes
+    async def generate_secret(
+        service: SecretManagerService, device: DeviceContext, path: str
+    ) -> DeviceContext | Fail:
+        _version, value = await service.generate_field(connection_id, path, field, policy)
+        updated = set_device_attribute(device, destination_path, seal_secret(value))
+        del value  # never referenced again: must not leak into metadata or logs
+        return updated
+
+    spec = SecretStepSpec(
+        step_id=_STEP_ID,
+        connection_id=connection_id,
+        path_template=path_template,
+        strict=parse_strict_templates(config),
+        operation=generate_secret,
+        ok_label="generated",
+        bad_label="failed",
+        metadata={
+            "path_template": path_template,
+            "field": field,
+            "destination_path": destination_path,
+            "charset": policy.charset.value,
+            "length": policy.length,
+        },
+        ok_count_key="generated_count",
+        bad_count_key=None,
+    )
+    return await run_secret_step(spec, context=context, run=run, node_id=node_id)
