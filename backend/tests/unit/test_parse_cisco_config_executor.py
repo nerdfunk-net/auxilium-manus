@@ -405,5 +405,97 @@ class ParseCiscoConfigExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(success.parsed["cisco_config"]["running"]["hostname"], "router1")
 
 
+class ParseCiscoConfigFailureRecordTests(unittest.IsolatedAsyncioTestCase):
+    """W4-06: the device error is a short sentence plus a FailureInfo, never parser text."""
+
+    async def _run_one(self, text: str, *, network_driver: str | None = None, **config):
+        artifact_service = InMemoryArtifactService()
+        ref = await artifact_service.store(
+            content=text, kind="running_config", device_id="device-1", run_id="run-1"
+        )
+        device = DeviceContext(
+            id="device-1",
+            name="lab",
+            hostname="lab",
+            network_driver=network_driver,
+            capabilities={Capability.IDENTITY},
+            status=DeviceStatus.OK,
+            running_config_ref=ref,
+        )
+        outcomes = await execute(
+            config={"config_source": "running", "output_key": "cisco_config", **config},
+            context=WorkflowContext(
+                run_id="run-1", workflow_id="wf-1", devices={"device-1": device}
+            ),
+            run=MagicMock(),
+            artifact_service=artifact_service,
+            node_id="parse-cisco-config-1",
+            device_sessions=MagicMock(),
+        )
+        return outcomes[1].context.devices["device-1"].errors[-1]
+
+    async def test_unknown_platform_names_the_fix_instead_of_the_parser_banner(self) -> None:
+        error = await self._run_one(_NO_BANNER_CONFIG, network_driver="cisco_s300")
+        self.assertEqual(error.code, "config_error")
+        self.assertIn("network_driver_override", error.message)
+        self.assertIn("cisco_s300", error.message)
+        self.assertNotIn("---", error.message)
+        self.assertEqual(
+            (error.failure.phase, error.failure.kind), ("config", "unsupported_platform")
+        )
+
+    async def test_parser_text_is_not_kept_for_a_known_platform(self) -> None:
+        with patch(
+            "workflow_steps.parse_cisco_config.executor.parse_cisco_config_text",
+            side_effect=ValueError("bad line: enable secret 5 $1$abc"),
+        ):
+            error = await self._run_one(_RUNNING_CONFIG, network_driver="cisco_ios")
+        self.assertNotIn("enable secret", error.message)
+        self.assertIn("ValueError", error.message)
+        self.assertIsNotNone(error.failure)
+
+    async def test_missing_config_keeps_its_sentence_and_gets_a_failure_record(self) -> None:
+        artifact_service = InMemoryArtifactService()
+        device = DeviceContext(
+            id="device-1",
+            name="lab",
+            hostname="lab",
+            capabilities={Capability.IDENTITY},
+            status=DeviceStatus.OK,
+        )
+        outcomes = await execute(
+            config={"config_source": "running", "output_key": "cisco_config"},
+            context=WorkflowContext(
+                run_id="run-1", workflow_id="wf-1", devices={"device-1": device}
+            ),
+            run=MagicMock(),
+            artifact_service=artifact_service,
+            node_id="parse-cisco-config-1",
+            device_sessions=MagicMock(),
+        )
+        error = outcomes[1].context.devices["device-1"].errors[-1]
+        self.assertIn("running config is not available", error.message)
+        self.assertEqual((error.failure.phase, error.failure.kind), ("config", "bad_request"))
+
+    async def test_unexpected_exception_keeps_only_its_class_name(self) -> None:
+        with patch(
+            "workflow_steps.parse_cisco_config.executor.parse_cisco_config_text",
+            side_effect=RuntimeError("password=hunter2"),
+        ):
+            error = await self._run_one(_RUNNING_CONFIG, network_driver="cisco_ios")
+        self.assertEqual((error.code, error.message), ("runtimeerror", "RuntimeError"))
+
+    async def test_bad_config_source_is_validated_before_the_empty_guard(self) -> None:
+        with self.assertRaises(ValueError):
+            await execute(
+                config={"config_source": "nope"},
+                context=WorkflowContext(run_id="r", workflow_id="w", devices={}),
+                run=MagicMock(),
+                artifact_service=InMemoryArtifactService(),
+                node_id="n",
+                device_sessions=MagicMock(),
+            )
+
+
 if __name__ == "__main__":
     unittest.main()

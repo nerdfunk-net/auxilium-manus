@@ -32,7 +32,6 @@ LEGACY_WITHOUT_FAILURE: dict[str, int] = {
     "workflow_steps/get_virtual_chassis/stack.py": 1,
     "workflow_steps/list_contains/executor.py": 1,
     "workflow_steps/open_change_request/executor.py": 1,
-    "workflow_steps/parse_cisco_config/executor.py": 1,
     "workflow_steps/reachable/executor.py": 2,
     "workflow_steps/read_config/executor.py": 1,
     "workflow_steps/read_from_file/executor.py": 1,

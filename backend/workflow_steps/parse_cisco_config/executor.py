@@ -7,6 +7,7 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from core.models.runs import WorkflowRun
+from models.failure import FailureInfo
 from models.workflow_context import (
     Capability,
     DeviceContext,
@@ -21,6 +22,7 @@ from services.network.cisco_config_parsing import (
     platform_hint_for_network_driver,
 )
 from workflow_steps.common.jinja_render import parse_output_key
+from workflow_steps.common.partial_outcomes import device_error_from_exception
 from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.parse_cisco_config.config import get_config
 
@@ -30,6 +32,18 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _CONFIG_SOURCES = frozenset({"running", "startup", "both"})
+_STEP_ID = "parse-cisco-config"
+
+
+class _DeviceConfigError(ValueError):
+    """A condition of this device with a sentence written here (safe to keep) and its record."""
+
+    def __init__(self, message: str, failure: FailureInfo) -> None:
+        super().__init__(message)
+        self.failure = failure
+
+
+_BAD_INPUT = FailureInfo(phase="config", kind="bad_request")
 
 
 def _parse_config_source(config: dict[str, Any]) -> str:
@@ -69,6 +83,26 @@ def _build_parse_entry(
     return {"running": running_model, "startup": startup_model}
 
 
+async def _parse_text(
+    text: str, platform_hint: str | None, device: DeviceContext
+) -> dict[str, Any]:
+    """Parse off the event loop; a parser ``ValueError`` (its text can quote config lines) becomes
+    a fixed sentence, an unknown platform names the fix instead of the library's banner."""
+    try:
+        return await asyncio.to_thread(parse_cisco_config_text, text, platform_hint)
+    except ValueError as exc:
+        if platform_hint is None:
+            raise _DeviceConfigError(
+                f"{_STEP_ID}: cannot determine the platform of {device.name} "
+                f"(network_driver={device.network_driver!r}); set network_driver_override",
+                FailureInfo(phase="config", kind="unsupported_platform"),
+            ) from exc
+        raise _DeviceConfigError(
+            f"{_STEP_ID}: the configuration could not be parsed ({type(exc).__name__})",
+            _BAD_INPUT,
+        ) from exc
+
+
 async def _parse_one_device(
     *,
     device_id: str,
@@ -88,25 +122,23 @@ async def _parse_one_device(
 
         if need_running:
             if device.running_config_ref is None:
-                raise ValueError(
+                raise _DeviceConfigError(
                     "running config is not available on this device — add a "
-                    "Get Configs step upstream with running config enabled"
+                    "Get Configs step upstream with running config enabled",
+                    _BAD_INPUT,
                 )
             running_text = await artifact_service.resolve(device.running_config_ref)
-            running_model = await asyncio.to_thread(
-                parse_cisco_config_text, running_text, platform_hint
-            )
+            running_model = await _parse_text(running_text, platform_hint, device)
 
         if need_startup:
             if device.startup_config_ref is None:
-                raise ValueError(
+                raise _DeviceConfigError(
                     "startup config is not available on this device — add a "
-                    "Get Configs step upstream with startup config enabled"
+                    "Get Configs step upstream with startup config enabled",
+                    _BAD_INPUT,
                 )
             startup_text = await artifact_service.resolve(device.startup_config_ref)
-            startup_model = await asyncio.to_thread(
-                parse_cisco_config_text, startup_text, platform_hint
-            )
+            startup_model = await _parse_text(startup_text, platform_hint, device)
 
         entry = _build_parse_entry(running_model, startup_model)
         parsed = dict(device.parsed)
@@ -120,19 +152,24 @@ async def _parse_one_device(
         )
         return device_id, enriched, True
     except Exception as exc:
+        # The class name only: parser and driver text can quote config lines.
         logger.warning(
             "parse-cisco-config failed run_id=%s node_id=%s device_id=%s error=%s",
             run_id,
             node_id,
             device_id,
-            exc,
+            type(exc).__name__,
         )
-        err = DeviceError(
-            node_id=node_id,
-            step_id="parse-cisco-config",
-            code="config_error" if isinstance(exc, ValueError) else type(exc).__name__.lower(),
-            message=str(exc),
-        )
+        if isinstance(exc, _DeviceConfigError):
+            err = DeviceError(
+                node_id=node_id,
+                step_id=_STEP_ID,
+                code="config_error",
+                message=str(exc),
+                failure=exc.failure,
+            )
+        else:
+            err = device_error_from_exception(exc, node_id=node_id, step_id=_STEP_ID)
         failed = device.model_copy(
             update={
                 "status": DeviceStatus.FAILED,
@@ -203,13 +240,12 @@ async def execute(
     node_id: str,
     device_sessions: DeviceSessionPool,
 ) -> list[StepOutcome]:
-    if not context.devices:
-        return [StepOutcome(name="success", context=context)]
-
     config_source = _parse_config_source(config)
     output_key = parse_output_key(config.get("output_key") or get_config()["output_key"])
     need_running, need_startup = _config_targets(config_source)
     network_driver_override = str(config.get("network_driver_override") or "").strip() or None
+    if not context.devices:
+        return [StepOutcome(name="success", context=context)]
 
     logger.info(
         "parse-cisco-config started run_id=%s node_id=%s devices=%d config_source=%s output_key=%s",
@@ -226,7 +262,7 @@ async def execute(
                 device_id=device_id,
                 device=device,
                 artifact_service=artifact_service,
-                run_id=run.id,
+                run_id=log_run_id(run),
                 node_id=node_id,
                 need_running=need_running,
                 need_startup=need_startup,
@@ -240,7 +276,7 @@ async def execute(
     return _build_parse_outcomes(
         context=context,
         node_id=node_id,
-        run_id=run.id,
+        run_id=log_run_id(run),
         success_devices=success_devices,
         failed_devices=failed_devices,
     )

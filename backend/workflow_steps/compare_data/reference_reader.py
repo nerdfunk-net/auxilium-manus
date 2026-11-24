@@ -63,6 +63,24 @@ def _git_reference_path(
     return resolve_within_repo(get_repo_path(repository), str(normalized))
 
 
+def _git_repository_id(config: dict[str, Any]) -> int:
+    if config.get("git_repository_id") in (None, ""):
+        raise ValueError("compare-data: git_repository_id is required when reference_location=git")
+    return require_repository_id(config.get("git_repository_id"), step_id="compare-data")
+
+
+def validate_reference_config(config: dict[str, Any]) -> None:
+    """The reference settings are configuration, not per-device data: a bad one raises here,
+    once, before any device is read (W4-02)."""
+    from workflow_steps.common.step_flags import parse_bool_flag
+    from workflow_steps.compare_data.config import get_config
+
+    merged = {**get_config(), **config}
+    if parse_reference_location(config) == "git":
+        _git_repository_id(config)
+    parse_bool_flag(merged, "pull_before_read", step_id="compare-data")
+
+
 async def read_reference_text(
     *,
     config: dict[str, Any],
@@ -104,13 +122,7 @@ async def _read_git_async(config: dict[str, Any], relative_path: str) -> str:
     from workflow_steps.compare_data.config import get_config
 
     defaults = get_config()
-    raw_repository_id = config.get("git_repository_id")
-    if raw_repository_id in (None, ""):
-        raise ValueError("compare-data: git_repository_id is required when reference_location=git")
-
-    repository = load_git_repository(
-        require_repository_id(raw_repository_id, step_id="compare-data")
-    )
+    repository = load_git_repository(_git_repository_id(config))
     repository_subdirectory = str(
         config.get("repository_subdirectory") or defaults.get("repository_subdirectory") or ""
     )

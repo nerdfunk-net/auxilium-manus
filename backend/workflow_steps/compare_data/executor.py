@@ -36,7 +36,10 @@ from workflow_steps.common.partial_outcomes import device_error_from_exception
 from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.common.step_flags import parse_bool_flag
 from workflow_steps.compare_data.config import get_config
-from workflow_steps.compare_data.reference_reader import read_reference_text
+from workflow_steps.compare_data.reference_reader import (
+    read_reference_text,
+    validate_reference_config,
+)
 
 if TYPE_CHECKING:
     from services.network.netmiko.session_pool import DeviceSessionPool
@@ -61,8 +64,11 @@ def _default_config() -> dict[str, Any]:
 
 
 def _parse_compare_config(config: dict[str, Any]) -> _ParsedCompareConfig:
+    validate_reference_config(config)
     return _ParsedCompareConfig(
-        content_source=parse_content_source(config),
+        content_source=parse_content_source(
+            config, step_id="compare-data", default=str(_default_config()["content_source"])
+        ),
         source_step_node_id=str(config.get("source_step_node_id") or "").strip() or None,
         parsed_output_key=str(config.get("parsed_output_key") or "").strip() or None,
         reference_location=(
@@ -416,6 +422,43 @@ async def _compare_for_device(
         )
         return device_id, failed, "failure", None
 
+    try:
+        return await _compare_loaded(
+            device_id=device_id,
+            device=device,
+            node_id=node_id,
+            context_run_id=context_run_id,
+            parsed=parsed,
+            item=item,
+            reference_path=reference_path,
+            source_content=source_content,
+            reference_content=reference_content,
+            artifact_service=artifact_service,
+            diff_service=diff_service,
+        )
+    except Exception as exc:
+        # The diff or the artifact store failed for this device: it fails, the others go on.
+        err = device_error_from_exception(exc, node_id=node_id, step_id="compare-data")
+        failed = _device_failure(
+            device=device, node_id=node_id, message=err.message, failure=err.failure
+        )
+        return device_id, failed, "failure", None
+
+
+async def _compare_loaded(
+    *,
+    device_id: str,
+    device: DeviceContext,
+    node_id: str,
+    context_run_id: str,
+    parsed: _ParsedCompareConfig,
+    item: ExportableContent,
+    reference_path: str,
+    source_content: str,
+    reference_content: str,
+    artifact_service: ArtifactService,
+    diff_service: GitDiffService,
+) -> tuple[str, DeviceContext, str, dict[str, Any]]:
     normalized_source = _normalize_text(
         source_content,
         normalize_line_endings=parsed.normalize_line_endings,

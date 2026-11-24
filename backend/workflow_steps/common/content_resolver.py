@@ -46,11 +46,15 @@ def ambiguous_content_message(count: int) -> str:
 AMBIGUOUS_CONTENT_FAILURE = FailureInfo(phase="command", kind="ambiguous_match")
 
 
-def parse_content_source(config: dict[str, Any]) -> str:
-    source = str(config.get("content_source") or "").strip().lower()
+def parse_content_source(
+    config: dict[str, Any], *, step_id: str = "store-artifact", default: str = ""
+) -> str:
+    """The configured ``content_source``; a blank one takes ``default`` (the step's own
+    ``get_config()`` value), and the error names ``step_id``."""
+    source = str(config.get("content_source") or default).strip().lower()
     if source not in CONTENT_SOURCES:
         raise ValueError(
-            f"store-artifact: content_source {source!r} must be one of {sorted(CONTENT_SOURCES)}"
+            f"{step_id}: content_source {source!r} must be one of {sorted(CONTENT_SOURCES)}"
         )
     return source
 
