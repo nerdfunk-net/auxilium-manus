@@ -88,20 +88,16 @@ from models.workflow_context import (
     WorkflowContext,
 )
 from services.artifacts import ArtifactService
-from services.pyats.common.exceptions import PyATSAPIError, PyATSValidationError
+from services.pyats.common.exceptions import PyATSAPIError
 from services.pyats.credentials import PyATSCredentials
-from services.pyats.source_config_service import (
-    PyATSSourceConfigService,
-    PyATSSourceNotFoundError,
-)
 from services.workflow_context.node_result import set_node_result
 from services.workflow_context.secret_fields import unwrap_secret
+from workflow_steps.common.pyats_batch import resolve_source_credentials, shim_concurrency
 from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.common.step_flags import parse_bool_flag, parse_int_flag
 from workflow_steps.configure_replace_config.config import get_config
 
 if TYPE_CHECKING:
-    from sqlalchemy.orm import Session
 
     from services.network.netmiko.session_pool import DeviceSessionPool
 
@@ -158,21 +154,6 @@ def _diff_has_changes(diff_text: str) -> bool:
             continue
         return True
     return False
-
-
-def _resolve_source_credentials(
-    db: Session, source_ids: set[str]
-) -> tuple[dict[str, PyATSCredentials], dict[str, str]]:
-    """Resolve every distinct pyats_source_id once. Returns (credentials_by_id, error_by_id)."""
-    config_service = PyATSSourceConfigService(db)
-    credentials: dict[str, PyATSCredentials] = {}
-    errors: dict[str, str] = {}
-    for source_id in source_ids:
-        try:
-            credentials[source_id] = config_service.resolve_credentials(source_id)
-        except (PyATSSourceNotFoundError, PyATSValidationError) as exc:
-            errors[source_id] = str(exc)
-    return credentials, errors
 
 
 def _fail_device(
@@ -792,18 +773,6 @@ def _partition(
     return success, failed
 
 
-async def _max_parallel_jobs(source_credentials: dict[str, PyATSCredentials]) -> int:
-    """The shim's concurrency limit (from /health/pyats), or the default of 4."""
-    if not source_credentials:
-        return 4
-    shim = service_factory.get_pyats_app_service()
-    try:
-        limits = await shim.limits(next(iter(source_credentials.values())))
-    except Exception:  # noqa: BLE001 - advisory only
-        return 4
-    return max(1, limits.max_concurrent_jobs)
-
-
 def _parse_job_timeout(value: Any) -> float:
     """Per-job budget in seconds, same bound as the shim's ``JobRequest.timeout_seconds``."""
     if value is None or value == "":
@@ -878,12 +847,20 @@ async def execute(
         if isinstance(device.attribute_bags.get("pyats_testbed"), dict)
         and device.attribute_bags["pyats_testbed"].get("pyats_source_id")
     }
-    source_credentials, source_errors = _resolve_source_credentials(db, source_ids)
+    source_credentials, source_errors = resolve_source_credentials(db, source_ids)
 
     # At most as many jobs in flight as the shim runs at once, so it never has to queue them:
     # a job that waited in the shim's queue could outlive the client's timeout and still run.
     _JOB_TIMEOUT.set(job_timeout_seconds)
-    gate = asyncio.Semaphore(await _max_parallel_jobs(source_credentials))
+    # The shim's own limit (from /health/pyats), or the default of 4 when it cannot be read.
+    parallel_jobs = (
+        await shim_concurrency(
+            service_factory.get_pyats_app_service(), next(iter(source_credentials.values()))
+        )
+        if source_credentials
+        else 4
+    )
+    gate = asyncio.Semaphore(parallel_jobs)
 
     async def _guarded(**kwargs: Any) -> _DeviceResult:
         async with gate:

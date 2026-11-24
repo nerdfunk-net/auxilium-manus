@@ -55,10 +55,6 @@ from models.workflow_context import (
 from services.artifacts import ArtifactService
 from services.pyats.common.exceptions import PyATSAPIError, PyATSValidationError
 from services.pyats.credentials import PyATSCredentials
-from services.pyats.source_config_service import (
-    PyATSSourceConfigService,
-    PyATSSourceNotFoundError,
-)
 from services.workflow_context.device_template import (
     TemplateRenderOptions,
     parse_strict_templates,
@@ -66,6 +62,7 @@ from services.workflow_context.device_template import (
 )
 from services.workflow_context.node_result import set_node_result
 from workflow_steps.common.content_resolver import ExportableContent, list_exportable_content
+from workflow_steps.common.pyats_batch import resolve_source_credentials
 from workflow_steps.common.pyats_features import parse_feature_list
 from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.common.step_flags import parse_bool_flag
@@ -73,7 +70,6 @@ from workflow_steps.compare_data.reference_reader import read_reference_text
 from workflow_steps.compare_pyats_snapshot.config import get_config
 
 if TYPE_CHECKING:
-    from sqlalchemy.orm import Session
 
     from services.network.netmiko.session_pool import DeviceSessionPool
 
@@ -81,21 +77,6 @@ logger = logging.getLogger(__name__)
 
 _STEP_ID = "compare-pyats-snapshot"
 _OUTCOME_NAMES = ("match", "mismatch", "failure")
-
-
-def _resolve_source_credentials(
-    db: Session, source_ids: set[str]
-) -> tuple[dict[str, PyATSCredentials], dict[str, str]]:
-    """Resolve every distinct pyats_source_id once. Returns (credentials_by_id, error_by_id)."""
-    config_service = PyATSSourceConfigService(db)
-    credentials: dict[str, PyATSCredentials] = {}
-    errors: dict[str, str] = {}
-    for source_id in source_ids:
-        try:
-            credentials[source_id] = config_service.resolve_credentials(source_id)
-        except (PyATSSourceNotFoundError, PyATSValidationError) as exc:
-            errors[source_id] = str(exc)
-    return credentials, errors
 
 
 def _fail_device(
@@ -672,7 +653,7 @@ async def execute(
         if isinstance(device.attribute_bags.get("pyats_testbed"), dict)
         and device.attribute_bags["pyats_testbed"].get("pyats_source_id")
     }
-    source_credentials, source_errors = _resolve_source_credentials(db, source_ids)
+    source_credentials, source_errors = resolve_source_credentials(db, source_ids)
 
     # Bounded by what the shim runs at once; an unbounded gather of per-feature jobs makes it queue
     # work that may outlive the client's timeout (C4R-04).

@@ -133,7 +133,7 @@ class ConfigureReplaceConfigExecutorTests(unittest.IsolatedAsyncioTestCase):
                 "workflow_steps.configure_replace_config.executor.object_session", return_value=db
             ),
             patch(
-                "workflow_steps.configure_replace_config.executor.PyATSSourceConfigService"
+                "workflow_steps.common.pyats_batch.PyATSSourceConfigService"
             ) as config_service_cls,
             patch(
                 "workflow_steps.configure_replace_config.executor.service_factory"
@@ -579,7 +579,7 @@ class ConfigureReplaceJobLimitTests(unittest.IsolatedAsyncioTestCase):
                 return_value=MagicMock(),
             ),
             patch(
-                "workflow_steps.configure_replace_config.executor.PyATSSourceConfigService"
+                "workflow_steps.common.pyats_batch.PyATSSourceConfigService"
             ) as config_service_cls,
             patch(
                 "workflow_steps.configure_replace_config.executor.service_factory"
@@ -619,6 +619,25 @@ class ConfigureReplaceJobLimitTests(unittest.IsolatedAsyncioTestCase):
         outcomes, _shim = await self._run_many(30, run_job=run_job, max_jobs=4)
         self.assertLessEqual(high_water, 4)
         self.assertEqual(len(outcomes[0].context.devices), 30)
+
+    async def test_a_shim_limit_below_the_default_is_honoured(self) -> None:
+        import asyncio
+
+        in_flight = 0
+        high_water = 0
+
+        async def run_job(creds, *, operation, devices, commands, timeout_seconds=None):
+            nonlocal in_flight, high_water
+            in_flight += 1
+            high_water = max(high_water, in_flight)
+            await asyncio.sleep(0.01)
+            in_flight -= 1
+            name = devices[0]["name"]
+            response = _replace_confirm_response(replace_raw="ok", confirm_raw="ok")
+            return {"results": {name: response["results"][_DEVICE_ID]}}
+
+        await self._run_many(12, run_job=run_job, max_jobs=2)
+        self.assertEqual(high_water, 2)
 
     async def test_job_timeout_is_passed_to_the_shim(self) -> None:
         async def run_job(creds, *, operation, devices, commands, timeout_seconds=None):

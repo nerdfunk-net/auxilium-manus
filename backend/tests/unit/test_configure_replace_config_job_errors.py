@@ -27,7 +27,7 @@ async def _run(error: Exception) -> list:  # noqa: ANN202
     device = _device_with_testbed()
     with (
         patch(f"{_MOD}.object_session", return_value=MagicMock()),
-        patch(f"{_MOD}.PyATSSourceConfigService") as config_service,
+        patch("workflow_steps.common.pyats_batch.PyATSSourceConfigService") as config_service,
         patch(f"{_MOD}.service_factory") as service_factory,
     ):
         config_service.return_value.resolve_credentials.return_value = MagicMock()

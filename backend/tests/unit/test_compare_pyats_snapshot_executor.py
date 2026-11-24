@@ -83,7 +83,7 @@ class ComparePyatsSnapshotExecutorTests(unittest.IsolatedAsyncioTestCase):
                     return_value=db,
                 ),
                 patch(
-                    "workflow_steps.compare_pyats_snapshot.executor.PyATSSourceConfigService"
+                    "workflow_steps.common.pyats_batch.PyATSSourceConfigService"
                 ) as config_service_cls,
                 patch(
                     "workflow_steps.compare_pyats_snapshot.executor.service_factory"
