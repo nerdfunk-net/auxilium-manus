@@ -33,6 +33,7 @@ from services.artifacts import ArtifactService
 from services.batfish.query_helpers import query_routes
 from workflow_steps.batfish_routing_table.config import get_config
 from workflow_steps.common.batfish_context import resolve_batfish_snapshot_ref
+from workflow_steps.common.run_logging import log_run_id
 
 if TYPE_CHECKING:
     from services.network.netmiko.session_pool import DeviceSessionPool
@@ -62,7 +63,7 @@ async def execute(
     logger.info(
         "%s started run_id=%s node_id=%s network=%s snapshot=%s",
         _STEP_ID,
-        run.id,
+        log_run_id(run),
         node_id,
         snap.network,
         snap.snapshot,
@@ -102,7 +103,7 @@ async def execute(
         "row_count": len(rows),
     }
 
-    logger.info("%s finished run_id=%s rows=%d", _STEP_ID, run.id, len(rows))
+    logger.info("%s finished run_id=%s rows=%d", _STEP_ID, log_run_id(run), len(rows))
 
     device_nodes: dict[str, DeviceContext] = {}
     for row in rows:

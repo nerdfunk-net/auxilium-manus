@@ -16,6 +16,7 @@ from services.execution.log_attribute_files import log_attributes_root
 from services.workflow_context.config_scrub import scrub_config_text
 from services.workflow_context.device_template import sanitize_relative_path
 from services.workflow_context.secret_fields import redact_secrets_in_data
+from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.common.step_flags import parse_bool_flag
 from workflow_steps.log_attributes.config import get_config
 
@@ -317,7 +318,7 @@ async def execute(
     node_id: str,
     device_sessions: DeviceSessionPool,
 ) -> list[StepOutcome]:
-    logger.info("log-attributes started run_id=%s node_id=%s", run.id, node_id)
+    logger.info("log-attributes started run_id=%s node_id=%s", log_run_id(run), node_id)
 
     parsed = _parse_config(config)
     snapshot = build_context_snapshot(context)

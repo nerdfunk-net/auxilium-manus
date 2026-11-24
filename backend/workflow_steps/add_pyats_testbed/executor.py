@@ -29,6 +29,7 @@ from services.workflow_context.secret_fields import seal_secret
 from workflow_steps.add_pyats_testbed.config import get_config
 from workflow_steps.common.credential_resolver import resolve_generic_credential
 from workflow_steps.common.partial_outcomes import mark_device_failed
+from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.common.run_param_reference import resolve_config_reference
 
 if TYPE_CHECKING:
@@ -115,7 +116,7 @@ async def execute(
     logger.info(
         "%s started run_id=%s node_id=%s devices=%d pyats_source_id=%s",
         _STEP_ID,
-        run.id,
+        log_run_id(run),
         node_id,
         len(context.devices),
         pyats_source_id,
@@ -151,7 +152,7 @@ async def execute(
     logger.info(
         "%s finished run_id=%s node_id=%s devices=%d",
         _STEP_ID,
-        run.id,
+        log_run_id(run),
         node_id,
         len(devices),
     )

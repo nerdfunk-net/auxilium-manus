@@ -15,6 +15,7 @@ from services.artifacts import ArtifactService
 from workflow_steps.common.device_builders import device_context_from_nautobot
 from workflow_steps.common.fan_out import build_fan_out_metadata
 from workflow_steps.common.nautobot_source import resolve_nautobot_credentials
+from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.common.run_param_reference import resolve_config_reference
 
 if TYPE_CHECKING:
@@ -100,7 +101,7 @@ async def _resolve_saved_inventory(
     logger.info(
         "get-nautobot-devices run_id=%s source_id=%s inventory_source=%s "
         "inventory_id=%s acting_user=%s",
-        run.id,
+        log_run_id(run),
         source_id,
         "run_param" if from_run_param else "fixed",
         inventory_id,
@@ -180,7 +181,7 @@ async def execute(
     elif inventory_type == "static":
         logger.info(
             "get-nautobot-devices run_id=%s source_id=%s inventory_type=static device_ids=%d",
-            run.id,
+            log_run_id(run),
             source_id,
             len(device_ids),
         )
@@ -191,7 +192,7 @@ async def execute(
         operations = _filter_tree_to_operations(device_filter)
         logger.info(
             "get-nautobot-devices run_id=%s source_id=%s inventory_type=filter operations=%d",
-            run.id,
+            log_run_id(run),
             source_id,
             len(operations),
         )
@@ -201,7 +202,7 @@ async def execute(
     logger.info(
         "get-nautobot-devices returning %d devices run_id=%s",
         len(devices),
-        run.id,
+        log_run_id(run),
     )
 
     new_devices = {

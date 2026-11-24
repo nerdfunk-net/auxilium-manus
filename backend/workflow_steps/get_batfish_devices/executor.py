@@ -45,6 +45,7 @@ from models.workflow_context import StepOutcome, WorkflowContext
 from services.artifacts import ArtifactService
 from services.batfish.query_helpers import query_node_properties
 from workflow_steps.common.batfish_context import devices_from_nodes, resolve_batfish_snapshot_ref
+from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.get_batfish_devices.config import get_config
 
 if TYPE_CHECKING:
@@ -80,7 +81,7 @@ async def execute(
         logger.info(
             "%s run_id=%s node_id=%s: nothing configured, clearing devices",
             _STEP_ID,
-            run.id,
+            log_run_id(run),
             node_id,
         )
         return [
@@ -95,7 +96,7 @@ async def execute(
     logger.info(
         "%s started run_id=%s node_id=%s network=%s snapshot=%s",
         _STEP_ID,
-        run.id,
+        log_run_id(run),
         node_id,
         snap.network,
         snap.snapshot,
@@ -110,7 +111,7 @@ async def execute(
     )
     device_nodes = devices_from_nodes(rows)
 
-    logger.info("%s finished run_id=%s devices=%d", _STEP_ID, run.id, len(device_nodes))
+    logger.info("%s finished run_id=%s devices=%d", _STEP_ID, log_run_id(run), len(device_nodes))
 
     return [
         StepOutcome(

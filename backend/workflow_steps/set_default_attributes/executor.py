@@ -15,6 +15,7 @@ from workflow_steps.common.attribute_defaults import (
 )
 from workflow_steps.common.git_repository_loader import parse_repository_id
 from workflow_steps.common.git_yaml_source import load_yaml_from_git_source
+from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.common.step_flags import parse_bool_flag
 
 if TYPE_CHECKING:
@@ -120,7 +121,7 @@ async def execute(
     logger.info(
         "%s started run_id=%s node_id=%s mode=%s overwrite=%s devices=%d",
         _STEP_ID,
-        run.id,
+        log_run_id(run),
         node_id,
         mode,
         overwrite,
@@ -128,7 +129,7 @@ async def execute(
     )
 
     if not context.devices or not defaults:
-        logger.info("%s finished (no-op) run_id=%s", _STEP_ID, run.id)
+        logger.info("%s finished (no-op) run_id=%s", _STEP_ID, log_run_id(run))
         return [StepOutcome(name="success", context=context)]
 
     updated_devices: dict[str, DeviceContext] = {}
@@ -145,7 +146,7 @@ async def execute(
     logger.info(
         "%s finished run_id=%s devices_updated=%d",
         _STEP_ID,
-        run.id,
+        log_run_id(run),
         len(updated_devices),
     )
 

@@ -22,6 +22,7 @@ from workflow_steps.common.nautobot_interfaces import (
     infer_interface_type_from_name,
 )
 from workflow_steps.common.partial_outcomes import mark_device_failed
+from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.common.step_flags import parse_bool_flag
 from workflow_steps.config_to_attributes.aci_details import (
     build_device_fields_from_aci_details,
@@ -518,7 +519,7 @@ async def execute(
         "%s started run_id=%s node_id=%s source_format=%s config_source=%s parsed_key=%s "
         "attributes=%s update_primary_ipv4=%s devices=%d",
         _STEP_ID,
-        run.id,
+        log_run_id(run),
         node_id,
         source_format,
         config_source,
@@ -529,7 +530,7 @@ async def execute(
     )
 
     if not attributes or not context.devices:
-        logger.info("%s finished (no-op) run_id=%s", _STEP_ID, run.id)
+        logger.info("%s finished (no-op) run_id=%s", _STEP_ID, log_run_id(run))
         return [StepOutcome(name="success", context=context)]
 
     success_devices: dict[str, DeviceContext] = {}
@@ -638,7 +639,7 @@ async def execute(
     logger.info(
         "%s finished run_id=%s devices_updated=%d interfaces_written=%d primary_ipv4_failures=%d",
         _STEP_ID,
-        run.id,
+        log_run_id(run),
         devices_with_data,
         interfaces_written,
         primary_ipv4_failures,

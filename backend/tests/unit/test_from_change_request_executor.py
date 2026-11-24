@@ -116,7 +116,7 @@ class FromChangeRequestExecutorTests(unittest.IsolatedAsyncioTestCase):
             await execute(
                 config={},
                 context=self._ctx(),
-                run=SimpleNamespace(id=1, change_request_id=None),
+                run=SimpleNamespace(id=1, uuid="run-uuid", change_request_id=None),
                 artifact_service=self.artifacts,
                 node_id=NODE_ID,
                 device_sessions=None,
@@ -140,7 +140,7 @@ class FromChangeRequestExecutorTests(unittest.IsolatedAsyncioTestCase):
         outcomes = await execute(
             config={"load_configs": True},
             context=self._ctx(),
-            run=SimpleNamespace(id=99, change_request_id=cr.id),
+            run=SimpleNamespace(id=99, uuid="run-uuid", change_request_id=cr.id),
             artifact_service=self.artifacts,
             node_id=NODE_ID,
             device_sessions=None,
@@ -172,7 +172,7 @@ class FromChangeRequestExecutorTests(unittest.IsolatedAsyncioTestCase):
         outcomes = await execute(
             config={"load_configs": False},
             context=self._ctx(),
-            run=SimpleNamespace(id=99, change_request_id=cr.id),
+            run=SimpleNamespace(id=99, uuid="run-uuid", change_request_id=cr.id),
             artifact_service=self.artifacts,
             node_id=NODE_ID,
             device_sessions=None,
@@ -194,7 +194,7 @@ class FromChangeRequestExecutorTests(unittest.IsolatedAsyncioTestCase):
             await execute(
                 config={"load_configs": True},
                 context=self._ctx(),
-                run=SimpleNamespace(id=99, change_request_id=cr.id),
+                run=SimpleNamespace(id=99, uuid="run-uuid", change_request_id=cr.id),
                 artifact_service=self.artifacts,
                 node_id=NODE_ID,
                 device_sessions=None,
@@ -217,7 +217,7 @@ class FromChangeRequestExecutorTests(unittest.IsolatedAsyncioTestCase):
             await execute(
                 config={"load_configs": True},
                 context=self._ctx(),
-                run=SimpleNamespace(id=99, change_request_id=cr.id),
+                run=SimpleNamespace(id=99, uuid="run-uuid", change_request_id=cr.id),
                 artifact_service=self.artifacts,
                 node_id=NODE_ID,
                 device_sessions=None,
@@ -238,7 +238,7 @@ class FromChangeRequestExecutorTests(unittest.IsolatedAsyncioTestCase):
             await execute(
                 config={"load_configs": True},
                 context=self._ctx(),
-                run=SimpleNamespace(id=99, change_request_id=cr.id),
+                run=SimpleNamespace(id=99, uuid="run-uuid", change_request_id=cr.id),
                 artifact_service=self.artifacts,
                 node_id=NODE_ID,
                 device_sessions=None,
@@ -253,7 +253,7 @@ class FromChangeRequestExecutorTests(unittest.IsolatedAsyncioTestCase):
         await execute(
             config={"load_configs": True},
             context=self._ctx(),
-            run=SimpleNamespace(id=99, change_request_id=cr.id),
+            run=SimpleNamespace(id=99, uuid="run-uuid", change_request_id=cr.id),
             artifact_service=self.artifacts,
             node_id=NODE_ID,
             device_sessions=None,
@@ -267,7 +267,7 @@ class FromChangeRequestExecutorTests(unittest.IsolatedAsyncioTestCase):
             await execute(
                 config={},
                 context=self._ctx(),
-                run=SimpleNamespace(id=1, change_request_id=cr.id),
+                run=SimpleNamespace(id=1, uuid="run-uuid", change_request_id=cr.id),
                 artifact_service=self.artifacts,
                 node_id=NODE_ID,
                 device_sessions=None,

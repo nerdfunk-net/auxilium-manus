@@ -52,6 +52,7 @@ from workflow_steps.common.duplicate_keys import (
     find_duplicate_keys,
 )
 from workflow_steps.common.fact_entries import MAX_PARALLEL_DEVICES
+from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.common.step_flags import parse_bool_flag, parse_int_flag, record_dry_run
 from workflow_steps.get_catalyst_center_client_data.mapping import map_clients
 
@@ -278,7 +279,7 @@ async def execute(
     logger.info(
         "%s started run_id=%s devices=%d lookback_hours=%d dry_run=%s",
         STEP_ID,
-        run.id,
+        log_run_id(run),
         len(context.devices),
         lookback_hours,
         dry_run,
@@ -319,6 +320,6 @@ async def execute(
         STEP_ID,
         len(succeeded),
         len(failed),
-        run.id,
+        log_run_id(run),
     )
     return build_outcomes(context, succeeded, failed)

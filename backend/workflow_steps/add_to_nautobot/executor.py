@@ -37,6 +37,7 @@ from workflow_steps.common.redundancy_groups_config import (
     DEFAULT_REDUNDANCY_STATUS,
     parse_redundancy_groups,
 )
+from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.common.step_flags import parse_bool_flag
 from workflow_steps.common.update_field_expression import build_resolved_update_data
 
@@ -448,7 +449,7 @@ async def execute(
     logger.info(
         "%s started run_id=%s source_id=%s devices=%d custom_fields_source=%s interfaces_source=%s",
         _STEP_ID,
-        run.id,
+        log_run_id(run),
         parsed.source_id,
         len(device_items),
         parsed.custom_fields_source,
@@ -477,7 +478,7 @@ async def execute(
         _STEP_ID,
         success_count,
         failed_count,
-        run.id,
+        log_run_id(run),
     )
 
     return _partition_and_build_outcomes(context=context, results=results)

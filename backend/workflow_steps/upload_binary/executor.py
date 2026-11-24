@@ -52,6 +52,7 @@ from workflow_steps.common.device_file_upload import (
 from workflow_steps.common.file_source_root import resolve_git_root
 from workflow_steps.common.git_repository_loader import parse_repository_id
 from workflow_steps.common.read_timeout import parse_read_timeout
+from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.common.run_param_reference import resolve_config_reference
 from workflow_steps.common.step_flags import parse_bool_flag
 from workflow_steps.upload_binary.source_file import (
@@ -373,7 +374,7 @@ async def execute(
     )
     netmiko = NetmikoService(pool=device_sessions)
 
-    run_id = run.id
+    run_id = log_run_id(run)
     logger.info(
         "upload-binary started run_id=%s node_id=%s devices=%d repository=%s source=%s "
         "destination=%s%s",

@@ -42,6 +42,7 @@ from workflow_steps.common.batfish_properties import (
     parse_properties_list,
     validate_empty_config,
 )
+from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.common.step_flags import parse_bool_flag
 
 if TYPE_CHECKING:
@@ -84,7 +85,7 @@ async def execute(
     logger.info(
         "%s started run_id=%s node_id=%s network=%s snapshot=%s",
         _STEP_ID,
-        run.id,
+        log_run_id(run),
         node_id,
         snap.network,
         snap.snapshot,

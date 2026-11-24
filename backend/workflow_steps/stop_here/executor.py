@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, Any
 from core.models.runs import WorkflowRun
 from models.workflow_context import StepOutcome, WorkflowContext
 from services.artifacts import ArtifactService
+from workflow_steps.common.run_logging import log_run_id
 
 if TYPE_CHECKING:
     from services.network.netmiko.session_pool import DeviceSessionPool
@@ -36,7 +37,7 @@ async def execute(
 
     logger.info(
         "stop-here reached run_id=%s node_id=%s devices=%d",
-        run.id,
+        log_run_id(run),
         node_id,
         len(context.devices),
     )

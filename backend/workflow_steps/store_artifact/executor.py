@@ -46,6 +46,7 @@ from workflow_steps.common.content_resolver import (
     parse_content_source,
 )
 from workflow_steps.common.git_repository_loader import load_git_repository, require_repository_id
+from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.common.step_flags import parse_bool_flag
 
 if TYPE_CHECKING:
@@ -381,7 +382,7 @@ async def execute(
 
     logger.info(
         "store-artifact run_id=%s devices=%d source=%s destination=%s",
-        run.id,
+        log_run_id(run),
         len(context.devices),
         parsed.content_source,
         sink.destination,
@@ -428,7 +429,7 @@ async def execute(
         len(all_stored),
         len(success_devices),
         len(context.devices),
-        run.id,
+        log_run_id(run),
     )
     return _build_store_outcomes(
         context=context,

@@ -42,6 +42,7 @@ from workflow_steps.common.attribute_merge import (
 )
 from workflow_steps.common.file_source_root import resolve_source_root
 from workflow_steps.common.git_repository_loader import parse_repository_id
+from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.common.step_flags import parse_bool_flag
 
 if TYPE_CHECKING:
@@ -229,7 +230,7 @@ async def execute(
     if index.duplicates and parsed.match_mode == "match":
         logger.warning(
             "enrich-attributes duplicate keys run_id=%s node_id=%s duplicates=%d (first row wins)",
-            run.id,
+            log_run_id(run),
             node_id,
             index.duplicates,
         )
@@ -275,7 +276,7 @@ async def execute(
 
     logger.info(
         "enrich-attributes finished run_id=%s node_id=%s matched=%d unmatched=%d failed=%d rows=%d",
-        run.id,
+        log_run_id(run),
         node_id,
         matched,
         unmatched,

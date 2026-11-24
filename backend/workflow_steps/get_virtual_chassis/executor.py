@@ -21,6 +21,7 @@ from services.artifacts import ArtifactService
 from services.nautobot.graphql_client import NautobotServiceClient
 from workflow_steps.common.fan_out import build_fan_out_metadata
 from workflow_steps.common.nautobot_source import resolve_nautobot_credentials
+from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.get_virtual_chassis.stack import (
     STEP_ID,
     build_stack_devices,
@@ -110,7 +111,7 @@ async def execute(
     logger.info(
         "get-virtual-chassis started run_id=%s node_id=%s source_id=%s name_match=%s "
         "name_filter=%r split_members=%s",
-        run.id,
+        log_run_id(run),
         node_id,
         source_id,
         settings.name_match,
@@ -140,6 +141,6 @@ async def execute(
         len(chassis),
         len(devices) - failed_count,
         failed_count,
-        run.id,
+        log_run_id(run),
     )
     return outcomes

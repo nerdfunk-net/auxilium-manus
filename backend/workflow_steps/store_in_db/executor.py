@@ -39,6 +39,7 @@ from workflow_steps.common.duplicate_keys import (
 )
 from workflow_steps.common.partial_outcomes import mark_device_failed
 from workflow_steps.common.placeholder_template import render_placeholder_template
+from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.common.step_flags import parse_bool_flag
 
 if TYPE_CHECKING:
@@ -216,7 +217,7 @@ async def execute(
 
     logger.info(
         "store-in-db started run_id=%s node_id=%s devices=%d storage_key=%s content_source=%s",
-        run.id,
+        log_run_id(run),
         node_id,
         len(context.devices),
         storage_key,
@@ -269,7 +270,7 @@ async def execute(
         "store-in-db finished success=%d failure=%d run_id=%s",
         len(success_devices),
         len(failed_devices),
-        run.id,
+        log_run_id(run),
     )
 
     outcomes = [

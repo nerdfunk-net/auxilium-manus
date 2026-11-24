@@ -43,6 +43,7 @@ from workflow_steps.common.pyats_batch import (
     run_batched,
     validate_and_group_devices,
 )
+from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.get_pyats_running_config.config import get_config
 
 if TYPE_CHECKING:
@@ -153,7 +154,7 @@ async def execute(
     logger.info(
         "%s started run_id=%s node_id=%s devices=%d output_key=%s",
         _STEP_ID,
-        run.id,
+        log_run_id(run),
         node_id,
         len(context.devices),
         output_key,
@@ -211,7 +212,7 @@ async def execute(
         _STEP_ID,
         len(success_devices),
         len(failed_devices),
-        run.id,
+        log_run_id(run),
     )
 
     outcomes = [

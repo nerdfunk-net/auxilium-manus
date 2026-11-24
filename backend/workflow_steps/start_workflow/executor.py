@@ -48,6 +48,7 @@ from services.workflow.device_lines import (
     enabled_device_input_readers,
 )
 from workflow_steps.common.partial_outcomes import mark_device_failed
+from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.common.step_flags import parse_bool_flag, parse_int_flag
 from workflow_steps.start_workflow.config import get_config
 
@@ -559,7 +560,7 @@ async def execute(
     logger.info(
         "%s started run_id=%s node_id=%s workflow_id=%d runs=%d devices=%d wait=%s",
         _STEP_ID,
-        run.id,
+        log_run_id(run),
         node_id,
         parsed.workflow_id,
         len(groups),
@@ -584,7 +585,7 @@ async def execute(
     logger.info(
         "%s finished run_id=%s runs=%d outcomes=%s",
         _STEP_ID,
-        run.id,
+        log_run_id(run),
         len(groups),
         ",".join(o.name for o in outcomes),
     )

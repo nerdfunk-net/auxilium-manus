@@ -67,6 +67,7 @@ from services.workflow_context.device_template import (
 from services.workflow_context.node_result import set_node_result
 from workflow_steps.common.content_resolver import ExportableContent, list_exportable_content
 from workflow_steps.common.pyats_features import parse_feature_list
+from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.common.step_flags import parse_bool_flag
 from workflow_steps.compare_data.reference_reader import read_reference_text
 from workflow_steps.compare_pyats_snapshot.config import get_config
@@ -657,7 +658,7 @@ async def execute(
         "%s started run_id=%s node_id=%s devices=%d features=%s source_step_node_id=%s "
         "exclude_keys=%s",
         _STEP_ID,
-        run.id,
+        log_run_id(run),
         node_id,
         len(context.devices),
         features,
@@ -722,7 +723,7 @@ async def execute(
     if comparison_records:
         metadata[f"{node_id}.comparisons"] = comparison_records
 
-    logger.info("%s finished counts=%s run_id=%s", _STEP_ID, counts, run.id)
+    logger.info("%s finished counts=%s run_id=%s", _STEP_ID, counts, log_run_id(run))
 
     return [
         StepOutcome(

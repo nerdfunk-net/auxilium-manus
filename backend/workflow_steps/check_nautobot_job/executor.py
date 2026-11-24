@@ -39,6 +39,7 @@ from services.nautobot.jobs import NautobotJobsService
 from workflow_steps.check_nautobot_job.config import get_config
 from workflow_steps.common.attribute_expression import resolve_attribute_expression
 from workflow_steps.common.nautobot_source import resolve_nautobot_credentials
+from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.common.step_flags import parse_int_flag
 
 if TYPE_CHECKING:
@@ -273,7 +274,7 @@ async def execute(
     logger.info(
         "%s started run_id=%s node_id=%s max_checks=%d interval_seconds=%d devices=%d",
         _STEP_ID,
-        run.id,
+        log_run_id(run),
         node_id,
         parsed.max_checks,
         parsed.interval_seconds,
@@ -307,7 +308,7 @@ async def execute(
         _STEP_ID,
         len(success_devices),
         len(failed_devices),
-        run.id,
+        log_run_id(run),
     )
 
     return _build_outcomes(context, success_devices, failed_devices)

@@ -21,6 +21,7 @@ from services.network.cisco_config_parsing import (
     platform_hint_for_network_driver,
 )
 from workflow_steps.common.jinja_render import parse_output_key
+from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.parse_cisco_config.config import get_config
 
 if TYPE_CHECKING:
@@ -212,7 +213,7 @@ async def execute(
 
     logger.info(
         "parse-cisco-config started run_id=%s node_id=%s devices=%d config_source=%s output_key=%s",
-        run.id,
+        log_run_id(run),
         node_id,
         len(context.devices),
         config_source,

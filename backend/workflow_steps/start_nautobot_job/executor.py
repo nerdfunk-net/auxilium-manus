@@ -41,6 +41,7 @@ from services.workflow_context.secret_fields import redact_secrets_in_data
 from workflow_steps.common.attribute_expression import resolve_attribute_expression
 from workflow_steps.common.nautobot_source import resolve_nautobot_credentials
 from workflow_steps.common.request_record import append_request_record
+from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.common.step_flags import parse_int_flag
 from workflow_steps.common.update_field_expression import normalize_field_spec
 from workflow_steps.start_nautobot_job.config import get_config
@@ -492,7 +493,7 @@ async def execute(
     logger.info(
         "%s started run_id=%s node_id=%s job_id=%s devices=%d",
         _STEP_ID,
-        run.id,
+        log_run_id(run),
         node_id,
         parsed.job_id,
         len(context.devices),
@@ -533,7 +534,7 @@ async def execute(
         _STEP_ID,
         len(success_devices),
         len(failed_devices),
-        run.id,
+        log_run_id(run),
     )
 
     return _build_outcomes(context, success_devices, failed_devices)

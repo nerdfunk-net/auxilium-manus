@@ -39,6 +39,7 @@ from services.git.paths import resolve_within_repo
 from services.git.repo_lock import git_repo_lock
 from services.git.tree_scope import async_scope, git_branch_scope
 from workflow_steps.common.git_repository_loader import load_git_repository
+from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.common.step_flags import parse_bool_flag
 
 if TYPE_CHECKING:
@@ -147,7 +148,7 @@ async def execute(
     logger.info(
         "%s started run_id=%s change_request_id=%s devices=%d",
         _STEP_ID,
-        run.id,
+        log_run_id(run),
         change_request_id,
         len(entries),
     )
@@ -209,7 +210,7 @@ async def execute(
         len(new_devices),
         change_request_id,
         change_request.branch,
-        run.id,
+        log_run_id(run),
     )
     return [
         StepOutcome(

@@ -18,6 +18,7 @@ from models.workflow_context import StepOutcome, WorkflowContext
 from repositories.job_statistics_repository import JobStatisticsRepository
 from services.artifacts import ArtifactService
 from workflow_steps.common.notification_context import resolve_run_workflow
+from workflow_steps.common.run_logging import log_run_id
 
 if TYPE_CHECKING:
     from services.network.netmiko.session_pool import DeviceSessionPool
@@ -49,7 +50,7 @@ async def execute(
 
     logger.info(
         "collect-statistics started run_id=%s node_id=%s devices=%d result=%s",
-        run.id,
+        log_run_id(run),
         node_id,
         len(context.devices),
         result,
@@ -74,7 +75,7 @@ async def execute(
         "collect-statistics finished wrote=%d result=%s run_id=%s",
         len(created),
         result,
-        run.id,
+        log_run_id(run),
     )
 
     return [

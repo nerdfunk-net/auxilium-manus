@@ -115,7 +115,7 @@ class OpenChangeRequestExecutorTests(unittest.IsolatedAsyncioTestCase):
         return WorkflowContext(run_id="run-uuid", workflow_id="7", devices={"d1": device})
 
     def _run(self) -> SimpleNamespace:
-        return SimpleNamespace(id=42, device_ids=["d1"], run_inputs={"vlan": 10})
+        return SimpleNamespace(id=42, uuid="run-uuid", device_ids=["d1"], run_inputs={"vlan": 10})
 
     async def test_identical_configs_leave_through_unchanged(self) -> None:
         self.git.commit.return_value = SimpleNamespace(

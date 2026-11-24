@@ -29,6 +29,7 @@ from workflow_steps.common.partial_outcomes import (
     device_error_from_exception,
     fail_device_with_error,
 )
+from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.common.step_flags import parse_bool_flag
 from workflow_steps.get_device_location.chain import (
     LOCATION_CHAIN_QUERY,
@@ -211,7 +212,7 @@ async def execute(
 
     logger.info(
         "get-device-location started run_id=%s source_id=%s location_type=%s target=%s devices=%d",
-        run.id,
+        log_run_id(run),
         parsed.source_id,
         parsed.location_type,
         parsed.target_attribute,
@@ -235,6 +236,6 @@ async def execute(
         "get-device-location finished success=%d failure=%d run_id=%s",
         succeeded,
         len(results) - succeeded,
-        run.id,
+        log_run_id(run),
     )
     return _build_outcomes(context, list(results))

@@ -39,6 +39,7 @@ from services.artifacts import ArtifactService
 from workflow_steps.batfish_extract_facts.config import get_config
 from workflow_steps.batfish_extract_facts.hsrp import mark_hsrp_error, merge_hsrp_into_facts
 from workflow_steps.common.batfish_context import resolve_batfish_snapshot_ref
+from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.common.step_flags import parse_bool_flag
 
 if TYPE_CHECKING:
@@ -140,7 +141,7 @@ async def execute(
     logger.info(
         "%s started run_id=%s node_id=%s devices=%d nodes_filter=%s network=%s snapshot=%s",
         _STEP_ID,
-        run.id,
+        log_run_id(run),
         node_id,
         len(context.devices),
         nodes_filter,
@@ -208,7 +209,9 @@ async def execute(
     if hsrp_error:
         metadata[f"{node_id}.{output_key}"]["warnings"] = [f"HSRP groups not added: {hsrp_error}"]
 
-    logger.info("%s finished run_id=%s nodes_extracted=%d", _STEP_ID, run.id, len(node_facts))
+    logger.info(
+        "%s finished run_id=%s nodes_extracted=%d", _STEP_ID, log_run_id(run), len(node_facts)
+    )
 
     outcomes = [
         StepOutcome(

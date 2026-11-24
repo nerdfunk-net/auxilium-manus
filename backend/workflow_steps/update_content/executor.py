@@ -34,6 +34,7 @@ from workflow_steps.common.partial_outcomes import (
     device_error_from_exception,
     fail_device_with_error,
 )
+from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.common.step_flags import parse_bool_flag
 
 if TYPE_CHECKING:
@@ -276,7 +277,7 @@ async def execute(
     parsed = _parse_update_content_config(config)
     logger.info(
         "update-content started run_id=%s node_id=%s devices=%d content_source=%s rules=%d",
-        run.id,
+        log_run_id(run),
         node_id,
         len(context.devices),
         parsed.content_source,
@@ -301,7 +302,7 @@ async def execute(
         "update-content finished success=%d failure=%d run_id=%s",
         len(success_devices),
         len(failed_devices),
-        run.id,
+        log_run_id(run),
     )
     return _build_update_content_outcomes(
         context=context,

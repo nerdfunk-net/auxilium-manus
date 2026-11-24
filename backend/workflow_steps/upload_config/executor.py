@@ -40,6 +40,7 @@ from workflow_steps.common.device_file_upload import (
     run_on_devices,
     verify_remote_digest,
 )
+from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.common.run_param_reference import resolve_config_reference
 from workflow_steps.common.step_flags import parse_bool_flag
 
@@ -351,7 +352,7 @@ async def execute(
     )
     netmiko = NetmikoService(pool=device_sessions)
 
-    run_id = run.id
+    run_id = log_run_id(run)
     total = len(context.devices)
     logger.info(
         "upload-config started run_id=%s node_id=%s devices=%d content_source=%s destination=%s%s",

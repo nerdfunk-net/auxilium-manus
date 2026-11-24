@@ -27,6 +27,7 @@ from services.network.netmiko.session_pool import DeviceSessionPool
 from workflow_steps.common.credential_resolver import resolve_ssh_credential
 from workflow_steps.common.read_timeout import parse_read_timeout
 from workflow_steps.common.retry_config import parse_retry_backoff_seconds
+from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.common.run_param_reference import resolve_config_reference
 
 logger = logging.getLogger(__name__)
@@ -298,7 +299,7 @@ async def execute(
 
     logger.info(
         "get-device-configs run_id=%s devices=%d credential=%s format=%s",
-        run.id,
+        log_run_id(run),
         total,
         credential_reference,
         parsed.config_format,
@@ -331,6 +332,6 @@ async def execute(
         "get-device-configs returning %d/%d devices run_id=%s",
         len(success_devices),
         total,
-        run.id,
+        log_run_id(run),
     )
     return _build_outcomes(context, success_devices, failed_devices)

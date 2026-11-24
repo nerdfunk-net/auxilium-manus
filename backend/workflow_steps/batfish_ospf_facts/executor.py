@@ -32,6 +32,7 @@ from services.batfish.query_helpers import (
 from workflow_steps.batfish_ospf_facts.config import get_config
 from workflow_steps.common.batfish_context import resolve_batfish_snapshot_ref
 from workflow_steps.common.batfish_ospf_facts import OSPF_QUESTION_KEYS, build_ospf_facts_outcomes
+from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.common.step_flags import parse_bool_flag
 
 if TYPE_CHECKING:
@@ -80,7 +81,7 @@ async def execute(
     logger.info(
         "%s started run_id=%s node_id=%s network=%s snapshot=%s questions=%s",
         _STEP_ID,
-        run.id,
+        log_run_id(run),
         node_id,
         snap.network,
         snap.snapshot,

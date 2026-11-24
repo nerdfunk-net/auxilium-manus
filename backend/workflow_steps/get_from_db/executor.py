@@ -27,6 +27,7 @@ from services.device_data.device_data_service import DeviceDataService
 from workflow_steps.common.attribute_write import set_device_attribute
 from workflow_steps.common.partial_outcomes import device_error_from_exception
 from workflow_steps.common.placeholder_template import render_placeholder_template
+from workflow_steps.common.run_logging import log_run_id
 
 if TYPE_CHECKING:
     from services.network.netmiko.session_pool import DeviceSessionPool
@@ -81,7 +82,7 @@ async def execute(
 
     logger.info(
         "get-from-db started run_id=%s node_id=%s devices=%d storage_key=%s",
-        run.id,
+        log_run_id(run),
         node_id,
         len(context.devices),
         storage_key,
@@ -128,7 +129,7 @@ async def execute(
         "get-from-db finished success=%d failure=%d run_id=%s",
         len(success_devices),
         len(failed_devices),
-        run.id,
+        log_run_id(run),
     )
 
     outcomes = [

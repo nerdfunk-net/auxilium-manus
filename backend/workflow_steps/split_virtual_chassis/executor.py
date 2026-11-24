@@ -14,6 +14,7 @@ from models.workflow_context import (
     WorkflowContext,
 )
 from services.artifacts import ArtifactService
+from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.split_virtual_chassis.members import (
     STEP_ID,
     SplitSettings,
@@ -85,7 +86,7 @@ async def execute(
     settings = parse_settings(config)
     logger.info(
         "split-virtual-chassis started run_id=%s node_id=%s devices=%d attribute_bag=%s",
-        run.id,
+        log_run_id(run),
         node_id,
         len(context.devices),
         settings.attribute_bag,
@@ -98,7 +99,7 @@ async def execute(
         stacks,
         len(members),
         len(failed),
-        run.id,
+        log_run_id(run),
     )
 
     metadata = {

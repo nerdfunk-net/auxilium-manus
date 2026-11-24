@@ -35,6 +35,7 @@ from services.nautobot.metadata_creation import (
     MetadataReferenceNotFoundError,
 )
 from workflow_steps.common.nautobot_source import resolve_nautobot_credentials
+from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.common.update_field_expression import resolve_template_if_present
 
 if TYPE_CHECKING:
@@ -326,7 +327,7 @@ async def execute(
     logger.info(
         "%s started run_id=%s source_id=%s metadata_type=%s devices=%d",
         _STEP_ID,
-        run.id,
+        log_run_id(run),
         parsed.source_id,
         parsed.metadata_type,
         len(context.devices),
@@ -352,6 +353,6 @@ async def execute(
         _STEP_ID,
         success_count,
         len(results) - success_count,
-        run.id,
+        log_run_id(run),
     )
     return _build_outcomes(context, results)

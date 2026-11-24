@@ -56,6 +56,7 @@ from workflow_steps.common.nautobot_target import (
     explicit_device_context,
     parse_explicit_identifier,
 )
+from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.common.step_flags import parse_bool_flag
 from workflow_steps.common.template_content import load_stored_template
 
@@ -615,7 +616,7 @@ async def execute(
     logger.info(
         "%s started run_id=%s source_id=%s devices=%d mode=%s paths=%s",
         _STEP_ID,
-        run.id,
+        log_run_id(run),
         parsed.source_id,
         len(device_items),
         parsed.mode,
@@ -655,7 +656,7 @@ async def execute(
         _STEP_ID,
         len(success_devices),
         len(failed_devices),
-        run.id,
+        log_run_id(run),
     )
 
     return _build_outcomes(context, success_devices, failed_devices)

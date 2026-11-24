@@ -30,6 +30,7 @@ from models.workflow_context import (
 from services.artifacts import ArtifactService
 from services.workflow_context.node_result import set_node_result
 from workflow_steps.common.content_resolver import ExportableContent, list_exportable_content
+from workflow_steps.common.run_logging import log_run_id
 
 if TYPE_CHECKING:
     from services.network.netmiko.session_pool import DeviceSessionPool
@@ -332,7 +333,7 @@ async def execute(
     parsed = _parse_filter_config(config)
     logger.info(
         "filter-output run_id=%s devices=%d source=%s source_node=%s source_command=%r rules=%d",
-        run.id,
+        log_run_id(run),
         len(context.devices),
         parsed.content_source,
         parsed.source_step_node_id,
@@ -358,7 +359,7 @@ async def execute(
         "filter-output returning %d/%d devices run_id=%s",
         len(success_devices),
         len(context.devices),
-        run.id,
+        log_run_id(run),
     )
     return _build_filter_outcomes(
         context=context,

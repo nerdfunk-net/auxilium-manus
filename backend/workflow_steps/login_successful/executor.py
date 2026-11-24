@@ -25,6 +25,7 @@ from services.network.netmiko.service import NetmikoService
 from services.network.netmiko.session_pool import DeviceSessionPool
 from services.workflow_context.node_result import set_node_result
 from workflow_steps.common.credential_resolver import resolve_ssh_credential
+from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.common.run_param_reference import resolve_config_reference
 
 logger = logging.getLogger(__name__)
@@ -275,7 +276,7 @@ async def execute(
 
     logger.info(
         "login-successful started run_id=%s node_id=%s devices=%d credential=%s override=%s",
-        run.id,
+        log_run_id(run),
         node_id,
         total,
         credential_reference,

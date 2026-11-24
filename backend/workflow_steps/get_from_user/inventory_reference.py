@@ -20,6 +20,7 @@ from repositories.user_repository import UserRepository
 from services.settings.settings_service import SettingsService
 from services.workflow.device_lines import device_line
 from workflow_steps.common.nautobot_source import resolve_nautobot_credentials
+from workflow_steps.common.run_logging import log_run_id
 
 logger = logging.getLogger(__name__)
 
@@ -73,7 +74,7 @@ async def inventory_device_text(
     service = service_factory.build_nautobot_source_service(credentials, db)
     logger.info(
         "get-from-user run_id=%s resolving inventory_id=%s source_id=%s",
-        run.id,
+        log_run_id(run),
         inventory_id,
         source_id,
     )

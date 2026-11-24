@@ -96,6 +96,7 @@ from services.pyats.source_config_service import (
 )
 from services.workflow_context.node_result import set_node_result
 from services.workflow_context.secret_fields import unwrap_secret
+from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.common.step_flags import parse_bool_flag, parse_int_flag
 from workflow_steps.configure_replace_config.config import get_config
 
@@ -863,7 +864,7 @@ async def execute(
         "%s started run_id=%s node_id=%s devices=%d destination_filename=%s file_system=%s "
         "timeout_minutes=%d",
         _STEP_ID,
-        run.id,
+        log_run_id(run),
         node_id,
         len(context.devices),
         destination_filename,
@@ -914,7 +915,7 @@ async def execute(
         _STEP_ID,
         len(success_devices),
         len(failed_devices),
-        run.id,
+        log_run_id(run),
     )
 
     outcomes = [

@@ -61,6 +61,7 @@ from workflow_steps.common.batfish_git_source import (
 from workflow_steps.common.content_resolver import list_exportable_content
 from workflow_steps.common.git_repository_loader import load_git_repository, require_repository_id
 from workflow_steps.common.partial_outcomes import mark_device_failed
+from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.common.run_param_reference import resolve_config_reference
 from workflow_steps.common.step_flags import parse_bool_flag, parse_int_flag
 
@@ -315,7 +316,7 @@ async def execute(
     logger.info(
         "%s started run_id=%s node_id=%s config_source=%s devices=%d network=%s snapshot=%s",
         _STEP_ID,
-        run.id,
+        log_run_id(run),
         node_id,
         config_source,
         len(context.devices),
@@ -359,7 +360,7 @@ async def execute(
     logger.info(
         "%s finished run_id=%s snapshot=%s %s",
         _STEP_ID,
-        run.id,
+        log_run_id(run),
         snapshot_name,
         summary.log_suffix,
     )

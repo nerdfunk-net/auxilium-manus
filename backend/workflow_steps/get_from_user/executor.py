@@ -32,6 +32,7 @@ from workflow_steps.common.device_list import (
     validated_driver,
 )
 from workflow_steps.common.fan_out import build_fan_out_metadata
+from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.get_from_user.inventory_reference import (
     inventory_device_text,
     is_inventory_reference,
@@ -58,7 +59,7 @@ async def execute(
     if not param_name:
         raise ValueError("get-from-user: device_param is not configured")
 
-    logger.info("get-from-user started run_id=%s param=%s", run.id, param_name)
+    logger.info("get-from-user started run_id=%s param=%s", log_run_id(run), param_name)
 
     run_inputs = run.run_inputs or {}
     if param_name not in run_inputs:
@@ -112,7 +113,7 @@ async def execute(
     logger.info(
         "get-from-user returning %d devices run_id=%s",
         len(new_devices),
-        run.id,
+        log_run_id(run),
     )
 
     new_context = context.model_copy(

@@ -29,6 +29,7 @@ from workflow_steps.common.content_resolver import list_exportable_content
 from workflow_steps.common.credential_resolver import resolve_ssh_credential
 from workflow_steps.common.read_timeout import parse_read_timeout
 from workflow_steps.common.retry_config import parse_retry_backoff_seconds
+from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.common.run_param_reference import resolve_config_reference
 from workflow_steps.common.step_flags import parse_bool_flag, record_dry_run
 
@@ -513,7 +514,7 @@ async def execute(
         "deploy-rendered-template started run_id=%s node_id=%s devices=%d credential=%s "
         "source=%s mode=%s write_config=%s override=%s read_timeout=%d "
         "auto_confirm_prompts=%s dry_run=%s",
-        run.id,
+        log_run_id(run),
         node_id,
         total,
         parsed.credential_reference,
@@ -552,7 +553,7 @@ async def execute(
         "deploy-rendered-template finished success=%d failure=%d run_id=%s",
         len(success_devices),
         len(failed_devices),
-        run.id,
+        log_run_id(run),
     )
 
     return _build_deploy_outcomes(

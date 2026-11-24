@@ -14,6 +14,7 @@ from workflow_steps.common.device_builders import device_context_from_git_detail
 from workflow_steps.common.fan_out import build_fan_out_metadata
 from workflow_steps.common.git_repository_loader import load_git_repository, require_repository_id
 from workflow_steps.common.partial_outcomes import mark_device_failed
+from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.common.step_flags import parse_bool_flag
 
 if TYPE_CHECKING:
@@ -47,7 +48,7 @@ async def execute(
 
     logger.info(
         "get-git-devices started run_id=%s git_repository_id=%s filename_pattern=%s",
-        run.id,
+        log_run_id(run),
         git_repository_id,
         filename_pattern,
     )
@@ -81,7 +82,7 @@ async def execute(
         "get-git-devices returning %d devices from %d file(s) run_id=%s",
         len(result.records),
         files_read,
-        run.id,
+        log_run_id(run),
     )
 
     new_devices: dict[str, DeviceContext] = {}

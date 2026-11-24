@@ -57,6 +57,7 @@ from workflow_steps.common.partial_outcomes import (
     fail_device_with_error,
     mark_device_failed,
 )
+from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.common.run_param_reference import resolve_config_reference
 from workflow_steps.common.step_flags import record_dry_run
 
@@ -318,7 +319,7 @@ async def execute(
 
     logger.info(
         "collect-client-data run_id=%s devices=%d ip=%s mac=%s vrfs=%s hostnames=%s dry_run=%s",
-        run.id,
+        log_run_id(run),
         len(context.devices),
         options.collect_ip_address,
         options.collect_mac_address,
@@ -364,7 +365,7 @@ async def execute(
         "collect-client-data finished success=%d failure=%d run_id=%s",
         len(success),
         len(failed),
-        run.id,
+        log_run_id(run),
     )
     outcomes = [
         StepOutcome(

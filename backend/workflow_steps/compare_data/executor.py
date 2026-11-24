@@ -33,6 +33,7 @@ from workflow_steps.common.content_resolver import (
     parse_content_source,
 )
 from workflow_steps.common.partial_outcomes import device_error_from_exception
+from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.common.step_flags import parse_bool_flag
 from workflow_steps.compare_data.config import get_config
 from workflow_steps.compare_data.reference_reader import read_reference_text
@@ -493,7 +494,7 @@ async def execute(
 
     logger.info(
         "compare-data run_id=%s devices=%d source=%s reference=%s",
-        run.id,
+        log_run_id(run),
         len(context.devices),
         parsed.content_source,
         parsed.reference_location,
@@ -535,7 +536,7 @@ async def execute(
 
     logger.info(
         "compare-data run_id=%s counts=%s",
-        run.id,
+        log_run_id(run),
         counts,
     )
 

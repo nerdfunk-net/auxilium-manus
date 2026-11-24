@@ -74,6 +74,7 @@ def make_run(**attrs: Any) -> MagicMock:
     run = MagicMock(spec=WorkflowRun)
     defaults: dict[str, Any] = {
         "id": 1,
+        "uuid": "run-uuid-1",
         "workflow_id": 1,
         "triggered_by_id": 1,
         "run_inputs": {},

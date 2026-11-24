@@ -42,6 +42,7 @@ from workflow_steps.common.redundancy_groups_config import (
     DEFAULT_REDUNDANCY_STATUS,
     parse_redundancy_groups,
 )
+from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.common.step_flags import parse_bool_flag
 from workflow_steps.common.update_field_expression import (
     build_resolved_update_data,
@@ -505,7 +506,7 @@ async def execute(
         logger.info(
             "%s dry run enabled - no devices will be updated run_id=%s node_id=%s",
             _STEP_ID,
-            run.id,
+            log_run_id(run),
             node_id,
         )
         return [StepOutcome(name="success", context=context)]
@@ -526,7 +527,7 @@ async def execute(
         "%s started run_id=%s source_id=%s devices=%d enabled_fields=%d "
         "interfaces_source=%s manual_interfaces=%d",
         _STEP_ID,
-        run.id,
+        log_run_id(run),
         parsed.source_id,
         len(device_items),
         enabled_field_count,
@@ -566,7 +567,7 @@ async def execute(
         _STEP_ID,
         len(success_devices),
         len(failed_devices),
-        run.id,
+        log_run_id(run),
     )
 
     return _build_outcomes(context, success_devices, failed_devices)

@@ -46,6 +46,7 @@ from services.network.netmiko.session_pool import DeviceSessionPool
 from workflow_steps.common.credential_resolver import resolve_ssh_credential
 from workflow_steps.common.read_timeout import parse_read_timeout
 from workflow_steps.common.retry_config import parse_retry_backoff_seconds
+from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.common.run_param_reference import resolve_config_reference
 
 logger = logging.getLogger(__name__)
@@ -330,7 +331,7 @@ async def execute(
     logger.info(
         "%s run_id=%s devices=%d credential=%s source_filename=%s override=%s read_timeout=%d",
         _STEP_ID,
-        run.id,
+        log_run_id(run),
         total,
         parsed.credential_reference,
         parsed.source_filename,
@@ -364,7 +365,7 @@ async def execute(
         _STEP_ID,
         len(success_devices),
         len(failed_devices),
-        run.id,
+        log_run_id(run),
     )
 
     return _build_outcomes(

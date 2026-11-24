@@ -31,6 +31,7 @@ from workflow_steps.common.attribute_merge import (
 )
 from workflow_steps.common.file_source_root import resolve_source_root
 from workflow_steps.common.git_repository_loader import parse_repository_id
+from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.common.step_flags import parse_bool_flag
 
 if TYPE_CHECKING:
@@ -133,7 +134,7 @@ async def execute(
 
     logger.info(
         "read-from-file started run_id=%s node_id=%s devices=%d source=%s format=%s destination=%s",
-        run.id,
+        log_run_id(run),
         node_id,
         len(context.devices),
         parsed.source,
@@ -181,6 +182,6 @@ async def execute(
         len(success_devices),
         len(failed_devices),
         len(document),
-        run.id,
+        log_run_id(run),
     )
     return _build_outcomes(context, success_devices, failed_devices)

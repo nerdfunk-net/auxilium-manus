@@ -419,7 +419,7 @@ class MaxConcurrencyTests(unittest.IsolatedAsyncioTestCase):
             await mod.execute(
                 config=config,
                 context=WorkflowContext(run_id="r", workflow_id="w", devices=devices),
-                run=SimpleNamespace(id=1),
+                run=SimpleNamespace(id=1, uuid="run-uuid"),
                 artifact_service=MagicMock(),
                 node_id="n",
                 device_sessions=MagicMock(),

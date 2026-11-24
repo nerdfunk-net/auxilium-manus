@@ -30,6 +30,7 @@ from workflow_steps.common.device_list import (
     normalize_device_entries,
 )
 from workflow_steps.common.fan_out import build_fan_out_metadata
+from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.get_from_agent.request import STEP_ID, build_inputs, parse_config
 
 if TYPE_CHECKING:
@@ -125,7 +126,7 @@ async def execute(
     logger.info(
         "%s started run_id=%s node_id=%s agent=%s transport=%s handler=%s attributes=%d",
         STEP_ID,
-        run.id,
+        log_run_id(run),
         node_id,
         connection.source_id,
         connection.transport,
@@ -171,7 +172,7 @@ async def execute(
     if fan_out_metadata is not None:
         metadata["_fan_out"] = fan_out_metadata
 
-    logger.info("%s finished run_id=%s devices=%d", STEP_ID, run.id, len(new_devices))
+    logger.info("%s finished run_id=%s devices=%d", STEP_ID, log_run_id(run), len(new_devices))
     new_context = context.model_copy(
         update={"devices": {**context.devices, **new_devices}, "metadata": metadata}
     )

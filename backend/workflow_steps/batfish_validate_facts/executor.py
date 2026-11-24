@@ -79,6 +79,7 @@ from workflow_steps.common.jinja_render import (
     render_jinja_template,
 )
 from workflow_steps.common.partial_outcomes import mark_device_failed
+from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.common.step_flags import parse_bool_flag
 
 if TYPE_CHECKING:
@@ -335,7 +336,7 @@ async def execute(
     logger.info(
         "%s started run_id=%s node_id=%s devices=%d facts_source=%s network=%s snapshot=%s",
         _STEP_ID,
-        run.id,
+        log_run_id(run),
         node_id,
         len(context.devices),
         facts_source,
@@ -439,7 +440,7 @@ async def execute(
     logger.info(
         "%s finished run_id=%s counts=%s mismatched_nodes=%d",
         _STEP_ID,
-        run.id,
+        log_run_id(run),
         counts,
         len(mismatches),
     )

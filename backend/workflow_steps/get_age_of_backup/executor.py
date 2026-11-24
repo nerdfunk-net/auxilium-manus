@@ -46,6 +46,7 @@ from workflow_steps.common.file_source_root import resolve_git_root
 from workflow_steps.common.git_repository_loader import parse_repository_id
 from workflow_steps.common.partial_outcomes import device_error_from_exception
 from workflow_steps.common.placeholder_template import render_placeholder_template
+from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.common.step_flags import parse_bool_flag
 
 if TYPE_CHECKING:
@@ -321,7 +322,7 @@ async def execute(
 
     logger.info(
         "get-age-of-backup started run_id=%s node_id=%s devices=%d use_marker=%s",
-        run.id,
+        log_run_id(run),
         node_id,
         len(context.devices),
         parsed.use_marker,
@@ -339,7 +340,7 @@ async def execute(
         "get-age-of-backup finished success=%d failure=%d run_id=%s",
         len(success),
         len(failed),
-        run.id,
+        log_run_id(run),
     )
     outcomes = [
         StepOutcome(name="success", context=context.model_copy(update={"devices": success}))

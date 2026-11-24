@@ -28,6 +28,7 @@ from services.batfish.common.exceptions import BatfishAnswerFailedError
 from services.batfish.query_helpers import query_test_filters, require_field
 from workflow_steps.batfish_acl_check.config import get_config
 from workflow_steps.common.batfish_context import resolve_batfish_snapshot_ref
+from workflow_steps.common.run_logging import log_run_id
 
 if TYPE_CHECKING:
     from services.network.netmiko.session_pool import DeviceSessionPool
@@ -61,7 +62,7 @@ async def execute(
     logger.info(
         "%s started run_id=%s node_id=%s network=%s snapshot=%s node=%s filter=%s",
         _STEP_ID,
-        run.id,
+        log_run_id(run),
         node_id,
         snap.network,
         snap.snapshot,
@@ -114,7 +115,7 @@ async def execute(
         "action": action,
     }
 
-    logger.info("%s finished run_id=%s action=%s", _STEP_ID, run.id, action)
+    logger.info("%s finished run_id=%s action=%s", _STEP_ID, log_run_id(run), action)
 
     outcome_name = "permit" if permitted else "deny"
     return [

@@ -69,7 +69,7 @@ class FakeClient:
 
 
 async def _run(config: dict[str, Any], client: FakeClient, *, run_inputs=None, connection=None):
-    run = SimpleNamespace(id=7, run_inputs=run_inputs or {})
+    run = SimpleNamespace(id=7, uuid="run-uuid", run_inputs=run_inputs or {})
     context = WorkflowContext(run_id="run-1", workflow_id="wf-1", devices={})
     with (
         patch.object(mod, "object_session", return_value=MagicMock()),

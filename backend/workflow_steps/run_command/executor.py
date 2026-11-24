@@ -18,6 +18,7 @@ from services.artifacts import ArtifactService
 from services.network.netmiko.service import NetmikoService
 from services.network.netmiko.session_pool import DeviceSessionPool
 from workflow_steps.common.credential_resolver import resolve_ssh_credential
+from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.common.run_param_reference import resolve_config_reference
 from workflow_steps.run_command.config_mode import run_config_mode
 from workflow_steps.run_command.enrichment import enrich_with_genie, enrich_with_textfsm
@@ -96,7 +97,7 @@ async def execute(
             "run-command finished mode=config_mode success=%d failure=%d run_id=%s",
             len(success_devices),
             len(failed_devices),
-            run.id,
+            log_run_id(run),
         )
         return build_outcomes(
             context=context,
@@ -129,7 +130,7 @@ async def execute(
         "run-command returning %d/%d devices mode=exec_mode run_id=%s",
         len(success_devices),
         total,
-        run.id,
+        log_run_id(run),
     )
     return build_outcomes(
         context=context,

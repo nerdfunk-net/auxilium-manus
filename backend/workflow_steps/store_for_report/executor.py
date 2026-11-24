@@ -39,6 +39,7 @@ from services.workflow_context.secret_fields import (
     redact_secrets_in_data,
 )
 from workflow_steps.common.duplicate_keys import find_duplicate_keys
+from workflow_steps.common.run_logging import log_run_id
 
 if TYPE_CHECKING:
     from services.artifacts import ArtifactService
@@ -311,7 +312,7 @@ async def execute(
 
     logger.info(
         "store-for-report started run_id=%s node_id=%s devices=%d dataset=%s",
-        run.id,
+        log_run_id(run),
         node_id,
         len(context.devices),
         dataset,
@@ -368,7 +369,7 @@ async def execute(
                 logger.error(
                     "store-for-report database error run_id=%s node_id=%s device=%s "
                     "error=%s sqlstate=%s",
-                    run.id,
+                    log_run_id(run),
                     node_id,
                     device.name,
                     type(exc).__name__,
@@ -386,7 +387,7 @@ async def execute(
                 # names fields and paths, never values.
                 logger.warning(
                     "store-for-report device failed run_id=%s node_id=%s device=%s: %s",
-                    run.id,
+                    log_run_id(run),
                     node_id,
                     device.name,
                     exc,
@@ -404,7 +405,7 @@ async def execute(
                 # can hold paths and values (like the database branch above).
                 logger.exception(
                     "store-for-report unexpected error run_id=%s node_id=%s device=%s",
-                    run.id,
+                    log_run_id(run),
                     node_id,
                     device.name,
                 )
@@ -422,7 +423,7 @@ async def execute(
         "store-for-report finished success=%d failure=%d run_id=%s",
         len(success_devices),
         len(failed_devices),
-        run.id,
+        log_run_id(run),
     )
 
     summary = None
@@ -430,7 +431,11 @@ async def execute(
         summary = _empty_fields_summary(fields, fields_with_a_value, len(success_devices))
     if summary:
         logger.warning(
-            "store-for-report %s run_id=%s node_id=%s dataset=%s", summary, run.id, node_id, dataset
+            "store-for-report %s run_id=%s node_id=%s dataset=%s",
+            summary,
+            log_run_id(run),
+            node_id,
+            dataset,
         )
 
     outcomes = [

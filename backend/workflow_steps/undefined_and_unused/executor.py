@@ -69,6 +69,7 @@ from services.batfish.query_helpers import (
     query_unused_structures,
 )
 from workflow_steps.common.batfish_context import resolve_batfish_snapshot_ref
+from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.undefined_and_unused.config import get_config
 
 if TYPE_CHECKING:
@@ -365,7 +366,7 @@ async def execute(
     logger.info(
         "%s started run_id=%s node_id=%s devices=%d network=%s snapshot=%s",
         _STEP_ID,
-        run.id,
+        log_run_id(run),
         node_id,
         len(context.devices),
         snap.network,
@@ -387,7 +388,7 @@ async def execute(
     )
 
     counts = {name: len(buckets[name]) for name in _OUTCOME_NAMES}
-    logger.info("%s finished run_id=%s counts=%s", _STEP_ID, run.id, counts)
+    logger.info("%s finished run_id=%s counts=%s", _STEP_ID, log_run_id(run), counts)
 
     return [
         StepOutcome(

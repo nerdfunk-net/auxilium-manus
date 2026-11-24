@@ -32,6 +32,7 @@ from services.nautobot.devices.attribute_bag import (
 from services.nautobot.devices.cable_normalize import normalize_cables as normalize_cables_in_bag
 from workflow_steps.common.nautobot_resolve import resolve_nautobot_device_id
 from workflow_steps.common.nautobot_source import resolve_nautobot_credentials
+from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.common.step_flags import parse_bool_flag
 
 if TYPE_CHECKING:
@@ -252,7 +253,7 @@ async def execute(
 
     logger.info(
         "get-nautobot-attributes run_id=%s source_id=%s devices=%d attributes=%s",
-        run.id,
+        log_run_id(run),
         parsed.source_id,
         len(context.devices),
         parsed.list_of_attributes,
@@ -279,6 +280,6 @@ async def execute(
         "get-nautobot-attributes returning %d/%d devices run_id=%s",
         len(success_devices),
         len(context.devices),
-        run.id,
+        log_run_id(run),
     )
     return _build_outcomes(context, success_devices, failed_devices)

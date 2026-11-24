@@ -10,6 +10,7 @@ from models.workflow_context import StepOutcome, WorkflowContext
 from services.artifacts import ArtifactService
 from workflow_steps.common.device_list import device_context_from_entry, normalize_device_entries
 from workflow_steps.common.fan_out import build_fan_out_metadata
+from workflow_steps.common.run_logging import log_run_id
 
 if TYPE_CHECKING:
     from services.network.netmiko.session_pool import DeviceSessionPool
@@ -28,7 +29,7 @@ async def execute(
 ) -> list[StepOutcome]:
     del artifact_service  # unused for this step
 
-    logger.info("get-from-list started run_id=%s", run.id)
+    logger.info("get-from-list started run_id=%s", log_run_id(run))
 
     device_entries = normalize_device_entries(config.get("devices"))
     if not device_entries:
@@ -53,7 +54,7 @@ async def execute(
     logger.info(
         "get-from-list returning %d devices run_id=%s",
         len(new_devices),
-        run.id,
+        log_run_id(run),
     )
 
     new_context = context.model_copy(

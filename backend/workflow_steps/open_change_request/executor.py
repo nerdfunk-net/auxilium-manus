@@ -46,6 +46,7 @@ from services.workflow_context.device_template import (
 from workflow_steps.common.content_resolver import list_exportable_content, parse_content_source
 from workflow_steps.common.duplicate_keys import find_duplicate_keys
 from workflow_steps.common.git_repository_loader import load_git_repository, parse_repository_id
+from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.common.step_flags import parse_int_flag
 from workflow_steps.open_change_request.config import get_config
 
@@ -418,7 +419,7 @@ async def _stage(
         logger.error(
             "%s git staging failed run_id=%s repository_id=%s: %s",
             _STEP_ID,
-            run.id,
+            log_run_id(run),
             repository_id,
             exc,
         )
@@ -460,7 +461,7 @@ async def execute(
     logger.info(
         "%s started run_id=%s repository_id=%s devices=%d",
         _STEP_ID,
-        run.id,
+        log_run_id(run),
         repository_id,
         len(context.devices),
     )
@@ -544,7 +545,7 @@ async def execute(
         change_request.id,
         naming.branch,
         str(staged["commit_sha"])[:8],
-        run.id,
+        log_run_id(run),
     )
     return [
         StepOutcome(

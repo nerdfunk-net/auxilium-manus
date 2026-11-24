@@ -23,6 +23,7 @@ from workflow_steps.common.partial_outcomes import (
     device_error_from_exception,
     fail_device_with_error,
 )
+from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.common.step_flags import parse_bool_flag
 
 if TYPE_CHECKING:
@@ -319,7 +320,7 @@ async def execute(
     parsed = _parse_merge_config(config)
     logger.info(
         "merge-content run_id=%s devices=%d mode=%s content_source=%s sources=%r",
-        run.id,
+        log_run_id(run),
         len(context.devices),
         parsed.merge_mode,
         parsed.content_source,
@@ -344,7 +345,7 @@ async def execute(
         "merge-content returning %d/%d devices run_id=%s",
         len(success_devices),
         len(context.devices),
-        run.id,
+        log_run_id(run),
     )
     return _build_merge_outcomes(
         context=context,

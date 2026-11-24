@@ -29,6 +29,7 @@ from services.network.netmiko.platform import resolve_connection_device_type
 from services.network.netmiko.service import NetmikoService
 from workflow_steps.common.credential_resolver import resolve_ssh_credential
 from workflow_steps.common.partial_outcomes import mark_device_failed
+from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.common.run_param_reference import resolve_config_reference
 from workflow_steps.common.step_flags import record_dry_run
 from workflow_steps.discover_network.crawler import (
@@ -315,7 +316,7 @@ async def execute(
     logger.info(
         "discover-network started run_id=%s seeds=%d follow=%s prefixes=%d max_devices=%d "
         "max_depth=%d dry_run=%s",
-        run.id,
+        log_run_id(run),
         len(context.devices),
         options.follow_neighbors,
         len(options.prefixes),
@@ -363,6 +364,6 @@ async def execute(
         len(result.seen),
         len(result.failed_seeds) + len(seed_errors),
         ",".join(result.limits_hit) or "-",
-        run.id,
+        log_run_id(run),
     )
     return outcomes

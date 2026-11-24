@@ -20,6 +20,7 @@ from typing import TYPE_CHECKING, Any
 from core.models.runs import WorkflowRun
 from models.workflow_context import StepOutcome, WorkflowContext
 from services.artifacts import ArtifactService
+from workflow_steps.common.run_logging import log_run_id
 
 if TYPE_CHECKING:
     from services.network.netmiko.session_pool import DeviceSessionPool
@@ -38,12 +39,12 @@ async def execute(
 ) -> list[StepOutcome]:
     del config, artifact_service  # unused — fan-in is a pass-through boundary
 
-    logger.info("fan-in started run_id=%s node_id=%s", run.id, node_id)
+    logger.info("fan-in started run_id=%s node_id=%s", log_run_id(run), node_id)
 
     device_count = len(context.devices)
     logger.info(
         "fan-in finished run_id=%s node_id=%s merged_devices=%d",
-        run.id,
+        log_run_id(run),
         node_id,
         device_count,
     )

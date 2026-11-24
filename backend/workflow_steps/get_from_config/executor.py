@@ -17,6 +17,7 @@ from services.network.cisco_config_parsing import parse_cisco_config_text
 from workflow_steps.common.device_builders import device_context_from_config_match
 from workflow_steps.common.fan_out import build_fan_out_metadata
 from workflow_steps.common.git_repository_loader import load_git_repository, require_repository_id
+from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.common.step_flags import parse_bool_flag
 
 if TYPE_CHECKING:
@@ -160,7 +161,7 @@ async def execute(
 
     logger.info(
         "get-from-config started run_id=%s git_repository_id=%s search_text_len=%d",
-        run.id,
+        log_run_id(run),
         parsed.git_repository_id,
         len(parsed.search_text),
     )
@@ -199,7 +200,7 @@ async def execute(
         len(devices_by_id),
         len(matches),
         files_scanned,
-        run.id,
+        log_run_id(run),
     )
     return _build_get_from_config_outcome(
         context=context,
