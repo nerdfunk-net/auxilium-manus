@@ -180,7 +180,10 @@ def _missing_in_aci(
             continue  # containers and pools are not subnets ACI would hold
         if not namespace_from_vrf and candidate.namespace != namespace:
             continue
-        network = _network(candidate.prefix)
+        try:
+            network = _network(candidate.prefix)
+        except ValueError:  # noqa: S112 - as in _CoverIndex: a prefix that does not parse is no subnet
+            continue
         inside = any(
             network.version == scope.version and network != scope and network.subnet_of(scope)  # type: ignore[arg-type]
             for scope in scopes

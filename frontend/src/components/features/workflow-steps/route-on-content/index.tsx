@@ -104,6 +104,13 @@ function RouteOnContentConfigPanel({
     [config, onChange],
   );
 
+  const handleStoreMatchedTextChange = useCallback(
+    (checked: boolean) => {
+      onChange(buildRouteOnContentConfig(config, { store_matched_text: checked }));
+    },
+    [config, onChange],
+  );
+
   return (
     <div className="flex flex-col gap-4">
       <div className="space-y-1.5">
@@ -265,6 +272,27 @@ function RouteOnContentConfigPanel({
           </div>
         </div>
       ) : null}
+
+      <div className="flex items-start gap-2">
+        <Checkbox
+          id={`store-matched-text-${nodeId}`}
+          checked={parsed.store_matched_text}
+          onCheckedChange={(checked) => handleStoreMatchedTextChange(checked === true)}
+          className="mt-0.5"
+        />
+        <div className="space-y-0.5">
+          <Label
+            htmlFor={`store-matched-text-${nodeId}`}
+            className="font-mono text-xs font-medium"
+          >
+            store_matched_text
+          </Label>
+          <p className="text-[11px] text-muted-foreground">
+            Keep the matched text (up to 200 characters, secrets masked) in the step result.
+            Off by default: the result is readable by everyone who may read runs.
+          </p>
+        </div>
+      </div>
     </div>
   );
 }

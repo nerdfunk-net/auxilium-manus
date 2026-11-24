@@ -18,6 +18,7 @@ from models.workflow_context import (
     StepOutcome,
     WorkflowContext,
 )
+from services.ai_assistant.redaction import Redactor
 from services.artifacts import ArtifactService
 from services.workflow_context.node_result import set_node_result
 from workflow_steps.common.content_resolver import (
@@ -50,6 +51,7 @@ class _ParsedRouteConfig:
     pattern: str
     case_sensitive: bool
     multiline: bool
+    store_matched_text: bool = False
 
 
 def _default_config() -> dict[str, Any]:
@@ -83,6 +85,9 @@ def _parse_route_config(config: dict[str, Any]) -> _ParsedRouteConfig:
             {**_default_config(), **config}, "case_sensitive", default=False
         ),
         multiline=parse_bool_flag({**_default_config(), **config}, "multiline", default=False),
+        store_matched_text=parse_bool_flag(
+            {**_default_config(), **config}, "store_matched_text", default=False
+        ),
     )
 
 
@@ -108,6 +113,18 @@ def _match_regex(
     if found is None:
         return False, None
     return True, found.group(0)[:_MATCHED_TEXT_MAX_LENGTH]
+
+
+def _matched_text_entry(parsed: _ParsedRouteConfig, matched_text: str | None) -> dict[str, str]:
+    """The matched text for the stored result, only when the author asked for it (W10-02).
+
+    ``parsed`` is persisted with every step result and shown to everyone who may read runs, and a
+    pattern that asks "is a key set?" matches the line that holds it. So the text is off by
+    default and, when on, goes through the config-secret redactor first.
+    """
+    if not parsed.store_matched_text or matched_text is None:
+        return {}
+    return {"matched_text": Redactor().redact(matched_text)}
 
 
 def _device_failure(
@@ -225,7 +242,7 @@ async def _process_device(
             "match_mode": parsed.match_mode,
             "case_sensitive": parsed.case_sensitive,
             "multiline": parsed.multiline,
-            **({"matched_text": matched_text} if matched_text is not None else {}),
+            **_matched_text_entry(parsed, matched_text),
         },
     )
     enriched = device.model_copy(

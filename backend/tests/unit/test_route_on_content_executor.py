@@ -12,7 +12,7 @@ from models.workflow_context import (
     WorkflowContext,
 )
 from services.artifacts import InMemoryArtifactService
-from workflow_steps.route_on_content.executor import execute
+from workflow_steps.route_on_content.executor import _parse_route_config, execute
 
 
 async def _device_with_config(
@@ -60,6 +60,33 @@ class RouteOnContentExecutorTests(unittest.IsolatedAsyncioTestCase):
         for outcome in outcomes:
             self.assertEqual(outcome.context.devices, {})
 
+    async def test_store_matched_text_keeps_the_match_redacted(self) -> None:
+        artifact_service = InMemoryArtifactService()
+        device = await _device_with_config(
+            artifact_service,
+            device_id="d1",
+            content="tacacs-server key 7 094F471A1A0A\nhostname r1\n",
+        )
+        base = {"content_source": "running_config", "match_mode": "regex"}
+        for pattern, expected in (
+            (r"tacacs-server key \S+ \S+", "tacacs-server key 7 __SECRET_1__"),
+            (r"hostname \S+", "hostname r1"),
+        ):
+            outcomes = await execute(
+                config={**base, "pattern": pattern, "store_matched_text": True},
+                context=WorkflowContext(run_id="r", workflow_id="w", devices={"d1": device}),
+                run=_run(),
+                artifact_service=artifact_service,
+                node_id="n",
+                device_sessions=MagicMock(),
+            )
+            entry = next(o for o in outcomes if o.name == "match").context.devices["d1"]
+            self.assertEqual(entry.parsed["n"]["content_match"]["matched_text"], expected)
+
+    async def test_store_matched_text_must_be_a_boolean(self) -> None:
+        with self.assertRaises(ValueError):
+            _parse_route_config({"pattern": "x", "store_matched_text": "banana"})
+
     async def test_fixed_text_match_and_mismatch(self) -> None:
         artifact_service = InMemoryArtifactService()
         matching = await _device_with_config(
@@ -94,7 +121,8 @@ class RouteOnContentExecutorTests(unittest.IsolatedAsyncioTestCase):
 
         match_entry = by_name["match"].context.devices["dev-new"].parsed["node-1"]["content_match"]
         self.assertTrue(match_entry["matched"])
-        self.assertEqual(match_entry["matched_text"], "tacacs server")
+        # W10-02: the matched text is not stored unless the author asks for it.
+        self.assertNotIn("matched_text", match_entry)
 
         counts = by_name["match"].context.metadata["node-1.content_match_counts"]
         self.assertEqual(counts, {"match": 1, "mismatch": 1, "failure": 0})

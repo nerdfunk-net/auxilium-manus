@@ -339,7 +339,7 @@ or an unexpected error fails that device through `failure`; missing required fie
 parse time), `list-contains` (a sealed `value` fails the device, `value_is_secret`), `start-nautobot-job`
 (a parameter that points to a sealed secret fails the device; coercion errors never repeat the value),
 `compare-data` / `route-on-content` (several exportable items fail the device with
-`ambiguous_match`), `merge-content` (nothing to merge fails the device; repeated `json_merged` keys
+`ambiguous_match`), `route-on-content` (the matched text is stored only with `store_matched_text: true`, off by default, and then passed through the config-secret redactor), `decrypt-attribute` (a sealed source fails the device, `source_sealed`), `compare-aci-subnets` (`namespace` is not needed with `namespace_from_vrf`), `merge-content` (nothing to merge fails the device; repeated `json_merged` keys
 become `<key>#2`), `config-to-attributes` (devices without parsed data fail), `get-ise-devices`
 (names ISE does not know leave through `failure`).
 

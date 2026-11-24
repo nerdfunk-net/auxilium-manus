@@ -369,6 +369,16 @@ class WaitingTests(unittest.IsolatedAsyncioTestCase):
         h = _Harness(self, [_snap("success", "skipped")])
         self.assertEqual([o.name for o in await h.run(_config())], ["failure"])
 
+    async def test_the_wait_budget_counts_the_time_the_polls_take(self) -> None:
+        # W10-10: slow snapshots must not stretch wait_seconds beyond the wall clock.
+        h = _Harness(self, [_snap("running", None, {})])
+        ticks = iter(range(0, 10_000, 10))  # every clock read is 10 s later
+        with patch.object(mod, "_clock", side_effect=lambda: next(ticks)):
+            outcomes = await h.run(_config(wait_seconds=30, poll_interval_seconds=5))
+        self.assertLessEqual(h.snapshot.await_count, 4)
+        error = outcomes[0].context.devices[A].errors[0]
+        self.assertEqual(error.failure.kind, "task_timeout")
+
     async def test_timeout_fails_but_leaves_the_child_running(self) -> None:
         h = _Harness(self, [_snap("running", None, {})])
         outcomes = await h.run(_config(wait_seconds=12, poll_interval_seconds=5))

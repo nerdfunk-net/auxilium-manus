@@ -17,7 +17,9 @@ DEFAULT_INDEX_KEY = "stack_index"
 
 # Fields of a member record that identify the *device* (they become DeviceContext fields)
 # rather than describe it inside the bag.
-_DEVICE_LEVEL_RECORD_FIELDS = frozenset({"id", "name", "primary_ip4"})
+_DEVICE_LEVEL_RECORD_FIELDS = frozenset(
+    {"id", "name", "primary_ip4", "platform", "network_driver"}
+)
 
 
 def plain_name(config: dict[str, Any], key: str, default: str, *, step_id: str) -> str:

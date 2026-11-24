@@ -102,6 +102,14 @@ def device_type_model(member: dict[str, Any]) -> str | None:
     return str(model) if model else None
 
 
+def platform_of(member: dict[str, Any] | None) -> tuple[str | None, str | None]:
+    """The member's own ``(platform name, network driver)``; ``None`` for what it does not have."""
+    platform = member.get("platform") if member else None
+    if not isinstance(platform, dict):
+        return None, None
+    return platform.get("name") or None, platform.get("network_driver") or None
+
+
 def member_record(member: dict[str, Any], *, master: dict[str, Any] | None) -> dict[str, Any]:
     """One member as a flat record (the step adds its own index key on top)."""
     return {

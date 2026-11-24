@@ -67,6 +67,9 @@ def split_stack_device(
                 "id": str(record["id"]),
                 "name": str(record.get("name") or record["id"]),
                 "source": "nautobot",
+                # The member's own platform; the stack's (the master's) when none was recorded.
+                "platform": record.get("platform") or device.platform,
+                "network_driver": record.get("network_driver") or device.network_driver,
                 "attribute_bags": {
                     **other_bags,
                     settings.attribute_bag: member_bag(
@@ -78,7 +81,6 @@ def split_stack_device(
                     ),
                 },
                 "status": DeviceStatus.OK,
-                "errors": [],
             }
         )
         for record in records

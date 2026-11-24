@@ -201,6 +201,30 @@ class ExecutorTests(unittest.IsolatedAsyncioTestCase):
             outcomes, _ = await _run({"output_key": "drift"})
         self.assertIn("n1.drift", outcomes[0].context.metadata)
 
+    async def test_namespace_is_not_needed_when_it_comes_from_the_vrf(self) -> None:
+        # W8-08: the config comment says it is ignored with namespace_from_vrf.
+        for namespace in ("", None):
+            with self.subTest(namespace=namespace), _Patched():
+                outcomes, _ = await _run({"namespace_from_vrf": True, "namespace": namespace})
+            self.assertIn("n1.aci_subnet_report", outcomes[0].context.metadata)
+
+    async def test_a_bad_output_key_names_output_key(self) -> None:
+        with _Patched(), self.assertRaises(ValueError) as caught:
+            await _run({"output_key": "a.b"})
+        self.assertIn("output_key", str(caught.exception))
+        self.assertNotIn("parsed_output_key", str(caught.exception))
+
+    async def test_a_nautobot_prefix_that_does_not_parse_does_not_fail_the_step(self) -> None:
+        nb = (
+            NautobotPrefix(
+                prefix="not-a-prefix", namespace="Global", status="Active", type="network"
+            ),
+            *NAUTOBOT,
+        )
+        with _Patched(nautobot=nb):
+            outcomes, _ = await _run({"scope_prefixes": ["10.1.0.0/16"]})
+        self.assertIn("n1.aci_subnet_report", outcomes[0].context.metadata)
+
     async def test_configuration_errors_raise_before_any_io(self) -> None:
         bad = (
             {"aci_source_id": ""},

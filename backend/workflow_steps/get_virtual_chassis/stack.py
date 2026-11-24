@@ -17,6 +17,7 @@ from nautobot_read.queries.virtual_chassis import (
     member_record,
     ordered_members,
     pick_master,
+    platform_of,
 )
 
 from models.workflow_context import (
@@ -133,19 +134,22 @@ def member_index(name: str, settings: StackSettings) -> int:
         return settings.index_default
 
 
-def _platform(member: dict[str, Any] | None) -> tuple[str | None, str | None]:
-    platform = member.get("platform") if member else None
-    if not isinstance(platform, dict):
-        return None, None
-    return platform.get("name") or None, platform.get("network_driver") or None
-
-
 def _member_record(
     member: dict[str, Any], *, settings: StackSettings, master: dict[str, Any] | None
 ) -> dict[str, Any]:
-    """The shared member record plus this step's stack index."""
+    """The shared member record plus this step's stack index and the member's own platform.
+
+    ``platform`` / ``network_driver`` identify the device, not the stack: ``member_bag`` leaves
+    them out and ``split-virtual-chassis`` reads them back (W6-12).
+    """
     record = member_record(member, master=master)
-    return {**record, settings.index_key: member_index(record["name"], settings)}
+    platform, network_driver = platform_of(member)
+    return {
+        **record,
+        "platform": platform,
+        "network_driver": network_driver,
+        settings.index_key: member_index(record["name"], settings),
+    }
 
 
 def _failed_device(
@@ -199,7 +203,7 @@ def build_stack_devices(
         ]
 
     records = [_member_record(m, settings=settings, master=master) for m in members]
-    platform_name, network_driver = _platform(master)
+    platform_name, network_driver = platform_of(master)
     master_name = str(master.get("name") or "")
 
     if not settings.split_members:
@@ -230,7 +234,7 @@ def build_stack_devices(
 
     devices: list[DeviceContext] = []
     for member, record in zip(members, records, strict=True):
-        member_platform, member_driver = _platform(member)
+        member_platform, member_driver = platform_of(member)
         name = record["name"]
         devices.append(
             DeviceContext(

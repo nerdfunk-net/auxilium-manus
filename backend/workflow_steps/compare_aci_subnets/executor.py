@@ -77,11 +77,19 @@ async def execute(
 
     aci_source = _required(config, "aci_source_id")
     nautobot_source = _required(config, "nautobot_source_id")
-    namespace = _required({"namespace": config.get("namespace", DEFAULT_NAMESPACE)}, "namespace")
     namespace_from_vrf = parse_bool_flag(config, "namespace_from_vrf", default=False)
+    # With namespace_from_vrf the namespace is ignored, so an empty field is fine.
+    namespace = (
+        config.get("namespace") or DEFAULT_NAMESPACE
+        if namespace_from_vrf
+        else _required({"namespace": config.get("namespace", DEFAULT_NAMESPACE)}, "namespace")
+    )
     scope = _scope_prefixes(config.get("scope_prefixes"))
     output_key = parse_output_key_config(
-        config.get("output_key"), step_id=STEP_ID, default=DEFAULT_OUTPUT_KEY
+        config.get("output_key"),
+        step_id=STEP_ID,
+        default=DEFAULT_OUTPUT_KEY,
+        key_name="output_key",
     )
 
     db = object_session(run)

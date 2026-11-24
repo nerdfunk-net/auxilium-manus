@@ -9,6 +9,7 @@ from unittest.mock import MagicMock
 from models.workflow_context import (
     Capability,
     DeviceContext,
+    DeviceError,
     DeviceStatus,
     WorkflowContext,
 )
@@ -125,6 +126,32 @@ class SplitStackDeviceTests(unittest.TestCase):
             [m.attribute_bags["virtual_chassis"] for m in members],
             [d.attribute_bags["virtual_chassis"] for d in split_mode],
         )
+
+    def test_a_member_keeps_its_own_platform_and_driver_like_the_inventory_split(self) -> None:
+        # W6-12: a mixed stack (member 2 is plain IOS) splits the same way at both points.
+        vc = _vc()
+        vc["members"][1]["platform"] = {"name": "Cisco IOS", "network_driver": "cisco_ios"}
+        (stack,) = build_stack_devices(vc, parse_settings({}), source_id="src", node_id="n0")
+        split_mode = build_stack_devices(
+            vc, parse_settings({"split_members": True}), source_id="src", node_id="n0"
+        )
+        members = split_stack_device(stack, parse_split_settings({}))
+        self.assertEqual(
+            [(m.platform, m.network_driver) for m in members],
+            [(d.platform, d.network_driver) for d in split_mode],
+        )
+        self.assertEqual(members[1].network_driver, "cisco_ios")
+        # The platform is device-level, not part of the bag.
+        self.assertNotIn("network_driver", members[1].attribute_bags["virtual_chassis"])
+
+    def test_errors_collected_before_the_split_are_kept(self) -> None:
+        stack = _stack_device()
+        error = DeviceError(node_id="n0", step_id="earlier", code="warn", message="kept")
+        members = split_stack_device(
+            stack.model_copy(update={"errors": [error]}), parse_split_settings({})
+        )
+        for member in members:
+            self.assertEqual(member.errors, [error])
 
     def test_parsed_output_is_kept_on_every_member(self) -> None:
         members = split_stack_device(_stack_device(), parse_split_settings({}))

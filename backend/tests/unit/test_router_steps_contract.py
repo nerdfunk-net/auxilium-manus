@@ -11,7 +11,7 @@ from __future__ import annotations
 import pytest
 
 from services.artifacts import InMemoryArtifactService
-from tests.unit._step_helpers import call_step, make_context, make_device, strict_xfail
+from tests.unit._step_helpers import call_step, make_context, make_device
 from tests.unit.test_route_on_content_executor import _device_with_config
 from workflow_steps.route_on_attribute.executor import execute as route_on_attribute
 from workflow_steps.route_on_content.executor import execute as route_on_content
@@ -69,7 +69,6 @@ async def test_route_on_attribute_routes_a_device_by_value() -> None:
     assert by_name["arista"] == {}
 
 
-@strict_xfail("W10-02", "matched_text is stored unredacted: a regex can capture a key")
 @pytest.mark.asyncio
 async def test_route_on_content_does_not_store_the_matched_secret() -> None:
     artifacts = InMemoryArtifactService()

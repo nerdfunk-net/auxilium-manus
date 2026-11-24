@@ -5056,6 +5056,15 @@ plugins:
           data_type: boolean
           required: false
           default: false
+        - name: store_matched_text
+          description: >
+            When true, the text the pattern matched (up to 200 characters, passed through the
+            config-secret redactor) is stored in the step result and shown in the run viewer.
+            Off by default: a pattern such as "tacacs-server key" matches the line that holds
+            the key, and the stored result is readable by everyone who may read runs.
+          data_type: boolean
+          required: false
+          default: false
 
   - id: reachable
     name: Reachable

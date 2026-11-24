@@ -58,6 +58,7 @@ export interface RouteOnContentConfig {
   pattern: string;
   case_sensitive: boolean;
   multiline: boolean;
+  store_matched_text: boolean;
 }
 
 export const DEFAULT_ROUTE_ON_CONTENT_CONFIG: RouteOnContentConfig = {
@@ -68,6 +69,7 @@ export const DEFAULT_ROUTE_ON_CONTENT_CONFIG: RouteOnContentConfig = {
   pattern: "",
   case_sensitive: false,
   multiline: false,
+  store_matched_text: false,
 };
 
 const VALID_CONTENT_SOURCES = new Set<string>(
@@ -111,6 +113,7 @@ export function parseRouteOnContentConfig(
     pattern: typeof config.pattern === "string" ? config.pattern : "",
     case_sensitive: config.case_sensitive === true,
     multiline: config.multiline === true,
+    store_matched_text: config.store_matched_text === true,
   };
 }
 

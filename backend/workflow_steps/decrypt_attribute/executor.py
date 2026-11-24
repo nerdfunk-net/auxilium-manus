@@ -25,7 +25,6 @@ with a ``DeviceError`` so a downstream ``notify-on-error`` /
 
 from __future__ import annotations
 
-import copy
 import logging
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
@@ -45,7 +44,6 @@ from core.passphrase_cipher import (
     normalize_algorithm,
 )
 from models.workflow_context import (
-    Capability,
     DeviceContext,
     DeviceError,
     DeviceStatus,
@@ -57,7 +55,7 @@ from services.workflow_context.attribute_path import (
     resolve_device_attribute,
     resolve_device_value,
 )
-from services.workflow_context.secret_fields import seal_secret
+from services.workflow_context.secret_fields import REDACTED_PLACEHOLDER, seal_secret
 from workflow_steps.common.attribute_write import set_device_attribute
 from workflow_steps.common.credential_resolver import resolve_shared_secret_credential
 
@@ -67,7 +65,6 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _STEP_ID = "decrypt-attribute"
-_RESERVED_BAG_NAMES = frozenset({"parsed", "run_input"})
 _DECRYPT_ERRORS = (PassphraseCipherError, CiscoSecretError)
 
 # Decrypts one token to cleartext; raises PassphraseCipherError / CiscoSecretError.
@@ -120,37 +117,6 @@ def _fail_device(
     )
 
 
-def _write_bag_value(device: DeviceContext, path: str, value: Any) -> DeviceContext:
-    """Immutably set *value* at ``bag.a.b.leaf`` — copy-on-write, deep-copying
-    only the one bag that is touched. Used for list mode, where the value is a
-    rebuilt list rather than a scalar leaf."""
-    bag_name, remainder = path.split(".", 1)
-    if bag_name in _RESERVED_BAG_NAMES:
-        raise ValueError(
-            f"{_STEP_ID}: {bag_name!r} is a reserved namespace and cannot be written to"
-        )
-
-    attribute_bags = dict(device.attribute_bags)
-    bag = copy.deepcopy(attribute_bags.get(bag_name, {}))
-    cursor = bag
-    parts = remainder.split(".")
-    for part in parts[:-1]:
-        nxt = cursor.get(part)
-        if not isinstance(nxt, dict):
-            nxt = {}
-            cursor[part] = nxt
-        cursor = nxt
-    cursor[parts[-1]] = value
-    attribute_bags[bag_name] = bag
-
-    return device.model_copy(
-        update={
-            "attribute_bags": attribute_bags,
-            "capabilities": device.capabilities | {Capability.ATTRIBUTES},
-        }
-    )
-
-
 def _decrypt_scalar(
     *,
     device: DeviceContext,
@@ -159,7 +125,20 @@ def _decrypt_scalar(
     node_id: str,
 ) -> tuple[DeviceContext, str]:
     """Return ``(device, result)`` where result is 'decrypted' | 'skipped' | 'failed'."""
-    source_value = resolve_device_attribute(device, cfg.source_path)
+    source_value = resolve_device_attribute(device, cfg.source_path, reveal_secrets=False)
+    if source_value == REDACTED_PLACEHOLDER:
+        return (
+            _fail_device(
+                device=device,
+                node_id=node_id,
+                code="source_sealed",
+                message=(
+                    f"source_path {cfg.source_path!r} resolves to a sealed secret; "
+                    "decrypt-attribute reads encrypted tokens only"
+                ),
+            ),
+            "failed",
+        )
     if source_value is None:
         return device, "skipped"
     try:
@@ -245,7 +224,7 @@ def _decrypt_list(
 
     if decrypted_here == 0:
         return device, "skipped"
-    return _write_bag_value(device, cfg.write_path, new_list), "decrypted"
+    return set_device_attribute(device, cfg.write_path, new_list), "decrypted"
 
 
 async def execute(

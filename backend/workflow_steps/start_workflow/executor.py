@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
@@ -286,6 +287,11 @@ async def _sleep(seconds: float) -> None:
     await asyncio.sleep(seconds)
 
 
+def _clock() -> float:
+    """Wall-clock seconds (a seam for tests)."""
+    return time.monotonic()
+
+
 # ── runs and their results ──────────────────────────────────────────────────────────────────────
 
 
@@ -394,8 +400,13 @@ async def _wait_for_groups(
     parsed: _ParsedConfig, groups: list[_Group], readers: list[str], *, parent_run_id: int
 ) -> None:
     pending = [g for g in groups if g.run_id is not None and not g.finished]
+    started = _clock()
+    slept = 0
     waited = 0
     while pending:
+        # The budget is the larger of the time slept and the wall clock: every poll also costs
+        # the snapshot queries, which the nominal sleep alone would not count (W10-10).
+        waited = int(max(slept, _clock() - started))
         snapshots = await asyncio.gather(*(_snapshot(int(g.run_id or 0)) for g in pending))
         still: list[_Group] = []
         for group, snapshot in zip(pending, snapshots, strict=True):
@@ -436,7 +447,7 @@ async def _wait_for_groups(
             return
         step = min(parsed.poll_interval_seconds, parsed.wait_seconds - waited)
         await _sleep(step)
-        waited += step
+        slept += step
 
 
 # ── outcome assembly ────────────────────────────────────────────────────────────────────────

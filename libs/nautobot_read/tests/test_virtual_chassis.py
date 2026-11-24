@@ -129,3 +129,11 @@ def test_address_and_type_tolerate_missing_nested_objects():
     assert vc.address_of({"primary_ip4": {"address": ""}}) is None
     assert vc.device_type_model({"device_type": None}) is None
     assert vc.device_type_model({"device_type": {"model": ""}}) is None
+
+
+def test_platform_of_returns_the_members_own_platform_and_driver():
+    member = {"platform": {"name": "Cisco IOS", "network_driver": "cisco_ios"}}
+    assert vc.platform_of(member) == ("Cisco IOS", "cisco_ios")
+    assert vc.platform_of({"platform": {"name": "X", "network_driver": ""}}) == ("X", None)
+    assert vc.platform_of({"platform": None}) == (None, None)
+    assert vc.platform_of(None) == (None, None)

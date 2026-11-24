@@ -7,4 +7,5 @@ def get_config() -> dict:
         "pattern": "",
         "case_sensitive": False,
         "multiline": False,
+        "store_matched_text": False,
     }

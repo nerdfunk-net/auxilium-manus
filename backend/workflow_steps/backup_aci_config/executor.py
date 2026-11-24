@@ -113,7 +113,10 @@ async def execute(
         raise ValueError(f"{STEP_ID}: push needs commit")
     message = _message(config, source_id)
     output_key = parse_output_key_config(
-        config.get("output_key"), step_id=STEP_ID, default=DEFAULT_OUTPUT_KEY
+        config.get("output_key"),
+        step_id=STEP_ID,
+        default=DEFAULT_OUTPUT_KEY,
+        key_name="output_key",
     )
 
     db = object_session(run)

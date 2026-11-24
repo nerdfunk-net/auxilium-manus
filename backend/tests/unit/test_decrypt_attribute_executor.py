@@ -58,6 +58,28 @@ async def _run(config: dict, context: WorkflowContext):
 
 
 class DecryptAttributeExecutorTests(unittest.IsolatedAsyncioTestCase):
+    async def test_a_sealed_source_fails_the_device_and_is_not_unsealed(self) -> None:
+        # W10-08: like encrypt-attribute, a sealed source is refused, not unsealed and fed in.
+        from services.workflow_context.secret_fields import seal_secret
+
+        sealed = seal_secret("already-cleartext")
+        context = _context(
+            {
+                "d1": _device(
+                    "d1",
+                    attribute_bags={"nautobot": {"config_context": {"enable_password": sealed}}},
+                )
+            }
+        )
+        real = mod.resolve_device_attribute
+        with patch.object(mod, "resolve_device_attribute", wraps=real) as spy:
+            outcomes = await _run(dict(BASE_CONFIG), context)
+
+        self.assertEqual(spy.call_args.kwargs.get("reveal_secrets"), False)
+        failed = next(o for o in outcomes if o.name == "failure").context.devices["d1"]
+        self.assertEqual(failed.errors[0].code, "source_sealed")
+        self.assertNotIn("already-cleartext", failed.errors[0].message)
+
     async def test_decrypts_into_sealed_destination(self) -> None:
         token = encrypt_with_passphrase("cisco123", _PASSPHRASE)
         context = _context(
