@@ -295,6 +295,7 @@ class CatalystDetailsExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual([o.name for o in outcomes], ["success", "failure"])
         failed = outcomes[1].context.devices["dev-1"]
         self.assertEqual(failed.errors[0].code, "primary_ipv4_not_found")
+        self.assertEqual(failed.errors[0].failure.kind, "not_found")
 
     async def test_update_primary_ipv4_picks_management_interface(self) -> None:
         device = _device(

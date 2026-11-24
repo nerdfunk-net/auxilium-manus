@@ -610,6 +610,7 @@ async def execute(
                             step_id=_STEP_ID,
                             code="primary_ipv4_not_found",
                             message=failure_message,
+                            failure=MISSING_DATA,
                         ),
                     ],
                 }

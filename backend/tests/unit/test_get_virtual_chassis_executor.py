@@ -163,6 +163,7 @@ class ExecuteTests(unittest.IsolatedAsyncioTestCase):
         failed = next(iter(outcomes[1].context.devices.values()))
         self.assertEqual(failed.status, DeviceStatus.FAILED)
         self.assertEqual(failed.errors[0].code, "no_primary_ip")
+        self.assertEqual(failed.errors[0].failure.kind, "not_found")
 
     async def test_graphql_errors_raise_runtime_error(self) -> None:
         with self.assertRaisesRegex(RuntimeError, "GraphQL"):

@@ -22,7 +22,6 @@ from core.models.runs import WorkflowRun
 from models.workflow_context import (
     Capability,
     DeviceContext,
-    DeviceError,
     DeviceStatus,
     StepOutcome,
     WorkflowContext,
@@ -30,6 +29,10 @@ from models.workflow_context import (
 from services.artifacts import ArtifactService
 from services.workflow_context.node_result import set_node_result
 from workflow_steps.common.content_resolver import ExportableContent, list_exportable_content
+from workflow_steps.common.partial_outcomes import (
+    device_error_from_exception,
+    fail_device_with_error,
+)
 from workflow_steps.common.run_logging import log_run_id
 
 if TYPE_CHECKING:
@@ -259,19 +262,9 @@ async def _filter_device(
 
     except Exception as exc:
         logger.warning("filter-output device=%s error=%s", device_id, exc)
-        err = DeviceError(
-            node_id=node_id,
-            step_id=_STEP_ID,
-            code=type(exc).__name__.lower(),
-            message=str(exc),
-        )
-        failed = device.model_copy(
-            update={
-                "status": DeviceStatus.FAILED,
-                "errors": [*device.errors, err],
-            }
-        )
-        return device_id, failed, False
+        # A sentence the step wrote is kept; anything else is the class name plus a record.
+        err = device_error_from_exception(exc, node_id=node_id, step_id=_STEP_ID)
+        return device_id, fail_device_with_error(device, err), False
 
 
 def _partition_device_results(

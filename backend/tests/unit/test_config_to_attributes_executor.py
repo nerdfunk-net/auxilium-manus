@@ -974,6 +974,7 @@ class PrimaryIpv4SelectionTests(unittest.IsolatedAsyncioTestCase):
         failed = outcomes[1].context.devices["dev-1"]
         self.assertEqual(failed.status, DeviceStatus.FAILED)
         self.assertEqual(failed.errors[0].code, "primary_ipv4_not_found")
+        self.assertEqual(failed.errors[0].failure.kind, "not_found")
         # Interfaces are still written even though primary selection failed.
         self.assertIn("nautobot", failed.attribute_bags)
 
@@ -1050,6 +1051,7 @@ class PrimaryIpv4SelectionTests(unittest.IsolatedAsyncioTestCase):
         failed = outcomes[1].context.devices["dev-1"]
         self.assertEqual(failed.status, DeviceStatus.FAILED)
         self.assertEqual(failed.errors[0].code, "primary_ipv4_not_found")
+        self.assertEqual(failed.errors[0].failure.kind, "not_found")
 
     async def test_checkbox_off_no_known_primary_passes_through_unmarked(self) -> None:
         device = _device(

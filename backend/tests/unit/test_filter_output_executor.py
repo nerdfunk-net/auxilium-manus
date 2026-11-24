@@ -237,6 +237,49 @@ class ExecuteTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual({o.name for o in outcomes}, {"success"})
 
+    async def test_an_unexpected_error_shows_only_its_class_name(self) -> None:
+        secret = "driver text with 10.9.9.9 and a token"
+
+        class _BrokenStore(InMemoryArtifactService):
+            async def store(self, **kwargs):  # type: ignore[override]
+                if kwargs.get("kind") != "command_output":
+                    raise OSError(secret)
+                return await super().store(**kwargs)
+
+        artifacts = _BrokenStore()
+        device = await self._device_with_command_output(
+            artifacts, json.dumps({"a": 1}), "application/json"
+        )
+        outcomes = await execute(
+            config={
+                "content_source": "command_output",
+                "source_step_node_id": "src-node",
+                "filter_rules": [{"pattern": "x"}],
+            },
+            context=WorkflowContext(run_id="run-1", workflow_id="w", devices={"d1": device}),
+            run=_run(), artifact_service=artifacts, node_id="node-1", device_sessions=MagicMock(),
+        )
+        failed = {o.name: o for o in outcomes}["failure"].context.devices["d1"]
+        self.assertEqual(failed.errors[-1].message, "OSError")
+        self.assertNotIn(secret, repr(failed.errors))
+        self.assertEqual(failed.errors[-1].failure.kind, "internal_error")
+
+    async def test_a_sentence_the_step_wrote_is_kept(self) -> None:
+        artifacts = InMemoryArtifactService()
+        device = await self._device_with_command_output(artifacts, "{not json", "application/json")
+        outcomes = await execute(
+            config={
+                "content_source": "command_output",
+                "source_step_node_id": "src-node",
+                "filter_rules": [{"pattern": "x"}],
+            },
+            context=WorkflowContext(run_id="run-1", workflow_id="w", devices={"d1": device}),
+            run=_run(), artifact_service=artifacts, node_id="node-1", device_sessions=MagicMock(),
+        )
+        failed = {o.name: o for o in outcomes}["failure"].context.devices["d1"]
+        self.assertIn("not valid JSON", failed.errors[-1].message)
+        self.assertIsNotNone(failed.errors[-1].failure)
+
     async def test_device_without_source_content_routes_to_failure(self) -> None:
         device = DeviceContext(
             id="d1", name="d1", hostname="d1",

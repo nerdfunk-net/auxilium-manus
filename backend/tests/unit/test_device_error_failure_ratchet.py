@@ -15,11 +15,7 @@ from pathlib import Path
 
 STEPS_ROOT = Path(__file__).resolve().parents[2] / "workflow_steps"
 
-LEGACY_WITHOUT_FAILURE: dict[str, int] = {
-    "workflow_steps/config_to_attributes/executor.py": 1,
-    "workflow_steps/filter_output/executor.py": 1,
-    "workflow_steps/get_virtual_chassis/stack.py": 1,
-}
+LEGACY_WITHOUT_FAILURE: dict[str, int] = {}
 
 
 def _calls_without_failure() -> Counter[str]:

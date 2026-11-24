@@ -27,6 +27,7 @@ from models.workflow_context import (
     DeviceStatus,
     bare_hostname,
 )
+from workflow_steps.common.failure_records import MISSING_DATA
 from workflow_steps.common.step_flags import parse_bool_flag
 from workflow_steps.common.virtual_chassis import (
     DEFAULT_INDEX_KEY,
@@ -163,7 +164,11 @@ def _unusable_stack_device(
         source_id=source_id,
         capabilities={Capability.IDENTITY},
         status=DeviceStatus.FAILED,
-        errors=[DeviceError(node_id=node_id, step_id=STEP_ID, code=code, message=message)],
+        errors=[
+            DeviceError(
+                node_id=node_id, step_id=STEP_ID, code=code, message=message, failure=MISSING_DATA
+            )
+        ],
     )
 
 

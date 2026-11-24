@@ -230,6 +230,7 @@ class NoMasterIpTests(unittest.TestCase):
         self.assertEqual(len(devices), 1)
         self.assertEqual(devices[0].status, DeviceStatus.FAILED)
         self.assertEqual(devices[0].errors[0].code, "no_primary_ip")
+        self.assertEqual(devices[0].errors[0].failure.kind, "not_found")
         self.assertEqual(devices[0].errors[0].node_id, _NODE)
 
     def test_split_marks_every_member_failed(self) -> None:
