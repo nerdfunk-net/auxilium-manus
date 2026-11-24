@@ -448,7 +448,9 @@ through. Migrated: `secret-get`, `secret-set`, `secret-generate` (loop in `commo
 from the service now fails that device with its text, it used to abort the step), `encrypt-attribute`, `decrypt-attribute`
 (a `destination_path` that can never be written, such as a reserved bag, is probed once with
 `attribute_write.probe_destination_path` and stays a step-wide config error; a write that fails on one device's data fails
-that device), `store-in-db` and `get-from-db` (`concurrency=1`: one shared session, one device after the other). The other
+that device), `store-in-db` and `get-from-db` (`concurrency=1`: one shared session, one device after the other) and
+`configure-replace-config` (`concurrency` = the shim's own job limit; `Fail(device=...)` records the error on the device
+that already carries its diff artifact refs). The other
 steps still carry their own loops and move family by family (P-C).
 
 ### Step config flags

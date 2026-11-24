@@ -67,7 +67,6 @@ silently swallowed.
 
 from __future__ import annotations
 
-import asyncio
 import contextvars
 import logging
 import time
@@ -82,7 +81,6 @@ from models.failure import FailureInfo
 from models.workflow_context import (
     Capability,
     DeviceContext,
-    DeviceError,
     DeviceStatus,
     StepOutcome,
     WorkflowContext,
@@ -92,6 +90,8 @@ from services.pyats.common.exceptions import PyATSAPIError
 from services.pyats.credentials import PyATSCredentials
 from services.workflow_context.node_result import set_node_result
 from services.workflow_context.secret_fields import unwrap_secret
+from workflow_steps.common.device_outcomes import build_outcomes
+from workflow_steps.common.device_runner import Fail, run_per_device
 from workflow_steps.common.pyats_batch import resolve_source_credentials, shim_concurrency
 from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.common.step_flags import parse_bool_flag, parse_int_flag
@@ -156,24 +156,6 @@ def _diff_has_changes(diff_text: str) -> bool:
     return False
 
 
-def _fail_device(
-    *,
-    device: DeviceContext,
-    device_id: str,
-    node_id: str,
-    code: str,
-    message: str,
-    failure: FailureInfo | None = None,
-) -> tuple[str, DeviceContext, bool]:
-    err = DeviceError(
-        node_id=node_id, step_id=_STEP_ID, code=code, message=message, failure=failure
-    )
-    failed = device.model_copy(
-        update={"status": DeviceStatus.FAILED, "errors": [*device.errors, err]}
-    )
-    return device_id, failed, False
-
-
 class _ShimError(str):
     """An error message that also carries the closed-vocabulary classification of its cause."""
 
@@ -185,35 +167,25 @@ class _ShimError(str):
         return instance
 
 
-def _fail_replace(
-    *, device: DeviceContext, device_id: str, node_id: str, error: str | None
-) -> tuple[str, DeviceContext, bool]:
+def _replace_failure(error: str | None) -> Fail:
     """Fail a device for a 'configure replace' error, whether it surfaced as a
     connection/job-level failure or as a per-command error on an otherwise-connected
     session -- both land here so the archive-not-configured hint stays in one place."""
     if _is_archive_not_configured_error(error):
-        return _fail_device(
-            device=device,
-            device_id=device_id,
-            node_id=node_id,
-            code="archive_not_configured",
-            message=(
-                "Device rejected 'configure replace' because config archiving is not "
-                "enabled -- the 'time'/Rollback Confirmed Change feature this step relies "
-                "on requires it. Configure it once on the device, e.g.:\n"
-                "  archive\n"
-                "   path flash:archive\n"
-                "then retry. See this step's Help panel for details."
-            ),
+        return Fail(
+            "archive_not_configured",
+            "Device rejected 'configure replace' because config archiving is not "
+            "enabled -- the 'time'/Rollback Confirmed Change feature this step relies "
+            "on requires it. Configure it once on the device, e.g.:\n"
+            "  archive\n"
+            "   path flash:archive\n"
+            "then retry. See this step's Help panel for details.",
         )
-    return _fail_device(
-        device=device,
-        device_id=device_id,
-        node_id=node_id,
-        code="replace_failed",
-        message=f"'configure replace' failed or the connection was lost: {error}",
+    return Fail(
+        "replace_failed",
+        f"'configure replace' failed or the connection was lost: {error}",
         # a client-side timeout is "outcome unknown", distinguishable from "refused"
-        failure=(
+        (
             FailureInfo(phase="task", kind="task_timeout", hint="retry_later")
             if error and _OUTCOME_UNKNOWN in error
             else getattr(error, "failure", None)
@@ -341,9 +313,6 @@ async def _run_diff(
     return True, str(raw or ""), None
 
 
-_DeviceResult = tuple[str, DeviceContext, bool]
-
-
 @dataclass(frozen=True)
 class _Target:
     """Everything a device needs before any shim call: its testbed bag, source credentials
@@ -360,49 +329,26 @@ def _prepare_target(
     *,
     device_id: str,
     device: DeviceContext,
-    node_id: str,
     source_credentials: dict[str, PyATSCredentials],
     source_errors: dict[str, str],
-) -> _Target | _DeviceResult:
-    """Resolve the testbed bag, pyATS source and password; a failed device result on error."""
+) -> _Target | Fail:
+    """Resolve the testbed bag, pyATS source and password; a ``Fail`` on error."""
     bag = device.attribute_bags.get("pyats_testbed")
     if not isinstance(bag, dict):
-        return _fail_device(
-            device=device,
-            device_id=device_id,
-            node_id=node_id,
-            code="missing_testbed",
-            message="No pyats_testbed bag found -- add an Add Testbed step upstream",
+        return Fail(
+            "missing_testbed", "No pyats_testbed bag found -- add an Add Testbed step upstream"
         )
 
     source_id = str(bag.get("pyats_source_id") or "")
     if source_id in source_errors:
-        return _fail_device(
-            device=device,
-            device_id=device_id,
-            node_id=node_id,
-            code="source_error",
-            message=source_errors[source_id],
-        )
+        return Fail("source_error", source_errors[source_id])
     shim_credentials = source_credentials.get(source_id)
     if shim_credentials is None:
-        return _fail_device(
-            device=device,
-            device_id=device_id,
-            node_id=node_id,
-            code="source_error",
-            message=f"pyATS source {source_id!r} could not be resolved",
-        )
+        return Fail("source_error", f"pyATS source {source_id!r} could not be resolved")
 
     password = unwrap_secret(bag.get("password"))
     if not password:
-        return _fail_device(
-            device=device,
-            device_id=device_id,
-            node_id=node_id,
-            code="missing_credential",
-            message="pyats_testbed bag has no usable password",
-        )
+        return Fail("missing_credential", "pyats_testbed bag has no usable password")
 
     shim_device = {
         "name": device_id,
@@ -422,10 +368,10 @@ def _prepare_target(
 
 @dataclass(frozen=True)
 class _PreDiff:
-    """Result of the pre-replace diff check: either a finished (skipped) device result,
-    or the artifact of the pending diff (None when no check ran / it failed)."""
+    """Result of the pre-replace diff check: either the finished (skipped) device, or the
+    artifact of the pending diff (None when no check ran / it failed)."""
 
-    skipped: _DeviceResult | None = None
+    skipped: DeviceContext | None = None
     artifact_ref: Any | None = None
 
 
@@ -472,7 +418,7 @@ async def _pre_replace_diff(
             device_id,
             target.bag.get("host"),
         )
-        return _PreDiff(skipped=(device_id, enriched, True))
+        return _PreDiff(skipped=enriched)
     if diff_ok:
         artifact_ref = await artifact_service.store(
             content=pre_diff_text,
@@ -497,14 +443,12 @@ async def _replace_and_confirm(
     target: _Target,
     *,
     device_id: str,
-    device: DeviceContext,
-    node_id: str,
     destination_filename: str,
     file_system: str,
     timeout_minutes: int,
-) -> _DeviceResult | None:
+) -> Fail | None:
     """Send ``configure replace`` + ``configure confirm`` on one connection.
-    Returns a failed device result, or None when the replace was confirmed."""
+    Returns a ``Fail``, or None when the replace was confirmed."""
     replace_command = (
         f"configure replace {file_system}{destination_filename} force time {timeout_minutes}"
     )
@@ -524,13 +468,11 @@ async def _replace_and_confirm(
         commands=[replace_command, _CONFIRM_COMMAND],
     )
     if not ok:
-        return _fail_replace(device=device, device_id=device_id, node_id=node_id, error=err)
+        return _replace_failure(err)
 
     replace_error = (command_entries.get(replace_command) or {}).get("error")
     if replace_error:
-        return _fail_replace(
-            device=device, device_id=device_id, node_id=node_id, error=replace_error
-        )
+        return _replace_failure(replace_error)
     logger.info(
         "%s replace returned device=%s host=%s elapsed=%.1fs",
         _STEP_ID,
@@ -541,30 +483,20 @@ async def _replace_and_confirm(
 
     confirm_entry = command_entries.get(_CONFIRM_COMMAND) or {}
     if confirm_entry.get("error"):
-        return _fail_device(
-            device=device,
-            device_id=device_id,
-            node_id=node_id,
-            code="confirm_failed",
-            message=(
-                f"'configure replace' succeeded but sending '{_CONFIRM_COMMAND}' on the same "
-                f"connection failed ({confirm_entry['error']}); device will auto-revert after "
-                f"{timeout_minutes} minute(s)"
-            ),
+        return Fail(
+            "confirm_failed",
+            f"'configure replace' succeeded but sending '{_CONFIRM_COMMAND}' on the same "
+            f"connection failed ({confirm_entry['error']}); device will auto-revert after "
+            f"{timeout_minutes} minute(s)",
         )
 
     if _has_no_pending_rollback(confirm_entry.get("raw")):
-        return _fail_device(
-            device=device,
-            device_id=device_id,
-            node_id=node_id,
-            code="confirm_not_pending",
-            message=(
-                f"Device reported no pending Rollback Confirmed Change when "
-                f"'{_CONFIRM_COMMAND}' was sent -- the timed replace may have already reverted "
-                f"or been confirmed by another session; verify the running configuration "
-                f"manually"
-            ),
+        return Fail(
+            "confirm_not_pending",
+            f"Device reported no pending Rollback Confirmed Change when "
+            f"'{_CONFIRM_COMMAND}' was sent -- the timed replace may have already reverted "
+            f"or been confirmed by another session; verify the running configuration "
+            f"manually",
         )
     return None
 
@@ -581,9 +513,9 @@ async def _verify_after_replace(
     pre_diff_artifact_ref: Any | None,
     artifact_service: ArtifactService,
     context_run_id: str,
-) -> _DeviceResult | None:
-    """Diff the running config against the replacement file. Returns a failed device
-    result when the check fails or the configs still differ, else None."""
+) -> Fail | None:
+    """Diff the running config against the replacement file. Returns a ``Fail`` (carrying the
+    device with its diff refs) when the check fails or the configs still differ, else None."""
     diff_ok, post_diff_text, diff_err = await _run_diff(
         target.shim,
         target.shim_credentials,
@@ -591,20 +523,16 @@ async def _verify_after_replace(
         diff_command=diff_command,
     )
     if not diff_ok:
-        return _fail_device(
+        return Fail(
+            "post_verify_failed",
+            f"'configure confirm' succeeded but the post-replace diff check failed "
+            f"({diff_err}); the running configuration could not be verified against "
+            f"{file_system}{destination_filename}",
             device=_device_with_diff_refs(
                 device,
                 node_id,
                 pre_diff_artifact_ref=pre_diff_artifact_ref,
                 post_diff_artifact_ref=None,
-            ),
-            device_id=device_id,
-            node_id=node_id,
-            code="post_verify_failed",
-            message=(
-                f"'configure confirm' succeeded but the post-replace diff check failed "
-                f"({diff_err}); the running configuration could not be verified against "
-                f"{file_system}{destination_filename}"
             ),
         )
     if not _diff_has_changes(post_diff_text):
@@ -616,21 +544,17 @@ async def _verify_after_replace(
         run_id=context_run_id,
         media_type="text/plain",
     )
-    return _fail_device(
+    return Fail(
+        "diff_mismatch",
+        f"Running configuration still differs from "
+        f"{file_system}{destination_filename} after 'configure replace'/"
+        f"'configure confirm' succeeded; see the stored diff artifact "
+        f"(artifact_id={post_diff_artifact_ref.artifact_id}) for details",
         device=_device_with_diff_refs(
             device,
             node_id,
             pre_diff_artifact_ref=pre_diff_artifact_ref,
             post_diff_artifact_ref=post_diff_artifact_ref,
-        ),
-        device_id=device_id,
-        node_id=node_id,
-        code="diff_mismatch",
-        message=(
-            f"Running configuration still differs from "
-            f"{file_system}{destination_filename} after 'configure replace'/"
-            f"'configure confirm' succeeded; see the stored diff artifact "
-            f"(artifact_id={post_diff_artifact_ref.artifact_id}) for details"
         ),
     )
 
@@ -638,13 +562,12 @@ async def _verify_after_replace(
 def _confirmed_result(
     device: DeviceContext,
     *,
-    device_id: str,
     node_id: str,
     pre_diff_artifact_ref: Any | None,
     destination_filename: str,
     file_system: str,
     timeout_minutes: int,
-) -> _DeviceResult:
+) -> DeviceContext:
     enriched = _device_with_diff_refs(
         device,
         node_id,
@@ -666,7 +589,7 @@ def _confirmed_result(
             "status": DeviceStatus.OK,
         }
     )
-    return device_id, enriched, True
+    return enriched
 
 
 async def _process_one_device(
@@ -683,15 +606,14 @@ async def _process_one_device(
     source_errors: dict[str, str],
     artifact_service: ArtifactService,
     context_run_id: str,
-) -> _DeviceResult:
+) -> DeviceContext | Fail:
     target = _prepare_target(
         device_id=device_id,
         device=device,
-        node_id=node_id,
         source_credentials=source_credentials,
         source_errors=source_errors,
     )
-    if isinstance(target, tuple):
+    if isinstance(target, Fail):
         return target
 
     logger.info(
@@ -727,8 +649,6 @@ async def _process_one_device(
     failed = await _replace_and_confirm(
         target,
         device_id=device_id,
-        device=device,
-        node_id=node_id,
         destination_filename=destination_filename,
         file_system=file_system,
         timeout_minutes=timeout_minutes,
@@ -754,23 +674,12 @@ async def _process_one_device(
 
     return _confirmed_result(
         device,
-        device_id=device_id,
         node_id=node_id,
         pre_diff_artifact_ref=pre_diff_artifact_ref,
         destination_filename=destination_filename,
         file_system=file_system,
         timeout_minutes=timeout_minutes,
     )
-
-
-def _partition(
-    results: list[tuple[str, DeviceContext, bool]],
-) -> tuple[dict[str, DeviceContext], dict[str, DeviceContext]]:
-    success: dict[str, DeviceContext] = {}
-    failed: dict[str, DeviceContext] = {}
-    for device_id, updated_device, ok in results:
-        (success if ok else failed)[device_id] = updated_device
-    return success, failed
 
 
 def _parse_job_timeout(value: Any) -> float:
@@ -860,32 +769,29 @@ async def execute(
         if source_credentials
         else 4
     )
-    gate = asyncio.Semaphore(parallel_jobs)
 
-    async def _guarded(**kwargs: Any) -> _DeviceResult:
-        async with gate:
-            return await _process_one_device(**kwargs)
+    async def work(device_id: str, device: DeviceContext) -> DeviceContext | Fail:
+        return await _process_one_device(
+            device_id=device_id,
+            device=device,
+            node_id=node_id,
+            destination_filename=destination_filename,
+            file_system=file_system,
+            timeout_minutes=timeout_minutes,
+            skip_if_no_pending_changes=skip_if_no_pending_changes,
+            verify_diff_after_replace=verify_diff_after_replace,
+            source_credentials=source_credentials,
+            source_errors=source_errors,
+            artifact_service=artifact_service,
+            context_run_id=context.run_id,
+        )
 
-    results = await asyncio.gather(
-        *[
-            _guarded(
-                device_id=device_id,
-                device=device,
-                node_id=node_id,
-                destination_filename=destination_filename,
-                file_system=file_system,
-                timeout_minutes=timeout_minutes,
-                skip_if_no_pending_changes=skip_if_no_pending_changes,
-                verify_diff_after_replace=verify_diff_after_replace,
-                source_credentials=source_credentials,
-                source_errors=source_errors,
-                artifact_service=artifact_service,
-                context_run_id=context.run_id,
-            )
-            for device_id, device in context.devices.items()
-        ]
+    # Any problem of one device (a shim request it refuses, an artifact that cannot be stored)
+    # fails that device only; the runner keeps the others going.
+    batch = await run_per_device(
+        context, work, node_id=node_id, step_id=_STEP_ID, concurrency=parallel_jobs
     )
-    success_devices, failed_devices = _partition(results)
+    success_devices, failed_devices = batch.ok, batch.failed
 
     logger.info(
         "%s finished success=%d failure=%d run_id=%s",
@@ -894,14 +800,4 @@ async def execute(
         len(failed_devices),
         log_run_id(run),
     )
-
-    outcomes = [
-        StepOutcome(name="success", context=context.model_copy(update={"devices": success_devices}))
-    ]
-    if failed_devices:
-        outcomes.append(
-            StepOutcome(
-                name="failure", context=context.model_copy(update={"devices": failed_devices})
-            )
-        )
-    return outcomes
+    return build_outcomes(context, success_devices, failed_devices)

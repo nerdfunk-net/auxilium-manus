@@ -37,11 +37,16 @@ from workflow_steps.common.partial_outcomes import (
 
 @dataclass(frozen=True)
 class Fail:
-    """A device-level failure the work function names itself."""
+    """A device-level failure the work function names itself.
+
+    ``device`` is the copy the error is recorded on when the work already changed the device
+    (for example it stored a diff artifact before it failed); it defaults to the input device.
+    """
 
     code: str
     message: str
     failure: FailureInfo | None = None
+    device: DeviceContext | None = None
 
 
 class AbortRun(Exception):  # noqa: N818 - a control-flow signal, not an error condition
@@ -98,7 +103,7 @@ async def run_per_device(
             return fail_device_with_error(device, error), False
         if isinstance(result, Fail):
             failed = mark_device_failed(
-                device,
+                result.device or device,
                 node_id=node_id,
                 step_id=step_id,
                 code=result.code,

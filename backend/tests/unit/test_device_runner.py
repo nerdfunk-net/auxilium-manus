@@ -269,3 +269,16 @@ async def test_concurrency_below_one_is_a_programming_error() -> None:
 
     with pytest.raises(ValueError, match="concurrency"):
         await run_per_device(_ctx(1), work, node_id="n", step_id="s", concurrency=0)
+
+
+@pytest.mark.asyncio
+async def test_fail_can_carry_the_device_the_error_is_recorded_on() -> None:
+    async def work(device_id: str, device: DeviceContext) -> DeviceContext | Fail:
+        return Fail("diff_mismatch", "differs", device=_touched(device))
+
+    batch = await run_per_device(_ctx(1), work, node_id="n", step_id="s")
+
+    failed = batch.failed["0"]
+    assert failed.hostname == "0!"  # the work's own copy, not the input device
+    assert failed.status == DeviceStatus.FAILED
+    assert failed.errors[-1].code == "diff_mismatch"

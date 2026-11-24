@@ -30,7 +30,6 @@ LEGACY_PRIVATE_HELPERS: dict[str, int] = {
     "workflow_steps/common/pyats_batch.py": 1,
     "workflow_steps/compare_data/executor.py": 1,
     "workflow_steps/compare_pyats_snapshot/executor.py": 1,
-    "workflow_steps/configure_replace_config/executor.py": 2,
     "workflow_steps/contact_the_ai/executor.py": 1,
     "workflow_steps/deploy_rendered_template/executor.py": 3,
     "workflow_steps/discover_network/executor.py": 2,
