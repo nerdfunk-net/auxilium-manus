@@ -113,6 +113,18 @@ class BatfishExtractFactsExecutorTests(unittest.IsolatedAsyncioTestCase):
         # an alternation, and matches nothing.
         self.assertEqual(kwargs["nodes"], "r1,r2")
 
+    async def test_an_empty_branch_is_a_no_op_that_queries_nothing(self) -> None:
+        """W7-11: with no devices the step used to extract (and store) the facts of every node
+        in the snapshot."""
+        outcomes, batfish = await self._run(facts={"nodes": {}}, devices={})
+        self.assertEqual([o.name for o in outcomes], ["success"])
+        self.assertEqual(outcomes[0].context.devices, {})
+        batfish.extract_facts.assert_not_called()
+
+    async def test_a_bad_output_key_is_still_a_config_error_with_no_devices(self) -> None:
+        with self.assertRaisesRegex(ValueError, "output_key"):
+            await self._run(facts={}, devices={}, config={"output_key": "a.b"})
+
     async def test_explicit_nodes_filter_passed_through(self) -> None:
         devices = {"device-1": _device("device-1", "R1")}
         _, batfish = await self._run(

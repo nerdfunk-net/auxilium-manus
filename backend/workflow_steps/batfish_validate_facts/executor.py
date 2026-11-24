@@ -93,6 +93,18 @@ _OUTCOME_NAMES = ("match", "mismatch", "failure")
 _FACTS_SOURCES = frozenset({"rendered_yaml", "field", "git"})
 
 
+_MAX_CANDIDATE_NAMES = 10
+
+
+def _candidate_names(keys: Any) -> str:
+    """The first few node keys of a facts corpus for a mismatch message: a corpus of thousands of
+    nodes must not be stored in the error of every device that fails to match (W7-10)."""
+    names = sorted(str(key) for key in keys)
+    shown = ", ".join(repr(name) for name in names[:_MAX_CANDIDATE_NAMES])
+    extra = len(names) - _MAX_CANDIDATE_NAMES
+    return f"[{shown}]" if extra <= 0 else f"[{shown}] and {extra} more"
+
+
 def _parse_nodes_yaml(text: str) -> tuple[dict[str, Any] | None, str | None]:
     """Returns (nodes_fragment, error_message) -- exactly one is non-None.
 
@@ -175,6 +187,7 @@ async def _build_git_facts_corpus(*, merged_config: dict[str, Any]) -> dict[str,
             repo_root=repo_dir,
             base_path=base_path,
             glob_pattern=glob_pattern,
+            step_id=_STEP_ID,
         )
         for path in matched_files:
             text = await asyncio.to_thread(path.read_text, "utf-8")
@@ -256,7 +269,7 @@ async def _prepare_contribution(
                 message=(
                     f"Git-sourced expected-facts corpus has no node key matching this "
                     f"device's name ({device.name!r}, case-insensitive); found: "
-                    f"{sorted(git_facts_corpus)}"
+                    f"{_candidate_names(git_facts_corpus)}"
                 ),
             )
         return node_name, git_facts_corpus[node_name]
@@ -285,7 +298,7 @@ async def _prepare_contribution(
             code="node_key_mismatch",
             message=(
                 f"Rendered facts YAML has no node key matching this device's name "
-                f"({device.name!r}, case-insensitive); found: {sorted(nodes_fragment)}"
+                f"({device.name!r}, case-insensitive); found: {_candidate_names(nodes_fragment)}"
             ),
         )
     return node_name, lowered[node_name]

@@ -44,7 +44,11 @@ from core.models.runs import WorkflowRun
 from models.workflow_context import StepOutcome, WorkflowContext
 from services.artifacts import ArtifactService
 from services.batfish.query_helpers import query_node_properties
-from workflow_steps.common.batfish_context import devices_from_nodes, resolve_batfish_snapshot_ref
+from workflow_steps.common.batfish_context import (
+    devices_from_nodes,
+    parse_direct_target,
+    resolve_batfish_snapshot_ref,
+)
 from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.get_batfish_devices.config import get_config
 
@@ -68,12 +72,7 @@ async def execute(
     del artifact_service, device_sessions  # unused: no artifact written, no SSH
 
     merged_config = {**get_config(), **config}
-    source_id = str(merged_config.get("batfish_source_id") or "").strip()
-    network = str(merged_config.get("network") or "").strip()
-    if bool(source_id) != bool(network):
-        raise ValueError(
-            f"{_STEP_ID}: set both the Batfish source and the network, or neither"
-        )
+    source_id, network = parse_direct_target(merged_config, step_id=_STEP_ID)
     direct_target_configured = bool(source_id and network)
     metadata_present = isinstance(context.metadata.get("batfish"), dict)
 

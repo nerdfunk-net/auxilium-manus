@@ -618,7 +618,8 @@ fields. When both `batfish_source_id` and `network` are set, the step
 resolves that connection/network directly via
 `workflow_steps.common.batfish_context.resolve_batfish_snapshot_ref` and
 **ignores this run's metadata entirely, even if present** — explicit step
-config always wins. `snapshot` defaults to the most recent snapshot in that
+config always wins. Only one of the two is a `ValueError` (`parse_direct_target`: set both, or neither),
+never a silent fall back to the run's own snapshot. `snapshot` defaults to the most recent snapshot in that
 network (sorted by `metadata.creationTimestamp`, same sort used by the
 retention sweep) when left blank, and raises `ValueError` if the network has
 no snapshots at all. This is what lets a query workflow with no Init step

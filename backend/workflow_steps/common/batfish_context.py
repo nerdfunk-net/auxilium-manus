@@ -59,6 +59,19 @@ def resolve_batfish_snapshot(context: WorkflowContext) -> BatfishSnapshotRef:
         raise ValueError(f"Batfish snapshot metadata is malformed: {exc}") from exc
 
 
+def parse_direct_target(config: dict[str, Any], *, step_id: str = "batfish") -> tuple[str, str]:
+    """``(batfish_source_id, network)`` of a direct target: both set, or both empty.
+
+    One without the other is a configuration error, never a silent fall back to the run's own
+    snapshot (the author named another network and would get a verdict about the wrong one).
+    """
+    source_id = str(config.get("batfish_source_id") or "").strip()
+    network = str(config.get("network") or "").strip()
+    if bool(source_id) != bool(network):
+        raise ValueError(f"{step_id}: set both the Batfish source and the network, or neither")
+    return source_id, network
+
+
 async def resolve_batfish_snapshot_ref(
     *,
     context: WorkflowContext,
@@ -71,11 +84,10 @@ async def resolve_batfish_snapshot_ref(
     When config has both batfish_source_id and network set, resolves and
     targets that network directly (defaulting to its most recent snapshot by
     creation timestamp when config["snapshot"] is blank), ignoring this run's
-    metadata entirely. Otherwise falls back to resolve_batfish_snapshot(context)
-    unchanged.
+    metadata entirely. With neither set it falls back to resolve_batfish_snapshot(context);
+    only one of the two is a ``ValueError`` (``parse_direct_target``).
     """
-    source_id = str(config.get("batfish_source_id") or "").strip()
-    network = str(config.get("network") or "").strip()
+    source_id, network = parse_direct_target(config)
     if not (source_id and network):
         return resolve_batfish_snapshot(context)
 

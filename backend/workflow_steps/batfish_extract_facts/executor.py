@@ -137,6 +137,10 @@ async def execute(
         context, short_hostname=short_hostname
     )
 
+    if not context.devices:
+        # An empty branch is a no-op, not a network-wide extraction (W7-11).
+        return [StepOutcome(name="success", context=context)]
+
     batfish = service_factory.get_batfish_app_service()
     snap = await resolve_batfish_snapshot_ref(
         context=context, config=merged_config, run=run, batfish=batfish

@@ -90,6 +90,35 @@ class GitSourceFilesTests(unittest.TestCase):
 
             self.assertEqual([p.name for p in matches], ["r1.running.cfg"])
 
+    def test_an_absolute_or_escaping_glob_is_a_value_error_not_a_crash(self) -> None:
+        """W7-10: ``Path.glob`` raises NotImplementedError for an absolute pattern."""
+        for pattern in ("/etc/*", "../*.cfg", "**/../../x"):
+            with self.subTest(pattern=pattern):
+                with self.assertRaises(ValueError):
+                    collect_git_source_files(
+                        repo_root=self.repo_root, base_path="", glob_pattern=pattern
+                    )
+
+    def test_messages_name_the_step_that_asked(self) -> None:
+        with self.assertRaisesRegex(ValueError, r"^batfish-validate-facts: no files matched"):
+            collect_git_source_files(
+                repo_root=self.repo_root,
+                base_path="",
+                glob_pattern="*.nomatch",
+                step_id="batfish-validate-facts",
+            )
+        with self.assertRaisesRegex(ValueError, r"^batfish-validate-facts: glob_pattern is"):
+            collect_git_source_files(
+                repo_root=self.repo_root,
+                base_path="",
+                glob_pattern=" ",
+                step_id="batfish-validate-facts",
+            )
+        with self.assertRaisesRegex(ValueError, r"^batfish-init-snapshot: no files matched"):
+            collect_git_source_files(
+                repo_root=self.repo_root, base_path="", glob_pattern="*.nomatch"
+            )
+
     def test_base_path_escape_raises_value_error(self) -> None:
         with self.assertRaises(ValueError):
             collect_git_source_files(

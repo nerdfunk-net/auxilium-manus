@@ -25,6 +25,7 @@ from __future__ import annotations
 import asyncio
 from typing import TYPE_CHECKING, Any
 
+from models.failure import FailureInfo
 from models.workflow_context import DeviceContext, DeviceError, DeviceStatus
 from services.pyats.common.exceptions import PyATSAPIError, PyATSValidationError
 from services.pyats.credentials import PyATSCredentials
@@ -42,6 +43,7 @@ if TYPE_CHECKING:
 DEFAULT_CHUNK_SIZE = 5
 BASE_TIMEOUT_SECONDS = 60.0
 PER_DEVICE_TIMEOUT_SECONDS = 90.0
+_REQUIRED_ENTRY_FIELDS = ("host", "os", "username")
 
 
 def resolve_source_credentials(
@@ -60,9 +62,17 @@ def resolve_source_credentials(
 
 
 def _fail_device(
-    *, device: DeviceContext, node_id: str, step_id: str, code: str, message: str
+    *,
+    device: DeviceContext,
+    node_id: str,
+    step_id: str,
+    code: str,
+    message: str,
+    failure: FailureInfo | None = None,
 ) -> DeviceContext:
-    err = DeviceError(node_id=node_id, step_id=step_id, code=code, message=message)
+    err = DeviceError(
+        node_id=node_id, step_id=step_id, code=code, message=message, failure=failure
+    )
     return device.model_copy(
         update={"status": DeviceStatus.FAILED, "errors": [*device.errors, err]}
     )
@@ -129,6 +139,23 @@ def validate_and_group_devices(
                 step_id=step_id,
                 code="missing_credential",
                 message="pyats_testbed bag has no usable password",
+            )
+            continue
+
+        # The shim builds one testbed per request and answers 400, naming no device, when any
+        # entry lacks one of these: every device of the chunk would fail with that text (W7-02).
+        missing = next(
+            (field for field in _REQUIRED_ENTRY_FIELDS if not str(bag.get(field) or "").strip()),
+            None,
+        )
+        if missing is not None:
+            failures[device_id] = _fail_device(
+                device=device,
+                node_id=node_id,
+                step_id=step_id,
+                code=f"missing_{missing}",
+                message=f"pyats_testbed bag of device {device.name!r} has no {missing}",
+                failure=FailureInfo(phase="config", kind="bad_request"),
             )
             continue
 

@@ -64,6 +64,44 @@ class AddPyatsTestbedExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(bag["username"], "admin")
         self.assertEqual(unwrap_secret(bag["password"]), "secret")
 
+    async def test_a_device_without_host_fails_alone_instead_of_getting_an_empty_host(
+        self,
+    ) -> None:
+        """W7-02: an empty host used to pass as `success` and break a whole shim chunk later."""
+        run = MagicMock()
+        run.id = 1
+        run.triggered_by_id = None
+        nameless = DeviceContext(
+            id="device-2", name="x", hostname="", primary_ip4=None, network_driver="cisco_ios"
+        )
+        with (
+            patch(
+                "workflow_steps.add_pyats_testbed.executor.object_session",
+                return_value=MagicMock(),
+            ),
+            patch(
+                "workflow_steps.add_pyats_testbed.executor.resolve_generic_credential",
+                return_value=("admin", "secret"),
+            ),
+        ):
+            outcomes = await execute(
+                config={"pyats_source_id": "lab-pyats", "credential_reference": "lab-cred"},
+                context=WorkflowContext(
+                    run_id="r",
+                    workflow_id="w",
+                    devices={"device-1": _device(), "device-2": nameless},
+                ),
+                run=run,
+                artifact_service=InMemoryArtifactService(),
+                node_id="node-1",
+                device_sessions=MagicMock(),
+            )
+        by_name = {o.name: o for o in outcomes}
+        self.assertEqual(list(by_name["success"].context.devices), ["device-1"])
+        failed = by_name["failure"].context.devices["device-2"]
+        self.assertEqual(failed.errors[-1].code, "missing_host")
+        self.assertEqual(failed.errors[-1].failure.kind, "bad_request")
+
     async def test_network_driver_override_used_for_os_resolution(self) -> None:
         run = MagicMock()
         run.id = 1

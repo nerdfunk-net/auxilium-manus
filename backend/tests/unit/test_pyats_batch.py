@@ -84,6 +84,32 @@ class ValidateAndGroupDevicesTests(unittest.TestCase):
         self.assertEqual(groups, {})
         self.assertEqual(failures["device-1"].errors[0].code, "missing_credential")
 
+    def test_an_empty_required_field_fails_only_that_device_before_grouping(self) -> None:
+        """W7-02: the shim rejects a whole request for one entry without host/os/username (400
+        naming no device), so every device of its chunk used to fail with that text."""
+        for field, code in (
+            ("host", "missing_host"),
+            ("os", "missing_os"),
+            ("username", "missing_username"),
+        ):
+            with self.subTest(field=field):
+                bad = _device_with_testbed("bad")
+                bag = dict(bad.attribute_bags["pyats_testbed"])
+                bag[field] = "  "
+                bad = bad.model_copy(update={"attribute_bags": {"pyats_testbed": bag}})
+                groups, failures = validate_and_group_devices(
+                    devices={"ok": _device_with_testbed("ok"), "bad": bad},
+                    node_id="node-1",
+                    step_id="get-pyats-running-config",
+                    source_credentials={"lab-pyats": _credentials()},
+                    source_errors={},
+                )
+                self.assertEqual([device_id for device_id, _ in groups["lab-pyats"]], ["ok"])
+                error = failures["bad"].errors[0]
+                self.assertEqual(error.code, code)
+                self.assertIn("bad", error.message)
+                self.assertEqual(error.failure.kind, "bad_request")
+
     def test_unresolvable_source_is_immediate_failure_and_excluded(self) -> None:
         groups, failures = validate_and_group_devices(
             devices={"device-1": _device_with_testbed("device-1", source_id="bad-source")},

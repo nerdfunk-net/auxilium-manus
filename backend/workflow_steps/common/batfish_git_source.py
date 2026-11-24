@@ -23,27 +23,29 @@ from __future__ import annotations
 import shutil
 from pathlib import Path
 
+from services.git.paths import validate_relative_glob
+
 MAX_GIT_SOURCE_FILES = 20_000
 MAX_GIT_SOURCE_FILE_SIZE = 10 * 1024 * 1024
 
 _STEP_ID = "batfish-init-snapshot"
 
 
-def _resolve_base_dir(repo_root: Path, base_path: str) -> Path:
+def _resolve_base_dir(repo_root: Path, base_path: str, step_id: str) -> Path:
     root = repo_root.resolve()
     sub = base_path.strip("/\\")
     target = (root / sub).resolve() if sub else root
     try:
         target.relative_to(root)
     except ValueError as exc:
-        raise ValueError(f"{_STEP_ID}: base_path {base_path!r} escapes the repository") from exc
+        raise ValueError(f"{step_id}: base_path {base_path!r} escapes the repository") from exc
     if not target.is_dir():
-        raise ValueError(f"{_STEP_ID}: base_path {base_path!r} does not exist in the repository")
+        raise ValueError(f"{step_id}: base_path {base_path!r} does not exist in the repository")
     return target
 
 
 def collect_git_source_files(
-    *, repo_root: Path, base_path: str, glob_pattern: str
+    *, repo_root: Path, base_path: str, glob_pattern: str, step_id: str = _STEP_ID
 ) -> list[Path]:
     """Return every file under base_path matching glob_pattern.
 
@@ -53,10 +55,15 @@ def collect_git_source_files(
     """
     pattern = glob_pattern.strip()
     if not pattern:
-        raise ValueError(f"{_STEP_ID}: glob_pattern is required when config_source is 'git'")
+        raise ValueError(f"{step_id}: glob_pattern is required when config_source is 'git'")
+    try:
+        # An absolute pattern would make Path.glob raise NotImplementedError; ".." escapes the repo.
+        validate_relative_glob(pattern, field="glob_pattern")
+    except ValueError as exc:
+        raise ValueError(f"{step_id}: {exc}") from exc
 
     repo_root = repo_root.resolve()
-    base_dir = _resolve_base_dir(repo_root, base_path)
+    base_dir = _resolve_base_dir(repo_root, base_path, step_id)
 
     matches: list[Path] = []
     for candidate in sorted(base_dir.glob(pattern)):
@@ -82,13 +89,13 @@ def collect_git_source_files(
         matches.append(resolved)
         if len(matches) > MAX_GIT_SOURCE_FILES:
             raise ValueError(
-                f"{_STEP_ID}: glob_pattern matched more than {MAX_GIT_SOURCE_FILES} files "
+                f"{step_id}: glob_pattern matched more than {MAX_GIT_SOURCE_FILES} files "
                 "-- narrow base_path/glob_pattern"
             )
 
     if not matches:
         raise ValueError(
-            f"{_STEP_ID}: no files matched base_path={base_path!r} glob_pattern={glob_pattern!r}"
+            f"{step_id}: no files matched base_path={base_path!r} glob_pattern={glob_pattern!r}"
         )
     return matches
 

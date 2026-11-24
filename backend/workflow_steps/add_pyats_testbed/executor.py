@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, Any
 from sqlalchemy.orm import object_session
 
 from core.models.runs import WorkflowRun
+from models.failure import FailureInfo
 from models.workflow_context import (
     Capability,
     DeviceContext,
@@ -62,6 +63,10 @@ def _parse_config(
     return pyats_source_id, credential_reference, network_driver_override
 
 
+class _MissingHostError(Exception):
+    """The device has neither a hostname nor an IPv4 address."""
+
+
 def _build_testbed_device(
     device: DeviceContext,
     *,
@@ -71,6 +76,8 @@ def _build_testbed_device(
     network_driver_override: str | None,
 ) -> DeviceContext:
     host = bare_hostname(device.primary_ip4, device.hostname)
+    if not host:
+        raise _MissingHostError
     os_name = resolve_pyats_os(
         network_driver=device.network_driver,
         platform=device.platform,
@@ -138,6 +145,16 @@ async def execute(
                 sealed_password=sealed_password,
                 network_driver_override=network_driver_override,
             )
+        except _MissingHostError:
+            # An empty host would pass as success here and fail a whole shim chunk later.
+            failed[device_id] = mark_device_failed(
+                device,
+                node_id=node_id,
+                step_id=_STEP_ID,
+                code="missing_host",
+                message=f"device {device.name!r} has neither a hostname nor an IPv4 address",
+                failure=FailureInfo(phase="config", kind="bad_request"),
+            )
         except UnsupportedPlatformError as exc:
             # A device whose platform has no pyATS os fails alone (DN-A), it does not abort.
             failed[device_id] = mark_device_failed(
@@ -165,7 +182,7 @@ async def execute(
             StepOutcome(
                 name="failure",
                 context=context.model_copy(update={"devices": failed}),
-                summary=f"{len(failed)} device(s) have no pyATS os for their platform",
+                summary=f"{len(failed)} device(s) cannot get a pyATS testbed entry",
             )
         )
     return outcomes

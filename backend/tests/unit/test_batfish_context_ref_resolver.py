@@ -62,21 +62,24 @@ class ResolveBatfishSnapshotRefTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(ref.connection.host, "prod-host")
         self.assertEqual(ref.snapshot, "run-99")
 
-    async def test_falls_back_to_metadata_when_config_incomplete(self) -> None:
-        context = _context_with_metadata()
-        run = _run_mock()
-        batfish = MagicMock()
-
-        ref = await resolve_batfish_snapshot_ref(
-            context=context,
-            config={"batfish_source_id": "prod-batfish"},  # network missing
-            run=run,
-            batfish=batfish,
-        )
-
-        self.assertEqual(ref.network, "manus-workflow-7")
-        self.assertEqual(ref.snapshot, "run-1")
-        batfish.list_snapshots_with_metadata.assert_not_called()
+    async def test_half_configured_direct_target_is_a_config_error(self) -> None:
+        """W7-05: a source without a network (or the reverse) must not silently answer from the
+        run's own snapshot; the author meant another network."""
+        for config in (
+            {"batfish_source_id": "prod-batfish"},
+            {"network": "manus-production"},
+            {"batfish_source_id": "prod-batfish", "network": "  "},
+        ):
+            with self.subTest(config=config):
+                batfish = MagicMock()
+                with self.assertRaisesRegex(ValueError, "both the Batfish source and the network"):
+                    await resolve_batfish_snapshot_ref(
+                        context=_context_with_metadata(),
+                        config=config,
+                        run=_run_mock(),
+                        batfish=batfish,
+                    )
+                batfish.list_snapshots_with_metadata.assert_not_called()
 
     async def test_falls_back_to_metadata_when_config_absent(self) -> None:
         context = _context_with_metadata()
