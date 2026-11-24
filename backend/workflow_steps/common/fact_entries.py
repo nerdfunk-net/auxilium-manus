@@ -128,6 +128,18 @@ def with_entries(
     )
 
 
+async def _prepare_source[CredsT](
+    prepare: Callable[[CredsT], Awaitable[Any]] | None, credentials: CredsT
+) -> tuple[Any, Exception | None]:
+    """``(state, None)``, or ``(None, the exception)`` when ``prepare`` raised."""
+    if prepare is None:
+        return None, None
+    try:
+        return await prepare(credentials), None
+    except Exception as exc:
+        return None, exc
+
+
 async def collect_facts[CredsT](
     *,
     step_id: str,
@@ -149,20 +161,32 @@ async def collect_facts[CredsT](
         len(context.devices),
     )
 
-    # ``prepare`` runs once per controller (for example a controller-wide topology fetch).
+    # ``prepare`` runs once per controller (for example a controller-wide topology fetch). A
+    # controller error is turned into state by the step itself; anything else it raises (a bug,
+    # a service that cannot be built) fails the devices of that controller only, the other
+    # controllers go on. Cancellation always passes through.
     source_ids = list(split.by_source)
-    states = (
-        await asyncio.gather(*[prepare(credentials[source_id]) for source_id in source_ids])
-        if prepare is not None
-        else [None] * len(source_ids)
+    prepared = await asyncio.gather(
+        *[_prepare_source(prepare, credentials[source_id]) for source_id in source_ids]
     )
-    state_by_source = dict(zip(source_ids, states, strict=True))
+    state_by_source = {
+        source_id: state
+        for source_id, (state, raised) in zip(source_ids, prepared, strict=True)
+        if raised is None
+    }
+    prepare_errors = {
+        source_id: device_error_from_exception(raised, node_id=node_id, step_id=step_id)
+        for source_id, (_state, raised) in zip(source_ids, prepared, strict=True)
+        if raised is not None
+    }
 
     gate = asyncio.Semaphore(MAX_PARALLEL_DEVICES)
 
     async def one(
         source_id: str, device_id: str, device: DeviceContext
     ) -> tuple[str, DeviceContext, bool]:
+        if source_id in prepare_errors:
+            return device_id, fail_device_with_error(device, prepare_errors[source_id]), False
         async with gate:
             try:
                 entries = await collect(

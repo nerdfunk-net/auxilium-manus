@@ -484,7 +484,7 @@ store error or any other exception fails that device only). `run-catalyst-center
 devices: a controller error and any other exception from the request fail that chunk's devices, a store or parser error
 fails one device. `get-catalyst-center-client-data` and the shared fact driver (`common/fact_entries.collect_facts`,
 the Catalyst Center and ACI fact steps) fail the one device whose query or `collect()` raised an unexpected exception; the
-stored text of such an exception is the class name plus a `FailureInfo`.
+stored text of such an exception is the class name plus a `FailureInfo`. The per-controller `prepare()` of the driver is a boundary too: a `prepare` that raises fails the devices of that controller only (same record), the other controllers are collected as usual.
 
 ### Step config flags
 
