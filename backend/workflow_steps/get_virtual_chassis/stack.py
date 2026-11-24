@@ -152,7 +152,7 @@ def _member_record(
     }
 
 
-def _failed_device(
+def _unusable_stack_device(
     *, device_id: str, name: str, source_id: str, node_id: str, message: str, code: str
 ) -> DeviceContext:
     return DeviceContext(
@@ -191,7 +191,7 @@ def build_stack_devices(
         else:
             identities = [(str(master.get("id")) if master else vc_id, vc_name)]
         return [
-            _failed_device(
+            _unusable_stack_device(
                 device_id=device_id,
                 name=name,
                 source_id=source_id,

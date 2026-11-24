@@ -6,14 +6,9 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from core.models.runs import WorkflowRun
-from models.workflow_context import (
-    DeviceContext,
-    DeviceError,
-    DeviceStatus,
-    StepOutcome,
-    WorkflowContext,
-)
+from models.workflow_context import DeviceContext, DeviceStatus, StepOutcome, WorkflowContext
 from services.artifacts import ArtifactService
+from workflow_steps.common.device_outcomes import build_outcomes, mark_device_failed
 from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.split_virtual_chassis.members import (
     STEP_ID,
@@ -26,13 +21,6 @@ if TYPE_CHECKING:
     from services.network.netmiko.session_pool import DeviceSessionPool
 
 logger = logging.getLogger(__name__)
-
-
-def _failed(device: DeviceContext, *, node_id: str, code: str, message: str) -> DeviceContext:
-    error = DeviceError(node_id=node_id, step_id=STEP_ID, code=code, message=message)
-    return device.model_copy(
-        update={"status": DeviceStatus.FAILED, "errors": [*device.errors, error]}
-    )
 
 
 def _split_all(
@@ -48,9 +36,10 @@ def _split_all(
             continue
         split = split_stack_device(device, settings)
         if split is None:
-            failed[key] = _failed(
+            failed[key] = mark_device_failed(
                 device,
                 node_id=node_id,
+                step_id=STEP_ID,
                 code="not_a_stack",
                 message=(
                     f"Device {device.name!r} has no {settings.attribute_bag!r} stack data; "
@@ -60,9 +49,10 @@ def _split_all(
             continue
         clash = sorted(m.id for m in split if m.id in members)
         if clash:
-            failed[key] = _failed(
+            failed[key] = mark_device_failed(
                 device,
                 node_id=node_id,
+                step_id=STEP_ID,
                 code="member_id_conflict",
                 message=f"Stack member id(s) {', '.join(clash)} already belong to another stack",
             )
@@ -102,24 +92,11 @@ async def execute(
         log_run_id(run),
     )
 
-    metadata = {
-        **context.metadata,
-        f"{node_id}.stacks": stacks,
-        f"{node_id}.members": len(members),
-    }
-    outcomes = [
-        StepOutcome(
-            name="success",
-            context=context.model_copy(update={"devices": members, "metadata": metadata}),
-            summary=f"split {stacks} stack(s) into {len(members)} member device(s)",
-        )
-    ]
-    if failed:
-        outcomes.append(
-            StepOutcome(
-                name="failure",
-                context=context.model_copy(update={"devices": failed, "metadata": metadata}),
-                summary=f"{len(failed)} device(s) could not be split",
-            )
-        )
-    return outcomes
+    return build_outcomes(
+        context,
+        members,
+        failed,
+        metadata={f"{node_id}.stacks": stacks, f"{node_id}.members": len(members)},
+        success_summary=f"split {stacks} stack(s) into {len(members)} member device(s)",
+        failure_summary=f"{len(failed)} device(s) could not be split",
+    )

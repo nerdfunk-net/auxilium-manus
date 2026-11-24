@@ -170,15 +170,21 @@ def test_job_status_unreachable_keeps_the_api_cause() -> None:
     assert failure.kind == "auth_failed"
 
 
-def test_exists_in_nautobot_records_the_failure() -> None:
-    device = DeviceContext(id="d1", name="d1", hostname="d1")
-    failed = exists_mod._failed(
-        device,
-        node_id="n",
-        code="x",
-        message="m",
-        failure=NautobotAPIError("x", http_status=403).failure,
-    )
+@pytest.mark.asyncio
+async def test_exists_in_nautobot_records_the_failure() -> None:
+    from unittest.mock import AsyncMock, MagicMock, patch
 
+    from tests.unit._step_helpers import call_step, make_context, make_device
+
+    service = MagicMock()
+    service.graphql_query = AsyncMock(side_effect=NautobotAPIError("x", http_status=403))
+    with patch.object(exists_mod, "_bind_nautobot", return_value=(MagicMock(), service)):
+        outcomes = await call_step(
+            exists_mod.execute,
+            config={"nautobot_source_id": "src", "strategy": "name"},
+            context=make_context([make_device("d1")]),
+        )
+
+    failed = {o.name: o.context for o in outcomes}["failure"].devices["d1"]
     assert failed.errors[0].failure is not None
     assert failed.errors[0].failure.kind == "permission_denied"

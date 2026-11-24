@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
@@ -11,17 +10,13 @@ from sqlalchemy.orm import object_session
 
 import service_factory
 from core.models.runs import WorkflowRun
-from models.failure import FailureInfo, failure_from_exception
-from models.workflow_context import (
-    DeviceContext,
-    DeviceError,
-    DeviceStatus,
-    StepOutcome,
-    WorkflowContext,
-)
+from models.workflow_context import DeviceContext, StepOutcome, WorkflowContext
 from services.artifacts import ArtifactService
 from services.nautobot.client import NautobotService
+from services.nautobot.common.exceptions import NautobotError
 from services.nautobot.credentials import NautobotCredentials
+from workflow_steps.common.device_outcomes import outcomes_from_buckets
+from workflow_steps.common.device_runner import Fail, run_per_device
 from workflow_steps.common.nautobot_resolve import (
     find_device_id_by_interface_ip,
     find_device_id_by_name,
@@ -86,22 +81,6 @@ def _bind_nautobot(run: WorkflowRun, source_id: str) -> tuple[NautobotCredential
     return credentials, service_factory.get_nautobot_app_service()
 
 
-def _failed(
-    device: DeviceContext,
-    *,
-    node_id: str,
-    code: str,
-    message: str,
-    failure: FailureInfo | None = None,
-) -> DeviceContext:
-    err = DeviceError(
-        node_id=node_id, step_id=_STEP_ID, code=code, message=message, failure=failure
-    )
-    return device.model_copy(
-        update={"status": DeviceStatus.FAILED, "errors": [*device.errors, err]}
-    )
-
-
 def _with_nautobot_id(device: DeviceContext, nautobot_id: str) -> DeviceContext:
     bags = {
         **device.attribute_bags,
@@ -152,11 +131,11 @@ async def _classify_device(
     *,
     parsed: _ParsedConfig,
     device: DeviceContext,
-    node_id: str,
     run_id: str,
     nautobot_service: NautobotService,
     credentials: NautobotCredentials,
-) -> tuple[str, DeviceContext]:
+) -> tuple[str, DeviceContext | Fail]:
+    """``(bucket, device)``; an unexpected error raises into the runner (that device fails)."""
     try:
         nautobot_id = await _lookup(
             parsed=parsed,
@@ -166,38 +145,17 @@ async def _classify_device(
             credentials=credentials,
         )
     except _IpUnresolvedError as exc:
-        return "failure", _failed(device, node_id=node_id, code="ip_unresolved", message=str(exc))
-    except Exception as exc:
-        return "failure", _failed(
-            device,
-            node_id=node_id,
-            code=type(exc).__name__.lower(),
-            message=str(exc),
-            failure=failure_from_exception(exc),
-        )
-
+        return "failure", Fail(code="ip_unresolved", message=str(exc))
     if nautobot_id is None:
         return "non_existing", device
     return "exists", _with_nautobot_id(device, nautobot_id)
 
 
-def _build_outcomes(
-    *,
-    context: WorkflowContext,
-    node_id: str,
-    buckets: dict[str, dict[str, DeviceContext]],
+def _exists_outcomes(
+    context: WorkflowContext, node_id: str, buckets: dict[str, dict[str, DeviceContext]]
 ) -> list[StepOutcome]:
     counts = {name: len(buckets[name]) for name in _OUTCOME_NAMES}
-    metadata = {**context.metadata, f"{node_id}.exists_counts": counts}
-    return [
-        StepOutcome(
-            name=name,
-            context=context.model_copy(
-                update={"devices": dict(buckets[name]), "metadata": metadata}
-            ),
-        )
-        for name in _OUTCOME_NAMES
-    ]
+    return outcomes_from_buckets(context, buckets, metadata={f"{node_id}.exists_counts": counts})
 
 
 async def execute(
@@ -214,7 +172,7 @@ async def execute(
     parsed = _parse_config(config)
     buckets: dict[str, dict[str, DeviceContext]] = {name: {} for name in _OUTCOME_NAMES}
     if not context.devices:
-        return _build_outcomes(context=context, node_id=node_id, buckets=buckets)
+        return _exists_outcomes(context, node_id, buckets)
 
     credentials, nautobot_service = _bind_nautobot(run, parsed.source_id)
     logger.info(
@@ -225,21 +183,33 @@ async def execute(
         len(context.devices),
     )
 
-    results = await asyncio.gather(
-        *[
-            _classify_device(
-                parsed=parsed,
-                device=device,
-                node_id=node_id,
-                run_id=context.run_id,
-                nautobot_service=nautobot_service,
-                credentials=credentials,
-            )
-            for device in context.devices.values()
-        ]
+    found: dict[str, str] = {}
+
+    async def work(_device_id: str, device: DeviceContext) -> DeviceContext | Fail:
+        bucket, result = await _classify_device(
+            parsed=parsed,
+            device=device,
+            run_id=context.run_id,
+            nautobot_service=nautobot_service,
+            credentials=credentials,
+        )
+        if isinstance(result, Fail):
+            return result
+        found[device.id] = bucket
+        return result
+
+    batch = await run_per_device(
+        context,
+        work,
+        node_id=node_id,
+        step_id=_STEP_ID,
+        keep_text=(NautobotError,),
     )
-    for device_id, (bucket, updated) in zip(context.devices, results, strict=True):
-        buckets[bucket][device_id] = updated
+    for device_id in context.devices:
+        if device_id in batch.failed:
+            buckets["failure"][device_id] = batch.failed[device_id]
+        else:
+            buckets[found[device_id]][device_id] = batch.ok[device_id]
 
     logger.info(
         "exists-in-nautobot finished exists=%d non_existing=%d failure=%d run_id=%s",
@@ -248,4 +218,4 @@ async def execute(
         len(buckets["failure"]),
         context.run_id,
     )
-    return _build_outcomes(context=context, node_id=node_id, buckets=buckets)
+    return _exists_outcomes(context, node_id, buckets)

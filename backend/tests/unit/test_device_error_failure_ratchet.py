@@ -24,7 +24,6 @@ LEGACY_WITHOUT_FAILURE: dict[str, int] = {
     "workflow_steps/get_ise_tacacs_key/executor.py": 1,
     "workflow_steps/get_virtual_chassis/stack.py": 1,
     "workflow_steps/list_contains/executor.py": 1,
-    "workflow_steps/split_virtual_chassis/executor.py": 1,
     "workflow_steps/undefined_and_unused/executor.py": 1,
 }
 

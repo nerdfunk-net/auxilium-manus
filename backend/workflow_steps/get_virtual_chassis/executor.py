@@ -47,7 +47,7 @@ async def _fetch_virtual_chassis(nautobot_service: Any, credentials: Any) -> lis
         raise RuntimeError(f"{STEP_ID}: Nautobot GraphQL query failed: {exc}") from exc
 
 
-def _build_outcomes(
+def _stack_outcomes(
     context: WorkflowContext,
     devices: list[DeviceContext],
     *,
@@ -127,7 +127,7 @@ async def execute(
         for device in build_stack_devices(vc, settings, source_id=source_id, node_id=node_id)
     ]
 
-    outcomes = _build_outcomes(
+    outcomes = _stack_outcomes(
         context,
         devices,
         fan_out_metadata=build_fan_out_metadata(config.get("fan_out"), node_id),
