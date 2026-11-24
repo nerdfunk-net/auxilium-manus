@@ -182,10 +182,14 @@ an `agent_id` and a global `shared_secret` credential (`doc/AGENT_INTEGRATION.md
   that would carry a secret along, and keep the destination out of the device. `doc/WORKFLOW-STEPS.md`
   "Calling an agent".
 - **Failure records:** a step that fails a device or the whole step records *why* as a
-  `models.failure.FailureInfo` (closed vocabulary, no free text) next to the readable message **where a failure code applies** (a pure config error has none; `test_device_error_failure_ratchet.py` pins the sites that do not record one yet, so a new `DeviceError` without `failure=` fails the test):
+  `models.failure.FailureInfo` (closed vocabulary, no free text) next to the readable message **where a failure code applies** (a pure config error has none; `test_device_error_failure_ratchet.py` and `test_failure_record_wrapper_ratchet.py` pin the sites that do not record one yet, so a new `DeviceError`, wrapper call or `Fail(code, message)` without `failure=` fails the test; the shared records are in `workflow_steps/common/failure_records.py`):
   `DeviceError(failure=...)`, `StepOutcome(failure=...)`, or raise with the client error in the cause
   chain. Classifiers live next to the client (`.failure` on the exception, `http_status`/`code` set at
   the raise site); never copy message text into the record. See `doc/ai_integration/AI_ASSISTANT.md` §19.
+- **Exception text in a stored message:** `device_error_from_exception(exc, ..., keep_text=...)` keeps the text of a
+  `ValueError` / `FileNotFoundError` and of the classes in `keep_text` (`partial_outcomes.NAUTOBOT_TEXT`: the Nautobot
+  client sanitises its messages), and reduces anything else to the class name plus a `FailureInfo`; never write
+  `message=str(exc)` for an arbitrary exception. `doc/WORKFLOW-STEPS.md` "Which exception text a failed device stores".
 - **Domain errors before the catch-all:** a route that wraps its body in `except Exception` →
   `raise_internal_server_error(...)` puts `except DomainError: raise` in front of it, so a
   `core.domain_exceptions` error (400/403/404/409, for example `InvalidFilterInputError`, `ConflictError`)

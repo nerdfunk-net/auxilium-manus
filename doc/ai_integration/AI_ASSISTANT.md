@@ -1238,7 +1238,20 @@ authentication failures reuse `timeout` and `auth_failed`. A stream cut off befo
   device fails; the persisted `{parsed, error}` entry shape is unchanged.
 - *ISE:* `ISEError.failure` (same pattern as Catalyst Center; 401 is `auth_failed`, 403
   `permission_denied`). `add-to-ise`, `update-ise-tacacs-key` and `get-ise-tacacs-key` copy it to
-  the device error, and to the step for "could not reach / lost connection" outcomes.
+  the device error, and to the step for "could not reach / lost connection" outcomes. The client
+  also collapses and caps an ERS 400 text at 300 characters and sets `code="already_exists"` itself
+  when a title says the object is already there (kind `already_exists`); `add-to-ise` decides its
+  `exists` handle by that code, never by message text.
+- *pyATS:* `PyATSError.failure` (same pattern; `timeout` code, 401 `auth_failed`, 403
+  `permission_denied`, 5xx `server_error`). `run_batched` keeps it per device for a chunk-level shim
+  failure, and `get-pyats-running-config`, `get-pyats-snapshot`, `configure-replace-config` and
+  `compare-pyats-snapshot` copy it to the device error. A device-level error from the shim (what
+  the device printed) keeps its text capped at 300 characters with a generic `command_error`.
+- *Batfish:* `BatfishError.failure` (`services/batfish/common/failure.py`): `bad_request` for a
+  validation error or a question that returned no table, `timeout` / `refused` / `dns` /
+  `no_route` from the transport cause chain, otherwise `server_error`. A step that raises one is
+  recorded with that kind, not `internal_error`; a Batfish source that is missing or refused by the
+  host policy is a `ValueError` (`resolve_batfish_connection`).
 - *Templates:* `JinjaTemplateError.failure` (phase `render`; kinds `template_syntax`,
   `undefined_variable`, `template_error`) with the template `line` the author sees, taken from the
   render traceback; the variable name and message are not copied. `render-jinja-template` and
@@ -1272,7 +1285,13 @@ authentication failures reuse `timeout` and `auth_failed`. A stream cut off befo
   (`internal_error`). Fan-out children carry it through `__step_errors__`. The run explainer shows
   it as `failure` on the step in `get_run` / `get_step_result`.
 - *Shared:* transport errors (DNS, refused, no route, timeout, TLS) are recognised in one place,
-  `services/network/transport_failure.py`, which ISE, Nautobot and git can reuse.
+  `services/network/transport_failure.py`, which ISE, Nautobot and git can reuse. A step's own
+  failures (a value that does not resolve, an object that is not there, data an upstream step did
+  not produce) use the ready-made records of `workflow_steps/common/failure_records.py`
+  (`INVALID_INPUT`, `NOT_FOUND`, `MISSING_DATA`, `INVALID_RESPONSE`, `COMMAND_FAILED`); two ratchet
+  tests (`test_device_error_failure_ratchet.py`, `test_failure_record_wrapper_ratchet.py`) fail a new
+  failure that names a code and records no cause. A step that contacts the AI (`contact-the-ai`)
+  marks every device FAILED with one `DeviceError` carrying the record when its call fails.
 
 **What the assistant sees.** `get_step_result` adds `failures` per device (always); `get_run`
 adds `device_failures_by_cause` per step (e.g. `{"connect/timeout": 14}`). The error text next to
@@ -1282,7 +1301,7 @@ from the record first and to say so when a step recorded none.
 **Decisions.** Host and port are not part of the record (device addresses stay class B; strict for
 now). Per-device run history (`get_device_history`) is deferred.
 
-**Not done.** Every source in the agreed order is covered. Not covered: pyATS steps and Nautobot
+**Not done.** Every source in the agreed order is covered. Not covered: Nautobot
 GraphQL `errors` bodies returned with HTTP 200 (the resolvers log and swallow them); the live run
 events keep their `kind` but carry no record; the runs-page UI does not show the record yet. Not verified: a real failed run with a real model.
 

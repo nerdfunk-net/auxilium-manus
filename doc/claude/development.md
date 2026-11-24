@@ -237,6 +237,10 @@ Each workflow step is a self-contained Python package under
 - ❌ No custom canvas render branch per step in `workflow-node.tsx`
 - ❌ External code must never import `workflow_steps` packages directly
 - ✅ Raise `ValueError` for config/input errors, `RuntimeError` for execution failures
+- ✅ Parse and validate the config **before** the `if not context.devices` check (an empty branch is a no-op `success`,
+  a router answers every handle it declares): `tests/unit/test_empty_branch_validates_config.py`
+- ✅ Every failure that names a code records its cause (`failure=`, see `workflow_steps/common/failure_records.py`);
+  never store `str(exc)` of an arbitrary exception (`device_error_from_exception`, `doc/WORKFLOW-STEPS.md`)
 - ✅ If the step needs git: store `git_repository_id: int` in config, resolve via
   `workflow_steps.common.git_repository_loader.load_git_repository`
 - ✅ If the step reads a file from the export directory or a git repository: take the root from

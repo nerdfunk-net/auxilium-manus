@@ -6,6 +6,31 @@ pick it up without re-deriving the context.
 
 ---
 
+## Step failure shape and exception text (leftovers of the P-S / P-E refactoring, 2026-11-24)
+
+What is done is in `doc/WORKFLOW-STEPS.md` ("Empty branch and step-level failure (D2)", "Which exception text a
+failed device stores (P-E, D3)"). Still open:
+
+- **SSH driver text of `run-command`.** `run_command/exec_mode.py` and `config_mode.py` store `message=str(exc)` of the
+  Netmiko error. Netmiko text can quote device output ("Pattern not detected ... in output: ..."). Decide: class name
+  plus the `FailureInfo` (as the git and database steps), or keep the sentence behind the S4 scrubbing. Blocked on that
+  decision only.
+- **Step-level failure shape of the controller steps.** `get-aci-*`, `backup-aci-config`, `compare-aci-subnets` and the
+  Catalyst Center steps still raise when the whole step fails; `contact-the-ai`, `open-change-request` and the git
+  steps mark the devices FAILED (`whole_step_failure`). Several of them create devices or ignore the incoming ones, so
+  marking the existing devices is not right for all of them: decide per step.
+- **`open-change-request` leftovers.** The `rendered_template` case still builds its content by hand instead of
+  `content_resolver.list_exportable_content`, and `NothingToReview` is used as control flow.
+- **`contact-the-ai` structure.** The sharing check is split between `prompt.py::check_path` and
+  `executor.py::_names_gap` (one module should own "what may this template read"), and the registry says
+  `produces: []` although the step writes `output_attribute`.
+- **Two failures with no kind yet.** `configure-replace-config` `diff_mismatch` and `confirm_not_pending` record no
+  `FailureInfo` (pinned in `test_failure_record_wrapper_ratchet.py`); no kind in `models/failure.py` fits them.
+- **`store-for-report` keeps its own loop** by decision (it already records a `FailureInfo` per branch and its repository
+  rolls back); migrate it only if the runner gains a way to keep its fixed per-branch messages.
+
+---
+
 ## `get-age-of-backup` step (built 2026-11-23, uncommitted)
 
 Newest git commit of the device's backup file -> `age_days` / `last_changed` / `commit_sha` in a separate bag (`output_bag`);

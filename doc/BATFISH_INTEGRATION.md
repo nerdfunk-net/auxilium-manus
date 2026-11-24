@@ -1579,8 +1579,9 @@ the negative-case answer, not an error. Unlike Routing Table's plain
 success/failure, this step gives that answer a first-class canvas outcome —
 `outcomes: [reachable, not_reachable]` (as implemented — **no `failure`
 outcome**: a config/input problem raises `ValueError`, a Batfish-side
-failure raises via `BatfishAPIError`, neither is modeled as a third outcome
-branch) — so a workflow can branch on it directly (e.g. alert only when a
+failure raises via `BatfishAPIError` (which carries a `FailureInfo`,
+`BatfishError.failure`, so the run records a timeout or a server error instead of
+an internal one), neither is modeled as a third outcome branch) — so a workflow can branch on it directly (e.g. alert only when a
 critical path breaks).
 
 **Unknown `start_node`/`end_node` (non-table Batfish answers).** An empty

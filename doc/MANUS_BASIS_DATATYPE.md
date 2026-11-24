@@ -399,12 +399,21 @@ and ignore it (import `DeviceSessionPool` under `TYPE_CHECKING` there — see
 If `context.devices` is empty (upstream produced no devices, or all were routed to a
 `failure` edge), the pre-step guard is skipped. The step must check for an empty device
 map and return a `success` outcome immediately with the context unchanged. This is a
-no-op, not a failure.
+no-op, not a failure. **Parse and validate the config first, then check for the empty
+map**, so a config the step can never run with is reported on every run, not only on the
+one where devices arrive (work that needs a session, a credential or a remote system stays
+after the check; `tests/unit/test_empty_branch_validates_config.py` pins this).
 
 ```python
+parsed = _parse_config(config)  # raises ValueError for an unusable config
 if not context.devices:
     return [StepOutcome(name="success", context=context)]
 ```
+
+A router (a step with its own handles, such as `route-on-attribute` or `list-contains`)
+answers **every handle it declares**, empty, with the incoming context and its metadata
+unchanged, so the step behind a handle starts with the run's data. See "Empty branch and
+step-level failure" in `doc/WORKFLOW-STEPS.md`.
 
 ### Authoring rules (mandatory)
 
