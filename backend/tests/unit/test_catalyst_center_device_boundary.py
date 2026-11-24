@@ -1,15 +1,15 @@
 """Catalyst Center steps: a non-controller exception on one device (P-T, W8-01, W8-18 (1)).
 
-Only the controller's own error family is caught per device; an artifact-store error, a parse
-error or a bug leaves the per-device boundary and ends the step, discarding the devices that
-were already done. Each test injects one such exception for one device and expects that device
-to fail while the others still succeed.
+An artifact-store error, a parse error or a bug fails the device (or, for a request, the chunk)
+it belongs to and keeps the devices that were already done; the stored text is the class name
+plus a ``FailureInfo`` (P-C W8). Each test injects one such exception for one device.
 """
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from sqlalchemy.exc import OperationalError
@@ -21,7 +21,6 @@ from tests.unit._step_helpers import (
     call_step,
     make_context,
     patch_object_session,
-    strict_xfail,
 )
 from tests.unit.test_get_catalyst_center_client_data_executor import _client
 from tests.unit.test_get_catalyst_center_client_data_executor import _device as _client_device
@@ -35,6 +34,14 @@ from workflow_steps.get_catalyst_center_configs.executor import execute as confi
 from workflow_steps.run_catalyst_center_command.executor import execute as run_command
 
 _ERRORS = [RuntimeError("store down"), OSError("disk gone"), KeyError("unexpected payload")]
+
+
+def _assert_class_name(device: Any, error: Exception) -> None:
+    """The stored error is the class name and a record, never the exception text."""
+    recorded = device.errors[-1]
+    assert recorded.message == type(error).__name__
+    assert str(error) not in recorded.message
+    assert recorded.failure is not None
 
 
 def _split(outcomes: list[Any]) -> dict[str, dict[str, Any]]:
@@ -61,7 +68,6 @@ async def test_configs_both_devices_succeed_without_errors() -> None:
     assert set(_split(outcomes)["success"]) == {"a", "b"}
 
 
-@strict_xfail("W8-01", "get_device_config() errors other than the controller family escape")
 @pytest.mark.asyncio
 @pytest.mark.parametrize("error", _ERRORS)
 async def test_configs_unexpected_fetch_error_fails_only_that_device(error: Exception) -> None:
@@ -74,9 +80,9 @@ async def test_configs_unexpected_fetch_error_fails_only_that_device(error: Exce
 
     assert set(by_name["success"]) == {"b"}
     assert by_name["failure"]["a"].status == DeviceStatus.FAILED
+    _assert_class_name(by_name["failure"]["a"], error)
 
 
-@strict_xfail("W8-01", "artifact_service.store() runs outside the per-device try (E5b)")
 @pytest.mark.asyncio
 @pytest.mark.parametrize("error", _ERRORS)
 async def test_configs_store_error_fails_only_that_device(error: Exception) -> None:
@@ -93,6 +99,7 @@ async def test_configs_store_error_fails_only_that_device(error: Exception) -> N
 
     assert set(by_name["success"]) == {"b"}
     assert by_name["failure"]["a"].status == DeviceStatus.FAILED
+    _assert_class_name(by_name["failure"]["a"], error)
 
 
 # --- run-catalyst-center-command ---------------------------------------------------------------
@@ -136,7 +143,6 @@ async def test_command_both_devices_succeed_without_errors() -> None:
     assert set(_split(outcomes)["success"]) == {"a", "b"}
 
 
-@strict_xfail("W8-01", "run_commands() errors other than the controller family escape the chunk")
 @pytest.mark.asyncio
 @pytest.mark.parametrize("error", _ERRORS)
 async def test_command_unexpected_request_error_fails_the_chunk_not_the_step(
@@ -147,9 +153,9 @@ async def test_command_unexpected_request_error_fails_the_chunk_not_the_step(
     by_name = _split(outcomes)
     assert set(by_name["failure"]) == {"a", "b"}
     assert all(d.status == DeviceStatus.FAILED for d in by_name["failure"].values())
+    _assert_class_name(by_name["failure"]["a"], error)
 
 
-@strict_xfail("W8-01", "artifact_service.store() in _record_device is outside the chunk boundary")
 @pytest.mark.asyncio
 @pytest.mark.parametrize("error", _ERRORS)
 async def test_command_store_error_fails_only_that_device(error: Exception) -> None:
@@ -166,6 +172,7 @@ async def test_command_store_error_fails_only_that_device(error: Exception) -> N
 
     assert set(by_name["success"]) == {"b"}
     assert by_name["failure"]["a"].status == DeviceStatus.FAILED
+    _assert_class_name(by_name["failure"]["a"], error)
 
 
 # --- get-catalyst-center-client-data -----------------------------------------------------------
@@ -178,15 +185,13 @@ async def _run_client_data(env: Any) -> Any:
         )
 
 
-@strict_xfail(
-    "W8-01", "no catch-all: an unexpected exception from the query ends the step (twin W8-04)"
-)
 @pytest.mark.asyncio
 @pytest.mark.parametrize("error", _ERRORS)
 async def test_client_data_unexpected_query_error_fails_the_device(error: Exception) -> None:
     by_name = _split(await _run_client_data(_ClientEnv(service_error=error)))
 
     assert by_name["failure"]["a"].status == DeviceStatus.FAILED
+    _assert_class_name(by_name["failure"]["a"], error)
 
 
 @pytest.mark.asyncio
@@ -201,3 +206,57 @@ async def test_client_data_sqlalchemy_error_keeps_only_the_class_name() -> None:
     assert error.code == "storage_failed"
     assert "INSERT" not in error.message and "secret" not in error.message
     assert error.failure is not None and error.failure.exception_type == "OperationalError"
+
+
+@pytest.mark.asyncio
+async def test_command_a_parser_that_raises_fails_only_that_device() -> None:
+    results = _ok_results("a", "b")
+
+    def parse(cleaned: str, *, command: str, platform: Any) -> Any:
+        if "IOS" in cleaned and not parse.calls:  # type: ignore[attr-defined]
+            parse.calls += 1  # type: ignore[attr-defined]
+            raise ValueError("template exploded")
+        return []
+
+    parse.calls = 0  # type: ignore[attr-defined]
+    with patch(
+        "workflow_steps.run_catalyst_center_command.executor.parse_with_textfsm", parse
+    ):
+        with (
+            _CommandHarness(run_commands=results),
+            patch_object_session("workflow_steps.run_catalyst_center_command.executor"),
+        ):
+            outcomes = await call_step(
+                run_command,
+                {"commands": ["show version"], "parser": "textfsm"},
+                make_context([_command_device("a"), _command_device("b")]),
+                artifact_service=InMemoryArtifactService(),
+            )
+
+    by_name = _split(outcomes)
+    assert len(by_name["success"]) == 1
+    assert len(by_name["failure"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_configs_asks_the_controller_for_at_most_five_devices_at_once() -> None:
+    running = peak = 0
+
+    async def fetch(device_id: str) -> str:
+        nonlocal running, peak
+        running += 1
+        peak = max(peak, running)
+        await asyncio.sleep(0.01)
+        running -= 1
+        return "hostname x"
+
+    with _ConfigsHarness(fetch):
+        outcomes = await call_step(
+            configs,
+            {},
+            make_context([_config_device(f"d{i}") for i in range(12)]),
+            artifact_service=InMemoryArtifactService(),
+        )
+
+    assert len(_split(outcomes)["success"]) == 12
+    assert peak == 5

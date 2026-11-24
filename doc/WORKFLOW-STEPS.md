@@ -478,7 +478,13 @@ per device; the get-steps over the devices that passed validation, `only=`). The
 `common/pyats_batch.py` (chunks of devices per shim job are not part of the runner): a chunk whose answer is malformed or
 raises fails that chunk only (the class name is the error), a sealed password that cannot be decrypted fails that device
 (`credential_unreadable`), and the artifact store of `get-pyats-snapshot` is inside the per-device boundary.
-`batfish-validate-facts` fails a device whose expected facts cannot be prepared (artifact read, template) instead of the step.
+`batfish-validate-facts` fails a device whose expected facts cannot be prepared (artifact read, template) instead of the step. W8 (controllers):
+`get-catalyst-center-configs` runs on `run_per_device` (`concurrency` 5; a controller error keeps its text, an artifact
+store error or any other exception fails that device only). `run-catalyst-center-command` keeps its request per chunk of
+devices: a controller error and any other exception from the request fail that chunk's devices, a store or parser error
+fails one device. `get-catalyst-center-client-data` and the shared fact driver (`common/fact_entries.collect_facts`,
+the Catalyst Center and ACI fact steps) fail the one device whose query or `collect()` raised an unexpected exception; the
+stored text of such an exception is the class name plus a `FailureInfo`.
 
 ### Step config flags
 

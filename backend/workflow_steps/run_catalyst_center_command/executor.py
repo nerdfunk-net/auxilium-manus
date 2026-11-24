@@ -36,6 +36,10 @@ from workflow_steps.common.catalyst_center_targets import (
     split_targets,
 )
 from workflow_steps.common.fact_entries import parse_output_key_config
+from workflow_steps.common.partial_outcomes import (
+    device_error_from_exception,
+    fail_device_with_error,
+)
 from workflow_steps.common.step_flags import parse_int_flag
 from workflow_steps.common.textfsm_parse import parse_with_textfsm
 
@@ -238,12 +242,28 @@ async def _run_chunk(
             for device_id, device in chunk.items()
         }
 
+    except Exception as exc:
+        # Not a controller error: still only this chunk's devices fail (W8-01).
+        logger.warning(
+            "%s request raised run_id=%s node_id=%s devices=%d error=%s",
+            STEP_ID,
+            run_id,
+            node_id,
+            len(chunk),
+            type(exc).__name__,
+        )
+        error = device_error_from_exception(exc, node_id=node_id, step_id=STEP_ID)
+        return {
+            device_id: (fail_device_with_error(device, error), False)
+            for device_id, device in chunk.items()
+        }
+
     by_device: dict[str, dict[str, CatalystCenterCommandResult]] = {}
     for result in results:
         by_device.setdefault(result.device_id, {})[result.command] = result
 
     return {
-        device_id: await _record_device(
+        device_id: await _record_or_fail(
             device_id=device_id,
             device=device,
             commands=parsed.commands,
@@ -255,6 +275,18 @@ async def _run_chunk(
         )
         for device_id, device in chunk.items()
     }
+
+
+async def _record_or_fail(
+    *, device_id: str, device: DeviceContext, node_id: str, **kwargs: Any
+) -> tuple[DeviceContext, bool]:
+    """``_record_device`` with the per-device boundary: an artifact store that fails or a parser
+    that raises fails this device only (W8-01)."""
+    try:
+        return await _record_device(device_id=device_id, device=device, node_id=node_id, **kwargs)
+    except Exception as exc:
+        error = device_error_from_exception(exc, node_id=node_id, step_id=STEP_ID)
+        return fail_device_with_error(device, error), False
 
 
 def _chunks(devices: dict[str, DeviceContext]) -> list[dict[str, DeviceContext]]:

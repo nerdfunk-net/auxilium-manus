@@ -366,10 +366,16 @@ class CollectTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(list(by_name["success"].context.devices), ["aci-lab-101"])
         self.assertEqual(list(by_name["failure"].context.devices), ["aci-lab-102"])
 
-    async def test_an_unexpected_error_is_not_swallowed(self) -> None:
+    async def test_an_unexpected_error_fails_that_device_and_is_recorded_as_internal(self) -> None:
+        """W8-01: it used to escape the step; it is not swallowed, it is on the failed device."""
         service = _service(get_interfaces=AsyncMock(side_effect=RuntimeError("bug")))
-        with _Patched(service), self.assertRaises(RuntimeError):
-            await _run({"facts": ["interfaces"]}, _context(_aci_device(101)))
+        with _Patched(service):
+            outcomes = await _run({"facts": ["interfaces"]}, _context(_aci_device(101)))
+
+        failed = next(o for o in outcomes if o.name == "failure").context.devices["aci-lab-101"]
+        error = failed.errors[-1]
+        self.assertEqual(error.message, "RuntimeError")
+        self.assertEqual(error.failure.kind, "internal_error")
 
     async def test_facts_of_one_device_run_concurrently_but_bounded(self) -> None:
         state = {"now": 0, "max": 0}

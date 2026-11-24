@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from typing import TYPE_CHECKING, Any
 
@@ -26,10 +25,10 @@ from services.catalyst_center.common.exceptions import (
 from services.catalyst_center.credentials import CatalystCenterCredentials
 from workflow_steps.common.catalyst_center_targets import (
     build_outcomes,
-    failed_device,
     resolve_source_credentials,
     split_targets,
 )
+from workflow_steps.common.device_runner import Fail, run_per_device
 
 if TYPE_CHECKING:
     from services.network.netmiko.session_pool import DeviceSessionPool
@@ -46,40 +45,27 @@ async def _fetch_device(
     device_id: str,
     device: DeviceContext,
     credentials: CatalystCenterCredentials,
-    node_id: str,
     run_id: str,
     artifact_service: ArtifactService,
-    gate: asyncio.Semaphore,
-) -> tuple[str, DeviceContext, bool]:
+) -> DeviceContext | Fail:
+    """One device. A controller error is a named failure; anything else (a bug, the artifact
+    store) is turned into a failed device by the runner (W8-01)."""
     command_service = service_factory.build_catalyst_center_command_service(credentials)
     try:
-        async with gate:
-            running_config = await command_service.get_device_config(device_id)
+        running_config = await command_service.get_device_config(device_id)
     except (CatalystCenterValidationError, CatalystCenterAPIError, CatalystCenterAuthError) as exc:
-        return (
-            device_id,
-            failed_device(
-                device,
-                step_id=STEP_ID,
-                node_id=node_id,
-                code="catalyst_center_error",
-                message=f"Catalyst Center request failed: {exc}",
-                failure=exc.failure,
-            ),
-            False,
-        )
+        return Fail("catalyst_center_error", f"Catalyst Center request failed: {exc}", exc.failure)
 
     running_ref = await artifact_service.store(
         content=running_config, kind="running_config", device_id=device_id, run_id=run_id
     )
-    enriched = device.model_copy(
+    return device.model_copy(
         update={
             "status": DeviceStatus.OK,
             "running_config_ref": running_ref,
             "capabilities": {*device.capabilities, Capability.RUNNING_CONFIG},
         }
     )
-    return device_id, enriched, True
 
 
 async def execute(
@@ -108,27 +94,31 @@ async def execute(
         "%s started run_id=%s node_id=%s devices=%d", STEP_ID, context.run_id, node_id, total
     )
 
-    gate = asyncio.Semaphore(MAX_PARALLEL_REQUESTS)
-    results = await asyncio.gather(
-        *[
-            _fetch_device(
-                device_id=device_id,
-                device=device,
-                credentials=credentials[source_id],
-                node_id=node_id,
-                run_id=context.run_id,
-                artifact_service=artifact_service,
-                gate=gate,
-            )
-            for source_id, devices in split.by_source.items()
-            for device_id, device in devices.items()
-        ]
-    )
+    source_of = {
+        device_id: source_id
+        for source_id, devices in split.by_source.items()
+        for device_id in devices
+    }
 
-    succeeded: dict[str, DeviceContext] = {}
-    failed: dict[str, DeviceContext] = dict(split.rejected)
-    for device_id, device, ok in results:
-        (succeeded if ok else failed)[device_id] = device
+    async def work(device_id: str, device: DeviceContext) -> DeviceContext | Fail:
+        return await _fetch_device(
+            device_id=device_id,
+            device=device,
+            credentials=credentials[source_of[device_id]],
+            run_id=context.run_id,
+            artifact_service=artifact_service,
+        )
+
+    batch = await run_per_device(
+        context,
+        work,
+        node_id=node_id,
+        step_id=STEP_ID,
+        concurrency=MAX_PARALLEL_REQUESTS,
+        only=set(source_of),
+    )
+    succeeded = batch.ok
+    failed: dict[str, DeviceContext] = {**split.rejected, **batch.failed}
 
     logger.info(
         "%s finished success=%d failure=%d run_id=%s",

@@ -12,7 +12,7 @@ from typing import Any
 import pytest
 
 from models.workflow_context import DeviceStatus
-from tests.unit._step_helpers import make_context, make_device, strict_xfail
+from tests.unit._step_helpers import make_context, make_device
 from workflow_steps.common.device_outcomes import TargetSplit
 from workflow_steps.common.fact_entries import collect_facts, ok_entry
 
@@ -42,7 +42,6 @@ async def test_every_device_is_collected() -> None:
     assert set(outcomes[0].context.devices) == {"a", "b"}
 
 
-@strict_xfail("W8-01", "an unexpected exception from collect() aborts every device")
 @pytest.mark.asyncio
 async def test_an_unexpected_error_fails_only_that_device() -> None:
     async def collect(_creds: Any, _state: Any, device_id: str, _device: Any) -> dict[str, Any]:
@@ -56,3 +55,6 @@ async def test_an_unexpected_error_fails_only_that_device() -> None:
     assert set(by_name["success"]) == {"b"}
     assert set(by_name["failure"]) == {"a"}
     assert by_name["failure"]["a"].status == DeviceStatus.FAILED
+    error = by_name["failure"]["a"].errors[-1]
+    assert error.message == "KeyError"  # the class name, never the controller payload text
+    assert error.failure is not None

@@ -29,6 +29,10 @@ from models.workflow_context import (
 )
 from workflow_steps.common.device_outcomes import TargetSplit, build_outcomes, failed_device
 from workflow_steps.common.jinja_render import JinjaTemplateError, parse_output_key
+from workflow_steps.common.partial_outcomes import (
+    device_error_from_exception,
+    fail_device_with_error,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -160,9 +164,15 @@ async def collect_facts[CredsT](
         source_id: str, device_id: str, device: DeviceContext
     ) -> tuple[str, DeviceContext, bool]:
         async with gate:
-            entries = await collect(
-                credentials[source_id], state_by_source[source_id], device_id, device
-            )
+            try:
+                entries = await collect(
+                    credentials[source_id], state_by_source[source_id], device_id, device
+                )
+            except Exception as exc:
+                # A controller error is turned into an entry by each step's ``fact()``; anything
+                # else (a bug, a parsing error) fails this device only (W8-01).
+                error = device_error_from_exception(exc, node_id=node_id, step_id=step_id)
+                return device_id, fail_device_with_error(device, error), False
         updated, ok = with_entries(
             device,
             entries,

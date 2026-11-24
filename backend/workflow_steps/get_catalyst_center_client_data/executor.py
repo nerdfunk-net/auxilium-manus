@@ -52,6 +52,10 @@ from workflow_steps.common.duplicate_keys import (
     find_duplicate_keys,
 )
 from workflow_steps.common.fact_entries import MAX_PARALLEL_DEVICES
+from workflow_steps.common.partial_outcomes import (
+    device_error_from_exception,
+    fail_device_with_error,
+)
 from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.common.step_flags import parse_bool_flag, parse_int_flag, record_dry_run
 from workflow_steps.get_catalyst_center_client_data.mapping import map_clients
@@ -217,6 +221,12 @@ async def _collect_one(
             ),
             False,
         )
+    except Exception as exc:
+        # Not a controller or storage error (a bug, a parser error): fail this device only, the
+        # same catch-all as ``collect-client-data`` (W8-01, W8-04).
+        logger.warning("client data collection failed error=%s", type(exc).__name__)
+        error = device_error_from_exception(exc, node_id=node_id, step_id=STEP_ID)
+        return fail_device_with_error(device, error), False
     summary = {
         "source": "catalyst_center",
         "lookback_hours": lookback_hours,
