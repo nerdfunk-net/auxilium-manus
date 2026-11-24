@@ -42,9 +42,13 @@ from services.workflow_context.device_template import (
     render_device_template,
 )
 from workflow_steps.common.attribute_write import RESERVED_BAG_NAMES, set_device_attribute
+from workflow_steps.common.device_outcomes import build_outcomes
 from workflow_steps.common.file_source_root import resolve_git_root
 from workflow_steps.common.git_repository_loader import parse_repository_id
-from workflow_steps.common.partial_outcomes import device_error_from_exception
+from workflow_steps.common.partial_outcomes import (
+    device_error_from_exception,
+    fail_device_with_error,
+)
 from workflow_steps.common.placeholder_template import render_placeholder_template
 from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.common.step_flags import parse_bool_flag
@@ -165,12 +169,6 @@ def _as_utc(moment: datetime) -> datetime:
     return moment.replace(tzinfo=UTC) if moment.tzinfo is None else moment.astimezone(UTC)
 
 
-def _fail(device: DeviceContext, error: DeviceError) -> DeviceContext:
-    return device.model_copy(
-        update={"status": DeviceStatus.FAILED, "errors": [*device.errors, error]}
-    )
-
-
 def _problem_to_error(problem: _DeviceProblem, node_id: str) -> DeviceError:
     return DeviceError(
         node_id=node_id,
@@ -281,7 +279,7 @@ async def _apply_markers(
         for device_id, device in context.devices.items():
             found = located[device_id]
             if isinstance(found, DeviceError):
-                failed[device_id] = _fail(device, found)
+                failed[device_id] = fail_device_with_error(device, found)
                 continue
             try:
                 if service is not None:
@@ -294,7 +292,7 @@ async def _apply_markers(
                 )
             except Exception as exc:
                 logger.exception("get-age-of-backup marker lookup failed node_id=%s", node_id)
-                failed[device_id] = _fail(
+                failed[device_id] = fail_device_with_error(
                     device, device_error_from_exception(exc, node_id=node_id, step_id=_STEP_ID)
                 )
     finally:
@@ -342,11 +340,4 @@ async def execute(
         len(failed),
         log_run_id(run),
     )
-    outcomes = [
-        StepOutcome(name="success", context=context.model_copy(update={"devices": success}))
-    ]
-    if failed:
-        outcomes.append(
-            StepOutcome(name="failure", context=context.model_copy(update={"devices": failed}))
-        )
-    return outcomes
+    return build_outcomes(context, success, failed)

@@ -461,7 +461,11 @@ handles are always answered, with `<node>.login_counts`), `reachable` (at most 5
 visit that raises anything other than `VisitError` fails that seed (`unreachable`, class name in the `FailureInfo`) or
 lists that neighbour as seen, it never loses the devices already visited, and a neighbour lookup that raises leaves the
 neighbour as CDP reported it (`management_ip_lookup: unavailable`). The other steps still carry their own loops and move
-family by family (P-C).
+family by family (P-C). W9 (files and git): `store-artifact` (sink, record and finalize errors: a `GitOperationError` keeps
+its text, scrubbed of URL credentials, and its `FailureInfo`; any other exception is the class name plus a record; a git
+prepare failure is a whole-step failure with the record on the outcome) and `read-from-file` run on `run_per_device`;
+`get-age-of-backup`, `open-change-request` (every failure outcome carries a `FailureInfo`, the message is scrubbed) and
+the git steps (`git_workflow_step`) build their outcomes with `build_outcomes` / `whole_step_failure`.
 
 ### Step config flags
 

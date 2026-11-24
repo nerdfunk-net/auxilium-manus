@@ -16,8 +16,6 @@ from typing import TYPE_CHECKING, Any
 from core.models.runs import WorkflowRun
 from models.workflow_context import (
     DeviceContext,
-    DeviceError,
-    DeviceStatus,
     StepOutcome,
     WorkflowContext,
 )
@@ -29,6 +27,8 @@ from workflow_steps.common.attribute_merge import (
     merge_into_device_attribute,
     validate_merge_destination,
 )
+from workflow_steps.common.device_outcomes import build_outcomes
+from workflow_steps.common.device_runner import run_per_device
 from workflow_steps.common.file_source_root import resolve_source_root
 from workflow_steps.common.git_repository_loader import parse_repository_id
 from workflow_steps.common.run_logging import log_run_id
@@ -87,34 +87,6 @@ def _parse_config(config: dict[str, Any]) -> _ParsedReadFromFile:
     )
 
 
-def _fail_device(*, device: DeviceContext, node_id: str, code: str, message: str) -> DeviceContext:
-    err = DeviceError(node_id=node_id, step_id=_STEP_ID, code=code, message=message)
-    return device.model_copy(
-        update={"status": DeviceStatus.FAILED, "errors": [*device.errors, err]}
-    )
-
-
-def _build_outcomes(
-    context: WorkflowContext,
-    success_devices: dict[str, DeviceContext],
-    failed_devices: dict[str, DeviceContext],
-) -> list[StepOutcome]:
-    outcomes = [
-        StepOutcome(
-            name="success",
-            context=context.model_copy(update={"devices": success_devices}),
-        )
-    ]
-    if failed_devices:
-        outcomes.append(
-            StepOutcome(
-                name="failure",
-                context=context.model_copy(update={"devices": failed_devices}),
-            )
-        )
-    return outcomes
-
-
 async def execute(
     *,
     config: dict[str, Any],
@@ -162,26 +134,17 @@ async def execute(
             f"{_STEP_ID}: {parsed.path} must parse to a mapping, got {type(document).__name__}"
         )
 
-    success_devices: dict[str, DeviceContext] = {}
-    failed_devices: dict[str, DeviceContext] = {}
-    for device_id, device in context.devices.items():
-        try:
-            success_devices[device_id] = merge_into_device_attribute(
-                device, parsed.destination_path, document, overwrite=parsed.overwrite
-            )
-        except Exception as exc:  # defensive: destination shape is pre-validated
-            failed_devices[device_id] = _fail_device(
-                device=device,
-                node_id=node_id,
-                code=type(exc).__name__.lower(),
-                message=str(exc),
-            )
+    async def work(_device_id: str, device: DeviceContext) -> DeviceContext:
+        return merge_into_device_attribute(
+            device, parsed.destination_path, document, overwrite=parsed.overwrite
+        )
 
+    batch = await run_per_device(context, work, node_id=node_id, step_id=_STEP_ID)
     logger.info(
         "read-from-file finished success=%d failure=%d keys=%d run_id=%s",
-        len(success_devices),
-        len(failed_devices),
+        len(batch.ok),
+        len(batch.failed),
         len(document),
         log_run_id(run),
     )
-    return _build_outcomes(context, success_devices, failed_devices)
+    return build_outcomes(context, batch.ok, batch.failed)

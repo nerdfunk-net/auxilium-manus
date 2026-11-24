@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING, Any
 
 from core.database import get_db_session
 from core.models.runs import WorkflowRun
+from models.failure import FailureInfo, failure_from_exception
 from models.workflow_context import (
     DeviceContext,
     DeviceError,
@@ -34,6 +35,8 @@ from services.artifacts.sinks import (
 )
 from services.artifacts.sinks.git_sink import GitSinkPrepareError
 from services.general.general_settings_service import GeneralSettingsService
+from services.git.failure import GitOperationError, classify_git_exception
+from services.git.scrub import scrub_url_credentials
 from services.workflow_context.device_template import (
     TemplateRenderOptions,
     parse_strict_templates,
@@ -45,7 +48,14 @@ from workflow_steps.common.content_resolver import (
     list_exportable_content,
     parse_content_source,
 )
+from workflow_steps.common.device_outcomes import (
+    build_outcomes,
+    mark_device_failed,
+    whole_step_failure,
+)
+from workflow_steps.common.device_runner import Fail, run_per_device
 from workflow_steps.common.git_repository_loader import load_git_repository, require_repository_id
+from workflow_steps.common.partial_outcomes import device_error_from_exception
 from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.common.step_flags import parse_bool_flag
 
@@ -54,7 +64,10 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+_STEP_ID = "store-artifact"
 _DESTINATIONS = frozenset({"filesystem", "git"})
+# The upstream step produced nothing to store: a problem with the workflow, not a fault.
+_NO_CONTENT = FailureInfo(phase="internal", kind="bad_request")
 
 
 @dataclass(frozen=True)
@@ -165,24 +178,22 @@ def _relative_export_path(
     )
 
 
-def _device_failure(
-    *,
-    device: DeviceContext,
-    node_id: str,
-    exc: Exception,
-) -> DeviceContext:
-    err = DeviceError(
-        node_id=node_id,
-        step_id="store-artifact",
-        code=type(exc).__name__.lower(),
-        message=str(exc),
-    )
-    return device.model_copy(
-        update={
-            "status": DeviceStatus.FAILED,
-            "errors": [*device.errors, err],
-        }
-    )
+def _step_error(exc: BaseException, *, node_id: str) -> DeviceError:
+    """The error record for an exception of this step.
+
+    A git error the app built itself keeps its text (scrubbed of URL credentials) and its
+    ``FailureInfo``, so a rejected push still reads as one; anything else (a filesystem or
+    template error) is reduced to its class name by ``device_error_from_exception``.
+    """
+    if isinstance(exc, GitOperationError):
+        return DeviceError(
+            node_id=node_id,
+            step_id=_STEP_ID,
+            code=type(exc).__name__.lower(),
+            message=scrub_url_credentials(str(exc)),
+            failure=failure_from_exception(exc) or classify_git_exception(exc),
+        )
+    return device_error_from_exception(exc, node_id=node_id, step_id=_STEP_ID)
 
 
 def _prepare_failure_outcomes(
@@ -190,20 +201,15 @@ def _prepare_failure_outcomes(
 ) -> list[StepOutcome]:
     cause = error.__cause__ if isinstance(error.__cause__, Exception) else error
     logger.error("store-artifact git prepare failed run_id=%s: %s", run_id, cause)
-    failed_devices = {
-        device_id: _device_failure(device=device, node_id=node_id, exc=cause)
-        for device_id, device in context.devices.items()
-    }
-    return [
-        StepOutcome(
-            name="success",
-            context=context.model_copy(update={"devices": {}}),
-        ),
-        StepOutcome(
-            name="failure",
-            context=context.model_copy(update={"devices": failed_devices}),
-        ),
-    ]
+    record = _step_error(cause, node_id=node_id)
+    return whole_step_failure(
+        context,
+        node_id=node_id,
+        step_id=_STEP_ID,
+        code=record.code,
+        message=record.message,
+        failure=record.failure,
+    )
 
 
 async def _store_for_device(
@@ -213,10 +219,12 @@ async def _store_for_device(
     parsed: _ParsedStoreConfig,
     sink: ArtifactSink,
     config: dict[str, Any],
-    node_id: str,
     context: WorkflowContext,
     artifact_service: ArtifactService,
-) -> tuple[str, DeviceContext, bool, list[dict[str, Any]]]:
+    records: list[dict[str, Any]],
+) -> DeviceContext | Fail:
+    """One device. ``records`` collects what was written, also when a later item fails; an
+    exception that escapes is turned into a failed device by the runner."""
     export_items = list_exportable_content(
         device,
         content_source=parsed.content_source,
@@ -224,73 +232,41 @@ async def _store_for_device(
         parsed_output_key=parsed.parsed_output_key,
     )
     if not export_items:
-        err = DeviceError(
-            node_id=node_id,
-            step_id="store-artifact",
-            code="missing_content",
-            message=(
-                f"No {parsed.content_source!r} content available for device {device_id}. "
-                "Ensure an upstream step produced the selected data."
-            ),
+        return Fail(
+            "missing_content",
+            f"No {parsed.content_source!r} content available for device {device_id}. "
+            "Ensure an upstream step produced the selected data.",
+            _NO_CONTENT,
         )
-        failed = device.model_copy(
-            update={
-                "status": DeviceStatus.FAILED,
-                "errors": [*device.errors, err],
+
+    for index, item in enumerate(export_items):
+        content = await artifact_service.resolve(item.artifact_ref)
+        relative_path = _relative_export_path(
+            device=device,
+            item=item,
+            config=config,
+            index=index,
+            run_id=context.run_id,
+        )
+        export: StoredExport = await sink.write_text(
+            relative_path=relative_path,
+            content=content,
+            workflow_id=context.workflow_id,
+            run_id=context.run_id,
+        )
+        records.append(
+            {
+                "device_id": device_id,
+                "content_source": parsed.content_source,
+                "kind": item.kind,
+                "path": export.path,
+                "destination": export.destination,
+                "size_bytes": export.size_bytes,
+                "sha256": export.sha256,
+                **item.extra,
             }
         )
-        return device_id, failed, False, []
-
-    stored_records: list[dict[str, Any]] = []
-    try:
-        for index, item in enumerate(export_items):
-            content = await artifact_service.resolve(item.artifact_ref)
-            relative_path = _relative_export_path(
-                device=device,
-                item=item,
-                config=config,
-                index=index,
-                run_id=context.run_id,
-            )
-            export: StoredExport = await sink.write_text(
-                relative_path=relative_path,
-                content=content,
-                workflow_id=context.workflow_id,
-                run_id=context.run_id,
-            )
-            stored_records.append(
-                {
-                    "device_id": device_id,
-                    "content_source": parsed.content_source,
-                    "kind": item.kind,
-                    "path": export.path,
-                    "destination": export.destination,
-                    "size_bytes": export.size_bytes,
-                    "sha256": export.sha256,
-                    **item.extra,
-                }
-            )
-
-        enriched = device.model_copy(update={"status": DeviceStatus.OK})
-        return device_id, enriched, True, stored_records
-    except Exception as exc:
-        failed = _device_failure(device=device, node_id=node_id, exc=exc)
-        return device_id, failed, False, stored_records
-
-
-def _partition_store_results(
-    results: list[tuple[str, DeviceContext, bool, list[dict[str, Any]]]],
-) -> tuple[dict[str, DeviceContext], dict[str, DeviceContext], list[dict[str, Any]]]:
-    success_devices: dict[str, DeviceContext] = {}
-    failed_devices: dict[str, DeviceContext] = {}
-    all_stored: list[dict[str, Any]] = []
-    for device_id, updated_device, ok, stored_records in results:
-        all_stored.extend(stored_records)
-        if ok:
-            success_devices[device_id] = updated_device
-        else:
-            failed_devices[device_id] = updated_device
-    return success_devices, failed_devices, all_stored
+    return device.model_copy(update={"status": DeviceStatus.OK})
 
 
 async def _finalize_git_sink(
@@ -324,38 +300,16 @@ async def _finalize_git_sink(
             }
     except Exception as exc:
         logger.error("store-artifact git finalize failed run_id=%s: %s", run_id, exc)
+        record = _step_error(exc, node_id=node_id)
         for device_id in list(success_devices):
-            device = success_devices.pop(device_id)
-            failed_devices[device_id] = _device_failure(
-                device=device,
+            failed_devices[device_id] = mark_device_failed(
+                success_devices.pop(device_id),
                 node_id=node_id,
-                exc=exc,
+                step_id=_STEP_ID,
+                code=record.code,
+                message=record.message,
+                failure=record.failure,
             )
-
-
-def _build_store_outcomes(
-    *,
-    context: WorkflowContext,
-    success_devices: dict[str, DeviceContext],
-    failed_devices: dict[str, DeviceContext],
-    metadata: dict[str, Any],
-) -> list[StepOutcome]:
-    outcomes = [
-        StepOutcome(
-            name="success",
-            context=context.model_copy(update={"devices": success_devices, "metadata": metadata}),
-        )
-    ]
-    if failed_devices:
-        outcomes.append(
-            StepOutcome(
-                name="failure",
-                context=context.model_copy(
-                    update={"devices": failed_devices, "metadata": metadata}
-                ),
-            )
-        )
-    return outcomes
 
 
 async def execute(
@@ -394,22 +348,24 @@ async def execute(
     sink_session = git_sink.session() if git_sink is not None else contextlib.nullcontext()
     try:
         async with sink_session:
-            results = await asyncio.gather(
-                *[
-                    _store_for_device(
-                        device_id=device_id,
-                        device=device,
-                        parsed=parsed,
-                        sink=sink,
-                        config=config,
-                        node_id=node_id,
-                        context=context,
-                        artifact_service=artifact_service,
-                    )
-                    for device_id, device in context.devices.items()
-                ]
-            )
-            success_devices, failed_devices, all_stored = _partition_store_results(results)
+            records: dict[str, list[dict[str, Any]]] = {i: [] for i in context.devices}
+
+            async def work(device_id: str, device: DeviceContext) -> DeviceContext | Fail:
+                return await _store_for_device(
+                    device_id=device_id,
+                    device=device,
+                    parsed=parsed,
+                    sink=sink,
+                    config=config,
+                    context=context,
+                    artifact_service=artifact_service,
+                    records=records[device_id],
+                )
+
+            batch = await run_per_device(context, work, node_id=node_id, step_id=_STEP_ID)
+            success_devices, failed_devices = dict(batch.ok), dict(batch.failed)
+            # In context order, whatever order the devices finished in.
+            all_stored = [row for rows in records.values() for row in rows]
             await _finalize_git_sink(
                 git_sink=git_sink,
                 config=config,
@@ -433,9 +389,4 @@ async def execute(
         len(context.devices),
         log_run_id(run),
     )
-    return _build_store_outcomes(
-        context=context,
-        success_devices=success_devices,
-        failed_devices=failed_devices,
-        metadata=metadata,
-    )
+    return build_outcomes(context, success_devices, failed_devices, metadata=metadata)

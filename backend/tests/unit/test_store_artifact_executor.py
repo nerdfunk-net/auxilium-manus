@@ -19,6 +19,7 @@ from models.workflow_context import (
 from services.artifacts import InMemoryArtifactService
 from services.artifacts.sinks import GitArtifactSink
 from services.artifacts.sinks.git_sink import GitSinkPrepareError
+from services.git.failure import GitOperationError
 from workflow_steps.store_artifact.executor import execute
 
 
@@ -409,7 +410,7 @@ class StoreArtifactExecutorTests(unittest.IsolatedAsyncioTestCase):
         mock_sink = create_autospec(GitArtifactSink, instance=True)
         _with_session(mock_sink)
         mock_sink.destination = "git"
-        mock_sink.prepare = AsyncMock(side_effect=RuntimeError("pull failed"))
+        mock_sink.prepare = AsyncMock(side_effect=GitOperationError("pull failed"))
         mock_sink.has_writes = False
 
         with (
@@ -527,7 +528,7 @@ class StoreArtifactExecutorTests(unittest.IsolatedAsyncioTestCase):
 
         async def _finalize(_message: str) -> None:
             events.append("finalize")
-            raise RuntimeError("push rejected")
+            raise GitOperationError("push rejected")
 
         async def _write(**_kwargs: Any) -> Any:
             events.append("write")

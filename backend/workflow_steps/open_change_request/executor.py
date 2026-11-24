@@ -26,15 +26,16 @@ from typing import TYPE_CHECKING, Any
 
 from core.database import get_db_session
 from core.models.runs import WorkflowRun
+from models.failure import FailureInfo, failure_from_exception
 from models.workflow_context import (
-    DeviceError,
-    DeviceStatus,
     StepOutcome,
     WorkflowContext,
 )
 from services.artifacts import ArtifactService
+from services.git.failure import classify_git_exception
 from services.git.paths import write_text_within_repo
 from services.git.repo_lock import git_repo_lock
+from services.git.scrub import scrub_url_credentials
 from services.git.tree_scope import git_branch_scope
 from services.workflow_context.device_template import (
     TemplateRenderOptions,
@@ -44,6 +45,7 @@ from services.workflow_context.device_template import (
     sanitize_relative_path,
 )
 from workflow_steps.common.content_resolver import list_exportable_content, parse_content_source
+from workflow_steps.common.device_outcomes import whole_step_failure
 from workflow_steps.common.duplicate_keys import find_duplicate_keys
 from workflow_steps.common.git_repository_loader import load_git_repository, parse_repository_id
 from workflow_steps.common.run_logging import log_run_id
@@ -299,38 +301,28 @@ def _unchanged_outcomes(*, context: WorkflowContext, node_id: str) -> list[StepO
     ]
 
 
-def _failure_outcomes(*, context: WorkflowContext, node_id: str, message: str) -> list[StepOutcome]:
-    metadata = {
-        **context.metadata,
-        f"{node_id}.change_request": {"success": False, "message": message},
-    }
-    failed_devices = {
-        device_id: device.model_copy(
-            update={
-                "status": DeviceStatus.FAILED,
-                "errors": [
-                    *device.errors,
-                    DeviceError(
-                        node_id=node_id,
-                        step_id=_STEP_ID,
-                        code="change_request_failed",
-                        message=message,
-                    ),
-                ],
-            }
-        )
-        for device_id, device in context.devices.items()
-    }
-    return [
-        StepOutcome(
-            name="success",
-            context=context.model_copy(update={"devices": {}, "metadata": metadata}),
-        ),
-        StepOutcome(
-            name="failure",
-            context=context.model_copy(update={"devices": failed_devices, "metadata": metadata}),
-        ),
-    ]
+# A setup problem (repository id, expiry, no devices, a conflicting change request).
+_BAD_CONFIG = FailureInfo(phase="config", kind="bad_request", hint="check_request")
+
+
+def _change_request_failure(
+    *,
+    context: WorkflowContext,
+    node_id: str,
+    message: str,
+    failure: FailureInfo | None = _BAD_CONFIG,
+) -> list[StepOutcome]:
+    """Every device fails with the same error; the message is scrubbed of URL credentials."""
+    message = scrub_url_credentials(message)
+    return whole_step_failure(
+        context,
+        node_id=node_id,
+        step_id=_STEP_ID,
+        code="change_request_failed",
+        message=message,
+        failure=failure,
+        metadata={f"{node_id}.change_request": {"success": False, "message": message}},
+    )
 
 
 @dataclass(frozen=True)
@@ -440,9 +432,9 @@ async def execute(
     try:
         repository_id = parse_repository_id(config.get("git_repository_id"), step_id=_STEP_ID)
     except ValueError as exc:
-        return _failure_outcomes(context=context, node_id=node_id, message=str(exc))
+        return _change_request_failure(context=context, node_id=node_id, message=str(exc))
     if repository_id is None:
-        return _failure_outcomes(
+        return _change_request_failure(
             context=context,
             node_id=node_id,
             message=f"{_STEP_ID}: git_repository_id is not configured",
@@ -450,9 +442,9 @@ async def execute(
     try:
         _parse_expiry_hours(config)  # a typo fails here, before anything is pushed
     except ValueError as exc:
-        return _failure_outcomes(context=context, node_id=node_id, message=str(exc))
+        return _change_request_failure(context=context, node_id=node_id, message=str(exc))
     if not context.devices:
-        return _failure_outcomes(
+        return _change_request_failure(
             context=context,
             node_id=node_id,
             message=f"{_STEP_ID}: no devices in the input context",
@@ -470,7 +462,7 @@ async def execute(
         repository = load_git_repository(repository_id)
         rendered = _collect_rendered_files(config=config, context=context)
     except ValueError as exc:
-        return _failure_outcomes(context=context, node_id=node_id, message=str(exc))
+        return _change_request_failure(context=context, node_id=node_id, message=str(exc))
 
     resolved_files: list[tuple[str, str]] = []
     device_paths: dict[str, str] = {}
@@ -496,7 +488,12 @@ async def execute(
     except NothingToReview:
         return _unchanged_outcomes(context=context, node_id=node_id)
     except Exception as exc:  # noqa: BLE001 — surfaced as a step failure outcome
-        return _failure_outcomes(context=context, node_id=node_id, message=str(exc))
+        return _change_request_failure(
+            context=context,
+            node_id=node_id,
+            message=str(exc),
+            failure=failure_from_exception(exc) or classify_git_exception(exc),
+        )
 
     diff_text, truncated = _truncate_diff(staged["diff"])
     diff_ref = await artifact_service.store(
@@ -523,7 +520,7 @@ async def execute(
             diff_stats=diff_stats,
         )
     except ConflictError as exc:
-        return _failure_outcomes(context=context, node_id=node_id, message=str(exc))
+        return _change_request_failure(context=context, node_id=node_id, message=str(exc))
 
     metadata = {
         **context.metadata,

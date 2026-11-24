@@ -15,9 +15,6 @@ from typing import Any
 
 from models.failure import FailureInfo, failure_from_exception
 from models.workflow_context import (
-    DeviceContext,
-    DeviceError,
-    DeviceStatus,
     StepOutcome,
     WorkflowContext,
 )
@@ -26,6 +23,7 @@ from services.git.failure import classify_git_exception
 from services.git.repo_lock import git_repo_lock
 from services.git.scrub import scrub_url_credentials
 from services.workflow_context.flags import parse_bool_flag
+from workflow_steps.common.device_outcomes import whole_step_failure
 from workflow_steps.common.git_repository_loader import load_git_repository, parse_repository_id
 
 logger = logging.getLogger(__name__)
@@ -55,32 +53,6 @@ def _change_request_branch_requested(config: dict[str, Any]) -> bool:
 
 def _metadata_key(node_id: str) -> str:
     return f"{node_id}.git_operation"
-
-
-def _mark_devices_failed(
-    *,
-    devices: dict[str, DeviceContext],
-    node_id: str,
-    step_id: str,
-    message: str,
-    failure: FailureInfo | None = None,
-) -> dict[str, DeviceContext]:
-    error = DeviceError(
-        node_id=node_id,
-        step_id=step_id,
-        code="git_operation_failed",
-        message=message,
-        failure=failure,
-    )
-    return {
-        device_id: device.model_copy(
-            update={
-                "status": DeviceStatus.FAILED,
-                "errors": [*device.errors, error],
-            }
-        )
-        for device_id, device in devices.items()
-    }
 
 
 # Maps an operation result to (outcome name, optional summary). Steps that route
@@ -124,7 +96,7 @@ def _inactive_outcomes(
     ]
 
 
-def _failure_outcomes(
+def _step_failure_outcomes(
     *,
     context: WorkflowContext,
     node_id: str,
@@ -148,33 +120,24 @@ def _failure_outcomes(
             "message": message,
         },
     }
-    if result_outcome_names:
-        outcomes = _inactive_outcomes(
-            context=context, node_id=node_id, metadata=metadata, names=result_outcome_names
-        )
-    else:
-        outcomes = [
-            StepOutcome(
-                name=_DEFAULT_SUCCESS_OUTCOME,
-                context=context.model_copy(update={"devices": {}, "metadata": metadata}),
-            )
-        ]
-    if context.devices:
-        failed_devices = _mark_devices_failed(
-            devices=context.devices,
-            node_id=node_id,
-            step_id=step_id,
-            message=message,
-            failure=failure,
-        )
-        failure_update: dict[str, Any] = {"devices": failed_devices, "metadata": metadata}
-    else:
-        failure_update = {"metadata": metadata}
-    outcomes.append(
-        StepOutcome(
-            name="failure", context=context.model_copy(update=failure_update), failure=failure
-        )
+    # The shared "every device failed" outcome; a routing step replaces the empty ``success``
+    # by its inactive result outcomes (which also carry the "branch not taken" marker).
+    outcomes = whole_step_failure(
+        context,
+        node_id=node_id,
+        step_id=step_id,
+        code="git_operation_failed",
+        message=message,
+        failure=failure,
+        metadata=metadata,
     )
+    if result_outcome_names:
+        return [
+            *_inactive_outcomes(
+                context=context, node_id=node_id, metadata=metadata, names=result_outcome_names
+            ),
+            outcomes[-1],
+        ]
     return outcomes
 
 
@@ -264,8 +227,8 @@ async def run_git_workflow_step(
     except ValueError as exc:
         repository_id, bad_repository_id = None, str(exc)
 
-    def _failure(message: str, failure: FailureInfo | None = None) -> list[StepOutcome]:
-        return _failure_outcomes(
+    def _stop(message: str, failure: FailureInfo | None = None) -> list[StepOutcome]:
+        return _step_failure_outcomes(
             context=context,
             node_id=node_id,
             step_id=step_id,
@@ -277,16 +240,16 @@ async def run_git_workflow_step(
         )
 
     if bad_repository_id is not None:
-        return _failure(bad_repository_id, _BAD_CONFIG)
+        return _stop(bad_repository_id, _BAD_CONFIG)
 
     if repository_id is None:
-        return _failure(f"{step_id}: git_repository_id is not configured", _BAD_CONFIG)
+        return _stop(f"{step_id}: git_repository_id is not configured", _BAD_CONFIG)
 
     if _change_request_branch_requested(config):
         # Removed (OD-7): the flag put the shared working tree on the change-request branch.
         # Silently ignoring an enabled flag would deploy the default branch. A leftover
         # ``false`` (saved by older workflow versions) asks for nothing and is ignored.
-        return _failure(
+        return _stop(
             f"{step_id}: use_change_request_branch was removed; start the deploy workflow "
             "with From Change Request",
             _BAD_CONFIG,
@@ -311,7 +274,7 @@ async def run_git_workflow_step(
     try:
         repository = load_git_repository(repository_id)
     except ValueError as exc:
-        return _failure(str(exc), _BAD_CONFIG)
+        return _stop(str(exc), _BAD_CONFIG)
 
     import service_factory
 
@@ -333,7 +296,7 @@ async def run_git_workflow_step(
             repository_id,
             scrub_url_credentials(str(exc)),
         )
-        return _failure(str(exc), failure_from_exception(exc) or classify_git_exception(exc))
+        return _stop(str(exc), failure_from_exception(exc) or classify_git_exception(exc))
 
     logger.info(
         "%s succeeded run_id=%s repository_id=%s operation=%s",

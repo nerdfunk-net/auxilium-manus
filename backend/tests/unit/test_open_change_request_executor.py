@@ -323,6 +323,42 @@ class OpenChangeRequestExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual([o.name for o in outcomes], ["success", "failure"])
         self.assertEqual(self.db.execute(select(ChangeRequest)).all(), [])
 
+    async def _failure_of(self, config: dict, *, context: WorkflowContext | None = None):
+        outcomes = await execute(
+            config=config,
+            context=context or await self._context_with_running_config(),
+            run=self._run(),
+            artifact_service=self.artifacts,
+            node_id=NODE_ID,
+            device_sessions=None,
+        )
+        return next(o for o in outcomes if o.name == "failure")
+
+    async def test_failure_outcome_carries_a_failure_record_for_a_config_error(self) -> None:
+        failure = await self._failure_of({"content_source": "running_config"})
+
+        self.assertIsNotNone(failure.failure)
+        self.assertEqual(failure.failure.kind, "bad_request")
+        self.assertEqual(failure.summary, failure.context.devices["d1"].errors[-1].message)
+        self.assertEqual(failure.context.devices["d1"].errors[-1].code, "change_request_failed")
+
+    async def test_a_staging_error_is_scrubbed_and_classified(self) -> None:
+        secret_url = "https://bot:s3cr3t-token@git.example.com/r.git"
+        with patch(
+            "workflow_steps.open_change_request.executor._stage",
+            side_effect=RuntimeError(f"fatal: unable to access '{secret_url}'"),
+        ):
+            failure = await self._failure_of(
+                {"git_repository_id": 3, "content_source": "running_config"}
+            )
+
+        error = failure.context.devices["d1"].errors[-1]
+        self.assertNotIn("s3cr3t-token", error.message)
+        recorded = failure.context.metadata[f"{NODE_ID}.change_request"]["message"]
+        self.assertNotIn("s3cr3t-token", recorded)
+        self.assertIsNotNone(error.failure)
+        self.assertEqual(failure.failure, error.failure)
+
     async def test_no_devices_fails_without_staging(self) -> None:
         outcomes = await execute(
             config={"git_repository_id": 3, "content_source": "running_config"},
