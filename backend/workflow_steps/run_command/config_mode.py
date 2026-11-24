@@ -15,8 +15,10 @@ from models.workflow_context import (
     bare_hostname,
 )
 from services.artifacts import ArtifactService
+from services.network.netmiko.connection import DeployResult
 from services.network.netmiko.platform import resolve_connection_device_type
 from services.network.netmiko.service import NetmikoService
+from workflow_steps.common.config_push import store_push_result
 from workflow_steps.common.failure_records import INVALID_INPUT
 from workflow_steps.common.step_flags import record_dry_run
 from workflow_steps.run_command.outcomes import fail_device
@@ -36,7 +38,7 @@ async def _run_command_config_mode(
     username: str,
     password: str,
     netmiko: NetmikoService,
-) -> Any:
+) -> DeployResult:
     device_type = resolve_connection_device_type(
         network_driver=device.network_driver,
         platform=device.platform,
@@ -71,80 +73,12 @@ async def _run_command_config_mode(
     return result
 
 
-async def _store_run_command_config_mode_results(
-    *,
-    result: Any,
-    commands: list[str],
-    device_id: str,
-    node_id: str,
-    context_run_id: str,
-    parsed: ParsedRunCommandConfig,
-    artifact_service: ArtifactService,
-) -> list[CommandResult]:
-    step_results: list[CommandResult] = []
-    output_ref = await artifact_service.store(
-        content=result.config_output,
-        kind="command_output",
-        device_id=device_id,
-        run_id=context_run_id,
-    )
-    summary = f"{len(commands)} command(s) sent (config_mode)"
-    if result.confirmed_prompts:
-        summary += f" · {len(result.confirmed_prompts)} confirmation prompt(s) auto-confirmed"
-    step_results.append(
-        CommandResult(
-            node_id=node_id,
-            command="run-command-config-mode",
-            success=result.success,
-            output_ref=output_ref,
-            summary=summary,
-        )
-    )
-    if result.session_log:
-        session_log_ref = await artifact_service.store(
-            content=result.session_log,
-            kind="netmiko_session_log",
-            device_id=device_id,
-            run_id=context_run_id,
-        )
-        step_results.append(
-            CommandResult(
-                node_id=node_id,
-                command="netmiko-session-log",
-                success=False,
-                output_ref=session_log_ref,
-                summary=(
-                    "Raw Netmiko session log captured up to the failure — inspect "
-                    "for confirmation prompts or unexpected CLI output that stalled "
-                    "pattern detection"
-                ),
-            )
-        )
-    if result.save_output is not None:
-        save_ref = await artifact_service.store(
-            content=result.save_output,
-            kind="command_output",
-            device_id=device_id,
-            run_id=context_run_id,
-        )
-        step_results.append(
-            CommandResult(
-                node_id=node_id,
-                command="copy running-config startup-config",
-                success=True,
-                output_ref=save_ref,
-                summary="running-config saved to startup-config",
-            )
-        )
-    return step_results
-
-
 def _apply_run_command_config_mode_result(
     *,
     device: DeviceContext,
     device_id: str,
     node_id: str,
-    result: Any,
+    result: DeployResult,
     step_results: list[CommandResult],
 ) -> tuple[str, DeviceContext, bool]:
     updated_command_results = dict(device.command_results)
@@ -157,7 +91,7 @@ def _apply_run_command_config_mode_result(
             code="command_failed",
             message=result.error or "run-command (config_mode) failed",
             command_results=updated_command_results,
-            failure=getattr(result, "failure", None),
+            failure=result.failure,
         )
     enriched = device.model_copy(
         update={
@@ -218,13 +152,13 @@ async def _run_config_mode_on_device(
             password=password,
             netmiko=netmiko,
         )
-        step_results = await _store_run_command_config_mode_results(
-            result=result,
-            commands=parsed.commands,
+        step_results = await store_push_result(
+            result,
+            command_label="run-command-config-mode",
+            summary=f"{len(parsed.commands)} command(s) sent (config_mode)",
             device_id=device_id,
             node_id=node_id,
             context_run_id=context_run_id,
-            parsed=parsed,
             artifact_service=artifact_service,
         )
         return _apply_run_command_config_mode_result(

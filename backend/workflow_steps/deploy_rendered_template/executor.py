@@ -16,10 +16,11 @@ from models.workflow_context import (
     bare_hostname,
 )
 from services.artifacts import ArtifactService
-from services.network.netmiko.connection import RetryPolicy
+from services.network.netmiko.connection import DeployResult, RetryPolicy
 from services.network.netmiko.platform import resolve_connection_device_type
 from services.network.netmiko.service import NetmikoService
 from services.network.netmiko.session_pool import DeviceSessionPool
+from workflow_steps.common.config_push import store_push_result
 from workflow_steps.common.content_resolver import list_exportable_content
 from workflow_steps.common.credential_resolver import resolve_ssh_credential
 from workflow_steps.common.device_outcomes import build_outcomes
@@ -129,7 +130,7 @@ async def _run_deploy_config(
     password: str,
     commands: list[str],
     netmiko: NetmikoService,
-) -> Any:
+) -> DeployResult:
     device_type = resolve_connection_device_type(
         network_driver=device.network_driver,
         platform=device.platform,
@@ -164,79 +165,11 @@ async def _run_deploy_config(
     return result
 
 
-async def _store_deploy_command_results(
-    *,
-    result: Any,
-    commands: list[str],
-    device_id: str,
-    node_id: str,
-    context_run_id: str,
-    parsed: _ParsedDeployConfig,
-    artifact_service: ArtifactService,
-) -> list[CommandResult]:
-    step_results: list[CommandResult] = []
-    output_ref = await artifact_service.store(
-        content=result.config_output,
-        kind="command_output",
-        device_id=device_id,
-        run_id=context_run_id,
-    )
-    summary = f"{len(commands)} line(s) deployed ({parsed.execution_mode})"
-    if result.confirmed_prompts:
-        summary += f" · {len(result.confirmed_prompts)} confirmation prompt(s) auto-confirmed"
-    step_results.append(
-        CommandResult(
-            node_id=node_id,
-            command="deploy-rendered-template",
-            success=result.success,
-            output_ref=output_ref,
-            summary=summary,
-        )
-    )
-    if result.session_log:
-        session_log_ref = await artifact_service.store(
-            content=result.session_log,
-            kind="netmiko_session_log",
-            device_id=device_id,
-            run_id=context_run_id,
-        )
-        step_results.append(
-            CommandResult(
-                node_id=node_id,
-                command="netmiko-session-log",
-                success=False,
-                output_ref=session_log_ref,
-                summary=(
-                    "Raw Netmiko session log captured up to the failure — inspect "
-                    "for confirmation prompts or unexpected CLI output that stalled "
-                    "pattern detection"
-                ),
-            )
-        )
-    if result.save_output is not None:
-        save_ref = await artifact_service.store(
-            content=result.save_output,
-            kind="command_output",
-            device_id=device_id,
-            run_id=context_run_id,
-        )
-        step_results.append(
-            CommandResult(
-                node_id=node_id,
-                command="copy running-config startup-config",
-                success=True,
-                output_ref=save_ref,
-                summary="running-config saved to startup-config",
-            )
-        )
-    return step_results
-
-
 def _apply_deploy_result(
     *,
     device: DeviceContext,
     node_id: str,
-    result: Any,
+    result: DeployResult,
     step_results: list[CommandResult],
 ) -> DeviceContext | Fail:
     updated_command_results = dict(device.command_results)
@@ -246,7 +179,7 @@ def _apply_deploy_result(
         return Fail(
             "deploy_failed",
             result.error or "Deploying rendered template failed",
-            getattr(result, "failure", None),
+            result.failure,
             device=recorded,
         )
     return recorded.model_copy(update={"status": DeviceStatus.OK})
@@ -305,13 +238,13 @@ async def _deploy_on_device(
         commands=loaded,
         netmiko=netmiko,
     )
-    step_results = await _store_deploy_command_results(
-        result=result,
-        commands=loaded,
+    step_results = await store_push_result(
+        result,
+        command_label=_STEP_ID,
+        summary=f"{len(loaded)} line(s) deployed ({parsed.execution_mode})",
         device_id=device_id,
         node_id=node_id,
         context_run_id=context_run_id,
-        parsed=parsed,
         artifact_service=artifact_service,
     )
     return _apply_deploy_result(

@@ -88,6 +88,7 @@ from services.pyats.common.exceptions import PyATSAPIError
 from services.pyats.credentials import PyATSCredentials
 from services.workflow_context.node_result import set_node_result
 from services.workflow_context.secret_fields import unwrap_secret
+from workflow_steps.common.device_file_upload import parse_device_token
 from workflow_steps.common.device_outcomes import build_outcomes
 from workflow_steps.common.device_runner import Fail, run_per_device
 from workflow_steps.common.failure_records import COMMAND_FAILED, INVALID_INPUT
@@ -728,9 +729,11 @@ async def execute(
     destination_filename = str(merged_config.get("destination_filename") or "").strip()
     if not destination_filename:
         raise ValueError(f"{_STEP_ID}: destination_filename is required")
+    parse_device_token(destination_filename, name="destination_filename", step_id=_STEP_ID)
     file_system = str(merged_config.get("file_system") or "").strip()
     if not file_system:
         raise ValueError(f"{_STEP_ID}: file_system is required")
+    parse_device_token(file_system, name="file_system", step_id=_STEP_ID)
     timeout_minutes = parse_int_flag(
         config,
         "timeout_minutes",

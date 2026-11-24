@@ -24,10 +24,17 @@ from services.artifacts import ArtifactService
 from services.network.netmiko.platform import resolve_connection_device_type
 from services.network.netmiko.service import NetmikoService
 from services.network.netmiko.session_pool import DeviceSessionPool
-from workflow_steps.common.content_resolver import CONTENT_SOURCES, list_exportable_content
+from workflow_steps.common.content_resolver import (
+    AMBIGUOUS_CONTENT_CODE,
+    AMBIGUOUS_CONTENT_FAILURE,
+    CONTENT_SOURCES,
+    list_exportable_content,
+    single_item_or_message,
+)
 from workflow_steps.common.credential_resolver import resolve_ssh_credential
 from workflow_steps.common.device_file_upload import (
     RemoteTarget,
+    parse_device_token,
     parse_socket_timeout,
     record_transfer,
     upload_outcomes,
@@ -109,8 +116,10 @@ def _parse_upload_config(config: dict[str, Any]) -> _ParsedUploadConfig:
         content_source=content_source,
         source_step_node_id=source_step_node_id,
         parsed_output_key=str(config.get("parsed_output_key") or "").strip() or None,
-        destination_filename=destination_filename,
-        file_system=file_system,
+        destination_filename=parse_device_token(
+            destination_filename, name="destination_filename", step_id="upload-config"
+        ),
+        file_system=parse_device_token(file_system, name="file_system", step_id="upload-config"),
         overwrite=parse_bool_flag(config, "overwrite"),
         inline_transfer=parse_bool_flag(config, "inline_transfer"),
         network_driver_override=str(config.get("network_driver_override") or "").strip() or None,
@@ -139,6 +148,9 @@ async def _load_upload_content(
             f"No {parsed.content_source} found for the configured source",
             failure=MISSING_DATA,
         )
+    if (ambiguous := single_item_or_message(items)) is not None:
+        # A multi-command source would otherwise upload the first command's output (W3a-03).
+        return Fail(AMBIGUOUS_CONTENT_CODE, ambiguous, failure=AMBIGUOUS_CONTENT_FAILURE)
     return await artifact_service.resolve(items[0].artifact_ref)
 
 

@@ -115,7 +115,10 @@ export function MergeConfigHelpPanel() {
         <p>
           <span className="font-medium">success</span> — the copy completed, the
           device returned to its prompt, and the transcript contained no{" "}
-          <HelpCode>%Error</HelpCode>, <HelpCode>Invalid input</HelpCode>, or{" "}
+          <HelpCode>%Error opening</HelpCode> line and (with{" "}
+          <HelpCode>fail_on_cli_error</HelpCode>, on by default) no CLI refusal
+          such as <HelpCode>% Invalid input detected</HelpCode> or{" "}
+          <HelpCode>Command authorization failed</HelpCode> and no{" "}
           <HelpCode>%Warning</HelpCode> line. The full CLI transcript is stored
           as a <HelpCode>command_output</HelpCode> artifact.
         </p>

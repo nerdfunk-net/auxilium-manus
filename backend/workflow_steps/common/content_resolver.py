@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -44,6 +45,12 @@ def ambiguous_content_message(count: int) -> str:
 
 
 AMBIGUOUS_CONTENT_FAILURE = FailureInfo(phase="command", kind="ambiguous_match")
+AMBIGUOUS_CONTENT_CODE = "ambiguous_content"
+
+
+def single_item_or_message(items: Sequence[ExportableContent]) -> str | None:
+    """``None`` when ``items`` holds at most one entry, else the shared "ambiguous" message."""
+    return ambiguous_content_message(len(items)) if len(items) > 1 else None
 
 
 def parse_content_source(

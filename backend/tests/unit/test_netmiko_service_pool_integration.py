@@ -49,10 +49,14 @@ class FakeSession:
         return CommandResult(success=True, output="ok", command_outputs={c: "ok" for c in commands})
 
     def merge_running_config(
-        self, source_filename: str, *, read_timeout: int | None = None
+        self,
+        source_filename: str,
+        *,
+        read_timeout: int | None = None,
+        fail_on_cli_error: bool = True,
     ) -> CommandResult:
         command = f"copy {source_filename} running-config"
-        self.last_merge = (source_filename, read_timeout)
+        self.last_merge = (source_filename, read_timeout, fail_on_cli_error)
         return CommandResult(
             success=True,
             output="1024 bytes copied",
@@ -159,12 +163,13 @@ class NetmikoServicePoolReuseTests(unittest.IsolatedAsyncioTestCase):
                 source_filename="flash:partial.cfg",
                 credential_reference="lab-ssh",
                 read_timeout=120,
+                fail_on_cli_error=False,
             )
 
             self.assertTrue(result.success)
             self.assertEqual(result.confirmed_prompts, ["destination filename"])
             pooled_entry = next(iter(pool._sessions.values()))
-            self.assertEqual(pooled_entry.session.last_merge, ("flash:partial.cfg", 120))
+            self.assertEqual(pooled_entry.session.last_merge, ("flash:partial.cfg", 120, False))
             self.assertEqual(pooled_entry.session.connect_calls, 1)
             await pool.close()
 

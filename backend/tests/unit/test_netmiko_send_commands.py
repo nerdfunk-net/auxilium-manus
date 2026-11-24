@@ -34,6 +34,29 @@ class NetmikoSendCommandsTests(unittest.TestCase):
         self.assertEqual(result.command_outputs, {"show version": "Version 15.2"})
         self.assertEqual(result.confirmed_prompts, [])
 
+    def test_structured_commands_lists_only_textfsm_structures(self) -> None:
+        """W3a-04: a raw-text fallback of use_textfsm is not a structured output."""
+        session = _session()
+        with patch("services.network.netmiko.connection.ConnectHandler") as connect_handler_cls:
+            connection = connect_handler_cls.return_value
+            connection.send_command.side_effect = [[{"version": "15.2"}], "12:00 UTC"]
+
+            result = session.send_commands(["show version", "show clock"], use_textfsm=True)
+
+        self.assertEqual(result.structured_commands, ["show version"])
+        self.assertEqual(result.command_outputs["show clock"], "12:00 UTC")
+
+    def test_structured_commands_survives_a_later_failure(self) -> None:
+        session = _session()
+        with patch("services.network.netmiko.connection.ConnectHandler") as connect_handler_cls:
+            connection = connect_handler_cls.return_value
+            connection.send_command.side_effect = [[{"a": 1}], RuntimeError("boom")]
+
+            result = session.send_commands(["one", "two"], use_textfsm=True)
+
+        self.assertFalse(result.success)
+        self.assertEqual(result.structured_commands, ["one"])
+
     def test_read_timeout_passed_through(self) -> None:
         session = _session()
         with patch("services.network.netmiko.connection.ConnectHandler") as connect_handler_cls:

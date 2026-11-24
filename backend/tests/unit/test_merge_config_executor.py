@@ -159,6 +159,40 @@ class MergeConfigExecutorTests(unittest.IsolatedAsyncioTestCase):
         # the CommandResult is still recorded on the failed device
         self.assertIn("node-1", failed.command_results)
 
+    async def _merge_flag(self, config_extra: dict) -> AsyncMock:
+        with (
+            patch("workflow_steps.common.run_session.object_session", return_value=MagicMock()),
+            patch(f"{_EXEC}.resolve_ssh_credential", return_value=("admin", "secret")),
+            patch(f"{_EXEC}.NetmikoService") as netmiko_cls,
+        ):
+            merge = AsyncMock(return_value=_ok_result())
+            netmiko_cls.return_value.merge_config = merge
+            await execute(
+                config={
+                    "credential_reference": "lab-ssh",
+                    "source_filename": "flash:partial.cfg",
+                    **config_extra,
+                },
+                context=_context({"device-1": _device()}),
+                run=_run(),
+                artifact_service=InMemoryArtifactService(),
+                node_id="node-1",
+                device_sessions=MagicMock(),
+            )
+        return merge
+
+    async def test_fail_on_cli_error_defaults_to_true_and_is_forwarded(self) -> None:
+        merge = await self._merge_flag({})
+        self.assertIs(merge.await_args.kwargs["fail_on_cli_error"], True)
+
+    async def test_fail_on_cli_error_false_is_forwarded(self) -> None:
+        merge = await self._merge_flag({"fail_on_cli_error": False})
+        self.assertIs(merge.await_args.kwargs["fail_on_cli_error"], False)
+
+    async def test_fail_on_cli_error_must_be_a_boolean(self) -> None:
+        with self.assertRaises(ValueError):
+            await self._merge_flag({"fail_on_cli_error": "maybe"})
+
     async def test_credential_fixed_passes_literal_name(self) -> None:
         with (
             patch("workflow_steps.common.run_session.object_session", return_value=MagicMock()),

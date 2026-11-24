@@ -98,6 +98,7 @@ class RunCommandExecutorTests(unittest.IsolatedAsyncioTestCase):
                     success=True,
                     output=json.dumps(parsed),
                     command_outputs={"show ip route": json.dumps(parsed, indent=2)},
+                    structured_commands=["show ip route"],
                 )
             )
 
@@ -560,6 +561,61 @@ class RunCommandExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn(Capability.PARSED, device.capabilities)
         self.assertIsNone(device.parsed["parsed"]["show bogus"]["parsed"])
         self.assertIsNotNone(device.parsed["parsed"]["show bogus"]["error"])
+
+    async def test_textfsm_media_type_follows_what_came_back_per_command(self) -> None:
+        """W3a-04: a raw-text fallback must not be labelled JSON (filter-output would fail
+        the device on it), and raw text that happens to be valid JSON is not a parse result."""
+        rows = [{"hostname": "r1"}]
+        with (
+            patch("workflow_steps.common.run_session.object_session", return_value=MagicMock()),
+            patch(
+                "workflow_steps.run_command.executor.resolve_ssh_credential",
+                return_value=("admin", "secret"),
+            ),
+            patch("workflow_steps.run_command.executor.NetmikoService") as netmiko_cls,
+        ):
+            netmiko_cls.return_value.send_commands = AsyncMock(
+                return_value=NetmikoCommandResult(
+                    success=True,
+                    output="",
+                    command_outputs={
+                        "show version": json.dumps(rows, indent=2),
+                        "show clock": "12:00:00 UTC",
+                        "show counter": "42",
+                    },
+                    structured_commands=["show version"],
+                )
+            )
+            outcomes = await execute(
+                config={
+                    "credential_reference": "lab-ssh",
+                    "commands": ["show version", "show clock", "show counter"],
+                    "parser": "textfsm",
+                },
+                context=WorkflowContext(
+                    run_id="run-uuid-1", workflow_id="wf-1", devices={"device-1": _device()}
+                ),
+                run=MagicMock(id=1),
+                artifact_service=InMemoryArtifactService(),
+                node_id="node-1",
+                device_sessions=MagicMock(),
+            )
+
+        device = outcomes[0].context.devices["device-1"]
+        media = {r.command: r.output_ref.media_type for r in device.command_results["node-1"]}
+        self.assertEqual(
+            media,
+            {
+                "show version": "application/json",
+                "show clock": "text/plain",
+                "show counter": "text/plain",
+            },
+        )
+        parsed = device.parsed["parsed"]
+        self.assertEqual(parsed["show version"]["parsed"], rows)
+        self.assertIsNone(parsed["show clock"]["parsed"])
+        self.assertIsNone(parsed["show counter"]["parsed"])
+        self.assertIsNotNone(parsed["show counter"]["error"])
 
     async def test_exec_mode_auto_confirm_prompts_summary_suffix(self) -> None:
         run = MagicMock()

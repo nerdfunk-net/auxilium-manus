@@ -98,9 +98,11 @@ class MergeRunningConfigTests(unittest.TestCase):
 
         connection.write_channel.assert_not_called()
         self.assertFalse(result.success)
+        # label and line only, never the device text (W3a-02)
         self.assertEqual(
             result.error,
-            "%Error opening flash:missing.cfg (No such file or directory)",
+            "'copy flash:missing.cfg running-config' refused by the device "
+            "(copy_error_opening, line 2)",
         )
 
     def test_invalid_input_line_fails_device(self) -> None:
@@ -119,7 +121,8 @@ class MergeRunningConfigTests(unittest.TestCase):
             result = session.merge_running_config("flash:partial.cfg")
 
         self.assertFalse(result.success)
-        self.assertIn("Invalid input detected", result.error or "")
+        self.assertIn("(invalid_input, line ", result.error or "")
+        self.assertNotIn("marker", result.error or "")
 
     def test_warning_line_fails_device(self) -> None:
         session = _session()
@@ -135,7 +138,8 @@ class MergeRunningConfigTests(unittest.TestCase):
             result = session.merge_running_config("flash:partial.cfg")
 
         self.assertFalse(result.success)
-        self.assertIn("%Warning", result.error or "")
+        self.assertIn("(copy_warning, line ", result.error or "")
+        self.assertNotIn("line 12", result.error or "")
 
     def test_bounded_loop_aborts_when_prompt_never_clears(self) -> None:
         session = _session()

@@ -5,6 +5,7 @@ from __future__ import annotations
 import unittest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from models.failure import FailureInfo
 from models.workflow_context import (
     ArtifactRef,
     Capability,
@@ -444,6 +445,7 @@ class DeployRenderedTemplateExecutorTests(unittest.IsolatedAsyncioTestCase):
                     config_output="",
                     error="Pattern not detected: '(?:LAB.*$|#.*$)' in output.",
                     session_log="LAB(config-if)#",
+                    failure=FailureInfo(phase="config", kind="config_rejected"),
                 )
             )
 
@@ -468,6 +470,9 @@ class DeployRenderedTemplateExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNotNone(log_result.output_ref)
         stored_text = await artifact_service.resolve(log_result.output_ref)
         self.assertEqual(stored_text, "LAB(config-if)#")
+        self.assertEqual(
+            failed_device.errors[-1].failure, FailureInfo(phase="config", kind="config_rejected")
+        )
 
     async def test_auto_confirm_prompts_defaults_false_and_is_passed_through(self) -> None:
         run = MagicMock()

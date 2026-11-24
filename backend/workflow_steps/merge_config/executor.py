@@ -39,6 +39,7 @@ from services.network.netmiko.platform import resolve_connection_device_type
 from services.network.netmiko.service import NetmikoService
 from services.network.netmiko.session_pool import DeviceSessionPool
 from workflow_steps.common.credential_resolver import resolve_ssh_credential
+from workflow_steps.common.device_file_upload import parse_device_token
 from workflow_steps.common.device_outcomes import build_outcomes
 from workflow_steps.common.device_runner import Fail, run_per_device
 from workflow_steps.common.failure_records import INVALID_INPUT
@@ -47,6 +48,7 @@ from workflow_steps.common.retry_config import parse_retry_backoff_seconds
 from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.common.run_param_reference import resolve_config_reference
 from workflow_steps.common.run_session import require_session
+from workflow_steps.common.step_flags import parse_bool_flag
 from workflow_steps.merge_config.config import get_config
 
 logger = logging.getLogger(__name__)
@@ -61,6 +63,7 @@ class _ParsedMergeConfig:
     source_filename: str
     network_driver_override: str | None
     read_timeout: int
+    fail_on_cli_error: bool
     retry: RetryPolicy
 
 
@@ -70,11 +73,14 @@ def _parse_merge_config(config: dict[str, Any]) -> _ParsedMergeConfig:
         raise ValueError(f"{_STEP_ID}: source_filename is required")
     return _ParsedMergeConfig(
         credential_reference="",
-        source_filename=source_filename,
+        source_filename=parse_device_token(
+            source_filename, name="source_filename", step_id=_STEP_ID
+        ),
         network_driver_override=str(config.get("network_driver_override") or "").strip() or None,
         read_timeout=parse_read_timeout(
             config, step_id=_STEP_ID, default=get_config()["read_timeout"]
         ),
+        fail_on_cli_error=parse_bool_flag(config, "fail_on_cli_error", default=True),
         retry=parse_retry_backoff_seconds(config, step_id=_STEP_ID),
     )
 
@@ -118,6 +124,7 @@ async def _merge_on_device(
         credential_reference=parsed.credential_reference,
         read_timeout=parsed.read_timeout,
         retry=parsed.retry,
+        fail_on_cli_error=parsed.fail_on_cli_error,
     )
 
     answered = list(result.confirmed_prompts)

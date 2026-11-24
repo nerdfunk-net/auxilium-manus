@@ -177,6 +177,7 @@ class NetmikoService:
         device_type: str | None = None,
         read_timeout: int | None = None,
         retry: RetryPolicy | None = None,
+        fail_on_cli_error: bool = True,
     ) -> CommandResult:
         """Merge a partial config file already on the device into the running
         config via ``copy <source_filename> running-config`` (the merge-config
@@ -193,6 +194,7 @@ class NetmikoService:
             return session.merge_running_config(
                 source_filename,
                 read_timeout=read_timeout or DEFAULT_READ_TIMEOUT,
+                fail_on_cli_error=fail_on_cli_error,
             )
 
         return await self._pool.run_on_device(

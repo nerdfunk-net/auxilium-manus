@@ -38,6 +38,18 @@ VERIFY_HASH_PATTERN = re.compile(r"verify\s+/\S+\s+\([^)]*\)\s*=\s*([0-9a-fA-F]+
 # What `dir <file>` prints when the file is not there (the same markers Netmiko looks for).
 _MISSING_FILE_MARKERS = ("Error opening", "No such file or directory", "Path does not exist")
 
+# A file-system or file name is pasted into a CLI line (``copy``, ``verify``, ``configure
+# replace``); anything that is not one token (a space, a line break) must not get there.
+_DEVICE_TOKEN = re.compile(r"^\S+$")
+
+
+def parse_device_token(value: str, *, name: str, step_id: str) -> str:
+    """``value`` when it is one token, else a ``ValueError`` naming the step and the field."""
+    if not _DEVICE_TOKEN.match(value):
+        raise ValueError(f"{step_id}: {name} must not contain spaces or line breaks")
+    return value
+
+
 def parse_socket_timeout(config: dict[str, Any], *, step_id: str) -> int:
     """SCP/SFTP socket timeout in seconds (per socket operation, not for the whole transfer)."""
     return parse_int_flag(

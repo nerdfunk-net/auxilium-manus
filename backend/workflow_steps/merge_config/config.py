@@ -9,5 +9,6 @@ def get_config() -> dict:
         "source_filename": "",
         "network_driver_override": "",
         "read_timeout": DEFAULT_READ_TIMEOUT,
+        "fail_on_cli_error": True,
         "retry_backoff_seconds": [],
     }

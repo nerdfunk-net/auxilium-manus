@@ -14,7 +14,6 @@ from __future__ import annotations
 import asyncio
 import logging
 import posixpath
-import re
 from contextlib import AsyncExitStack
 from dataclasses import dataclass, replace
 from typing import Any
@@ -37,6 +36,7 @@ from workflow_steps.common.credential_resolver import resolve_ssh_credential
 from workflow_steps.common.device_file_upload import (
     RemoteTarget,
     delete_remote_file,
+    parse_device_token,
     parse_socket_timeout,
     record_transfer,
     remote_file_exists,
@@ -65,9 +65,6 @@ _STEP_ID = "upload-binary"
 # `verify /md5` of an IOS image on slow flash takes minutes: the longest wait the helper allows.
 _DEFAULT_READ_TIMEOUT = 600
 _VERIFY_ALGORITHM = "md5"
-# Netmiko pastes the filesystem and file name into `dir` / `verify` / `delete` command lines, so
-# anything that is not one token (a space, a line break) must not get there.
-_DEVICE_TOKEN = re.compile(r"^\S+$")
 
 
 @dataclass(frozen=True)
@@ -83,12 +80,6 @@ class _ParsedUploadBinary:
     network_driver_override: str | None
     socket_timeout: int
     read_timeout: int
-
-
-def _device_token(value: str, name: str) -> str:
-    if not _DEVICE_TOKEN.match(value):
-        raise ValueError(f"{_STEP_ID}: {name} must not contain spaces or line breaks")
-    return value
 
 
 def _parse_upload_binary(config: dict[str, Any]) -> _ParsedUploadBinary:
@@ -116,8 +107,10 @@ def _parse_upload_binary(config: dict[str, Any]) -> _ParsedUploadBinary:
         allow_stale_repository=parse_bool_flag(config, "allow_stale_repository"),
         source_path=source_path,
         expected_md5=parse_expected_md5(config.get("expected_md5"), step_id=_STEP_ID),
-        destination_filename=_device_token(destination_filename, "destination_filename"),
-        file_system=_device_token(file_system, "file_system"),
+        destination_filename=parse_device_token(
+            destination_filename, name="destination_filename", step_id=_STEP_ID
+        ),
+        file_system=parse_device_token(file_system, name="file_system", step_id=_STEP_ID),
         overwrite=parse_bool_flag(config, "overwrite"),
         network_driver_override=str(config.get("network_driver_override") or "").strip() or None,
         socket_timeout=parse_socket_timeout(config, step_id=_STEP_ID),

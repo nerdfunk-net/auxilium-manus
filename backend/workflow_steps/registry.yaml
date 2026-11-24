@@ -4490,9 +4490,11 @@ plugins:
       a few sections, an ACL snippet, a handful of interfaces. This is an additive
       merge with no rollback timer -- use Configure Replace Config when the file
       is a complete device configuration that should replace the running config
-      wholesale. A device fails if the copy reports '%Error', 'Invalid
-      input' or '%Warning', if it has no hostname / IP, on SSH connect / auth
-      failure, or if prompts never clear.
+      wholesale. A device fails if the copy reports '%Error opening',
+      a CLI refusal ('% Invalid input detected', 'Command authorization failed', ...)
+      or a '%Warning' line (the last two follow fail_on_cli_error), if it has no
+      hostname / IP, on SSH connect / auth failure, or if prompts never clear. The
+      stored message names a closed label and the output line, never the device text.
     artifact_type: command_execution
     directory: merge_config
     enabled: true
@@ -4550,6 +4552,15 @@ plugins:
           required: false
           default: 60
           example: 120
+        - name: fail_on_cli_error
+          description: >
+            Fail the device when the copy reports a CLI refusal (for example "% Invalid
+            input detected" or "Command authorization failed") or a "%Warning" line. An
+            unreadable source file ("%Error opening ...") always fails the device. Turn
+            off only when refusals are expected.
+          data_type: boolean
+          required: false
+          default: true
         - name: retry_backoff_seconds
           description: >
             Per-device SSH connect retry schedule for an unstable link — never

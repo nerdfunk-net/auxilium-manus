@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 def enrich_with_textfsm(
     *,
     success_devices: dict[str, DeviceContext],
-    raw_outputs_by_device: dict[str, dict[str, str]],
+    raw_outputs_by_device: dict[str, dict[str, str | None]],
     parsed_output_key: str,
     run_id: Any,
 ) -> dict[str, DeviceContext]:
@@ -34,7 +34,7 @@ def enrich_with_textfsm(
 
     Non-fatal per command, matching Genie: netmiko falls back to returning the
     raw device text unchanged when no TextFSM template matches a command, so
-    that command's ``output`` isn't valid JSON here -- record it as an error
+    that command's output is ``None`` here -- record it as an error
     on that one command instead of failing the whole device.
     """
     enriched: dict[str, DeviceContext] = dict(success_devices)
@@ -46,16 +46,15 @@ def enrich_with_textfsm(
             continue
         parsed_entry: dict[str, Any] = {}
         for command, output in raw_outputs.items():
-            try:
-                data = json.loads(output)
-            except json.JSONDecodeError:
+            # ``None``: netmiko returned the device's raw text (no template matched).
+            if output is None:
                 parsed_entry[command] = {
                     "parsed": None,
                     "error": "TextFSM did not match this command's output (no template found)",
                 }
                 error_count += 1
                 continue
-            parsed_entry[command] = {"parsed": data, "error": None}
+            parsed_entry[command] = {"parsed": json.loads(output), "error": None}
             ok_count += 1
         parsed = dict(device.parsed)
         parsed[parsed_output_key] = parsed_entry
@@ -80,7 +79,7 @@ def enrich_with_textfsm(
 async def enrich_with_genie(
     *,
     success_devices: dict[str, DeviceContext],
-    raw_outputs_by_device: dict[str, dict[str, str]],
+    raw_outputs_by_device: dict[str, dict[str, str | None]],
     pyats_source_id: str,
     parsed_output_key: str,
     network_driver_override: str | None,
@@ -112,7 +111,9 @@ async def enrich_with_genie(
         payload[device_id] = {
             "os": os_name,
             "commands": [
-                {"command": command, "output": output} for command, output in raw_outputs.items()
+                {"command": command, "output": output}
+                for command, output in raw_outputs.items()
+                if output is not None  # always set without TextFSM
             ],
         }
 

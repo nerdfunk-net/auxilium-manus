@@ -520,6 +520,24 @@ fails the step naming the setting.
 
 A step gets its session with `workflow_steps.common.run_session.require_session(run, step_id)`; a run without one raises `RuntimeError("<step_id>: WorkflowRun has no active DB session")`. Nothing else in `workflow_steps/` may call `object_session` (`tests/unit/test_object_session_ratchet.py`); tests patch `workflow_steps.common.run_session.object_session` (`patch_object_session()`).
 
+### Config push (W3a-02, -03, -04, -06, -13)
+
+`run-command` (Run Command, config mode) and `deploy-rendered-template` (Deploy rendered Template) store a
+`DeployResult` through one function, `workflow_steps/common/config_push.py::store_push_result` (transcript row, session-log
+row of a failure, `copy running-config startup-config` row); each step passes its own command label and summary.
+
+- **One marker list.** `services/network/netmiko/output_check.py` decides whether the device refused a line. `merge-config`
+  (Merge Config) uses it too (`find_copy_error`): the shared refusal markers and a `%Warning` line follow `fail_on_cli_error`
+  (default on, like the two push steps); an unreadable source file (`%Error opening`) always fails the device. The stored
+  message is a closed label and the line number of the output, never the device text (a refused line may echo a secret).
+- **One command output.** `upload-config` (Upload Config) fails a device whose source holds several items (a multi-command
+  `run-command`) with `ambiguous_content`, as `compare-data` and `route-on-content` do (`content_resolver.single_item_or_message`).
+- **TextFSM media type.** `CommandResult.structured_commands` lists the commands whose output came back as a TextFSM structure.
+  `run-command` stores those as `application/json` and every other output (also the raw fallback when no template matched) as
+  `text/plain`; the `parsed` entry of a raw fallback has `parsed: None` and an error, whatever the text looks like.
+- **One-token names.** `device_file_upload.parse_device_token` refuses a space or line break in `file_system`,
+  `destination_filename` (`upload-config`, `upload-binary`, `configure-replace-config`) and `source_filename` (`merge-config`).
+
 ### One per-device runner
 
 A step that works on its devices one by one hands `workflow_steps/common/device_runner.py::run_per_device(context,
@@ -1497,10 +1515,10 @@ non-interactive batch mode, so per-line `[confirm]` prompts (e.g. a changed `use
 are auto-bypassed by the copy engine; the prompt handler
 (`NetmikoDeviceSession.merge_running_config`) still runs a small bounded loop
 (`_MERGE_MAX_PROMPT_ANSWERS`, default 5) so an unexpected extra prompt is answered rather
-than hanging, and a device is failed if the transcript carries `%Error` / `Invalid input`
-/ `%Warning`. It reuses the Run Command backend (`NetmikoService` / `DeviceSessionPool`,
+than hanging, and a device is failed if the transcript carries `%Error opening`, a CLI refusal or a `%Warning`
+line (the last two follow `fail_on_cli_error`, default on; see "Config push"). It reuses the Run Command backend (`NetmikoService` / `DeviceSessionPool`,
 `resolve_config_reference` + `resolve_ssh_credential`, `resolve_connection_device_type`)
-and exposes only `source_filename`, credentials, `network_driver_override`, and
+and exposes only `source_filename`, credentials, `network_driver_override`, `fail_on_cli_error` and
 `read_timeout`. It adds no capability (`produces: []`), so it is **not** in the
 `run-command` `effective_produces` special-case in `services/workflow_context/guards.py`.
 

@@ -24,6 +24,7 @@ from services.network.netmiko.output_check import (
     CONFIG_ERROR_PATTERN,
     find_cli_error,
     find_commit_error,
+    find_copy_error,
 )
 
 logger = logging.getLogger(__name__)
@@ -50,9 +51,6 @@ _MERGE_PROMPT_CUES = (_MERGE_DESTINATION_CUE, _CONFIRMATION_CUE)
 # Expected real answer count is 1; the bound stops an unexpected prompt loop
 # from hanging one read_timeout per iteration forever.
 _MERGE_MAX_PROMPT_ANSWERS = 5
-# IOS keeps loading (and returns to the prompt) after these lines, so netmiko
-# sees a clean success -- merge_running_config() scans the transcript for them.
-_COPY_ERROR_MARKERS = ("%error", "invalid input", "%warning")
 
 
 # Netmiko ignores the reply to its session-setup commands (``terminal width``, ``terminal length
@@ -120,6 +118,10 @@ class CommandResult:
     error: str | None = None
     confirmed_prompts: list[str] = field(default_factory=list)
     failure: FailureInfo | None = None
+    # Commands whose output came back as a TextFSM structure (serialised to JSON in
+    # ``command_outputs``); every other output is the device's raw text, also when
+    # ``use_textfsm`` was asked for and no template matched.
+    structured_commands: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -229,25 +231,6 @@ def _strip_running_config_banner(raw: str) -> str:
         else:
             break
     return "\n".join(lines[index:])
-
-
-def _copy_error_in(output: str) -> str | None:
-    """Return the offending line when a ``copy <src> running-config`` load
-    reported a device-side error, else ``None``.
-
-    IOS keeps loading (and still returns to the prompt) after an
-    ``%Error opening ...`` line, a bad ``%Warning ...`` line, or an
-    ``Invalid input detected ...`` line, so netmiko sees a clean success -- the
-    transcript has to be scanned to notice the merge did not actually apply.
-    """
-    lowered = output.lower()
-    for marker in _COPY_ERROR_MARKERS:
-        if marker in lowered:
-            for line in output.splitlines():
-                if marker in line.lower():
-                    return line.strip()
-            return marker
-    return None
 
 
 class NetmikoDeviceSession:
@@ -525,6 +508,7 @@ class NetmikoDeviceSession:
         outputs: dict[str, str] = {}
         combined: list[str] = []
         confirmed: list[str] = []
+        structured: list[str] = []
 
         try:
             for command in commands:
@@ -562,6 +546,8 @@ class NetmikoDeviceSession:
                         read_timeout=read_timeout,
                     )
                     text = serialize_command_output(raw)
+                    if not isinstance(raw, str):
+                        structured.append(command)
                 outputs[command] = text
                 combined.append(text)
                 refusal = find_cli_error(text) if fail_on_cli_error else None
@@ -584,6 +570,7 @@ class NetmikoDeviceSession:
                 output="\n".join(combined),
                 command_outputs=outputs,
                 confirmed_prompts=confirmed,
+                structured_commands=structured,
             )
         except Exception as exc:
             failure, error = self._classify_failure(exc, phase="command", message=str(exc))
@@ -594,6 +581,7 @@ class NetmikoDeviceSession:
                 error=error,
                 confirmed_prompts=confirmed,
                 failure=failure,
+                structured_commands=structured,
             )
 
     def _send_interruptible(self, command: str, *, read_timeout: int) -> tuple[str, bool]:
@@ -663,6 +651,7 @@ class NetmikoDeviceSession:
         source_filename: str,
         *,
         read_timeout: int = DEFAULT_READ_TIMEOUT,
+        fail_on_cli_error: bool = True,
     ) -> CommandResult:
         """Run ``copy <source_filename> running-config`` and answer its one
         interactive prompt -- ``Destination filename [running-config]? `` -- with
@@ -726,13 +715,17 @@ class NetmikoDeviceSession:
                     failure=FailureInfo(phase="config", kind="command_error"),
                 )
 
-            error = _copy_error_in(output)
-            if error is not None:
+            refusal = find_copy_error(output, fail_on_cli_error=fail_on_cli_error)
+            if refusal is not None:
+                # Label and line only: a refused line may echo a rendered secret.
                 return CommandResult(
                     success=False,
                     output=output,
                     command_outputs={command: output},
-                    error=error,
+                    error=(
+                        f"{command!r} refused by the device "
+                        f"({refusal.label}, line {refusal.line})"
+                    ),
                     confirmed_prompts=answered,
                     failure=FailureInfo(
                         phase="config", kind="config_rejected", hint="check_command_syntax"

@@ -15,6 +15,7 @@ import {
   parseRetryBackoffSeconds,
 } from "@/components/features/workflow-steps/shared/retry-backoff-fields";
 
+import { CheckboxField } from "../shared/checkbox-field";
 import { MergeConfigHelpPanel } from "./help-panel";
 
 const DEFAULT_READ_TIMEOUT = 60;
@@ -47,6 +48,7 @@ export function buildMergeConfigConfig(
       Number.isFinite(config.read_timeout)
         ? config.read_timeout
         : DEFAULT_READ_TIMEOUT,
+    fail_on_cli_error: config.fail_on_cli_error !== false,
     retry_backoff_seconds: parseRetryBackoffSeconds(config),
     ...patch,
   };
@@ -64,6 +66,7 @@ function MergeConfigConfigPanel({ config, onChange }: PluginConfigPanelProps) {
     Number.isFinite(config.read_timeout)
       ? config.read_timeout
       : DEFAULT_READ_TIMEOUT;
+  const failOnCliError = config.fail_on_cli_error !== false;
   const retryBackoffSeconds = useMemo(() => parseRetryBackoffSeconds(config), [config]);
 
   const handleSourceFilenameChange = useCallback(
@@ -89,6 +92,13 @@ function MergeConfigConfigPanel({ config, onChange }: PluginConfigPanelProps) {
         ? Math.min(MAX_READ_TIMEOUT, Math.max(MIN_READ_TIMEOUT, parsed))
         : DEFAULT_READ_TIMEOUT;
       onChange(buildMergeConfigConfig(config, { read_timeout: clamped }));
+    },
+    [config, onChange],
+  );
+
+  const handleFailOnCliErrorChange = useCallback(
+    (checked: boolean) => {
+      onChange(buildMergeConfigConfig(config, { fail_on_cli_error: checked }));
     },
     [config, onChange],
   );
@@ -150,6 +160,21 @@ function MergeConfigConfigPanel({ config, onChange }: PluginConfigPanelProps) {
       <DeployReadTimeoutFields
         readTimeout={readTimeout}
         onReadTimeoutChange={handleReadTimeoutChange}
+      />
+
+      <CheckboxField
+        id="merge-fail-on-cli-error"
+        label="fail_on_cli_error"
+        checked={failOnCliError}
+        onCheckedChange={handleFailOnCliErrorChange}
+        description={
+          <>
+            Fail the device when the copy reports a CLI refusal (&ldquo;% Invalid input
+            detected&rdquo;, &ldquo;Command authorization failed&rdquo;, ...) or a
+            &ldquo;%Warning&rdquo; line. An unreadable source file always fails the device.
+            Turn off only when refusals are expected.
+          </>
+        }
       />
 
       <RetryBackoffSecondsField

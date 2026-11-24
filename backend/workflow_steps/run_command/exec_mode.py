@@ -27,8 +27,8 @@ from workflow_steps.run_command.parsing import ParsedRunCommandConfig
 logger = logging.getLogger(__name__)
 
 
-def _build_summary(*, content: str, use_textfsm: bool) -> str:
-    if use_textfsm:
+def _build_summary(*, content: str, structured: bool) -> str:
+    if structured:
         try:
             parsed = json.loads(content)
             if isinstance(parsed, list):
@@ -58,7 +58,7 @@ async def _run_on_device(
     retry: RetryPolicy,
     netmiko: NetmikoService,
     artifact_service: ArtifactService,
-) -> tuple[str, DeviceContext, bool, dict[str, str]]:
+) -> tuple[str, DeviceContext, bool, dict[str, str | None]]:
     host = bare_hostname(device.primary_ip4, device.hostname)
     if not host:
         dev_id, failed, ok = fail_device(
@@ -120,19 +120,21 @@ async def _run_on_device(
             )
 
         step_results: list[CommandResult] = []
-        raw_outputs: dict[str, str] = {}
-        media_type = "application/json" if use_textfsm else "text/plain"
+        raw_outputs: dict[str, str | None] = {}
         for command in commands:
             output = result.command_outputs.get(command, "")
-            raw_outputs[command] = output
+            structured = command in result.structured_commands
+            # With TextFSM, None marks a raw-text fallback (no template matched): not a
+            # parse result, whatever the text looks like.
+            raw_outputs[command] = output if structured or not use_textfsm else None
             output_ref = await artifact_service.store(
                 content=output,
                 kind="command_output",
                 device_id=device_id,
                 run_id=context_run_id,
-                media_type=media_type,
+                media_type="application/json" if structured else "text/plain",
             )
-            summary = _build_summary(content=output, use_textfsm=use_textfsm)
+            summary = _build_summary(content=output, structured=structured)
             if command in confirmed:
                 summary += " · confirmation prompt auto-confirmed"
             step_results.append(
@@ -201,7 +203,7 @@ async def _run_on_device_logged(
     retry: RetryPolicy,
     netmiko: NetmikoService,
     artifact_service: ArtifactService,
-) -> tuple[str, DeviceContext, bool, dict[str, str]]:
+) -> tuple[str, DeviceContext, bool, dict[str, str | None]]:
     host = bare_hostname(device.primary_ip4, device.hostname) or "(no host)"
     logger.info(
         "run-command device %d/%d id=%s host=%s: connecting run_id=%s",
@@ -245,11 +247,11 @@ async def _run_on_device_logged(
 
 
 def _partition_device_results(
-    results: list[tuple[str, DeviceContext, bool, dict[str, str]]],
-) -> tuple[dict[str, DeviceContext], dict[str, DeviceContext], dict[str, dict[str, str]]]:
+    results: list[tuple[str, DeviceContext, bool, dict[str, str | None]]],
+) -> tuple[dict[str, DeviceContext], dict[str, DeviceContext], dict[str, dict[str, str | None]]]:
     success_devices: dict[str, DeviceContext] = {}
     failed_devices: dict[str, DeviceContext] = {}
-    raw_outputs_by_device: dict[str, dict[str, str]] = {}
+    raw_outputs_by_device: dict[str, dict[str, str | None]] = {}
     for device_id, updated_device, ok, raw_outputs in results:
         if ok:
             success_devices[device_id] = updated_device
@@ -269,7 +271,7 @@ async def run_exec_mode(
     password: str,
     netmiko: NetmikoService,
     artifact_service: ArtifactService,
-) -> tuple[dict[str, DeviceContext], dict[str, DeviceContext], dict[str, dict[str, str]]]:
+) -> tuple[dict[str, DeviceContext], dict[str, DeviceContext], dict[str, dict[str, str | None]]]:
     """Run ``parsed.commands`` on every device; return (success, failed, raw outputs)."""
     total = len(context.devices)
     use_textfsm = parsed.parser_mode == "textfsm"

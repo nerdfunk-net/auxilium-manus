@@ -14,8 +14,12 @@ from models.workflow_context import (
     DeviceStatus,
     WorkflowContext,
 )
+from models.workflow_context import (
+    CommandResult as StepCommandResult,
+)
 from services.artifacts import InMemoryArtifactService
 from services.network.netmiko.connection import CommandResult, FileTransferResult
+from workflow_steps.common.content_resolver import AMBIGUOUS_CONTENT_FAILURE
 from workflow_steps.upload_config.executor import execute
 
 UPDATED_CONTENT = "ntp server 192.168.178.10\n"
@@ -411,6 +415,54 @@ class UploadConfigExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("failure", names)
         failed_device = next(o for o in outcomes if o.name == "failure").context.devices["device-1"]
         self.assertEqual(failed_device.errors[-1].code, "upload_failed")
+
+    async def test_several_command_outputs_fail_the_device_and_upload_nothing(self) -> None:
+        """W3a-03: ``items[0]`` would write the first command's output (a version banner)."""
+        run = MagicMock()
+        run.id = 1
+        refs = [
+            ArtifactRef(artifact_id=f"artifact-{n}", kind="command_output", size_bytes=1)
+            for n in (1, 2)
+        ]
+        device = DeviceContext(
+            id="device-1",
+            name="router1",
+            hostname="router1",
+            primary_ip4="10.0.0.1/24",
+            network_driver="cisco_ios",
+            command_results={
+                "run-1": [
+                    StepCommandResult(node_id="run-1", command=cmd, success=True, output_ref=ref)
+                    for cmd, ref in zip(("show version", "show running-config"), refs, strict=True)
+                ]
+            },
+            status=DeviceStatus.OK,
+        )
+        with (
+            patch("workflow_steps.common.run_session.object_session", return_value=MagicMock()),
+            patch(
+                "workflow_steps.upload_config.executor.resolve_ssh_credential",
+                return_value=("admin", "secret"),
+            ),
+            patch("workflow_steps.upload_config.executor.NetmikoService") as netmiko_cls,
+        ):
+            netmiko_cls.return_value.upload_file = AsyncMock()
+            outcomes = await execute(
+                config=_base_config(content_source="command_output", source_step_node_id="run-1"),
+                context=WorkflowContext(
+                    run_id="run-uuid-1", workflow_id="wf-1", devices={"device-1": device}
+                ),
+                run=run,
+                artifact_service=InMemoryArtifactService(),
+                node_id="upload-1",
+                device_sessions=MagicMock(),
+            )
+
+        failed = next(o for o in outcomes if o.name == "failure").context.devices["device-1"]
+        self.assertEqual(failed.errors[-1].code, "ambiguous_content")
+        self.assertIn("2 exportable items", failed.errors[-1].message)
+        self.assertEqual(failed.errors[-1].failure, AMBIGUOUS_CONTENT_FAILURE)
+        netmiko_cls.return_value.upload_file.assert_not_awaited()
 
     async def test_device_without_matching_content_fails(self) -> None:
         run = MagicMock()
