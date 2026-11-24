@@ -310,3 +310,23 @@ async def test_no_log_label_no_device_lines(caplog: pytest.LogCaptureFixture) ->
         await run_per_device(_ctx(2), work, node_id="n", step_id="s")
 
     assert caplog.records == []
+
+
+class _Sanitised(Exception):
+    """Stands in for an integration error whose text the client already sanitised."""
+
+
+@pytest.mark.asyncio
+async def test_keep_text_keeps_the_text_of_the_named_error_classes_only() -> None:
+    async def work(device_id: str, device: DeviceContext) -> DeviceContext:
+        if device_id == "0":
+            raise _Sanitised("Nautobot said: no such device")
+        raise OSError(_SECRET)
+
+    batch = await run_per_device(
+        _ctx(2), work, node_id="n", step_id="s", keep_text=(_Sanitised,)
+    )
+
+    assert batch.failed["0"].errors[-1].message == "Nautobot said: no such device"
+    assert batch.failed["0"].errors[-1].code == "_sanitised"
+    assert batch.failed["1"].errors[-1].message == "OSError"

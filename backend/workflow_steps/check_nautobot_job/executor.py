@@ -27,18 +27,23 @@ from models.failure import FailureInfo, failure_from_exception
 from models.workflow_context import (
     Capability,
     DeviceContext,
-    DeviceError,
     DeviceStatus,
     StepOutcome,
     WorkflowContext,
 )
 from services.artifacts import ArtifactService
-from services.nautobot.common.exceptions import NautobotAPIError, NautobotValidationError
+from services.nautobot.common.exceptions import (
+    NautobotAPIError,
+    NautobotError,
+    NautobotValidationError,
+)
 from services.nautobot.credentials_bound_client import CredentialsBoundNautobotClient
 from services.nautobot.jobs import NautobotJobsService
 from workflow_steps.check_nautobot_job.config import get_config
 from workflow_steps.common.attribute_expression import resolve_attribute_expression
 from workflow_steps.common.device_location_sync import uuid_or_none
+from workflow_steps.common.device_outcomes import build_outcomes
+from workflow_steps.common.device_runner import Fail, run_per_device
 from workflow_steps.common.nautobot_source import resolve_nautobot_credentials
 from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.common.step_flags import parse_int_flag
@@ -49,6 +54,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _STEP_ID = "check-nautobot-job"
+_NO_JOB_UUID = FailureInfo(phase="config", kind="bad_request")
 
 _READY_STATES = frozenset({"SUCCESS", "FAILURE", "REVOKED"})
 _SUCCESS_STATE = "SUCCESS"
@@ -99,27 +105,6 @@ def _parse_config(config: dict[str, Any]) -> _ParsedConfig:
     )
 
 
-def _fail_device(
-    *,
-    device_key: str,
-    device: DeviceContext,
-    node_id: str,
-    exc: Exception,
-    failure: FailureInfo | None = None,
-) -> tuple[str, DeviceContext]:
-    err = DeviceError(
-        node_id=node_id,
-        step_id=_STEP_ID,
-        code=type(exc).__name__.lower(),
-        message=str(exc),
-        failure=failure or failure_from_exception(exc),
-    )
-    failed = device.model_copy(
-        update={"status": DeviceStatus.FAILED, "errors": [*device.errors, err]}
-    )
-    return device_key, failed
-
-
 def _apply_check_result(
     device: DeviceContext,
     *,
@@ -146,34 +131,23 @@ def _apply_check_result(
 
 async def _check_job_for_device(
     *,
-    device_key: str,
     device: DeviceContext,
-    node_id: str,
     jobs_service: NautobotJobsService,
     parsed: _ParsedConfig,
     run_id: str | None,
-) -> tuple[str, DeviceContext, bool]:
+) -> DeviceContext | Fail:
     job_uuid = resolve_attribute_expression(device, parsed.job_uuid_expr, run_id=run_id)
     if job_uuid is None:
-        key, failed = _fail_device(
-            device_key=device_key,
-            device=device,
-            node_id=node_id,
-            exc=ValueError("job_uuid has no value for this device"),
-        )
-        return key, failed, False
+        return Fail("job_uuid_missing", "job_uuid has no value for this device", _NO_JOB_UUID)
 
     # The id goes into a REST path: only a UUID may (W6-10). The value is never echoed.
     checked_uuid = uuid_or_none(job_uuid)
     if checked_uuid is None:
-        key, failed = _fail_device(
-            device_key=device_key,
-            device=device,
-            node_id=node_id,
-            exc=ValueError("job_uuid is not a Nautobot job result UUID"),
-            failure=FailureInfo(phase="config", kind="bad_request"),
+        return Fail(
+            "job_uuid_invalid",
+            "job_uuid is not a Nautobot job result UUID",
+            FailureInfo(phase="config", kind="bad_request"),
         )
-        return key, failed, False
     job_uuid = checked_uuid
 
     status: str | None = None
@@ -208,7 +182,7 @@ async def _check_job_for_device(
     )
 
     if status == _SUCCESS_STATE:
-        return device_key, updated.model_copy(update={"status": DeviceStatus.OK}), True
+        return updated.model_copy(update={"status": DeviceStatus.OK})
 
     failure: FailureInfo | None = None
     if status:
@@ -231,33 +205,9 @@ async def _check_job_for_device(
     else:
         message = f"job did not reach a terminal state after {attempts} check(s)"
 
-    error = RuntimeError(message)
-    error.__cause__ = last_error
-    key, failed = _fail_device(
-        device_key=device_key, device=updated, node_id=node_id, exc=error, failure=failure
-    )
-    return key, failed, False
-
-
-def _build_outcomes(
-    context: WorkflowContext,
-    success_devices: dict[str, DeviceContext],
-    failed_devices: dict[str, DeviceContext],
-) -> list[StepOutcome]:
-    outcomes = [
-        StepOutcome(
-            name="success",
-            context=context.model_copy(update={"devices": success_devices}),
-        )
-    ]
-    if failed_devices:
-        outcomes.append(
-            StepOutcome(
-                name="failure",
-                context=context.model_copy(update={"devices": failed_devices}),
-            )
-        )
-    return outcomes
+    if failure is None and last_error is not None:
+        failure = failure_from_exception(last_error)
+    return Fail("job_check_failed", message, failure, device=updated)
 
 
 async def execute(
@@ -295,34 +245,19 @@ async def execute(
         len(context.devices),
     )
 
-    results = await asyncio.gather(
-        *[
-            _check_job_for_device(
-                device_key=device_key,
-                device=device,
-                node_id=node_id,
-                jobs_service=jobs_service,
-                parsed=parsed,
-                run_id=run_id,
-            )
-            for device_key, device in context.devices.items()
-        ]
+    async def work(_device_key: str, device: DeviceContext) -> DeviceContext | Fail:
+        return await _check_job_for_device(
+            device=device, jobs_service=jobs_service, parsed=parsed, run_id=run_id
+        )
+
+    batch = await run_per_device(
+        context, work, node_id=node_id, step_id=_STEP_ID, keep_text=(NautobotError,)
     )
-
-    success_devices: dict[str, DeviceContext] = {}
-    failed_devices: dict[str, DeviceContext] = {}
-    for device_key, device, ok in results:
-        if ok:
-            success_devices[device_key] = device
-        else:
-            failed_devices[device_key] = device
-
     logger.info(
         "%s finished success=%d failure=%d run_id=%s",
         _STEP_ID,
-        len(success_devices),
-        len(failed_devices),
+        len(batch.ok),
+        len(batch.failed),
         log_run_id(run),
     )
-
-    return _build_outcomes(context, success_devices, failed_devices)
+    return build_outcomes(context, batch.ok, batch.failed)

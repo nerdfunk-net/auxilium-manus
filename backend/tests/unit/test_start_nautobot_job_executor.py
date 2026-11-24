@@ -6,6 +6,7 @@ import unittest
 from unittest.mock import AsyncMock, patch
 
 from models.workflow_context import DeviceContext
+from tests.unit._step_helpers import settle
 from workflow_steps.start_nautobot_job import executor as mod
 
 _UUID = "550e8400-e29b-41d4-a716-446655440000"
@@ -281,18 +282,17 @@ class ApplyJobResultRequestResponseTests(unittest.TestCase):
 
 class FailDeviceRequestResponseTests(unittest.TestCase):
     def test_no_request_or_response_adds_nothing(self) -> None:
-        _, failed = mod._fail_device(
-            device_key="d1", device=_device(), node_id="n", exc=ValueError("bad")
+        failed = mod._device_after_failed_start(
+            _device(), node_id="n", bag_name="nautobot_job", job_id="", request=None, response=None
         )
         self.assertNotIn("nautobot_job", failed.attribute_bags)
         self.assertEqual(failed.requests, {})
 
     def test_request_only_goes_to_requests_not_bag(self) -> None:
-        _, failed = mod._fail_device(
-            device_key="d1",
-            device=_device(),
+        failed = mod._device_after_failed_start(
+            _device(),
             node_id="n",
-            exc=ValueError("bad"),
+            bag_name="nautobot_job",
             job_id="job-1",
             request={"data": {"location": "NYC-DC1"}},
         )
@@ -302,21 +302,19 @@ class FailDeviceRequestResponseTests(unittest.TestCase):
         self.assertFalse(record.ok)
 
     def test_response_on_failure_stays_in_bag(self) -> None:
-        _, failed = mod._fail_device(
-            device_key="d1",
-            device=_device(),
+        failed = mod._device_after_failed_start(
+            _device(),
             node_id="n",
-            exc=ValueError("bad"),
+            bag_name="nautobot_job",
             response={"detail": "nope"},
         )
         self.assertEqual(failed.attribute_bags["nautobot_job"], {"response": {"detail": "nope"}})
 
     def test_secret_like_key_redacted_on_failure(self) -> None:
-        _, failed = mod._fail_device(
-            device_key="d1",
-            device=_device(),
+        failed = mod._device_after_failed_start(
+            _device(),
             node_id="n",
-            exc=ValueError("bad"),
+            bag_name="nautobot_job",
             request={"data": {"password": "hunter2"}},
         )
         redacted = failed.requests["n"][0].request["data"]["password"]
@@ -337,9 +335,9 @@ class StartJobForDeviceRequestResponseIntegrationTests(unittest.IsolatedAsyncioT
         )
 
     async def _start(self, jobs_service):
-        return await mod._start_job_for_device(
-            device_key="d1",
-            device=_device("d1"),
+        device = _device("d1")
+        result = await mod._start_job_for_device(
+            device=device,
             node_id="n",
             jobs_service=jobs_service,
             parsed=self._parsed(),
@@ -347,6 +345,8 @@ class StartJobForDeviceRequestResponseIntegrationTests(unittest.IsolatedAsyncioT
             device_common="common-stub",
             run_id=None,
         )
+        updated, ok = settle(result, device, node_id="n")
+        return "d1", updated, ok
 
     async def test_success_splits_response_and_request(self) -> None:
         jobs_service = AsyncMock()

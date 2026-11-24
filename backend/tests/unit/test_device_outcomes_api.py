@@ -234,3 +234,18 @@ def test_unclassified_exception_gets_an_internal_record() -> None:
     assert error.failure == FailureInfo(
         phase="internal", kind="internal_error", exception_type="RuntimeError"
     )
+
+
+def test_device_error_keep_text_extends_the_kept_classes() -> None:
+    class Sanitised(Exception):
+        pass
+
+    kept = partial_outcomes.device_error_from_exception(
+        Sanitised("fixed sentence"), node_id="n", step_id="s", keep_text=(Sanitised,)
+    )
+    hidden = partial_outcomes.device_error_from_exception(
+        Sanitised("fixed sentence"), node_id="n", step_id="s"
+    )
+
+    assert kept.message == "fixed sentence"
+    assert hidden.message == "Sanitised"

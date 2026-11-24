@@ -84,11 +84,13 @@ async def run_per_device(
     concurrency: int | None = None,
     only: Collection[str] | None = None,
     log_label: str | None = None,
+    keep_text: tuple[type[BaseException], ...] = (),
 ) -> Batch:
     """Run ``work`` for the devices of ``context`` (all, or those in ``only``).
 
     ``log_label`` (a step name) writes one "connecting" and one "ok / failed" line per device,
-    with its position, id and host, for the steps whose devices take a while.
+    with its position, id and host, for the steps whose devices take a while. ``keep_text`` names
+    exception classes whose text may be stored besides ``ValueError`` / ``FileNotFoundError``.
     """
     if concurrency is not None and concurrency < 1:
         raise ValueError(f"concurrency must be at least 1, got {concurrency}")
@@ -130,7 +132,9 @@ async def run_per_device(
                 raise RuntimeError(_ABORT_NEEDS_SEQUENTIAL) from None
             raise
         except Exception as exc:
-            error = device_error_from_exception(exc, node_id=node_id, step_id=step_id)
+            error = device_error_from_exception(
+                exc, node_id=node_id, step_id=step_id, keep_text=keep_text
+            )
             return fail_device_with_error(device, error), False
         if isinstance(result, Fail):
             failed = mark_device_failed(

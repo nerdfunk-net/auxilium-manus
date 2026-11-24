@@ -14,11 +14,8 @@ from models.workflow_context import (
 from workflow_steps.get_nautobot_attributes import executor as mod
 from workflow_steps.get_nautobot_attributes.executor import (
     _bind_nautobot,
-    _build_outcomes,
-    _fail_device,
     _fetch_device,
     _parse_config,
-    _partition_device_results,
     execute,
 )
 
@@ -52,24 +49,6 @@ class ParseConfigTests(unittest.TestCase):
     def test_parses_normalize_cables(self) -> None:
         cfg = _parse_config({"nautobot_source_id": "s", "normalize_cables": False})
         self.assertFalse(cfg.normalize_cables)
-
-
-class HelperTests(unittest.TestCase):
-    def test_fail_device_marks_failed(self) -> None:
-        did, failed, ok = _fail_device(
-            device=_device("d1"), device_id="d1", node_id="n", code="c", message="m"
-        )
-        self.assertEqual((did, ok), ("d1", False))
-        self.assertEqual(failed.status, DeviceStatus.FAILED)
-
-    def test_partition_and_outcomes(self) -> None:
-        d = MagicMock()
-        ok, failed = _partition_device_results([("a", d, True), ("b", d, False)])
-        self.assertEqual((list(ok), list(failed)), (["a"], ["b"]))
-        ctx = WorkflowContext(run_id="r", workflow_id="w", devices={})
-        outs = _build_outcomes(ctx, {"a": d}, {"b": d})
-        self.assertEqual([o.name for o in outs], ["success", "failure"])
-        self.assertEqual([o.name for o in _build_outcomes(ctx, {"a": d}, {})], ["success"])
 
 
 class BindNautobotTests(unittest.TestCase):

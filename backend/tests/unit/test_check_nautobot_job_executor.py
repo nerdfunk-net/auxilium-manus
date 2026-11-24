@@ -6,6 +6,7 @@ import unittest
 from unittest.mock import AsyncMock
 
 from models.workflow_context import DeviceContext
+from tests.unit._step_helpers import settle
 from workflow_steps.check_nautobot_job import executor as mod
 
 _JOB = "11111111-1111-1111-1111-111111111111"
@@ -16,6 +17,14 @@ def _device(did: str = "d1", **bags: object) -> DeviceContext:
     return DeviceContext(
         id=did, name=did, hostname=did, primary_ip4="10.0.0.1", attribute_bags=bags
     )
+
+
+async def _check_job_for_device(*, device_key, device, node_id, **kwargs):
+    """The old ``(key, device, ok)`` shape on top of the per-device work function."""
+    updated, ok = settle(
+        await mod._check_job_for_device(device=device, **kwargs), device, node_id=node_id
+    )
+    return device_key, updated, ok
 
 
 class CheckJobForDeviceStatusShapeTests(unittest.IsolatedAsyncioTestCase):
@@ -32,7 +41,7 @@ class CheckJobForDeviceStatusShapeTests(unittest.IsolatedAsyncioTestCase):
             bag_name="nautobot_job",
         )
         device = _device("d1")
-        key, updated, ok = await mod._check_job_for_device(
+        key, updated, ok = await _check_job_for_device(
             device_key="d1",
             device=device,
             node_id="n",
@@ -56,7 +65,7 @@ class CheckJobForDeviceStatusShapeTests(unittest.IsolatedAsyncioTestCase):
             bag_name="nautobot_job",
         )
         device = _device("d1")
-        key, failed, ok = await mod._check_job_for_device(
+        key, failed, ok = await _check_job_for_device(
             device_key="d1",
             device=device,
             node_id="n",
@@ -78,7 +87,7 @@ class CheckJobForDeviceStatusShapeTests(unittest.IsolatedAsyncioTestCase):
             bag_name="nautobot_job",
         )
         device = _device("d1")
-        key, updated, ok = await mod._check_job_for_device(
+        key, updated, ok = await _check_job_for_device(
             device_key="d1",
             device=device,
             node_id="n",
@@ -99,7 +108,7 @@ class CheckJobForDeviceStatusShapeTests(unittest.IsolatedAsyncioTestCase):
             bag_name="nautobot_job",
         )
         device = _device("d1")
-        key, failed, ok = await mod._check_job_for_device(
+        key, failed, ok = await _check_job_for_device(
             device_key="d1",
             device=device,
             node_id="n",
@@ -141,7 +150,7 @@ class StillRunningTests(unittest.IsolatedAsyncioTestCase):
         parsed = mod._ParsedConfig(
             source_id="s", job_uuid_expr=_JOB, max_checks=1, interval_seconds=0, bag_name="b"
         )
-        _key, failed, ok = await mod._check_job_for_device(
+        _key, failed, ok = await _check_job_for_device(
             device_key="d1",
             device=_device("d1"),
             node_id="n",
@@ -167,7 +176,7 @@ class CustomBagNameTests(unittest.IsolatedAsyncioTestCase):
             bag_name="update_job",
         )
         device = _device("d1", nautobot_job={"job_result_id": _JOB, "status": "SUCCESS"})
-        key, updated, ok = await mod._check_job_for_device(
+        key, updated, ok = await _check_job_for_device(
             device_key="d1",
             device=device,
             node_id="n",
@@ -192,7 +201,7 @@ class CustomBagNameTests(unittest.IsolatedAsyncioTestCase):
         device = _device(
             "d1", onboard_job={"job_result_id": _JOB, "job_id": "job-1", "request": {}}
         )
-        key, updated, ok = await mod._check_job_for_device(
+        key, updated, ok = await _check_job_for_device(
             device_key="d1",
             device=device,
             node_id="n",

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
@@ -11,17 +10,16 @@ from sqlalchemy.orm import object_session
 
 import service_factory
 from core.models.runs import WorkflowRun
-from models.failure import FailureInfo, failure_from_exception
 from models.workflow_context import (
     Capability,
     DeviceContext,
-    DeviceError,
     DeviceStatus,
     StepOutcome,
     WorkflowContext,
 )
 from services.artifacts import ArtifactService
 from services.nautobot.client import NautobotService
+from services.nautobot.common.exceptions import NautobotError
 from services.nautobot.credentials import NautobotCredentials
 from services.nautobot.devices.attribute_bag import (
     attributes_from_detail,
@@ -30,6 +28,8 @@ from services.nautobot.devices.attribute_bag import (
     normalize_attribute_groups,
 )
 from services.nautobot.devices.cable_normalize import normalize_cables as normalize_cables_in_bag
+from workflow_steps.common.device_outcomes import build_outcomes
+from workflow_steps.common.device_runner import Fail, run_per_device
 from workflow_steps.common.nautobot_resolve import resolve_nautobot_device_id
 from workflow_steps.common.nautobot_source import resolve_nautobot_credentials
 from workflow_steps.common.run_logging import log_run_id
@@ -103,132 +103,51 @@ def _bind_nautobot(
     return credentials, nautobot_service
 
 
-def _fail_device(
-    *,
-    device: DeviceContext,
-    device_id: str,
-    node_id: str,
-    code: str,
-    message: str,
-    failure: FailureInfo | None = None,
-) -> tuple[str, DeviceContext, bool]:
-    err = DeviceError(
-        node_id=node_id,
-        step_id=_STEP_ID,
-        code=code,
-        message=message,
-        failure=failure,
-    )
-    failed = device.model_copy(
-        update={
-            "status": DeviceStatus.FAILED,
-            "errors": [*device.errors, err],
-        }
-    )
-    return device_id, failed, False
-
-
 async def _enrich_device(
     *,
     device_id: str,
     device: DeviceContext,
-    node_id: str,
     nautobot_service: NautobotService,
     credentials: NautobotCredentials,
     variables: dict[str, Any],
     query: str,
     case_insensitive_lookup: bool,
     normalize_cables: bool = False,
-) -> tuple[str, DeviceContext, bool]:
-    try:
-        nautobot_device_id = await resolve_nautobot_device_id(
-            nautobot_service=nautobot_service,
-            credentials=credentials,
-            device=device,
-            case_insensitive=case_insensitive_lookup,
-        )
-        if nautobot_device_id is None:
-            return _fail_device(
-                device=device,
-                device_id=device_id,
-                node_id=node_id,
-                code="not_found",
-                message=(
-                    f"No Nautobot device found for workflow device {device_id} "
-                    f"(name={device.name!r}, ip={device.primary_ip4!r})"
-                ),
-            )
-
-        detail = await _fetch_device(
-            nautobot_service, credentials, nautobot_device_id, variables, query
-        )
-        if detail is None:
-            return _fail_device(
-                device=device,
-                device_id=device_id,
-                node_id=node_id,
-                code="not_found",
-                message=f"No Nautobot data returned for device {device_id}",
-            )
-
-        platform_raw = detail.get("platform")
-        platform = platform_raw if isinstance(platform_raw, dict) else {}
-        attribute_bags = dict(device.attribute_bags)
-        bag = attributes_from_detail(detail)
-        attribute_bags["nautobot"] = normalize_cables_in_bag(bag) if normalize_cables else bag
-        enriched = device.model_copy(
-            update={
-                "attribute_bags": attribute_bags,
-                "platform": platform.get("name") or device.platform,
-                "network_driver": platform.get("network_driver") or device.network_driver,
-                "capabilities": device.capabilities | {Capability.ATTRIBUTES},
-                "status": DeviceStatus.OK,
-            }
-        )
-        return device_id, enriched, True
-    except Exception as exc:
-        return _fail_device(
-            device=device,
-            device_id=device_id,
-            node_id=node_id,
-            code=type(exc).__name__.lower(),
-            message=str(exc),
-            failure=failure_from_exception(exc),
+) -> DeviceContext | Fail:
+    """One device. Any exception is turned into a failed device by the runner."""
+    nautobot_device_id = await resolve_nautobot_device_id(
+        nautobot_service=nautobot_service,
+        credentials=credentials,
+        device=device,
+        case_insensitive=case_insensitive_lookup,
+    )
+    if nautobot_device_id is None:
+        return Fail(
+            "not_found",
+            f"No Nautobot device found for workflow device {device_id} "
+            f"(name={device.name!r}, ip={device.primary_ip4!r})",
         )
 
+    detail = await _fetch_device(
+        nautobot_service, credentials, nautobot_device_id, variables, query
+    )
+    if detail is None:
+        return Fail("not_found", f"No Nautobot data returned for device {device_id}")
 
-def _partition_device_results(
-    results: list[tuple[str, DeviceContext, bool]],
-) -> tuple[dict[str, DeviceContext], dict[str, DeviceContext]]:
-    success_devices: dict[str, DeviceContext] = {}
-    failed_devices: dict[str, DeviceContext] = {}
-    for device_id, updated_device, ok in results:
-        if ok:
-            success_devices[device_id] = updated_device
-        else:
-            failed_devices[device_id] = updated_device
-    return success_devices, failed_devices
-
-
-def _build_outcomes(
-    context: WorkflowContext,
-    success_devices: dict[str, DeviceContext],
-    failed_devices: dict[str, DeviceContext],
-) -> list[StepOutcome]:
-    outcomes = [
-        StepOutcome(
-            name="success",
-            context=context.model_copy(update={"devices": success_devices}),
-        )
-    ]
-    if failed_devices:
-        outcomes.append(
-            StepOutcome(
-                name="failure",
-                context=context.model_copy(update={"devices": failed_devices}),
-            )
-        )
-    return outcomes
+    platform_raw = detail.get("platform")
+    platform = platform_raw if isinstance(platform_raw, dict) else {}
+    attribute_bags = dict(device.attribute_bags)
+    bag = attributes_from_detail(detail)
+    attribute_bags["nautobot"] = normalize_cables_in_bag(bag) if normalize_cables else bag
+    return device.model_copy(
+        update={
+            "attribute_bags": attribute_bags,
+            "platform": platform.get("name") or device.platform,
+            "network_driver": platform.get("network_driver") or device.network_driver,
+            "capabilities": device.capabilities | {Capability.ATTRIBUTES},
+            "status": DeviceStatus.OK,
+        }
+    )
 
 
 async def execute(
@@ -264,30 +183,30 @@ async def execute(
     )
 
     # At most this many devices are read at once (each one is two Nautobot queries).
-    gate = asyncio.Semaphore(_CONCURRENCY)
+    async def work(device_id: str, device: DeviceContext) -> DeviceContext | Fail:
+        return await _enrich_device(
+            device_id=device_id,
+            device=device,
+            nautobot_service=nautobot_service,
+            credentials=credentials,
+            variables=variables,
+            query=query,
+            case_insensitive_lookup=parsed.case_insensitive_lookup,
+            normalize_cables=parsed.normalize_cables,
+        )
 
-    async def enrich(device_id: str, device: DeviceContext) -> tuple[str, DeviceContext, bool]:
-        async with gate:
-            return await _enrich_device(
-                device_id=device_id,
-                device=device,
-                node_id=node_id,
-                nautobot_service=nautobot_service,
-                credentials=credentials,
-                variables=variables,
-                query=query,
-                case_insensitive_lookup=parsed.case_insensitive_lookup,
-                normalize_cables=parsed.normalize_cables,
-            )
-
-    results = await asyncio.gather(
-        *[enrich(device_id, device) for device_id, device in context.devices.items()]
+    batch = await run_per_device(
+        context,
+        work,
+        node_id=node_id,
+        step_id=_STEP_ID,
+        concurrency=_CONCURRENCY,
+        keep_text=(NautobotError,),
     )
-    success_devices, failed_devices = _partition_device_results(results)
     logger.info(
         "get-nautobot-attributes returning %d/%d devices run_id=%s",
-        len(success_devices),
+        len(batch.ok),
         len(context.devices),
         log_run_id(run),
     )
-    return _build_outcomes(context, success_devices, failed_devices)
+    return build_outcomes(context, batch.ok, batch.failed)

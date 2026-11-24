@@ -20,6 +20,7 @@ from services.nautobot.common.exceptions import (
     NautobotValidationError,
 )
 from services.nautobot.credentials import NautobotCredentials
+from tests.unit._step_helpers import settle
 from workflow_steps.check_nautobot_job import executor as check_job
 from workflow_steps.exists_in_nautobot import executor as exists_mod
 
@@ -135,15 +136,13 @@ def _check(result: dict | Exception, max_checks: int = 1):
     else:
         service.get_job_result = AsyncMock(return_value=result)
     device = DeviceContext(id="d1", name="d1", hostname="d1")
-    _, failed, ok = asyncio.run(
-        check_job._check_job_for_device(
-            device_key="d1",
-            device=device,
-            node_id="n",
-            jobs_service=service,
-            parsed=_parsed(max_checks),
-            run_id=None,
-        )
+    failed, ok = settle(
+        asyncio.run(
+            check_job._check_job_for_device(
+                device=device, jobs_service=service, parsed=_parsed(max_checks), run_id=None
+            )
+        ),
+        device,
     )
     assert not ok
     return failed.errors[0].failure

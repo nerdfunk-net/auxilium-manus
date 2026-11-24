@@ -12,7 +12,6 @@ Nautobot hasn't run the job yet at this point, so "the job failed" isn't knowabl
 
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 from dataclasses import dataclass
@@ -22,24 +21,25 @@ from sqlalchemy.orm import object_session
 
 import service_factory
 from core.models.runs import WorkflowRun
-from models.failure import failure_from_exception
 from models.workflow_context import (
     Capability,
     DeviceContext,
-    DeviceError,
     DeviceStatus,
     StepOutcome,
     WorkflowContext,
 )
 from services.artifacts import ArtifactService
-from services.nautobot.common.exceptions import NautobotAPIError, NautobotValidationError
+from services.nautobot.common.exceptions import NautobotError
 from services.nautobot.credentials_bound_client import CredentialsBoundNautobotClient
 from services.nautobot.devices.common import DeviceCommonService
 from services.nautobot.devices.uuid_resolver import UUID_RESOURCE_TYPES, resolve_nautobot_uuid
 from services.nautobot.jobs import NautobotJobsService
 from services.workflow_context.secret_fields import REDACTED_PLACEHOLDER, redact_secrets_in_data
 from workflow_steps.common.attribute_expression import resolve_attribute_expression
+from workflow_steps.common.device_outcomes import build_outcomes
+from workflow_steps.common.device_runner import Fail, run_per_device
 from workflow_steps.common.nautobot_source import resolve_nautobot_credentials
+from workflow_steps.common.partial_outcomes import device_error_from_exception
 from workflow_steps.common.request_record import append_request_record
 from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.common.step_flags import parse_int_flag
@@ -52,6 +52,8 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _STEP_ID = "start-nautobot-job"
+# The Nautobot client sanitises its own messages, so they may be stored.
+_KEEP_TEXT = (NautobotError,)
 
 _INTEGER_TYPES = frozenset({"IntegerVar"})
 _BOOLEAN_TYPES = frozenset({"BooleanVar"})
@@ -308,28 +310,19 @@ async def _resolve_device_params(
     return data
 
 
-def _fail_device(
-    *,
-    device_key: str,
+def _device_after_failed_start(
     device: DeviceContext,
+    *,
     node_id: str,
-    exc: Exception,
-    bag_name: str = "nautobot_job",
+    bag_name: str,
     job_id: str = "",
     request: dict[str, Any] | None = None,
     response: dict[str, Any] | None = None,
-) -> tuple[str, DeviceContext]:
-    err = DeviceError(
-        node_id=node_id,
-        step_id=_STEP_ID,
-        code=type(exc).__name__.lower(),
-        message=str(exc),
-        failure=failure_from_exception(exc),
-    )
-    update: dict[str, Any] = {"status": DeviceStatus.FAILED, "errors": [*device.errors, err]}
+) -> DeviceContext:
+    """The device as a failed start leaves it: the response stays in the bag (it is workflow
+    data), the request is display-only; the error itself is added by the runner."""
+    update: dict[str, Any] = {}
     if response is not None:
-        # The response is workflow data (addressable via {bag.response.*}), so
-        # it stays in the bag; the request is display-only (see below).
         update["attribute_bags"] = {
             **device.attribute_bags,
             bag_name: redact_secrets_in_data({"response": response}),
@@ -339,7 +332,7 @@ def _fail_device(
         failed = _with_job_request(
             failed, node_id=node_id, job_id=job_id, request=request, ok=False
         )
-    return device_key, failed
+    return failed
 
 
 def _with_job_request(
@@ -399,7 +392,6 @@ def _apply_job_result(
 
 async def _start_job_for_device(
     *,
-    device_key: str,
     device: DeviceContext,
     node_id: str,
     jobs_service: NautobotJobsService,
@@ -407,7 +399,9 @@ async def _start_job_for_device(
     variable_types: dict[str, str],
     device_common: DeviceCommonService,
     run_id: str | None,
-) -> tuple[str, DeviceContext, bool]:
+) -> DeviceContext | Fail:
+    """Start the job for one device. A failure is returned as ``Fail`` carrying the device as
+    the failed start leaves it (response and request recorded)."""
     request_body: dict[str, Any] | None = None
     result: dict[str, Any] | None = None
     try:
@@ -431,7 +425,7 @@ async def _start_job_for_device(
         if not job_result_id:
             raise RuntimeError("Nautobot did not return a job_result id")
 
-        updated = _apply_job_result(
+        return _apply_job_result(
             device,
             job_result_id=str(job_result_id),
             job_id=parsed.job_id,
@@ -442,40 +436,19 @@ async def _start_job_for_device(
             response=result,
             bag_name=parsed.bag_name,
         )
-        return device_key, updated, True
-    except (NautobotAPIError, NautobotValidationError, ValueError, RuntimeError) as exc:
-        key, failed = _fail_device(
-            device_key=device_key,
-            device=device,
+    except Exception as exc:
+        error = device_error_from_exception(
+            exc, node_id=node_id, step_id=_STEP_ID, keep_text=_KEEP_TEXT
+        )
+        failed = _device_after_failed_start(
+            device,
             node_id=node_id,
-            exc=exc,
             bag_name=parsed.bag_name,
             job_id=parsed.job_id,
             request=request_body,
             response=result,
         )
-        return key, failed, False
-
-
-def _build_outcomes(
-    context: WorkflowContext,
-    success_devices: dict[str, DeviceContext],
-    failed_devices: dict[str, DeviceContext],
-) -> list[StepOutcome]:
-    outcomes = [
-        StepOutcome(
-            name="success",
-            context=context.model_copy(update={"devices": success_devices}),
-        )
-    ]
-    if failed_devices:
-        outcomes.append(
-            StepOutcome(
-                name="failure",
-                context=context.model_copy(update={"devices": failed_devices}),
-            )
-        )
-    return outcomes
+        return Fail(error.code, error.message, error.failure, device=failed)
 
 
 async def execute(
@@ -518,42 +491,30 @@ async def execute(
         len(context.devices),
     )
 
-    gate = asyncio.Semaphore(parsed.max_concurrency)
+    async def work(_device_key: str, device: DeviceContext) -> DeviceContext | Fail:
+        return await _start_job_for_device(
+            device=device,
+            node_id=node_id,
+            jobs_service=jobs_service,
+            parsed=parsed,
+            variable_types=variable_types,
+            device_common=device_common,
+            run_id=run_id,
+        )
 
-    async def _guarded(**kwargs: Any) -> Any:
-        async with gate:
-            return await _start_job_for_device(**kwargs)
-
-    results = await asyncio.gather(
-        *[
-            _guarded(
-                device_key=device_key,
-                device=device,
-                node_id=node_id,
-                jobs_service=jobs_service,
-                parsed=parsed,
-                variable_types=variable_types,
-                device_common=device_common,
-                run_id=run_id,
-            )
-            for device_key, device in context.devices.items()
-        ]
+    batch = await run_per_device(
+        context,
+        work,
+        node_id=node_id,
+        step_id=_STEP_ID,
+        concurrency=parsed.max_concurrency,
+        keep_text=_KEEP_TEXT,
     )
-
-    success_devices: dict[str, DeviceContext] = {}
-    failed_devices: dict[str, DeviceContext] = {}
-    for device_key, device, ok in results:
-        if ok:
-            success_devices[device_key] = device
-        else:
-            failed_devices[device_key] = device
-
     logger.info(
         "%s finished success=%d failure=%d run_id=%s",
         _STEP_ID,
-        len(success_devices),
-        len(failed_devices),
+        len(batch.ok),
+        len(batch.failed),
         log_run_id(run),
     )
-
-    return _build_outcomes(context, success_devices, failed_devices)
+    return build_outcomes(context, batch.ok, batch.failed)

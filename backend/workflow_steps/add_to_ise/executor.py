@@ -84,8 +84,6 @@ from models.failure import FailureInfo
 from models.workflow_context import (
     Capability,
     DeviceContext,
-    DeviceError,
-    DeviceStatus,
     StepOutcome,
     WorkflowContext,
 )
@@ -96,6 +94,7 @@ from services.workflow_context.attribute_path import resolve_device_value
 from services.workflow_context.secret_expression import require_secret_expression
 from services.workflow_context.secret_fields import seal_secret
 from workflow_steps.add_to_ise.group_ensure import DeviceGroupEnsurer
+from workflow_steps.common.device_runner import AbortRun, Fail, run_per_device
 from workflow_steps.common.partial_outcomes import abort_outcomes
 from workflow_steps.common.request_record import append_request_record
 from workflow_steps.common.source_credentials import resolve_source
@@ -151,25 +150,22 @@ class _ResolvedFields:
 class _CreateOneResult:
     kind: Literal["created", "exists", "failed", "abort"]
     device: DeviceContext | None = None
+    fail: Fail | None = None
     abort_message: str | None = None
     abort_failure: FailureInfo | None = None
 
 
-def _mark_failed(
+def _refusal(
     device: DeviceContext,
     *,
-    node_id: str,
     code: str,
     message: str,
     failure: FailureInfo | None = None,
-) -> DeviceContext:
+    carry: DeviceContext | None = None,
+) -> Fail:
+    """A device-level failure; ``carry`` is the device with what was learned before it failed."""
     logger.warning("%s: device '%s' failed (%s): %s", _STEP_ID, device.name, code, message)
-    error = DeviceError(
-        node_id=node_id, step_id=_STEP_ID, code=code, message=message, failure=failure
-    )
-    return device.model_copy(
-        update={"status": DeviceStatus.FAILED, "errors": [*device.errors, error]}
-    )
+    return Fail(code, message, failure, device=carry)
 
 
 _HOST_MASK = 32
@@ -201,7 +197,7 @@ def _parse_netmask_override(raw: Any) -> int | None:
     text = str(raw).strip().lstrip("/").strip()
     if not text:
         return None
-    if not text.isdigit() or int(text) > _MAX_MASK_BY_VERSION[6]:
+    if not (text.isascii() and text.isdigit()) or int(text) > _MAX_MASK_BY_VERSION[6]:
         raise ValueError(
             f"{_STEP_ID}: netmask_override must be a prefix length such as 32 or /24, got '{raw}'"
         )
@@ -224,7 +220,7 @@ def _extract_ip_mask(
         _, _, suffix = raw.partition("/")
         suffix = suffix.strip()
         if suffix:
-            if not suffix.isdigit():
+            if not (suffix.isascii() and suffix.isdigit()):
                 return None
             mask = int(suffix)
     if mask is None:
@@ -555,12 +551,7 @@ async def _create_one_device(
         failure_code, failure_message = resolved
         return _CreateOneResult(
             kind="failed",
-            device=_mark_failed(
-                device,
-                node_id=node_id,
-                code=failure_code,
-                message=failure_message,
-            ),
+            fail=_refusal(device, code=failure_code, message=failure_message),
         )
 
     device_payload = _build_create_payload(resolved)
@@ -572,9 +563,8 @@ async def _create_one_device(
     except ISEValidationError as exc:
         return _CreateOneResult(
             kind="failed",
-            device=_mark_failed(
+            fail=_refusal(
                 device,
-                node_id=node_id,
                 code="ise_device_group_create_failed",
                 message=f"could not create missing device group for '{resolved.name}': {exc}",
                 failure=exc.failure,
@@ -607,22 +597,21 @@ async def _create_one_device(
                 ok=False,
             )
             return _CreateOneResult(kind="exists", device=exists_device)
-        rejected = _mark_failed(
-            device,
-            node_id=node_id,
-            code="ise_device_create_rejected",
-            message=f"ISE rejected creating device '{resolved.name}': {exc}",
-            failure=exc.failure,
-        )
         return _CreateOneResult(
             kind="failed",
-            device=_with_request_record(
-                rejected,
-                node_id=node_id,
-                device_payload=device_payload,
-                resolved_key=resolved.key,
-                response={"error": str(exc)},
-                ok=False,
+            fail=_refusal(
+                device,
+                code="ise_device_create_rejected",
+                message=f"ISE rejected creating device '{resolved.name}': {exc}",
+                failure=exc.failure,
+                carry=_with_request_record(
+                    device,
+                    node_id=node_id,
+                    device_payload=device_payload,
+                    resolved_key=resolved.key,
+                    response={"error": str(exc)},
+                    ok=False,
+                ),
             ),
         )
     except ISEAPIError as exc:
@@ -749,11 +738,9 @@ async def execute(
         _build_group_ensurer(run, parsed.source_id) if parsed.create_missing_groups else None
     )
 
-    success_devices: dict[str, DeviceContext] = {}
-    exists_devices: dict[str, DeviceContext] = {}
-    failed_devices: dict[str, DeviceContext] = {}
+    exists_ids: set[str] = set()
 
-    for device_id, device in context.devices.items():
+    async def work(device_id: str, device: DeviceContext) -> DeviceContext | Fail:
         result = await _create_one_device(
             device=device,
             cfg=parsed,
@@ -763,34 +750,40 @@ async def execute(
             context=context,
             group_ensurer=group_ensurer,
         )
-
         if result.kind == "abort":
             assert result.abort_message is not None  # noqa: S101  # type narrowing on result.kind
-            return abort_outcomes(
-                context=context,
-                node_id=node_id,
-                step_id=_STEP_ID,
-                done_ok=success_devices,
-                done_failed=failed_devices,
-                message=result.abort_message,
-                failure=result.abort_failure,
-                extra={"exists": exists_devices},
-            )
-
+            raise AbortRun(result.abort_message, result.abort_failure)
+        if result.kind == "failed":
+            assert result.fail is not None  # noqa: S101  # type narrowing on result.kind
+            return result.fail
         assert result.device is not None  # noqa: S101  # type narrowing on result.kind
         if result.kind == "exists":
-            exists_devices[device_id] = result.device
-            continue
+            exists_ids.add(device_id)
+        return result.device
 
-        if result.kind == "failed":
-            failed_devices[device_id] = result.device
-        else:
-            success_devices[device_id] = result.device
+    # One device after the other: a lost ISE connection stops the run (AbortRun) and the devices
+    # already done keep their result.
+    batch = await run_per_device(
+        context, work, node_id=node_id, step_id=_STEP_ID, concurrency=1
+    )
+    success_devices = {i: d for i, d in batch.ok.items() if i not in exists_ids}
+    exists_devices = {i: d for i, d in batch.ok.items() if i in exists_ids}
+    if batch.aborted is not None:
+        return abort_outcomes(
+            context=context,
+            node_id=node_id,
+            step_id=_STEP_ID,
+            done_ok=success_devices,
+            done_failed=batch.failed,
+            message=batch.aborted.message,
+            failure=batch.aborted.failure,
+            extra={"exists": exists_devices},
+        )
 
     return _build_outcomes(
         context=context,
         success_devices=success_devices,
         exists_devices=exists_devices,
-        failed_devices=failed_devices,
+        failed_devices=batch.failed,
         node_id=node_id,
     )

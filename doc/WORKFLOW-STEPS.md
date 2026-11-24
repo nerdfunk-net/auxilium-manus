@@ -465,7 +465,14 @@ family by family (P-C). W9 (files and git): `store-artifact` (sink, record and f
 its text, scrubbed of URL credentials, and its `FailureInfo`; any other exception is the class name plus a record; a git
 prepare failure is a whole-step failure with the record on the outcome) and `read-from-file` run on `run_per_device`;
 `get-age-of-backup`, `open-change-request` (every failure outcome carries a `FailureInfo`, the message is scrubbed) and
-the git steps (`git_workflow_step`) build their outcomes with `build_outcomes` / `whole_step_failure`.
+the git steps (`git_workflow_step`) build their outcomes with `build_outcomes` / `whole_step_failure`. W6 (Nautobot jobs and
+reads, ISE): `start-nautobot-job`, `check-nautobot-job` and `get-nautobot-attributes` run on `run_per_device`
+(`keep_text=(NautobotError,)`: the Nautobot client sanitises its messages, so their text is stored; any other exception is
+the class name plus a record, and a job already started is never lost because a later device raised); `start-nautobot-job`
+keeps the request and response on a failed device through `Fail(device=...)`. `add-to-ise` runs one device after the other
+(`concurrency=1`), a lost ISE connection is `AbortRun` (the created devices keep `success`, `exists` keeps its handle), and
+one bad value fails that device only (a non-ASCII digit in a prefix is `netmask_invalid`). `run_per_device` takes
+`keep_text=` for such integrations; `device_error_from_exception` has the same parameter.
 
 ### Step config flags
 

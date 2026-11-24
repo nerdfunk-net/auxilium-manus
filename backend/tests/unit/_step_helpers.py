@@ -135,6 +135,30 @@ def patch_object_session(*modules: str, db: Any = None) -> Generator[Any]:
         yield session
 
 
+def settle(
+    result: Any, device: DeviceContext, *, node_id: str = "n", step_id: str = "s"
+) -> tuple[DeviceContext, bool]:
+    """What a per-device work function returned, as ``(device, ok)``.
+
+    A ``Fail`` becomes the failed device the runner would record (its own ``device`` when it
+    carries one), so a test can look at ``errors[-1]`` without running the whole step.
+    """
+    from workflow_steps.common.device_outcomes import mark_device_failed
+    from workflow_steps.common.device_runner import Fail
+
+    if isinstance(result, Fail):
+        failed = mark_device_failed(
+            result.device or device,
+            node_id=node_id,
+            step_id=step_id,
+            code=result.code,
+            message=result.message,
+            failure=result.failure,
+        )
+        return failed, False
+    return result, True
+
+
 def strict_xfail(finding: str, why: str) -> pytest.MarkDecorator:
     """Mark a test that documents a known defect; ``finding`` is the W-report id (guard 12)."""
     return pytest.mark.xfail(strict=True, reason=f"{finding}: {why}")

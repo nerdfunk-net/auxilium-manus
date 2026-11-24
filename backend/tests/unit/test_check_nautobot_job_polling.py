@@ -20,6 +20,7 @@ from tests.unit._step_helpers import (
     make_device,
     make_run,
     patch_object_session,
+    settle,
 )
 from workflow_steps.check_nautobot_job import executor as mod
 
@@ -44,13 +45,12 @@ async def _check(results: list[Any], parsed: Any = None) -> tuple[Any, bool, Asy
     service = MagicMock()
     service.get_job_result = AsyncMock(side_effect=results)
     with patch(f"{_MOD}.asyncio.sleep", new=AsyncMock()):
-        _key, device, ok = await mod._check_job_for_device(
-            device_key="d1",
-            device=make_device("d1"),
-            node_id="n",
-            jobs_service=service,
-            parsed=parsed or _parsed(),
-            run_id=None,
+        original = make_device("d1")
+        device, ok = settle(
+            await mod._check_job_for_device(
+                device=original, jobs_service=service, parsed=parsed or _parsed(), run_id=None
+            ),
+            original,
         )
     return device, ok, service.get_job_result
 
@@ -162,13 +162,15 @@ async def test_an_unresolved_job_uuid_fails_the_device_without_polling() -> None
     service = MagicMock()
     service.get_job_result = AsyncMock()
 
-    _key, device, ok = await mod._check_job_for_device(
-        device_key="d1",
-        device=make_device("d1"),
-        node_id="n",
-        jobs_service=service,
-        parsed=_parsed(job_uuid_expr="{custom.missing}"),
-        run_id=None,
+    original = make_device("d1")
+    device, ok = settle(
+        await mod._check_job_for_device(
+            device=original,
+            jobs_service=service,
+            parsed=_parsed(job_uuid_expr="{custom.missing}"),
+            run_id=None,
+        ),
+        original,
     )
 
     assert not ok and device.status == DeviceStatus.FAILED
@@ -184,19 +186,22 @@ async def test_a_job_id_that_is_not_a_uuid_never_reaches_the_rest_path(hostile: 
     service = MagicMock()
     service.get_job_result = AsyncMock()
 
-    _key, device, ok = await mod._check_job_for_device(
-        device_key="d1",
-        device=make_device("d1", attribute_bags={"custom": {"job": hostile}}),
-        node_id="n",
-        jobs_service=service,
-        parsed=_parsed(job_uuid_expr="{custom.job}"),
-        run_id=None,
+    original = make_device("d1", attribute_bags={"custom": {"job": hostile}})
+    device, ok = settle(
+        await mod._check_job_for_device(
+            device=original,
+            jobs_service=service,
+            parsed=_parsed(job_uuid_expr="{custom.job}"),
+            run_id=None,
+        ),
+        original,
     )
 
     assert not ok and device.status == DeviceStatus.FAILED
     error = device.errors[-1]
     assert error.failure is not None and error.failure.kind == "bad_request"
     assert hostile not in error.message
+    assert error.code == "job_uuid_invalid"
     service.get_job_result.assert_not_awaited()
 
 

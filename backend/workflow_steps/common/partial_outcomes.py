@@ -19,18 +19,29 @@ from workflow_steps.common.device_outcomes import mark_device_failed
 
 
 def device_error_from_exception(
-    exc: BaseException, *, node_id: str, step_id: str
+    exc: BaseException,
+    *,
+    node_id: str,
+    step_id: str,
+    keep_text: tuple[type[BaseException], ...] = (),
 ) -> DeviceError:
     """A closed-vocabulary record plus a message that never contains driver or SQL text.
 
     ``ValueError`` and ``FileNotFoundError`` messages are written by the steps themselves and are
     safe to keep; any other exception (a database driver, an HTTP client, ...) is reduced to its
     class name, because its text can carry SQL, bound parameters or credentials.
+
+    ``keep_text`` names further classes whose text is safe to store (an integration client that
+    sanitises its own messages, for example the Nautobot errors).
     """
     failure = failure_from_exception(exc) or FailureInfo(
         phase="internal", kind="internal_error", exception_type=type(exc).__name__
     )
-    message = str(exc) if isinstance(exc, (ValueError, FileNotFoundError)) else type(exc).__name__
+    message = (
+        str(exc)
+        if isinstance(exc, (ValueError, FileNotFoundError, *keep_text))
+        else type(exc).__name__
+    )
     return DeviceError(
         node_id=node_id,
         step_id=step_id,
