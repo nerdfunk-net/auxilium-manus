@@ -7,7 +7,7 @@ import unittest
 from pathlib import Path
 
 from models.workflow_context import WorkflowContext
-from workflow_steps.common.git_push_helpers import collect_export_paths_for_commit
+from workflow_steps.git_push.helpers import collect_export_paths_for_commit
 
 
 class GitPushHelpersTests(unittest.TestCase):

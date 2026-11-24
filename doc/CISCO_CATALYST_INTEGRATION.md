@@ -108,7 +108,7 @@ backend/workflow_steps/common/catalyst_center_targets.py  # per-source grouping,
 backend/workflow_steps/common/catalyst_center_facts.py    # run_fact_step(): shared driver of the three fact steps
 backend/workflow_steps/common/device_builders.py     # device_context_from_catalyst_center()
 backend/workflow_steps/config_to_attributes/catalyst_details.py  # facts -> Nautobot interfaces + device fields (source_format catalyst_details)
-backend/workflow_steps/common/textfsm_parse.py       # parse_with_textfsm(): ntc-templates -> {parsed, error}
+backend/workflow_steps/run_catalyst_center_command/textfsm_parse.py       # parse_with_textfsm(): ntc-templates -> {parsed, error}
 backend/workflow_steps/registry.yaml                 # six entries, ids starting get-/run-catalyst-center-* (palette_category: cisco)
 backend/services/execution/step_registry.py          # dispatch table entries
 backend/service_factory.py                           # get/set_catalyst_center_app_service, build_catalyst_center_*_service
@@ -363,7 +363,7 @@ Behaviour notes:
   steps that mix the two sources will see that header difference. Startup config is not offered by the controller; use the
   command step with `show startup-config`.
 - **TextFSM parsing** (`parser: textfsm`) reuses Netmiko's `get_structured_data_textfsm` (ntc-templates) through
-  `workflow_steps/common/textfsm_parse.py`, on the *cleaned* output, with the device's `network_driver` (`cisco_xe` falls back to
+  `workflow_steps/run_catalyst_center_command/textfsm_parse.py`, on the *cleaned* output, with the device's `network_driver` (`cisco_xe` falls back to
   `cisco_ios` inside Netmiko) or `network_driver_override`. The result has the same shape as Run Command's
   (`parsed.<parsed_output_key>.<command> = {"parsed": rows|None, "error": str|None}`), so downstream steps do not care which step
   produced it. It is non-fatal per command: no template, no driver, or a parse error gives `{parsed: null, error}` and the device

@@ -1,4 +1,4 @@
-"""Read reference file content for compare-data from filesystem or git."""
+"""Read reference file content (compare-data, compare-pyats-snapshot) from filesystem or git."""
 
 from __future__ import annotations
 
@@ -13,17 +13,18 @@ from services.git.paths import resolve_within_repo, validate_relative_glob
 from services.git.tree_scope import git_work_tree
 from services.workflow_context.device_template import sanitize_relative_path
 from workflow_steps.common.git_repository_loader import load_git_repository, require_repository_id
+from workflow_steps.common.step_flags import parse_bool_flag
 
 logger = logging.getLogger(__name__)
 
 _REFERENCE_LOCATIONS = frozenset({"filesystem", "git"})
 
 
-def parse_reference_location(config: dict[str, Any]) -> str:
+def parse_reference_location(config: dict[str, Any], *, step_id: str) -> str:
     location = str(config.get("reference_location") or "filesystem").strip().lower()
     if location not in _REFERENCE_LOCATIONS:
         raise ValueError(
-            f"compare-data: reference_location must be one of {sorted(_REFERENCE_LOCATIONS)}"
+            f"{step_id}: reference_location must be one of {sorted(_REFERENCE_LOCATIONS)}"
         )
     return location
 
@@ -63,49 +64,37 @@ def _git_reference_path(
     return resolve_within_repo(get_repo_path(repository), str(normalized))
 
 
-def _git_repository_id(config: dict[str, Any]) -> int:
+def _git_repository_id(config: dict[str, Any], *, step_id: str) -> int:
     if config.get("git_repository_id") in (None, ""):
-        raise ValueError("compare-data: git_repository_id is required when reference_location=git")
-    return require_repository_id(config.get("git_repository_id"), step_id="compare-data")
+        raise ValueError(f"{step_id}: git_repository_id is required when reference_location=git")
+    return require_repository_id(config.get("git_repository_id"), step_id=step_id)
 
 
-def validate_reference_config(config: dict[str, Any]) -> None:
+def validate_reference_config(config: dict[str, Any], *, step_id: str) -> None:
     """The reference settings are configuration, not per-device data: a bad one raises here,
     once, before any device is read (W4-02)."""
-    from workflow_steps.common.step_flags import parse_bool_flag
-    from workflow_steps.compare_data.config import get_config
-
-    merged = {**get_config(), **config}
-    if parse_reference_location(config) == "git":
-        _git_repository_id(config)
-    parse_bool_flag(merged, "pull_before_read", step_id="compare-data")
+    if parse_reference_location(config, step_id=step_id) == "git":
+        _git_repository_id(config, step_id=step_id)
+    parse_bool_flag(config, "pull_before_read", default=False, step_id=step_id)
 
 
 async def read_reference_text(
     *,
     config: dict[str, Any],
     relative_path: str,
+    step_id: str,
 ) -> str:
     """Load reference file content from the configured location."""
-    location = parse_reference_location(config)
+    location = parse_reference_location(config, step_id=step_id)
     if location == "filesystem":
-        return await asyncio.to_thread(
-            _read_filesystem_sync,
-            config,
-            relative_path,
-        )
-    return await _read_git_async(config, relative_path)
+        return await asyncio.to_thread(_read_filesystem_sync, config, relative_path, step_id)
+    return await _read_git_async(config, relative_path, step_id)
 
 
-def _read_filesystem_sync(config: dict[str, Any], relative_path: str) -> str:
-    from workflow_steps.compare_data.config import get_config
-
-    defaults = get_config()
-    reference_subdirectory = str(
-        config.get("reference_subdirectory")
-        or defaults.get("reference_subdirectory")
-        or "references"
-    )
+def _read_filesystem_sync(
+    config: dict[str, Any], relative_path: str, step_id: str = "reference"
+) -> str:
+    reference_subdirectory = str(config.get("reference_subdirectory") or "references")
     target = _filesystem_reference_path(
         reference_subdirectory=reference_subdirectory,
         relative_path=relative_path,
@@ -114,18 +103,13 @@ def _read_filesystem_sync(config: dict[str, Any], relative_path: str) -> str:
         # relative path only: the absolute server path must not leak (W4-18)
         raise FileNotFoundError(f"Reference file not found: {relative_path}")
     content = target.read_text(encoding="utf-8")
-    logger.info("compare-data read filesystem reference path=%s bytes=%d", target, len(content))
+    logger.info("%s read filesystem reference path=%s bytes=%d", step_id, target, len(content))
     return content
 
 
-async def _read_git_async(config: dict[str, Any], relative_path: str) -> str:
-    from workflow_steps.compare_data.config import get_config
-
-    defaults = get_config()
-    repository = load_git_repository(_git_repository_id(config))
-    repository_subdirectory = str(
-        config.get("repository_subdirectory") or defaults.get("repository_subdirectory") or ""
-    )
+async def _read_git_async(config: dict[str, Any], relative_path: str, step_id: str) -> str:
+    repository = load_git_repository(_git_repository_id(config, step_id=step_id))
+    repository_subdirectory = str(config.get("repository_subdirectory") or "")
     target = _git_reference_path(
         repository=repository,
         repository_subdirectory=repository_subdirectory,
@@ -135,19 +119,15 @@ async def _read_git_async(config: dict[str, Any], relative_path: str) -> str:
     def _read_sync() -> str:
         # Under the repository lease. A pull is deduplicated per repository for a few seconds
         # (git_work_tree), so N devices cause one pull, not N (C4-04, C2-06).
-        pull_before_read = config.get("pull_before_read", defaults.get("pull_before_read"))
-        from workflow_steps.common.step_flags import parse_bool_flag
-
-        with git_work_tree(
-            repository,
-            sync="strict" if parse_bool_flag({"v": pull_before_read}, "v") else "never",
-        ):
+        pull_before_read = parse_bool_flag(config, "pull_before_read", default=False)
+        with git_work_tree(repository, sync="strict" if pull_before_read else "never"):
             if not target.is_file():
                 # relative path only: the absolute server path must not leak (C4-04)
                 raise FileNotFoundError(f"Reference file not found: {relative_path}")
             content = target.read_text(encoding="utf-8")
         logger.info(
-            "compare-data read git reference repo=%s path=%s bytes=%d",
+            "%s read git reference repo=%s path=%s bytes=%d",
+            step_id,
             repository.get("name"),
             relative_path,
             len(content),

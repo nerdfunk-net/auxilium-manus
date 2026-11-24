@@ -13,9 +13,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from services.ise import lookup as ise_lookup
 from services.ise.common.exceptions import ISEAPIError
 from tests.unit._step_helpers import make_device
-from workflow_steps.common import ise_lookup
 from workflow_steps.get_ise_tacacs_key import executor as tacacs
 
 

@@ -22,12 +22,13 @@ from typing import Any
 from core.models.runs import WorkflowRun
 from models.workflow_context import DeviceContext, StepOutcome, WorkflowContext
 from services.secret_manager.exceptions import SecretManagerError
+from services.secret_manager.failure import secret_manager_failure
 from services.secret_manager.service import SecretManagerService
 from workflow_steps.common.device_outcomes import build_outcomes
 from workflow_steps.common.device_runner import AbortRun, Fail, run_per_device
 from workflow_steps.common.partial_outcomes import abort_outcomes
 from workflow_steps.common.run_session import require_session
-from workflow_steps.common.secret_paths import resolve_secret_paths, secret_manager_failure
+from workflow_steps.common.secret_paths import resolve_secret_paths
 
 logger = logging.getLogger(__name__)
 

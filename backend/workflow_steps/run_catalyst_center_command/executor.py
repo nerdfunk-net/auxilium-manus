@@ -40,7 +40,7 @@ from workflow_steps.common.partial_outcomes import (
 )
 from workflow_steps.common.run_session import require_session
 from workflow_steps.common.step_flags import parse_int_flag
-from workflow_steps.common.textfsm_parse import parse_with_textfsm
+from workflow_steps.run_catalyst_center_command.textfsm_parse import parse_with_textfsm
 
 if TYPE_CHECKING:
     from services.network.netmiko.session_pool import DeviceSessionPool

@@ -88,7 +88,7 @@ class ComparePyatsSnapshotExecutorTests(unittest.IsolatedAsyncioTestCase):
                 patch(
                     "workflow_steps.compare_pyats_snapshot.executor.service_factory"
                 ) as service_factory_mock,
-                patch("workflow_steps.compare_data.reference_reader.settings") as settings_mock,
+                patch("workflow_steps.common.reference_reader.settings") as settings_mock,
             ):
                 settings_mock.data_directory = Path(tmp)
                 if resolve_credentials_side_effect is not None:

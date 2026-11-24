@@ -485,6 +485,14 @@ status, a transport kind) builds its own. `test_device_error_failure_ratchet.py`
   `FailureInfo` (`device_outcomes.whole_step_failure`), `success` is answered empty; `contact-the-ai`, `open-change-request`
   and the git steps do it. A step that loses a remote system part-way keeps the devices already done (`abort_outcomes`).
 
+### Import boundaries
+
+`tests/unit/test_workflow_steps_import_boundaries.py` pins four rules: `common/` imports no step; no step
+imports another step (shared code goes to `common/` or `services/`); a step imports a repository only at the
+sites listed in that test (anything else goes behind a service); and only `services/execution/step_registry.py`,
+`scripts/ai_inventory_filter.py` and `routers/workflow_crypto_attribute.py` import `workflow_steps`. A module
+that exactly one step uses lives in that step's package.
+
 ### Author regexes on device or Nautobot data
 
 A pattern an author writes and that runs on content the worker does not control (`route-on-content`

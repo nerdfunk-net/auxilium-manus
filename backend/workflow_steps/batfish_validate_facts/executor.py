@@ -33,7 +33,7 @@ partitions devices by the returned per-node result.
 
 ``facts_source: "git"`` reads expected-facts YAML files from a
 ``GitRepository`` (``git_repository_id``/``base_path``/``glob_pattern``,
-reusing ``common.batfish_git_source.collect_git_source_files`` as-is)
+reusing ``services.git.source_files.collect_git_source_files`` as-is)
 instead of an upstream render step or an inline field. Unlike that step's
 git mode, which copies raw config files into a snapshot upload, this one
 *parses* every matched file as YAML (same top-level ``nodes:`` mapping shape
@@ -67,11 +67,11 @@ from models.workflow_context import (
     WorkflowContext,
 )
 from services.artifacts import ArtifactService
+from services.git.source_files import collect_git_source_files
 from services.git.sync import agit_checkout
 from services.workflow_context.node_result import set_node_result
 from workflow_steps.batfish_validate_facts.config import get_config
 from workflow_steps.common.batfish_context import resolve_batfish_snapshot_ref
-from workflow_steps.common.batfish_git_source import collect_git_source_files
 from workflow_steps.common.content_resolver import list_exportable_content
 from workflow_steps.common.fact_entries import parse_output_key_config
 from workflow_steps.common.failure_records import MISSING_DATA

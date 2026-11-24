@@ -5,7 +5,7 @@ from __future__ import annotations
 import ipaddress
 import unittest
 
-from workflow_steps.common.ise_lookup import device_ip_list_matches, ip_entry_matches
+from services.ise.lookup import device_ip_list_matches, ip_entry_matches
 
 
 def _ip(value: str) -> ipaddress.IPv4Address:

@@ -34,13 +34,13 @@ from workflow_steps.common.content_resolver import (
 )
 from workflow_steps.common.failure_records import MISSING_DATA
 from workflow_steps.common.partial_outcomes import device_error_from_exception
-from workflow_steps.common.run_logging import log_run_id
-from workflow_steps.common.step_flags import parse_bool_flag
-from workflow_steps.compare_data.config import get_config
-from workflow_steps.compare_data.reference_reader import (
+from workflow_steps.common.reference_reader import (
     read_reference_text,
     validate_reference_config,
 )
+from workflow_steps.common.run_logging import log_run_id
+from workflow_steps.common.step_flags import parse_bool_flag
+from workflow_steps.compare_data.config import get_config
 
 if TYPE_CHECKING:
     from services.network.netmiko.session_pool import DeviceSessionPool
@@ -61,7 +61,7 @@ class _ParsedCompareConfig:
 
 
 def _parse_compare_config(config: dict[str, Any]) -> _ParsedCompareConfig:
-    validate_reference_config(config)
+    validate_reference_config(config, step_id="compare-data")
     return _ParsedCompareConfig(
         content_source=parse_content_source(
             config, step_id="compare-data", default=str(get_config()["content_source"])
@@ -241,6 +241,7 @@ async def _load_compare_texts(
     reference_content = await read_reference_text(
         config=config,
         relative_path=reference_path,
+        step_id="compare-data",
     )
     return source_content, reference_content, reference_path
 

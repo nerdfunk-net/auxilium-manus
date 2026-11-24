@@ -254,7 +254,7 @@ backend/workflow_steps/common/batfish_context.py   # resolve_batfish_snapshot/st
                                                      # + devices_from_nodes (Node column -> DeviceContext dedup, shared by Get from Batfish)
 backend/workflow_steps/get_batfish_devices/{__init__.py,executor.py,config.py}       # "Get from Batfish" -- three-way: placeholder / metadata-driven / direct-target device listing
 backend/workflow_steps/batfish_init_snapshot/{__init__.py,executor.py,config.py}
-backend/workflow_steps/common/batfish_git_source.py   # config_source: git -- glob-based file collection
+backend/services/git/source_files.py   # config_source: git -- glob-based file collection
 backend/workflow_steps/batfish_routing_table/{__init__.py,executor.py,config.py}
 backend/workflow_steps/batfish_node_properties/{__init__.py,executor.py,config.py}   # exposes nodeProperties' `properties` filter directly (Get from Batfish never sets it)
 backend/workflow_steps/batfish_interface_properties/{__init__.py,executor.py,config.py}   # interfaceProperties -- one row per (node, interface), a different question/shape from nodeProperties
@@ -281,7 +281,7 @@ backend/workflow_steps/registry.yaml          # 11 entries, palette_category: ba
 
 backend/tests/unit/test_batfish_{client,source_config_service,router_auth,context_helper}.py
 backend/tests/unit/test_batfish_context_ref_resolver.py
-backend/tests/unit/test_batfish_git_source.py
+backend/tests/unit/test_git_source_files.py
 backend/tests/unit/test_get_batfish_devices_executor.py
 backend/tests/unit/test_batfish_{init_snapshot,routing_table,path_check,acl_check}_executor.py
 backend/tests/unit/test_batfish_node_properties_executor.py
@@ -543,7 +543,7 @@ re-upload regardless of where the configs come from. `config_source` on
   `glob_pattern` (a glob — supporting `**` recursive segments — matched
   against files under `base_path`).
 
-  `backend/workflow_steps/common/batfish_git_source.py`'s
+  `backend/services/git/source_files.py`'s
   `collect_git_source_files` resolves `base_path` with the same
   escape-guard pattern as `read_config/executor.py::_resolve_target_path`,
   then walks matches via `pathlib.Path.glob(glob_pattern)` — which natively
@@ -909,7 +909,7 @@ default `rendered_yaml`):
 - **`git`** — reads expected-facts YAML files from a `GitRepository`
   (`git_repository_id`, `base_path`, `glob_pattern` — identical field names
   and resolution to `batfish-init-snapshot`'s own `config_source: git`,
-  reusing `workflow_steps.common.batfish_git_source
+  reusing `services.git.source_files
   .collect_git_source_files` as-is). Unlike that step's git mode, which
   *copies* raw config files into a Batfish snapshot upload, this one
   *parses* every matched file as YAML — each must have the same top-level

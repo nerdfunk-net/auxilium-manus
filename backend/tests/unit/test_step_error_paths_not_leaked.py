@@ -15,7 +15,7 @@ from _git_helpers import acheckout_of
 
 from tests.unit._step_helpers import call_step, make_context, make_device
 from workflow_steps.batfish_validate_facts import executor as validate_facts
-from workflow_steps.compare_data import reference_reader
+from workflow_steps.common import reference_reader
 from workflow_steps.read_config.executor import execute as read_config
 
 

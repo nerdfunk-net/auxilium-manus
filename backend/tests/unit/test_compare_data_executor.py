@@ -61,14 +61,14 @@ def _device_with_pyats_snapshot() -> DeviceContext:
 
 class ReferencePathContainmentTests(unittest.TestCase):
     def test_reference_subdirectory_cannot_escape_data_dir(self) -> None:
-        from workflow_steps.compare_data.reference_reader import _filesystem_reference_path
+        from workflow_steps.common.reference_reader import _filesystem_reference_path
 
         with tempfile.TemporaryDirectory() as tmp:
             base = Path(tmp)
             data = base / "data"
             data.mkdir()
             (base / "secret.env").write_text("SECRET")
-            with patch("workflow_steps.compare_data.reference_reader.settings") as cfg:
+            with patch("workflow_steps.common.reference_reader.settings") as cfg:
                 cfg.data_directory = data
                 for sub in ("../", "..", "../..", "a/../.."):
                     with self.subTest(sub=sub), self.assertRaises(ValueError):
@@ -78,7 +78,7 @@ class ReferencePathContainmentTests(unittest.TestCase):
 
     def test_git_reference_through_symlink_is_refused(self) -> None:
         from core.domain_exceptions import AccessDeniedError
-        from workflow_steps.compare_data.reference_reader import _git_reference_path
+        from workflow_steps.common.reference_reader import _git_reference_path
 
         with tempfile.TemporaryDirectory() as tmp:
             base = Path(tmp).resolve()
@@ -88,7 +88,7 @@ class ReferencePathContainmentTests(unittest.TestCase):
             (repo / "link.env").symlink_to(base / "secret.env")
             with (
                 patch(
-                    "workflow_steps.compare_data.reference_reader.get_repo_path", return_value=repo
+                    "workflow_steps.common.reference_reader.get_repo_path", return_value=repo
                 ),
                 self.assertRaises(AccessDeniedError),
             ):
@@ -128,7 +128,7 @@ class CompareDataExecutorTests(unittest.IsolatedAsyncioTestCase):
             (ref_dir / "lab.cfg").write_text("hostname lab\n", encoding="utf-8")
 
             with (
-                patch("workflow_steps.compare_data.reference_reader.settings") as settings_mock,
+                patch("workflow_steps.common.reference_reader.settings") as settings_mock,
                 patch.object(
                     artifact_service,
                     "resolve",
@@ -186,7 +186,7 @@ class CompareDataExecutorTests(unittest.IsolatedAsyncioTestCase):
             (ref_dir / "lab.cfg").write_text("hostname lab-old\n", encoding="utf-8")
 
             with (
-                patch("workflow_steps.compare_data.reference_reader.settings") as settings_mock,
+                patch("workflow_steps.common.reference_reader.settings") as settings_mock,
                 patch.object(
                     artifact_service,
                     "resolve",
@@ -256,7 +256,7 @@ class CompareDataExecutorTests(unittest.IsolatedAsyncioTestCase):
             ref_dir.mkdir()
             (ref_dir / "lab.cfg").write_text("hostname lab-old\n", encoding="utf-8")
             with (
-                patch("workflow_steps.compare_data.reference_reader.settings") as settings_mock,
+                patch("workflow_steps.common.reference_reader.settings") as settings_mock,
                 patch.object(
                     artifact_service, "resolve", new=AsyncMock(return_value="hostname lab-new\n")
                 ),
@@ -302,7 +302,7 @@ class CompareDataExecutorTests(unittest.IsolatedAsyncioTestCase):
             )
 
             with (
-                patch("workflow_steps.compare_data.reference_reader.settings") as settings_mock,
+                patch("workflow_steps.common.reference_reader.settings") as settings_mock,
                 patch.object(
                     artifact_service,
                     "resolve",
@@ -353,7 +353,7 @@ class CompareDataExecutorTests(unittest.IsolatedAsyncioTestCase):
 
         with tempfile.TemporaryDirectory() as tmp:
             with (
-                patch("workflow_steps.compare_data.reference_reader.settings") as settings_mock,
+                patch("workflow_steps.common.reference_reader.settings") as settings_mock,
                 patch.object(
                     artifact_service,
                     "resolve",

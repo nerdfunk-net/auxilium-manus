@@ -7,7 +7,25 @@ from typing import Any
 from models.workflow_context import DeviceContext, DeviceStatus
 from services.workflow_context.flags import parse_bool_flag, parse_int_flag
 
-__all__ = ["parse_bool_flag", "parse_int_flag", "record_dry_run", "require_text"]
+__all__ = [
+    "parse_bool_flag",
+    "parse_int_flag",
+    "parse_output_key",
+    "record_dry_run",
+    "require_text",
+]
+
+
+def parse_output_key(raw: Any) -> str:
+    """A name for a step's result: starts with a letter, then letters, digits or underscores."""
+    key = str(raw or "").strip()
+    if not key:
+        raise ValueError("output_key is required")
+    if not key.replace("_", "").isalnum() or not key[0].isalpha():
+        raise ValueError(
+            "output_key must start with a letter and contain only letters, numbers, or underscores"
+        )
+    return key
 
 
 def require_text(

@@ -1,4 +1,4 @@
-"""Tests for workflow_steps.common.batfish_git_source."""
+"""Tests for services.git.source_files."""
 
 from __future__ import annotations
 
@@ -8,10 +8,12 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from workflow_steps.common.batfish_git_source import (
+from services.git.source_files import (
     collect_git_source_files,
     copy_git_source_files_into,
 )
+
+_STEP = "batfish-init-snapshot"
 
 
 class GitSourceFilesTests(unittest.TestCase):
@@ -33,7 +35,7 @@ class GitSourceFilesTests(unittest.TestCase):
         self._write("readme.md")
 
         matches = collect_git_source_files(
-            repo_root=self.repo_root, base_path="", glob_pattern="**/*.running.cfg"
+            repo_root=self.repo_root, base_path="", glob_pattern="**/*.running.cfg", step_id=_STEP
         )
 
         names = sorted(p.name for p in matches)
@@ -45,7 +47,10 @@ class GitSourceFilesTests(unittest.TestCase):
         self._write("configs/startup/r1.cfg")
 
         matches = collect_git_source_files(
-            repo_root=self.repo_root, base_path="", glob_pattern="configs/running/**/*.cfg"
+            repo_root=self.repo_root,
+            base_path="",
+            glob_pattern="configs/running/**/*.cfg",
+            step_id=_STEP,
         )
 
         rels = sorted(str(p.relative_to(self.repo_root.resolve())) for p in matches)
@@ -56,7 +61,10 @@ class GitSourceFilesTests(unittest.TestCase):
         self._write("other/r2.cfg")
 
         matches = collect_git_source_files(
-            repo_root=self.repo_root, base_path="configs/running", glob_pattern="*.cfg"
+            repo_root=self.repo_root,
+            base_path="configs/running",
+            glob_pattern="*.cfg",
+            step_id=_STEP,
         )
 
         self.assertEqual([p.name for p in matches], ["r1.cfg"])
@@ -66,7 +74,7 @@ class GitSourceFilesTests(unittest.TestCase):
         self._write("r2.running.cfg")
 
         matches = collect_git_source_files(
-            repo_root=self.repo_root, base_path="", glob_pattern="**/*.running.cfg"
+            repo_root=self.repo_root, base_path="", glob_pattern="**/*.running.cfg", step_id=_STEP
         )
 
         self.assertEqual([p.name for p in matches], ["r2.running.cfg"])
@@ -85,7 +93,10 @@ class GitSourceFilesTests(unittest.TestCase):
             self._write("r1.running.cfg")
 
             matches = collect_git_source_files(
-                repo_root=self.repo_root, base_path="", glob_pattern="**/*.running.cfg"
+                repo_root=self.repo_root,
+                base_path="",
+                glob_pattern="**/*.running.cfg",
+                step_id=_STEP,
             )
 
             self.assertEqual([p.name for p in matches], ["r1.running.cfg"])
@@ -96,7 +107,7 @@ class GitSourceFilesTests(unittest.TestCase):
             with self.subTest(pattern=pattern):
                 with self.assertRaises(ValueError):
                     collect_git_source_files(
-                        repo_root=self.repo_root, base_path="", glob_pattern=pattern
+                        repo_root=self.repo_root, base_path="", glob_pattern=pattern, step_id=_STEP
                     )
 
     def test_messages_name_the_step_that_asked(self) -> None:
@@ -116,54 +127,67 @@ class GitSourceFilesTests(unittest.TestCase):
             )
         with self.assertRaisesRegex(ValueError, r"^batfish-init-snapshot: no files matched"):
             collect_git_source_files(
-                repo_root=self.repo_root, base_path="", glob_pattern="*.nomatch"
+                repo_root=self.repo_root, base_path="", glob_pattern="*.nomatch", step_id=_STEP
             )
 
     def test_base_path_escape_raises_value_error(self) -> None:
         with self.assertRaises(ValueError):
             collect_git_source_files(
-                repo_root=self.repo_root, base_path="../outside", glob_pattern="*.cfg"
+                repo_root=self.repo_root,
+                base_path="../outside",
+                glob_pattern="*.cfg",
+                step_id=_STEP,
             )
 
     def test_missing_base_path_raises_value_error(self) -> None:
         with self.assertRaises(ValueError):
             collect_git_source_files(
-                repo_root=self.repo_root, base_path="does/not/exist", glob_pattern="*.cfg"
+                repo_root=self.repo_root,
+                base_path="does/not/exist",
+                glob_pattern="*.cfg",
+                step_id=_STEP,
             )
 
     def test_no_matches_raises_value_error(self) -> None:
         self._write("r1.startup.cfg")
         with self.assertRaises(ValueError):
             collect_git_source_files(
-                repo_root=self.repo_root, base_path="", glob_pattern="**/*.running.cfg"
+                repo_root=self.repo_root,
+                base_path="",
+                glob_pattern="**/*.running.cfg",
+                step_id=_STEP,
             )
 
     def test_empty_glob_pattern_raises_value_error(self) -> None:
         with self.assertRaises(ValueError):
-            collect_git_source_files(repo_root=self.repo_root, base_path="", glob_pattern="   ")
+            collect_git_source_files(
+                repo_root=self.repo_root, base_path="", glob_pattern="   ", step_id=_STEP
+            )
 
     def test_file_count_cap_raises_value_error(self) -> None:
         self._write("r1.running.cfg")
         self._write("r2.running.cfg")
         self._write("r3.running.cfg")
 
-        with patch(
-            "workflow_steps.common.batfish_git_source.MAX_GIT_SOURCE_FILES", 2
-        ):
+        with patch("services.git.source_files.MAX_GIT_SOURCE_FILES", 2):
             with self.assertRaises(ValueError):
                 collect_git_source_files(
-                    repo_root=self.repo_root, base_path="", glob_pattern="**/*.running.cfg"
+                    repo_root=self.repo_root,
+                    base_path="",
+                    glob_pattern="**/*.running.cfg",
+                    step_id=_STEP,
                 )
 
     def test_file_size_cap_skips_oversized_file(self) -> None:
         self._write("r1.running.cfg", content="x" * 100)
         self._write("r2.running.cfg", content="y" * 10)
 
-        with patch(
-            "workflow_steps.common.batfish_git_source.MAX_GIT_SOURCE_FILE_SIZE", 50
-        ):
+        with patch("services.git.source_files.MAX_GIT_SOURCE_FILE_SIZE", 50):
             matches = collect_git_source_files(
-                repo_root=self.repo_root, base_path="", glob_pattern="**/*.running.cfg"
+                repo_root=self.repo_root,
+                base_path="",
+                glob_pattern="**/*.running.cfg",
+                step_id=_STEP,
             )
 
         self.assertEqual([p.name for p in matches], ["r2.running.cfg"])

@@ -195,14 +195,3 @@ def render_jinja_template(
             ),
         ) from exc
     return rendered
-
-
-def parse_output_key(raw: Any) -> str:
-    key = str(raw or "").strip()
-    if not key:
-        raise JinjaTemplateError("output_key is required")
-    if not key.replace("_", "").isalnum() or not key[0].isalpha():
-        raise JinjaTemplateError(
-            "output_key must start with a letter and contain only letters, numbers, or underscores"
-        )
-    return key

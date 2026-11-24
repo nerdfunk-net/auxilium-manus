@@ -8,10 +8,10 @@ from core.models.runs import WorkflowRun
 from models.workflow_context import StepOutcome, WorkflowContext
 from services.artifacts import ArtifactService
 from services.workflow_context.device_template import render_step_template
-from workflow_steps.common.git_push_helpers import collect_export_paths_for_commit
 from workflow_steps.common.git_workflow_step import run_git_workflow_step
 from workflow_steps.common.step_flags import parse_bool_flag
 from workflow_steps.git_push.config import get_config
+from workflow_steps.git_push.helpers import collect_export_paths_for_commit
 
 if TYPE_CHECKING:
     from services.network.netmiko.session_pool import DeviceSessionPool

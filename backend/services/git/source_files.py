@@ -28,8 +28,6 @@ from services.git.paths import validate_relative_glob
 MAX_GIT_SOURCE_FILES = 20_000
 MAX_GIT_SOURCE_FILE_SIZE = 10 * 1024 * 1024
 
-_STEP_ID = "batfish-init-snapshot"
-
 
 def _resolve_base_dir(repo_root: Path, base_path: str, step_id: str) -> Path:
     root = repo_root.resolve()
@@ -45,7 +43,7 @@ def _resolve_base_dir(repo_root: Path, base_path: str, step_id: str) -> Path:
 
 
 def collect_git_source_files(
-    *, repo_root: Path, base_path: str, glob_pattern: str, step_id: str = _STEP_ID
+    *, repo_root: Path, base_path: str, glob_pattern: str, step_id: str
 ) -> list[Path]:
     """Return every file under base_path matching glob_pattern.
 

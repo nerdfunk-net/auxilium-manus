@@ -28,11 +28,11 @@ from models.workflow_context import (
     WorkflowContext,
 )
 from workflow_steps.common.device_outcomes import TargetSplit, build_outcomes, failed_device
-from workflow_steps.common.jinja_render import JinjaTemplateError, parse_output_key
 from workflow_steps.common.partial_outcomes import (
     device_error_from_exception,
     fail_device_with_error,
 )
+from workflow_steps.common.step_flags import parse_output_key
 
 logger = logging.getLogger(__name__)
 
@@ -79,7 +79,7 @@ def parse_output_key_config(
 ) -> str:
     try:
         return parse_output_key(raw or default)
-    except JinjaTemplateError as exc:
+    except ValueError as exc:
         raise ValueError(f"{step_id}: {key_name}: {exc}") from exc
 
 

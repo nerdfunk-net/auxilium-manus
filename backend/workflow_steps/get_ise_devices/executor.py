@@ -22,6 +22,7 @@ from models.workflow_context import (
 )
 from services.artifacts import ArtifactService
 from services.ise.common.exceptions import ISEAPIError, ISENotFoundError, ISEValidationError
+from services.ise.lookup import fetch_ise_device_details, paginate_ise_summaries
 from services.ise.network_device_service import ISENetworkDeviceService
 from services.sources.nautobot.source_service import NautobotSourceService
 from workflow_steps.common.device_builders import (
@@ -29,7 +30,6 @@ from workflow_steps.common.device_builders import (
     device_context_from_nautobot,
 )
 from workflow_steps.common.fan_out import build_fan_out_metadata
-from workflow_steps.common.ise_lookup import fetch_ise_device_details, paginate_ise_summaries
 from workflow_steps.common.nautobot_source import resolve_nautobot_credentials
 from workflow_steps.common.run_session import require_session
 from workflow_steps.common.source_credentials import resolve_source

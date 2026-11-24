@@ -7,10 +7,9 @@ from dataclasses import dataclass
 from typing import Any
 
 from services.network.netmiko.connection import RetryPolicy
-from workflow_steps.common.jinja_render import parse_output_key
 from workflow_steps.common.read_timeout import parse_read_timeout
 from workflow_steps.common.retry_config import parse_retry_backoff_seconds
-from workflow_steps.common.step_flags import parse_bool_flag
+from workflow_steps.common.step_flags import parse_bool_flag, parse_output_key
 from workflow_steps.run_command.config import get_config
 from workflow_steps.run_command.constants import STEP_ID
 

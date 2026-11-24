@@ -48,7 +48,6 @@ from services.workflow_context.secret_fields import (
 from workflow_steps.common.attribute_merge import deep_merge_mapping
 from workflow_steps.common.failure_records import NOT_FOUND
 from workflow_steps.common.jinja_render import build_jinja_context, render_jinja_template
-from workflow_steps.common.json_object_path import get_at_path, set_at_path, top_level_key
 from workflow_steps.common.nautobot_resolve import resolve_nautobot_device_id
 from workflow_steps.common.nautobot_source import resolve_nautobot_credentials
 from workflow_steps.common.nautobot_target import (
@@ -61,6 +60,11 @@ from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.common.run_session import require_session
 from workflow_steps.common.step_flags import parse_bool_flag
 from workflow_steps.common.template_content import load_stored_template
+from workflow_steps.update_config_context.json_object_path import (
+    get_at_path,
+    set_at_path,
+    top_level_key,
+)
 
 if TYPE_CHECKING:
     from services.network.netmiko.session_pool import DeviceSessionPool

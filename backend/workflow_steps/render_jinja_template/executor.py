@@ -22,12 +22,11 @@ from services.artifacts import ArtifactService
 from workflow_steps.common.jinja_render import (
     JinjaTemplateError,
     build_jinja_context,
-    parse_output_key,
     render_jinja_template,
     validate_jinja_template,
 )
 from workflow_steps.common.run_logging import log_run_id
-from workflow_steps.common.step_flags import parse_bool_flag
+from workflow_steps.common.step_flags import parse_bool_flag, parse_output_key
 from workflow_steps.common.template_content import load_stored_template
 from workflow_steps.render_jinja_template.config import get_config
 

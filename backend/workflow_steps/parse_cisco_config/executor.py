@@ -21,9 +21,9 @@ from services.network.cisco_config_parsing import (
     parse_cisco_config_text,
     platform_hint_for_network_driver,
 )
-from workflow_steps.common.jinja_render import parse_output_key
 from workflow_steps.common.partial_outcomes import device_error_from_exception
 from workflow_steps.common.run_logging import log_run_id
+from workflow_steps.common.step_flags import parse_output_key
 from workflow_steps.parse_cisco_config.config import get_config
 
 if TYPE_CHECKING:

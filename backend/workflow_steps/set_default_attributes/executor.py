@@ -16,9 +16,9 @@ from workflow_steps.common.attribute_defaults import (
     normalize_defaults_block,
 )
 from workflow_steps.common.git_repository_loader import parse_repository_id
-from workflow_steps.common.git_yaml_source import load_yaml_from_git_source
 from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.common.step_flags import parse_bool_flag
+from workflow_steps.set_default_attributes.git_source import load_yaml_from_git_source
 
 if TYPE_CHECKING:
     from services.network.netmiko.session_pool import DeviceSessionPool

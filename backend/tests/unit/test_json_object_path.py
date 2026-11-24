@@ -1,10 +1,14 @@
-"""Unit tests for workflow_steps/common/json_object_path.py."""
+"""Unit tests for workflow_steps/update_config_context/json_object_path.py."""
 
 from __future__ import annotations
 
 import unittest
 
-from workflow_steps.common.json_object_path import get_at_path, set_at_path, top_level_key
+from workflow_steps.update_config_context.json_object_path import (
+    get_at_path,
+    set_at_path,
+    top_level_key,
+)
 
 
 class GetAtPathTests(unittest.TestCase):

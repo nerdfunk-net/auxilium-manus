@@ -9,7 +9,7 @@ The "live" side is resolved the same way store-artifact resolves
 content_source="pyats_snapshot" (workflow_steps/common/content_resolver.py),
 pointed at an upstream get-pyats-snapshot step via source_step_node_id. The
 "reference" side is loaded the same way compare-data loads its reference --
-via workflow_steps/compare_data/reference_reader.py, from git or the
+via workflow_steps/common/reference_reader.py, from git or the
 filesystem. There is no cross-run artifact lookup anywhere in this codebase:
 the reference file must be a JSON pyats_snapshot blob previously written by a
 store-artifact step exporting an earlier get-pyats-snapshot run's content.
@@ -63,10 +63,10 @@ from workflow_steps.common.failure_records import INVALID_INPUT, MISSING_DATA
 from workflow_steps.common.partial_outcomes import device_error_from_exception
 from workflow_steps.common.pyats_batch import resolve_source_credentials
 from workflow_steps.common.pyats_features import parse_feature_list
+from workflow_steps.common.reference_reader import read_reference_text
 from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.common.run_session import require_session
 from workflow_steps.common.step_flags import parse_bool_flag
-from workflow_steps.compare_data.reference_reader import read_reference_text
 from workflow_steps.compare_pyats_snapshot.config import get_config
 
 if TYPE_CHECKING:
@@ -382,7 +382,9 @@ async def _load_reference_snapshot(
     )
 
     try:
-        reference_text = await read_reference_text(config=config, relative_path=reference_path)
+        reference_text = await read_reference_text(
+            config=config, relative_path=reference_path, step_id=_STEP_ID
+        )
     except FileNotFoundError as exc:
         return Fail("missing_reference", str(exc), failure=MISSING_DATA)
     except Exception as exc:  # noqa: BLE001 - surfaced to the operator as a device failure

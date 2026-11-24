@@ -14,12 +14,12 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from services.agents.source_config_service import AgentSourceNotFoundError
-from workflow_steps.common import git_yaml_source
 from workflow_steps.common.agent_source import resolve_agent_connection
 from workflow_steps.common.retry_config import (
     MAX_RETRY_ATTEMPTS,
     parse_retry_backoff_seconds,
 )
+from workflow_steps.set_default_attributes import git_source as git_yaml_source
 
 # ── agent_source ───────────────────────────────────────────────────────────────────────────────
 

@@ -13,7 +13,7 @@ git"):
 - "git": reads already-collected configs from a Git repository instead of
   context.devices -- no live device contact at all, suitable for refreshing
   a production-scale network on a schedule (see
-  workflow_steps.common.batfish_git_source). Ignores context.devices
+  services.git.source_files). Ignores context.devices
   entirely; pair with an upstream get-batfish-devices step to satisfy the
   canvas's requires: [identity] connection rule without a real
   device-selection step.
@@ -47,16 +47,16 @@ from models.workflow_context import StepOutcome, WorkflowContext
 from repositories.run_repository import RunRepository
 from services.artifacts import ArtifactService
 from services.batfish.common.exceptions import BatfishAPIError
+from services.git.source_files import (
+    collect_git_source_files,
+    copy_git_source_files_into,
+)
 from services.git.sync import agit_checkout
 from services.workflow_context.device_template import sanitize_path_segment
 from workflow_steps.batfish_init_snapshot.config import get_config
 from workflow_steps.common.batfish_context import (
     resolve_batfish_connection,
     store_batfish_snapshot,
-)
-from workflow_steps.common.batfish_git_source import (
-    collect_git_source_files,
-    copy_git_source_files_into,
 )
 from workflow_steps.common.content_resolver import list_exportable_content
 from workflow_steps.common.failure_records import MISSING_DATA
@@ -245,6 +245,7 @@ async def _init_from_git(
                 repo_root=repo_dir,
                 base_path=base_path,
                 glob_pattern=glob_pattern,
+                step_id=_STEP_ID,
             )
             await asyncio.to_thread(copy_git_source_files_into, configs_dir, matched_files)
 

@@ -114,3 +114,26 @@ async def test_each_step_reports_the_same_message(
             node_id="n",
             device_sessions=MagicMock(),
         )
+
+
+@pytest.mark.parametrize("raw", ["parsed", " out_1 ", "A9_"])
+def test_parse_output_key_accepts_names(raw: str) -> None:
+    from workflow_steps.common.step_flags import parse_output_key
+
+    assert parse_output_key(raw) == raw.strip()
+
+
+@pytest.mark.parametrize("raw", [None, "", "  "])
+def test_parse_output_key_requires_a_value(raw: object) -> None:
+    from workflow_steps.common.step_flags import parse_output_key
+
+    with pytest.raises(ValueError, match="^output_key is required$"):
+        parse_output_key(raw)
+
+
+@pytest.mark.parametrize("raw", ["1abc", "_a", "a-b", "a.b", "a b"])
+def test_parse_output_key_refuses_other_names(raw: str) -> None:
+    from workflow_steps.common.step_flags import parse_output_key
+
+    with pytest.raises(ValueError, match="must start with a letter"):
+        parse_output_key(raw)

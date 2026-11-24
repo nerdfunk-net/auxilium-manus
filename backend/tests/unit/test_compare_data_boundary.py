@@ -62,7 +62,7 @@ async def test_a_store_error_on_a_mismatch_fails_only_that_device(tmp_path: Path
         return "different\n" if ref.artifact_id == "a-d1" else "same\n"
 
     with (
-        patch("workflow_steps.compare_data.reference_reader.settings") as settings_mock,
+        patch("workflow_steps.common.reference_reader.settings") as settings_mock,
         patch.object(artifacts, "resolve", new=AsyncMock(side_effect=resolve)),
         patch.object(artifacts, "store", new=AsyncMock(side_effect=RuntimeError("disk full /x"))),
     ):

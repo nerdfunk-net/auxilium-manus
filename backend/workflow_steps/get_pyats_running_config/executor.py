@@ -37,7 +37,6 @@ from services.artifacts import ArtifactService
 from workflow_steps.common.device_outcomes import build_outcomes
 from workflow_steps.common.device_runner import Fail, run_per_device
 from workflow_steps.common.failure_records import INVALID_RESPONSE
-from workflow_steps.common.jinja_render import parse_output_key
 from workflow_steps.common.pyats_batch import (
     resolve_source_credentials,
     run_batched,
@@ -46,6 +45,7 @@ from workflow_steps.common.pyats_batch import (
 )
 from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.common.run_session import require_session
+from workflow_steps.common.step_flags import parse_output_key
 from workflow_steps.get_pyats_running_config.config import get_config
 
 if TYPE_CHECKING:
