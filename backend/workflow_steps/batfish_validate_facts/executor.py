@@ -72,6 +72,7 @@ from workflow_steps.batfish_validate_facts.config import get_config
 from workflow_steps.common.batfish_context import resolve_batfish_snapshot_ref
 from workflow_steps.common.batfish_git_source import collect_git_source_files
 from workflow_steps.common.content_resolver import list_exportable_content
+from workflow_steps.common.fact_entries import parse_output_key_config
 from workflow_steps.common.git_repository_loader import load_git_repository, require_repository_id
 from workflow_steps.common.jinja_render import (
     JinjaTemplateError,
@@ -302,6 +303,12 @@ async def execute(
     del device_sessions  # unused: Batfish is reached via pybatfish, not Netmiko
 
     merged_config = {**get_config(), **config}
+    output_key = parse_output_key_config(
+        merged_config.get("output_key"),
+        step_id=_STEP_ID,
+        default="batfish_validate_facts",
+        key_name="output_key",
+    )
     facts_source = str(merged_config.get("facts_source") or "rendered_yaml").strip().lower()
     if facts_source not in _FACTS_SOURCES:
         raise ValueError(f"{_STEP_ID}: facts_source must be one of {sorted(_FACTS_SOURCES)}")
@@ -320,10 +327,6 @@ async def execute(
             )
         if not str(merged_config.get("glob_pattern") or "").strip():
             raise ValueError(f"{_STEP_ID}: glob_pattern is required when facts_source is 'git'")
-
-    output_key = str(merged_config.get("output_key") or "batfish_validate_facts").strip() or (
-        "batfish_validate_facts"
-    )
 
     if not context.devices:
         return [StepOutcome(name=outcome_name, context=context) for outcome_name in _OUTCOME_NAMES]

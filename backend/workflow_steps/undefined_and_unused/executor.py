@@ -69,6 +69,7 @@ from services.batfish.query_helpers import (
     query_unused_structures,
 )
 from workflow_steps.common.batfish_context import resolve_batfish_snapshot_ref
+from workflow_steps.common.fact_entries import parse_output_key_config
 from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.undefined_and_unused.config import get_config
 
@@ -348,8 +349,11 @@ async def execute(
     del device_sessions  # unused: Batfish is reached via pybatfish, not Netmiko
 
     merged_config = {**get_config(), **config}
-    output_key = str(merged_config.get("output_key") or "undefined_and_unused").strip() or (
-        "undefined_and_unused"
+    output_key = parse_output_key_config(
+        merged_config.get("output_key"),
+        step_id=_STEP_ID,
+        default="undefined_and_unused",
+        key_name="output_key",
     )
 
     if not context.devices:

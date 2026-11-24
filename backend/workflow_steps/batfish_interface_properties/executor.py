@@ -43,6 +43,7 @@ from workflow_steps.common.batfish_properties import (
     parse_properties_list,
     validate_empty_config,
 )
+from workflow_steps.common.fact_entries import parse_output_key_config
 from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.common.step_flags import parse_bool_flag
 
@@ -68,6 +69,12 @@ async def execute(
     del device_sessions  # unused: Batfish is reached via pybatfish, not Netmiko
 
     merged_config = {**get_config(), **config}
+    output_key = parse_output_key_config(
+        merged_config.get("output_key"),
+        step_id=_STEP_ID,
+        default="batfish_interface_properties",
+        key_name="output_key",
+    )
     properties_list = parse_properties_list(str(merged_config.get("properties") or ""))
     route_empty_to_devices = parse_bool_flag(merged_config, "route_empty_to_devices")
     match_mode = str(merged_config.get("empty_match_mode") or "any").strip().lower()
@@ -105,10 +112,6 @@ async def execute(
     assert_requested_columns_present(
         step_id=_STEP_ID, rows=rows, properties_list=properties_list
     )
-
-    output_key = str(
-        merged_config.get("output_key") or "batfish_interface_properties"
-    ).strip() or "batfish_interface_properties"
 
     return await build_property_outcomes(
         spec=_SPEC,

@@ -70,11 +70,13 @@ def error_entry(error: FactError | str) -> Entry:
     return {"parsed": None, "error": error.message, FAILURE_KEY: error.failure}
 
 
-def parse_output_key_config(raw: Any, *, step_id: str, default: str) -> str:
+def parse_output_key_config(
+    raw: Any, *, step_id: str, default: str, key_name: str = "parsed_output_key"
+) -> str:
     try:
         return parse_output_key(raw or default)
     except JinjaTemplateError as exc:
-        raise ValueError(f"{step_id}: parsed_output_key: {exc}") from exc
+        raise ValueError(f"{step_id}: {key_name}: {exc}") from exc
 
 
 def with_entries(

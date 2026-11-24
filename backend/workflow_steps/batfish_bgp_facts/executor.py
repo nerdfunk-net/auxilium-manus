@@ -33,6 +33,7 @@ from services.batfish.query_helpers import (
 from workflow_steps.batfish_bgp_facts.config import get_config
 from workflow_steps.common.batfish_bgp_facts import BGP_QUESTION_KEYS, build_bgp_facts_outcomes
 from workflow_steps.common.batfish_context import resolve_batfish_snapshot_ref
+from workflow_steps.common.fact_entries import parse_output_key_config
 from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.common.step_flags import parse_bool_flag
 
@@ -63,6 +64,12 @@ async def execute(
     del device_sessions  # unused: Batfish is reached via pybatfish, not Netmiko
 
     merged_config = {**get_config(), **config}
+    output_key = parse_output_key_config(
+        merged_config.get("output_key"),
+        step_id=_STEP_ID,
+        default="batfish_bgp_facts",
+        key_name="output_key",
+    )
     enabled_keys = [
         question_key
         for toggle_key, question_key in _QUESTION_TOGGLES
@@ -111,10 +118,6 @@ async def execute(
             batfish, snap.connection, batfish_network=snap.network, snapshot=snap.snapshot,
             nodes=nodes,
         )
-
-    output_key = str(
-        merged_config.get("output_key") or "batfish_bgp_facts"
-    ).strip() or "batfish_bgp_facts"
 
     return await build_bgp_facts_outcomes(
         context=context,

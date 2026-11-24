@@ -21,6 +21,7 @@ from services.workflow_context.attribute_path import (
     resolve_device_value,
 )
 from services.workflow_context.node_result import set_node_result
+from services.workflow_context.secret_fields import REDACTED_PLACEHOLDER
 from workflow_steps.common.step_flags import parse_bool_flag
 from workflow_steps.common.update_field_expression import resolve_update_field_expression
 from workflow_steps.list_contains.config import get_config
@@ -147,7 +148,19 @@ def _classify_device_membership(
         field_key="value",
         raw_value=value_expr,
         run_id=run_id,
+        # The value is stored in parsed.<node>.membership: a sealed secret must not be copied.
+        reveal_secrets=False,
     )
+    if resolved_value == REDACTED_PLACEHOLDER:
+        return "failure", _device_failure(
+            device,
+            node_id=node_id,
+            code="value_is_secret",
+            message=(
+                f"value expression {value_expr!r} points to a secret, "
+                "which this step does not copy"
+            ),
+        )
     if resolved_value is None:
         return "failure", _device_failure(
             device,

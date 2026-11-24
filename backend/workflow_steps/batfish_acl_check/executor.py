@@ -28,6 +28,7 @@ from services.batfish.common.exceptions import BatfishAnswerFailedError
 from services.batfish.query_helpers import query_test_filters, require_field
 from workflow_steps.batfish_acl_check.config import get_config
 from workflow_steps.common.batfish_context import resolve_batfish_snapshot_ref
+from workflow_steps.common.fact_entries import parse_output_key_config
 from workflow_steps.common.run_logging import log_run_id
 
 if TYPE_CHECKING:
@@ -50,6 +51,12 @@ async def execute(
     del device_sessions  # unused: Batfish is reached via pybatfish, not Netmiko
 
     merged_config = {**get_config(), **config}
+    output_key = parse_output_key_config(
+        merged_config.get("output_key"),
+        step_id=_STEP_ID,
+        default="batfish_acl_check",
+        key_name="output_key",
+    )
     node = require_field(merged_config.get("node"), "node")
     filter_name = require_field(merged_config.get("filter_name"), "filter_name")
     dst_ips = require_field(merged_config.get("dst_ips"), "dst_ips")
@@ -93,9 +100,6 @@ async def execute(
         ) from exc
 
     permitted = action == "PERMIT"
-    output_key = str(merged_config.get("output_key") or "batfish_acl_check").strip() or (
-        "batfish_acl_check"
-    )
 
     content = json.dumps(rows, indent=2, default=str)
     artifact_ref = await artifact_service.store(

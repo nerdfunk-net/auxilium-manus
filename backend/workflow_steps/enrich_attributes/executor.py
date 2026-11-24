@@ -42,6 +42,10 @@ from workflow_steps.common.attribute_merge import (
 )
 from workflow_steps.common.file_source_root import resolve_source_root
 from workflow_steps.common.git_repository_loader import parse_repository_id
+from workflow_steps.common.partial_outcomes import (
+    device_error_from_exception,
+    fail_device_with_error,
+)
 from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.common.step_flags import parse_bool_flag
 
@@ -69,6 +73,8 @@ class _Parsed:
     case_insensitive: bool
     destination_path: str
     overwrite: bool
+    allow_stale: bool
+    refresh: bool
 
 
 def _delimiter(raw: Any) -> str:
@@ -120,6 +126,8 @@ def _parse_config(config: dict[str, Any]) -> _Parsed:
         case_insensitive=parse_bool_flag(config, "case_insensitive"),
         destination_path=destination_path,
         overwrite=parse_bool_flag(config, "overwrite"),
+        allow_stale=parse_bool_flag(config, "allow_stale_repository"),
+        refresh=parse_bool_flag(config, "refresh_repository"),
     )
 
 
@@ -171,19 +179,19 @@ def _is_regular_file(root: Path, relative: str) -> bool:
     return is_contained_regular_file(root, Path(root).resolve() / relative)
 
 
-async def _load_rows(parsed: _Parsed, config: dict[str, Any]) -> list[CsvRow]:
+async def _load_rows(parsed: _Parsed) -> list[CsvRow]:
     async with AsyncExitStack() as stack:
         root = await resolve_source_root(
             source=parsed.source,
             git_repository_id=parsed.git_repository_id,
             stack=stack,
-            allow_stale=parse_bool_flag(config, "allow_stale_repository"),
+            allow_stale=parsed.allow_stale,
             # DELIBERATE, do not "fix" by defaulting to a pull: off by default, also for stored
             # steps without the key. A Pull Git step refreshes the repository once; every (fan-out)
             # child only reads it, so it holds the git lock for milliseconds. A pull or a git
             # status check per device is what timed out ("Timed out after 90s waiting for the
             # lock"). The read says which commit it read (run event). See doc/WORKFLOW-STEPS.md.
-            refresh=parse_bool_flag(config, "refresh_repository"),
+            refresh=parsed.refresh,
             step_id=_STEP_ID,
         )
 
@@ -221,7 +229,14 @@ async def execute(
     if not context.devices:
         return [StepOutcome(name="success", context=context)]
 
-    rows = await _load_rows(parsed, config)
+    logger.info(
+        "enrich-attributes started run_id=%s node_id=%s source=%s devices=%d",
+        log_run_id(run),
+        node_id,
+        parsed.source,
+        len(context.devices),
+    )
+    rows = await _load_rows(parsed)
     index = RowIndex(
         rows,
         contains=parsed.match_mode == "contains",
@@ -264,15 +279,17 @@ async def execute(
             )
             matched += 1
         except Exception as exc:  # defensive: destination shape is pre-validated
-            failed_devices[device_id] = _fail_device(
-                device=device,
-                node_id=node_id,
-                code=type(exc).__name__.lower(),
-                message=str(exc),
-                failure=FailureInfo(
-                    phase="internal", kind="internal_error", exception_type=type(exc).__name__
-                ),
-            )
+            error = device_error_from_exception(exc, node_id=node_id, step_id=_STEP_ID)
+            if isinstance(exc, ValueError):
+                # "cannot merge into ...": the device's data does not fit the destination.
+                error = error.model_copy(
+                    update={
+                        "failure": FailureInfo(
+                            phase="internal", kind="bad_request", exception_type="ValueError"
+                        )
+                    }
+                )
+            failed_devices[device_id] = fail_device_with_error(device, error)
 
     logger.info(
         "enrich-attributes finished run_id=%s node_id=%s matched=%d unmatched=%d failed=%d rows=%d",

@@ -28,6 +28,7 @@ from services.batfish.common.exceptions import BatfishAnswerFailedError
 from services.batfish.query_helpers import query_reachability, require_field
 from workflow_steps.batfish_path_check.config import get_config
 from workflow_steps.common.batfish_context import resolve_batfish_snapshot_ref
+from workflow_steps.common.fact_entries import parse_output_key_config
 from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.common.step_flags import parse_bool_flag
 
@@ -51,6 +52,12 @@ async def execute(
     del device_sessions  # unused: Batfish is reached via pybatfish, not Netmiko
 
     merged_config = {**get_config(), **config}
+    output_key = parse_output_key_config(
+        merged_config.get("output_key"),
+        step_id=_STEP_ID,
+        default="batfish_path_check",
+        key_name="output_key",
+    )
     start_node = require_field(merged_config.get("start_node"), "start_node")
 
     batfish = service_factory.get_batfish_app_service()
@@ -97,10 +104,6 @@ async def execute(
             "snapshot (check for a typo, or that the device has been collected "
             "into the snapshot)."
         ) from exc
-
-    output_key = str(merged_config.get("output_key") or "batfish_path_check").strip() or (
-        "batfish_path_check"
-    )
 
     content = json.dumps(rows, indent=2, default=str)
     artifact_ref = await artifact_service.store(

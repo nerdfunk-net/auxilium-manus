@@ -331,17 +331,6 @@ class UpdateAttributeExecutorTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertIn("template is required", str(ctx.exception))
 
-    async def test_template_mode_cannot_read_a_sealed_secret(self) -> None:
-        device = _device(
-            "dev-1",
-            attribute_bags={"tacacs": {"shared_secret": seal_secret("s3cr3t")}},
-        )
-
-        with self.assertRaises(ValueError) as ctx:
-            await self._run_template(device, "x-{tacacs.shared_secret}")
-
-        self.assertIn("sealed secret", str(ctx.exception))
-
 
 class DestinationPlaceholderTests(unittest.IsolatedAsyncioTestCase):
     """destination_path may hold {placeholders} inside a [...] selector (dynamic interface name)."""

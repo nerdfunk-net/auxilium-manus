@@ -422,8 +422,21 @@ class EnrichAttributesReviewTests(unittest.IsolatedAsyncioTestCase):
         outcomes = await _run(_config(destination_path="inventory.a.b"), {"d1": device}, CSV)
         self.assertEqual([o.name for o in outcomes], ["success", "failure"])
         error = outcomes[1].context.devices["d1"].errors[-1]
-        self.assertEqual(error.failure.kind, "internal_error")
+        # A data condition of this device (a scalar where the path needs an object), not a bug.
+        self.assertEqual(error.failure.kind, "bad_request")
         self.assertEqual(error.failure.exception_type, "ValueError")
+        self.assertIn("cannot merge into", error.message)
+
+    async def test_bad_git_flag_is_a_config_error_even_with_no_devices(self) -> None:
+        for key in ("refresh_repository", "allow_stale_repository"):
+            with self.subTest(key=key):
+                with self.assertRaises(ValueError):
+                    await _run(_config(**{key: "nope"}), {}, CSV)
+
+    async def test_start_is_logged(self) -> None:
+        with self.assertLogs(_MODULE, level="INFO") as logs:
+            await _run(_config(), {"d1": _device()}, CSV)
+        self.assertTrue(any("enrich-attributes started" in line for line in logs.output))
 
     async def test_file_over_size_cap_raises(self) -> None:
         with patch(f"{_MODULE}.MAX_FILE_BYTES", 10):

@@ -19,7 +19,11 @@ from services.workflow_context.secret_fields import (
     seal_secret,
 )
 from workflow_steps.common.attribute_write import set_device_attribute
-from workflow_steps.common.partial_outcomes import mark_device_failed
+from workflow_steps.common.partial_outcomes import (
+    device_error_from_exception,
+    fail_device_with_error,
+    mark_device_failed,
+)
 from workflow_steps.update_attribute.config import get_default_attribute
 
 if TYPE_CHECKING:
@@ -70,7 +74,7 @@ def _normalize_attribute_entry(raw: Any, *, index: int) -> dict[str, Any]:
     destination_path = _parse_destination_path(
         raw.get("destination_path", defaults["destination_path"])
     )
-    return {
+    entry = {
         "mode": mode,
         "destination_path": destination_path,
         "fixed_value": str(raw.get("fixed_value", defaults["fixed_value"])),
@@ -82,6 +86,23 @@ def _normalize_attribute_entry(raw: Any, *, index: int) -> dict[str, Any]:
         ),
         "regex_flags": _parse_regex_flags(raw.get("regex_flags", defaults["regex_flags"])),
     }
+    _require_mode_fields(entry)
+    return entry
+
+
+# Required text per mode: a property of the configuration, so it is checked once here and a
+# missing one never reaches a device (W4-01).
+_REQUIRED_FIELDS = {
+    "fixed": ("fixed_value",),
+    "regex": ("source_path", "pattern", "destination_template"),
+    "template": ("template",),
+}
+
+
+def _require_mode_fields(entry: dict[str, Any]) -> None:
+    for field in _REQUIRED_FIELDS[entry["mode"]]:
+        if not str(entry[field]).strip():
+            raise ValueError(f"{_STEP_ID}: {field} is required in {entry['mode']} mode")
 
 
 def _legacy_attribute_from_config(config: dict[str, Any]) -> dict[str, Any] | None:
@@ -130,8 +151,6 @@ def _apply_fixed_update(
     fixed_value: str,
 ) -> DeviceContext:
     value = str(fixed_value)
-    if not value.strip():
-        raise ValueError(f"{_STEP_ID}: fixed_value is required in fixed mode")
     stored_value: Any = seal_secret(value) if path_is_known_secret(destination_path) else value
     return set_device_attribute(device, destination_path, stored_value)
 
@@ -148,12 +167,6 @@ def _apply_regex_update(
     source_path = source_path.strip()
     pattern = pattern.strip()
     destination_template = str(destination_template)
-    if not source_path:
-        raise ValueError(f"{_STEP_ID}: source_path is required in regex mode")
-    if not pattern:
-        raise ValueError(f"{_STEP_ID}: pattern is required in regex mode")
-    if not destination_template.strip():
-        raise ValueError(f"{_STEP_ID}: destination_template is required in regex mode")
 
     # update-attribute is a generic power-user step, not a trusted secret
     # consumer (unlike render-jinja-template / update-ise-tacacs-key) — never
@@ -232,7 +245,7 @@ def _render_attribute_template(device: DeviceContext, template: str) -> str | No
         # Same redaction boundary as regex mode: never rehydrate a sealed secret.
         value = resolve_device_attribute(device, path, reveal_secrets=False)
         if value == REDACTED_PLACEHOLDER:
-            raise ValueError(
+            raise SealedSourceError(
                 f"{_STEP_ID}: template placeholder '{path}' resolves to a sealed secret; "
                 "update-attribute cannot read or copy secret values. Use "
                 "render-jinja-template or the ISE-specific steps instead."
@@ -252,9 +265,6 @@ def _apply_template_update(
     destination_path: str,
     template: str,
 ) -> DeviceContext | None:
-    if not template.strip():
-        raise ValueError(f"{_STEP_ID}: template is required in template mode")
-
     rendered = _render_attribute_template(device, template)
     if rendered is None:
         return None
@@ -357,10 +367,13 @@ async def execute(
                 message=str(exc),
             )
             continue
-        except ValueError:
-            raise
         except Exception as exc:
-            raise RuntimeError(f"{_STEP_ID}: failed for device {device_id}: {exc}") from exc
+            # A selector into a bag of another shape, a regex that cannot run on this value, an
+            # unexpected error: this device fails with the closed record, the others go on.
+            failed_devices[device_id] = fail_device_with_error(
+                device, device_error_from_exception(exc, node_id=node_id, step_id=_STEP_ID)
+            )
+            continue
 
         updated_devices[device_id] = current
         write_count += device_writes

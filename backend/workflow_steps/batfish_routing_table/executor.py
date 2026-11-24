@@ -33,6 +33,7 @@ from services.artifacts import ArtifactService
 from services.batfish.query_helpers import query_routes
 from workflow_steps.batfish_routing_table.config import get_config
 from workflow_steps.common.batfish_context import resolve_batfish_snapshot_ref
+from workflow_steps.common.fact_entries import parse_output_key_config
 from workflow_steps.common.run_logging import log_run_id
 
 if TYPE_CHECKING:
@@ -55,6 +56,12 @@ async def execute(
     del device_sessions  # unused: Batfish is reached via pybatfish, not Netmiko
 
     merged_config = {**get_config(), **config}
+    output_key = parse_output_key_config(
+        merged_config.get("output_key"),
+        step_id=_STEP_ID,
+        default="batfish_routes",
+        key_name="output_key",
+    )
     batfish = service_factory.get_batfish_app_service()
     snap = await resolve_batfish_snapshot_ref(
         context=context, config=merged_config, run=run, batfish=batfish
@@ -80,10 +87,6 @@ async def execute(
         protocols=merged_config.get("protocols"),
         vrfs=merged_config.get("vrfs"),
         rib=merged_config.get("rib"),
-    )
-
-    output_key = str(merged_config.get("output_key") or "batfish_routes").strip() or (
-        "batfish_routes"
     )
 
     content = json.dumps(rows, indent=2, default=str)

@@ -39,6 +39,7 @@ from services.artifacts import ArtifactService
 from workflow_steps.batfish_extract_facts.config import get_config
 from workflow_steps.batfish_extract_facts.hsrp import mark_hsrp_error, merge_hsrp_into_facts
 from workflow_steps.common.batfish_context import resolve_batfish_snapshot_ref
+from workflow_steps.common.fact_entries import parse_output_key_config
 from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.common.step_flags import parse_bool_flag
 
@@ -125,8 +126,11 @@ async def execute(
     del device_sessions  # unused: Batfish is reached via pybatfish, not Netmiko
 
     merged_config = {**get_config(), **config}
-    output_key = str(merged_config.get("output_key") or "batfish_extract_facts").strip() or (
-        "batfish_extract_facts"
+    output_key = parse_output_key_config(
+        merged_config.get("output_key"),
+        step_id=_STEP_ID,
+        default="batfish_extract_facts",
+        key_name="output_key",
     )
     short_hostname = parse_bool_flag(merged_config, "use_short_hostname", default=True)
     nodes_filter = str(merged_config.get("nodes_filter") or "").strip() or _default_nodes_filter(
