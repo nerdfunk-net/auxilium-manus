@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
@@ -22,11 +23,14 @@ import { GitRepositoryValue } from "@/components/features/workflow-steps/shared/
 import { listUpstreamSourceSteps } from "@/components/features/workflow-steps/shared/upstream-source-steps";
 import { useWorkflowsQuery } from "@/hooks/queries/use-workflows-query";
 import { OpenChangeRequestHelpPanel } from "./help-panel";
+import { CheckboxField } from "../shared/checkbox-field";
 
 const DEFAULTS = {
   git_repository_id: null as number | null,
   content_source: "rendered_template",
   source_step_node_id: "",
+  parsed_output_key: "",
+  repository_subdirectory: "",
   filename_template: "{device.name}.cfg",
   branch_template: "manus/cr-{run.id}",
   commit_message_template: "Change request: run {run.id}",
@@ -69,8 +73,11 @@ function TextField({
 }) {
   return (
     <div className="space-y-1.5">
-      <span className="font-mono text-xs font-medium">{label}</span>
+      <Label className="font-mono text-xs font-medium" htmlFor={`open-change-request-${label}`}>
+        {label}
+      </Label>
       <Input
+        id={`open-change-request-${label}`}
         value={value}
         onChange={(event) => onChange(event.target.value)}
         className="h-8 font-mono text-xs"
@@ -208,6 +215,18 @@ function OpenChangeRequestConfigPanel({
         </details>
       </div>
       <TextField
+        label="parsed_output_key"
+        value={str(config, "parsed_output_key")}
+        onChange={(value) => patch({ parsed_output_key: value })}
+        hint="Commit only the rendered template stored under this output_key of the render step. Empty commits every rendered template of the selected step."
+      />
+      <TextField
+        label="repository_subdirectory"
+        value={str(config, "repository_subdirectory")}
+        onChange={(value) => patch({ repository_subdirectory: value })}
+        hint="Path prefix inside the repository, put before filename_template."
+      />
+      <TextField
         label="filename_template"
         value={str(config, "filename_template")}
         onChange={(value) => patch({ filename_template: value })}
@@ -228,6 +247,13 @@ function OpenChangeRequestConfigPanel({
         label="title_template"
         value={str(config, "title_template")}
         onChange={(value) => patch({ title_template: value })}
+      />
+      <CheckboxField
+        id="open-change-request-strict-templates"
+        label="strict_templates"
+        checked={config.strict_templates !== false}
+        onCheckedChange={(checked) => patch({ strict_templates: checked })}
+        description="Fail the device when a namespaced placeholder (nautobot.*, command.*) in a template above resolves empty."
       />
 
       <div className="space-y-1.5">

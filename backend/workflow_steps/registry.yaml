@@ -792,6 +792,13 @@ plugins:
           required: false
           default: 24
           example: 48
+        - name: dry_run
+          description: >
+            true = query nothing; store, per device, what would be queried (dry_run_results).
+          data_type: boolean
+          required: false
+          default: false
+          example: true
 
   - id: get-ise-tacacs-key
     name: Get TACACS+ Key from ISE
@@ -1042,6 +1049,13 @@ plugins:
       - name: failure
     metadata:
       configuration_input:
+        - name: network_driver_override
+          description: >
+            Network driver that picks the parser platform instead of the device's own driver.
+            Needed when the device's driver is not a Cisco one.
+          data_type: string
+          required: false
+          example: cisco_ios
         - name: config_source
           description: Which config to parse — running, startup, or both.
           data_type: string
@@ -1354,6 +1368,19 @@ plugins:
       - name: failure
     metadata:
       configuration_input:
+        - name: network_name_source
+          description: >
+            Where the Batfish network name comes from: fixed (network_name) or run_param (the
+            run parameter named in network_name_param, so a schedule can supply it).
+          data_type: string
+          required: false
+          default: fixed
+          example: run_param
+        - name: network_name_param
+          description: Name of the run parameter that holds the network name (network_name_source run_param).
+          data_type: string
+          required: false
+          example: network
         - name: batfish_source_id
           description: Which configured Batfish source (Settings → Sources → Batfish) to use.
           data_type: string
@@ -6250,6 +6277,12 @@ plugins:
       - name: failure
     metadata:
       configuration_input:
+        - name: content_source
+          description: Which upstream output to merge (command_output, filtered_output or merged_content).
+          data_type: string
+          required: false
+          default: command_output
+          example: command_output
         - name: source_step_node_ids
           description: Canvas node IDs of upstream run-command steps to include (empty = all).
           data_type: string_list
@@ -6388,6 +6421,14 @@ plugins:
           description: Canvas node ID of the upstream step to read from.
           data_type: string
           required: true
+        - name: source_command
+          description: >
+            With content_source command_output, read only the output of this command of the
+            upstream step. Empty reads the step's first output. The step fails when the command
+            is not among the upstream outputs.
+          data_type: string
+          required: false
+          example: show running-config
         - name: filter_rules
           description: >
             Rules applied to the content. Each rule has either pattern (regex matched

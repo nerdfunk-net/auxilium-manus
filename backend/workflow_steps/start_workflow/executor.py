@@ -55,6 +55,7 @@ from services.workflow.device_lines import (
     device_line,
     enabled_device_input_readers,
 )
+from workflow_steps.common.attribute_write import RESERVED_BAG_NAMES
 from workflow_steps.common.partial_outcomes import mark_device_failed
 from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.common.step_flags import parse_bool_flag, parse_int_flag
@@ -93,6 +94,18 @@ def _parse_workflow_id(config: dict[str, Any]) -> int:
     if workflow_id < 1:
         raise ValueError(f"{_STEP_ID}: select the workflow to start (workflow_id)")
     return workflow_id
+
+
+def _parse_bag_name(config: dict[str, Any], default: str) -> str:
+    """The attribute bag the run id / status go to: a plain name that is not a reserved bag."""
+    name = str(config.get("bag_name") or "").strip() or default
+    if not name.replace("_", "").isalnum() or not name[0].isalpha():
+        raise ValueError(
+            "bag_name must start with a letter and contain only letters, numbers or underscores"
+        )
+    if name in RESERVED_BAG_NAMES:
+        raise ValueError(f"bag_name {name!r} is reserved")
+    return name
 
 
 def _parse_config(config: dict[str, Any]) -> _ParsedConfig:
@@ -137,7 +150,7 @@ def _parse_config(config: dict[str, Any]) -> _ParsedConfig:
     except ValueError as exc:
         raise ValueError(f"{_STEP_ID}: {exc}") from exc
 
-    bag_name = str(config.get("bag_name") or defaults["bag_name"]).strip() or defaults["bag_name"]
+    bag_name = _parse_bag_name(config, defaults["bag_name"])
     return _ParsedConfig(
         workflow_id=workflow_id,
         run_inputs=dict(run_inputs),

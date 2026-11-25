@@ -14,6 +14,15 @@ export function StartWorkflowHelpPanel() {
         </p>
       </HelpSection>
 
+      <HelpSection title="bag_name">
+        <p>
+          The started run&apos;s id and status are written to this attribute bag on every device
+          (default <HelpCode>child_run</HelpCode>), so later steps can read them as{" "}
+          <HelpCode>{"{child_run.run_id}"}</HelpCode>. Use letters, numbers and underscores;{" "}
+          <HelpCode>parsed</HelpCode> and <HelpCode>run_input</HelpCode> are reserved.
+        </p>
+      </HelpSection>
+
       <HelpSection title="Devices">
         <p>
           Devices reach the started workflow the way a schedule or a manual run supplies them: as

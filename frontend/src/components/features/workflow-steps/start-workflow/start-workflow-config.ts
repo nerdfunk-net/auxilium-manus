@@ -10,6 +10,8 @@ export const DEFAULT_POLL_SECONDS = 5;
 export const MIN_MAX_RUNS = 1;
 export const MAX_MAX_RUNS = 200;
 export const DEFAULT_MAX_RUNS = 25;
+/** Mirrors backend/workflow_steps/start_workflow/config.py. */
+export const DEFAULT_BAG_NAME = "child_run";
 
 export type RunMode = "all_devices" | "per_device";
 

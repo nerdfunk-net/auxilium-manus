@@ -139,6 +139,16 @@ class ConfigTests(unittest.TestCase):
             with self.subTest(interval=bad), self.assertRaises(ValueError):
                 mod._parse_config({"workflow_id": 7, "poll_interval_seconds": bad})
 
+    def test_bag_name_is_a_plain_name_the_step_may_write(self) -> None:
+        self.assertEqual(
+            mod._parse_config({"workflow_id": 7, "bag_name": " my_bag "}).bag_name, "my_bag"
+        )
+        blank = mod._parse_config({"workflow_id": 7, "bag_name": ""})
+        self.assertEqual(blank.bag_name, "child_run")
+        for bad in ("parsed", "run_input", "a.b", "1x", "with space", "x[0]"):
+            with self.subTest(bag_name=bad), self.assertRaisesRegex(ValueError, "bag_name"):
+                mod._parse_config({"workflow_id": 7, "bag_name": bad})
+
     def test_run_inputs_must_be_an_object(self) -> None:
         with self.assertRaises(ValueError):
             mod._parse_config({"workflow_id": 7, "run_inputs": [1]})

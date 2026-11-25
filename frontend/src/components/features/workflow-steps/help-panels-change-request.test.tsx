@@ -16,6 +16,9 @@ describe("change request help panels", () => {
     render(<OpenChangeRequestHelpPanel />);
     for (const key of [
       "git_repository_id",
+      "parsed_output_key",
+      "repository_subdirectory",
+      "strict_templates",
       "content_source",
       "source_step_node_id",
       "filename_template",

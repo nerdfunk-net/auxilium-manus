@@ -22,6 +22,7 @@ import { useWorkflowsQuery } from "@/hooks/queries/use-workflows-query";
 
 import { StartWorkflowHelpPanel } from "./help-panel";
 import {
+  DEFAULT_BAG_NAME,
   MAX_MAX_RUNS,
   MAX_POLL_SECONDS,
   MAX_WAIT_SECONDS,
@@ -345,6 +346,24 @@ function StartWorkflowConfigPanel({
       ) : settings.workflow_id !== null && target.isError ? (
         <Warning>Could not load the selected workflow.</Warning>
       ) : null}
+
+      <div className="space-y-1.5 border-t pt-3">
+        <Label className="font-mono text-xs font-medium" htmlFor="start-workflow-bag-name">
+          bag_name
+        </Label>
+        <Input
+          id="start-workflow-bag-name"
+          className="h-8 font-mono text-xs"
+          placeholder={DEFAULT_BAG_NAME}
+          value={typeof config.bag_name === "string" ? config.bag_name : ""}
+          onChange={(event) => onChange({ ...config, bag_name: event.target.value })}
+        />
+        <p className="text-[11px] text-muted-foreground">
+          Attribute bag on every device that receives the started run&apos;s id and status.
+          Letters, numbers and underscores; <span className="font-mono">parsed</span> and{" "}
+          <span className="font-mono">run_input</span> are reserved.
+        </p>
+      </div>
 
       <div className="space-y-2 border-t pt-3">
         <div className="flex items-center gap-2">

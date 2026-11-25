@@ -40,6 +40,17 @@ export function OpenChangeRequestHelpPanel() {
         </p>
       </HelpSection>
 
+      <HelpSection title="Output key, subdirectory and strictness">
+        <p>
+          <HelpCode>parsed_output_key</HelpCode> limits the commit to the rendered template stored
+          under that <HelpCode>output_key</HelpCode> of the render step (empty: every rendered
+          template of the selected step). <HelpCode>repository_subdirectory</HelpCode> is a path
+          prefix inside the repository, put before <HelpCode>filename_template</HelpCode>.{" "}
+          <HelpCode>strict_templates</HelpCode> (default on) fails a device when a namespaced
+          placeholder in the templates below resolves empty.
+        </p>
+      </HelpSection>
+
       <HelpSection title="Templates">
         <p>
           <HelpCode>filename_template</HelpCode> is the per-device file path, for example{" "}

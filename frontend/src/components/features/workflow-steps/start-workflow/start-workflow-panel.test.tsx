@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { StaticAttributeDef } from "@/components/features/workflows/types/workflow-persistence";
@@ -174,5 +174,18 @@ describe("StartWorkflow config panel", () => {
     expect(
       screen.getByText(/Not declared by this workflow any more: gone/),
     ).toBeTruthy();
+  });
+
+  it("shows the bag name and edits it", () => {
+    const onChange = renderPanel({ workflow_id: 7, bag_name: "child" });
+    const input = screen.getByLabelText("bag_name") as HTMLInputElement;
+    expect(input.value).toBe("child");
+    fireEvent.change(input, { target: { value: "other_bag" } });
+    expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ bag_name: "other_bag" }));
+  });
+
+  it("offers the default bag name as placeholder when none is saved", () => {
+    renderPanel({ workflow_id: 7 });
+    expect((screen.getByLabelText("bag_name") as HTMLInputElement).placeholder).toBe("child_run");
   });
 });
