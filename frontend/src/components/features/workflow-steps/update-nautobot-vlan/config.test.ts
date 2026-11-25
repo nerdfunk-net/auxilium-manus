@@ -1,15 +1,14 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  BAD_MODE_PROBLEM,
   INTERFACE_CONFLICT_PROBLEM,
   interfaceModeEnabledPatch,
   NO_FIELD_PROBLEM,
   NO_VLAN_PROBLEM,
   UPDATE_FIELD_KEYS,
   configProblems,
-  locationsModeFromConfig,
 } from "./config";
+import { BAD_MODE_PROBLEM, locationsModeFromConfig } from "../shared/nautobot-locations";
 
 describe("update-nautobot-vlan config helpers", () => {
   it("reports a missing VLAN selector and a missing field", () => {

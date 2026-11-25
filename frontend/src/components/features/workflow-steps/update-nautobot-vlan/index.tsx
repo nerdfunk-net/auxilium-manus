@@ -4,19 +4,10 @@ import { useCallback, useMemo, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import type {
   PluginConfigPanelProps,
   PluginUIComponent,
 } from "@/components/features/workflows/types/plugin-ui";
-import { Switch } from "@/components/ui/switch";
 import { useNautobotSourceCredentials } from "@/hooks/queries/use-nautobot-source-credentials";
 import { useNautobotStatusesQuery } from "@/hooks/queries/use-nautobot-statuses-query";
 
@@ -31,15 +22,11 @@ import { NautobotSourceSelectDialog } from "../shared/nautobot-source-select-dia
 import { SelectOrExpressionField } from "../shared/select-or-expression-field";
 import {
   DESCRIPTION_KEY,
-  BAD_MODE_PROBLEM,
   DRY_RUN_KEY,
   INTERFACE_CONFLICT_PROBLEM,
   VLANS_FROM_INTERFACES_KEY,
   interfaceModeEnabledPatch,
   isFromInterfaces,
-  LOCATIONS_KEY,
-  LOCATIONS_MODE_KEY,
-  LOCATIONS_MODE_OPTIONS,
   NAME_KEY,
   NO_FIELD_PROBLEM,
   NO_VLAN_PROBLEM,
@@ -49,9 +36,9 @@ import {
   VLAN_GROUP_KEY,
   VLAN_ID_KEY,
   configProblems,
-  locationsModeFromConfig,
 } from "./config";
 import { UpdateNautobotVlanHelpPanel } from "./help-panel";
+import { DryRunSwitch, FromInterfacesSwitch, LocationsFields } from "../shared/nautobot-update-fields";
 
 function UpdateNautobotVlanConfigPanel({
   nodeId,
@@ -70,7 +57,6 @@ function UpdateNautobotVlanConfigPanel({
   const nodes = workflowNodes ?? [];
   const edges = workflowEdges ?? [];
   const problems = configProblems(config);
-  const locationsMode = locationsModeFromConfig(config);
   const fromInterfaces = isFromInterfaces(config);
   const dryRun = config[DRY_RUN_KEY] === true || config[DRY_RUN_KEY] === "true";
 
@@ -109,10 +95,6 @@ function UpdateNautobotVlanConfigPanel({
   );
   const handleDryRunChange = useCallback(
     (next: boolean) => patch(DRY_RUN_KEY, next),
-    [patch],
-  );
-  const handleModeChange = useCallback(
-    (next: string) => patch(LOCATIONS_MODE_KEY, next),
     [patch],
   );
 
@@ -156,22 +138,14 @@ function UpdateNautobotVlanConfigPanel({
         </Button>
       </div>
 
-      <div className="flex items-center justify-between gap-3 border-t pt-3">
-        <div className="space-y-0.5">
-          <Label className="text-xs font-medium">VLANs from interfaces</Label>
-          <p className="text-[11px] text-muted-foreground">
-            Take the tagged and untagged VLANs of the device&apos;s interfaces
-            and add the device&apos;s location to each. Needs Get Nautobot
-            Attributes with interfaces.
-          </p>
-        </div>
-        <Switch
-          aria-label={VLANS_FROM_INTERFACES_KEY}
-          checked={fromInterfaces}
-          onCheckedChange={handleFromInterfacesChange}
-          className="data-[state=checked]:bg-step"
-        />
-      </div>
+      <FromInterfacesSwitch
+        label="VLANs from interfaces"
+        description="Take the tagged and untagged VLANs of the device's interfaces and add the device's location to each. Needs Get Nautobot Attributes with interfaces."
+        ariaLabel={VLANS_FROM_INTERFACES_KEY}
+        checked={fromInterfaces}
+        onCheckedChange={handleFromInterfacesChange}
+        bordered
+      />
 
       {fromInterfaces ? (
         <div className="space-y-3">
@@ -180,21 +154,11 @@ function UpdateNautobotVlanConfigPanel({
               {INTERFACE_CONFLICT_PROBLEM}.
             </p>
           ) : null}
-          <div className="flex items-center justify-between gap-3">
-            <div className="space-y-0.5">
-              <Label className="text-xs font-medium">Dry run</Label>
-              <p className="text-[11px] text-muted-foreground">
-                Write nothing; list per device the VLANs that would get the
-                location.
-              </p>
-            </div>
-            <Switch
-              aria-label={DRY_RUN_KEY}
-              checked={dryRun}
-              onCheckedChange={handleDryRunChange}
-              className="data-[state=checked]:bg-step"
-            />
-          </div>
+          <DryRunSwitch
+            description="Write nothing; list per device the VLANs that would get the location."
+            checked={dryRun}
+            onCheckedChange={handleDryRunChange}
+          />
         </div>
       ) : (
         <>
@@ -305,55 +269,15 @@ function UpdateNautobotVlanConfigPanel({
               </p>
             </ExpressionField>
 
-            <ExpressionField
-              configKey={LOCATIONS_KEY}
-              value={stringField(config, LOCATIONS_KEY)}
-              placeholder="Berlin, Munich"
-              onValueChange={(next) => patch(LOCATIONS_KEY, next)}
+            <LocationsFields
+              config={config}
+              patch={patch}
+              problems={problems}
+              noun="VLAN"
               nodeId={nodeId}
               workflowNodes={nodes}
               workflowEdges={edges}
-            >
-              <p className="text-[11px] leading-4 text-muted-foreground">
-                Names or UUIDs separated by commas, or a {"{path}"}. Quote a
-                name with a comma: &quot;Frankfurt, West&quot;.
-              </p>
-            </ExpressionField>
-
-            <div className="space-y-1.5">
-              <span className="font-mono text-xs font-medium">
-                {LOCATIONS_MODE_KEY}
-              </span>
-              <Select value={locationsMode} onValueChange={handleModeChange}>
-                <SelectTrigger
-                  className="h-8 text-xs focus:ring-step/40"
-                  aria-label={LOCATIONS_MODE_KEY}
-                >
-                  <SelectValue placeholder="Pick a mode" />
-                </SelectTrigger>
-                <SelectContent>
-                  {LOCATIONS_MODE_OPTIONS.map((option) => (
-                    <SelectItem
-                      key={option.value}
-                      value={option.value}
-                      className="text-xs"
-                    >
-                      {option.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {problems.includes(BAD_MODE_PROBLEM) ? (
-                <p className="text-[11px] text-warning-foreground">
-                  The stored mode is not valid and the step would fail. Pick
-                  replace, add or remove.
-                </p>
-              ) : (
-                <p className="text-[11px] leading-4 text-muted-foreground">
-                  How the list is applied to the VLAN&apos;s current locations.
-                </p>
-              )}
-            </div>
+            />
           </div>
         </>
       )}

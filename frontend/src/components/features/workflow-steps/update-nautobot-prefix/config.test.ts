@@ -1,15 +1,14 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  BAD_MODE_PROBLEM,
   INTERFACE_CONFLICT_PROBLEM,
   NO_FIELD_PROBLEM,
   NO_PREFIX_PROBLEM,
   UPDATE_FIELD_KEYS,
   configProblems,
   interfaceModeEnabledPatch,
-  locationsModeFromConfig,
 } from "./config";
+import { BAD_MODE_PROBLEM, locationsModeFromConfig } from "../shared/nautobot-locations";
 
 describe("update-nautobot-prefix config helpers", () => {
   it("reports a missing prefix selector and a missing field", () => {

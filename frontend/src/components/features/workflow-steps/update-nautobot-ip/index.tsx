@@ -4,7 +4,6 @@ import { useCallback, useMemo, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
@@ -12,7 +11,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Switch } from "@/components/ui/switch";
 import type {
   PluginConfigPanelProps,
   PluginUIComponent,
@@ -52,6 +50,7 @@ import {
   isFromInterfaces,
 } from "./config";
 import { UpdateNautobotIpHelpPanel } from "./help-panel";
+import { DryRunSwitch, FromInterfacesSwitch } from "../shared/nautobot-update-fields";
 
 function UpdateNautobotIpConfigPanel({
   nodeId,
@@ -163,24 +162,13 @@ function UpdateNautobotIpConfigPanel({
         </Button>
       </div>
 
-      <div className="flex items-center justify-between gap-3">
-        <div className="space-y-0.5">
-          <Label className="text-xs font-medium">
-            IP addresses from interfaces
-          </Label>
-          <p className="text-[11px] text-muted-foreground">
-            Apply the values below to every IP address on the device&apos;s
-            interfaces. Addresses that are also assigned elsewhere are skipped.
-            Needs Get Nautobot Attributes with interfaces.
-          </p>
-        </div>
-        <Switch
-          aria-label={IPS_FROM_INTERFACES_KEY}
-          checked={fromInterfaces}
-          onCheckedChange={handleFromInterfacesChange}
-          className="data-[state=checked]:bg-step"
-        />
-      </div>
+      <FromInterfacesSwitch
+        label="IP addresses from interfaces"
+        description="Apply the values below to every IP address on the device's interfaces. Addresses that are also assigned elsewhere are skipped. Needs Get Nautobot Attributes with interfaces."
+        ariaLabel={IPS_FROM_INTERFACES_KEY}
+        checked={fromInterfaces}
+        onCheckedChange={handleFromInterfacesChange}
+      />
 
       {fromInterfaces ? (
         <div className="space-y-3">
@@ -213,20 +201,11 @@ function UpdateNautobotIpConfigPanel({
               </SelectContent>
             </Select>
           </div>
-          <div className="flex items-center justify-between gap-3">
-            <div className="space-y-0.5">
-              <Label className="text-xs font-medium">Dry run</Label>
-              <p className="text-[11px] text-muted-foreground">
-                Write nothing; list per device the addresses that would change.
-              </p>
-            </div>
-            <Switch
-              aria-label={DRY_RUN_KEY}
-              checked={dryRun}
-              onCheckedChange={handleDryRunChange}
-              className="data-[state=checked]:bg-step"
-            />
-          </div>
+          <DryRunSwitch
+            description="Write nothing; list per device the addresses that would change."
+            checked={dryRun}
+            onCheckedChange={handleDryRunChange}
+          />
         </div>
       ) : (
         <ExpressionField
