@@ -1873,11 +1873,6 @@ plugins:
           description: Limit the number of traces returned.
           data_type: integer
           required: false
-        - name: invert_search
-          description: Search for packet headers outside the specified header space, rather than inside it.
-          data_type: boolean
-          required: false
-          default: false
         - name: ignore_filters
           description: Do not apply filters/ACLs during analysis.
           data_type: boolean

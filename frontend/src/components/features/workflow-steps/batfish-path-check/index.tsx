@@ -42,7 +42,6 @@ function BatfishPathCheckConfigPanel({ config, onChange }: PluginConfigPanelProp
   const applications = applicationsFromConfig(config);
   const ipProtocols = stringFromConfig(config, "ip_protocols");
   const maxTraces = numberFromConfig(config, "max_traces");
-  const invertSearch = boolFromConfig(config, "invert_search");
   const ignoreFilters = boolFromConfig(config, "ignore_filters");
   const outputKey = stringFromConfig(config, "output_key");
 
@@ -70,11 +69,6 @@ function BatfishPathCheckConfigPanel({ config, onChange }: PluginConfigPanelProp
         .filter(Boolean);
       onChange({ ...config, applications: applicationsList });
     },
-    [config, onChange],
-  );
-
-  const handleInvertSearchChange = useCallback(
-    (checked: boolean) => onChange({ ...config, invert_search: checked }),
     [config, onChange],
   );
 
@@ -198,11 +192,6 @@ function BatfishPathCheckConfigPanel({ config, onChange }: PluginConfigPanelProp
           onChange={handleMaxTracesChange}
           className="h-8 font-mono text-xs"
         />
-      </div>
-
-      <div className="flex items-center justify-between">
-        <span className="font-mono text-xs font-medium">invert_search</span>
-        <Switch checked={invertSearch} onCheckedChange={handleInvertSearchChange} />
       </div>
 
       <div className="flex items-center justify-between">

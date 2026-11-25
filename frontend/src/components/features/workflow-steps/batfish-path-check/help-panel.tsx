@@ -55,8 +55,6 @@ export function BatfishPathCheckHelpPanel() {
           <HelpCode>applications</HelpCode> / <HelpCode>ip_protocols</HelpCode>{" "}
           narrow which flows count as a match. <HelpCode>max_traces</HelpCode>{" "}
           caps how many example traces are returned.{" "}
-          <HelpCode>invert_search</HelpCode> searches for packets{" "}
-          <em>outside</em> the given header space instead of inside it.{" "}
           <HelpCode>ignore_filters</HelpCode> skips ACLs/filters during the
           analysis, checking pure routing reachability.
         </p>

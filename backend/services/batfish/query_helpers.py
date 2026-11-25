@@ -348,6 +348,16 @@ async def query_traceroute(
     )
 
 
+def aggregate_filter_action(rows: list[dict[str, Any]]) -> str:
+    """The verdict of every filter a ``filters`` specifier matched: ``PERMIT`` only when every row
+    permits, else the first action that is not ``PERMIT`` (``DENY`` when it is blank)."""
+    for row in rows:
+        action = str(row.get("Action", "")).strip().upper()
+        if action != "PERMIT":
+            return action or "DENY"
+    return "PERMIT"
+
+
 async def query_test_filters(
     batfish: BatfishService,
     connection: BatfishConnection,
@@ -390,8 +400,7 @@ async def query_test_filters(
         raise FilterNotFoundError(
             "No result returned -- check that node/filter_name match the snapshot"
         )
-    action = str(rows[0].get("Action", "")).strip().upper()
-    return rows, action
+    return rows, aggregate_filter_action(rows)
 
 
 async def query_node_properties(

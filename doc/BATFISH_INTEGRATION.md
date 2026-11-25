@@ -1523,7 +1523,10 @@ from `config`, not one check per device). An empty result set here is
 treated as an execution problem, not a verdict — `raise RuntimeError`
 rather than defaulting to `deny`, since "no result" means the
 `node`/`filter_name` didn't match anything in the snapshot, not that the
-filter denied the traffic. Stores its result the same workflow-level-artifact
+filter denied the traffic. A `filter_name` specifier such as `/ACL.*/` may match several filters:
+the verdict covers all of them (`aggregate_filter_action`: `permit` only when every row permits,
+else `deny` with the first non-`PERMIT` action, blank = `DENY`) and the summary names the filter
+count when it is more than one. Stores its result the same workflow-level-artifact
 way Routing Table does.
 
 **`searchFilters` was considered and rejected as the primary mapping for
@@ -1544,6 +1547,10 @@ querying a network directly" above.
 
 ### Batfish Path Check (`batfish-path-check`)
 
+**`invert_search` is refused** (W7-14: with it Batfish returns the flows that do *not* reach, so
+`reachable` would mean "some traffic is blocked"); the step raises a config error. The template
+editor preview still passes it through.
+
 `requires: [identity]`, `produces: []`. Wraps `bf.q.reachability(...)` —
 this is the actual "is there a path between device A and device B" question,
 confirmed working end-to-end against the two-router snapshot:
@@ -1557,7 +1564,7 @@ bf.q.reachability(
     headers=config.get("headers", {}),           # optional headerConstraint, e.g. {"dstIps": "..."}
     actions=config.get("actions", ["success"]),  # dispositionSpec, default ["success"]
     maxTraces=config.get("max_traces"),
-    invertSearch=config.get("invert_search", False),
+    invertSearch=False,                          # the step refuses invert_search (W7-14)
     ignoreFilters=config.get("ignore_filters", False),
 ).answer().frame()
 ```

@@ -119,6 +119,7 @@ async def execute(
         StepOutcome(
             name=outcome_name,
             context=context.model_copy(update={"metadata": metadata}),
-            summary=f"{outcome_name} ({action})",
+            summary=f"{outcome_name} ({action})"
+            + (f", {len(rows)} filters" if len(rows) > 1 else ""),
         )
     ]

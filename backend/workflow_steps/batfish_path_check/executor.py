@@ -59,6 +59,13 @@ async def execute(
         key_name="output_key",
     )
     start_node = require_field(merged_config.get("start_node"), "start_node")
+    # `invert_search` returns the flows that do NOT reach, which the reachable / not_reachable
+    # outcomes cannot express (W7-14): refuse it instead of answering the opposite question.
+    if parse_bool_flag(merged_config, "invert_search", default=False, step_id=_STEP_ID):
+        raise ValueError(
+            f"{_STEP_ID}: invert_search is not supported; it would make 'reachable' mean "
+            "'some traffic is blocked'"
+        )
 
     batfish = service_factory.get_batfish_app_service()
     snap = await resolve_batfish_snapshot_ref(
@@ -91,7 +98,7 @@ async def execute(
             applications=merged_config.get("applications"),
             ip_protocols=merged_config.get("ip_protocols"),
             max_traces=merged_config.get("max_traces"),
-            invert_search=parse_bool_flag(merged_config, "invert_search", default=False),
+            invert_search=False,
             ignore_filters=parse_bool_flag(merged_config, "ignore_filters", default=False),
         )
     except BatfishAnswerFailedError as exc:
