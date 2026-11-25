@@ -65,8 +65,8 @@ is only populated by inventory steps that fetch full device records (Get from
 Nautobot, Get from Git). A device sourced via Get from List/Get from ISE and
 enriched only by Get Nautobot Attributes never gets that scalar field set —
 the IP lives nested at ``nautobot.primary_ip4.address`` instead. ``{primary_ip4}``
-falls back to that nested path automatically, mirroring
-``get_ise_tacacs_key.executor._effective_primary_ip4``.
+falls back to that nested path automatically, as
+``common/primary_ip.py::effective_primary_ip4`` does for ``get-ise-tacacs-key``.
 """
 
 from __future__ import annotations

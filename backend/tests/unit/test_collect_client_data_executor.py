@@ -34,6 +34,7 @@ from workflow_steps.collect_client_data.collector import (
 from workflow_steps.collect_client_data.config import get_config
 from workflow_steps.collect_client_data.executor import execute
 
+_STORE = "workflow_steps.common.client_data_store"
 MODULE = "workflow_steps.collect_client_data.executor"
 REFUSAL = "                ^\n% Invalid input detected at '^' marker.\n"
 TABLES = [
@@ -136,7 +137,7 @@ class CollectClientDataExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.addCleanup(engine.dispose)
         self.Session = sessionmaker(bind=engine)
         for target, value in (
-            (f"{MODULE}.get_db_session", {"side_effect": lambda: self.Session()}),
+            (f"{_STORE}.get_db_session", {"side_effect": lambda: self.Session()}),
             ("workflow_steps.common.run_session.object_session", {"return_value": MagicMock()}),
             (
                 f"{MODULE}.resolve_ssh_credential",
@@ -450,7 +451,7 @@ class CollectClientDataExecutorTests(unittest.IsolatedAsyncioTestCase):
         def broken(**_kwargs: Any):
             raise SQLAlchemyError("INSERT INTO client_x VALUES ('secret')")
 
-        with patch(f"{MODULE}._store_sync", broken):
+        with patch(f"{_STORE}.store_collection_sync", broken):
             outcomes = await self._run(
                 {"d1": _device("d1", "core1", "10.0.0.1")}, _FakeNetmiko({"10.0.0.1": CORE1})
             )
@@ -465,7 +466,7 @@ class CollectClientDataExecutorTests(unittest.IsolatedAsyncioTestCase):
         def broken(*_args: Any, **_kwargs: Any):
             raise ValueError("device_name must be 1-255 characters")
 
-        with patch(f"{MODULE}.ClientDataService.store_device_collection", broken):
+        with patch(f"{_STORE}.ClientDataService.store_device_collection", broken):
             outcomes = await self._run(
                 {"d1": _device("d1", "core1", "10.0.0.1")}, _FakeNetmiko({"10.0.0.1": CORE1})
             )

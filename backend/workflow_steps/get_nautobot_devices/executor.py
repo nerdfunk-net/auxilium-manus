@@ -11,7 +11,7 @@ from models.sources_nautobot import DeviceInfo, LogicalCondition, LogicalOperati
 from models.workflow_context import StepOutcome, WorkflowContext
 from services.artifacts import ArtifactService
 from workflow_steps.common.device_builders import device_context_from_nautobot
-from workflow_steps.common.fan_out import build_fan_out_metadata
+from workflow_steps.common.fan_out import inventory_metadata
 from workflow_steps.common.nautobot_source import resolve_nautobot_credentials
 from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.common.run_param_reference import resolve_config_reference
@@ -205,20 +205,18 @@ async def execute(
     new_devices = {
         device.id: device_context_from_nautobot(device, source_id=source_id) for device in devices
     }
-    fan_out_metadata = build_fan_out_metadata(config.get("fan_out"), node_id)
-
-    metadata_update: dict = {
-        **context.metadata,
-        f"{node_id}.source_id": source_id,
-        f"{node_id}.total": len(new_devices),
-    }
-    if fan_out_metadata is not None:
-        metadata_update["_fan_out"] = fan_out_metadata
+    metadata = inventory_metadata(
+        context.metadata,
+        node_id,
+        config.get("fan_out"),
+        source_id=source_id,
+        total=len(new_devices),
+    )
 
     new_context = context.model_copy(
         update={
             "devices": {**context.devices, **new_devices},
-            "metadata": metadata_update,
+            "metadata": metadata.success,
         }
     )
     return [

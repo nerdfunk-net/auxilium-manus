@@ -8,7 +8,6 @@ the MAC table (MAC, VLAN, port) and the ARP-like table (IP, MAC, VLAN). Devices 
 from __future__ import annotations
 
 import asyncio
-import ipaddress
 import logging
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
@@ -16,38 +15,37 @@ from typing import TYPE_CHECKING, Any
 from sqlalchemy.exc import SQLAlchemyError
 
 import service_factory
-from core.config import settings
-from core.database import get_db_session
 from core.models.runs import WorkflowRun
 from models.catalyst_center_facts import CatalystCenterClient
 from models.client_data import (
     ClientCollectionStatus,
-    ClientIpRow,
-    ClientMacRow,
     CollectionConflictError,
     TooManyRowsError,
 )
 from models.failure import FailureInfo
 from models.workflow_context import (
-    Capability,
     DeviceContext,
-    DeviceStatus,
     StepOutcome,
     WorkflowContext,
 )
 from services.artifacts import ArtifactService
 from services.catalyst_center.common.exceptions import CatalystCenterError
 from services.catalyst_center.credentials import CatalystCenterCredentials
-from services.client_data.client_data_service import ClientDataService
-from services.workflow_context.node_result import set_node_result
 from workflow_steps.common.catalyst_center_targets import (
     resolve_source_credentials,
     split_targets,
 )
+from workflow_steps.common.client_data_store import (
+    StorageRejected,
+    duplicate_failure,
+    ip_or_none,
+    storage_failure,
+    store_collection,
+    too_many_rows_failure,
+    with_summary,
+)
 from workflow_steps.common.device_outcomes import build_outcomes, failed_device
 from workflow_steps.common.duplicate_keys import (
-    DUPLICATE_KEY_CODE,
-    DUPLICATE_KEY_FAILURE,
     find_duplicate_keys,
 )
 from workflow_steps.common.fact_entries import MAX_PARALLEL_DEVICES
@@ -66,56 +64,9 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 STEP_ID = "get-catalyst-center-client-data"
-_RESULT_KEY = "client_data"
 DEFAULT_LOOKBACK_HOURS = 24
 MAX_LOOKBACK_HOURS = 168
 _CATALYST_ERROR = "catalyst_center_error"
-
-
-def _store_sync(
-    *,
-    session_id: str,
-    device: DeviceContext,
-    ip_rows: tuple[ClientIpRow, ...],
-    mac_rows: tuple[ClientMacRow, ...],
-    collected_at: datetime,
-    target_host: str,
-) -> None:
-    db = get_db_session()
-    try:
-        ClientDataService(db).store_device_collection(
-            session_id=session_id,
-            device_name=device.name,
-            device_ip=_ip_or_none(device.primary_ip4),
-            ip_rows=ip_rows,
-            mac_rows=mac_rows,
-            hostname_rows=[],
-            # An empty answer is an observation too: it supersedes the device's older rows.
-            status=ClientCollectionStatus(arp_status="ok", mac_status="ok"),
-            keep_sessions=settings.client_data_keep_sessions,
-            collected_at=collected_at,
-            target_host=target_host,
-        )
-    finally:
-        db.close()
-
-
-def _ip_or_none(host: str | None) -> str | None:
-    """``device_ip`` is a 45-character address column: anything else is not stored there."""
-    try:
-        return str(ipaddress.ip_address(host or ""))
-    except ValueError:
-        return None
-
-
-def _with_summary(device: DeviceContext, node_id: str, summary: dict[str, Any]) -> DeviceContext:
-    return device.model_copy(
-        update={
-            "status": DeviceStatus.OK,
-            "parsed": set_node_result(device.parsed, node_id, _RESULT_KEY, summary),
-            "capabilities": device.capabilities | {Capability.PARSED},
-        }
-    )
 
 
 def _belongs_to(client: CatalystCenterClient, device_id: str) -> bool:
@@ -138,7 +89,7 @@ async def _collect_one(
     if dry_run:
         payload = {"would_query": True, "device_id": device_id, "lookback_hours": lookback_hours}
         previewed = record_dry_run(device, node_id=node_id, payload=payload)
-        return _with_summary(previewed, node_id, {"dry_run": True}), True
+        return with_summary(previewed, node_id, {"dry_run": True}), True
     try:
         # Stamped when the query starts, so the per-device ordering follows when it ran.
         collected_at = datetime.now(UTC)
@@ -166,16 +117,19 @@ async def _collect_one(
                 ),
                 False,
             )
-        async with store_lock:
-            await asyncio.to_thread(
-                _store_sync,
-                session_id=session_id,
-                device=device,
-                ip_rows=ip_rows,
-                mac_rows=mac_rows,
-                collected_at=collected_at,
-                target_host=f"catalyst_center:{device.source_id}:{device_id}"[:255],
-            )
+        await store_collection(
+            store_lock,
+            session_id=session_id,
+            device_name=device.name,
+            device_ip=ip_or_none(device.primary_ip4),
+            ip_rows=ip_rows,
+            mac_rows=mac_rows,
+            hostname_rows=[],
+            # An empty answer is an observation too: it supersedes the device's older rows.
+            status=ClientCollectionStatus(arp_status="ok", mac_status="ok"),
+            collected_at=collected_at,
+            target_host=f"catalyst_center:{device.source_id}:{device_id}"[:255],
+        )
     except CatalystCenterError as exc:
         return (
             failed_device(
@@ -189,35 +143,31 @@ async def _collect_one(
             False,
         )
     except CollectionConflictError:
-        return _duplicate_failure(device, node_id), False
+        return duplicate_failure(device, node_id, step_id=STEP_ID), False
     except TooManyRowsError as exc:
+        code, message, failure = too_many_rows_failure(exc)
         return (
             failed_device(
                 device,
                 step_id=STEP_ID,
                 node_id=node_id,
-                code="too_many_rows",
-                message=(
-                    f"The {exc.table} table has more rows than CLIENT_DATA_MAX_ROWS_PER_TABLE "
-                    f"({exc.limit}) allows; nothing was stored for this device"
-                ),
-                failure=FailureInfo(phase="command", kind="payload_too_large"),
+                code=code,
+                message=message,
+                failure=failure,
             ),
             False,
         )
-    except (SQLAlchemyError, ValueError) as exc:
-        # Database text can carry SQL and bound values: keep the class name only.
-        logger.warning("client data storage failed error=%s", type(exc).__name__)
+    except (SQLAlchemyError, StorageRejected, ValueError) as exc:
+        # ``ValueError`` also covers a client the mapper could not validate: not stored either.
+        code, message, failure = storage_failure(exc)
         return (
             failed_device(
                 device,
                 step_id=STEP_ID,
                 node_id=node_id,
-                code="storage_failed",
-                message="The collected data could not be stored",
-                failure=FailureInfo(
-                    phase="internal", kind="internal_error", exception_type=type(exc).__name__
-                ),
+                code=code,
+                message=message,
+                failure=failure,
             ),
             False,
         )
@@ -235,21 +185,7 @@ async def _collect_one(
         "arp_entries": len(ip_rows),
         "mac_entries": len(mac_rows),
     }
-    return _with_summary(device, node_id, summary), True
-
-
-def _duplicate_failure(device: DeviceContext, node_id: str) -> DeviceContext:
-    return failed_device(
-        device,
-        step_id=STEP_ID,
-        node_id=node_id,
-        code=DUPLICATE_KEY_CODE,
-        message=(
-            f"another device in this run has the same name as {device.name!r} (in this step or "
-            "in another execution); client data is stored per device name"
-        ),
-        failure=DUPLICATE_KEY_FAILURE,
-    )
+    return with_summary(device, node_id, summary), True
 
 
 async def execute(
@@ -300,7 +236,7 @@ async def execute(
         source_id: str, device_id: str, device: DeviceContext
     ) -> tuple[str, DeviceContext, bool]:
         if device_id in duplicates:
-            return device_id, _duplicate_failure(device, node_id), False
+            return device_id, duplicate_failure(device, node_id, step_id=STEP_ID), False
         result, ok = await _collect_one(
             device_id=device_id,
             device=device,

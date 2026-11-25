@@ -12,7 +12,7 @@ from services.artifacts import ArtifactService
 from services.git.device_service import GitDeviceService
 from workflow_steps.common.device_builders import device_context_from_git_detail
 from workflow_steps.common.failure_records import INVALID_INPUT
-from workflow_steps.common.fan_out import build_fan_out_metadata
+from workflow_steps.common.fan_out import inventory_metadata
 from workflow_steps.common.git_repository_loader import load_git_repository, require_repository_id
 from workflow_steps.common.partial_outcomes import mark_device_failed
 from workflow_steps.common.run_logging import log_run_id
@@ -110,8 +110,17 @@ async def execute(
         else:
             new_devices[device_ctx.id] = device_ctx
 
-    fan_out_metadata = build_fan_out_metadata(config.get("fan_out"), node_id)
-    if fan_out_metadata is not None and failed_devices:
+    metadata = inventory_metadata(
+        context.metadata,
+        node_id,
+        config.get("fan_out"),
+        git_repository_id=git_repository_id,
+        total=len(new_devices) + len(failed_devices),
+        failed=len(failed_devices),
+        files_read=files_read,
+        warnings=result.warnings,
+    )
+    if "_fan_out" in metadata.success and failed_devices:
         # The engine fans out from the success outcome only and seeds every child with it, so a
         # failure outcome would be dropped and its devices never reach a later step.
         codes = sorted({e.code for d in failed_devices.values() for e in d.errors})
@@ -121,34 +130,22 @@ async def execute(
             "fix the file or turn fan-out off"
         )
 
-    metadata_update: dict = {
-        **context.metadata,
-        f"{node_id}.git_repository_id": git_repository_id,
-        f"{node_id}.total": len(new_devices) + len(failed_devices),
-        f"{node_id}.failed": len(failed_devices),
-        f"{node_id}.files_read": files_read,
-        f"{node_id}.warnings": result.warnings,
-    }
-    if fan_out_metadata is not None:
-        metadata_update["_fan_out"] = fan_out_metadata
-
     new_context = context.model_copy(
         update={
             "devices": {**context.devices, **new_devices},
-            "metadata": metadata_update,
+            "metadata": metadata.success,
         }
     )
     outcomes = [StepOutcome(name="success", context=new_context)]
     if failed_devices:
         # Only the failed devices travel on this path; the fan-out metadata stays on success.
-        failure_metadata = {k: v for k, v in metadata_update.items() if k != "_fan_out"}
         outcomes.append(
             StepOutcome(
                 name="failure",
                 context=context.model_copy(
                     update={
                         "devices": failed_devices,
-                        "metadata": failure_metadata,
+                        "metadata": metadata.base,
                     }
                 ),
             )

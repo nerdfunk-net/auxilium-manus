@@ -22,6 +22,7 @@ from workflow_steps.common.aci_facts import (
     run_fact_step,
 )
 from workflow_steps.common.aci_targets import node_of
+from workflow_steps.common.fact_entries import parse_name_list
 
 if TYPE_CHECKING:
     from services.network.netmiko.session_pool import DeviceSessionPool
@@ -68,16 +69,9 @@ _FACT_METHODS = {
 
 
 def _parse_facts(raw: Any) -> tuple[str, ...]:
-    if raw is None:
-        return DEFAULT_FACTS
-    if not isinstance(raw, list) or not all(isinstance(item, str) for item in raw):
-        raise ValueError(f"{STEP_ID}: facts must be a list of fact names")
-    unknown = sorted({item for item in raw if item not in FACTS})
-    if unknown:
-        raise ValueError(f"{STEP_ID}: unknown fact(s) {unknown}; choose from {list(FACTS)}")
-    if not raw:
-        raise ValueError(f"{STEP_ID}: select at least one fact")
-    return tuple(name for name in FACTS if name in raw)
+    return parse_name_list(
+        raw, step_id=STEP_ID, key="facts", noun="fact", allowed=FACTS, default=DEFAULT_FACTS
+    )
 
 
 async def _collect(

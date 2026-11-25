@@ -9,7 +9,6 @@ Devices are keyed by name: two devices with one name in a step fail the second.
 from __future__ import annotations
 
 import asyncio
-import ipaddress
 import logging
 from collections.abc import Mapping
 from contextlib import AsyncExitStack
@@ -19,22 +18,17 @@ from typing import TYPE_CHECKING, Any
 from sqlalchemy.exc import SQLAlchemyError
 
 from core.config import settings
-from core.database import get_db_session
 from core.models.runs import WorkflowRun
 from models.client_data import ClientHostnameRow, CollectionConflictError, TooManyRowsError
 from models.failure import FailureInfo, failure_from_exception
 from models.workflow_context import (
-    Capability,
     DeviceContext,
-    DeviceStatus,
     StepOutcome,
     WorkflowContext,
     bare_hostname,
 )
 from services.artifacts import ArtifactService
-from services.client_data.client_data_service import ClientDataService
 from services.network.netmiko.service import NetmikoService
-from services.workflow_context.node_result import set_node_result
 from workflow_steps.collect_client_data.collector import (
     CollectionError,
     DeviceCollection,
@@ -46,11 +40,17 @@ from workflow_steps.collect_client_data.collector import (
 from workflow_steps.collect_client_data.commands import SUPPORTED_DEVICE_TYPES
 from workflow_steps.collect_client_data.dns import HostnameResolver, reverse_lookup
 from workflow_steps.collect_client_data.options import STEP_ID, CollectOptions, parse_options
+from workflow_steps.common.client_data_store import (
+    StorageRejected,
+    duplicate_failure,
+    ip_or_none,
+    storage_failure,
+    store_collection,
+    with_summary,
+)
 from workflow_steps.common.credential_resolver import resolve_ssh_credential
 from workflow_steps.common.device_type import connection_device_type
 from workflow_steps.common.duplicate_keys import (
-    DUPLICATE_KEY_CODE,
-    DUPLICATE_KEY_FAILURE,
     find_duplicate_keys,
 )
 from workflow_steps.common.failure_records import INVALID_INPUT
@@ -69,53 +69,9 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-_RESULT_KEY = "client_data"
 _UNSUPPORTED_PLATFORM = FailureInfo(
     phase="connect", kind="unsupported_platform", hint="check_platform"
 )
-
-
-class _StorageRejected(Exception):  # noqa: N818 - internal signal, never leaves the module
-    """The storage service refused the values (its own ``ValueError``), not a step error."""
-
-
-def _store_sync(
-    *,
-    session_id: str,
-    device_name: str,
-    device_ip: str | None,
-    collection: DeviceCollection,
-    hostnames: list[ClientHostnameRow],
-    collected_at: datetime,
-    target_host: str,
-) -> None:
-    db = get_db_session()
-    try:
-        ClientDataService(db).store_device_collection(
-            session_id=session_id,
-            device_name=device_name,
-            device_ip=device_ip,
-            ip_rows=collection.ip_rows,
-            mac_rows=collection.mac_rows,
-            hostname_rows=hostnames,
-            status=collection.status,
-            neighbor_rows=collection.neighbor_rows,
-            keep_sessions=settings.client_data_keep_sessions,
-            collected_at=collected_at,
-            target_host=target_host,
-        )
-    except ValueError as exc:  # the service validates names and session ids with ValueError
-        raise _StorageRejected(type(exc).__name__) from exc
-    finally:
-        db.close()
-
-
-def _ip_or_none(host: str) -> str | None:
-    """``device_ip`` is a 45-character address column: a hostname target is not stored there."""
-    try:
-        return str(ipaddress.ip_address(host))
-    except ValueError:
-        return None
 
 
 def _summary(collection: DeviceCollection, hostname_count: int) -> dict[str, Any]:
@@ -135,21 +91,6 @@ def _summary(collection: DeviceCollection, hostname_count: int) -> dict[str, Any
             None if status.vrfs is None else [result.model_dump() for result in status.vrfs]
         ),
     }
-
-
-def _with_summary(device: DeviceContext, node_id: str, summary: dict[str, Any]) -> DeviceContext:
-    """Write the summary under ``parsed.<node id>.client_data`` and stamp ``PARSED``.
-
-    The registry promises ``produces: [parsed]``; the runner checks the capability on every
-    device of the success outcome.
-    """
-    return device.model_copy(
-        update={
-            "status": DeviceStatus.OK,
-            "parsed": set_node_result(device.parsed, node_id, _RESULT_KEY, summary),
-            "capabilities": device.capabilities | {Capability.PARSED},
-        }
-    )
 
 
 def _fail(
@@ -227,7 +168,7 @@ async def _collect_one(
                 "collect_hostname": options.collect_hostname,
             }
             previewed = record_dry_run(device, node_id=node_id, payload=payload)
-            return _with_summary(previewed, node_id, {"dry_run": True}), True
+            return with_summary(previewed, node_id, {"dry_run": True}), True
         # Stamped when collection starts, not after DNS and queueing for the write lock: the
         # per-device ranking (and the keep-N pruning) must order collections by when they ran.
         collected_at = datetime.now(UTC)
@@ -240,51 +181,37 @@ async def _collect_one(
         hostnames = await _hostnames(resolver, collection)
         # One write at a time: each is short, and a large fan-out must not take a pooled
         # database connection per device.
-        async with store_lock:
-            await asyncio.to_thread(
-                _store_sync,
-                session_id=session_id,
-                device_name=device.name,
-                device_ip=_ip_or_none(target.host),
-                collection=collection,
-                hostnames=hostnames,
-                collected_at=collected_at,
-                target_host=target.host,
-            )
+        await store_collection(
+            store_lock,
+            session_id=session_id,
+            device_name=device.name,
+            device_ip=ip_or_none(target.host),
+            ip_rows=collection.ip_rows,
+            mac_rows=collection.mac_rows,
+            hostname_rows=hostnames,
+            status=collection.status,
+            neighbor_rows=collection.neighbor_rows,
+            collected_at=collected_at,
+            target_host=target.host,
+        )
     except CollectionError as exc:
         return _fail(device, node_id, exc.code, exc.message, exc.failure), False
     except CollectionConflictError:
         # Another execution (a fan-out sibling) stored a different device with this name.
-        return _duplicate_failure(device, node_id), False
+        return duplicate_failure(device, node_id, step_id=STEP_ID), False
     except TooManyRowsError as exc:
         # The storage layer's own check (the collector normally catches this first).
         failed = too_many_rows_error(exc)
         return _fail(device, node_id, failed.code, failed.message, failed.failure), False
-    except (SQLAlchemyError, _StorageRejected) as exc:
-        # Database text can carry SQL and bound values: keep the class name only.
-        logger.warning("client data storage failed error=%s", type(exc).__name__)
-        message = "The collected data could not be stored"
-        failure = FailureInfo(
-            phase="internal", kind="internal_error", exception_type=type(exc).__name__
-        )
-        return _fail(device, node_id, "storage_failed", message, failure), False
+    except (SQLAlchemyError, StorageRejected) as exc:
+        code, message, failure = storage_failure(exc)
+        return _fail(device, node_id, code, message, failure), False
     except Exception as exc:
         # Reduced to a closed vocabulary: library messages can carry host, banner or SQL text.
         error = device_error_from_exception(exc, node_id=node_id, step_id=STEP_ID)
         return fail_device_with_error(device, error), False
     summary = _summary(collection, len(hostnames))
-    return _with_summary(device, node_id, summary), True
-
-
-def _duplicate_failure(device: DeviceContext, node_id: str) -> DeviceContext:
-    return _fail(
-        device,
-        node_id,
-        DUPLICATE_KEY_CODE,
-        f"another device in this run has the same name as {device.name!r} (in this step or "
-        "in another execution); client data is stored per device name",
-        DUPLICATE_KEY_FAILURE,
-    )
+    return with_summary(device, node_id, summary), True
 
 
 async def _collect_or_duplicate(
@@ -296,7 +223,7 @@ async def _collect_or_duplicate(
 ) -> tuple[str, DeviceContext, bool]:
     """One device of the fan-out: a duplicate name fails without a login, the rest is collected."""
     if device_id in duplicates:
-        return device_id, _duplicate_failure(device, collect["node_id"]), False
+        return device_id, duplicate_failure(device, collect["node_id"], step_id=STEP_ID), False
     result, ok = await _collect_one(device=device, **collect)
     return device_id, result, ok
 

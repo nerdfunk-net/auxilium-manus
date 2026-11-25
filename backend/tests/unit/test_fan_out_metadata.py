@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import unittest
 
-from workflow_steps.common.fan_out import build_fan_out_metadata
+from workflow_steps.common.fan_out import build_fan_out_metadata, inventory_metadata
 
 
 class BuildFanOutMetadataTests(unittest.TestCase):
@@ -80,6 +80,28 @@ class BuildFanOutMetadataTests(unittest.TestCase):
             result["approval"],
             {"enabled": False, "batch_size": 1, "first_batch_auto": True},
         )
+
+
+class InventoryMetadataTests(unittest.TestCase):
+    def test_entries_are_namespaced_by_node_and_the_context_is_kept(self) -> None:
+        result = inventory_metadata({"keep": 1}, "n-1", None, source_id="s", total=3)
+
+        self.assertEqual(result.base, {"keep": 1, "n-1.source_id": "s", "n-1.total": 3})
+        self.assertEqual(result.success, result.base)
+
+    def test_fan_out_is_on_the_success_metadata_only(self) -> None:
+        result = inventory_metadata({}, "n-1", {"enabled": True, "chunk_size": 2}, total=1)
+
+        self.assertNotIn("_fan_out", result.base)
+        self.assertEqual(result.success["_fan_out"]["chunk_size"], 2)
+        self.assertEqual(result.success["_fan_out"]["inventory_node_id"], "n-1")
+
+    def test_the_input_is_not_mutated(self) -> None:
+        context_metadata = {"keep": 1}
+
+        inventory_metadata(context_metadata, "n-1", {"enabled": True}, total=1)
+
+        self.assertEqual(context_metadata, {"keep": 1})
 
 
 if __name__ == "__main__":

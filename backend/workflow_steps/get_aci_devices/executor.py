@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from sqlalchemy.orm import Session
@@ -16,10 +15,8 @@ from services.aci.device_filters import AciDeviceFilters
 from services.aci.device_service import AciDeviceService
 from services.aci.source_config_service import AciSourceNotFoundError
 from services.artifacts import ArtifactService
+from workflow_steps.common.controller_inventory import ControllerInventory, run_inventory_step
 from workflow_steps.common.device_builders import device_context_from_aci
-from workflow_steps.common.fan_out import build_fan_out_metadata
-from workflow_steps.common.run_session import require_session
-from workflow_steps.common.step_flags import parse_bool_flag
 
 if TYPE_CHECKING:
     from services.network.netmiko.session_pool import DeviceSessionPool
@@ -28,56 +25,6 @@ logger = logging.getLogger(__name__)
 
 STEP_ID = "get-aci-devices"
 SOURCE_ID_KEY = "aci_source_id"
-_MAX_DEVICES_CEILING = 1_000_000
-
-
-@dataclass(frozen=True)
-class _ParsedConfig:
-    source_id: str
-    filters: AciDeviceFilters
-    max_devices: int | None
-
-
-def _parse_max_devices(raw: Any) -> int | None:
-    if raw is None or (isinstance(raw, str) and not raw.strip()):
-        return None
-    value: Any = raw.strip() if isinstance(raw, str) else raw
-    if isinstance(value, str) and value.isdecimal():
-        value = int(value)
-    if (
-        isinstance(value, bool)
-        or not isinstance(value, int)
-        or not 1 <= value <= _MAX_DEVICES_CEILING
-    ):
-        raise ValueError(
-            f"{STEP_ID}: max_devices must be a whole number between 1 and {_MAX_DEVICES_CEILING}"
-        )
-    return value
-
-
-def _parse_config(config: dict[str, Any]) -> _ParsedConfig:
-    source_id = str(config.get(SOURCE_ID_KEY) or "").strip()
-    if not source_id:
-        raise ValueError(f"{STEP_ID}: {SOURCE_ID_KEY} is not configured")
-
-    try:
-        filters = AciDeviceFilters.from_config(config.get("filters"))
-    except AciValidationError as exc:
-        raise ValueError(f"{STEP_ID}: {exc}") from exc
-
-    # An empty filter selects every switch of the fabric, which a downstream step may then act
-    # on, so it must be opted into.
-    if filters.is_empty and not parse_bool_flag(config, "allow_all", default=False):
-        raise ValueError(
-            f"{STEP_ID}: no filters configured; add at least one filter or enable allow_all "
-            "to select every device"
-        )
-
-    return _ParsedConfig(
-        source_id=source_id,
-        filters=filters,
-        max_devices=_parse_max_devices(config.get("max_devices")),
-    )
 
 
 def _build_device_service(db: Session, source_id: str) -> AciDeviceService:
@@ -91,6 +38,24 @@ def _build_device_service(db: Session, source_id: str) -> AciDeviceService:
     return service_factory.build_aci_device_service(credentials)
 
 
+async def _search(service: AciDeviceService, filters: Any, max_devices: int | None) -> Any:
+    return await service.search(filters, max_devices=max_devices)
+
+
+_SPEC = ControllerInventory(
+    step_id=STEP_ID,
+    source_id_key=SOURCE_ID_KEY,
+    logger=logger,
+    request_label="APIC",
+    validation_error=AciValidationError,
+    request_errors=(AciAPIError, AciAuthError),
+    filters_from_config=AciDeviceFilters.from_config,
+    build_device_service=_build_device_service,
+    search=_search,
+    to_device=lambda device, source_id: device_context_from_aci(device, source_id=source_id),
+)
+
+
 async def execute(
     *,
     config: dict[str, Any],
@@ -101,57 +66,4 @@ async def execute(
     device_sessions: DeviceSessionPool,
 ) -> list[StepOutcome]:
     del artifact_service, device_sessions  # unused for this step
-
-    parsed = _parse_config(config)
-
-    db = require_session(run, STEP_ID)
-
-    device_service = _build_device_service(db, parsed.source_id)
-
-    logger.info(
-        "%s started run_id=%s node_id=%s filtered=%s max_devices=%s",
-        STEP_ID,
-        context.run_id,
-        node_id,
-        not parsed.filters.is_empty,
-        parsed.max_devices,
-    )
-
-    try:
-        found = await device_service.search(parsed.filters, max_devices=parsed.max_devices)
-    except AciValidationError as exc:
-        # Includes "matched more than max_devices": a configuration problem, not an outage.
-        raise ValueError(f"{STEP_ID}: {exc}") from exc
-    except (AciAPIError, AciAuthError) as exc:
-        # ``from exc`` keeps the APIC error in the cause chain: the runner reads its
-        # structured failure record from there.
-        raise RuntimeError(f"{STEP_ID}: APIC request failed: {exc}") from exc
-
-    new_devices = {
-        context_device.id: context_device
-        for context_device in (
-            device_context_from_aci(device, source_id=parsed.source_id) for device in found
-        )
-    }
-
-    logger.info("%s finished count=%d run_id=%s", STEP_ID, len(new_devices), context.run_id)
-
-    metadata = {
-        **context.metadata,
-        f"{node_id}.source_id": parsed.source_id,
-        f"{node_id}.total": len(new_devices),
-    }
-    fan_out_metadata = build_fan_out_metadata(config.get("fan_out"), node_id)
-    if fan_out_metadata is not None:
-        metadata["_fan_out"] = fan_out_metadata
-
-    new_context = context.model_copy(
-        update={"devices": {**context.devices, **new_devices}, "metadata": metadata}
-    )
-    return [
-        StepOutcome(
-            name="success",
-            context=new_context,
-            summary=f"found {len(new_devices)} device(s)",
-        )
-    ]
+    return await run_inventory_step(_SPEC, config=config, context=context, run=run, node_id=node_id)

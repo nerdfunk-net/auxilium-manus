@@ -27,7 +27,7 @@ from workflow_steps.common.device_list import (
     device_context_from_entry,
     normalize_device_entries,
 )
-from workflow_steps.common.fan_out import build_fan_out_metadata
+from workflow_steps.common.fan_out import inventory_metadata
 from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.common.run_session import require_session
 from workflow_steps.get_from_agent.request import STEP_ID, build_inputs, parse_config
@@ -159,15 +159,14 @@ async def execute(
         ]
     }
 
-    metadata: dict[str, Any] = {
-        **context.metadata,
-        f"{node_id}.total": len(new_devices),
-        f"{node_id}.devices": [device.name for device in new_devices.values()][:MAX_LISTED_NAMES],
-        f"{node_id}.agent": connection.source_id,
-    }
-    fan_out_metadata = build_fan_out_metadata(config.get("fan_out"), node_id)
-    if fan_out_metadata is not None:
-        metadata["_fan_out"] = fan_out_metadata
+    metadata = inventory_metadata(
+        context.metadata,
+        node_id,
+        config.get("fan_out"),
+        total=len(new_devices),
+        devices=[device.name for device in new_devices.values()][:MAX_LISTED_NAMES],
+        agent=connection.source_id,
+    ).success
 
     logger.info("%s finished run_id=%s devices=%d", STEP_ID, log_run_id(run), len(new_devices))
     new_context = context.model_copy(

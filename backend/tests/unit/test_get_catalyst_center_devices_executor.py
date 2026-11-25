@@ -263,6 +263,7 @@ class LoggingTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(messages[0].startswith("get-catalyst-center-devices started"))
         self.assertTrue(messages[-1].startswith("get-catalyst-center-devices finished"))
         self.assertIn("count=2", messages[-1])
+        self.assertIn("filtered=True max_devices=None", messages[0])
 
     async def test_logs_do_not_include_filter_values_or_secrets(self) -> None:
         with _Harness(), self.assertLogs(MODULE, level="INFO") as logs:

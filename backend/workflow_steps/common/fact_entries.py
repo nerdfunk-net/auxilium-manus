@@ -228,3 +228,30 @@ async def collect_facts[CredsT](
         context.run_id,
     )
     return build_outcomes(context, succeeded, failed)
+
+
+def parse_name_list(
+    raw: Any,
+    *,
+    step_id: str,
+    key: str,
+    noun: str,
+    allowed: tuple[str, ...],
+    default: tuple[str, ...],
+) -> tuple[str, ...]:
+    """A config list of names out of ``allowed``, in the canonical order of ``allowed``.
+
+    ``None`` means ``default``; anything that is not a list of strings, an unknown name or an
+    empty list is a configuration error. ``key`` is the config key, ``noun`` the singular in the
+    messages (``fact``, ``topology``).
+    """
+    if raw is None:
+        return default
+    if not isinstance(raw, list) or not all(isinstance(item, str) for item in raw):
+        raise ValueError(f"{step_id}: {key} must be a list of {noun} names")
+    unknown = sorted({item for item in raw if item not in allowed})
+    if unknown:
+        raise ValueError(f"{step_id}: unknown {noun}(s) {unknown}; choose from {list(allowed)}")
+    if not raw:
+        raise ValueError(f"{step_id}: select at least one {noun}")
+    return tuple(name for name in allowed if name in raw)

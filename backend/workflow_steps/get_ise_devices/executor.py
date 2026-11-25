@@ -29,7 +29,7 @@ from workflow_steps.common.device_builders import (
     device_context_from_ise,
     device_context_from_nautobot,
 )
-from workflow_steps.common.fan_out import build_fan_out_metadata
+from workflow_steps.common.fan_out import inventory_metadata
 from workflow_steps.common.nautobot_source import resolve_nautobot_credentials
 from workflow_steps.common.run_session import require_session
 from workflow_steps.common.source_credentials import resolve_source
@@ -308,20 +308,18 @@ def _build_get_ise_devices_outcome(
     new_devices: dict[str, DeviceContext],
     missing_names: list[str] | None = None,
 ) -> list[StepOutcome]:
-    fan_out_metadata = build_fan_out_metadata(config.get("fan_out"), node_id)
-
-    metadata_update: dict = {
-        **context.metadata,
-        f"{node_id}.source_id": source_id,
-        f"{node_id}.total": len(new_devices),
-    }
-    if fan_out_metadata is not None:
-        metadata_update["_fan_out"] = fan_out_metadata
+    metadata = inventory_metadata(
+        context.metadata,
+        node_id,
+        config.get("fan_out"),
+        source_id=source_id,
+        total=len(new_devices),
+    )
 
     new_context = context.model_copy(
         update={
             "devices": {**context.devices, **new_devices},
-            "metadata": metadata_update,
+            "metadata": metadata.success,
         }
     )
 
@@ -356,7 +354,7 @@ def _build_get_ise_devices_outcome(
         outcomes.append(
             StepOutcome(
                 name="failure",
-                context=context.model_copy(update={"devices": stubs, "metadata": metadata_update}),
+                context=context.model_copy(update={"devices": stubs, "metadata": metadata.base}),
                 summary=f"{len(stubs)} name(s) not found in ISE",
             )
         )

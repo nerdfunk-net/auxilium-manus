@@ -1998,10 +1998,13 @@ Fan-out lives in the inventory step's `pluginConfig.fan_out`:
 ```
 
 The inventory executor copies these values into `context.metadata["_fan_out"]` via the
-shared `workflow_steps/common/fan_out.py::build_fan_out_metadata` helper when `enabled`
-is true (all eight inventory steps — `get-nautobot-devices`, `get-virtual-chassis`, `get-git-devices`,
-`get-ise-devices`, `get-catalyst-center-devices`, `get-aci-devices`, `get-from-list`, `get-from-user` — call this one helper; do not duplicate the
-sanitisation inline in a new inventory step).
+shared `workflow_steps/common/fan_out.py::inventory_metadata` helper (it calls `build_fan_out_metadata`) when `enabled`
+is true. It returns the context metadata with the step's `{node_id}.<key>` entries; `.success` carries `_fan_out`, `.base`
+does not (a failure branch that carries stub devices uses `.base`). All ten inventory steps — `get-nautobot-devices`,
+`get-virtual-chassis`, `get-git-devices`, `get-ise-devices`, `get-catalyst-center-devices`, `get-aci-devices`, `get-from-list`,
+`get-from-user`, `get-from-config`, `get-from-agent` — call it; do not duplicate the sanitisation inline in a new inventory
+step. `get-aci-devices` and `get-catalyst-center-devices` are one body, `common/controller_inventory.py::run_inventory_step`,
+with a `ControllerInventory` descriptor per controller; the fact and topology selectors share `fact_entries.parse_name_list`.
 
 **Failure outcome and fan-out.** Fan-out starts every child from the inventory step's `success` outcome only, so
 an inventory step that reports devices on a `failure` outcome (today `get-git-devices` for primary-IP data

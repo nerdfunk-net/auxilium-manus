@@ -53,12 +53,12 @@ from services.ise.lookup import (
     paginate_ise_summaries,
 )
 from services.ise.network_device_service import ISENetworkDeviceService
-from services.workflow_context.attribute_path import resolve_device_value
 from services.workflow_context.secret_fields import seal_secret, secret_is_present
 from workflow_steps.common.attribute_write import set_device_attribute
 from workflow_steps.common.device_outcomes import build_outcomes
 from workflow_steps.common.device_runner import AbortRun, Fail, run_per_device
 from workflow_steps.common.partial_outcomes import abort_outcomes
+from workflow_steps.common.primary_ip import effective_primary_ip4
 from workflow_steps.common.run_session import require_session
 from workflow_steps.common.source_credentials import resolve_source
 from workflow_steps.common.step_flags import parse_bool_flag
@@ -200,17 +200,6 @@ async def _tier_location_group(
     return None
 
 
-def _effective_primary_ip4(device: DeviceContext) -> str | None:
-    """Prefer the top-level field (set by Get from Nautobot/Get from Git); fall
-    back to the ``nautobot`` attribute bag, which is the only place the IP
-    lives when a device came from Get from List/Get from ISE and was later
-    enriched by a Get Nautobot Attributes step."""
-    if device.primary_ip4:
-        return device.primary_ip4
-    value = resolve_device_value(device, "nautobot.primary_ip4.address")
-    return str(value) if value else None
-
-
 class _IseInventory:
     """All ISE network devices (detail records), fetched once per step run and shared by every
     device: the range scan used to download the whole inventory per device (C3R-03)."""
@@ -235,7 +224,7 @@ class _IseInventory:
 async def _tier_ip_prefix_scan(
     device: DeviceContext, device_service: ISENetworkDeviceService
 ) -> str | None:
-    bare_ip = (_effective_primary_ip4(device) or "").split("/")[0].strip()
+    bare_ip = (effective_primary_ip4(device) or "").split("/")[0].strip()
     if not bare_ip:
         return None
     try:
@@ -262,7 +251,7 @@ async def _tier_ip_prefix_scan(
 
 
 async def _tier_ip_range_scan(device: DeviceContext, inventory: _IseInventory) -> str | None:
-    raw_ip = (_effective_primary_ip4(device) or "").split("/")[0].strip()
+    raw_ip = (effective_primary_ip4(device) or "").split("/")[0].strip()
     if not raw_ip:
         return None
     try:

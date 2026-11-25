@@ -29,7 +29,7 @@ from workflow_steps.common.device_list import (
     parse_device_list_text,
     validated_driver,
 )
-from workflow_steps.common.fan_out import build_fan_out_metadata
+from workflow_steps.common.fan_out import inventory_metadata
 from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.common.run_session import require_session
 from workflow_steps.get_from_user.inventory_reference import (
@@ -100,15 +100,13 @@ async def execute(
         ]
     }
 
-    fan_out_metadata = build_fan_out_metadata(config.get("fan_out"), node_id)
-
-    metadata_update: dict = {
-        **context.metadata,
-        f"{node_id}.total": len(new_devices),
-        f"{node_id}.devices": [device.name for device in new_devices.values()],
-    }
-    if fan_out_metadata is not None:
-        metadata_update["_fan_out"] = fan_out_metadata
+    metadata = inventory_metadata(
+        context.metadata,
+        node_id,
+        config.get("fan_out"),
+        total=len(new_devices),
+        devices=[device.name for device in new_devices.values()],
+    )
 
     logger.info(
         "get-from-user returning %d devices run_id=%s",
@@ -119,7 +117,7 @@ async def execute(
     new_context = context.model_copy(
         update={
             "devices": {**context.devices, **new_devices},
-            "metadata": metadata_update,
+            "metadata": metadata.success,
         }
     )
     return [

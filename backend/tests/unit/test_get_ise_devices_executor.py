@@ -113,6 +113,43 @@ class GetIseDevicesExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(device.source, "ise")
         self.assertFalse(device.attribute_bags["ise"]["is_group_or_prefix"])
 
+    async def test_fan_out_marker_stays_off_the_failure_branch(self) -> None:
+        # W6-13: the runner fans out from the success outcome only; the stub devices of the
+        # failure branch must not carry the marker.
+        device_service = MagicMock()
+        device_service.get_device_by_name = AsyncMock(
+            side_effect=[
+                {
+                    "NetworkDevice": {
+                        "id": "abc-1",
+                        "name": "router1",
+                        "NetworkDeviceIPList": [{"ipaddress": "10.0.0.1", "mask": 32}],
+                    }
+                },
+                ISENotFoundError("not found"),
+            ]
+        )
+        p1, p2, p3 = _patches(device_service)
+        with p1, p2, p3:
+            outcomes = await execute(
+                config={
+                    "ise_source_id": "lab-ise",
+                    "query_mode": "name",
+                    "device_names": ["router1", "missing-device"],
+                    "fan_out": {"enabled": True},
+                },
+                context=_context(),
+                run=_run(),
+                artifact_service=InMemoryArtifactService(),
+                node_id="node-1",
+                device_sessions=MagicMock(),
+            )
+
+        by_name = {o.name: o for o in outcomes}
+        self.assertIn("_fan_out", by_name["success"].context.metadata)
+        self.assertNotIn("_fan_out", by_name["failure"].context.metadata)
+        self.assertEqual(by_name["failure"].context.metadata["node-1.total"], 1)
+
     async def test_all_names_known_emit_no_failure_outcome(self) -> None:
         device_service = MagicMock()
         device_service.get_device_by_name = AsyncMock(

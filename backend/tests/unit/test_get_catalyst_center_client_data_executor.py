@@ -68,7 +68,7 @@ class _Env:
                 "service_factory.build_catalyst_center_client_data_service",
                 return_value=self.service,
             ),
-            patch(f"{MODULE}._store_sync", self.store),
+            patch("workflow_steps.common.client_data_store.store_collection_sync", self.store),
         ]
         for p in self._patches:
             p.start()

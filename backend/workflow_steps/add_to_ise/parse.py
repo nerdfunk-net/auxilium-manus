@@ -7,10 +7,6 @@ import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-from models.workflow_context import (
-    DeviceContext,
-)
-from services.workflow_context.attribute_path import resolve_device_value
 from services.workflow_context.secret_expression import require_secret_expression
 from workflow_steps.common.step_flags import parse_bool_flag
 
@@ -115,20 +111,6 @@ def extract_ip_host(raw: str) -> str | None:
     except ValueError:
         return None
     return candidate
-
-
-def effective_primary_ip4(device: DeviceContext) -> str | None:
-    """Resolve a device's primary IPv4 the same way ``get-ise-tacacs-key`` does.
-
-    Prefers the top-level ``primary_ip4`` scalar (set by Get from Nautobot/Get
-    from Git); falls back to the ``nautobot`` attribute bag, which is the only
-    place the IP lives when a device came from Get from List/Get from ISE and
-    was later enriched by a Get Nautobot Attributes step.
-    """
-    if device.primary_ip4:
-        return device.primary_ip4
-    value = resolve_device_value(device, "nautobot.primary_ip4.address")
-    return str(value) if value else None
 
 
 def parse_config(config: dict[str, Any]) -> ParsedConfig:

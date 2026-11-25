@@ -45,6 +45,9 @@ Ask the Net tools; the UI page is not built (see "Open").
 
 ## Second source: Catalyst Center (`get-catalyst-center-client-data`)
 
+Both steps write through `workflow_steps/common/client_data_store.py` (`store_collection`, the summary under `parsed.<node>.client_data`, the
+`duplicate_key`, `too_many_rows` and `storage_failed` failure records), so they differ only in how they collect.
+
 The step "Get Client Data from CC" (`workflow_steps/get_catalyst_center_client_data/`, palette Cisco / Catalyst Center) fills the **same**
 tables without SSH, from the Cisco Catalyst Center Clients API (release 3.1 or newer): one
 `POST /dna/data/api/v1/clients/query` per device, view `Wired`, filters `connectedNetworkDeviceId eq <the device's controller UUID>`,

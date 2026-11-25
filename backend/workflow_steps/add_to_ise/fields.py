@@ -14,10 +14,10 @@ from workflow_steps.add_to_ise.parse import (
     CONNECT_MODE_OFF,
     STEP_ID,
     ParsedConfig,
-    effective_primary_ip4,
     extract_ip_host,
     extract_ip_mask,
 )
+from workflow_steps.common.primary_ip import effective_primary_ip4
 from workflow_steps.common.value_expression import (
     resolve_template_if_present,
     resolve_update_field_expression,

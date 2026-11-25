@@ -18,7 +18,7 @@ from models.workflow_context import (
 )
 from services.artifacts import ArtifactService
 from services.nautobot.graphql_client import NautobotServiceClient
-from workflow_steps.common.fan_out import build_fan_out_metadata
+from workflow_steps.common.fan_out import inventory_metadata
 from workflow_steps.common.nautobot_source import resolve_nautobot_credentials
 from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.common.run_session import require_session
@@ -53,26 +53,21 @@ def _stack_outcomes(
     context: WorkflowContext,
     devices: list[DeviceContext],
     *,
-    fan_out_metadata: dict[str, Any] | None,
+    fan_out_config: dict[str, Any] | None,
     node_id: str,
     source_id: str,
     stack_count: int,
 ) -> list[StepOutcome]:
     ok = {d.id: d for d in devices if d.status != DeviceStatus.FAILED}
     failed = {d.id: d for d in devices if d.status == DeviceStatus.FAILED}
-    metadata = {
-        **context.metadata,
-        f"{node_id}.source_id": source_id,
-        f"{node_id}.total": len(ok),
-    }
-    success_metadata = (
-        {**metadata, "_fan_out": fan_out_metadata} if fan_out_metadata is not None else metadata
+    metadata = inventory_metadata(
+        context.metadata, node_id, fan_out_config, source_id=source_id, total=len(ok)
     )
     outcomes = [
         StepOutcome(
             name="success",
             context=context.model_copy(
-                update={"devices": {**context.devices, **ok}, "metadata": success_metadata}
+                update={"devices": {**context.devices, **ok}, "metadata": metadata.success}
             ),
             summary=f"found {stack_count} virtual chassis, {len(ok)} device(s)",
         )
@@ -81,7 +76,7 @@ def _stack_outcomes(
         outcomes.append(
             StepOutcome(
                 name="failure",
-                context=context.model_copy(update={"devices": failed, "metadata": metadata}),
+                context=context.model_copy(update={"devices": failed, "metadata": metadata.base}),
                 summary=f"{len(failed)} device(s) without a usable primary IPv4",
             )
         )
@@ -137,7 +132,7 @@ async def execute(
     outcomes = _stack_outcomes(
         context,
         devices,
-        fan_out_metadata=build_fan_out_metadata(config.get("fan_out"), node_id),
+        fan_out_config=config.get("fan_out"),
         node_id=node_id,
         source_id=source_id,
         stack_count=len(chassis),

@@ -51,6 +51,7 @@ from workflow_steps.collect_client_data.parsing import (
     parse_neighbors,
     parse_vrf_names,
 )
+from workflow_steps.common.client_data_store import too_many_rows_failure
 
 logger = logging.getLogger(__name__)
 
@@ -244,12 +245,7 @@ def _require_something(
 
 def too_many_rows_error(exc: TooManyRowsError) -> CollectionError:
     """The device failure for a table above the row cap (one wording for both checks)."""
-    return CollectionError(
-        "too_many_rows",
-        f"The {exc.table} table has more rows than CLIENT_DATA_MAX_ROWS_PER_TABLE "
-        f"({exc.limit}) allows; nothing was stored for this device",
-        FailureInfo(phase="command", kind="payload_too_large"),
-    )
+    return CollectionError(*too_many_rows_failure(exc))
 
 
 def _enforce_row_cap(ip_count: int, mac_count: int, max_rows: int, neighbor_count: int = 0) -> None:

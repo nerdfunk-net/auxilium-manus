@@ -15,7 +15,7 @@ from services.git.content_search_service import GitContentSearchService
 from services.git.sync import agit_checkout
 from services.network.cisco_config_parsing import parse_cisco_config_text
 from workflow_steps.common.device_builders import device_context_from_config_match
-from workflow_steps.common.fan_out import build_fan_out_metadata
+from workflow_steps.common.fan_out import inventory_metadata
 from workflow_steps.common.git_repository_loader import load_git_repository, require_repository_id
 from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.common.step_flags import parse_bool_flag
@@ -119,22 +119,20 @@ def _build_get_from_config_outcome(
     matches_found: int,
     files_scanned: int,
 ) -> list[StepOutcome]:
-    fan_out_metadata = build_fan_out_metadata(config.get("fan_out"), node_id)
-
-    metadata_update: dict[str, Any] = {
-        **context.metadata,
-        f"{node_id}.git_repository_id": git_repository_id,
-        f"{node_id}.total": len(devices_by_id),
-        f"{node_id}.files_scanned": files_scanned,
-        f"{node_id}.matches_found": matches_found,
-    }
-    if fan_out_metadata is not None:
-        metadata_update["_fan_out"] = fan_out_metadata
+    metadata = inventory_metadata(
+        context.metadata,
+        node_id,
+        config.get("fan_out"),
+        git_repository_id=git_repository_id,
+        total=len(devices_by_id),
+        files_scanned=files_scanned,
+        matches_found=matches_found,
+    )
 
     new_context = context.model_copy(
         update={
             "devices": {**context.devices, **devices_by_id},
-            "metadata": metadata_update,
+            "metadata": metadata.success,
         }
     )
     return [

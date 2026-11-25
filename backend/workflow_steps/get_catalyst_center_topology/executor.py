@@ -20,6 +20,7 @@ from workflow_steps.common.catalyst_center_facts import (
     parse_output_key_config,
     run_fact_step,
 )
+from workflow_steps.common.fact_entries import parse_name_list
 
 if TYPE_CHECKING:
     from services.network.netmiko.session_pool import DeviceSessionPool
@@ -34,16 +35,14 @@ _Fetched = dict[str, CatalystCenterTopology | FactError]
 
 
 def _parse_topologies(raw: Any) -> tuple[str, ...]:
-    if raw is None:
-        return DEFAULT_TOPOLOGIES
-    if not isinstance(raw, list) or not all(isinstance(item, str) for item in raw):
-        raise ValueError(f"{STEP_ID}: topologies must be a list of topology names")
-    unknown = sorted({item for item in raw if item not in TOPOLOGIES})
-    if unknown:
-        raise ValueError(f"{STEP_ID}: unknown topology {unknown}; choose from {list(TOPOLOGIES)}")
-    if not raw:
-        raise ValueError(f"{STEP_ID}: select at least one topology")
-    return tuple(name for name in TOPOLOGIES if name in raw)
+    return parse_name_list(
+        raw,
+        step_id=STEP_ID,
+        key="topologies",
+        noun="topology",
+        allowed=TOPOLOGIES,
+        default=DEFAULT_TOPOLOGIES,
+    )
 
 
 async def _fetch_topologies(
