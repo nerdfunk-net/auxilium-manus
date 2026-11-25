@@ -42,7 +42,11 @@ async def _run_execute(config: dict, devices: dict, svc: MagicMock, resolver: As
     run = MagicMock()
     run.id = 1
     with (
-        patch.object(mod, "_bind_nautobot", return_value=(MagicMock(), svc)),
+        patch.object(
+            mod,
+            "bind_nautobot",
+            return_value=MagicMock(credentials=MagicMock(), service=svc),
+        ),
         patch.object(mod, "resolve_nautobot_device_id", resolver),
     ):
         return await execute(

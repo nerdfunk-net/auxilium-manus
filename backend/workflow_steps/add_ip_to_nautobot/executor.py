@@ -12,7 +12,6 @@ import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-import service_factory
 from core.models.runs import WorkflowRun
 from models.failure import FailureInfo
 from models.workflow_context import (
@@ -38,13 +37,12 @@ from workflow_steps.common.nautobot_prefix_lookup import (
     list_results,
 )
 from workflow_steps.common.nautobot_resolve import resolve_nautobot_device_id
-from workflow_steps.common.nautobot_source import resolve_nautobot_credentials
+from workflow_steps.common.nautobot_step import bind_nautobot
 from workflow_steps.common.partial_outcomes import (
     NAUTOBOT_TEXT,
     device_error_from_exception,
     fail_device_with_error,
 )
-from workflow_steps.common.run_session import require_session
 from workflow_steps.common.step_flags import parse_bool_flag, parse_int_flag
 from workflow_steps.common.value_expression import resolve_update_field_expression
 
@@ -138,11 +136,9 @@ def _parse_config(config: dict[str, Any]) -> _ParsedConfig:
 
 
 def _bind_nautobot(run: WorkflowRun, source_id: str) -> _Bound:
-    db = require_session(run, _STEP_ID)
-    credentials = resolve_nautobot_credentials(db, source_id, step_id=_STEP_ID)
-    service = service_factory.get_nautobot_app_service()
-    client = CredentialsBoundNautobotClient(service, credentials)
-    return _Bound(DeviceCommonService(client), client, service, credentials)
+    nautobot = bind_nautobot(run, source_id, step_id=_STEP_ID)
+    client = nautobot.client
+    return _Bound(DeviceCommonService(client), client, nautobot.service, nautobot.credentials)
 
 
 def _failed(

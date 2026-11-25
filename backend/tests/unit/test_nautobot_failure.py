@@ -178,7 +178,11 @@ async def test_exists_in_nautobot_records_the_failure() -> None:
 
     service = MagicMock()
     service.graphql_query = AsyncMock(side_effect=NautobotAPIError("x", http_status=403))
-    with patch.object(exists_mod, "_bind_nautobot", return_value=(MagicMock(), service)):
+    with patch.object(
+        exists_mod,
+        "bind_nautobot",
+        return_value=MagicMock(credentials=MagicMock(), service=service),
+    ):
         outcomes = await call_step(
             exists_mod.execute,
             config={"nautobot_source_id": "src", "strategy": "name"},

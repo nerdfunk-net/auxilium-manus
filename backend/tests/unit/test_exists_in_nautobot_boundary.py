@@ -24,7 +24,11 @@ async def _run(query: Any, *names: str) -> dict[str, Any]:
     service = MagicMock()
     service.graphql_query = AsyncMock(side_effect=query)
     context = make_context([make_device(n) for n in names])
-    with patch.object(mod, "_bind_nautobot", return_value=(MagicMock(), service)):
+    with patch.object(
+        mod,
+        "bind_nautobot",
+        return_value=MagicMock(credentials=MagicMock(), service=service),
+    ):
         outcomes = await call_step(
             mod.execute,
             config={"nautobot_source_id": "src", "strategy": "name"},
@@ -68,7 +72,11 @@ async def test_ip_unresolved_carries_the_code_and_counts_stay() -> None:
     service = MagicMock()
     service.graphql_query = AsyncMock()
     context = make_context([make_device("A", primary_ip4=None)])
-    with patch.object(mod, "_bind_nautobot", return_value=(MagicMock(), service)):
+    with patch.object(
+        mod,
+        "bind_nautobot",
+        return_value=MagicMock(credentials=MagicMock(), service=service),
+    ):
         outcomes = await call_step(
             mod.execute,
             config={

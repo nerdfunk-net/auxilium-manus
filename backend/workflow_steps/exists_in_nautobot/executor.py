@@ -6,7 +6,6 @@ import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-import service_factory
 from core.models.runs import WorkflowRun
 from models.workflow_context import DeviceContext, StepOutcome, WorkflowContext
 from services.artifacts import ArtifactService
@@ -21,8 +20,7 @@ from workflow_steps.common.nautobot_resolve import (
     find_device_id_by_name,
     find_device_id_by_primary_ip,
 )
-from workflow_steps.common.nautobot_source import resolve_nautobot_credentials
-from workflow_steps.common.run_session import require_session
+from workflow_steps.common.nautobot_step import bind_nautobot
 from workflow_steps.common.step_flags import parse_bool_flag
 from workflow_steps.common.value_expression import resolve_update_field_expression
 from workflow_steps.exists_in_nautobot.config import get_config
@@ -71,12 +69,6 @@ def _parse_config(config: dict[str, Any]) -> _ParsedConfig:
         ip_expression=ip_expression,
         case_insensitive=parse_bool_flag(config, "case_insensitive_lookup", default=False),
     )
-
-
-def _bind_nautobot(run: WorkflowRun, source_id: str) -> tuple[NautobotCredentials, NautobotService]:
-    db = require_session(run, _STEP_ID)
-    credentials = resolve_nautobot_credentials(db, source_id, step_id=_STEP_ID)
-    return credentials, service_factory.get_nautobot_app_service()
 
 
 def _with_nautobot_id(device: DeviceContext, nautobot_id: str) -> DeviceContext:
@@ -172,7 +164,8 @@ async def execute(
     if not context.devices:
         return _exists_outcomes(context, node_id, buckets)
 
-    credentials, nautobot_service = _bind_nautobot(run, parsed.source_id)
+    bound = bind_nautobot(run, parsed.source_id, step_id=_STEP_ID)
+    credentials, nautobot_service = bound.credentials, bound.service
     logger.info(
         "exists-in-nautobot started run_id=%s node_id=%s strategy=%s devices=%d",
         context.run_id,

@@ -43,7 +43,11 @@ def _config(**overrides) -> dict:
 async def _run(config: dict, context: WorkflowContext, response=None, side_effect=None):
     service = MagicMock()
     service.graphql_query = AsyncMock(return_value=response, side_effect=side_effect)
-    with patch.object(mod, "_bind_nautobot", return_value=(MagicMock(), service)):
+    with patch.object(
+        mod,
+        "bind_nautobot",
+        return_value=MagicMock(credentials=MagicMock(), service=service),
+    ):
         outcomes = await execute(
             config=config,
             context=context,
@@ -154,7 +158,11 @@ class ExecuteTests(unittest.IsolatedAsyncioTestCase):
             return {"data": {"devices": found}}
 
         service.graphql_query = AsyncMock(side_effect=query)
-        with patch.object(mod, "_bind_nautobot", return_value=(MagicMock(), service)):
+        with patch.object(
+            mod,
+            "bind_nautobot",
+            return_value=MagicMock(credentials=MagicMock(), service=service),
+        ):
             outcomes = await execute(
                 config=_config(),
                 context=_context(_device("A"), _device("B")),

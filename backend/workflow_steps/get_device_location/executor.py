@@ -6,7 +6,6 @@ import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal
 
-import service_factory
 from core.models.runs import WorkflowRun
 from models.failure import FailureInfo
 from models.workflow_context import (
@@ -22,9 +21,8 @@ from workflow_steps.common.attribute_write import RESERVED_BAG_NAMES, set_device
 from workflow_steps.common.device_outcomes import build_outcomes
 from workflow_steps.common.device_runner import Fail, run_per_device
 from workflow_steps.common.nautobot_resolve import resolve_nautobot_device_id
-from workflow_steps.common.nautobot_source import resolve_nautobot_credentials
+from workflow_steps.common.nautobot_step import bind_nautobot
 from workflow_steps.common.run_logging import log_run_id
-from workflow_steps.common.run_session import require_session
 from workflow_steps.common.step_flags import parse_bool_flag
 from workflow_steps.get_device_location.chain import (
     LOCATION_CHAIN_QUERY,
@@ -77,14 +75,6 @@ def _parse_config(config: dict[str, Any]) -> _ParsedConfig:
             config, "case_insensitive_lookup", default=_DEFAULTS["case_insensitive_lookup"]
         ),
     )
-
-
-def _bind_nautobot(
-    run: WorkflowRun, source_id: str
-) -> tuple[NautobotCredentials, NautobotService]:
-    db = require_session(run, _STEP_ID)
-    credentials = resolve_nautobot_credentials(db, source_id, step_id=_STEP_ID)
-    return credentials, service_factory.get_nautobot_app_service()
 
 
 def _located_failure(
@@ -157,7 +147,8 @@ async def execute(
     if not context.devices:
         return [StepOutcome(name="success", context=context)]
 
-    credentials, nautobot_service = _bind_nautobot(run, parsed.source_id)
+    bound = bind_nautobot(run, parsed.source_id, step_id=_STEP_ID)
+    credentials, nautobot_service = bound.credentials, bound.service
 
     logger.info(
         "get-device-location started run_id=%s source_id=%s location_type=%s target=%s devices=%d",
