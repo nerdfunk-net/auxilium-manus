@@ -321,7 +321,8 @@ async def execute(
         await _attach_rendered_template_content(snapshot, context, artifact_service)
     if parsed["show_device_configs"]:
         await _attach_device_config_content(snapshot, context, artifact_service)
-    rendered = render_snapshot_text(snapshot, parsed["output_format"])
+    # Rendering and the file write are CPU- and disk-bound: off the event loop (W4-15).
+    rendered = await asyncio.to_thread(render_snapshot_text, snapshot, parsed["output_format"])
     written_at = datetime.now(UTC).isoformat()
 
     file_path: str | None = None
@@ -339,7 +340,9 @@ async def execute(
             run_id=context.run_id,
             filename=parsed["filename"],
         )
-        _write_output_file(target=target, content=rendered, append=parsed["append"])
+        await asyncio.to_thread(
+            _write_output_file, target=target, content=rendered, append=parsed["append"]
+        )
         file_path = str(target)
         logger.info(
             "log-attributes node_id=%s wrote file=%s append=%s bytes=%d",

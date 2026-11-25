@@ -86,10 +86,6 @@ def _parse_store_config(config: dict[str, Any]) -> _ParsedStoreConfig:
     )
 
 
-def _load_git_repository(git_repository_id: int) -> dict[str, Any]:
-    return load_git_repository(git_repository_id)
-
-
 def _build_sink(config: dict[str, Any], *, base_dir: Path) -> ArtifactSink:
     destination = str(config.get("destination") or "filesystem").strip().lower()
     if destination not in _DESTINATIONS:
@@ -108,7 +104,7 @@ def _build_sink(config: dict[str, Any], *, base_dir: Path) -> ArtifactSink:
         raw_repository_id = config.get("git_repository_id")
         if raw_repository_id in (None, ""):
             raise ValueError("store-artifact: git_repository_id is required when destination=git")
-        repository = _load_git_repository(
+        repository = load_git_repository(
             require_repository_id(raw_repository_id, step_id="store-artifact")
         )
         return GitArtifactSink(
@@ -118,11 +114,9 @@ def _build_sink(config: dict[str, Any], *, base_dir: Path) -> ArtifactSink:
                 or get_config().get("repository_subdirectory")
                 or ""
             ),
-            pull_before_write=parse_bool_flag({**get_config(), **config}, "pull_before_write"),
-            commit_after_write=parse_bool_flag(
-                {**get_config(), **config}, "commit_after_write"
-            ),
-            push_after_write=parse_bool_flag({**get_config(), **config}, "push_after_write"),
+            pull_before_write=parse_bool_flag(config, "pull_before_write"),
+            commit_after_write=parse_bool_flag(config, "commit_after_write"),
+            push_after_write=parse_bool_flag(config, "push_after_write"),
         )
     raise ValueError(f"store-artifact: unsupported destination {destination!r}")
 

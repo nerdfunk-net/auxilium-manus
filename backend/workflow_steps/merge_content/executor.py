@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from dataclasses import dataclass
@@ -204,7 +205,10 @@ async def execute(
             # A typo in a source node id, a disabled or failed upstream step: nothing to merge
             # must not be stored as an empty artifact and reported as success (C6R-04).
             raise _NothingToMerge("no content found to merge for this device")
-        text, media_type = _merge_items_to_string(items=items, parsed=parsed)
+        # JSON decode / encode of large outputs: off the event loop (W4-15).
+        text, media_type = await asyncio.to_thread(
+            _merge_items_to_string, items=items, parsed=parsed
+        )
         return StoredContent(text=text, media_type=media_type)
 
     return await run_content_step(

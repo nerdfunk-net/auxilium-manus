@@ -59,7 +59,7 @@ def _store_artifact(raw: Any) -> Any:
 
     from workflow_steps.store_artifact import executor as mod
 
-    with patch.object(mod, "_load_git_repository", return_value={"id": 1}):
+    with patch.object(mod, "load_git_repository", return_value={"id": 1}):
         return mod._build_sink(
             {"destination": "git", "git_repository_id": raw}, base_dir=Path("/nonexistent")
         )
@@ -158,3 +158,27 @@ def test_include_command_header_with_a_typo_is_refused(value: str) -> None:
 def test_common_bool_spellings_keep_working(value: Any, expected: bool) -> None:
     assert _include_header(include_command_header=value) is expected
     assert _include_header() is True
+
+
+def test_store_artifact_git_sink_gets_each_flag_from_its_own_key() -> None:
+    from pathlib import Path
+
+    from workflow_steps.store_artifact import executor as mod
+
+    def sink(**flags: bool) -> object:
+        with patch.object(mod, "load_git_repository", return_value={"id": 1}):
+            return mod._build_sink(
+                {"destination": "git", "git_repository_id": 1, **flags}, base_dir=Path("/x")
+            )
+
+    attributes = ("_pull_before_write", "_commit_after_write", "_push_after_write")
+    default = sink()
+    assert [getattr(default, a) for a in attributes] == [False, False, False]
+    for key, attribute in (
+        ("pull_before_write", "_pull_before_write"),
+        ("commit_after_write", "_commit_after_write"),
+        ("push_after_write", "_push_after_write"),
+    ):
+        built = sink(**{key: True})
+        on = {a for a in attributes if getattr(built, a)}
+        assert on == {attribute}
