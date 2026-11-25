@@ -5,10 +5,6 @@ import {
   savedTreeToConditionTree,
 } from "@/components/features/inventory/utils/tree-format-converters";
 
-export function filterTreeToSavedConditions(tree: FilterTree): SavedConditionPayload[] {
-  return [{ version: 2, tree }];
-}
-
 export function savedConditionsToFilterTree(
   conditions: SavedConditionPayload[] | unknown,
 ): FilterTree {

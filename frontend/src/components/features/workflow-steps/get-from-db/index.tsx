@@ -18,7 +18,7 @@ import { AttributePathPicker } from "@/components/features/workflow-steps/shared
 
 import { GetFromDbHelpPanel } from "./help-panel";
 
-export function buildGetFromDbConfig(
+function buildGetFromDbConfig(
   config: Record<string, unknown>,
   patch: Record<string, unknown> = {},
 ): Record<string, unknown> {

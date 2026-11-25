@@ -61,10 +61,3 @@ export function inventoriesForGroup(
   }
   return inventories.filter((inv) => inv.group_path === groupPath);
 }
-
-export function childGroupPath(parentPath: string | null, newName: string): string {
-  const trimmed = newName.trim();
-  if (!trimmed) return parentPath ?? "";
-  if (!parentPath) return trimmed;
-  return `${parentPath}/${trimmed}`;
-}

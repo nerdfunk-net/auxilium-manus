@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  asExpression,
   isWholeNumber,
   numberText,
   stringFromConfig,
@@ -32,11 +31,6 @@ describe("get-next-free-ip config helpers", () => {
     const next = withNumberText(previous, "count", "2");
     expect(previous).toEqual({ count: 1, other: "keep" });
     expect(next).toEqual({ count: 2, other: "keep" });
-  });
-
-  it("wraps a path in braces once", () => {
-    expect(asExpression("custom.net")).toBe("{custom.net}");
-    expect(asExpression("{custom.net}")).toBe("{custom.net}");
   });
 
   it("flags number text that is not a whole number", () => {

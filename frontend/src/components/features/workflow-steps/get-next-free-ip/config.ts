@@ -40,11 +40,6 @@ export function withNumberText(
   return { ...config, [key]: /^-?\d+$/.test(trimmed) ? Number(trimmed) : text };
 }
 
-/** Wrap a picked attribute path in braces, without doubling braces already there. */
-export function asExpression(path: string): string {
-  return `{${path.replace(/^\{|\}$/g, "")}}`;
-}
-
 /** True when a number input's current text is a whole number (the backend refuses anything else). */
 export function isWholeNumber(config: Record<string, unknown>, key: string, fallback: number): boolean {
   return /^-?\d+$/.test(numberText(config, key, fallback).trim());

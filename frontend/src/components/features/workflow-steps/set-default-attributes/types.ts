@@ -47,14 +47,6 @@ export interface GitDefaultsConfig {
   directory: string;
 }
 
-export interface SetDefaultAttributesConfig {
-  type?: ResourceType;
-  mode?: DefaultsMode;
-  overwrite?: boolean;
-  attributes?: Partial<AttributesConfig>;
-  git?: Partial<GitDefaultsConfig>;
-}
-
 export interface CustomFieldRow {
   id: string;
   name: string;

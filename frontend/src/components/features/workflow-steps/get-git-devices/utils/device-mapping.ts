@@ -23,8 +23,6 @@ export interface DeviceMappingRule {
   target: string;
 }
 
-export const EMPTY_MAPPING: readonly DeviceMappingRule[] = [];
-
 /** Mirrors the backend default used when no mapping is configured. */
 export const DEFAULT_MAPPING: readonly DeviceMappingRule[] = [
   { source: "name", target: "name" },

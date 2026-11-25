@@ -18,7 +18,3 @@ export const COMMIT_MESSAGE_PLACEHOLDERS = [
   "{run.id}",
   "{workflow.id}",
 ] as const;
-
-export function filenamePlaceholderHint(prefix = "Placeholders"): string {
-  return `${prefix}: ${FILENAME_PLACEHOLDERS.join(", ")}.`;
-}
