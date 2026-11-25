@@ -38,13 +38,10 @@ logger = logging.getLogger(__name__)
 _ID_FIELDS = frozenset({"status", "role"})
 
 
-# Kept under its old name: the executor and the tests import it from here.
-VlanPartialUpdateError = PartialUpdateError
 __all__ = [
     "LOCATIONS_MODES",
     "LocationsMode",
     "VLANManager",
-    "VlanPartialUpdateError",
     "merge_locations",
 ]
 
@@ -238,12 +235,12 @@ class VLANManager:
                 )
                 applied.append("fields")
             relocated = await self._apply_locations(vlan_id, locations, locations_mode)
-        except VlanPartialUpdateError as exc:
-            raise VlanPartialUpdateError([*applied, *exc.applied]) from exc.__cause__
+        except PartialUpdateError as exc:
+            raise PartialUpdateError([*applied, *exc.applied]) from exc.__cause__
         except Exception as exc:
             # Something is stored already: say so instead of reporting a plain failure.
             if applied:
-                raise VlanPartialUpdateError(applied) from exc
+                raise PartialUpdateError(applied) from exc
             raise
         if not changes and not relocated:
             logger.info("VLAN %s already has the requested values", vlan_id)

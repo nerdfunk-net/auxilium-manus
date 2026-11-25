@@ -48,7 +48,6 @@ from services.workflow_context.node_result import set_node_result
 
 __all__ = [
     "EMPTY_MATCH_MODES",
-    "PropertyQuestionSpec",
     "assert_requested_columns_present",
     "build_property_outcomes",
     "is_empty_value",

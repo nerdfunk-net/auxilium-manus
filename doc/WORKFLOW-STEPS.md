@@ -958,7 +958,7 @@ and works the same way (outcomes `success` / `failure`, `requires: [identity]`, 
   `namespace_not_found`, `location_not_found`, `status_not_found`, `role_not_found`.
 - **Locations** are `ipam/prefix-location-assignments/` rows (`prefix`, `location`), the same mechanism as the VLAN's. The code
   is shared: `services/nautobot/managers/location_assignments.py` (read, add, replace, remove, `PartialUpdateError`; the VLAN
-  manager's `VlanPartialUpdateError` is the same class). The assignment row ids Nautobot returns are checked as UUIDs
+  manager raises the same class). The assignment row ids Nautobot returns are checked as UUIDs
   **before** the first write (they go into a DELETE path) and so are the location ids sent in a POST; every row of a location
   that goes is deleted.
 - **Prefixes from interfaces** (`prefixes_from_interfaces: true`, `dry_run`): as for VLANs, but the objects are the **parent

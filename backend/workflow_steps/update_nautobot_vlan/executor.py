@@ -20,10 +20,10 @@ from core.models.runs import WorkflowRun
 from models.workflow_context import StepOutcome, WorkflowContext
 from services.artifacts import ArtifactService
 from services.nautobot.devices.common import DeviceCommonService
+from services.nautobot.managers.location_assignments import PartialUpdateError
 from services.nautobot.managers.vlan_manager import (
     LOCATIONS_MODES,
     LocationsMode,
-    VlanPartialUpdateError,
 )
 from workflow_steps.common.location_list import split_locations
 from workflow_steps.common.nautobot_object_update import (
@@ -82,7 +82,7 @@ _SPEC = ObjectUpdateSpec(
     resolve_scope=lambda common, name: common.resolve_vlan_group_id(name),
     find=_find_vlans,
     update=_update_vlan,
-    partial_error=VlanPartialUpdateError,
+    partial_error=PartialUpdateError,
 )
 
 

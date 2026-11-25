@@ -58,35 +58,36 @@ class BuildUpdateServiceTests(unittest.TestCase):
 
 class FailAndApplyTests(unittest.TestCase):
     def test_fail_device_with_none_builds_placeholder(self) -> None:
-        key, dev, ok, rid = _fail_device(
+        key, dev, ok = _fail_device(
             device_key="explicit", device=None, node_id="n", exc=RuntimeError("boom")
         )
-        self.assertEqual((key, ok, rid), ("explicit", False, None))
+        self.assertEqual((key, ok), ("explicit", False))
         self.assertEqual(dev.status, DeviceStatus.FAILED)
         self.assertEqual(dev.errors[0].code, "runtimeerror")
 
     def test_fail_device_with_device_appends_error(self) -> None:
-        _, dev, ok, _ = _fail_device(
+        _, dev, ok = _fail_device(
             device_key="d1", device=_device(), node_id="n", code="x", message="m"
         )
         self.assertFalse(ok)
         self.assertEqual(dev.errors[-1].code, "x")
 
     def test_apply_update_result_with_none_device(self) -> None:
-        key, dev, ok, rid = _apply_update_result(
+        key, dev, ok = _apply_update_result(
             device_key="explicit", device=None,
             result={"device_id": "nb-9", "device_name": "router9"},
         )
-        self.assertEqual((ok, rid), (True, "nb-9"))
+        self.assertTrue(ok)
+        self.assertEqual(dev.id, "nb-9")
         self.assertEqual(dev.name, "router9")
         self.assertEqual(dev.status, DeviceStatus.OK)
 
     def test_apply_update_result_with_device(self) -> None:
-        _, dev, ok, rid = _apply_update_result(
+        _, dev, ok = _apply_update_result(
             device_key="d1", device=_device("d1"),
             result={"device_id": "nb-1", "device_name": "renamed"},
         )
-        self.assertEqual((ok, rid), (True, "nb-1"))
+        self.assertTrue(ok)
         self.assertEqual(dev.name, "renamed")
         self.assertEqual(dev.source, "nautobot")
 
@@ -113,22 +114,21 @@ class UpdateOneDeviceTests(unittest.IsolatedAsyncioTestCase):
             )
 
     async def test_unresolved_device_fails(self) -> None:
-        key, dev, ok, _ = await self._run_one(resolve_id=None)
+        key, dev, ok = await self._run_one(resolve_id=None)
         self.assertFalse(ok)
         self.assertEqual(dev.errors[-1].code, "not_found")
         self.assertEqual(dev.errors[-1].failure.kind, "not_found")
 
     async def test_success(self) -> None:
-        key, dev, ok, rid = await self._run_one(
+        key, dev, ok = await self._run_one(
             resolve_id="nb-1",
             update_result={"device_id": "nb-1", "device_name": "r1", "interfaces_failed": 0},
         )
         self.assertTrue(ok)
-        self.assertEqual(rid, "nb-1")
 
     async def test_interface_failure_says_the_device_is_partly_written(self) -> None:
         # W5-14: the fields and the other interfaces are already in Nautobot at this point.
-        key, dev, ok, _ = await self._run_one(
+        key, dev, ok = await self._run_one(
             resolve_id="nb-1",
             update_result={"device_id": "nb-1", "device_name": "r1", "interfaces_failed": 2},
         )
@@ -141,7 +141,7 @@ class UpdateOneDeviceTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(error.failure.retryable)
 
     async def test_update_exception_is_caught(self) -> None:
-        key, dev, ok, _ = await self._run_one(
+        key, dev, ok = await self._run_one(
             resolve_id="nb-1", update_exc=ValueError("bad payload")
         )
         self.assertFalse(ok)
@@ -234,7 +234,7 @@ class UpdateOneDeviceTests(unittest.IsolatedAsyncioTestCase):
                 {"interface": "Loopback0", "mac_address": "", "mtu": "1514"},
             ]
         )
-        (_, _, ok, _), update_service = await self._run_parsed_list(self._PARSED_CFG, device)
+        (_, _, ok), update_service = await self._run_parsed_list(self._PARSED_CFG, device)
         self.assertTrue(ok)
         _, kwargs = update_service.update_device.call_args
         self.assertEqual(
@@ -261,7 +261,7 @@ class UpdateOneDeviceTests(unittest.IsolatedAsyncioTestCase):
                 {"interface": "Loopback0", "mac_address": ""},
             ]
         )
-        (_, _, ok, _), update_service = await self._run_parsed_list(cfg, device)
+        (_, _, ok), update_service = await self._run_parsed_list(cfg, device)
         self.assertTrue(ok)
         _, kwargs = update_service.update_device.call_args
         self.assertEqual(
@@ -275,13 +275,13 @@ class UpdateOneDeviceTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_parsed_list_missing_path_fails_the_device(self) -> None:
         device = DeviceContext(id="d1", name="d1", hostname="d1", primary_ip4="10.0.0.1")
-        (_, dev, ok, _), update_service = await self._run_parsed_list(self._PARSED_CFG, device)
+        (_, dev, ok), update_service = await self._run_parsed_list(self._PARSED_CFG, device)
         self.assertFalse(ok)
         self.assertIn("parsed.show_if.rows", dev.errors[-1].message)
         update_service.update_device.assert_not_awaited()
 
     async def test_parsed_list_empty_list_fails_the_device(self) -> None:
-        (_, dev, ok, _), _ = await self._run_parsed_list(
+        (_, dev, ok), _ = await self._run_parsed_list(
             self._PARSED_CFG, self._parsed_device([])
         )
         self.assertFalse(ok)
@@ -290,7 +290,7 @@ class UpdateOneDeviceTests(unittest.IsolatedAsyncioTestCase):
         device = self._parsed_device(
             [{"interface": "Ethernet0/0", "mac_address": "aabb.cc00.0100"}]
         )
-        (_, _, ok, _), update_service = await self._run_parsed_list(self._PARSED_CFG, device)
+        (_, _, ok), update_service = await self._run_parsed_list(self._PARSED_CFG, device)
         self.assertTrue(ok)
         _, kwargs = update_service.update_device.call_args
         self.assertEqual(len(kwargs["interfaces"]), 1)
@@ -522,9 +522,9 @@ class FailDeviceTextPolicyTests(unittest.TestCase):
         from workflow_steps.update_nautobot_device import executor as step
 
         device = DeviceContext(id="d1", name="d1", hostname="d1")
-        _key, failed, _ok, *_rest = (*step._fail_device(
+        _key, failed, _ok = step._fail_device(
             device_key="d1", device=device, node_id="n", exc=exc
-        ),)
+        )
         return failed.errors[-1]
 
     def test_an_unexpected_error_shows_only_its_class_name(self) -> None:

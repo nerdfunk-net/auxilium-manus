@@ -19,8 +19,8 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
-from collections.abc import AsyncIterator, Iterator
-from contextlib import asynccontextmanager, contextmanager
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -91,16 +91,6 @@ def _cr_tree(git_service: Any, repository: dict[str, Any], change_request: Any) 
             yield git_service.get_repo_path(repository)
 
 
-@asynccontextmanager
-async def _maybe_async(cm: Any) -> AsyncIterator[Any]:
-    """``async with`` over either an async scope or a plain ``nullcontext(None)``."""
-    if hasattr(cm, "__aenter__"):
-        async with cm as value:
-            yield value
-    else:
-        yield None
-
-
 def _build_device(entry: dict[str, Any]) -> DeviceContext:
     name = str(entry.get("name") or entry.get("id") or "").strip()
     return DeviceContext(
@@ -162,7 +152,8 @@ async def execute(
         repository = load_git_repository(int(change_request.git_repository_id))
         tree_cm = async_scope(_cr_tree(git_service, repository, change_request))
 
-    async with _maybe_async(tree_cm) as repo_root:
+    # ``nullcontext`` is an async context manager too, so both cases share one ``async with``.
+    async with tree_cm as repo_root:
         for entry in entries:
             device = _build_device(entry)
             config_path = entry.get("config_path")

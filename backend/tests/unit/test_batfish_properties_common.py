@@ -9,8 +9,8 @@ import unittest
 
 from models.workflow_context import WorkflowContext
 from services.artifacts import InMemoryArtifactService
+from services.batfish.facts_specs import PropertyQuestionSpec
 from workflow_steps.common.batfish_properties import (
-    PropertyQuestionSpec,
     build_property_outcomes,
     is_empty_value,
     parse_properties_list,

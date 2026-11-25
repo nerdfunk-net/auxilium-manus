@@ -287,6 +287,8 @@ async def execute(
     node_id: str,
     device_sessions: DeviceSessionPool,
 ) -> list[StepOutcome]:
+    del device_sessions
+
     output_key = parse_output_key(config.get("output_key") or get_config()["output_key"])
     template = _resolve_template(config)
     # Off by default: a data value with a line break would become extra device commands (S4-08).

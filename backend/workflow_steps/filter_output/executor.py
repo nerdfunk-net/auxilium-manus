@@ -203,6 +203,8 @@ async def execute(
     node_id: str,
     device_sessions: DeviceSessionPool,
 ) -> list[StepOutcome]:
+    del device_sessions
+
     parsed = _parse_filter_config(config)
     if not context.devices:
         return [StepOutcome(name="success", context=context)]

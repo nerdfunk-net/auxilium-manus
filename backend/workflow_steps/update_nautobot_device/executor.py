@@ -292,7 +292,7 @@ def _fail_device(
     message: str | None = None,
     exc: Exception | None = None,
     failure: FailureInfo | None = None,
-) -> tuple[str, DeviceContext | None, bool, str | None]:
+) -> tuple[str, DeviceContext | None, bool]:
     from_exc = (
         device_error_from_exception(
             exc, node_id=node_id, step_id=_STEP_ID, keep_text=NAUTOBOT_TEXT
@@ -321,7 +321,7 @@ def _fail_device(
                 )
             ],
         )
-        return device_key, placeholder, False, None
+        return device_key, placeholder, False
 
     err = DeviceError(
         node_id=node_id,
@@ -336,7 +336,7 @@ def _fail_device(
             "errors": [*device.errors, err],
         }
     )
-    return device_key, failed, False, None
+    return device_key, failed, False
 
 
 def _apply_update_result(
@@ -344,7 +344,7 @@ def _apply_update_result(
     device_key: str,
     device: DeviceContext | None,
     result: dict[str, Any],
-) -> tuple[str, DeviceContext | None, bool, str | None]:
+) -> tuple[str, DeviceContext | None, bool]:
     if device is None:
         device_name = result.get("device_name") or device_key
         placeholder = DeviceContext(
@@ -354,7 +354,7 @@ def _apply_update_result(
             source="nautobot",
             status=DeviceStatus.OK,
         )
-        return device_key, placeholder, True, result.get("device_id")
+        return device_key, placeholder, True
 
     enriched = device.model_copy(
         update={
@@ -364,7 +364,7 @@ def _apply_update_result(
             "status": DeviceStatus.OK,
         }
     )
-    return device_key, enriched, True, result.get("device_id")
+    return device_key, enriched, True
 
 
 def _interfaces_from_parsed_list(
@@ -403,7 +403,7 @@ async def _update_one_device(
     credentials: NautobotCredentials,
     update_service: DeviceUpdateService,
     parsed: _ParsedConfig,
-) -> tuple[str, DeviceContext | None, bool, str | None]:
+) -> tuple[str, DeviceContext | None, bool]:
     try:
         # Strict for every mode: an explicit identifier is resolved like a context device, so two
         # devices of one name fail instead of the first one being written (W5-02, D7).
@@ -516,7 +516,7 @@ async def execute(
     node_id: str,
     device_sessions: DeviceSessionPool,
 ) -> list[StepOutcome]:
-    del artifact_service
+    del artifact_service, device_sessions
 
     parsed = _parse_config(config)
 
@@ -570,7 +570,7 @@ async def execute(
 
     success_devices: dict[str, DeviceContext] = {}
     failed_devices: dict[str, DeviceContext] = {}
-    for device_key, updated_device, ok, _resolved_id in results:
+    for device_key, updated_device, ok in results:
         if updated_device is None:
             continue
         if ok:

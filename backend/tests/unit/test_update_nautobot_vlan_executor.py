@@ -13,7 +13,7 @@ from models.workflow_context import (
     WorkflowContext,
 )
 from services.nautobot.common.exceptions import NautobotAmbiguousMatchError, NautobotNotFoundError
-from services.nautobot.managers.vlan_manager import VlanPartialUpdateError
+from services.nautobot.managers.location_assignments import PartialUpdateError
 from services.workflow_context.secret_fields import REDACTED_PLACEHOLDER
 from workflow_steps.common import nautobot_plan_fields as plan_fields
 from workflow_steps.update_nautobot_vlan import executor as mod
@@ -123,7 +123,7 @@ class SplitLocationsTests(unittest.TestCase):
 class ExecuteTests(unittest.IsolatedAsyncioTestCase):
     async def test_partial_update_is_reported_as_such(self) -> None:
         common = MagicMock()
-        error = VlanPartialUpdateError(["fields"])
+        error = PartialUpdateError(["fields"])
         error.__cause__ = RuntimeError("x")
         common.update_vlan = AsyncMock(side_effect=error)
         out, _ = await _run(_config(), _context(_device("a")), common=common)

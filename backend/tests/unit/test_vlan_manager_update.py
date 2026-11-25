@@ -6,9 +6,9 @@ import unittest
 from unittest.mock import AsyncMock, MagicMock
 
 from services.nautobot.common.exceptions import NautobotAmbiguousMatchError, NautobotNotFoundError
+from services.nautobot.managers.location_assignments import PartialUpdateError
 from services.nautobot.managers.vlan_manager import (
     VLANManager,
-    VlanPartialUpdateError,
     merge_locations,
 )
 
@@ -147,7 +147,7 @@ class UpdateVlanTests(unittest.IsolatedAsyncioTestCase):
             return await inner(endpoint=endpoint, method=method, data=data)
 
         nautobot.rest_request.side_effect = fail_post
-        with self.assertRaises(VlanPartialUpdateError) as ctx:
+        with self.assertRaises(PartialUpdateError) as ctx:
             await manager.update_vlan(_VLAN, {"description": "new"}, locations=[_A])
         self.assertEqual(ctx.exception.applied, ("fields",))
         self.assertIsInstance(ctx.exception.__cause__, RuntimeError)
@@ -162,7 +162,7 @@ class UpdateVlanTests(unittest.IsolatedAsyncioTestCase):
             return await inner(endpoint=endpoint, method=method, data=data)
 
         nautobot.rest_request.side_effect = fail_delete
-        with self.assertRaises(VlanPartialUpdateError) as ctx:
+        with self.assertRaises(PartialUpdateError) as ctx:
             await manager.update_vlan(_VLAN, {}, locations=[_A], locations_mode="replace")
         self.assertEqual(ctx.exception.applied, ("locations",))
 
