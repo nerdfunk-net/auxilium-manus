@@ -18,6 +18,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from icmplib import ICMPLibError, NameLookupError
 
+from models.failure import FailureInfo
 from models.workflow_context import DeviceStatus
 from services.artifacts import InMemoryArtifactService
 from services.network.netmiko.connection import ConfigResult, NetmikoConnectionError
@@ -224,6 +225,42 @@ async def test_read_config_refuses_an_empty_file() -> None:
     assert device.errors[-1].code == "empty_config"
     assert device.errors[-1].failure is not None
     assert device.running_config_ref is None
+
+
+@pytest.mark.asyncio
+async def test_read_config_refuses_a_file_above_the_size_cap_without_reading_it() -> None:
+    with _export_dir() as root:
+        (root / "a.cfg").write_text("hostname a\n" + "! pad\n" * 10)
+        (root / "b.cfg").write_text("hostname b\n")
+        artifacts = InMemoryArtifactService()
+        with patch("workflow_steps.read_config.executor.MAX_CONFIG_BYTES", 40):
+            outcomes = await call_step(
+                read_config_execute,
+                _read_config(),
+                make_context([make_device("a"), make_device("b")]),
+                artifact_service=artifacts,
+            )
+
+    by_name = {o.name: o for o in outcomes}
+    assert set(by_name["success"].context.devices) == {"b"}
+    device = by_name["failure"].context.devices["a"]
+    error = device.errors[-1]
+    assert error.code == "file_too_large"
+    assert error.message == "config file is larger than 40 bytes: a.cfg"
+    assert error.failure == FailureInfo(phase="config", kind="payload_too_large")
+    assert device.running_config_ref is None
+
+
+@pytest.mark.asyncio
+async def test_read_config_accepts_a_file_exactly_at_the_cap() -> None:
+    with _export_dir() as root:
+        (root / "a.cfg").write_text("x" * 40)
+        with patch("workflow_steps.read_config.executor.MAX_CONFIG_BYTES", 40):
+            outcomes = await call_step(
+                read_config_execute, _read_config(), make_context([make_device("a")])
+            )
+
+    assert [o.name for o in outcomes] == ["success"]
 
 
 @pytest.mark.asyncio

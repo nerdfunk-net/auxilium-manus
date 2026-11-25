@@ -185,3 +185,76 @@ async def test_a_failing_lookup_is_reported_as_unavailable_in_the_summary() -> N
 
     summary = outcomes[0].context.metadata["disc-1.discovery"]
     assert summary["management_ip_lookup"] == "unavailable"
+
+
+# --- W3b-02: a duplicate seed follows the fate of its twin -------------------------------------
+
+
+class _FailingNetmiko:
+    async def send_commands(self, *, host: str, **kwargs: Any) -> CommandResult:
+        from models.failure import FailureInfo
+
+        return CommandResult(
+            success=False, error="x", failure=FailureInfo(phase="connect", kind="auth_failed")
+        )
+
+
+@pytest.mark.asyncio
+async def test_the_crawl_reports_which_seed_is_the_twin_of_a_duplicate() -> None:
+    async def visit(target: Target) -> Reading:
+        return Reading(())
+
+    first, second = _seed("10.1.0.1", "A"), _seed("10.1.0.1", "A2")
+    result = await crawl([first, second], visit, _settings())
+
+    assert result.duplicate_seeds == ((second, first),)
+
+
+@pytest.mark.asyncio
+async def test_the_crawl_matches_a_duplicate_given_by_name_to_its_twin() -> None:
+    async def visit(target: Target) -> Reading:
+        return Reading(())
+
+    first, second = _seed("core1", "A"), _seed("core1", "B")
+    third = _seed("10.1.0.3", "C")
+    result = await crawl([first, third, second], visit, _settings())
+
+    assert result.duplicate_seeds == ((second, first),)
+
+
+@pytest.mark.asyncio
+async def test_a_duplicate_of_a_failed_seed_fails_with_the_same_code() -> None:
+    devices = {"a": _device("a", "A", "10.1.0.1"), "b": _device("b", "B", "10.1.0.1")}
+    outcomes = await _execute(devices, _FailingNetmiko())  # type: ignore[arg-type]
+
+    by_name = {o.name: o for o in outcomes}
+    assert "success" not in by_name or not by_name["success"].context.devices
+    failed = by_name["failure"].context.devices
+    assert set(failed) == {"a", "b"}
+    assert failed["b"].errors[-1].code == failed["a"].errors[-1].code == "login_failed"
+    assert failed["b"].errors[-1].failure == failed["a"].errors[-1].failure
+    assert by_name["failure"].summary == "2 seed device(s) failed"
+
+
+@pytest.mark.asyncio
+async def test_a_duplicate_of_a_seed_with_cdp_off_fails_too() -> None:
+    netmiko = _Netmiko({"10.1.0.1": "% CDP is not enabled\n"})
+    devices = {"a": _device("a", "A", "10.1.0.1"), "b": _device("b", "B", "10.1.0.1")}
+    outcomes = await _execute(devices, netmiko)
+
+    failed = {o.name: o for o in outcomes}["failure"].context.devices
+    assert set(failed) == {"a", "b"}
+    assert failed["b"].errors[-1].code == failed["a"].errors[-1].code == "cdp_not_enabled"
+
+
+@pytest.mark.asyncio
+async def test_a_duplicate_of_a_good_seed_still_passes_on_success() -> None:
+    netmiko = _Netmiko({"10.1.0.1": json.dumps([])})
+    devices = {"a": _device("a", "A", "10.1.0.1"), "b": _device("b", "B", "10.1.0.1")}
+    outcomes = await _execute(devices, netmiko)
+
+    by_name = {o.name: o for o in outcomes}
+    assert set(by_name["success"].context.devices) == {"a", "b"}
+    skipped = by_name["success"].context.devices["b"].parsed["disc-1"]["discovery"]
+    assert skipped["skipped"] == "duplicate_seed"
+    assert "failure" not in by_name or not by_name["failure"].context.devices

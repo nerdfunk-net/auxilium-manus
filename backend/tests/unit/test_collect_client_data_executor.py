@@ -880,6 +880,19 @@ class CollectClientDataExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(list(self._by_name(outcomes, "success")), ["d1"])
         self.assertEqual(self._by_name(outcomes, "failure")["d9"].errors[-1].code, "duplicate_key")
 
+    async def test_a_duplicate_name_in_the_run_is_never_logged_into(self) -> None:
+        netmiko = _FakeNetmiko({"10.0.0.1": CORE1, "10.0.0.9": CORE1})
+
+        await self._run(
+            {
+                "d1": _device("d1", "core1", "10.0.0.1"),
+                "d9": _device("d9", "core1", "10.0.0.9"),
+            },
+            netmiko,
+        )
+
+        self.assertEqual({host for host, _ in netmiko.calls}, {"10.0.0.1"})
+
     async def test_dry_run_neither_connects_nor_stores(self) -> None:
         netmiko = _FakeNetmiko({"10.0.0.1": CORE1})
 

@@ -37,6 +37,9 @@ logger = logging.getLogger(__name__)
 
 _STEP_ID = "read-config"
 _SOURCES = frozenset({"filesystem", "git"})
+# A device configuration is text of a few hundred kilobytes; a file far above that is not one
+# (and is read into memory whole, then stored as an artifact).
+MAX_CONFIG_BYTES = 10 * 1024 * 1024
 
 
 @dataclass(frozen=True)
@@ -103,6 +106,13 @@ async def _read_for_device(
     if not target.is_file():
         raise FileNotFoundError(f"config file not found: {relative_path}")
 
+    size = (await asyncio.to_thread(target.stat)).st_size
+    if size > MAX_CONFIG_BYTES:
+        return Fail(
+            "file_too_large",
+            f"config file is larger than {MAX_CONFIG_BYTES} bytes: {relative_path}",
+            FailureInfo(phase="config", kind="payload_too_large"),
+        )
     content = await asyncio.to_thread(target.read_text, encoding="utf-8")
     if not content.strip():
         return Fail(

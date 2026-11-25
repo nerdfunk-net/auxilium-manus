@@ -60,6 +60,13 @@ def test_out_of_range_values_are_rejected(key: str, value: object) -> None:
         parse_options({**get_config(), key: value})
 
 
+def test_the_dns_timeout_defaults_to_two_seconds_when_the_key_is_missing() -> None:
+    config = get_config()
+    del config["dns_timeout_seconds"]
+
+    assert parse_options(config).dns_timeout_seconds == 2.0
+
+
 def test_driver_override_is_trimmed() -> None:
     options = parse_options({**get_config(), "network_driver_override": " cisco_xe "})
 
@@ -96,3 +103,9 @@ def test_neighbours_do_not_need_the_other_tables_but_something_must_be_collected
                 "collect_neighbors": False,
             }
         )
+
+
+@pytest.mark.parametrize("key", ["dns_timeout_seconds", "dns_concurrency"])
+def test_a_boolean_is_not_a_number(key: str) -> None:
+    with pytest.raises(ValueError, match=f"^collect-client-data: {key}"):
+        parse_options({**get_config(), key: True})

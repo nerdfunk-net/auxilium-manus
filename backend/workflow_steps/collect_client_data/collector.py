@@ -260,6 +260,44 @@ def _enforce_row_cap(ip_count: int, mac_count: int, max_rows: int, neighbor_coun
         raise too_many_rows_error(exc) from exc
 
 
+@dataclass
+class _Tables:
+    """What the first command batch gave: one status and the rows of each table."""
+
+    arp_status: CollectionStatus = STATUS_SKIPPED
+    mac_status: CollectionStatus = STATUS_SKIPPED
+    vrf_status: CollectionStatus = STATUS_SKIPPED
+    ip_rows: list[ClientIpRow] = field(default_factory=list)
+    mac_rows: list[ClientMacRow] = field(default_factory=list)
+    vrfs: list[str] = field(default_factory=list)
+    vrf_results: list[VrfResult] | None = None
+
+
+def _read_tables(
+    outputs: dict[str, str], target: DeviceTarget, options: CollectOptions, max_rows: int
+) -> _Tables:
+    """Classify and parse the ARP, MAC and VRF-list outputs (the row cap is checked per table)."""
+    tables = _Tables()
+    if options.collect_ip_address:
+        tables.arp_status, raw_rows = _classify(outputs, CMD_ARP, target.device_type)
+        _enforce_row_cap(len(raw_rows), 0, max_rows)  # before parsing an oversized table
+        tables.ip_rows = _to_ip_rows(raw_rows, None)
+    if options.collect_mac_address:
+        tables.mac_status, raw_rows = _classify(outputs, CMD_MAC_TABLE, target.device_type)
+        _enforce_row_cap(0, len(raw_rows), max_rows)
+        tables.mac_rows = [
+            ClientMacRow(mac_address=e.mac_address, vlan=e.vlan, port=e.port)
+            for e in parse_mac_table(raw_rows)
+        ]
+    if options.collect_vrfs:
+        tables.vrf_status, _ = _classify(outputs, CMD_VRF_LIST, target.device_type)
+        if tables.vrf_status == STATUS_OK:
+            tables.vrfs = parse_vrf_names(outputs.get(CMD_VRF_LIST, ""))
+            # Found but not (yet) read; replaced when the per-VRF ARP runs.
+            tables.vrf_results = [VrfResult(name=n, status=STATUS_SKIPPED) for n in tables.vrfs]
+    return tables
+
+
 async def collect_from_device(
     *, netmiko: NetmikoService, target: DeviceTarget, options: CollectOptions, max_rows: int
 ) -> DeviceCollection:
@@ -269,68 +307,49 @@ async def collect_from_device(
     """
     first = await _send(netmiko, target, phase_one_commands(options, target.device_type), options)
     outputs = first.command_outputs
-
-    arp_status: CollectionStatus = STATUS_SKIPPED
-    mac_status: CollectionStatus = STATUS_SKIPPED
-    vrf_status: CollectionStatus = STATUS_SKIPPED
-    ip_rows: list[ClientIpRow] = []
-    mac_rows: list[ClientMacRow] = []
-    vrfs: list[str] = []
-    vrf_results: list[VrfResult] | None = None
-
-    if options.collect_ip_address:
-        arp_status, raw_rows = _classify(outputs, CMD_ARP, target.device_type)
-        _enforce_row_cap(len(raw_rows), 0, max_rows)  # before parsing an oversized table
-        ip_rows = _to_ip_rows(raw_rows, None)
-    if options.collect_mac_address:
-        mac_status, raw_rows = _classify(outputs, CMD_MAC_TABLE, target.device_type)
-        _enforce_row_cap(0, len(raw_rows), max_rows)
-        mac_rows = [
-            ClientMacRow(mac_address=e.mac_address, vlan=e.vlan, port=e.port)
-            for e in parse_mac_table(raw_rows)
-        ]
-    if options.collect_vrfs:
-        vrf_status, _ = _classify(outputs, CMD_VRF_LIST, target.device_type)
-        vrfs = parse_vrf_names(outputs.get(CMD_VRF_LIST, "")) if vrf_status == STATUS_OK else []
-        if vrf_status == STATUS_OK:
-            # Found but not (yet) read; replaced below when the per-VRF ARP runs.
-            vrf_results = [VrfResult(name=name, status=STATUS_SKIPPED) for name in vrfs]
+    tables = _read_tables(outputs, target, options, max_rows)
 
     neighbor_status: CollectionStatus = STATUS_SKIPPED
     neighbor_rows: list[ClientNeighborRow] = []
     if options.collect_neighbors:
         neighbor_status, neighbor_rows = _collect_neighbors(outputs, target.device_type)
 
-    _require_something(options, arp_status, mac_status)
+    _require_something(options, tables.arp_status, tables.mac_status)
 
-    if vrfs and arp_status == STATUS_OK:
+    vrf_results = tables.vrf_results
+    if tables.vrfs and tables.arp_status == STATUS_OK:
         vrf_rows, vrf_results = await _collect_vrf_arp(
-            netmiko, target, vrfs, options, max_rows=max_rows, rows_so_far=len(ip_rows)
+            netmiko,
+            target,
+            tables.vrfs,
+            options,
+            max_rows=max_rows,
+            rows_so_far=len(tables.ip_rows),
         )
-        ip_rows.extend(vrf_rows)
+        tables.ip_rows.extend(vrf_rows)
 
-    _enforce_row_cap(len(ip_rows), len(mac_rows), max_rows, len(neighbor_rows))
+    _enforce_row_cap(len(tables.ip_rows), len(tables.mac_rows), max_rows, len(neighbor_rows))
 
     logger.info(
         "collected client data arp=%s mac=%s vrf=%s ip_rows=%d mac_rows=%d vrfs=%d",
-        arp_status,
-        mac_status,
-        vrf_status,
-        len(ip_rows),
-        len(mac_rows),
-        len(vrfs),
+        tables.arp_status,
+        tables.mac_status,
+        tables.vrf_status,
+        len(tables.ip_rows),
+        len(tables.mac_rows),
+        len(tables.vrfs),
     )
     return DeviceCollection(
-        ip_rows=tuple(ip_rows),
-        mac_rows=tuple(mac_rows),
+        ip_rows=tuple(tables.ip_rows),
+        mac_rows=tuple(tables.mac_rows),
         status=ClientCollectionStatus(
-            arp_status=arp_status,
-            mac_status=mac_status,
-            vrf_status=vrf_status,
-            vrf_count=len(vrfs),
+            arp_status=tables.arp_status,
+            mac_status=tables.mac_status,
+            vrf_status=tables.vrf_status,
+            vrf_count=len(tables.vrfs),
             vrfs=vrf_results,
             neighbor_status=neighbor_status,
         ),
-        vrfs=tuple(vrfs),
+        vrfs=tuple(tables.vrfs),
         neighbor_rows=tuple(neighbor_rows),
     )

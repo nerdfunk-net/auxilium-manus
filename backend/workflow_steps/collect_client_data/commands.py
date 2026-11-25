@@ -6,7 +6,9 @@ fields of another platform would store wrong data silently.
 
 from __future__ import annotations
 
-SUPPORTED_DEVICE_TYPES = frozenset({"cisco_ios", "cisco_xe", "cisco_nxos"})
+from services.parsing.neighbors import SUPPORTED_CISCO_DEVICE_TYPES
+
+SUPPORTED_DEVICE_TYPES = SUPPORTED_CISCO_DEVICE_TYPES
 
 CMD_ARP = "show ip arp"
 CMD_MAC_TABLE = "show mac address-table"

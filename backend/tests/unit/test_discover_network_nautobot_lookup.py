@@ -68,6 +68,23 @@ def test_a_full_name_falls_back_to_its_first_label() -> None:
     client = FakeClient({("devices", "name__ie", "sw2"): [device("sw2")]})
     result, _ = resolve(client, nb(name="sw2.lab.example"))
     assert result.ip == "10.1.0.2"
+    # The full name goes through the whole ladder, the first label only as a whole name.
+    assert [c[1:] for c in client.calls] == [
+        ("name", "sw2.lab.example"),
+        ("name__ie", "sw2.lab.example"),
+        ("name__isw", "sw2.lab.example."),
+        ("name__ie", "sw2"),
+    ]
+
+
+def test_a_bare_name_has_no_first_label_stage() -> None:
+    client = FakeClient({})
+    resolve(client, nb(name="sw2", ip=None))
+    assert [c[1:] for c in client.calls] == [
+        ("name", "sw2"),
+        ("name__ie", "sw2"),
+        ("name__isw", "sw2."),
+    ]
 
 
 def test_an_unknown_name_falls_back_to_the_interface_ip_lookup() -> None:

@@ -30,13 +30,6 @@ class DiscoverOptions:
     nautobot_source_id: str | None
 
 
-def _bounded(config: dict[str, Any], key: str, default: int, minimum: int, maximum: int) -> int:
-    try:
-        return parse_int_flag(config, key, default=default, minimum=minimum, maximum=maximum)
-    except ValueError as exc:
-        raise ValueError(f"{STEP_ID}: {exc}") from exc
-
-
 def parse_options(config: dict[str, Any]) -> DiscoverOptions:
     follow = parse_bool_flag(config, "follow_neighbors")
     prefixes = parse_prefixes(config.get("permitted_prefixes"))
@@ -51,9 +44,15 @@ def parse_options(config: dict[str, Any]) -> DiscoverOptions:
         follow_only_infrastructure=parse_bool_flag(
             config, "follow_only_infrastructure", default=True
         ),
-        max_devices=_bounded(config, "max_devices", 50, 1, 500),
-        max_depth=_bounded(config, "max_depth", 5, 1, 20),
-        concurrency=_bounded(config, "concurrency", 5, 1, 20),
+        max_devices=parse_int_flag(
+            config, "max_devices", default=50, minimum=1, maximum=500, step_id=STEP_ID
+        ),
+        max_depth=parse_int_flag(
+            config, "max_depth", default=5, minimum=1, maximum=20, step_id=STEP_ID
+        ),
+        concurrency=parse_int_flag(
+            config, "concurrency", default=5, minimum=1, maximum=20, step_id=STEP_ID
+        ),
         network_driver_override=str(config.get("network_driver_override") or "").strip() or None,
         read_timeout=parse_read_timeout(config, step_id=STEP_ID, default=DEFAULT_READ_TIMEOUT),
         dry_run=parse_bool_flag(config, "dry_run"),

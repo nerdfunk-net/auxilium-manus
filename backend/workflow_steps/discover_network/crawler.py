@@ -115,6 +115,8 @@ class CrawlResult:
     edges: tuple[Edge, ...]
     limits_hit: tuple[str, ...]
     resolve_errors: int = 0  # neighbour lookups that raised (the neighbour was kept as reported)
+    # (duplicate seed, the seed that stands for it): the same device given twice is visited once
+    duplicate_seeds: tuple[tuple[Target, Target], ...] = ()
 
 
 VisitFn = Callable[[Target], Awaitable[Reading]]
@@ -169,6 +171,8 @@ class _State:
     edges: list[Edge] = field(default_factory=list)
     limits: list[str] = field(default_factory=list)
     resolve_errors: int = 0
+    seed_targets: list[Target] = field(default_factory=list)  # the seeds that were queued
+    duplicate_seeds: list[tuple[Target, Target]] = field(default_factory=list)
 
     def register(self, target: Target) -> None:
         """Record a target that is queued: its IP, or its names when it was given by name."""
@@ -179,6 +183,16 @@ class _State:
         else:
             self.aliases.append(target.host)
             self.unresolved.append((target.name, target.host))
+
+    def twin_seed(self, target: Target) -> Target | None:
+        """The queued seed that is the same device as ``target``, or ``None``."""
+        for seed in self.seed_targets:
+            if _is_ip(target.host):
+                if seed.host == target.host:
+                    return seed
+            elif _names_match(target.host, seed.host):
+                return seed
+        return None
 
     def is_duplicate_seed(self, target: Target) -> bool:
         if _is_ip(target.host):
@@ -353,8 +367,13 @@ async def crawl(
     frontier: list[Target] = []
     for seed in seeds:
         if state.is_duplicate_seed(seed):
-            continue  # the same device given twice
+            # The same device given twice: visited once, the twin's outcome is the duplicate's.
+            twin = state.twin_seed(seed)
+            if twin is not None:
+                state.duplicate_seeds.append((seed, twin))
+            continue
         state.register(seed)
+        state.seed_targets.append(seed)
         frontier.append(seed)
 
     while frontier:
@@ -406,4 +425,5 @@ async def crawl(
         edges=tuple(state.edges),
         limits_hit=tuple(state.limits),
         resolve_errors=state.resolve_errors,
+        duplicate_seeds=tuple(state.duplicate_seeds),
     )

@@ -427,6 +427,7 @@ async def device_name(ctx: QueryContext, device: str) -> str:
 # How a device name is looked up, in order, until one finds something: exactly, ignoring case,
 # then as the start of a full name (``lab`` finds ``LAB.local.zz``). A name that is exact for one
 # device never also matches another, and a short name in two domains stays ambiguous.
+# The backend step ``discover-network`` keeps a copy of this order (``nautobot_lookup.py``).
 _NAME_LOOKUPS = (("name", ""), ("name__ie", ""), ("name__isw", "."))
 
 

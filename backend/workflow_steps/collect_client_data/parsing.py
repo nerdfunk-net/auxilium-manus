@@ -18,12 +18,11 @@ from ntc_templates.parse import ParsingException, parse_output
 
 from models.client_data import CollectionStatus
 from services.network.netmiko.output_check import find_cli_error
+from services.parsing.neighbors import TableKind, classify_neighbor_table
 from workflow_steps.collect_client_data.commands import (
     CMD_ARP,
-    CMD_CDP,
     CMD_CHANNELS_IOS,
     CMD_CHANNELS_NXOS,
-    CMD_LLDP,
     CMD_MAC_TABLE,
     CMD_VRF_LIST,
     NEIGHBOR_COMMANDS,
@@ -258,20 +257,10 @@ _MAC_TOKEN = re.compile(
     re.IGNORECASE,
 )
 _ENTRY_TOKENS: dict[str, re.Pattern[str]] = {CMD_ARP: _IP_TOKEN, CMD_MAC_TABLE: _MAC_TOKEN}
-# Neighbours: only an explicit "0 entries" line is an empty table. Blank output is not (a dropped
-# session prints nothing too, and "no neighbours" would replace the stored ones).
-_ZERO_NEIGHBORS = re.compile(r"total (?:cdp )?entries displayed\s*:\s*0\b", re.IGNORECASE)
+# Neighbours: the shared reading (services/parsing/neighbors.py) decides; see classify_output.
 _ZERO_CHANNELS = re.compile(r"number of channel-groups in use\s*:\s*0\b", re.IGNORECASE)
-_TABLE_HINTS[CMD_LLDP] = _ZERO_NEIGHBORS
-_TABLE_HINTS[CMD_CDP] = _ZERO_NEIGHBORS
 _TABLE_HINTS[CMD_CHANNELS_IOS] = _ZERO_CHANNELS
 _TABLE_HINTS[CMD_CHANNELS_NXOS] = _ZERO_CHANNELS
-# The protocol is switched off on the device: the table is missing, not empty.
-_PROTOCOL_OFF = re.compile(
-    r"\b(?:lldp|cdp)\b[^\n]*\bnot (?:enabled|running|active)\b"
-    r"|\bnot (?:enabled|running)\b[^\n]*\b(?:lldp|cdp)\b",
-    re.IGNORECASE,
-)
 
 
 def _base_command(command: str) -> str:
@@ -308,16 +297,27 @@ def _template_exists(platform: str, command: str) -> bool:
     return "cisco_xe" in platform and _has_template("cisco_ios", command)
 
 
+def _classify_neighbor_output(raw: str, *, platform: str, command: str) -> OutputClass:
+    table = classify_neighbor_table(raw)
+    if table.kind is TableKind.ROWS:
+        return OutputClass(STATUS_OK, table.rows)
+    if table.kind in (TableKind.REFUSED, TableKind.PROTOCOL_OFF):
+        return OutputClass(STATUS_NOT_SUPPORTED)
+    if table.kind is TableKind.EMPTY and _template_exists(platform, command):
+        return OutputClass(STATUS_OK)
+    return OutputClass(STATUS_NO_TEMPLATE)
+
+
 def classify_output(raw: str, *, platform: str, command: str) -> OutputClass:
     """Classify one command's output: parsed rows, an empty table, a refusal or no template."""
+    if command in NEIGHBOR_COMMANDS:
+        return _classify_neighbor_output(raw, platform=platform, command=command)
     if not raw.strip():
         return OutputClass(STATUS_OK if _blank_means_empty(command) else STATUS_NO_TEMPLATE)
     try:
         decoded = json.loads(raw)
     except json.JSONDecodeError:
         if find_cli_error(raw) is not None:
-            return OutputClass(STATUS_NOT_SUPPORTED)
-        if command in NEIGHBOR_COMMANDS and _PROTOCOL_OFF.search(raw):
             return OutputClass(STATUS_NOT_SUPPORTED)
         if _template_exists(platform, command) and _looks_like_empty_table(raw, command):
             return OutputClass(STATUS_OK)

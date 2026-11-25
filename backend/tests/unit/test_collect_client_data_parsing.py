@@ -278,3 +278,12 @@ def test_mac_table_with_entries_that_textfsm_did_not_parse_is_not_empty() -> Non
     )
     result = classify_output(text, platform="cisco_ios", command="show mac address-table")
     assert result.status == STATUS_NO_TEMPLATE
+
+
+@pytest.mark.parametrize("command", ["show cdp neighbors detail", "show lldp neighbors detail"])
+def test_an_empty_neighbour_table_needs_a_template_for_the_platform(command: str) -> None:
+    raw = "Total cdp entries displayed : 0"
+    assert classify_output(raw, platform="cisco_ios", command=command).status == STATUS_OK
+    assert classify_output(raw, platform="no_such_platform", command=command).status == (
+        STATUS_NO_TEMPLATE
+    )

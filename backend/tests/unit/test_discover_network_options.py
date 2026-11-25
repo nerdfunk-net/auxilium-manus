@@ -21,6 +21,12 @@ def test_defaults_do_not_follow_and_parse() -> None:
     assert options.network_driver_override is None
 
 
+@pytest.mark.parametrize("key", ["max_devices", "max_depth", "concurrency"])
+def test_a_bad_number_names_the_step_and_the_key(key: str) -> None:
+    with pytest.raises(ValueError, match=f"^discover-network: {key} must be between"):
+        parse_options({**get_config(), key: 0})
+
+
 def test_following_needs_at_least_one_prefix() -> None:
     with pytest.raises(ValueError, match="permitted_prefixes"):
         parse_options({**get_config(), "follow_neighbors": True})

@@ -232,6 +232,7 @@ def _discovery_outcomes(
     seed_hosts = frozenset(v.target.host for v in result.visited if v.target.seed_id is not None)
     ok: dict[str, DeviceContext] = {}
     failed: dict[str, DeviceContext] = {}
+    twin_errors: dict[str, VisitError] = {}  # why each failed seed failed, for its duplicates
     for visited in result.visited:
         target = visited.target
         if target.seed_id is None:
@@ -243,21 +244,35 @@ def _discovery_outcomes(
                 context.devices[target.seed_id], node_id, device_summary(visited)
             )
             code = _CDP_PROBLEM_CODES.get(visited.status, "cdp_no_output")
-            failed[target.seed_id] = _seed_failed(recorded, node_id, VisitError(code, _NO_CDP))
+            twin_errors[target.seed_id] = VisitError(code, _NO_CDP)
+            failed[target.seed_id] = _seed_failed(recorded, node_id, twin_errors[target.seed_id])
         else:
             ok[target.seed_id] = with_discovery(
                 context.devices[target.seed_id], node_id, device_summary(visited)
             )
     for target, error in result.failed_seeds:
         if target.seed_id is not None:
+            twin_errors[target.seed_id] = error
             failed[target.seed_id] = _seed_failed(context.devices[target.seed_id], node_id, error)
     for device_id, error in seed_errors.items():
         failed[device_id] = _seed_failed(context.devices[device_id], node_id, error)
 
+    # The same device given twice: the crawler visits it once, under the first seed, and the
+    # duplicate leaves on the exit of its twin (with the twin's failure, if there is one).
+    twins = {
+        dup.seed_id: twin.seed_id
+        for dup, twin in result.duplicate_seeds
+        if dup.seed_id is not None and twin.seed_id is not None
+    }
     for device_id, device in context.devices.items():
-        if device_id not in ok and device_id not in failed:
-            # The same device given twice: the crawler visits it once, under the first seed.
-            ok[device_id] = with_discovery(device, node_id, {"skipped": "duplicate_seed"})
+        if device_id in ok or device_id in failed:
+            continue
+        recorded = with_discovery(device, node_id, {"skipped": "duplicate_seed"})
+        twin_error = twin_errors.get(twins.get(device_id, ""))
+        if twin_error is None:
+            ok[device_id] = recorded
+        else:
+            failed[device_id] = _seed_failed(recorded, node_id, twin_error)
 
     summary: dict[str, Any] = step_summary(
         result, seed_hosts=seed_hosts, management_ip_lookup=management_ip_lookup

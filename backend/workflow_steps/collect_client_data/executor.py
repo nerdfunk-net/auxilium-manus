@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import ipaddress
 import logging
+from collections.abc import Mapping
 from contextlib import AsyncExitStack
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
@@ -290,6 +291,20 @@ def _duplicate_failure(device: DeviceContext, node_id: str) -> DeviceContext:
     )
 
 
+async def _collect_or_duplicate(
+    device_id: str,
+    device: DeviceContext,
+    *,
+    duplicates: Mapping[str, str],
+    **collect: Any,
+) -> tuple[str, DeviceContext, bool]:
+    """One device of the fan-out: a duplicate name fails without a login, the rest is collected."""
+    if device_id in duplicates:
+        return device_id, _duplicate_failure(device, collect["node_id"]), False
+    result, ok = await _collect_one(device=device, **collect)
+    return device_id, result, ok
+
+
 async def execute(
     *,
     config: dict[str, Any],
@@ -344,22 +359,23 @@ async def execute(
             else None
         )
 
-        async def one(device_id: str, device: DeviceContext) -> tuple[str, DeviceContext, bool]:
-            if device_id in duplicates:
-                return device_id, _duplicate_failure(device, node_id), False
-            result, ok = await _collect_one(
-                device=device,
-                node_id=node_id,
-                session_id=run.uuid,
-                options=options,
-                credentials=credentials,
-                netmiko=netmiko,
-                resolver=resolver,
-                store_lock=store_lock,
+        results = await asyncio.gather(
+            *(
+                _collect_or_duplicate(
+                    device_id,
+                    device,
+                    duplicates=duplicates,
+                    node_id=node_id,
+                    session_id=run.uuid,
+                    options=options,
+                    credentials=credentials,
+                    netmiko=netmiko,
+                    resolver=resolver,
+                    store_lock=store_lock,
+                )
+                for device_id, device in context.devices.items()
             )
-            return device_id, result, ok
-
-        results = await asyncio.gather(*(one(i, d) for i, d in context.devices.items()))
+        )
 
     success = {device_id: device for device_id, device, ok in results if ok}
     failed = {device_id: device for device_id, device, ok in results if not ok}

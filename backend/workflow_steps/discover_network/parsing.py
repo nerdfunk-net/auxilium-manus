@@ -8,29 +8,27 @@ platform strings are stripped of control characters and cut, and never used to b
 from __future__ import annotations
 
 import ipaddress
-import json
 import re
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any
 
-from services.network.netmiko.output_check import find_cli_error
+from services.parsing.neighbors import (
+    SUPPORTED_CISCO_DEVICE_TYPES,
+    TableKind,
+    classify_neighbor_table,
+)
 from workflow_steps.common.neighbor_capabilities import (
     INFRASTRUCTURE_CAPABILITIES,
     parse_capabilities,
 )
 
 CDP_COMMAND = "show cdp neighbors detail"
-SUPPORTED_DEVICE_TYPES = frozenset({"cisco_ios", "cisco_xe", "cisco_nxos"})
+SUPPORTED_DEVICE_TYPES = SUPPORTED_CISCO_DEVICE_TYPES
 _MAX_TEXT = 100
 _MAX_SOFTWARE = 200
 
 _CONTROL = re.compile(r"[\x00-\x1f\x7f]")
-_ZERO_ENTRIES = re.compile(r"total (?:cdp )?entries displayed\s*:\s*0\b", re.IGNORECASE)
-_CDP_OFF = re.compile(
-    r"\bcdp\b[^\n]*\bnot (?:enabled|running|active)\b|\bnot (?:enabled|running)\b[^\n]*\bcdp\b",
-    re.IGNORECASE,
-)
 _NXOS = re.compile(r"\bnexus|\bn[2-9]k\b|\bn[2-9][0-9]{2}\b", re.IGNORECASE)
 # Platforms that run IOS-XE (Catalyst 9000, ISR/ASR, CSR, Catalyst 8000), checked after NX-OS.
 _XE = re.compile(
@@ -74,6 +72,14 @@ class CdpResult:
     neighbors: tuple[Neighbor, ...] = ()
 
 
+_STATUS_BY_KIND = {
+    TableKind.EMPTY: CdpStatus.OK,
+    TableKind.REFUSED: CdpStatus.NOT_SUPPORTED,
+    TableKind.PROTOCOL_OFF: CdpStatus.NOT_ENABLED,
+    TableKind.UNPARSEABLE: CdpStatus.UNPARSEABLE,
+}
+
+
 def sanitize_text(value: object, limit: int = _MAX_TEXT) -> str:
     """Control characters removed and the text cut to *limit* characters."""
     if not isinstance(value, str):
@@ -112,22 +118,11 @@ def classify_cdp_output(raw: str) -> CdpResult:
     Blank or unrecognised output is ``UNPARSEABLE`` and never "no neighbours": a dropped session
     prints nothing too, and an empty answer would end the walk silently.
     """
-    if not raw or not raw.strip():
-        return CdpResult(CdpStatus.UNPARSEABLE)
-    try:
-        decoded = json.loads(raw)
-    except json.JSONDecodeError:
-        if find_cli_error(raw) is not None:
-            return CdpResult(CdpStatus.NOT_SUPPORTED)
-        if _CDP_OFF.search(raw):
-            return CdpResult(CdpStatus.NOT_ENABLED)
-        if _ZERO_ENTRIES.search(raw):
-            return CdpResult(CdpStatus.OK)
-        return CdpResult(CdpStatus.UNPARSEABLE)
-    if not isinstance(decoded, list) or not all(isinstance(r, dict) for r in decoded):
-        return CdpResult(CdpStatus.UNPARSEABLE)
-    neighbors = tuple(n for row in decoded if (n := _neighbor(row)) is not None)
-    return CdpResult(CdpStatus.OK, neighbors)
+    table = classify_neighbor_table(raw)
+    if table.kind is TableKind.ROWS:
+        neighbors = tuple(n for row in table.rows if (n := _neighbor(row)) is not None)
+        return CdpResult(CdpStatus.OK, neighbors)
+    return CdpResult(_STATUS_BY_KIND[table.kind])
 
 
 def device_type_from_platform(platform: str | None, *, override: str | None) -> str | None:

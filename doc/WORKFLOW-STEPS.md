@@ -564,8 +564,8 @@ that device), `store-in-db` and `get-from-db` (`concurrency=1`: one shared sessi
 that already carries its diff artifact refs), `deploy-rendered-template`, `merge-config`, `upload-config` and `upload-binary`
 (artifact I/O and connection errors fail that device only; their error text is no longer stored, only the class name plus a
 `FailureInfo`; `log_label=` writes the per-device "connecting / ok / failed" lines), and the device reads
-`get-device-configs`, `read-config` (an empty file is refused with `empty_config`; every failure carries a
-`FailureInfo`), `login-successful` (`parsed.<node>.login.error` holds a closed code, never exception text; both outcome
+`get-device-configs`, `read-config` (an empty file is refused with `empty_config`, a file above `MAX_CONFIG_BYTES` = 10 MiB
+with `file_too_large` before it is read; every failure carries a `FailureInfo`), `login-successful` (`parsed.<node>.login.error` holds a closed code, never exception text; both outcome
 handles are always answered, with `<node>.login_counts`), `reachable` (at most 50 pings in flight,
 `MAX_CONCURRENT_PINGS`; library errors are recorded as `dns` / `no_route`, an unexpected error fails that device only) and
 `get-device-location`. `discover-network` keeps its own breadth-first walk, but the walk is a per-device boundary too: a
@@ -2346,8 +2346,15 @@ closed again (`DeviceSessionPool.close_host`) before the next level starts. Code
   reached but has CDP off (or no table) is still *visited* (`cdp_status` says why). A **seed** that cannot be visited
   leaves through `failure` (`unreachable`, `login_failed`, `unsupported_platform`, and for a reached seed without a
   CDP table `cdp_not_enabled`, `cdp_not_supported` or `cdp_no_output`; its `parsed.<node id>.discovery.cdp_status` is
-  kept, and the crawl record is on both exits). A seed given twice (same address) is visited once; the second passes
-  through on `success`.
+  kept, and the crawl record is on both exits). A seed given twice (same address, or the same host name) is visited once and the duplicate
+  follows its twin: it passes through on `success` (`discovery.skipped: duplicate_seed`) when the twin did, and fails with
+  the twin's code and `FailureInfo` when the twin failed.
+- **Reading the CDP output** is shared with `collect-client-data` (`services/parsing/neighbors.py`:
+  `classify_neighbor_table` decides rows / empty / refused / protocol off / unparseable, `decode_textfsm_output`, the
+  supported Cisco device types). Each step keeps its own status vocabulary: a switched-off CDP is `not_enabled` here (the
+  seed fails with `cdp_not_enabled`) and `not_supported` in `collect-client-data`. The row mapping stays per step (different
+  fields and sanitising). The Nautobot name ladder of `nautobot_lookup.py` is a deliberate copy of the library's
+  `_NAME_LOOKUPS`; both carry a comment that says so.
 - **Result.** `success` carries the seeds and every device that was logged into; discovered devices are new
   `DeviceContext`s (`source: "discover-network"`, `primary_ip4` = the address used, `network_driver` = the guessed type).
   Each has `parsed.<node id>.discovery` (`depth`, `discovered_from`, `cdp_status`, `neighbors`); the step-level lists

@@ -37,7 +37,10 @@ SOURCE_IP = "nautobot_ip"
 _DEVICE_SELECTION = "id name primary_ip4 { address }"
 _IP_SELECTION = "address interfaces { device { id name primary_ip4 { address } } }"
 # How a name is matched, until one filter finds something: exact, ignoring case, and as the
-# start of a full name (``sw2`` finds ``sw2.example.com``). Same order as the library's lookup.
+# start of a full name (``sw2`` finds ``sw2.example.com``). A deliberate copy of the order of
+# ``nautobot_read.queries.dcim._NAME_LOOKUPS`` (that function is private, selects other fields
+# and raises on ambiguity; this step answers ``None`` and also tries the first label): keep both
+# in step.
 _NAME_FILTERS = (("name", ""), ("name__ie", ""), ("name__isw", "."))
 _MAX_ROWS = 6  # enough to see that a match is ambiguous
 
@@ -90,13 +93,14 @@ class ManagementIpLookup:
         return by_ip[1], by_ip[0], SOURCE_IP
 
     async def _by_name(self, name: str) -> str | None:
-        candidates = [name]
         first_label = name.split(".", 1)[0]
+        # (candidate, is the first label of a qualified name)
+        candidates = [(name, False)]
         if first_label and first_label != name:
-            candidates.append(first_label)
-        for candidate in candidates:
+            candidates.append((first_label, True))
+        for candidate, is_first_label in candidates:
             for filter_name, suffix in _NAME_FILTERS:
-                if candidate is not name and filter_name != "name__ie":
+                if is_first_label and filter_name != "name__ie":
                     continue  # the first label is only matched as a whole name
                 page = await self._client.list_page(
                     "devices", _DEVICE_SELECTION, {filter_name: [candidate + suffix]},

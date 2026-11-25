@@ -108,3 +108,32 @@ def test_parse_int_flag_refuses_a_fractional_float() -> None:
 
 def test_parse_int_flag_accepts_an_integral_float() -> None:
     assert parse_int_flag({"n": 2.0}, "n", default=1) == 2
+
+
+# --- parse_float_flag (W3b-10 item 4: one numeric parser instead of a private one per step) ----
+
+
+def test_parse_float_flag_values() -> None:
+    from workflow_steps.common.step_flags import parse_float_flag
+
+    def parse(config: dict) -> float:
+        return parse_float_flag(config, "t", default=2.0, minimum=0.1, maximum=30.0)
+
+    assert parse({}) == 2.0
+    assert parse({"t": None}) == 2.0
+    assert parse({"t": ""}) == 2.0
+    assert parse({"t": "  "}) == 2.0
+    assert parse({"t": 5}) == 5.0
+    assert parse({"t": "0.5"}) == 0.5
+    assert parse({"t": 0.1}) == 0.1
+    assert parse({"t": 30}) == 30.0
+
+
+@pytest.mark.parametrize("value", [True, False, "soon", [], 0.05, 31, float("nan"), float("inf")])
+def test_parse_float_flag_rejects(value) -> None:
+    from workflow_steps.common.step_flags import parse_float_flag
+
+    with pytest.raises(ValueError, match=r"^step-x: t must be a number between 0.1 and 30"):
+        parse_float_flag(
+            {"t": value}, "t", default=2.0, minimum=0.1, maximum=30.0, step_id="step-x"
+        )

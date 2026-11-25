@@ -5,10 +5,15 @@ from __future__ import annotations
 from typing import Any
 
 from models.workflow_context import DeviceContext, DeviceStatus
-from services.workflow_context.flags import parse_bool_flag, parse_int_flag
+from services.workflow_context.flags import (
+    parse_bool_flag,
+    parse_float_flag,
+    parse_int_flag,
+)
 
 __all__ = [
     "parse_bool_flag",
+    "parse_float_flag",
     "parse_int_flag",
     "parse_output_key",
     "record_dry_run",

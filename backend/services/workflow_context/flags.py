@@ -69,3 +69,32 @@ def parse_int_flag(
         upper = maximum if maximum is not None else "unbounded"
         raise ValueError(f"{prefix}{key} must be between {minimum} and {upper}, got {number}")
     return number
+
+
+def parse_float_flag(
+    config: dict[str, Any],
+    key: str,
+    *,
+    default: float,
+    minimum: float,
+    maximum: float,
+    step_id: str | None = None,
+) -> float:
+    """A number config value in ``[minimum, maximum]``; blank or missing means ``default``.
+
+    ``True``, text that is not a number, ``nan`` and ``inf`` raise; ``step_id`` prefixes the
+    message.
+    """
+    value = config.get(key, default)
+    if value is None or (isinstance(value, str) and not value.strip()):
+        return default
+    message = f"{_prefix(step_id)}{key} must be a number between {minimum:g} and {maximum:g}"
+    if isinstance(value, bool):
+        raise ValueError(f"{message}, got {value!r}")
+    try:
+        number = float(value)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ValueError(f"{message}, got {value!r}") from exc
+    if not (minimum <= number <= maximum):  # also false for nan
+        raise ValueError(f"{message}, got {value!r}")
+    return number
