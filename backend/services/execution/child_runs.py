@@ -9,6 +9,7 @@ registry, and the step imports this module.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from http import HTTPStatus
 from typing import Any
 
 
@@ -46,17 +47,56 @@ def load_child_target(parent_run_id: int, workflow_id: int) -> ChildTarget:
         )
 
 
-def start_child(parent_run_id: int, workflow_id: int, run_inputs: dict[str, Any]) -> int:
-    """Start ``workflow_id`` as a child of ``parent_run_id``; the id of the new run."""
+def validate_child_inputs(
+    parent_run_id: int, workflow_id: int, inputs_per_run: list[dict[str, Any]]
+) -> None:
+    """Check the run inputs of every run the step is about to start, starting none.
+
+    The same resolution ``RunService.start_child_run`` applies: a ``ValidationFailedError`` names
+    the input that is wrong. One session for all of them.
+    """
     from core.database import SessionLocal
+    from core.domain_exceptions import ValidationFailedError
     from repositories.run_repository import RunRepository
+    from services.execution.run_input_validation import RunInputValidationError, resolve_run_inputs
     from services.execution.run_service import RunService
 
     with SessionLocal() as db:
         parent = RunRepository(db).get_run(parent_run_id)
         if parent is None:
             raise CallingRunMissingError
-        return RunService(db).start_child_run(parent, workflow_id, run_inputs=run_inputs).id
+        workflow = RunService(db).require_child_target(parent, workflow_id)
+        for run_inputs in inputs_per_run:
+            try:
+                resolve_run_inputs(workflow.static_attributes, run_inputs)
+            except RunInputValidationError as exc:
+                raise ValidationFailedError(str(exc)) from exc
+
+
+def start_child(parent_run_id: int, workflow_id: int, run_inputs: dict[str, Any]) -> int:
+    """Start ``workflow_id`` as a child of ``parent_run_id``; the id of the new run.
+
+    Raises ``EngineUnavailableError`` when the run could not be dispatched (the service answers
+    503 for that), so the step does not need to know about HTTP.
+    """
+    from fastapi import HTTPException
+
+    from core.database import SessionLocal
+    from repositories.run_repository import RunRepository
+    from services.execution.dispatch_breaker import EngineUnavailableError
+    from services.execution.run_service import RunService
+
+    with SessionLocal() as db:
+        parent = RunRepository(db).get_run(parent_run_id)
+        if parent is None:
+            raise CallingRunMissingError
+        try:
+            return RunService(db).start_child_run(parent, workflow_id, run_inputs=run_inputs).id
+        except HTTPException as exc:
+            if exc.status_code == HTTPStatus.SERVICE_UNAVAILABLE:
+                message = "the workflow execution engine is unavailable"
+                raise EngineUnavailableError(message) from exc
+            raise
 
 
 def child_snapshot(run_id: int) -> Any:

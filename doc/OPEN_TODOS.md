@@ -181,6 +181,11 @@ neighbour table (`get_bgp_learn_result`) and `compare_bgp_learns` with and witho
 - **Pre-run validation of the target.** That the target reads `devices_input` in an enabled Get from User
   step, and that no required input is left empty, is only checked when the step runs. A Tier 1-3 finding in
   `WorkflowValidationService` would show it before a run starts (the builder panel already warns).
+- **Inputs are validated before any child starts.** `start-workflow` resolves the run inputs of every group (one
+  per device in `per_device` mode) in one pass (`child_runs.validate_child_inputs`) before the first run is started, so a bad
+  input of a later group starts nothing. A dispatch problem (engine down) is still found only while starting: it fails that
+  group and the later ones, and the runs already started keep running. The step sees the engine only as
+  `EngineUnavailableError` (`child_runs.start_child` translates the service's 503), not as an `HTTPException`.
 - **Waits are in-process.** The wait holds a worker slot and is lost on a worker restart; the started runs
   are not. A durable wait belongs to the orchestration layer (see the Wait & Run gate), not to a step.
 - **AI assistant.** `propose_workflow` has no way to pick the target workflow of a Run Workflow step by name;

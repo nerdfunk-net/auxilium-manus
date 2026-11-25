@@ -31,8 +31,6 @@ import time
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
-from fastapi import HTTPException
-
 from core.domain_exceptions import DomainError
 from core.models.runs import WorkflowRun
 from models.failure import FailureInfo
@@ -49,7 +47,9 @@ from services.execution.child_runs import (
     load_child_target,
     parent_cancelled,
     start_child,
+    validate_child_inputs,
 )
+from services.execution.dispatch_breaker import EngineUnavailableError
 from services.workflow.child_run_inputs import secret_input_message, secret_inputs_given
 from services.workflow.device_lines import (
     device_line,
@@ -241,6 +241,15 @@ async def _start_child(*, parent_run_id: int, workflow_id: int, run_inputs: dict
         raise _calling_run_gone(exc) from exc
 
 
+async def _validate_group_inputs(
+    *, parent_run_id: int, workflow_id: int, inputs_per_run: list[dict[str, Any]]
+) -> None:
+    try:
+        await asyncio.to_thread(validate_child_inputs, parent_run_id, workflow_id, inputs_per_run)
+    except CallingRunMissingError as exc:
+        raise _calling_run_gone(exc) from exc
+
+
 async def _snapshot(run_id: int) -> ChildRunSnapshot:
     return await asyncio.to_thread(child_snapshot, run_id)
 
@@ -327,8 +336,27 @@ def _engine_failure() -> FailureInfo:
     return FailureInfo(phase="api", kind="server_error", retryable=True)
 
 
+def _group_inputs(parsed: _ParsedConfig, group: _Group) -> dict[str, Any]:
+    run_inputs = dict(parsed.run_inputs)
+    if parsed.devices_input and group.text is not None:
+        run_inputs[parsed.devices_input] = group.text
+    return run_inputs
+
+
 async def _start_groups(parsed: _ParsedConfig, groups: list[_Group], *, parent_run_id: int) -> None:
-    """Start one run per group; an unreachable engine fails this and every later group."""
+    """Start one run per group; an unreachable engine fails this and every later group.
+
+    Every group's run inputs are validated first, so a bad input of a later group starts no run
+    at all (W10-10).
+    """
+    try:
+        await _validate_group_inputs(
+            parent_run_id=parent_run_id,
+            workflow_id=parsed.workflow_id,
+            inputs_per_run=[_group_inputs(parsed, group) for group in groups],
+        )
+    except DomainError as exc:
+        raise ValueError(f"{_STEP_ID}: {exc}") from exc
     engine_down = False
     for group in groups:
         if engine_down:
@@ -340,15 +368,14 @@ async def _start_groups(parsed: _ParsedConfig, groups: list[_Group], *, parent_r
                 waited=0,
             )
             continue
-        run_inputs = dict(parsed.run_inputs)
-        if parsed.devices_input and group.text is not None:
-            run_inputs[parsed.devices_input] = group.text
         try:
             group.run_id = await _start_child(
-                parent_run_id=parent_run_id, workflow_id=parsed.workflow_id, run_inputs=run_inputs
+                parent_run_id=parent_run_id,
+                workflow_id=parsed.workflow_id,
+                run_inputs=_group_inputs(parsed, group),
             )
             group.status = "dispatched"
-        except HTTPException:
+        except EngineUnavailableError:
             engine_down = True
             group.reject(
                 "engine_unavailable",

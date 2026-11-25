@@ -10,10 +10,9 @@ from __future__ import annotations
 import unittest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from fastapi import HTTPException
-
 from core.domain_exceptions import AccessDeniedError, ValidationFailedError
 from models.workflow_context import DeviceContext, DeviceStatus, WorkflowContext
+from services.execution.dispatch_breaker import EngineUnavailableError
 from services.execution.run_service import ChildRunSnapshot
 from workflow_steps.start_workflow import executor as mod
 
@@ -77,12 +76,14 @@ class _Harness:
         self.snapshot = AsyncMock(side_effect=lambda run_id: self._next(sequences, run_id))
         self.parent_cancelled = AsyncMock(return_value=False)
         self.check_target = AsyncMock(return_value=[INPUT_NODE])
+        self.validate = AsyncMock(return_value=None)
         self.sleep = AsyncMock()
         for attr, target in (
             ("start", "_start_child"),
             ("snapshot", "_snapshot"),
             ("parent_cancelled", "_parent_cancelled"),
             ("check_target", "_check_target"),
+            ("validate", "_validate_group_inputs"),
             ("sleep", "_sleep"),
         ):
             patcher = patch.object(mod, target, getattr(self, attr))
@@ -464,9 +465,30 @@ class PerDeviceTests(unittest.IsolatedAsyncioTestCase):
         outcomes = await h.run(_config(max_runs=1), _context(_device(A), _device(B), _device(C)))
         self.assertEqual([o.name for o in outcomes], ["success"])
 
+    async def test_a_bad_input_of_a_later_group_starts_no_run_at_all(self) -> None:
+        h = _Harness(self, [])
+        h.validate.side_effect = ValidationFailedError("input 'targets' is wrong")
+        with self.assertRaises(ValueError) as ctx:
+            await h.run(self._config(), _context(_device(A), _device(B)))
+        self.assertIn("targets", str(ctx.exception))
+        h.start.assert_not_awaited()
+
+    async def test_every_groups_inputs_are_validated_once_before_the_first_start(self) -> None:
+        h = _Harness(self, {99: [_snap("success", run_id=99)], 100: [_snap("success", run_id=100)]})
+        started_when_validated: list[int] = []
+        h.validate.side_effect = lambda **_: started_when_validated.append(h.start.await_count)
+        await h.run(self._config(), _context(_device(A, name="sw1"), _device(B, name="sw2")))
+        h.validate.assert_awaited_once()
+        kwargs = h.validate.await_args.kwargs
+        self.assertEqual((kwargs["parent_run_id"], kwargs["workflow_id"]), (5, 7))
+        self.assertEqual(
+            kwargs["inputs_per_run"], [{"targets": "sw1,10.0.0.1"}, {"targets": "sw2,10.0.0.1"}]
+        )
+        self.assertEqual(started_when_validated, [0])
+
     async def test_an_unavailable_engine_stops_starting_more_runs(self) -> None:
         h = _Harness(self, [])
-        h.start.side_effect = HTTPException(status_code=503, detail="engine unavailable")
+        h.start.side_effect = EngineUnavailableError("engine unavailable")
         outcomes = await h.run(self._config(), _context(_device(A), _device(B)))
         h.start.assert_awaited_once()
         self.assertEqual([o.name for o in outcomes], ["failure"])
@@ -478,7 +500,7 @@ class PerDeviceTests(unittest.IsolatedAsyncioTestCase):
 class DispatchProblemTests(unittest.IsolatedAsyncioTestCase):
     async def test_an_unavailable_engine_fails_the_devices(self) -> None:
         h = _Harness(self, [])
-        h.start.side_effect = HTTPException(status_code=503, detail="engine unavailable")
+        h.start.side_effect = EngineUnavailableError("engine unavailable")
         outcomes = await h.run(_config())
         self.assertEqual([o.name for o in outcomes], ["failure"])
         error = outcomes[0].context.devices[A].errors[0]
