@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -34,20 +34,9 @@ function buildNotifyConfig(
   };
 }
 
-function NotifyConfigPanel({ config, onChange, nodeId }: PluginConfigPanelProps) {
-  const initializedForNode = useRef<string | null>(null);
-  const message = typeof config.message === "string" ? config.message : "";
+function NotifyConfigPanel({ config, onChange }: PluginConfigPanelProps) {
+  const message = typeof config.message === "string" ? config.message : DEFAULT_MESSAGE;
   const severity = typeof config.severity === "string" ? config.severity : DEFAULT_SEVERITY;
-
-  useEffect(() => {
-    if (initializedForNode.current === nodeId) {
-      return;
-    }
-    initializedForNode.current = nodeId;
-    if (!message.trim()) {
-      onChange(buildNotifyConfig(config, { message: DEFAULT_MESSAGE, severity }));
-    }
-  }, [nodeId, message, severity, config, onChange]);
 
   const handleMessageChange = useCallback(
     (value: string) => {

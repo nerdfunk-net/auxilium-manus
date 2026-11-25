@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -40,26 +40,15 @@ function buildGitPushConfig(
 function GitPushConfigPanel({
   config,
   onChange,
-  nodeId,
 }: {
   config: Record<string, unknown>;
   onChange: (config: Record<string, unknown>) => void;
   nodeId: string;
 }) {
-  const initializedForNode = useRef<string | null>(null);
   const [repositoryOpen, setRepositoryOpen] = useState(false);
   const repositoryId = gitRepositoryIdFromConfig(config);
   const commitBeforePush = config[COMMIT_BEFORE_PUSH_KEY] !== false;
 
-  useEffect(() => {
-    if (initializedForNode.current === nodeId) {
-      return;
-    }
-    initializedForNode.current = nodeId;
-    if (config[GIT_REPOSITORY_ID_KEY] === undefined || !config[COMMIT_MESSAGE_TEMPLATE_KEY]) {
-      onChange(buildGitPushConfig(config));
-    }
-  }, [nodeId, config, onChange]);
 
   const handleRepositoryIdChange = useCallback(
     (newRepositoryId: number) => {

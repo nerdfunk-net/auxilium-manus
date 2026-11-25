@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback } from "react";
 
 import type {
   PluginConfigPanelProps,
@@ -19,15 +19,7 @@ function bool(config: Record<string, unknown>, key: keyof typeof DEFAULTS): bool
 }
 
 function FromChangeRequestConfigPanel({ config, onChange, nodeId }: PluginConfigPanelProps) {
-  const initializedForNode = useRef<string | null>(null);
 
-  useEffect(() => {
-    if (initializedForNode.current === nodeId) return;
-    initializedForNode.current = nodeId;
-    if (config.load_configs === undefined) {
-      onChange({ ...DEFAULTS, ...config });
-    }
-  }, [nodeId, config, onChange]);
 
   const patch = useCallback(
     (next: Record<string, unknown>) => onChange({ ...DEFAULTS, ...config, ...next }),

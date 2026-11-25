@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -86,18 +86,10 @@ function OpenChangeRequestConfigPanel({
   nodeId,
   workflowNodes = EMPTY_WORKFLOW_NODES,
 }: PluginConfigPanelProps) {
-  const initializedForNode = useRef<string | null>(null);
   const [repositoryOpen, setRepositoryOpen] = useState(false);
   const repositoryId = repoId(config);
   const { data: workflowsData } = useWorkflowsQuery();
 
-  useEffect(() => {
-    if (initializedForNode.current === nodeId) return;
-    initializedForNode.current = nodeId;
-    if (config.branch_template === undefined) {
-      onChange(buildConfig(config));
-    }
-  }, [nodeId, config, onChange]);
 
   const patch = useCallback(
     (next: Record<string, unknown>) => onChange(buildConfig(config, next)),

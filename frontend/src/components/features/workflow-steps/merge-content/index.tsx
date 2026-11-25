@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 
 import { EMPTY_WORKFLOW_NODES } from "@/components/features/workflows/constants/empty-canvas";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -111,16 +111,8 @@ function MergeContentConfigPanel({
   onChange,
   workflowNodes = EMPTY_WORKFLOW_NODES,
 }: PluginConfigPanelProps) {
-  const initializedForNode = useRef<string | null>(null);
   const [copied, setCopied] = useState(false);
 
-  useEffect(() => {
-    if (initializedForNode.current === nodeId) return;
-    initializedForNode.current = nodeId;
-    if (!config.merge_mode) {
-      onChange(buildMergeContentConfig(config));
-    }
-  }, [nodeId, config, onChange]);
 
   const contentSource = (config.content_source as ContentSource) || DEFAULT_CONFIG.content_source;
   const mergeMode = (config.merge_mode as MergeMode) || DEFAULT_CONFIG.merge_mode;

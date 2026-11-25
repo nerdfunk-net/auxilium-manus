@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -37,32 +37,12 @@ export function GitSourceConfigPanel({
   showAllowStaleToggle = false,
   showRefreshToggle = false,
 }: GitSourceConfigPanelProps) {
-  const initializedForNode = useRef<string | null>(null);
   const [repositoryOpen, setRepositoryOpen] = useState(false);
   const repositoryId = gitRepositoryIdFromConfig(config);
   const allowStale = config[ALLOW_STALE_KEY] === true;
   const refresh = config[REFRESH_KEY] === true;
   const staleToggleVisible = showAllowStaleToggle && (!showRefreshToggle || refresh);
 
-  useEffect(() => {
-    if (initializedForNode.current === nodeId) {
-      return;
-    }
-    initializedForNode.current = nodeId;
-    const patch: Record<string, unknown> = {};
-    if (config[GIT_REPOSITORY_ID_KEY] === undefined) {
-      patch[GIT_REPOSITORY_ID_KEY] = null;
-    }
-    if (showAllowStaleToggle && config[ALLOW_STALE_KEY] === undefined) {
-      patch[ALLOW_STALE_KEY] = false;
-    }
-    if (showRefreshToggle && config[REFRESH_KEY] === undefined) {
-      patch[REFRESH_KEY] = false;
-    }
-    if (Object.keys(patch).length > 0) {
-      onChange({ ...config, ...patch });
-    }
-  }, [nodeId, config, onChange, showAllowStaleToggle, showRefreshToggle]);
 
   const handleRepositoryIdChange = useCallback(
     (newRepositoryId: number) => {

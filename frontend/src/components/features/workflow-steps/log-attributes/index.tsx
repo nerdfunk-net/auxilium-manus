@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -69,8 +69,7 @@ function buildLogAttributesConfig(
   };
 }
 
-function LogAttributesConfigPanel({ config, onChange, nodeId }: PluginConfigPanelProps) {
-  const initializedForNode = useRef<string | null>(null);
+function LogAttributesConfigPanel({ config, onChange }: PluginConfigPanelProps) {
   const outputDestination =
     config.output_destination === "file" ? "file" : ("stdout" as OutputDestination);
   const outputFormat =
@@ -80,13 +79,6 @@ function LogAttributesConfigPanel({ config, onChange, nodeId }: PluginConfigPane
   const showParsedTemplates = config.show_parsed_templates === true;
   const showDeviceConfigs = config.show_device_configs === true;
 
-  useEffect(() => {
-    if (initializedForNode.current === nodeId) {
-      return;
-    }
-    initializedForNode.current = nodeId;
-    onChange(buildLogAttributesConfig(config));
-  }, [nodeId, config, onChange]);
 
   const handleDestinationChange = useCallback(
     (value: string) => {

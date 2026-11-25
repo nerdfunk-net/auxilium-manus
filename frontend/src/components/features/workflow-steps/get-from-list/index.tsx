@@ -1,7 +1,7 @@
 "use client";
 
 import { Minus, Plus } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useMemo } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -73,18 +73,8 @@ function configuredDeviceCount(devices: DeviceEntry[]): number {
   return devices.filter((device) => device.name.trim() || device.ip_address.trim()).length;
 }
 
-function GetFromListConfigPanel({ config, onChange, nodeId }: PluginConfigPanelProps) {
-  const initializedForNode = useRef<string | null>(null);
+function GetFromListConfigPanel({ config, onChange }: PluginConfigPanelProps) {
 
-  useEffect(() => {
-    if (initializedForNode.current === nodeId) {
-      return;
-    }
-    initializedForNode.current = nodeId;
-    if (!Array.isArray(config[DEVICES_KEY]) || config[DEVICES_KEY].length === 0) {
-      onChange(buildConfig(config));
-    }
-  }, [nodeId, config, onChange]);
 
   const devices = useMemo(() => parseDeviceEntries(config), [config]);
   const fanOut = useMemo(() => fanOutFromConfig(config), [config]);

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 
 import type {
   PluginConfigPanelProps,
@@ -24,18 +24,8 @@ import { ExecutionFields } from "./execution-fields";
 import { RunCommandHelpPanel } from "./help-panel";
 import { ParserFields } from "./parser-fields";
 
-function RunCommandConfigPanel({ config, onChange, nodeId }: PluginConfigPanelProps) {
-  const initializedForNode = useRef<string | null>(null);
+function RunCommandConfigPanel({ config, onChange }: PluginConfigPanelProps) {
 
-  useEffect(() => {
-    if (initializedForNode.current === nodeId) {
-      return;
-    }
-    initializedForNode.current = nodeId;
-    if (!Array.isArray(config.commands) || config.commands.length === 0) {
-      onChange(buildRunCommandConfig(config));
-    }
-  }, [nodeId, config, onChange]);
 
   const commands = useMemo(() => parseCommands(config), [config]);
   const parserMode = useMemo(() => parseParserMode(config), [config]);

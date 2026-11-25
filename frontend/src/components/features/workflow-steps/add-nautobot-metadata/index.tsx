@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -28,9 +28,6 @@ import {
 import { NautobotSourceSelectDialog } from "../shared/nautobot-source-select-dialog";
 import { AddNautobotMetadataDialog } from "./add-nautobot-metadata-dialog";
 import {
-  DEFAULT_DEVICE_TYPE,
-  DEFAULT_LOCATION,
-  DEFAULT_METADATA_TYPE,
   metadataTypeFromConfig,
   missingRequiredFields,
   valuesForType,
@@ -61,23 +58,6 @@ function AddNautobotMetadataConfigPanel({
 
   const [sourceOpen, setSourceOpen] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
-
-  // Seed a fresh node once so the saved config always carries metadata_type + both sections.
-  const initializedForNode = useRef<string | null>(null);
-  useEffect(() => {
-    if (initializedForNode.current === nodeId) {
-      return;
-    }
-    initializedForNode.current = nodeId;
-    if (!metadataConfig.metadata_type || !metadataConfig.location || !metadataConfig.device_type) {
-      onChange({
-        ...config,
-        metadata_type: metadataConfig.metadata_type ?? DEFAULT_METADATA_TYPE,
-        location: metadataConfig.location ?? DEFAULT_LOCATION,
-        device_type: metadataConfig.device_type ?? DEFAULT_DEVICE_TYPE,
-      });
-    }
-  }, [nodeId, config, metadataConfig, onChange]);
 
   const values = useMemo(
     () => valuesForType(metadataConfig, metadataType),

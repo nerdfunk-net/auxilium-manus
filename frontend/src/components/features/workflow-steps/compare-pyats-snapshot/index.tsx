@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { EMPTY_WORKFLOW_NODES } from "@/components/features/workflows/constants/empty-canvas";
 import { Badge } from "@/components/ui/badge";
@@ -34,17 +34,7 @@ function ComparePyatsSnapshotConfigPanel({
   nodeId,
   workflowNodes = EMPTY_WORKFLOW_NODES,
 }: PluginConfigPanelProps) {
-  const initializedForNode = useRef<string | null>(null);
 
-  useEffect(() => {
-    if (initializedForNode.current === nodeId) {
-      return;
-    }
-    initializedForNode.current = nodeId;
-    if (!config.filename_template) {
-      onChange(buildComparePyatsSnapshotConfig(config));
-    }
-  }, [nodeId, config, onChange]);
 
   const features = featuresFromConfig(config);
   const referenceLocation = (config.reference_location as ReferenceLocation) || "filesystem";

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -25,9 +25,8 @@ import type { AddToNautobotConfig, DeviceFieldsConfig } from "./types";
 import { AddToNautobotHelpPanel } from "./help-panel";
 import { NautobotSourceStatus, SourceRow } from "../shared/source-row";
 
-// Mirrors backend/workflow_steps/add_to_nautobot/config.py::get_config() — this is
-// the actual seed applied to a fresh node (the backend get-config endpoint has no
-// frontend caller, so it does not seed new nodes on its own).
+// Mirrors backend/workflow_steps/add_to_nautobot/config.py::get_config(): what the panel shows
+// (and the executor uses) while the node has no saved device_fields.
 const DEFAULT_DEVICE_FIELDS: DeviceFieldsConfig = {
   name: { enabled: true, value: "{parsed.cisco_config.running.hostname}" },
   role: { enabled: true, value: "{nautobot.origin}" },
@@ -42,24 +41,21 @@ const DEFAULT_DEVICE_FIELDS: DeviceFieldsConfig = {
   tags: { enabled: true, value: "{nautobot.origin}" },
 };
 
-function AddToNautobotConfigPanel({ config, onChange, nodeId }: PluginConfigPanelProps) {
+function AddToNautobotConfigPanel({ config, onChange }: PluginConfigPanelProps) {
   const sourceId = useMemo(() => nautobotSourceIdFromConfig(config), [config]);
   const credentials = useNautobotSourceCredentials({ sourceId });
-  const addConfig = config as AddToNautobotConfig;
+  const addConfig = useMemo(
+    () =>
+      ({
+        ...config,
+        device_fields: config.device_fields ?? DEFAULT_DEVICE_FIELDS,
+      }) as AddToNautobotConfig,
+    [config],
+  );
 
   const [sourceOpen, setSourceOpen] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
 
-  const initializedForNode = useRef<string | null>(null);
-  useEffect(() => {
-    if (initializedForNode.current === nodeId) {
-      return;
-    }
-    initializedForNode.current = nodeId;
-    if (!addConfig.device_fields || typeof addConfig.device_fields !== "object") {
-      onChange({ ...config, device_fields: DEFAULT_DEVICE_FIELDS });
-    }
-  }, [nodeId, config, addConfig.device_fields, onChange]);
 
   const deviceFields = useMemo(
     () => parseDeviceFieldsConfig(addConfig.device_fields),

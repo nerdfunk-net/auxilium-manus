@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -70,23 +70,7 @@ function buildConfig(
   };
 }
 
-function GetFromUserConfigPanel({ nodeId, config, onChange }: PluginConfigPanelProps) {
-  const initializedForNode = useRef<string | null>(null);
-
-  useEffect(() => {
-    if (initializedForNode.current === nodeId) {
-      return;
-    }
-    initializedForNode.current = nodeId;
-
-    const raw = config[DEVICE_PARAM_KEY];
-    const needsDefaults =
-      typeof raw !== "string" || raw.trim().length === 0 || config.fan_out === undefined;
-    if (needsDefaults) {
-      onChange(buildConfig(config));
-    }
-  }, [nodeId, config, onChange]);
-
+function GetFromUserConfigPanel({ config, onChange }: PluginConfigPanelProps) {
   const deviceParam = useMemo(() => deviceParamFromConfig(config), [config]);
   const lookupMode = useMemo(() => lookupModeFromConfig(config), [config]);
   const defaultDriver = useMemo(() => defaultDriverFromConfig(config), [config]);

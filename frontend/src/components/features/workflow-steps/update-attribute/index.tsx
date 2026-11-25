@@ -1,7 +1,7 @@
 "use client";
 
 import { ArrowDown, ArrowUp, Minus, Pencil, Plus } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -38,20 +38,9 @@ function UpdateAttributeConfigPanel({
   workflowNodes,
   workflowEdges,
 }: PluginConfigPanelProps) {
-  const initializedForNode = useRef<string | null>(null);
   const parsed = useMemo(() => parseUpdateAttributeConfig(config), [config]);
   const [editor, setEditor] = useState<EditorState>(CLOSED_EDITOR);
 
-  useEffect(() => {
-    if (initializedForNode.current === nodeId) {
-      return;
-    }
-    initializedForNode.current = nodeId;
-    // Migrate legacy flat configs and ensure new nodes start with attributes: [].
-    if (!Array.isArray(config.attributes)) {
-      onChange(buildUpdateAttributeConfig(config, parsed));
-    }
-  }, [nodeId, config, onChange, parsed]);
 
   const handleAdd = useCallback(() => {
     setEditor({

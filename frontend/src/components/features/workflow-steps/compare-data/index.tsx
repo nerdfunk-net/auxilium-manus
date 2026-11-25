@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import {
   EMPTY_PLUGINS,
@@ -30,6 +30,7 @@ import {
   CompareDataReferenceFields,
   type ReferenceLocation,
 } from "./reference-fields";
+import { useSeedConfigOnce } from "../shared/use-seed-config";
 
 function buildCompareDataConfig(
   config: Record<string, unknown>,
@@ -76,7 +77,6 @@ function CompareDataConfigPanel({
   workflowEdges = EMPTY_WORKFLOW_EDGES,
   plugins = EMPTY_PLUGINS,
 }: PluginConfigPanelProps) {
-  const initializedForNode = useRef<string | null>(null);
   const [gitRepositoryOpen, setGitRepositoryOpen] = useState(false);
 
   const upstream = useMemo(
@@ -87,24 +87,20 @@ function CompareDataConfigPanel({
     [nodeId, workflowNodes, workflowEdges, plugins],
   );
 
-  useEffect(() => {
-    if (initializedForNode.current === nodeId) {
-      return;
-    }
-    initializedForNode.current = nodeId;
-    const needsInit = !config.content_source || !config.filename_template;
-    if (!needsInit) return;
-    if (!config.content_source && upstream && VALID_COMPARE_SOURCES.has(upstream.contentSource)) {
-      onChange(
-        buildCompareDataConfig(config, {
+  const seedConfig = useCallback(
+    (current: Record<string, unknown>) => {
+      if (current.content_source && current.filename_template) return null;
+      if (!current.content_source && upstream && VALID_COMPARE_SOURCES.has(upstream.contentSource)) {
+        return buildCompareDataConfig(current, {
           content_source: upstream.contentSource,
           source_step_node_id: upstream.sourceNodeId,
-        }),
-      );
-    } else {
-      onChange(buildCompareDataConfig(config));
-    }
-  }, [nodeId, config, onChange, upstream]);
+        });
+      }
+      return buildCompareDataConfig(current);
+    },
+    [upstream],
+  );
+  useSeedConfigOnce({ nodeId, config, onChange, seed: seedConfig });
 
   const referenceLocation = (config.reference_location as ReferenceLocation) || "filesystem";
   const isGitReference = referenceLocation === "git";

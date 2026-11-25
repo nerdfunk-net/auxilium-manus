@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 
 import { TemplateViewDialog } from "@/components/features/templates/components/template-view-dialog";
 import { useTemplatesQuery } from "@/components/features/templates/hooks/use-templates-query";
@@ -27,13 +27,13 @@ import {
   DEFAULT_RENDER_JINJA_TEMPLATE_CONFIG,
   parseRenderJinjaTemplateConfig,
 } from "./template-config";
+import { useSeedConfigOnce } from "../shared/use-seed-config";
 
 function RenderJinjaTemplateConfigPanel({
   config,
   onChange,
   nodeId,
 }: PluginConfigPanelProps) {
-  const initializedForNode = useRef<string | null>(null);
   const parsed = useMemo(() => parseRenderJinjaTemplateConfig(config), [config]);
   const [previewOpen, setPreviewOpen] = useState(false);
 
@@ -47,15 +47,14 @@ function RenderJinjaTemplateConfigPanel({
     [data],
   );
 
-  useEffect(() => {
-    if (initializedForNode.current === nodeId) {
-      return;
-    }
-    initializedForNode.current = nodeId;
-    if (config.output_key === undefined) {
-      onChange(buildRenderJinjaTemplateConfig(config, DEFAULT_RENDER_JINJA_TEMPLATE_CONFIG));
-    }
-  }, [nodeId, config, onChange]);
+  const seedConfig = useCallback(
+    (current: Record<string, unknown>) =>
+      current.output_key === undefined
+        ? buildRenderJinjaTemplateConfig(current, DEFAULT_RENDER_JINJA_TEMPLATE_CONFIG)
+        : null,
+    [],
+  );
+  useSeedConfigOnce({ nodeId, config, onChange, seed: seedConfig });
 
   const handleOutputKeyChange = useCallback(
     (value: string) => {

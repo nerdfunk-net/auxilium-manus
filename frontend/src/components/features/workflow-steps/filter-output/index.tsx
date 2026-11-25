@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 
 import {
   EMPTY_PLUGINS,
@@ -26,6 +26,7 @@ import { findUpstreamOutput } from "@/components/features/workflows/utils/upstre
 
 import { FilterRulesFields, type FilterRule } from "./filter-rules-fields";
 import { FilterOutputHelpPanel } from "./help-panel";
+import { useSeedConfigOnce } from "../shared/use-seed-config";
 
 type RuleType = "pattern" | "path";
 
@@ -94,7 +95,6 @@ function FilterOutputConfigPanel({
   workflowEdges = EMPTY_WORKFLOW_EDGES,
   plugins = EMPTY_PLUGINS,
 }: PluginConfigPanelProps) {
-  const initializedForNode = useRef<string | null>(null);
 
   const upstream = useMemo(
     () =>
@@ -104,22 +104,20 @@ function FilterOutputConfigPanel({
     [nodeId, workflowNodes, workflowEdges, plugins],
   );
 
-  useEffect(() => {
-    if (initializedForNode.current === nodeId) return;
-    initializedForNode.current = nodeId;
-    if (!config.content_source) {
+  const seedConfig = useCallback(
+    (current: Record<string, unknown>) => {
+      if (current.content_source) return null;
       if (upstream && VALID_FILTER_SOURCES.has(upstream.contentSource)) {
-        onChange(
-          buildConfig(config, {
-            content_source: upstream.contentSource,
-            source_step_node_id: upstream.sourceNodeId,
-          }),
-        );
-      } else {
-        onChange(buildConfig(config));
+        return buildConfig(current, {
+          content_source: upstream.contentSource,
+          source_step_node_id: upstream.sourceNodeId,
+        });
       }
-    }
-  }, [nodeId, config, onChange, upstream]);
+      return buildConfig(current);
+    },
+    [upstream],
+  );
+  useSeedConfigOnce({ nodeId, config, onChange, seed: seedConfig });
 
   const contentSource = (config.content_source as ContentSource) || "command_output";
   const sourceStepNodeId =

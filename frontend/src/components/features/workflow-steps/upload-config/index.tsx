@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 
 import { EMPTY_WORKFLOW_NODES } from "@/components/features/workflows/constants/empty-canvas";
 import { Badge } from "@/components/ui/badge";
@@ -44,17 +44,7 @@ function UploadConfigConfigPanel({
   nodeId,
   workflowNodes = EMPTY_WORKFLOW_NODES,
 }: PluginConfigPanelProps) {
-  const initializedForNode = useRef<string | null>(null);
 
-  useEffect(() => {
-    if (initializedForNode.current === nodeId) {
-      return;
-    }
-    initializedForNode.current = nodeId;
-    if (config.content_source === undefined) {
-      onChange(buildUploadConfigConfig(config));
-    }
-  }, [nodeId, config, onChange]);
 
   const contentSource = (config.content_source as ContentSource) || "updated_content";
   const sourceStepNodeId =

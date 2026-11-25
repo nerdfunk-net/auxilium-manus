@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -34,9 +34,7 @@ function buildBackgroundConfig(
 function BackgroundConfigPanel({
   config,
   onChange,
-  nodeId,
 }: PluginConfigPanelProps) {
-  const initializedForNode = useRef<string | null>(null);
   const color =
     typeof config.color === "string"
       ? config.color
@@ -50,15 +48,6 @@ function BackgroundConfigPanel({
       ? config.height
       : DEFAULT_BACKGROUND_CONFIG.height;
 
-  useEffect(() => {
-    if (initializedForNode.current === nodeId) {
-      return;
-    }
-    initializedForNode.current = nodeId;
-    if (!config.color && !config.width) {
-      onChange(buildBackgroundConfig(config));
-    }
-  }, [nodeId, config, onChange]);
 
   const patch = useCallback(
     (partial: Record<string, unknown>) => {

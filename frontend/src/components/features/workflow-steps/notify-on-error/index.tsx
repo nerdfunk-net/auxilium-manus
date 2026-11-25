@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -44,8 +44,7 @@ function boolFromConfig(
   return typeof raw === "boolean" ? raw : fallback;
 }
 
-function NotifyOnErrorConfigPanel({ config, onChange, nodeId }: PluginConfigPanelProps) {
-  const initializedForNode = useRef<string | null>(null);
+function NotifyOnErrorConfigPanel({ config, onChange }: PluginConfigPanelProps) {
   const message = stringFromConfig(config, MESSAGE_KEY);
   const notifyLocal = boolFromConfig(config, NOTIFY_LOCAL_KEY, true);
   const notifyMattermost = boolFromConfig(config, NOTIFY_MATTERMOST_KEY, false);
@@ -60,15 +59,6 @@ function NotifyOnErrorConfigPanel({ config, onChange, nodeId }: PluginConfigPane
 
   const [sourceOpen, setSourceOpen] = useState(false);
 
-  useEffect(() => {
-    if (initializedForNode.current === nodeId) {
-      return;
-    }
-    initializedForNode.current = nodeId;
-    if (!message.trim()) {
-      onChange({ ...config, [MESSAGE_KEY]: DEFAULT_MESSAGE });
-    }
-  }, [nodeId, message, config, onChange]);
 
   const handleMessageChange = useCallback(
     (value: string) => onChange({ ...config, [MESSAGE_KEY]: value }),

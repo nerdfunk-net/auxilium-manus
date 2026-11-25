@@ -1046,3 +1046,24 @@ class RedundancyGroupsTests(unittest.IsolatedAsyncioTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class AddToNautobotMissingDeviceFieldsTests(unittest.TestCase):
+    """D8 (W14-03): the panel no longer writes ``device_fields`` into a new node."""
+
+    def test_missing_device_fields_fall_back_to_the_step_defaults(self) -> None:
+        from workflow_steps.add_to_nautobot.executor import _parse_config
+
+        for config in (
+            {"nautobot_source_id": "nb"},
+            {"nautobot_source_id": "nb", "device_fields": None},
+        ):
+            with self.subTest(config=config):
+                parsed = _parse_config(config)
+                self.assertEqual(parsed.raw_device_fields, get_config()["device_fields"])
+
+    def test_an_explicit_empty_device_fields_stays_empty(self) -> None:
+        from workflow_steps.add_to_nautobot.executor import _parse_config
+
+        parsed = _parse_config({"nautobot_source_id": "nb", "device_fields": {}})
+        self.assertEqual(parsed.raw_device_fields, {})

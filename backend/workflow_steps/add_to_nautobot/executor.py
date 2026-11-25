@@ -24,6 +24,7 @@ from services.nautobot.common.exceptions import NautobotAPIError, is_duplicate_e
 from services.nautobot.credentials_bound_client import CredentialsBoundNautobotClient
 from services.nautobot.devices.creation import DeviceCreationService
 from services.nautobot.devices.types import AddDeviceRequest
+from workflow_steps.add_to_nautobot.config import get_config
 from workflow_steps.common.failure_records import INVALID_INPUT
 from workflow_steps.common.interface_payload import (
     build_interfaces_from_config,
@@ -151,7 +152,11 @@ def _parse_config(config: dict[str, Any]) -> _ParsedConfig:
     if not source_id:
         raise ValueError(f"{_STEP_ID}: nautobot_source_id is not configured")
 
-    raw_device_fields = config.get("device_fields") or {}
+    # A missing key means "the step's defaults" (the panel writes nothing into a new node); an
+    # explicit empty object is the user's choice of no fields.
+    raw_device_fields = config.get("device_fields")
+    if raw_device_fields is None:
+        raw_device_fields = get_config()["device_fields"]
     if not isinstance(raw_device_fields, dict):
         raise ValueError(f"{_STEP_ID}: device_fields must be an object")
 

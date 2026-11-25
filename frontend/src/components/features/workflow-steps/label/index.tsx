@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -50,8 +50,7 @@ function buildLabelConfig(
   };
 }
 
-function LabelConfigPanel({ config, onChange, nodeId }: PluginConfigPanelProps) {
-  const initializedForNode = useRef<string | null>(null);
+function LabelConfigPanel({ config, onChange }: PluginConfigPanelProps) {
   const text =
     typeof config.text === "string" ? config.text : DEFAULT_LABEL_CONFIG.text;
   const fontSize =
@@ -73,15 +72,6 @@ function LabelConfigPanel({ config, onChange, nodeId }: PluginConfigPanelProps) 
       ? config.height
       : DEFAULT_LABEL_CONFIG.height;
 
-  useEffect(() => {
-    if (initializedForNode.current === nodeId) {
-      return;
-    }
-    initializedForNode.current = nodeId;
-    if (!config.text && !config.font_size) {
-      onChange(buildLabelConfig(config));
-    }
-  }, [nodeId, config, onChange]);
 
   const patch = useCallback(
     (partial: Record<string, unknown>) => {

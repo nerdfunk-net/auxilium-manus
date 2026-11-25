@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -17,6 +17,7 @@ import {
 } from "./route-config";
 import { RoutesTabPanel } from "./routes-tab";
 import { CheckboxField } from "../shared/checkbox-field";
+import { useSeedConfigOnce } from "../shared/use-seed-config";
 
 function RouteOnAttributeConfigPanel({
   config,
@@ -25,19 +26,17 @@ function RouteOnAttributeConfigPanel({
   workflowNodes,
   workflowEdges,
 }: PluginConfigPanelProps) {
-  const initializedForNode = useRef<string | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
   const parsed = useMemo(() => parseRouteOnAttributeConfig(config), [config]);
 
-  useEffect(() => {
-    if (initializedForNode.current === nodeId) {
-      return;
-    }
-    initializedForNode.current = nodeId;
-    if (!Array.isArray(config.routes) || config.routes.length === 0) {
-      onChange(buildRouteOnAttributeConfig(config, DEFAULT_ROUTE_ON_ATTRIBUTE_CONFIG));
-    }
-  }, [nodeId, config, onChange]);
+  const seedConfig = useCallback(
+    (current: Record<string, unknown>) =>
+      !Array.isArray(current.routes) || current.routes.length === 0
+        ? buildRouteOnAttributeConfig(current, DEFAULT_ROUTE_ON_ATTRIBUTE_CONFIG)
+        : null,
+    [],
+  );
+  useSeedConfigOnce({ nodeId, config, onChange, seed: seedConfig });
 
   const handleAttributePathChange = useCallback(
     (value: string) => {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 
 import { EMPTY_WORKFLOW_NODES } from "@/components/features/workflows/constants/empty-canvas";
 import { Badge } from "@/components/ui/badge";
@@ -85,17 +85,7 @@ function DeployRenderedTemplateConfigPanel({
   nodeId,
   workflowNodes = EMPTY_WORKFLOW_NODES,
 }: PluginConfigPanelProps) {
-  const initializedForNode = useRef<string | null>(null);
 
-  useEffect(() => {
-    if (initializedForNode.current === nodeId) {
-      return;
-    }
-    initializedForNode.current = nodeId;
-    if (config.execution_mode === undefined) {
-      onChange(buildDeployRenderedTemplateConfig(config));
-    }
-  }, [nodeId, config, onChange]);
 
   const sourceStepNodeId =
     typeof config.source_step_node_id === "string" ? config.source_step_node_id : "";
