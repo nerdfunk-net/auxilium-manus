@@ -15,6 +15,7 @@ from models.workflow_context import (
 )
 from services.artifacts import InMemoryArtifactService
 from services.network.netmiko.connection import DeployResult as NetmikoDeployResult
+from tests.unit._step_helpers import patch_ssh_credential
 from workflow_steps.deploy_rendered_template.executor import execute
 
 RENDERED_TEXT = "interface Gi0/0\n description test\n"
@@ -67,10 +68,7 @@ class DeployRenderedTemplateExecutorTests(unittest.IsolatedAsyncioTestCase):
                 "workflow_steps.common.run_session.object_session",
                 return_value=db,
             ),
-            patch(
-                "workflow_steps.deploy_rendered_template.executor.resolve_ssh_credential",
-                return_value=("admin", "secret"),
-            ),
+            patch_ssh_credential("workflow_steps.deploy_rendered_template.executor"),
             patch("workflow_steps.deploy_rendered_template.executor.NetmikoService") as netmiko_cls,
             patch.object(artifact_service, "resolve", new=AsyncMock(return_value=RENDERED_TEXT)),
         ):
@@ -113,10 +111,7 @@ class DeployRenderedTemplateExecutorTests(unittest.IsolatedAsyncioTestCase):
                 "workflow_steps.common.run_session.object_session",
                 return_value=MagicMock(),
             ),
-            patch(
-                "workflow_steps.deploy_rendered_template.executor.resolve_ssh_credential",
-                return_value=("admin", "secret"),
-            ),
+            patch_ssh_credential("workflow_steps.deploy_rendered_template.executor"),
             patch("workflow_steps.deploy_rendered_template.executor.NetmikoService") as netmiko_cls,
             patch.object(artifact_service, "resolve", new=AsyncMock(return_value=text)),
         ):
@@ -150,9 +145,8 @@ class DeployRenderedTemplateExecutorTests(unittest.IsolatedAsyncioTestCase):
                 "workflow_steps.common.run_session.object_session",
                 return_value=db,
             ),
-            patch(
-                "workflow_steps.deploy_rendered_template.executor.resolve_ssh_credential",
-                return_value=("admin", "secret"),
+            patch_ssh_credential(
+                "workflow_steps.deploy_rendered_template.executor"
             ) as resolve_mock,
             patch("workflow_steps.deploy_rendered_template.executor.NetmikoService") as netmiko_cls,
             patch.object(artifact_service, "resolve", new=AsyncMock(return_value=RENDERED_TEXT)),
@@ -187,10 +181,7 @@ class DeployRenderedTemplateExecutorTests(unittest.IsolatedAsyncioTestCase):
                 "workflow_steps.common.run_session.object_session",
                 return_value=db,
             ),
-            patch(
-                "workflow_steps.deploy_rendered_template.executor.resolve_ssh_credential",
-                return_value=("admin", "secret"),
-            ),
+            patch_ssh_credential("workflow_steps.deploy_rendered_template.executor"),
             patch("workflow_steps.deploy_rendered_template.executor.NetmikoService") as netmiko_cls,
             patch.object(artifact_service, "resolve", new=AsyncMock(return_value=RENDERED_TEXT)),
         ):
@@ -231,10 +222,7 @@ class DeployRenderedTemplateExecutorTests(unittest.IsolatedAsyncioTestCase):
                 "workflow_steps.common.run_session.object_session",
                 return_value=db,
             ),
-            patch(
-                "workflow_steps.deploy_rendered_template.executor.resolve_ssh_credential",
-                return_value=("admin", "secret"),
-            ),
+            patch_ssh_credential("workflow_steps.deploy_rendered_template.executor"),
             patch("workflow_steps.deploy_rendered_template.executor.NetmikoService") as netmiko_cls,
             patch.object(artifact_service, "resolve", new=AsyncMock(return_value=RENDERED_TEXT)),
         ):
@@ -284,10 +272,7 @@ class DeployRenderedTemplateExecutorTests(unittest.IsolatedAsyncioTestCase):
                 "workflow_steps.common.run_session.object_session",
                 return_value=db,
             ),
-            patch(
-                "workflow_steps.deploy_rendered_template.executor.resolve_ssh_credential",
-                return_value=("admin", "secret"),
-            ),
+            patch_ssh_credential("workflow_steps.deploy_rendered_template.executor"),
             patch("workflow_steps.deploy_rendered_template.executor.NetmikoService") as netmiko_cls,
             patch.object(artifact_service, "resolve", new=AsyncMock(return_value=RENDERED_TEXT)),
         ):
@@ -337,10 +322,7 @@ class DeployRenderedTemplateExecutorTests(unittest.IsolatedAsyncioTestCase):
                 "workflow_steps.common.run_session.object_session",
                 return_value=db,
             ),
-            patch(
-                "workflow_steps.deploy_rendered_template.executor.resolve_ssh_credential",
-                return_value=("admin", "secret"),
-            ),
+            patch_ssh_credential("workflow_steps.deploy_rendered_template.executor"),
             patch("workflow_steps.deploy_rendered_template.executor.NetmikoService") as netmiko_cls,
             patch.object(artifact_service, "resolve", new=AsyncMock(return_value=RENDERED_TEXT)),
         ):
@@ -376,10 +358,7 @@ class DeployRenderedTemplateExecutorTests(unittest.IsolatedAsyncioTestCase):
                 "workflow_steps.common.run_session.object_session",
                 return_value=db,
             ),
-            patch(
-                "workflow_steps.deploy_rendered_template.executor.resolve_ssh_credential",
-                return_value=("admin", "secret"),
-            ),
+            patch_ssh_credential("workflow_steps.deploy_rendered_template.executor"),
             patch("workflow_steps.deploy_rendered_template.executor.NetmikoService") as netmiko_cls,
             patch.object(artifact_service, "resolve", new=AsyncMock(return_value=RENDERED_TEXT)),
         ):
@@ -431,10 +410,7 @@ class DeployRenderedTemplateExecutorTests(unittest.IsolatedAsyncioTestCase):
                 "workflow_steps.common.run_session.object_session",
                 return_value=db,
             ),
-            patch(
-                "workflow_steps.deploy_rendered_template.executor.resolve_ssh_credential",
-                return_value=("admin", "secret"),
-            ),
+            patch_ssh_credential("workflow_steps.deploy_rendered_template.executor"),
             patch("workflow_steps.deploy_rendered_template.executor.NetmikoService") as netmiko_cls,
             patch.object(artifact_service, "resolve", new=AsyncMock(return_value=RENDERED_TEXT)),
         ):
@@ -484,10 +460,7 @@ class DeployRenderedTemplateExecutorTests(unittest.IsolatedAsyncioTestCase):
                 "workflow_steps.common.run_session.object_session",
                 return_value=db,
             ),
-            patch(
-                "workflow_steps.deploy_rendered_template.executor.resolve_ssh_credential",
-                return_value=("admin", "secret"),
-            ),
+            patch_ssh_credential("workflow_steps.deploy_rendered_template.executor"),
             patch("workflow_steps.deploy_rendered_template.executor.NetmikoService") as netmiko_cls,
             patch.object(artifact_service, "resolve", new=AsyncMock(return_value=RENDERED_TEXT)),
         ):
@@ -521,10 +494,7 @@ class DeployRenderedTemplateExecutorTests(unittest.IsolatedAsyncioTestCase):
                 "workflow_steps.common.run_session.object_session",
                 return_value=db,
             ),
-            patch(
-                "workflow_steps.deploy_rendered_template.executor.resolve_ssh_credential",
-                return_value=("admin", "secret"),
-            ),
+            patch_ssh_credential("workflow_steps.deploy_rendered_template.executor"),
             patch("workflow_steps.deploy_rendered_template.executor.NetmikoService") as netmiko_cls,
             patch.object(artifact_service, "resolve", new=AsyncMock(return_value=RENDERED_TEXT)),
         ):
@@ -580,10 +550,7 @@ class DeployRenderedTemplateExecutorTests(unittest.IsolatedAsyncioTestCase):
                 "workflow_steps.common.run_session.object_session",
                 return_value=db,
             ),
-            patch(
-                "workflow_steps.deploy_rendered_template.executor.resolve_ssh_credential",
-                return_value=("admin", "secret"),
-            ),
+            patch_ssh_credential("workflow_steps.deploy_rendered_template.executor"),
         ):
             device = DeviceContext(
                 id="device-1",
@@ -621,10 +588,7 @@ class DeployRenderedTemplateExecutorTests(unittest.IsolatedAsyncioTestCase):
                 "workflow_steps.common.run_session.object_session",
                 return_value=db,
             ),
-            patch(
-                "workflow_steps.deploy_rendered_template.executor.resolve_ssh_credential",
-                return_value=("admin", "secret"),
-            ),
+            patch_ssh_credential("workflow_steps.deploy_rendered_template.executor"),
             patch("workflow_steps.deploy_rendered_template.executor.NetmikoService") as netmiko_cls,
             patch.object(artifact_service, "resolve", new=resolve_mock),
         ):
@@ -666,10 +630,7 @@ class DeployRenderedTemplateExecutorTests(unittest.IsolatedAsyncioTestCase):
                 "workflow_steps.common.run_session.object_session",
                 return_value=db,
             ),
-            patch(
-                "workflow_steps.deploy_rendered_template.executor.resolve_ssh_credential",
-                return_value=("admin", "secret"),
-            ),
+            patch_ssh_credential("workflow_steps.deploy_rendered_template.executor"),
             patch("workflow_steps.deploy_rendered_template.executor.NetmikoService") as netmiko_cls,
             patch.object(artifact_service, "resolve", new=AsyncMock(return_value=RENDERED_TEXT)),
         ):

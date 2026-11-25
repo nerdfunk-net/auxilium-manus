@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from models.workflow_context import Capability, DeviceContext, DeviceStatus, WorkflowContext
 from services.artifacts import InMemoryArtifactService
+from tests.unit._step_helpers import patch_ssh_credential
 from workflow_steps.login_successful.executor import execute
 
 
@@ -34,10 +35,7 @@ class LoginSuccessfulExecutorTests(unittest.IsolatedAsyncioTestCase):
                 "workflow_steps.common.run_session.object_session",
                 return_value=db,
             ),
-            patch(
-                "workflow_steps.login_successful.executor.resolve_ssh_credential",
-                return_value=("admin", "secret"),
-            ) as resolve_mock,
+            patch_ssh_credential("workflow_steps.login_successful.executor") as resolve_mock,
             patch("workflow_steps.login_successful.executor.NetmikoService") as netmiko_cls,
         ):
             netmiko = netmiko_cls.return_value
@@ -75,10 +73,7 @@ class LoginSuccessfulExecutorTests(unittest.IsolatedAsyncioTestCase):
                 "workflow_steps.common.run_session.object_session",
                 return_value=db,
             ),
-            patch(
-                "workflow_steps.login_successful.executor.resolve_ssh_credential",
-                return_value=("admin", "secret"),
-            ),
+            patch_ssh_credential("workflow_steps.login_successful.executor"),
             patch("workflow_steps.login_successful.executor.NetmikoService") as netmiko_cls,
         ):
             netmiko = netmiko_cls.return_value
@@ -114,10 +109,7 @@ class LoginSuccessfulExecutorTests(unittest.IsolatedAsyncioTestCase):
                 "workflow_steps.common.run_session.object_session",
                 return_value=db,
             ),
-            patch(
-                "workflow_steps.login_successful.executor.resolve_ssh_credential",
-                return_value=("admin", "secret"),
-            ),
+            patch_ssh_credential("workflow_steps.login_successful.executor"),
         ):
             device = DeviceContext(
                 id="device-1",
@@ -183,10 +175,7 @@ class LoginSuccessfulExecutorTests(unittest.IsolatedAsyncioTestCase):
                 "workflow_steps.common.run_session.object_session",
                 return_value=db,
             ),
-            patch(
-                "workflow_steps.login_successful.executor.resolve_ssh_credential",
-                return_value=("admin", "secret"),
-            ),
+            patch_ssh_credential("workflow_steps.login_successful.executor"),
             patch("workflow_steps.login_successful.executor.NetmikoService") as netmiko_cls,
         ):
             netmiko = netmiko_cls.return_value

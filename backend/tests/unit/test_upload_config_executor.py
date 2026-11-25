@@ -19,6 +19,7 @@ from models.workflow_context import (
 )
 from services.artifacts import InMemoryArtifactService
 from services.network.netmiko.connection import CommandResult, FileTransferResult
+from tests.unit._step_helpers import patch_ssh_credential
 from workflow_steps.common.content_resolver import AMBIGUOUS_CONTENT_FAILURE
 from workflow_steps.upload_config.executor import execute
 
@@ -101,10 +102,7 @@ class UploadConfigExecutorTests(unittest.IsolatedAsyncioTestCase):
                 "workflow_steps.common.run_session.object_session",
                 return_value=db,
             ),
-            patch(
-                "workflow_steps.upload_config.executor.resolve_ssh_credential",
-                return_value=("admin", "secret"),
-            ),
+            patch_ssh_credential("workflow_steps.upload_config.executor"),
             patch("workflow_steps.upload_config.executor.NetmikoService") as netmiko_cls,
             patch.object(artifact_service, "resolve", new=AsyncMock(return_value=UPDATED_CONTENT)),
         ):
@@ -165,10 +163,7 @@ class UploadConfigExecutorTests(unittest.IsolatedAsyncioTestCase):
             )
         with (
             patch("workflow_steps.common.run_session.object_session", return_value=MagicMock()),
-            patch(
-                "workflow_steps.upload_config.executor.resolve_ssh_credential",
-                return_value=("admin", "secret"),
-            ),
+            patch_ssh_credential("workflow_steps.upload_config.executor"),
             patch("workflow_steps.upload_config.executor.NetmikoService") as netmiko_cls,
             patch.object(artifact_service, "resolve", new=AsyncMock(return_value=UPDATED_CONTENT)),
         ):
@@ -198,10 +193,7 @@ class UploadConfigExecutorTests(unittest.IsolatedAsyncioTestCase):
                 "workflow_steps.common.run_session.object_session",
                 return_value=db,
             ),
-            patch(
-                "workflow_steps.upload_config.executor.resolve_ssh_credential",
-                return_value=("admin", "secret"),
-            ) as resolve_mock,
+            patch_ssh_credential("workflow_steps.upload_config.executor") as resolve_mock,
             patch("workflow_steps.upload_config.executor.NetmikoService") as netmiko_cls,
             patch.object(artifact_service, "resolve", new=AsyncMock(return_value=UPDATED_CONTENT)),
         ):
@@ -233,10 +225,7 @@ class UploadConfigExecutorTests(unittest.IsolatedAsyncioTestCase):
                 "workflow_steps.common.run_session.object_session",
                 return_value=db,
             ),
-            patch(
-                "workflow_steps.upload_config.executor.resolve_ssh_credential",
-                return_value=("admin", "secret"),
-            ),
+            patch_ssh_credential("workflow_steps.upload_config.executor"),
             patch("workflow_steps.upload_config.executor.NetmikoService") as netmiko_cls,
             patch.object(artifact_service, "resolve", new=AsyncMock(return_value=UPDATED_CONTENT)),
         ):
@@ -348,10 +337,7 @@ class UploadConfigExecutorTests(unittest.IsolatedAsyncioTestCase):
                 "workflow_steps.common.run_session.object_session",
                 return_value=db,
             ),
-            patch(
-                "workflow_steps.upload_config.executor.resolve_ssh_credential",
-                return_value=("admin", "secret"),
-            ),
+            patch_ssh_credential("workflow_steps.upload_config.executor"),
             patch("workflow_steps.upload_config.executor.NetmikoService") as netmiko_cls,
             patch.object(artifact_service, "resolve", new=AsyncMock(return_value=UPDATED_CONTENT)),
         ):
@@ -386,10 +372,7 @@ class UploadConfigExecutorTests(unittest.IsolatedAsyncioTestCase):
                 "workflow_steps.common.run_session.object_session",
                 return_value=db,
             ),
-            patch(
-                "workflow_steps.upload_config.executor.resolve_ssh_credential",
-                return_value=("admin", "secret"),
-            ),
+            patch_ssh_credential("workflow_steps.upload_config.executor"),
             patch("workflow_steps.upload_config.executor.NetmikoService") as netmiko_cls,
             patch.object(artifact_service, "resolve", new=AsyncMock(return_value=UPDATED_CONTENT)),
         ):
@@ -440,10 +423,7 @@ class UploadConfigExecutorTests(unittest.IsolatedAsyncioTestCase):
         )
         with (
             patch("workflow_steps.common.run_session.object_session", return_value=MagicMock()),
-            patch(
-                "workflow_steps.upload_config.executor.resolve_ssh_credential",
-                return_value=("admin", "secret"),
-            ),
+            patch_ssh_credential("workflow_steps.upload_config.executor"),
             patch("workflow_steps.upload_config.executor.NetmikoService") as netmiko_cls,
         ):
             netmiko_cls.return_value.upload_file = AsyncMock()
@@ -473,10 +453,7 @@ class UploadConfigExecutorTests(unittest.IsolatedAsyncioTestCase):
                 "workflow_steps.common.run_session.object_session",
                 return_value=db,
             ),
-            patch(
-                "workflow_steps.upload_config.executor.resolve_ssh_credential",
-                return_value=("admin", "secret"),
-            ),
+            patch_ssh_credential("workflow_steps.upload_config.executor"),
         ):
             device = DeviceContext(
                 id="device-1",
@@ -521,10 +498,7 @@ class UploadConfigExecutorTests(unittest.IsolatedAsyncioTestCase):
                 "workflow_steps.common.run_session.object_session",
                 return_value=db,
             ),
-            patch(
-                "workflow_steps.upload_config.executor.resolve_ssh_credential",
-                return_value=("admin", "secret"),
-            ),
+            patch_ssh_credential("workflow_steps.upload_config.executor"),
             patch("workflow_steps.upload_config.executor.NetmikoService") as netmiko_cls,
             patch.object(artifact_service, "resolve", new=AsyncMock(return_value=UPDATED_CONTENT)),
         ):
@@ -574,10 +548,7 @@ class UploadConfigExecutorTests(unittest.IsolatedAsyncioTestCase):
                 "workflow_steps.common.run_session.object_session",
                 return_value=db,
             ),
-            patch(
-                "workflow_steps.upload_config.executor.resolve_ssh_credential",
-                return_value=("admin", "secret"),
-            ),
+            patch_ssh_credential("workflow_steps.upload_config.executor"),
             patch("workflow_steps.upload_config.executor.NetmikoService") as netmiko_cls,
             patch.object(artifact_service, "resolve", new=AsyncMock(return_value=UPDATED_CONTENT)),
         ):
@@ -620,10 +591,7 @@ class UploadConfigExecutorTests(unittest.IsolatedAsyncioTestCase):
                 "workflow_steps.common.run_session.object_session",
                 return_value=db,
             ),
-            patch(
-                "workflow_steps.upload_config.executor.resolve_ssh_credential",
-                return_value=("admin", "secret"),
-            ),
+            patch_ssh_credential("workflow_steps.upload_config.executor"),
             patch("workflow_steps.upload_config.executor.NetmikoService") as netmiko_cls,
             patch.object(artifact_service, "resolve", new=AsyncMock(return_value=UPDATED_CONTENT)),
         ):
@@ -691,10 +659,7 @@ class UploadConfigExecutorTests(unittest.IsolatedAsyncioTestCase):
                 "workflow_steps.common.run_session.object_session",
                 return_value=db,
             ),
-            patch(
-                "workflow_steps.upload_config.executor.resolve_ssh_credential",
-                return_value=("admin", "secret"),
-            ),
+            patch_ssh_credential("workflow_steps.upload_config.executor"),
             patch("workflow_steps.upload_config.executor.NetmikoService") as netmiko_cls,
             patch.object(
                 artifact_service, "resolve", new=AsyncMock(return_value=no_trailing_newline_content)
@@ -742,10 +707,7 @@ class UploadConfigExecutorTests(unittest.IsolatedAsyncioTestCase):
                 "workflow_steps.common.run_session.object_session",
                 return_value=db,
             ),
-            patch(
-                "workflow_steps.upload_config.executor.resolve_ssh_credential",
-                return_value=("admin", "secret"),
-            ),
+            patch_ssh_credential("workflow_steps.upload_config.executor"),
             patch("workflow_steps.upload_config.executor.NetmikoService") as netmiko_cls,
             patch.object(
                 artifact_service, "resolve", new=AsyncMock(return_value=no_trailing_newline_content)
@@ -806,10 +768,7 @@ class UploadConfigExecutorTests(unittest.IsolatedAsyncioTestCase):
                 "workflow_steps.common.run_session.object_session",
                 return_value=db,
             ),
-            patch(
-                "workflow_steps.upload_config.executor.resolve_ssh_credential",
-                return_value=("admin", "secret"),
-            ),
+            patch_ssh_credential("workflow_steps.upload_config.executor"),
             patch("workflow_steps.upload_config.executor.NetmikoService") as netmiko_cls,
             patch.object(artifact_service, "resolve", new=AsyncMock(return_value=content)),
         ):

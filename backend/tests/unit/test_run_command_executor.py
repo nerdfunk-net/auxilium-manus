@@ -12,6 +12,7 @@ from services.artifacts import InMemoryArtifactService
 from services.network.netmiko.connection import CommandResult as NetmikoCommandResult
 from services.network.netmiko.connection import DeployResult as NetmikoDeployResult
 from services.pyats.common.exceptions import PyATSAPIError
+from tests.unit._step_helpers import patch_ssh_credential
 from workflow_steps.common.failure_records import INVALID_INPUT
 from workflow_steps.run_command.executor import execute
 
@@ -37,10 +38,7 @@ class RunCommandExecutorTests(unittest.IsolatedAsyncioTestCase):
                 "workflow_steps.common.run_session.object_session",
                 return_value=db,
             ),
-            patch(
-                "workflow_steps.run_command.executor.resolve_ssh_credential",
-                return_value=("admin", "secret"),
-            ),
+            patch_ssh_credential("workflow_steps.run_command.executor"),
             patch("workflow_steps.run_command.executor.NetmikoService") as netmiko_cls,
         ):
             netmiko = netmiko_cls.return_value
@@ -88,10 +86,7 @@ class RunCommandExecutorTests(unittest.IsolatedAsyncioTestCase):
                 "workflow_steps.common.run_session.object_session",
                 return_value=db,
             ),
-            patch(
-                "workflow_steps.run_command.executor.resolve_ssh_credential",
-                return_value=("admin", "secret"),
-            ),
+            patch_ssh_credential("workflow_steps.run_command.executor"),
             patch("workflow_steps.run_command.executor.NetmikoService") as netmiko_cls,
         ):
             netmiko = netmiko_cls.return_value
@@ -142,10 +137,7 @@ class RunCommandExecutorTests(unittest.IsolatedAsyncioTestCase):
                 "workflow_steps.common.run_session.object_session",
                 return_value=db,
             ),
-            patch(
-                "workflow_steps.run_command.executor.resolve_ssh_credential",
-                return_value=("admin", "secret"),
-            ) as resolve_mock,
+            patch_ssh_credential("workflow_steps.run_command.executor") as resolve_mock,
             patch("workflow_steps.run_command.executor.NetmikoService") as netmiko_cls,
         ):
             netmiko = netmiko_cls.return_value
@@ -201,10 +193,7 @@ class RunCommandExecutorTests(unittest.IsolatedAsyncioTestCase):
                 "workflow_steps.common.run_session.object_session",
                 return_value=db,
             ),
-            patch(
-                "workflow_steps.run_command.executor.resolve_ssh_credential",
-                return_value=("admin", "secret"),
-            ),
+            patch_ssh_credential("workflow_steps.run_command.executor"),
             patch("workflow_steps.run_command.executor.NetmikoService") as netmiko_cls,
         ):
             netmiko = netmiko_cls.return_value
@@ -285,10 +274,7 @@ class RunCommandExecutorTests(unittest.IsolatedAsyncioTestCase):
                 "workflow_steps.common.run_session.object_session",
                 return_value=db,
             ),
-            patch(
-                "workflow_steps.run_command.executor.resolve_ssh_credential",
-                return_value=("admin", "secret"),
-            ),
+            patch_ssh_credential("workflow_steps.run_command.executor"),
             patch("workflow_steps.run_command.executor.NetmikoService") as netmiko_cls,
         ):
             netmiko = netmiko_cls.return_value
@@ -330,10 +316,7 @@ class RunCommandExecutorTests(unittest.IsolatedAsyncioTestCase):
                 "workflow_steps.common.run_session.object_session",
                 return_value=db,
             ),
-            patch(
-                "workflow_steps.run_command.executor.resolve_ssh_credential",
-                return_value=("admin", "secret"),
-            ),
+            patch_ssh_credential("workflow_steps.run_command.executor"),
             patch("workflow_steps.run_command.executor.NetmikoService") as netmiko_cls,
             patch(
                 "workflow_steps.run_command.enrichment.PyATSSourceConfigService"
@@ -398,10 +381,7 @@ class RunCommandExecutorTests(unittest.IsolatedAsyncioTestCase):
                 "workflow_steps.common.run_session.object_session",
                 return_value=db,
             ),
-            patch(
-                "workflow_steps.run_command.executor.resolve_ssh_credential",
-                return_value=("admin", "secret"),
-            ),
+            patch_ssh_credential("workflow_steps.run_command.executor"),
             patch("workflow_steps.run_command.executor.NetmikoService") as netmiko_cls,
             patch(
                 "workflow_steps.run_command.enrichment.PyATSSourceConfigService"
@@ -464,10 +444,7 @@ class RunCommandExecutorTests(unittest.IsolatedAsyncioTestCase):
                 "workflow_steps.common.run_session.object_session",
                 return_value=db,
             ),
-            patch(
-                "workflow_steps.run_command.executor.resolve_ssh_credential",
-                return_value=("admin", "secret"),
-            ),
+            patch_ssh_credential("workflow_steps.run_command.executor"),
             patch("workflow_steps.run_command.executor.NetmikoService") as netmiko_cls,
             patch(
                 "workflow_steps.run_command.enrichment.PyATSSourceConfigService"
@@ -525,10 +502,7 @@ class RunCommandExecutorTests(unittest.IsolatedAsyncioTestCase):
                 "workflow_steps.common.run_session.object_session",
                 return_value=db,
             ),
-            patch(
-                "workflow_steps.run_command.executor.resolve_ssh_credential",
-                return_value=("admin", "secret"),
-            ),
+            patch_ssh_credential("workflow_steps.run_command.executor"),
             patch("workflow_steps.run_command.executor.NetmikoService") as netmiko_cls,
         ):
             netmiko = netmiko_cls.return_value
@@ -570,10 +544,7 @@ class RunCommandExecutorTests(unittest.IsolatedAsyncioTestCase):
         rows = [{"hostname": "r1"}]
         with (
             patch("workflow_steps.common.run_session.object_session", return_value=MagicMock()),
-            patch(
-                "workflow_steps.run_command.executor.resolve_ssh_credential",
-                return_value=("admin", "secret"),
-            ),
+            patch_ssh_credential("workflow_steps.run_command.executor"),
             patch("workflow_steps.run_command.executor.NetmikoService") as netmiko_cls,
         ):
             netmiko_cls.return_value.send_commands = AsyncMock(
@@ -628,10 +599,7 @@ class RunCommandExecutorTests(unittest.IsolatedAsyncioTestCase):
                 "workflow_steps.common.run_session.object_session",
                 return_value=db,
             ),
-            patch(
-                "workflow_steps.run_command.executor.resolve_ssh_credential",
-                return_value=("admin", "secret"),
-            ),
+            patch_ssh_credential("workflow_steps.run_command.executor"),
             patch("workflow_steps.run_command.executor.NetmikoService") as netmiko_cls,
         ):
             netmiko = netmiko_cls.return_value
@@ -677,10 +645,7 @@ class RunCommandExecutorTests(unittest.IsolatedAsyncioTestCase):
                 "workflow_steps.common.run_session.object_session",
                 return_value=db,
             ),
-            patch(
-                "workflow_steps.run_command.executor.resolve_ssh_credential",
-                return_value=("admin", "secret"),
-            ),
+            patch_ssh_credential("workflow_steps.run_command.executor"),
             patch("workflow_steps.run_command.executor.NetmikoService") as netmiko_cls,
         ):
             netmiko = netmiko_cls.return_value
@@ -720,10 +685,7 @@ class RunCommandExecutorTests(unittest.IsolatedAsyncioTestCase):
                 "workflow_steps.common.run_session.object_session",
                 return_value=db,
             ),
-            patch(
-                "workflow_steps.run_command.executor.resolve_ssh_credential",
-                return_value=("admin", "secret"),
-            ),
+            patch_ssh_credential("workflow_steps.run_command.executor"),
             patch("workflow_steps.run_command.executor.NetmikoService") as netmiko_cls,
         ):
             netmiko = netmiko_cls.return_value
@@ -767,10 +729,7 @@ class RunCommandExecutorTests(unittest.IsolatedAsyncioTestCase):
                 "workflow_steps.common.run_session.object_session",
                 return_value=db,
             ),
-            patch(
-                "workflow_steps.run_command.executor.resolve_ssh_credential",
-                return_value=("admin", "secret"),
-            ),
+            patch_ssh_credential("workflow_steps.run_command.executor"),
             patch("workflow_steps.run_command.executor.NetmikoService") as netmiko_cls,
         ):
             netmiko = netmiko_cls.return_value
@@ -855,10 +814,7 @@ class RunCommandExecutorTests(unittest.IsolatedAsyncioTestCase):
                 "workflow_steps.common.run_session.object_session",
                 return_value=db,
             ),
-            patch(
-                "workflow_steps.run_command.executor.resolve_ssh_credential",
-                return_value=("admin", "secret"),
-            ),
+            patch_ssh_credential("workflow_steps.run_command.executor"),
             patch("workflow_steps.run_command.executor.NetmikoService") as netmiko_cls,
         ):
             netmiko = netmiko_cls.return_value
@@ -895,10 +851,7 @@ class RunCommandExecutorTests(unittest.IsolatedAsyncioTestCase):
     async def _config_mode(self, devices: dict[str, DeviceContext], deploy: AsyncMock):  # noqa: ANN202
         with (
             patch("workflow_steps.common.run_session.object_session", return_value=MagicMock()),
-            patch(
-                "workflow_steps.run_command.executor.resolve_ssh_credential",
-                return_value=("admin", "secret"),
-            ),
+            patch_ssh_credential("workflow_steps.run_command.executor"),
             patch("workflow_steps.run_command.executor.NetmikoService") as netmiko_cls,
         ):
             netmiko_cls.return_value.deploy_config = deploy
@@ -979,10 +932,7 @@ class RunCommandExecutorTests(unittest.IsolatedAsyncioTestCase):
                 "workflow_steps.common.run_session.object_session",
                 return_value=db,
             ),
-            patch(
-                "workflow_steps.run_command.executor.resolve_ssh_credential",
-                return_value=("admin", "secret"),
-            ),
+            patch_ssh_credential("workflow_steps.run_command.executor"),
             patch("workflow_steps.run_command.executor.NetmikoService") as netmiko_cls,
         ):
             netmiko = netmiko_cls.return_value
@@ -1026,10 +976,7 @@ class RunCommandExecutorTests(unittest.IsolatedAsyncioTestCase):
                 "workflow_steps.common.run_session.object_session",
                 return_value=db,
             ),
-            patch(
-                "workflow_steps.run_command.executor.resolve_ssh_credential",
-                return_value=("admin", "secret"),
-            ),
+            patch_ssh_credential("workflow_steps.run_command.executor"),
             patch("workflow_steps.run_command.executor.NetmikoService") as netmiko_cls,
         ):
             netmiko_cls.return_value.send_commands = AsyncMock()
@@ -1104,10 +1051,7 @@ class RunCommandExecutorTests(unittest.IsolatedAsyncioTestCase):
                 "workflow_steps.common.run_session.object_session",
                 return_value=db,
             ),
-            patch(
-                "workflow_steps.run_command.executor.resolve_ssh_credential",
-                return_value=("admin", "secret"),
-            ),
+            patch_ssh_credential("workflow_steps.run_command.executor"),
             patch("workflow_steps.run_command.executor.NetmikoService") as netmiko_cls,
         ):
             netmiko = netmiko_cls.return_value
@@ -1149,10 +1093,7 @@ class RunCommandExecutorTests(unittest.IsolatedAsyncioTestCase):
                 "workflow_steps.common.run_session.object_session",
                 return_value=db,
             ),
-            patch(
-                "workflow_steps.run_command.executor.resolve_ssh_credential",
-                return_value=("admin", "secret"),
-            ),
+            patch_ssh_credential("workflow_steps.run_command.executor"),
             patch("workflow_steps.run_command.executor.NetmikoService") as netmiko_cls,
         ):
             netmiko = netmiko_cls.return_value

@@ -9,6 +9,7 @@ from models.failure import FailureInfo
 from models.workflow_context import Capability, DeviceContext, DeviceStatus, WorkflowContext
 from services.artifacts import InMemoryArtifactService
 from services.network.netmiko.connection import ConfigResult, NetmikoConnectionError
+from tests.unit._step_helpers import patch_ssh_credential
 from workflow_steps.get_device_configs.executor import execute
 
 
@@ -36,10 +37,7 @@ class GetDeviceConfigsExecutorTests(unittest.IsolatedAsyncioTestCase):
                 "workflow_steps.common.run_session.object_session",
                 return_value=db,
             ),
-            patch(
-                "workflow_steps.get_device_configs.executor.resolve_ssh_credential",
-                return_value=("admin", "secret"),
-            ),
+            patch_ssh_credential("workflow_steps.get_device_configs.executor"),
             patch("workflow_steps.get_device_configs.executor.NetmikoService") as netmiko_cls,
         ):
             netmiko = netmiko_cls.return_value
@@ -94,10 +92,7 @@ class GetDeviceConfigsExecutorTests(unittest.IsolatedAsyncioTestCase):
                 "workflow_steps.common.run_session.object_session",
                 return_value=db,
             ),
-            patch(
-                "workflow_steps.get_device_configs.executor.resolve_ssh_credential",
-                return_value=("admin", "secret"),
-            ) as resolve_mock,
+            patch_ssh_credential("workflow_steps.get_device_configs.executor") as resolve_mock,
             patch("workflow_steps.get_device_configs.executor.NetmikoService") as netmiko_cls,
         ):
             netmiko = netmiko_cls.return_value
@@ -133,10 +128,7 @@ class GetDeviceConfigsExecutorTests(unittest.IsolatedAsyncioTestCase):
                 "workflow_steps.common.run_session.object_session",
                 return_value=db,
             ),
-            patch(
-                "workflow_steps.get_device_configs.executor.resolve_ssh_credential",
-                return_value=("admin", "secret"),
-            ),
+            patch_ssh_credential("workflow_steps.get_device_configs.executor"),
         ):
             device = DeviceContext(
                 id="device-1",
@@ -175,10 +167,7 @@ class GetDeviceConfigsExecutorTests(unittest.IsolatedAsyncioTestCase):
                 "workflow_steps.common.run_session.object_session",
                 return_value=db,
             ),
-            patch(
-                "workflow_steps.get_device_configs.executor.resolve_ssh_credential",
-                return_value=("admin", "secret"),
-            ),
+            patch_ssh_credential("workflow_steps.get_device_configs.executor"),
             patch("workflow_steps.get_device_configs.executor.NetmikoService") as netmiko_cls,
         ):
             netmiko = netmiko_cls.return_value
@@ -220,10 +209,7 @@ class GetDeviceConfigsExecutorTests(unittest.IsolatedAsyncioTestCase):
                 "workflow_steps.common.run_session.object_session",
                 return_value=db,
             ),
-            patch(
-                "workflow_steps.get_device_configs.executor.resolve_ssh_credential",
-                return_value=("admin", "secret"),
-            ),
+            patch_ssh_credential("workflow_steps.get_device_configs.executor"),
             patch("workflow_steps.get_device_configs.executor.NetmikoService") as netmiko_cls,
         ):
             netmiko = netmiko_cls.return_value
@@ -281,10 +267,7 @@ class GetDeviceConfigsExecutorTests(unittest.IsolatedAsyncioTestCase):
                 "workflow_steps.common.run_session.object_session",
                 return_value=db,
             ),
-            patch(
-                "workflow_steps.get_device_configs.executor.resolve_ssh_credential",
-                return_value=("admin", "secret"),
-            ),
+            patch_ssh_credential("workflow_steps.get_device_configs.executor"),
             patch("workflow_steps.get_device_configs.executor.NetmikoService") as netmiko_cls,
         ):
             netmiko = netmiko_cls.return_value
@@ -324,10 +307,7 @@ class GetDeviceConfigsExecutorTests(unittest.IsolatedAsyncioTestCase):
                 "workflow_steps.common.run_session.object_session",
                 return_value=db,
             ),
-            patch(
-                "workflow_steps.get_device_configs.executor.resolve_ssh_credential",
-                return_value=("admin", "secret"),
-            ),
+            patch_ssh_credential("workflow_steps.get_device_configs.executor"),
             patch("workflow_steps.get_device_configs.executor.NetmikoService") as netmiko_cls,
         ):
             netmiko = netmiko_cls.return_value
@@ -383,10 +363,7 @@ class GetDeviceConfigsExecutorTests(unittest.IsolatedAsyncioTestCase):
                 "workflow_steps.common.run_session.object_session",
                 return_value=MagicMock(),
             ),
-            patch(
-                "workflow_steps.get_device_configs.executor.resolve_ssh_credential",
-                return_value=("admin", "secret"),
-            ),
+            patch_ssh_credential("workflow_steps.get_device_configs.executor"),
             patch("workflow_steps.get_device_configs.executor.NetmikoService") as netmiko_cls,
         ):
             netmiko_cls.return_value.get_configs = netmiko_mock
