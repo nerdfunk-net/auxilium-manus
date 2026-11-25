@@ -481,20 +481,110 @@ class ExecuteTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("d1", success.context.devices)
         self.assertEqual(success.context.devices["d1"].source, "nautobot")
 
-    async def test_dry_run_skips_updates_and_returns_context_unchanged(self) -> None:
-        cfg = {**_CFG, "dry_run": True}
+    async def test_dry_run_previews_every_device_and_writes_nothing(self) -> None:
+        cfg = {**_CFG, "dry_run": True, "sync_interfaces": True}
         run = MagicMock()
         run.id = 1
         ctx = WorkflowContext(run_id="r", workflow_id="w", devices={"d1": _device("d1")})
-        with patch.object(mod, "_build_update_service") as build_service:
+        plan = {
+            "would_update_fields": ["serial"],
+            "interfaces": {"would_create": [], "would_update": ["Gi0"], "would_delete": ["Gi9"]},
+        }
+        update_service = MagicMock()
+        update_service.update_device = AsyncMock(
+            return_value={
+                "success": True,
+                "dry_run": True,
+                "device_id": "nb-1",
+                "device_name": "r1",
+                "plan": plan,
+            }
+        )
+        with (
+            patch.object(
+                mod,
+                "_build_update_service",
+                return_value=(MagicMock(), MagicMock(), update_service),
+            ),
+            patch.object(mod, "resolve_nautobot_device_id", AsyncMock(return_value="nb-1")),
+            patch.object(mod, "build_resolved_update_data", return_value={"serial": "S"}),
+            patch("workflow_steps.common.run_session.object_session", return_value=MagicMock()),
+        ):
             outcomes = await execute(
                 config=cfg, context=ctx, run=run, artifact_service=MagicMock(),
                 node_id="n", device_sessions=MagicMock(),
             )
-        build_service.assert_not_called()
+        _, kwargs = update_service.update_device.call_args
+        self.assertTrue(kwargs["dry_run"])
+        self.assertTrue(kwargs["sync_interfaces"])
         self.assertEqual([o.name for o in outcomes], ["success"])
-        self.assertIs(outcomes[0].context, ctx)
-        self.assertIn("d1", outcomes[0].context.devices)
+        device = outcomes[0].context.devices["d1"]
+        self.assertEqual(device.dry_run_results["n"], plan)
+        self.assertEqual(device.status, DeviceStatus.OK)
+
+    async def test_a_real_run_passes_dry_run_false_and_stores_no_preview(self) -> None:
+        update_service = MagicMock()
+        update_service.update_device = AsyncMock(
+            return_value={"device_id": "nb-1", "device_name": "r1", "interfaces_failed": 0}
+        )
+        with (
+            patch.object(mod, "resolve_nautobot_device_id", AsyncMock(return_value="nb-1")),
+            patch.object(mod, "build_resolved_update_data", return_value={}),
+        ):
+            _, dev, _ = await _update_one_device(
+                device_key="d1", device=_device("d1"), config=_CFG,
+                context=WorkflowContext(run_id="r", workflow_id="w", devices={}),
+                node_id="n", nautobot_service=MagicMock(), credentials=MagicMock(),
+                update_service=update_service, parsed=mod._parse_config(_CFG),
+            )
+        self.assertFalse(update_service.update_device.call_args.kwargs["dry_run"])
+        self.assertEqual(dev.dry_run_results, {})
+
+    async def test_an_explicit_device_gets_a_placeholder_with_the_preview(self) -> None:
+        cfg = {
+            **_CFG,
+            "dry_run": True,
+            "device_identifier": {"mode": "explicit", "name": "sw1"},
+        }
+        update_service = MagicMock()
+        update_service.update_device = AsyncMock(
+            return_value={
+                "dry_run": True,
+                "device_id": "nb-1",
+                "device_name": "sw1",
+                "plan": {"would_update_fields": ["name"], "interfaces": None},
+            }
+        )
+        with (
+            patch.object(mod, "resolve_nautobot_device_id", AsyncMock(return_value="nb-1")),
+            patch.object(mod, "build_resolved_update_data", return_value={"name": "x"}),
+        ):
+            _, dev, ok = await _update_one_device(
+                device_key="explicit", device=None, config=cfg,
+                context=WorkflowContext(run_id="r", workflow_id="w", devices={}),
+                node_id="n", nautobot_service=MagicMock(), credentials=MagicMock(),
+                update_service=update_service, parsed=mod._parse_config(cfg),
+            )
+        self.assertTrue(ok)
+        self.assertEqual(dev.name, "sw1")
+        self.assertEqual(dev.dry_run_results["n"]["would_update_fields"], ["name"])
+
+    async def test_a_dry_run_failure_is_a_failed_device(self) -> None:
+        cfg = {**_CFG, "dry_run": True}
+        update_service = MagicMock()
+        update_service.update_device = AsyncMock(side_effect=ValueError("Device not found"))
+        with (
+            patch.object(mod, "resolve_nautobot_device_id", AsyncMock(return_value="nb-1")),
+            patch.object(mod, "build_resolved_update_data", return_value={}),
+        ):
+            _, dev, ok = await _update_one_device(
+                device_key="d1", device=_device("d1"), config=cfg,
+                context=WorkflowContext(run_id="r", workflow_id="w", devices={}),
+                node_id="n", nautobot_service=MagicMock(), credentials=MagicMock(),
+                update_service=update_service, parsed=mod._parse_config(cfg),
+            )
+        self.assertFalse(ok)
+        self.assertEqual(dev.errors[-1].message, "Device not found")
 
 
 class EmptyDeviceSetTests(unittest.IsolatedAsyncioTestCase):

@@ -12,6 +12,7 @@ import { AttributePathPicker } from "@/components/features/workflow-steps/shared
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Switch } from "@/components/ui/switch";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -128,6 +129,13 @@ function UpdateConfigContextConfigPanel({
   const handleCreateLocalChange = useCallback(
     (checked: boolean) => {
       onChange(buildUpdateConfigContextConfig(config, { create_local_if_missing: checked }));
+    },
+    [config, onChange],
+  );
+
+  const handleDryRunChange = useCallback(
+    (checked: boolean) => {
+      onChange(buildUpdateConfigContextConfig(config, { dry_run: checked }));
     },
     [config, onChange],
   );
@@ -417,6 +425,22 @@ function UpdateConfigContextConfigPanel({
           </p>
         </div>
       ) : null}
+
+      <div className="flex items-center justify-between gap-3 border-t pt-3">
+        <div className="space-y-0.5">
+          <label className="text-xs font-medium">Dry run</label>
+          <p className="text-[11px] leading-4 text-muted-foreground">
+            Write nothing; list per device the top-level keys of the local config context that
+            would be added or dropped (key names only).
+          </p>
+        </div>
+        <Switch
+          aria-label="dry_run"
+          checked={parsed.dry_run}
+          onCheckedChange={handleDryRunChange}
+          className="data-[state=checked]:bg-step"
+        />
+      </div>
 
       <AttributePathPicker
         open={pickerTarget !== null}

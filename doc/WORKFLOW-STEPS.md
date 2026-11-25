@@ -561,6 +561,31 @@ row of a failure, `copy running-config startup-config` row); each step passes it
 - **One-token names.** `device_file_upload.parse_device_token` refuses a space or line break in `file_system`,
   `destination_filename` (`upload-config`, `upload-binary`, `configure-replace-config`) and `source_filename` (`merge-config`).
 
+### `dry_run` in the Nautobot family, and the push steps
+
+One meaning: **`dry_run` writes nothing and the preview is in the run result**, `device.dry_run_results[<node id>]`
+(`step_flags.record_dry_run`; names and counts, never values that may be secrets). It reads Nautobot as it is now. Steps:
+the three interface modes (`update-nautobot-ip`, `-vlan`, `-prefix`, refused without their mode), `remove-from-nautobot`
+(`{would_remove_device, would_remove_ips, would_keep_shared}`; a device that is not found still fails; an address shared by two
+devices of one run is reported as kept for both, the real run deletes it with the last holder), `update-config-context`
+(`{mode, would_change, keys_before, keys_after, would_drop_keys, would_add_keys}`: top-level key names; mode `write` shows what the
+replacement would drop), `update-nautobot-device` (`DeviceUpdateService.update_device(dry_run=True)`: `{would_update_fields,
+interfaces: {would_create, would_update, would_delete}}`; `would_delete` only with `sync_interfaces`; it used to skip the step)
+and `add-to-nautobot` (validates against Nautobot as before; a passing device stores `{validated, would_create_device,
+would_create_interfaces}`). Workflow devices of `remove-from-nautobot` that resolve to the same Nautobot UUID are removed once
+and share the outcome. A failed IP delete keeps the class of the Nautobot error (`permission_denied` for a 403, `already_exists`
+for a 409, a retryable `server_error` for a 5xx).
+
+The six device-push steps offer different safety features today (maintainer decision D10: not unified now):
+
+| feature | `run-command` | `deploy-rendered-template` | `merge-config` | `upload-config` | `upload-binary` | `configure-replace-config` |
+|---|---|---|---|---|---|---|
+| `dry_run` | yes | yes | no | no | no | no |
+| `retry_backoff_seconds` | yes | yes | yes | no | no | n/a (shim) |
+| `read_timeout` | yes | yes | yes | no | yes | n/a (`job_timeout_seconds`) |
+| `fail_on_cli_error` | yes | yes | always on (own list) | n/a | n/a | n/a |
+| concurrency | pool threads | pool | pool | pool | pool | own semaphore (shim limit) |
+
 ### Controller kit and agent calls
 
 The Cisco ACI and Catalyst Center steps share `workflow_steps/common/controller_sources.py`: `ControllerSource` names what

@@ -8,4 +8,5 @@ def get_config() -> dict:
         "nautobot_source_id": "",
         "device_id": "{device.id}",
         "remove_ip_addresses": False,
+        "dry_run": False,
     }

@@ -380,11 +380,12 @@ export function UpdateNautobotDeviceHelpPanel() {
 
       <HelpSection title="Dry run">
         <p>
-          When <HelpCode>dry_run</HelpCode> is on, the step does nothing — no Nautobot
-          calls are made and no device or interface fields are changed. It only logs
-          that dry run is enabled and reports success. Since nothing changes, the
-          device&apos;s existing attribute bag already reflects its current settings,
-          so there is no separate dry-run preview in the run&apos;s detail view.
+          When <HelpCode>dry_run</HelpCode> is on, nothing is written. The step resolves the
+          device and validates the update data (reads only) and stores, per device, what would
+          change in the run result: <HelpCode>would_update_fields</HelpCode> and, when
+          interfaces are configured, <HelpCode>interfaces</HelpCode> with the interface names
+          that would be created, updated and — with <HelpCode>sync_interfaces</HelpCode> —
+          deleted. A device that is not found, or data that does not validate, still fails.
         </p>
       </HelpSection>
 

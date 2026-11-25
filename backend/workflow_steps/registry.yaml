@@ -3705,7 +3705,9 @@ plugins:
         - name: dry_run
           description: >
             Validate the resolved fields against Nautobot (duplicate name check,
-            UUID existence checks) without creating the device.
+            UUID existence checks) without creating the device. A passing device stores its
+            preview (dry_run_results: the device name and the interface names that would be
+            created).
           data_type: boolean
           required: false
           default: false
@@ -3928,8 +3930,10 @@ plugins:
           default: false
         - name: dry_run
           description: >
-            Skip the update entirely and only log that dry run is enabled — no
-            Nautobot calls are made and no fields or interfaces change.
+            true = write nothing; resolve and validate the device and the update data (reads
+            only) and store, per device, what would change (dry_run_results): the fields that
+            would be updated and, when interfaces are configured, the interface names that
+            would be created, updated and, with sync_interfaces, deleted.
           data_type: boolean
           required: false
           default: false
@@ -3970,6 +3974,15 @@ plugins:
             Also delete the IP addresses assigned to the device. They are removed first and
             the device only when all of them are gone. An address shared with another device
             or VM is kept.
+          data_type: boolean
+          required: false
+          default: false
+        - name: dry_run
+          description: >
+            true = delete nothing; read the device (and, with remove_ip_addresses, its
+            addresses) and store, per device, what would be removed (dry_run_results). The
+            preview reads Nautobot as it is now: an address shared by two devices of one run is
+            reported as kept for both, although the real run deletes it with the last holder.
           data_type: boolean
           required: false
           default: false
@@ -4158,6 +4171,15 @@ plugins:
           required: false
           default: false
           example: true
+        - name: dry_run
+          description: >
+            true = write nothing; compute the new local config context from the current one and
+            store, per device, what would change (dry_run_results): the top-level key names
+            that would be added or dropped, never values. With mode write this shows which
+            keys the replacement would drop.
+          data_type: boolean
+          required: false
+          default: false
         - name: updates
           description: >
             Mode update only. List of path/value pairs, each {path, value_source}

@@ -322,6 +322,73 @@ class AddToNautobotExecutorTests(unittest.IsolatedAsyncioTestCase):
         updated = outcomes[0].context.devices["dev-1"]
         self.assertIs(updated.status, DeviceStatus.OK)
         self.assertIn(Capability.ATTRIBUTES, updated.capabilities)
+        # The preview is observable in the run result, like the other dry-run steps.
+        self.assertEqual(
+            updated.dry_run_results["node-1"],
+            {"validated": True, "would_create_device": "router1", "would_create_interfaces": []},
+        )
+
+    async def test_dry_run_preview_names_the_interfaces_it_would_create(self) -> None:
+        create_device = AsyncMock(return_value={"success": True, "dry_run": True, "errors": []})
+        config = {
+            **_BASE_CONFIG,
+            "dry_run": True,
+            "interfaces_source": "nautobot_origin",
+        }
+        p1, p2, p3, p4, p5 = _patches(
+            setting=_setting(),
+            creation_service_instance=_creation_service(create_device),
+        )
+        with p1, p2, p3, p4, p5:
+            outcomes = await execute(
+                config=config,
+                context=_context(
+                    {
+                        "dev-1": _device(
+                            "dev-1",
+                            name="router1",
+                            nautobot_bag={
+                                "interfaces": [{"name": "Ethernet0/1"}, {"name": "Loopback0"}]
+                            },
+                        )
+                    }
+                ),
+                run=_run(),
+                artifact_service=MagicMock(),
+                node_id="node-1",
+                device_sessions=MagicMock(),
+            )
+        preview = outcomes[0].context.devices["dev-1"].dry_run_results["node-1"]
+        self.assertEqual(preview["would_create_interfaces"], ["Ethernet0/1", "Loopback0"])
+
+    async def test_a_real_run_stores_no_preview(self) -> None:
+        create_device = AsyncMock(
+            return_value={
+                "success": True,
+                "dry_run": False,
+                "device_id": "nb-1",
+                "device_name": "router1",
+                "interfaces_failed": 0,
+                "warnings": [],
+                "errors": [],
+            }
+        )
+        p1, p2, p3, p4, p5 = _patches(
+            setting=_setting(),
+            creation_service_instance=_creation_service(create_device),
+        )
+        with p1, p2, p3, p4, p5:
+            outcomes = await execute(
+                config=_BASE_CONFIG,
+                context=_context({"dev-1": _device("dev-1", name="router1")}),
+                run=_run(),
+                artifact_service=MagicMock(),
+                node_id="node-1",
+                device_sessions=MagicMock(),
+            )
+        for outcome in outcomes:
+            for device in outcome.context.devices.values():
+                self.assertEqual(device.dry_run_results, {})
 
     async def test_custom_fields_source_all_sends_every_bag_field(self) -> None:
         create_device = AsyncMock(

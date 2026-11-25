@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import type {
   PluginConfigPanelProps,
   PluginUIComponent,
@@ -24,8 +25,10 @@ import {
   DEFAULT_DEVICE_ID,
   DEVICE_ID_KEY,
   DEVICE_ID_MISSING_PROBLEM,
+  DRY_RUN_KEY,
   REMOVE_IP_ADDRESSES_KEY,
   configProblems,
+  dryRunFromConfig,
   removeIpAddressesFromConfig,
 } from "./config";
 import { RemoveFromNautobotHelpPanel } from "./help-panel";
@@ -44,6 +47,7 @@ function RemoveFromNautobotConfigPanel({
   const edges = workflowEdges ?? [];
   const problems = configProblems(config);
   const removeIps = removeIpAddressesFromConfig(config);
+  const dryRun = dryRunFromConfig(config);
 
   const [sourceOpen, setSourceOpen] = useState(false);
   const closeSource = useCallback(() => setSourceOpen(false), []);
@@ -138,6 +142,22 @@ function RemoveFromNautobotConfigPanel({
             ? "The device, its interfaces and its exclusive IP addresses are deleted permanently."
             : "The device and its interfaces are deleted permanently."}
         </p>
+        <div className="flex items-center justify-between gap-3">
+          <div className="space-y-0.5">
+            <Label className="text-xs font-medium">Dry run</Label>
+            <p className="text-[11px] leading-4 text-muted-foreground">
+              {dryRun
+                ? "Nothing is deleted; each device gets a preview of what would be removed."
+                : "Delete nothing; list per device what would be removed."}
+            </p>
+          </div>
+          <Switch
+            aria-label={DRY_RUN_KEY}
+            checked={dryRun}
+            onCheckedChange={(checked) => patch(DRY_RUN_KEY, checked)}
+            className="data-[state=checked]:bg-step"
+          />
+        </div>
       </div>
 
       <NautobotSourceSelectDialog

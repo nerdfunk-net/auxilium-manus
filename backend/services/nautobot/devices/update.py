@@ -321,9 +321,16 @@ class DeviceUpdateService:
         device_location_id: str | None = None,
         redundancy_name_pattern: str | None = None,
         redundancy_group_status: str = "Active",
+        dry_run: bool = False,
     ) -> dict[str, Any]:
         """
         Update a single device.
+
+        With ``dry_run`` the device and the update data are resolved and validated (reads only),
+        nothing is written, and the result is ``{"success": True, "dry_run": True, "device_id",
+        "device_name", "plan": {"would_update_fields", "interfaces"}}``; ``interfaces`` is
+        ``InterfaceManagerService.plan_interface_changes`` (``would_delete`` only with
+        ``sync_interfaces``) or ``None`` without an interface payload.
 
         Workflow:
         1. Resolve device UUID from identifier
@@ -411,6 +418,21 @@ class DeviceUpdateService:
             validated_data, ip_namespace = await self.validate_update_data(
                 device_id, update_data, interface_config, rack_location=rack_location
             )
+            if dry_run:
+                return {
+                    "success": True,
+                    "dry_run": True,
+                    "device_id": device_id,
+                    "device_name": device_name,
+                    "plan": {
+                        "would_update_fields": sorted(validated_data),
+                        "interfaces": await self.interface_manager.plan_interface_changes(
+                            device_id=device_id, interfaces=interfaces, sync=sync_interfaces
+                        )
+                        if interfaces
+                        else None,
+                    },
+                }
             if not validated_data and not interfaces:
                 logger.info("No fields to update and no interfaces for device %s", device_name)
                 return self._empty_update_result(

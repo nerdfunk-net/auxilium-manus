@@ -10,6 +10,7 @@ import logging
 from typing import Any
 
 from services.nautobot.api_protocol import NautobotApi
+from services.nautobot.common.rest import rest_paginate, rest_query
 from services.nautobot.devices.common import DeviceCommonService
 from services.nautobot.devices.interface_workflow.ip_ops import InterfaceIpOps
 from services.nautobot.devices.interface_workflow.payload import normalize_interface_ip_list
@@ -43,6 +44,29 @@ class InterfaceManagerService(InterfaceIpOps, InterfaceRecordOps, InterfaceRedun
         """
         self.nautobot = nautobot_service
         self.common = DeviceCommonService(nautobot_service)
+
+    async def plan_interface_changes(
+        self, *, device_id: str, interfaces: list[dict[str, Any]], sync: bool
+    ) -> dict[str, list[str]]:
+        """What ``update_device_interfaces`` would do by interface name; nothing is written.
+
+        ``would_delete`` is filled only with ``sync`` (the interfaces of the device that are not in
+        ``interfaces``). A failing listing raises: a plan built on nothing would claim that every
+        interface is new.
+        """
+        desired = [
+            name for iface in interfaces if (name := (iface.get("name") or "").strip())
+        ]
+        endpoint = f"dcim/interfaces/?{rest_query(device_id=device_id, limit=1000)}"
+        existing_rows = await rest_paginate(self.nautobot, endpoint)
+        existing = {
+            name for row in existing_rows if (name := (row.get("name") or "").strip())
+        }
+        return {
+            "would_create": [name for name in desired if name not in existing],
+            "would_update": [name for name in desired if name in existing],
+            "would_delete": sorted(existing - set(desired)) if sync else [],
+        }
 
     async def update_device_interfaces(
         self,

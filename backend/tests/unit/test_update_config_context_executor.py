@@ -921,6 +921,176 @@ class ExecuteTests(unittest.IsolatedAsyncioTestCase):
         update_service.set_local_config_context.assert_awaited_once_with("nb-1", {"port": 49})
 
 
+def _dry_service(local: dict) -> MagicMock:
+    service = MagicMock()
+    service.get_local_config_context = AsyncMock(return_value=local)
+    service.get_config_context = AsyncMock(return_value={})
+    service.set_local_config_context = AsyncMock()
+    return service
+
+
+class DryRunParseTests(unittest.TestCase):
+    def test_flag_defaults_off_and_rejects_typos(self) -> None:
+        self.assertFalse(_parse_config(_attribute_config("tacacs")).dry_run)
+        self.assertTrue(_parse_config({**_attribute_config("tacacs"), "dry_run": "true"}).dry_run)
+        with self.assertRaises(ValueError):
+            _parse_config({**_attribute_config("tacacs"), "dry_run": "ture"})
+
+
+class DryRunApplyTests(unittest.IsolatedAsyncioTestCase):
+    async def test_write_reads_the_current_context_and_writes_nothing(self) -> None:
+        service = _dry_service({"old": 1, "keep": 2})
+        parsed = _parse_config(_attribute_config("tacacs", mode="write"))
+        change = await _apply_mode(
+            update_service=service,
+            device_id="nb-1",
+            parsed=parsed,
+            value={"keep": 2, "new": 3},
+            dry_run=True,
+        )
+        service.set_local_config_context.assert_not_awaited()
+        service.get_local_config_context.assert_awaited_once_with("nb-1")
+        self.assertEqual(change.before, {"old": 1, "keep": 2})
+        self.assertEqual(change.after, {"keep": 2, "new": 3})
+
+    async def test_a_real_write_still_does_not_read_first(self) -> None:
+        service = _dry_service({"old": 1})
+        parsed = _parse_config(_attribute_config("tacacs", mode="write"))
+        change = await _apply_mode(
+            update_service=service, device_id="nb-1", parsed=parsed, value={"a": 1}
+        )
+        service.get_local_config_context.assert_not_awaited()
+        service.set_local_config_context.assert_awaited_once_with("nb-1", {"a": 1})
+        self.assertIsNone(change.before)
+
+    async def test_update_computes_the_document_and_writes_nothing(self) -> None:
+        service = _dry_service({"tacacs": {"key": "old", "port": 49}})
+        change = await _apply_updates(
+            update_service=service,
+            device_id="nb-1",
+            updates=[("tacacs.key", "new")],
+            create_local_if_missing=False,
+            dry_run=True,
+        )
+        service.set_local_config_context.assert_not_awaited()
+        self.assertEqual(service.get_local_config_context.await_count, 1)  # no re-read loop
+        self.assertEqual(change.before, {"tacacs": {"key": "old", "port": 49}})
+        self.assertEqual(change.after, {"tacacs": {"key": "new", "port": 49}})
+
+    async def test_append_computes_the_document_and_writes_nothing(self) -> None:
+        service = _dry_service({"servers": [{"a": 1}]})
+        parsed = _parse_config(_attribute_config("servers", mode="append", cfg_path="servers"))
+        change = await _apply_mode(
+            update_service=service,
+            device_id="nb-1",
+            parsed=parsed,
+            value=[{"b": 2}],
+            dry_run=True,
+        )
+        service.set_local_config_context.assert_not_awaited()
+        self.assertEqual(change.before, {"servers": [{"a": 1}]})
+        self.assertNotEqual(change.after, change.before)
+
+    async def test_the_stored_preview_has_key_names_only(self) -> None:
+        service = _dry_service({"old": "SECRET-1", "keep": "SECRET-2"})
+        parsed = _parse_config({**_attribute_config("tacacs", mode="write"), "dry_run": True})
+        device = _device("d1", tacacs={"keep": "SECRET-2", "new": "SECRET-3"})
+        with patch.object(mod, "resolve_nautobot_device_id", AsyncMock(return_value="nb-1")):
+            _key, dev, ok = await _update_one_device(
+                device_key="d1",
+                device=device,
+                parsed=parsed,
+                context=WorkflowContext(run_id="r", workflow_id="w", devices={}),
+                node_id="n",
+                nautobot_service=MagicMock(),
+                credentials=MagicMock(),
+                update_service=service,
+            )
+        self.assertTrue(ok)
+        service.set_local_config_context.assert_not_awaited()
+        self.assertEqual(dev.status, DeviceStatus.OK)
+        self.assertEqual(
+            dev.dry_run_results["n"],
+            {
+                "mode": "write",
+                "would_change": True,
+                "keys_before": ["keep", "old"],
+                "keys_after": ["keep", "new"],
+                "would_drop_keys": ["old"],
+                "would_add_keys": ["new"],
+            },
+        )
+        self.assertNotIn("SECRET", json.dumps(dev.dry_run_results))
+
+    async def test_update_mode_dry_run_goes_through_the_device_step(self) -> None:
+        service = _dry_service({"tacacs": {"key": "old"}})
+        config = {**_updates_config(_update_entry("tacacs.key", "custom.k")), "dry_run": True}
+        device = _device("d1", custom={"k": "new"})
+        with patch.object(mod, "resolve_nautobot_device_id", AsyncMock(return_value="nb-1")):
+            _key, dev, ok = await _update_one_device(
+                device_key="d1",
+                device=device,
+                parsed=_parse_config(config),
+                context=WorkflowContext(run_id="r", workflow_id="w", devices={}),
+                node_id="n",
+                nautobot_service=MagicMock(),
+                credentials=MagicMock(),
+                update_service=service,
+            )
+        self.assertTrue(ok)
+        service.set_local_config_context.assert_not_awaited()
+        self.assertEqual(dev.dry_run_results["n"]["mode"], "update")
+        self.assertTrue(dev.dry_run_results["n"]["would_change"])
+
+    async def test_an_unchanged_context_is_reported_as_such(self) -> None:
+        service = _dry_service({"a": 1})
+        parsed = _parse_config({**_attribute_config("tacacs", mode="write"), "dry_run": True})
+        device = _device("d1", tacacs={"a": 1})
+        with patch.object(mod, "resolve_nautobot_device_id", AsyncMock(return_value="nb-1")):
+            _key, dev, _ok = await _update_one_device(
+                device_key="d1",
+                device=device,
+                parsed=parsed,
+                context=WorkflowContext(run_id="r", workflow_id="w", devices={}),
+                node_id="n",
+                nautobot_service=MagicMock(),
+                credentials=MagicMock(),
+                update_service=service,
+            )
+        payload = dev.dry_run_results["n"]
+        self.assertFalse(payload["would_change"])
+        self.assertEqual((payload["would_drop_keys"], payload["would_add_keys"]), ([], []))
+
+    async def test_an_explicit_device_gets_a_placeholder_with_the_preview(self) -> None:
+        service = _dry_service({})
+        config = {
+            "nautobot_source_id": "s",
+            "mode": "write",
+            "dry_run": True,
+            "device_identifier": {"mode": "explicit", "name": "sw1"},
+            "value_source": {"type": "template", "template_id": 1},
+        }
+        parsed = _parse_config(config)
+        with (
+            patch.object(mod, "resolve_nautobot_device_id", AsyncMock(return_value="nb-1")),
+            patch.object(mod, "load_stored_template", return_value="{}"),
+            patch.object(mod, "render_jinja_template", return_value='{"a": 1}'),
+        ):
+            _key, dev, ok = await _update_one_device(
+                device_key="explicit",
+                device=None,
+                parsed=parsed,
+                context=WorkflowContext(run_id="r", workflow_id="w", devices={}),
+                node_id="n",
+                nautobot_service=MagicMock(),
+                credentials=MagicMock(),
+                update_service=service,
+            )
+        self.assertTrue(ok)
+        service.set_local_config_context.assert_not_awaited()
+        self.assertEqual(dev.dry_run_results["n"]["keys_after"], ["a"])
+
+
 class EmptyDeviceSetTests(unittest.IsolatedAsyncioTestCase):
     """An empty branch (nothing matched, nothing failed) is a no-op, not an error."""
 

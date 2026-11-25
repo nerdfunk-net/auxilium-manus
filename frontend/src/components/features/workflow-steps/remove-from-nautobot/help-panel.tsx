@@ -52,14 +52,27 @@ export function RemoveFromNautobotHelpPanel() {
         </p>
       </HelpSection>
 
+      <HelpSection title="dry_run">
+        <p>
+          When enabled, nothing is deleted. The step reads the device (and, with{" "}
+          <HelpCode>remove_ip_addresses</HelpCode>, its addresses) and stores per device what it
+          would remove in the run result:{" "}
+          <HelpCode>would_remove_device</HelpCode>, <HelpCode>would_remove_ips</HelpCode> and{" "}
+          <HelpCode>would_keep_shared</HelpCode>. A device that is not in Nautobot still fails.
+          The preview reads Nautobot as it is now, so an address shared by two devices of one run
+          is reported as kept for both, although the real run deletes it with the last holder.
+        </p>
+      </HelpSection>
+
       <HelpWarning title="Nautobot cannot delete a device and its addresses together">
         <p>
           The addresses are deleted before the device. If the device delete then fails, the
           addresses stay deleted. The device leaves through <span className="font-medium">failure</span>{" "}
           and its error (<HelpCode>device_delete_failed</HelpCode>) lists the addresses that were
           removed, so you can check and restore them in Nautobot. If an address cannot be deleted
-          the device is not removed (<HelpCode>ip_delete_failed</HelpCode>); running the step again
-          continues where it stopped.
+          the device is not removed (<HelpCode>ip_delete_failed</HelpCode>); the error says why
+          (for example a token without delete permission, or a protected address), and running
+          the step again continues where it stopped.
         </p>
       </HelpWarning>
 
@@ -73,8 +86,9 @@ export function RemoveFromNautobotHelpPanel() {
 
       <HelpWarning title="Several devices, one UUID">
         <p>
-          If two devices resolve to the same UUID, the second one fails with{" "}
-          <HelpCode>device_not_found</HelpCode> because the first already removed it.
+          If two devices resolve to the same UUID, the device is removed once and both devices
+          take the same outcome: both leave through <span className="font-medium">success</span>,
+          or both through <span className="font-medium">failure</span> with the same error.
         </p>
       </HelpWarning>
     </div>

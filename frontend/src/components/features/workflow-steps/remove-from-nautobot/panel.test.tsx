@@ -52,6 +52,22 @@ describe("RemoveFromNautobot ConfigPanel", () => {
     expect(onChange).toHaveBeenCalledWith({ ...BASE, remove_ip_addresses: true });
   });
 
+  it("has dry_run off by default and stores a real boolean when it is switched", () => {
+    const onChange = renderPanel(BASE);
+    const toggle = screen.getByRole("switch", { name: "dry_run" });
+    expect(toggle.getAttribute("aria-checked")).toBe("false");
+    fireEvent.click(toggle);
+    expect(onChange).toHaveBeenCalledWith({ ...BASE, dry_run: true });
+  });
+
+  it("shows dry_run on when set, also in its string spelling, and says nothing is deleted", () => {
+    renderPanel({ ...BASE, dry_run: "true" });
+    expect(screen.getByRole("switch", { name: "dry_run" }).getAttribute("aria-checked")).toBe(
+      "true",
+    );
+    expect(screen.getByText(/Nothing is deleted/)).toBeTruthy();
+  });
+
   it("shows the permanence warning when IP removal is on", () => {
     renderPanel({ ...BASE, remove_ip_addresses: true });
     expect(screen.getByText(/exclusive IP addresses are deleted permanently/)).toBeTruthy();

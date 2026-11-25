@@ -3,6 +3,13 @@
 The device is identified by its Nautobot UUID only. With ``remove_ip_addresses`` the addresses
 assigned to the device are deleted first, then the device. An address that is also assigned to
 another device or VM is kept. All Nautobot work is done by the shared ``DeviceCommonService``.
+
+With ``dry_run`` nothing is deleted: the step reads the device (and, with
+``remove_ip_addresses``, its addresses) and stores per device what it would remove in
+``dry_run_results[<node id>]``. The preview reads Nautobot as it is now, so an address shared by
+two devices of one run is reported as kept for both although the real run deletes it with the
+last holder. Workflow devices that resolve to the same Nautobot UUID are removed once and share
+the outcome.
 """
 
 from __future__ import annotations
@@ -31,7 +38,7 @@ from workflow_steps.common.partial_outcomes import (
     device_error_from_exception,
     fail_device_with_error,
 )
-from workflow_steps.common.step_flags import parse_bool_flag
+from workflow_steps.common.step_flags import parse_bool_flag, record_dry_run
 from workflow_steps.common.value_expression import resolve_update_field_expression
 
 if TYPE_CHECKING:
@@ -49,6 +56,7 @@ class _ParsedConfig:
     source_id: str
     device_id_expression: str
     remove_ip_addresses: bool
+    dry_run: bool
 
 
 @dataclass(frozen=True)
@@ -62,6 +70,9 @@ class _Removal:
     device: DeviceContext
     ips_removed: int = 0
     ips_shared_skipped: int = 0
+    # Only a successful removal counts as one device removed (workflow devices that share a
+    # Nautobot UUID are one removal).
+    counted: bool = True
 
 
 def _parse_config(config: dict[str, Any]) -> _ParsedConfig:
@@ -75,6 +86,7 @@ def _parse_config(config: dict[str, Any]) -> _ParsedConfig:
         source_id=source_id,
         device_id_expression=expression,
         remove_ip_addresses=parse_bool_flag(config, "remove_ip_addresses", default=False),
+        dry_run=parse_bool_flag(config, "dry_run", default=False),
     )
 
 
@@ -89,10 +101,6 @@ def _config_failure() -> FailureInfo:
 
 def _not_found_failure() -> FailureInfo:
     return FailureInfo(phase="api", kind="not_found", hint="check_request")
-
-
-def _ip_delete_failure() -> FailureInfo:
-    return FailureInfo(phase="api", kind="server_error")
 
 
 def _failed(
@@ -140,12 +148,18 @@ def _resolve_device_uuid(
     return device_uuid
 
 
+@dataclass(frozen=True)
+class _IpDeleteFailure:
+    ip_id: str
+    error: Exception
+
+
 async def _remove_ips(
     common: DeviceCommonService, device_uuid: str
-) -> tuple[list[str], int, str | None]:
+) -> tuple[list[str], int, _IpDeleteFailure | None]:
     """Delete the addresses only this device holds.
 
-    Returns (removed ids, number kept because another object holds them, failed ip id). The
+    Returns (removed ids, number kept because another object holds them, the failed delete). The
     holders are looked up now, not planned earlier: devices of one run are processed one after
     another, so the last holder of a shared address sees it as exclusive and removes it.
     """
@@ -162,7 +176,7 @@ async def _remove_ips(
             logger.warning(
                 "remove-from-nautobot could not delete ip=%s error=%s", ip_id, type(exc).__name__
             )
-            return removed, len(shared), ip_id
+            return removed, len(shared), _IpDeleteFailure(ip_id, exc)
         removed.append(ip_id)
     return removed, len(shared), None
 
@@ -174,19 +188,35 @@ def _already_removed_note(removed: list[str]) -> str:
     return f" {len(removed)} IP address(es) were already deleted: {', '.join(removed)}."
 
 
+async def _preview(
+    common: DeviceCommonService,
+    parsed: _ParsedConfig,
+    device: DeviceContext,
+    node_id: str,
+    device_uuid: str,
+) -> _Removal:
+    """What the removal would delete; nothing is written."""
+    owned: list[str] = []
+    shared: list[str] = []
+    if parsed.remove_ip_addresses:
+        owned, shared = await common.list_device_ip_ids(device_uuid)
+    payload = {
+        "would_remove_device": device_uuid,
+        "would_remove_ips": list(owned),
+        "would_keep_shared": len(shared),
+    }
+    return _Removal(
+        "success", record_dry_run(device, node_id=node_id, payload=payload), len(owned), len(shared)
+    )
+
+
 async def _remove(
     common: DeviceCommonService,
     parsed: _ParsedConfig,
     device: DeviceContext,
     node_id: str,
-    run_id: str,
+    device_uuid: str,
 ) -> _Removal:
-    resolved = _resolve_device_uuid(parsed, device, run_id)
-    if isinstance(resolved, tuple):
-        code, message, failure = resolved
-        return _failed(device, node_id=node_id, code=code, message=message, failure=failure)
-    device_uuid = resolved
-
     removed: list[str] = []
     skipped = 0
     try:
@@ -200,18 +230,25 @@ async def _remove(
                 message="The device was not found in Nautobot; nothing was removed",
                 failure=_not_found_failure(),
             )
+        if parsed.dry_run:
+            return await _preview(common, parsed, device, node_id, device_uuid)
         if parsed.remove_ip_addresses:
-            removed, skipped, failed_ip = await _remove_ips(common, device_uuid)
-            if failed_ip is not None:
+            removed, skipped, ip_failure = await _remove_ips(common, device_uuid)
+            if ip_failure is not None:
+                # The class of the error says what to do: a 403 is a token problem, a 409 a
+                # protected address, a 5xx may be retried.
+                classified = device_error_from_exception(
+                    ip_failure.error, node_id=node_id, step_id=_STEP_ID, keep_text=NAUTOBOT_TEXT
+                )
                 return _failed(
                     device,
                     node_id=node_id,
                     code="ip_delete_failed",
                     message=(
-                        f"IP address {failed_ip} could not be removed; the device was not removed."
-                        f"{_already_removed_note(removed)}"
+                        f"IP address {ip_failure.ip_id} could not be removed; the device was not "
+                        f"removed.{_already_removed_note(removed)}"
                     ),
-                    failure=_ip_delete_failure(),
+                    failure=classified.failure or FailureInfo(phase="api", kind="server_error"),
                     ips_removed=len(removed),
                     ips_shared_skipped=skipped,
                 )
@@ -246,20 +283,39 @@ async def _remove(
     return _Removal("success", device, len(removed), skipped)
 
 
+def _shared_outcome(lead: _Removal, follower: DeviceContext, node_id: str) -> _Removal:
+    """The outcome of a workflow device that resolved to the Nautobot device ``lead`` handled."""
+    if lead.bucket == "success":
+        preview = lead.device.dry_run_results.get(node_id)
+        device = follower if preview is None else record_dry_run(
+            follower, node_id=node_id, payload=preview
+        )
+        return _Removal("success", device, counted=False)
+    return _Removal(
+        "failure", fail_device_with_error(follower, lead.device.errors[-1]), counted=False
+    )
+
+
 def _build_outcomes(
     *,
     context: WorkflowContext,
     node_id: str,
     buckets: dict[str, dict[str, DeviceContext]],
-    ips_removed: int,
-    ips_shared_skipped: int,
+    removals: list[_Removal],
+    dry_run: bool,
 ) -> list[StepOutcome]:
+    removed = sum(1 for r in removals if r.bucket == "success" and r.counted)
+    ips = sum(r.ips_removed for r in removals)
     counts = {
-        "devices_removed": len(buckets["success"]),
-        "ips_removed": ips_removed,
-        "ips_shared_skipped": ips_shared_skipped,
+        "dry_run": dry_run,
+        "devices_removed": 0 if dry_run else removed,
+        "ips_removed": 0 if dry_run else ips,
+        "ips_shared_skipped": sum(r.ips_shared_skipped for r in removals),
         "failed": len(buckets["failure"]),
     }
+    if dry_run:
+        counts["devices_would_remove"] = removed
+        counts["ips_would_remove"] = ips
     metadata = {**context.metadata, f"{node_id}.remove_counts": counts}
     return [
         StepOutcome(
@@ -287,46 +343,64 @@ async def execute(
     buckets: dict[str, dict[str, DeviceContext]] = {name: {} for name in _OUTCOME_NAMES}
     if not context.devices:
         return _build_outcomes(
-            context=context, node_id=node_id, buckets=buckets, ips_removed=0, ips_shared_skipped=0
+            context=context, node_id=node_id, buckets=buckets, removals=[], dry_run=parsed.dry_run
         )
 
     common = _bind_nautobot(run, parsed.source_id).common
     logger.info(
-        "remove-from-nautobot started run_id=%s node_id=%s devices=%d remove_ip_addresses=%s",
+        "remove-from-nautobot started run_id=%s node_id=%s devices=%d remove_ip_addresses=%s "
+        "dry_run=%s",
         context.run_id,
         node_id,
         len(context.devices),
         parsed.remove_ip_addresses,
+        parsed.dry_run,
     )
+
+    removals: list[_Removal] = []
+    # Workflow devices that name the same Nautobot device are one removal: the first one is
+    # handled, the others take its outcome (a second delete would report "not found").
+    by_uuid: dict[str, list[DeviceContext]] = {}
+    for device in context.devices.values():
+        resolved = _resolve_device_uuid(parsed, device, context.run_id)
+        if isinstance(resolved, tuple):
+            code, message, failure = resolved
+            removal = _failed(device, node_id=node_id, code=code, message=message, failure=failure)
+            buckets["failure"][device.id] = removal.device
+            removals.append(removal)
+        else:
+            by_uuid.setdefault(resolved.lower(), []).append(device)
 
     # With address removal the devices go one after another: whether an address is shared is
     # decided from Nautobot's current state, so a device removed earlier in the run must already
     # be gone when the next one looks (otherwise two holders both keep it and it is orphaned).
     gate = asyncio.Semaphore(1 if parsed.remove_ip_addresses else _CONCURRENCY)
 
-    async def run_one(device: DeviceContext) -> _Removal:
+    async def run_one(device_uuid: str, device: DeviceContext) -> _Removal:
         async with gate:
-            return await _remove(common, parsed, device, node_id, context.run_id)
+            return await _remove(common, parsed, device, node_id, device_uuid)
 
-    devices = list(context.devices.values())
-    results = await asyncio.gather(*[run_one(device) for device in devices])
-    ips_removed = ips_shared_skipped = 0
-    for source, result in zip(devices, results, strict=True):
-        buckets[result.bucket][source.id] = result.device
-        ips_removed += result.ips_removed
-        ips_shared_skipped += result.ips_shared_skipped
+    groups = list(by_uuid.items())
+    leads = await asyncio.gather(*[run_one(uuid, devices[0]) for uuid, devices in groups])
+    for (_uuid, devices), lead in zip(groups, leads, strict=True):
+        outcomes = [lead, *(_shared_outcome(lead, other, node_id) for other in devices[1:])]
+        for source, result in zip(devices, outcomes, strict=True):
+            buckets[result.bucket][source.id] = result.device
+            removals.append(result)
 
     logger.info(
-        "remove-from-nautobot finished success=%d failure=%d ips_removed=%d run_id=%s",
+        "remove-from-nautobot finished success=%d failure=%d ips_removed=%d dry_run=%s "
+        "run_id=%s",
         len(buckets["success"]),
         len(buckets["failure"]),
-        ips_removed,
+        sum(r.ips_removed for r in removals),
+        parsed.dry_run,
         context.run_id,
     )
     return _build_outcomes(
         context=context,
         node_id=node_id,
         buckets=buckets,
-        ips_removed=ips_removed,
-        ips_shared_skipped=ips_shared_skipped,
+        removals=removals,
+        dry_run=parsed.dry_run,
     )

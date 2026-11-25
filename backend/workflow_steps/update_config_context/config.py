@@ -22,4 +22,5 @@ def get_config() -> dict:
             }
         ],
         "create_local_if_missing": False,
+        "dry_run": False,
     }

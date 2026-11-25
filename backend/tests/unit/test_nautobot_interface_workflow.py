@@ -8,7 +8,7 @@ mocks; no network. REST calls are dispatched by a small fake keyed on
 from __future__ import annotations
 
 import unittest
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from services.nautobot.devices.interface_workflow import InterfaceManagerService
 from services.nautobot.devices.interface_workflow.payload import (
@@ -926,6 +926,67 @@ class AssignLagMembershipsTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(len(state.warnings), 1)
         self.assertIn("Ethernet0/2", state.warnings[0])
+
+
+class PlanInterfaceChangesTests(unittest.IsolatedAsyncioTestCase):
+    """The read-only plan of ``update_device_interfaces`` (``dry_run`` of the device update)."""
+
+    def _manager(self, existing: list[dict]) -> InterfaceManagerService:
+        manager = InterfaceManagerService(MagicMock())
+        manager.nautobot.rest_request = AsyncMock()
+        self.paginate = AsyncMock(return_value=existing)
+        return manager
+
+    async def _plan(self, existing, interfaces, *, sync):
+        manager = self._manager(existing)
+        with patch(
+            "services.nautobot.devices.interface_workflow.service.rest_paginate", self.paginate
+        ):
+            plan = await manager.plan_interface_changes(
+                device_id="dev-1", interfaces=interfaces, sync=sync
+            )
+        manager.nautobot.rest_request.assert_not_awaited()
+        return plan
+
+    async def test_new_names_are_created_and_known_names_updated(self) -> None:
+        plan = await self._plan(
+            [{"name": "Gi0/0", "id": "i0"}, {"name": "Gi0/9", "id": "i9"}],
+            [{"name": "Gi0/0"}, {"name": " Gi0/1 "}, {"name": ""}, {"description": "x"}],
+            sync=False,
+        )
+        self.assertEqual(
+            plan, {"would_create": ["Gi0/1"], "would_update": ["Gi0/0"], "would_delete": []}
+        )
+        endpoint = self.paginate.await_args.args[1]
+        self.assertIn("dcim/interfaces/", endpoint)
+        self.assertIn("device_id=dev-1", endpoint)
+
+    async def test_padded_names_in_nautobot_match_the_payload(self) -> None:
+        plan = await self._plan([{"name": "  Gi0/0 ", "id": "i0"}], [{"name": "Gi0/0"}], sync=True)
+        self.assertEqual(
+            plan, {"would_create": [], "would_update": ["Gi0/0"], "would_delete": []}
+        )
+
+    async def test_sync_lists_the_interfaces_that_would_be_deleted(self) -> None:
+        plan = await self._plan(
+            [{"name": "Gi0/0", "id": "i0"}, {"name": "Gi0/9", "id": "i9"}, {"name": "", "id": "x"}],
+            [{"name": "Gi0/0"}],
+            sync=True,
+        )
+        self.assertEqual(plan["would_delete"], ["Gi0/9"])
+
+    async def test_a_failing_listing_is_an_error_not_an_empty_plan(self) -> None:
+        manager = InterfaceManagerService(MagicMock())
+        with (
+            patch(
+                "services.nautobot.devices.interface_workflow.service.rest_paginate",
+                AsyncMock(side_effect=RuntimeError("boom")),
+            ),
+            self.assertRaises(RuntimeError),
+        ):
+            await manager.plan_interface_changes(
+                device_id="dev-1", interfaces=[{"name": "a"}], sync=True
+            )
 
 
 if __name__ == "__main__":

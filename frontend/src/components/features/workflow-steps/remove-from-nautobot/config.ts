@@ -1,5 +1,6 @@
 export const DEVICE_ID_KEY = "device_id";
 export const REMOVE_IP_ADDRESSES_KEY = "remove_ip_addresses";
+export const DRY_RUN_KEY = "dry_run";
 
 /** Same expression the backend config.py starts a new step with. */
 export const DEFAULT_DEVICE_ID = "{device.id}";
@@ -9,6 +10,13 @@ export const DEVICE_ID_MISSING_PROBLEM = "device_id is not configured";
 /** The stored flag is a real boolean, but older rows may still carry its string spelling. */
 export function removeIpAddressesFromConfig(config: Record<string, unknown>): boolean {
   const value = config[REMOVE_IP_ADDRESSES_KEY];
+  if (typeof value === "string") return ["true", "1", "yes", "on"].includes(value.trim().toLowerCase());
+  return value === true;
+}
+
+/** Same reading as `remove_ip_addresses`: a boolean, or its string spelling. */
+export function dryRunFromConfig(config: Record<string, unknown>): boolean {
+  const value = config[DRY_RUN_KEY];
   if (typeof value === "string") return ["true", "1", "yes", "on"].includes(value.trim().toLowerCase());
   return value === true;
 }

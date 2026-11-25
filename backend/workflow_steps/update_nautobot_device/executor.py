@@ -45,7 +45,7 @@ from workflow_steps.common.redundancy_groups_config import (
 )
 from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.common.run_session import require_session
-from workflow_steps.common.step_flags import parse_bool_flag
+from workflow_steps.common.step_flags import parse_bool_flag, record_dry_run
 from workflow_steps.common.value_expression import (
     build_resolved_update_data,
     config_has_enabled_update_fields,
@@ -344,6 +344,20 @@ def _apply_update_result(
     device_key: str,
     device: DeviceContext | None,
     result: dict[str, Any],
+    node_id: str = "",
+) -> tuple[str, DeviceContext | None, bool]:
+    key, updated, ok = _apply_update_fields(device_key=device_key, device=device, result=result)
+    if result.get("dry_run") and updated is not None:
+        # Nothing was written: what the update would do is the result (dry_run_results).
+        updated = record_dry_run(updated, node_id=node_id, payload=dict(result.get("plan") or {}))
+    return key, updated, ok
+
+
+def _apply_update_fields(
+    *,
+    device_key: str,
+    device: DeviceContext | None,
+    result: dict[str, Any],
 ) -> tuple[str, DeviceContext | None, bool]:
     if device is None:
         device_name = result.get("device_name") or device_key
@@ -464,6 +478,7 @@ async def _update_one_device(
             device_location_id=device_location_id,
             redundancy_name_pattern=parsed.redundancy_name_pattern,
             redundancy_group_status=parsed.redundancy_group_status,
+            dry_run=parsed.dry_run,
         )
         if int(result.get("interfaces_failed") or 0) > 0:
             # The device fields and the other interfaces are already written (W5-14).
@@ -479,7 +494,9 @@ async def _update_one_device(
                 ),
                 failure=FailureInfo(phase="api", kind="unknown", retryable=True),
             )
-        return _apply_update_result(device_key=device_key, device=device, result=result)
+        return _apply_update_result(
+            device_key=device_key, device=device, result=result, node_id=node_id
+        )
     except Exception as exc:
         return _fail_device(
             device_key=device_key, device=device, node_id=node_id, exc=exc
@@ -519,15 +536,6 @@ async def execute(
     del artifact_service, device_sessions
 
     parsed = _parse_config(config)
-
-    if parsed.dry_run:
-        logger.info(
-            "%s dry run enabled - no devices will be updated run_id=%s node_id=%s",
-            _STEP_ID,
-            log_run_id(run),
-            node_id,
-        )
-        return [StepOutcome(name="success", context=context)]
 
     # An empty branch (e.g. the "exists" side of an exists-in-nautobot split) is a no-op.
     if parsed.identifier_mode != "explicit" and not context.devices:

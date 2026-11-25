@@ -39,7 +39,7 @@ from workflow_steps.common.redundancy_groups_config import (
 )
 from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.common.run_session import require_session
-from workflow_steps.common.step_flags import parse_bool_flag
+from workflow_steps.common.step_flags import parse_bool_flag, record_dry_run
 from workflow_steps.common.value_expression import build_resolved_update_data
 
 if TYPE_CHECKING:
@@ -321,6 +321,17 @@ async def _create_one_device(
                     "status": DeviceStatus.OK,
                     "capabilities": device.capabilities | {Capability.ATTRIBUTES},
                 }
+            )
+            enriched = record_dry_run(
+                enriched,
+                node_id=node_id,
+                payload={
+                    "validated": True,
+                    "would_create_device": request.name,
+                    "would_create_interfaces": [
+                        str(iface.get("name") or "") for iface in interfaces
+                    ],
+                },
             )
             return device_key, enriched, True
 

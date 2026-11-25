@@ -367,8 +367,9 @@ function UpdateDeviceDialogForm({
               />
             </div>
             <p className="text-[11px] text-muted-foreground">
-              When on, the step does nothing and only logs that dry run is enabled — no
-              fields or interfaces are updated in Nautobot.
+              When on, nothing is written. Each device gets a preview of what would change: the
+              fields that would be updated and, with interfaces, the interface names that would
+              be created, updated and (with sync_interfaces) deleted.
             </p>
           </section>
         </div>

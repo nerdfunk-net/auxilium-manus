@@ -34,6 +34,25 @@ describe("toLocalConfigContextPath", () => {
   });
 });
 
+describe("dry_run parsing", () => {
+  it("defaults to false", () => {
+    expect(parseUpdateConfigContextConfig({}).dry_run).toBe(false);
+  });
+
+  it.each([true, "true", "yes", "1", "on"])("treats %j as on, like the executor", (raw) => {
+    expect(parseUpdateConfigContextConfig({ dry_run: raw }).dry_run).toBe(true);
+  });
+
+  it.each([false, "false", "no", "0", "", null])("treats %j as off", (raw) => {
+    expect(parseUpdateConfigContextConfig({ dry_run: raw }).dry_run).toBe(false);
+  });
+
+  it("keeps the flag when another field is edited and stores it as a boolean", () => {
+    expect(buildUpdateConfigContextConfig({ dry_run: "true" }, { path: "a" }).dry_run).toBe(true);
+    expect(buildUpdateConfigContextConfig({}, { dry_run: true }).dry_run).toBe(true);
+  });
+});
+
 describe("create_local_if_missing parsing", () => {
   it("defaults to false", () => {
     expect(parseUpdateConfigContextConfig({}).create_local_if_missing).toBe(false);

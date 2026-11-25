@@ -28,6 +28,8 @@ export interface UpdateConfigContextConfig {
   updates: UpdateEntry[];
   /** update/append with a path: copy the path's top-level key from the global config context when the device has no local copy. */
   create_local_if_missing: boolean;
+  /** Write nothing; store per device what would change (key names only). */
+  dry_run: boolean;
   /** write/append only — update mode uses `updates[].value_source`. */
   value_source: ValueSourceConfig;
   device_identifier: DeviceIdentifierConfig;
@@ -46,6 +48,7 @@ export const DEFAULT_UPDATE_CONFIG_CONTEXT_CONFIG: UpdateConfigContextConfig = {
   path: "",
   updates: [emptyUpdateEntry()],
   create_local_if_missing: false,
+  dry_run: false,
   value_source: emptyValueSource(),
   device_identifier: { mode: "from_context", id: "", name: "" },
 };
@@ -127,6 +130,7 @@ export function parseUpdateConfigContextConfig(
     path: typeof config.path === "string" ? config.path : "",
     updates: parseUpdates(config.updates),
     create_local_if_missing: coerceBoolean(config.create_local_if_missing),
+    dry_run: coerceBoolean(config.dry_run),
     value_source: parseValueSource(config.value_source),
     device_identifier: {
       mode: rawIdentifier.mode === "explicit" ? "explicit" : "from_context",

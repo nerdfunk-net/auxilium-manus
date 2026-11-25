@@ -284,6 +284,75 @@ class PropertyAndInterfaceUpdateTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(warnings), 2)
 
 
+class UpdateDeviceDryRunTests(unittest.IsolatedAsyncioTestCase):
+    """``dry_run`` reads and validates, writes nothing and returns the plan (W5-08, D10)."""
+
+    def _svc(self) -> DeviceUpdateService:
+        svc = _service()
+        svc._apply_property_updates = AsyncMock(return_value=["serial"])
+        svc.interface_manager.update_device_interfaces = AsyncMock()
+        svc.interface_manager.plan_interface_changes = AsyncMock(
+            return_value={"would_create": ["Gi0/1"], "would_update": ["Gi0/0"], "would_delete": []}
+        )
+        return svc
+
+    async def test_nothing_is_written_and_the_plan_is_returned(self) -> None:
+        svc = self._svc()
+        result = await svc.update_device(
+            device_identifier={"id": _UUID},
+            update_data={"serial": "S1", "status": "Active"},
+            interfaces=[{"name": "Gi0/0"}, {"name": "Gi0/1"}],
+            sync_interfaces=True,
+            dry_run=True,
+        )
+        svc._apply_property_updates.assert_not_awaited()
+        svc.interface_manager.update_device_interfaces.assert_not_awaited()
+        methods = {c.kwargs.get("method") for c in svc.nautobot.rest_request.await_args_list}
+        self.assertEqual(methods - {"GET"}, set())  # reads only
+        svc.interface_manager.plan_interface_changes.assert_awaited_once_with(
+            device_id="dev-1", interfaces=[{"name": "Gi0/0"}, {"name": "Gi0/1"}], sync=True
+        )
+        self.assertTrue(result["success"])
+        self.assertTrue(result["dry_run"])
+        self.assertEqual((result["device_id"], result["device_name"]), ("dev-1", "dev-1"))
+        self.assertEqual(
+            result["plan"],
+            {
+                "would_update_fields": ["serial", "status"],
+                "interfaces": {
+                    "would_create": ["Gi0/1"],
+                    "would_update": ["Gi0/0"],
+                    "would_delete": [],
+                },
+            },
+        )
+
+    async def test_without_interfaces_the_interface_plan_is_empty_and_unread(self) -> None:
+        svc = self._svc()
+        result = await svc.update_device(
+            device_identifier={"id": _UUID}, update_data={"serial": "S1"}, dry_run=True
+        )
+        svc.interface_manager.plan_interface_changes.assert_not_awaited()
+        self.assertIsNone(result["plan"]["interfaces"])
+
+    async def test_nothing_to_do_is_still_a_dry_run_result(self) -> None:
+        svc = self._svc()
+        result = await svc.update_device(
+            device_identifier={"id": _UUID}, update_data={}, dry_run=True
+        )
+        self.assertTrue(result["dry_run"])
+        self.assertEqual(result["plan"], {"would_update_fields": [], "interfaces": None})
+
+    async def test_a_real_run_is_unchanged(self) -> None:
+        svc = self._svc()
+        svc._finalize_device_update = AsyncMock(return_value={"success": True})
+        await svc.update_device(
+            device_identifier={"id": _UUID}, update_data={"serial": "S1"}
+        )
+        svc._apply_property_updates.assert_awaited_once()
+        svc.interface_manager.plan_interface_changes.assert_not_awaited()
+
+
 class GetConfigContextTests(unittest.IsolatedAsyncioTestCase):
     async def test_returns_the_merged_context_via_graphql(self) -> None:
         svc = _service()

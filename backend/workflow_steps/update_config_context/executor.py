@@ -11,6 +11,10 @@ value, compute the new document here, then PATCH the whole thing back).
 applied to one fetched document and written back in a single PATCH, so a device
 is never left with only some of them applied. ``write``/``append`` keep the
 single top-level ``path`` + ``value_source``.
+
+With ``dry_run`` nothing is written: the new document is computed from the current local context
+and the device gets ``dry_run_results[<node id>]`` with the top-level key names that would be
+added or dropped (never values: a config context can hold secrets).
 """
 
 from __future__ import annotations
@@ -58,7 +62,7 @@ from workflow_steps.common.nautobot_target import (
 from workflow_steps.common.partial_outcomes import NAUTOBOT_TEXT, device_error_from_exception
 from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.common.run_session import require_session
-from workflow_steps.common.step_flags import parse_bool_flag
+from workflow_steps.common.step_flags import parse_bool_flag, record_dry_run
 from workflow_steps.common.template_content import load_stored_template
 from workflow_steps.update_config_context.json_object_path import (
     get_at_path,
@@ -101,6 +105,15 @@ class _ParsedConfig:
     # update: one entry per path/value pair, applied in order in one PATCH.
     updates: tuple[_UpdateEntry, ...] = ()
     create_local_if_missing: bool = False
+    dry_run: bool = False
+
+
+@dataclass(frozen=True)
+class _ContextChange:
+    """The local context before (``None`` when it was not read) and after a write."""
+
+    before: dict[str, Any] | None
+    after: dict[str, Any]
 
 
 # Like placeholder_template's pattern but also allows "-" so attribute names such
@@ -248,6 +261,7 @@ def _parse_config(config: dict[str, Any]) -> _ParsedConfig:
         value_source=value_source,
         updates=updates,
         create_local_if_missing=parse_bool_flag(config, "create_local_if_missing"),
+        dry_run=parse_bool_flag(config, "dry_run"),
     )
 
 
@@ -347,11 +361,13 @@ async def _apply_updates(
     device_id: str,
     updates: Sequence[tuple[str, Any]],
     create_local_if_missing: bool,
-) -> None:
+    dry_run: bool = False,
+) -> _ContextChange:
     """Apply every ``(path, value)`` to one fetched document, then PATCH once.
 
     Entries are folded in order, so a later one sees an earlier one's result.
-    Any failure raises before the PATCH, leaving the device untouched.
+    Any failure raises before the PATCH, leaving the device untouched. With ``dry_run`` the
+    document is computed and returned without a PATCH.
     """
     merged_cache: dict[str, Any] | None = None
 
@@ -373,9 +389,11 @@ async def _apply_updates(
                     load_merged=load_merged, device_id=device_id, current=document, path=path
                 )
             document = set_at_path(document, path, value)
+        if dry_run:
+            return _ContextChange(original, document)
         if await update_service.get_local_config_context(device_id) == original:
             await update_service.set_local_config_context(device_id, document)
-            return
+            return _ContextChange(original, document)
     raise RuntimeError(
         f"{_STEP_ID}: the config context of device {device_id} kept changing; not written"
     )
@@ -387,7 +405,8 @@ async def _apply_mode(
     device_id: str,
     parsed: _ParsedConfig,
     value: Any,
-) -> None:
+    dry_run: bool = False,
+) -> _ContextChange:
     """Apply a ``write`` or ``append`` (``update`` goes through ``_apply_updates``)."""
     if parsed.mode == "write":
         if not isinstance(value, dict):
@@ -395,8 +414,11 @@ async def _apply_mode(
                 f"{_STEP_ID}: resolved value must be a JSON object for mode 'write' "
                 f"(got {type(value).__name__})"
             )
-        await update_service.set_local_config_context(device_id, value)
-        return
+        # A real write does not read first: it replaces the document wholesale.
+        before = await update_service.get_local_config_context(device_id) if dry_run else None
+        if not dry_run:
+            await update_service.set_local_config_context(device_id, value)
+        return _ContextChange(before, value)
 
     if parsed.mode != "append":
         raise ValueError(f"{_STEP_ID}: _apply_mode does not handle mode {parsed.mode!r}")
@@ -413,9 +435,11 @@ async def _apply_mode(
                 path=parsed.path,
             )
         new_document = _append_document(current, parsed.path, value)
+        if dry_run:
+            return _ContextChange(original, new_document)
         if await update_service.get_local_config_context(device_id) == original:
             await update_service.set_local_config_context(device_id, new_document)
-            return
+            return _ContextChange(original, new_document)
     raise RuntimeError(
         f"{_STEP_ID}: the config context of device {device_id} kept changing; not written"
     )
@@ -539,7 +563,7 @@ async def _update_one_device(
         workflow_id = str(context.workflow_id) if context.workflow_id else None
 
         if parsed.mode == "update":
-            await _apply_updates(
+            change = await _apply_updates(
                 update_service=update_service,
                 device_id=nautobot_device_id,
                 updates=[
@@ -555,11 +579,12 @@ async def _update_one_device(
                     for path, entry in zip(rendered_paths, parsed.updates, strict=True)
                 ],
                 create_local_if_missing=parsed.create_local_if_missing,
+                dry_run=parsed.dry_run,
             )
         else:
             if parsed.value_source is None:
                 raise ValueError(f"{_STEP_ID}: value_source is required for mode {parsed.mode!r}")
-            await _apply_mode(
+            change = await _apply_mode(
                 update_service=update_service,
                 device_id=nautobot_device_id,
                 parsed=dataclasses.replace(parsed, path=rendered_path),
@@ -569,22 +594,40 @@ async def _update_one_device(
                     run_id=run_id,
                     workflow_id=workflow_id,
                 ),
+                dry_run=parsed.dry_run,
             )
 
         if device is None:
-            placeholder = DeviceContext(
+            result = DeviceContext(
                 id=nautobot_device_id,
                 name=target.name or nautobot_device_id,
                 hostname=target.name or nautobot_device_id,
                 source="nautobot",
                 status=DeviceStatus.OK,
             )
-            return device_key, placeholder, True
-
-        updated = device.model_copy(update={"status": DeviceStatus.OK})
-        return device_key, updated, True
+        else:
+            result = device.model_copy(update={"status": DeviceStatus.OK})
+        if parsed.dry_run:
+            result = record_dry_run(
+                result, node_id=node_id, payload=_preview_payload(parsed.mode, change)
+            )
+        return device_key, result, True
     except Exception as exc:
         return _fail_device(device_key=device_key, device=device, node_id=node_id, exc=exc)
+
+
+def _preview_payload(mode: str, change: _ContextChange) -> dict[str, Any]:
+    """What a write would do, as top-level key names (values may be secrets)."""
+    before = change.before or {}
+    after = change.after
+    return {
+        "mode": mode,
+        "would_change": before != after,
+        "keys_before": sorted(before),
+        "keys_after": sorted(after),
+        "would_drop_keys": sorted(set(before) - set(after)),
+        "would_add_keys": sorted(set(after) - set(before)),
+    }
 
 
 def _build_outcomes(
