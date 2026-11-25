@@ -29,13 +29,6 @@ function GetBatfishDevicesConfigPanel({ config, onChange }: PluginConfigPanelPro
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="rounded-lg bg-step-surface px-3 py-2 text-xs text-step-surface-foreground">
-        With no config and no upstream Init Batfish Snapshot on this run, this step clears
-        devices to an empty placeholder — no Batfish contact — purely to satisfy the canvas&apos;s
-        connection rule. Once this run&apos;s own Init Batfish Snapshot has run, or a network is
-        targeted directly below, this step instead lists that snapshot&apos;s nodes as devices.
-      </div>
-
       <div className="space-y-1.5">
         <div className="flex items-center gap-1.5">
           <span className="font-mono text-xs font-medium">nodes_filter</span>

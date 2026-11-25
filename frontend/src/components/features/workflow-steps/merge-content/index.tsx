@@ -342,25 +342,18 @@ function MergeContentConfigPanel({
         </div>
       ) : null}
 
-      <div className="rounded-lg bg-step-surface px-3 py-2 text-xs text-step-surface-foreground">
-        <p className="font-medium">Use in Store Artifact</p>
-        <p className="mt-1 text-[11px] text-step-surface-foreground">
-          Set <span className="font-mono">content_source</span> to{" "}
-          <span className="font-mono font-medium">Merged Content</span> and select this
-          step as the source.
-        </p>
-        <div className="mt-2 flex items-center gap-2">
-          <code className="rounded border border-step-border bg-card px-1.5 py-0.5 font-mono text-[10px] text-step-surface-foreground">
-            {parsedKey}
-          </code>
-          <button
-            type="button"
-            onClick={handleCopy}
-            className="text-[10px] text-step-muted-foreground underline hover:text-step-surface-foreground"
-          >
-            {copied ? "Copied!" : "Copy key"}
-          </button>
-        </div>
+      <div className="flex items-center gap-2">
+        <span className="text-[11px] text-muted-foreground">Output key</span>
+        <code className="rounded border border-step-border bg-card px-1.5 py-0.5 font-mono text-[10px] text-step-surface-foreground">
+          {parsedKey}
+        </code>
+        <button
+          type="button"
+          onClick={handleCopy}
+          className="text-[10px] text-step-muted-foreground underline hover:text-step-surface-foreground"
+        >
+          {copied ? "Copied!" : "Copy key"}
+        </button>
       </div>
     </div>
   );

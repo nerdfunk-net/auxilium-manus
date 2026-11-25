@@ -2,11 +2,9 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import type { PluginConfigPanelProps } from "@/components/features/workflows/types/plugin-ui";
 import { AttributePathPicker } from "@/components/features/workflow-steps/shared/attribute-path-picker";
 import { AttributePathPreview } from "@/components/features/workflow-steps/shared/attribute-path-preview";
@@ -18,6 +16,7 @@ import {
   parseRouteOnAttributeConfig,
 } from "./route-config";
 import { RoutesTabPanel } from "./routes-tab";
+import { CheckboxField } from "../shared/checkbox-field";
 
 function RouteOnAttributeConfigPanel({
   config,
@@ -133,22 +132,13 @@ function RouteOnAttributeConfigPanel({
         </p>
       </div>
 
-      <div className="flex items-start gap-2">
-        <Checkbox
-          id={`case-sensitive-${nodeId}`}
-          checked={parsed.case_sensitive}
-          onCheckedChange={(checked) => handleCaseSensitiveChange(checked === true)}
-          className="mt-0.5"
-        />
-        <div className="space-y-0.5">
-          <Label htmlFor={`case-sensitive-${nodeId}`} className="font-mono text-xs font-medium">
-            case_sensitive
-          </Label>
-          <p className="text-[11px] text-muted-foreground">
-            When disabled, route matching ignores letter case.
-          </p>
-        </div>
-      </div>
+      <CheckboxField
+        id={`case-sensitive-${nodeId}`}
+        label="case_sensitive"
+        checked={parsed.case_sensitive}
+        onCheckedChange={handleCaseSensitiveChange}
+        description="When disabled, route matching ignores letter case."
+      />
     </div>
   );
 }

@@ -3,15 +3,14 @@
 import { Search } from "lucide-react";
 import { useCallback, useState } from "react";
 
-import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import type { PluginConfigPanelProps } from "@/components/features/workflows/types/plugin-ui";
 import { AttributePathPicker } from "@/components/features/workflow-steps/shared/attribute-path-picker";
 
 import { ListContainsHelpPanel } from "./help-panel";
+import { CheckboxField } from "../shared/checkbox-field";
 
 function parseString(config: Record<string, unknown>, key: string): string {
   return typeof config[key] === "string" ? (config[key] as string) : "";
@@ -137,22 +136,13 @@ function ListContainsConfigPanel({
         </p>
       </div>
 
-      <div className="flex items-start gap-2">
-        <Checkbox
-          id={`case-sensitive-${nodeId}`}
-          checked={caseSensitive}
-          onCheckedChange={(checked) => handleCaseSensitiveChange(checked === true)}
-          className="mt-0.5"
-        />
-        <div className="space-y-0.5">
-          <Label htmlFor={`case-sensitive-${nodeId}`} className="font-mono text-xs font-medium">
-            case_sensitive
-          </Label>
-          <p className="text-[11px] text-muted-foreground">
-            When disabled, value comparison ignores letter case.
-          </p>
-        </div>
-      </div>
+      <CheckboxField
+        id={`case-sensitive-${nodeId}`}
+        label="case_sensitive"
+        checked={caseSensitive}
+        onCheckedChange={handleCaseSensitiveChange}
+        description="When disabled, value comparison ignores letter case."
+      />
     </div>
   );
 }

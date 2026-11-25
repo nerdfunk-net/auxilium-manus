@@ -2,15 +2,14 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import type { PluginUIComponent } from "@/components/features/workflows/types/plugin-ui";
 import { GitRepositorySelectDialog } from "@/components/features/workflow-steps/shared/git-repository-select-dialog";
 import { GitRepositoryValue } from "@/components/features/workflow-steps/shared/git-repository-value";
 import { GitPushHelpPanel } from "./help-panel";
+import { CheckboxField } from "../shared/checkbox-field";
 
 const GIT_REPOSITORY_ID_KEY = "git_repository_id";
 const COMMIT_MESSAGE_TEMPLATE_KEY = "commit_message_template";
@@ -114,22 +113,13 @@ function GitPushConfigPanel({
         onSave={handleRepositoryIdChange}
       />
 
-      <div className="flex items-start gap-2">
-        <Checkbox
-          id="commit-before-push"
-          checked={commitBeforePush}
-          onCheckedChange={(checked) => handleCommitBeforePushChange(checked === true)}
-          className="mt-0.5"
-        />
-        <div className="space-y-0.5">
-          <Label htmlFor="commit-before-push" className="font-mono text-xs font-medium">
-            {COMMIT_BEFORE_PUSH_KEY}
-          </Label>
-          <p className="text-[11px] text-muted-foreground">
-            Stage and commit exported files from upstream store-artifact steps before pushing.
-          </p>
-        </div>
-      </div>
+      <CheckboxField
+        id="commit-before-push"
+        label={COMMIT_BEFORE_PUSH_KEY}
+        checked={commitBeforePush}
+        onCheckedChange={handleCommitBeforePushChange}
+        description="Stage and commit exported files from upstream store-artifact steps before pushing."
+      />
 
       {commitBeforePush ? (
         <div className="space-y-1.5">

@@ -3,10 +3,8 @@
 import { useCallback, useMemo } from "react";
 
 import { EMPTY_WORKFLOW_NODES } from "@/components/features/workflows/constants/empty-canvas";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
@@ -29,6 +27,7 @@ import {
   parseRouteOnContentConfig,
 } from "./config";
 import { RouteOnContentHelpPanel } from "./help-panel";
+import { CheckboxField } from "../shared/checkbox-field";
 
 function RouteOnContentConfigPanel({
   config,
@@ -235,64 +234,37 @@ function RouteOnContentConfigPanel({
         </p>
       </div>
 
-      <div className="flex items-start gap-2">
-        <Checkbox
-          id={`case-sensitive-${nodeId}`}
-          checked={parsed.case_sensitive}
-          onCheckedChange={(checked) => handleCaseSensitiveChange(checked === true)}
-          className="mt-0.5"
-        />
-        <div className="space-y-0.5">
-          <Label htmlFor={`case-sensitive-${nodeId}`} className="font-mono text-xs font-medium">
-            case_sensitive
-          </Label>
-          <p className="text-[11px] text-muted-foreground">
-            When disabled, matching ignores letter case.
-          </p>
-        </div>
-      </div>
+      <CheckboxField
+        id={`case-sensitive-${nodeId}`}
+        label="case_sensitive"
+        checked={parsed.case_sensitive}
+        onCheckedChange={handleCaseSensitiveChange}
+        description="When disabled, matching ignores letter case."
+      />
 
       {parsed.match_mode === "regex" ? (
-        <div className="flex items-start gap-2">
-          <Checkbox
-            id={`multiline-${nodeId}`}
-            checked={parsed.multiline}
-            onCheckedChange={(checked) => handleMultilineChange(checked === true)}
-            className="mt-0.5"
-          />
-          <div className="space-y-0.5">
-            <Label htmlFor={`multiline-${nodeId}`} className="font-mono text-xs font-medium">
-              multiline
-            </Label>
-            <p className="text-[11px] text-muted-foreground">
-              When enabled, <span className="font-mono">^</span> and{" "}
+        <CheckboxField
+          id={`multiline-${nodeId}`}
+          label="multiline"
+          checked={parsed.multiline}
+          onCheckedChange={handleMultilineChange}
+          description={
+            <>
+When enabled, <span className="font-mono">^</span> and{" "}
               <span className="font-mono">$</span> match at line boundaries within the
               content instead of only the start/end of the whole text.
-            </p>
-          </div>
-        </div>
+            </>
+          }
+        />
       ) : null}
 
-      <div className="flex items-start gap-2">
-        <Checkbox
-          id={`store-matched-text-${nodeId}`}
-          checked={parsed.store_matched_text}
-          onCheckedChange={(checked) => handleStoreMatchedTextChange(checked === true)}
-          className="mt-0.5"
-        />
-        <div className="space-y-0.5">
-          <Label
-            htmlFor={`store-matched-text-${nodeId}`}
-            className="font-mono text-xs font-medium"
-          >
-            store_matched_text
-          </Label>
-          <p className="text-[11px] text-muted-foreground">
-            Keep the matched text (up to 200 characters, secrets masked) in the step result.
-            Off by default: the result is readable by everyone who may read runs.
-          </p>
-        </div>
-      </div>
+      <CheckboxField
+        id={`store-matched-text-${nodeId}`}
+        label="store_matched_text"
+        checked={parsed.store_matched_text}
+        onCheckedChange={handleStoreMatchedTextChange}
+        description="Keep the matched text (up to 200 characters, secrets masked) in the step result. Off by default: the result is readable by everyone who may read runs."
+      />
     </div>
   );
 }

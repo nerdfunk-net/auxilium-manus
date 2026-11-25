@@ -111,7 +111,7 @@ function ConfigureReplaceConfigConfigPanel({ config, onChange }: PluginConfigPan
 
   return (
     <div className="flex flex-col gap-4">
-      <p className="rounded-lg bg-step-surface px-3 py-2 text-xs text-step-surface-foreground">
+      <p className="rounded-lg border border-warning-border bg-warning px-3 py-2 text-[11px] text-warning-foreground">
         Requires an upstream <span className="font-medium">Add Testbed</span> step for
         credentials and device connection info.
       </p>

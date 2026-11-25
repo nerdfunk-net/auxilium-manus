@@ -49,6 +49,7 @@ import type {
 } from "./types";
 import { OPTIONAL_DEVICE_FIELD_DEFINITIONS } from "./types";
 import { VirtualChassisSection } from "./virtual-chassis-section";
+import { SwitchField } from "../shared/switch-field";
 
 interface AddToNautobotDialogProps {
   open: boolean;
@@ -314,17 +315,13 @@ function AddToNautobotDialogForm({
         </section>
 
         <section className="space-y-2 border-t pt-3">
-          <div className="flex items-center justify-between">
-            <Label className="font-mono text-xs font-medium">dry_run</Label>
-            <Switch
-              checked={draft.dry_run ?? false}
-              onCheckedChange={(checked) => setDraft((current) => ({ ...current, dry_run: checked }))}
-            />
-          </div>
-          <p className="text-[11px] text-muted-foreground">
-            When on, validates the resolved fields against Nautobot (duplicate name and UUID
-            existence checks) without creating the device.
-          </p>
+          <SwitchField
+            id="add-to-nautobot-dry-run"
+            label="dry_run"
+            checked={draft.dry_run ?? false}
+            onCheckedChange={(checked) => setDraft((current) => ({ ...current, dry_run: checked }))}
+            description="When on, validates the resolved fields against Nautobot (duplicate name and UUID existence checks) without creating the device."
+          />
         </section>
       </div>
 

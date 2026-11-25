@@ -212,26 +212,18 @@ function CompareDataConfigPanel({
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="rounded-lg bg-step-surface px-3 py-2 text-xs text-step-surface-foreground">
-        <p className="text-[11px] text-step-surface-foreground">
-          Devices route to <span className="font-mono">match</span>,{" "}
-          <span className="font-mono">mismatch</span>, or{" "}
-          <span className="font-mono">failure</span> handles. On mismatch, the unified
-          diff is stored per device at{" "}
-          <span className="font-mono">{comparisonDiffKey}</span> for downstream steps.
-        </p>
-        <div className="mt-2 flex items-center gap-2">
-          <code className="rounded border border-step-border bg-card px-1.5 py-0.5 font-mono text-[10px] text-step-surface-foreground">
-            {comparisonDiffKey}
-          </code>
-          <button
-            type="button"
-            onClick={handleCopyDiffKey}
-            className="text-[10px] text-step-muted-foreground underline hover:text-step-surface-foreground"
-          >
-            {copied ? "Copied!" : "Copy key"}
-          </button>
-        </div>
+      <div className="flex items-center gap-2">
+        <span className="text-[11px] text-muted-foreground">Output key</span>
+        <code className="rounded border border-step-border bg-card px-1.5 py-0.5 font-mono text-[10px] text-step-surface-foreground">
+          {comparisonDiffKey}
+        </code>
+        <button
+          type="button"
+          onClick={handleCopyDiffKey}
+          className="text-[10px] text-step-muted-foreground underline hover:text-step-surface-foreground"
+        >
+          {copied ? "Copied!" : "Copy key"}
+        </button>
       </div>
 
       <CompareDataContentFields

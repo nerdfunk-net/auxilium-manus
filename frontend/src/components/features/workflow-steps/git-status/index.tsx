@@ -2,14 +2,13 @@
 
 import { useCallback } from "react";
 
-import { Label } from "@/components/ui/label";
-import { Switch } from "@/components/ui/switch";
 import type {
   PluginConfigPanelProps,
   PluginUIComponent,
 } from "@/components/features/workflows/types/plugin-ui";
 import { GitSourceConfigPanel } from "@/components/features/workflow-steps/shared/git-source-config-panel";
 import { GitStatusHelpPanel } from "./help-panel";
+import { SwitchField } from "../shared/switch-field";
 
 interface ToggleField {
   key: string;
@@ -44,19 +43,14 @@ function GitStatusConfigPanel(props: PluginConfigPanelProps) {
       />
       <div className="space-y-3 border-t pt-3">
         {TOGGLE_FIELDS.map(({ key, hint }) => (
-          <div key={key} className="space-y-0.5">
-            <div className="flex items-center justify-between">
-              <Label htmlFor={`${nodeId}-${key}`} className="font-mono text-xs font-medium">
-                {key}
-              </Label>
-              <Switch
-                id={`${nodeId}-${key}`}
-                checked={config[key] !== false}
-                onCheckedChange={(checked) => handleToggle(key, checked)}
-              />
-            </div>
-            <p className="text-[11px] text-muted-foreground">{hint}</p>
-          </div>
+          <SwitchField
+            key={key}
+            id={`${nodeId}-${key}`}
+            label={key}
+            checked={config[key] !== false}
+            onCheckedChange={(checked) => handleToggle(key, checked)}
+            description={hint}
+          />
         ))}
       </div>
     </div>

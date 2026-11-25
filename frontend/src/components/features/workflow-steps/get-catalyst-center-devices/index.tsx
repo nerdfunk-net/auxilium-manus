@@ -48,6 +48,7 @@ import {
 import { GetCatalystCenterDevicesHelpPanel } from "./help-panel";
 import { CatalystCenterDevicesPreviewDialog } from "./preview-dialog";
 import { CatalystCenterSitesDialog } from "./sites-dialog";
+import { SwitchField } from "../shared/switch-field";
 
 const FILTERS_KEY = "filters";
 const ALLOW_ALL_KEY = "allow_all";
@@ -364,14 +365,13 @@ function GetCatalystCenterDevicesConfigPanel({
 
       {/* allow_all + max_devices safety guard */}
       <div className="space-y-2 border-t pt-3">
-        <div className="flex items-center justify-between">
-          <span className="font-mono text-xs font-medium">{ALLOW_ALL_KEY}</span>
-          <Switch checked={allowAll} onCheckedChange={handleAllowAllChange} />
-        </div>
-        <p className="text-[11px] text-muted-foreground">
-          Without any filter the step fails, so a large inventory is never
-          selected by accident. Turn on to select every device.
-        </p>
+        <SwitchField
+          id="get-catalyst-center-devices-allow-all-key"
+          label={ALLOW_ALL_KEY}
+          checked={allowAll}
+          onCheckedChange={handleAllowAllChange}
+          description="Without any filter the step fails, so a large inventory is never selected by accident. Turn on to select every device."
+        />
         {!hasFilters && !allowAll && (
           <p className="rounded-lg border border-warning-border bg-warning px-3 py-2 text-[11px] text-warning-foreground">
             Add at least one filter, or enable allow_all.

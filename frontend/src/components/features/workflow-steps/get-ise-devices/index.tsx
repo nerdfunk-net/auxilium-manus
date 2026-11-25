@@ -14,7 +14,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import type {
   PluginConfigPanelProps,
@@ -37,6 +36,7 @@ import { IseDevicesPreviewDialog } from "./preview-dialog";
 import { ISESourceSelectDialog } from "../shared/ise-source-select-dialog";
 import { iseSourceIdFromConfig, ISE_SOURCE_ID_KEY } from "../shared/ise-source-config";
 import { GetIseDevicesHelpPanel } from "./help-panel";
+import { SwitchField } from "../shared/switch-field";
 
 type QueryMode = "name" | "cidr" | "group";
 
@@ -282,14 +282,13 @@ function GetIseDevicesConfigPanel({ config, onChange }: PluginConfigPanelProps) 
 
       {/* resolve_to_devices */}
       <div className="space-y-1.5 border-t pt-3">
-        <div className="flex items-center justify-between">
-          <span className="font-mono text-xs font-medium">{RESOLVE_TO_DEVICES_KEY}</span>
-          <Switch checked={resolveToDevices} onCheckedChange={handleResolveToDevicesChange} />
-        </div>
-        <p className="text-[11px] text-muted-foreground">
-          Expand entries with a netmask other than /32 (possible groups/subnets) into
-          individual devices by matching Nautobot&apos;s Primary Prefix against the CIDR.
-        </p>
+        <SwitchField
+          id="get-ise-devices-resolve-to-devices-key"
+          label={RESOLVE_TO_DEVICES_KEY}
+          checked={resolveToDevices}
+          onCheckedChange={handleResolveToDevicesChange}
+          description="Expand entries with a netmask other than /32 (possible groups/subnets) into individual devices by matching Nautobot's Primary Prefix against the CIDR."
+        />
 
         {resolveToDevices && (
           <div className="space-y-1.5 pl-1">

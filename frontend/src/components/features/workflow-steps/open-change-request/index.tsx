@@ -21,6 +21,7 @@ import { GitRepositorySelectDialog } from "@/components/features/workflow-steps/
 import { GitRepositoryValue } from "@/components/features/workflow-steps/shared/git-repository-value";
 import { listUpstreamSourceSteps } from "@/components/features/workflow-steps/shared/upstream-source-steps";
 import { useWorkflowsQuery } from "@/hooks/queries/use-workflows-query";
+import { OpenChangeRequestHelpPanel } from "./help-panel";
 
 const DEFAULTS = {
   git_repository_id: null as number | null,
@@ -284,4 +285,5 @@ function OpenChangeRequestConfigPanel({
 
 export const OpenChangeRequestPlugin: PluginUIComponent = {
   ConfigPanel: OpenChangeRequestConfigPanel,
+  HelpPanel: OpenChangeRequestHelpPanel,
 };

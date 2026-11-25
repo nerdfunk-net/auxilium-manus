@@ -6,7 +6,6 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import type {
   PluginConfigPanelProps,
@@ -18,6 +17,7 @@ import { readString } from "../shared/catalyst-center-fact-fields";
 import { GitRepositorySelectDialog } from "../shared/git-repository-select-dialog";
 import { GitRepositoryValue } from "../shared/git-repository-value";
 import { BackupAciConfigHelpPanel } from "./help-panel";
+import { SwitchField } from "../shared/switch-field";
 
 const REPOSITORY_KEY = "git_repository_id";
 const SUBDIRECTORY_KEY = "repository_subdirectory";
@@ -44,25 +44,6 @@ function tenantsFromConfig(config: Record<string, unknown>): string[] {
 function flag(config: Record<string, unknown>, key: string, fallback: boolean): boolean {
   const raw = config[key];
   return typeof raw === "boolean" ? raw : fallback;
-}
-
-interface SwitchRowProps {
-  id: string;
-  label: string;
-  checked: boolean;
-  disabled?: boolean;
-  onChange: (checked: boolean) => void;
-}
-
-function SwitchRow({ id, label, checked, disabled, onChange }: SwitchRowProps) {
-  return (
-    <div className="flex items-center gap-2">
-      <Switch id={id} checked={checked} disabled={disabled} onCheckedChange={onChange} />
-      <Label className="font-mono text-xs" htmlFor={id}>
-        {label}
-      </Label>
-    </div>
-  );
 }
 
 function BackupAciConfigPanel({ config, onChange }: PluginConfigPanelProps) {
@@ -167,19 +148,24 @@ function BackupAciConfigPanel({ config, onChange }: PluginConfigPanelProps) {
       </div>
 
       <div className="space-y-2">
-        <SwitchRow
+        <SwitchField
           id="aci-backup-access"
           label={ACCESS_KEY}
           checked={includeAccess}
-          onChange={(checked) => set(ACCESS_KEY, checked)}
+          onCheckedChange={(checked) => set(ACCESS_KEY, checked)}
         />
-        <SwitchRow id="aci-backup-commit" label={COMMIT_KEY} checked={commit} onChange={handleCommit} />
-        <SwitchRow
+        <SwitchField
+          id="aci-backup-commit"
+          label={COMMIT_KEY}
+          checked={commit}
+          onCheckedChange={handleCommit}
+        />
+        <SwitchField
           id="aci-backup-push"
           label={PUSH_KEY}
           checked={push}
           disabled={!commit}
-          onChange={(checked) => set(PUSH_KEY, checked)}
+          onCheckedChange={(checked) => set(PUSH_KEY, checked)}
         />
       </div>
 

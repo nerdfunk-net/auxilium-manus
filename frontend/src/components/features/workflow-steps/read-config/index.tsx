@@ -2,10 +2,8 @@
 
 import { useCallback, useMemo } from "react";
 
-import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
@@ -20,6 +18,7 @@ import type {
 import { GitSourceConfigPanel } from "@/components/features/workflow-steps/shared/git-source-config-panel";
 
 import { ReadConfigHelpPanel } from "./help-panel";
+import { CheckboxField } from "../shared/checkbox-field";
 
 const SOURCE_OPTIONS = [
   {
@@ -145,24 +144,13 @@ function ReadConfigConfigPanel(props: PluginConfigPanelProps) {
         </p>
       </div>
 
-      <div className="flex items-start gap-2">
-        <Checkbox
-          id="overwrite-existing"
-          checked={overwriteExisting}
-          onCheckedChange={(checked) => handleOverwriteExistingChange(checked === true)}
-          className="mt-0.5"
-        />
-        <div className="space-y-0.5">
-          <Label htmlFor="overwrite-existing" className="font-mono text-xs font-medium">
-            overwrite_existing
-          </Label>
-          <p className="text-[11px] text-muted-foreground">
-            When off (default), a device that already has a running config in this run is left
-            unchanged and nothing is read for it. Turn on to always replace it with the file
-            content.
-          </p>
-        </div>
-      </div>
+      <CheckboxField
+        id="overwrite-existing"
+        label="overwrite_existing"
+        checked={overwriteExisting}
+        onCheckedChange={handleOverwriteExistingChange}
+        description="When off (default), a device that already has a running config in this run is left unchanged and nothing is read for it. Turn on to always replace it with the file content."
+      />
     </div>
   );
 }

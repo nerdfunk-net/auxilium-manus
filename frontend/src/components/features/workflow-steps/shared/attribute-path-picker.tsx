@@ -119,7 +119,7 @@ function AttributePathTreeNode({
           ) : null}
           {node.discriminator_warning ? (
             <span
-              className="shrink-0 text-[10px] text-amber-600"
+              className="shrink-0 text-[10px] text-warning-foreground"
               title={node.discriminator_warning}
             >
               ⚠

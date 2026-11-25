@@ -4,7 +4,6 @@ import { useCallback } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
-import { Switch } from "@/components/ui/switch";
 import type {
   PluginConfigPanelProps,
   PluginUIComponent,
@@ -12,6 +11,7 @@ import type {
 
 import { BatfishDirectTargetFields } from "../shared/batfish-direct-target-fields";
 import { BatfishPathCheckHelpPanel } from "./help-panel";
+import { SwitchField } from "../shared/switch-field";
 
 function stringFromConfig(config: Record<string, unknown>, key: string): string {
   const raw = config[key];
@@ -194,10 +194,12 @@ function BatfishPathCheckConfigPanel({ config, onChange }: PluginConfigPanelProp
         />
       </div>
 
-      <div className="flex items-center justify-between">
-        <span className="font-mono text-xs font-medium">ignore_filters</span>
-        <Switch checked={ignoreFilters} onCheckedChange={handleIgnoreFiltersChange} />
-      </div>
+      <SwitchField
+        id="batfish-path-check-ignore-filters"
+        label="ignore_filters"
+        checked={ignoreFilters}
+        onCheckedChange={handleIgnoreFiltersChange}
+      />
 
       <div className="space-y-1.5">
         <div className="flex items-center gap-1.5">

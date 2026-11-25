@@ -2,12 +2,12 @@
 
 import { useCallback, useEffect, useRef } from "react";
 
-import { Checkbox } from "@/components/ui/checkbox";
-import { Label } from "@/components/ui/label";
 import type {
   PluginConfigPanelProps,
   PluginUIComponent,
 } from "@/components/features/workflows/types/plugin-ui";
+import { CheckboxField } from "../shared/checkbox-field";
+import { FromChangeRequestHelpPanel } from "./help-panel";
 
 const DEFAULTS = {
   load_configs: true,
@@ -16,37 +16,6 @@ const DEFAULTS = {
 function bool(config: Record<string, unknown>, key: keyof typeof DEFAULTS): boolean {
   const value = config[key];
   return typeof value === "boolean" ? value : DEFAULTS[key];
-}
-
-function ToggleRow({
-  id,
-  label,
-  hint,
-  checked,
-  onChange,
-}: {
-  id: string;
-  label: string;
-  hint: string;
-  checked: boolean;
-  onChange: (checked: boolean) => void;
-}) {
-  return (
-    <div className="flex items-start gap-2">
-      <Checkbox
-        id={id}
-        checked={checked}
-        onCheckedChange={(next) => onChange(next === true)}
-        className="mt-0.5"
-      />
-      <div className="space-y-0.5">
-        <Label htmlFor={id} className="font-mono text-xs font-medium">
-          {label}
-        </Label>
-        <p className="text-[11px] text-muted-foreground">{hint}</p>
-      </div>
-    </div>
-  );
 }
 
 function FromChangeRequestConfigPanel({ config, onChange, nodeId }: PluginConfigPanelProps) {
@@ -73,12 +42,12 @@ function FromChangeRequestConfigPanel({ config, onChange, nodeId }: PluginConfig
         was started by approving a change request.
       </p>
 
-      <ToggleRow
+      <CheckboxField
         id={`${nodeId}-load-configs`}
         label="load_configs"
-        hint="Load each device's committed config file as running_config, so you can go straight to upload-config / configure-replace-config."
+        description="Load each device's committed config file as running_config, so you can go straight to upload-config / configure-replace-config."
         checked={bool(config, "load_configs")}
-        onChange={(checked) => patch({ load_configs: checked })}
+        onCheckedChange={(checked) => patch({ load_configs: checked })}
       />
     </div>
   );
@@ -86,4 +55,5 @@ function FromChangeRequestConfigPanel({ config, onChange, nodeId }: PluginConfig
 
 export const FromChangeRequestPlugin: PluginUIComponent = {
   ConfigPanel: FromChangeRequestConfigPanel,
+  HelpPanel: FromChangeRequestHelpPanel,
 };

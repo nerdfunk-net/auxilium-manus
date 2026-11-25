@@ -3,10 +3,8 @@
 import { useCallback, useEffect, useMemo, useRef } from "react";
 
 import { EMPTY_WORKFLOW_NODES } from "@/components/features/workflows/constants/empty-canvas";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
@@ -27,6 +25,7 @@ import {
 } from "@/components/features/workflow-steps/shared/retry-backoff-fields";
 import { DeployReadTimeoutFields } from "./deploy-fields";
 import { DeployRenderedTemplateHelpPanel } from "./help-panel";
+import { CheckboxField } from "../shared/checkbox-field";
 
 const DEFAULT_READ_TIMEOUT = 60;
 const MIN_READ_TIMEOUT = 5;
@@ -329,24 +328,19 @@ function DeployRenderedTemplateConfigPanel({
       </div>
 
       <div className="space-y-1.5">
-        <div className="flex items-start gap-2">
-          <Checkbox
-            id="dry-run"
-            checked={dryRun}
-            onCheckedChange={(checked) => handleDryRunChange(checked === true)}
-            className="mt-0.5"
-          />
-          <div className="space-y-0.5">
-            <Label htmlFor="dry-run" className="font-mono text-xs font-medium">
-              dry_run
-            </Label>
-            <p className="text-[11px] text-muted-foreground">
-              Do not deploy anything to devices. Records what would happen under{" "}
+        <CheckboxField
+          id="dry-run"
+          label="dry_run"
+          checked={dryRun}
+          onCheckedChange={handleDryRunChange}
+          description={
+            <>
+Do not deploy anything to devices. Records what would happen under{" "}
               <span className="font-mono">dry_run_results</span> for this step, visible in the
               run&apos;s detail view.
-            </p>
-          </div>
-        </div>
+            </>
+          }
+        />
       </div>
 
       <div className="space-y-1.5">
@@ -377,45 +371,22 @@ function DeployRenderedTemplateConfigPanel({
         onRetryBackoffSecondsChange={handleRetryBackoffSecondsChange}
       />
 
-      <div className="flex items-start gap-2">
-        <Checkbox
-          id="write-config-after-execution"
-          checked={writeConfigAfterExecution}
-          onCheckedChange={(checked) => handleWriteConfigChange(checked === true)}
-          className="mt-0.5"
-        />
-        <div className="space-y-0.5">
-          <Label
-            htmlFor="write-config-after-execution"
-            className="font-mono text-xs font-medium"
-          >
-            write_config_after_execution
-          </Label>
-          <p className="text-[11px] text-muted-foreground">
-            After a successful deployment, run &ldquo;copy running-config startup-config&rdquo; and
-            confirm the prompt automatically. Skipped when the deployment itself fails.
-          </p>
-        </div>
-      </div>
+      <CheckboxField
+        id="write-config-after-execution"
+        label="write_config_after_execution"
+        checked={writeConfigAfterExecution}
+        onCheckedChange={handleWriteConfigChange}
+        description="After a successful deployment, run &ldquo;copy running-config startup-config&rdquo; and confirm the prompt automatically. Skipped when the deployment itself fails."
+      />
 
       <div className="space-y-1.5">
-        <div className="flex items-start gap-2">
-          <Checkbox
-            id="auto-confirm-prompts"
-            checked={autoConfirmPrompts}
-            onCheckedChange={(checked) => handleAutoConfirmPromptsChange(checked === true)}
-            className="mt-0.5"
-          />
-          <div className="space-y-0.5">
-            <Label htmlFor="auto-confirm-prompts" className="font-mono text-xs font-medium">
-              auto_confirm_prompts
-            </Label>
-            <p className="text-[11px] text-muted-foreground">
-              Automatically press Enter to accept a device&apos;s interactive confirmation (e.g.
-              &ldquo;...Do you want to continue? [confirm]&rdquo;) instead of failing.
-            </p>
-          </div>
-        </div>
+        <CheckboxField
+          id="auto-confirm-prompts"
+          label="auto_confirm_prompts"
+          checked={autoConfirmPrompts}
+          onCheckedChange={handleAutoConfirmPromptsChange}
+          description="Automatically press Enter to accept a device&apos;s interactive confirmation (e.g. &ldquo;...Do you want to continue? [confirm]&rdquo;) instead of failing."
+        />
         {autoConfirmPrompts ? (
           <p className="rounded-lg border border-warning-border bg-warning px-3 py-2 text-[11px] text-warning-foreground">
             Risky: any command in the rendered template that raises a confirmation prompt will be
@@ -425,24 +396,13 @@ function DeployRenderedTemplateConfigPanel({
         ) : null}
       </div>
 
-      <div className="flex items-start gap-2">
-        <Checkbox
-          id="fail-on-cli-error"
-          checked={failOnCliError}
-          onCheckedChange={(checked) => handleFailOnCliErrorChange(checked === true)}
-          className="mt-0.5"
-        />
-        <div className="space-y-0.5">
-          <Label htmlFor="fail-on-cli-error" className="font-mono text-xs font-medium">
-            fail_on_cli_error
-          </Label>
-          <p className="text-[11px] text-muted-foreground">
-            Fail the device when its CLI refuses a command (&ldquo;% Invalid input detected&rdquo;,
-            &ldquo;Command authorization failed&rdquo;, ...). The remaining commands are not sent
-            and write-config is skipped. Turn off only when refusals are expected.
-          </p>
-        </div>
-      </div>
+      <CheckboxField
+        id="fail-on-cli-error"
+        label="fail_on_cli_error"
+        checked={failOnCliError}
+        onCheckedChange={handleFailOnCliErrorChange}
+        description="Fail the device when its CLI refuses a command (&ldquo;% Invalid input detected&rdquo;, &ldquo;Command authorization failed&rdquo;, ...). The remaining commands are not sent and write-config is skipped. Turn off only when refusals are expected."
+      />
     </div>
   );
 }

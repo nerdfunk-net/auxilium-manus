@@ -2,13 +2,12 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Label } from "@/components/ui/label";
 import type { PluginConfigPanelProps } from "@/components/features/workflows/types/plugin-ui";
 import { GitRepositorySelectDialog } from "@/components/features/workflow-steps/shared/git-repository-select-dialog";
 import { GitRepositoryValue } from "@/components/features/workflow-steps/shared/git-repository-value";
+import { CheckboxField } from "./checkbox-field";
 
 const GIT_REPOSITORY_ID_KEY = "git_repository_id";
 const ALLOW_STALE_KEY = "allow_stale_repository";
@@ -122,44 +121,23 @@ export function GitSourceConfigPanel({
       />
 
       {showRefreshToggle ? (
-        <div className="flex items-start gap-2">
-          <Checkbox
-            id={`${nodeId}-refresh`}
-            checked={refresh}
-            onCheckedChange={(checked) => handleRefreshChange(checked === true)}
-            className="mt-0.5"
-          />
-          <div className="space-y-0.5">
-            <Label htmlFor={`${nodeId}-refresh`} className="font-mono text-xs font-medium">
-              {REFRESH_KEY}
-            </Label>
-            <p className="text-[11px] text-muted-foreground">
-              Pull the repository before reading. Off by default: the last local copy is read as it
-              is, so many fan-out devices do not queue for the repository lock. Add a Pull Git step
-              before this one when you need fresh data.
-            </p>
-          </div>
-        </div>
+        <CheckboxField
+          id={`${nodeId}-refresh`}
+          label={REFRESH_KEY}
+          checked={refresh}
+          onCheckedChange={handleRefreshChange}
+          description="Pull the repository before reading. Off by default: the last local copy is read as it is, so many fan-out devices do not queue for the repository lock. Add a Pull Git step before this one when you need fresh data."
+        />
       ) : null}
 
       {staleToggleVisible ? (
-        <div className="flex items-start gap-2">
-          <Checkbox
-            id={`${nodeId}-allow-stale`}
-            checked={allowStale}
-            onCheckedChange={(checked) => handleAllowStaleChange(checked === true)}
-            className="mt-0.5"
-          />
-          <div className="space-y-0.5">
-            <Label htmlFor={`${nodeId}-allow-stale`} className="font-mono text-xs font-medium">
-              {ALLOW_STALE_KEY}
-            </Label>
-            <p className="text-[11px] text-muted-foreground">
-              When the repository cannot be refreshed (expired token, conflict, offline), read the
-              last local copy instead of failing the step. Off by default.
-            </p>
-          </div>
-        </div>
+        <CheckboxField
+          id={`${nodeId}-allow-stale`}
+          label={ALLOW_STALE_KEY}
+          checked={allowStale}
+          onCheckedChange={handleAllowStaleChange}
+          description="When the repository cannot be refreshed (expired token, conflict, offline), read the last local copy instead of failing the step. Off by default."
+        />
       ) : null}
     </div>
   );

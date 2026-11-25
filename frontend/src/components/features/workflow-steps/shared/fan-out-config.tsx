@@ -10,6 +10,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import { SwitchField } from "./switch-field";
 
 export interface FanOutApprovalConfig {
   enabled: boolean;
@@ -83,16 +84,13 @@ export function FanOutConfigSection({ value, onChange }: FanOutConfigSectionProp
 
   return (
     <div className="space-y-2 border-t pt-3">
-      <div className="flex items-center justify-between">
-        <span className="font-mono text-xs font-medium">fan_out</span>
-        <Switch
-          checked={value.enabled}
-          onCheckedChange={(checked) => onChange({ enabled: checked })}
-        />
-      </div>
-      <p className="text-[11px] text-muted-foreground">
-        Process each device (or chunk) as an independent Hatchet child workflow.
-      </p>
+      <SwitchField
+        id="shared-fan-out"
+        label="fan_out"
+        checked={value.enabled}
+        onCheckedChange={(checked) => onChange({ enabled: checked })}
+        description="Process each device (or chunk) as an independent Hatchet child workflow."
+      />
 
       {!value.enabled && (
         <p className="rounded-lg border border-warning-border bg-warning px-3 py-2 text-[11px] text-warning-foreground">
