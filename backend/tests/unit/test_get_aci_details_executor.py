@@ -26,7 +26,6 @@ from workflow_steps.get_aci_details.executor import (
     execute,
 )
 
-FACTS_MODULE = "workflow_steps.common.aci_facts"
 BUILD = "build_aci_details_service"
 
 

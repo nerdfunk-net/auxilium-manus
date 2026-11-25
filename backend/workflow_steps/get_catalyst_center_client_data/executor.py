@@ -31,10 +31,6 @@ from models.workflow_context import (
 from services.artifacts import ArtifactService
 from services.catalyst_center.common.exceptions import CatalystCenterError
 from services.catalyst_center.credentials import CatalystCenterCredentials
-from workflow_steps.common.catalyst_center_targets import (
-    resolve_source_credentials,
-    split_targets,
-)
 from workflow_steps.common.client_data_store import (
     StorageRejected,
     duplicate_failure,
@@ -44,6 +40,7 @@ from workflow_steps.common.client_data_store import (
     too_many_rows_failure,
     with_summary,
 )
+from workflow_steps.common.controller_sources import CATALYST_CENTER
 from workflow_steps.common.device_outcomes import build_outcomes, failed_device
 from workflow_steps.common.duplicate_keys import (
     find_duplicate_keys,
@@ -54,7 +51,6 @@ from workflow_steps.common.partial_outcomes import (
     fail_device_with_error,
 )
 from workflow_steps.common.run_logging import log_run_id
-from workflow_steps.common.run_session import require_session
 from workflow_steps.common.step_flags import parse_bool_flag, parse_int_flag, record_dry_run
 from workflow_steps.get_catalyst_center_client_data.mapping import map_clients
 
@@ -213,9 +209,8 @@ async def execute(
     if not context.devices:
         return [StepOutcome(name="success", context=context)]
 
-    db = require_session(run, STEP_ID)
-    split = split_targets(context.devices, step_id=STEP_ID, node_id=node_id)
-    credentials = resolve_source_credentials(db, list(split.by_source), step_id=STEP_ID)
+    prepared = CATALYST_CENTER.prepare_targets(context, run, step_id=STEP_ID, node_id=node_id)
+    split, credentials = prepared.split, prepared.credentials
     duplicates = find_duplicate_keys(
         (device_id, d.name) for device_id, d in context.devices.items()
     )

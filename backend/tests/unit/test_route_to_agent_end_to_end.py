@@ -109,7 +109,7 @@ async def _run(agent: FakeAgent, *devices: DeviceContext):
     with (
         patch("workflow_steps.common.run_session.object_session", return_value=MagicMock()),
         patch.object(mod, "resolve_agent_connection", return_value=_connection()),
-        patch.object(mod.service_factory, "build_agent_client", side_effect=build),
+        patch("service_factory.build_agent_client", side_effect=build),
     ):
         return await execute(
             config=dict(CONFIG),

@@ -74,7 +74,7 @@ async def _run(config: dict[str, Any], client: FakeClient, *, run_inputs=None, c
     with (
         patch("workflow_steps.common.run_session.object_session", return_value=MagicMock()),
         patch.object(mod, "resolve_agent_connection", return_value=connection or _connection()),
-        patch.object(mod.service_factory, "build_agent_client", return_value=client),
+        patch("service_factory.build_agent_client", return_value=client),
     ):
         return await execute(
             config=config,

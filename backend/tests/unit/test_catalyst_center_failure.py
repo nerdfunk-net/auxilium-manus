@@ -18,7 +18,7 @@ from services.catalyst_center.common.exceptions import (
     CatalystCenterTaskError,
 )
 from tests.unit.test_catalyst_center_client import _Controller, _creds
-from workflow_steps.common.catalyst_center_facts import CATALYST_ERROR_CODE
+from workflow_steps.common.controller_sources import CATALYST_ERROR_CODE
 from workflow_steps.common.fact_entries import FactError, error_entry, ok_entry, with_entries
 from workflow_steps.run_catalyst_center_command.executor import _command_failure
 

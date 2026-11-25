@@ -111,7 +111,7 @@ async def _run(
     with (
         patch("workflow_steps.common.run_session.object_session", return_value=MagicMock()),
         patch.object(mod, "resolve_agent_connection", return_value=connection or _connection()),
-        patch.object(mod.service_factory, "build_agent_client", return_value=fake),
+        patch("service_factory.build_agent_client", return_value=fake),
     ):
         outcomes = await execute(
             config=config,

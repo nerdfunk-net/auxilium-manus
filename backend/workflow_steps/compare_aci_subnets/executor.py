@@ -19,7 +19,7 @@ from models.workflow_context import StepOutcome, WorkflowContext
 from services.aci.common.exceptions import AciAPIError, AciAuthError, AciValidationError
 from services.artifacts import ArtifactService
 from services.nautobot.common.exceptions import NautobotError
-from workflow_steps.common.aci_targets import resolve_source_credentials
+from workflow_steps.common.controller_sources import ACI
 from workflow_steps.common.fact_entries import parse_output_key_config
 from workflow_steps.common.nautobot_source import resolve_nautobot_credentials
 from workflow_steps.common.run_session import require_session
@@ -92,7 +92,7 @@ async def execute(
     )
 
     db = require_session(run, STEP_ID)
-    aci_credentials = resolve_source_credentials(db, [aci_source], step_id=STEP_ID)[aci_source]
+    aci_credentials = ACI.resolve_credentials(db, aci_source, step_id=STEP_ID)
     nautobot_credentials = resolve_nautobot_credentials(db, nautobot_source, step_id=STEP_ID)
 
     logger.info("%s started run_id=%s node_id=%s", STEP_ID, context.run_id, node_id)

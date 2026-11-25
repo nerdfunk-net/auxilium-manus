@@ -22,8 +22,6 @@ from workflow_steps.get_catalyst_center_details.executor import execute as detai
 from workflow_steps.get_catalyst_center_health.executor import execute as health
 from workflow_steps.get_catalyst_center_topology.executor import execute as topology
 
-FACTS = "workflow_steps.common.catalyst_center_facts"
-
 
 def _device(
     device_id: str, *, source: str = "catalyst_center", source_id: str = "lab"

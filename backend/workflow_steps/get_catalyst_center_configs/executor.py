@@ -21,13 +21,9 @@ from services.catalyst_center.common.exceptions import (
     CatalystCenterValidationError,
 )
 from services.catalyst_center.credentials import CatalystCenterCredentials
-from workflow_steps.common.catalyst_center_targets import (
-    build_outcomes,
-    resolve_source_credentials,
-    split_targets,
-)
+from workflow_steps.common.controller_sources import CATALYST_CENTER
+from workflow_steps.common.device_outcomes import build_outcomes
 from workflow_steps.common.device_runner import Fail, run_per_device
-from workflow_steps.common.run_session import require_session
 
 if TYPE_CHECKING:
     from services.network.netmiko.session_pool import DeviceSessionPool
@@ -81,10 +77,8 @@ async def execute(
     if not context.devices:
         return [StepOutcome(name="success", context=context)]
 
-    db = require_session(run, STEP_ID)
-
-    split = split_targets(context.devices, step_id=STEP_ID, node_id=node_id)
-    credentials = resolve_source_credentials(db, list(split.by_source), step_id=STEP_ID)
+    prepared = CATALYST_CENTER.prepare_targets(context, run, step_id=STEP_ID, node_id=node_id)
+    split, credentials = prepared.split, prepared.credentials
 
     total = len(context.devices)
     logger.info(

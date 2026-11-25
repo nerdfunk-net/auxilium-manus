@@ -13,7 +13,6 @@ import ipaddress
 import logging
 from typing import TYPE_CHECKING, Any
 
-import service_factory
 from core.models.runs import WorkflowRun
 from core.safe_hosts import validate_device_host
 from models.workflow_context import StepOutcome, WorkflowContext
@@ -21,6 +20,7 @@ from services.agents.exceptions import AgentCallError
 from services.agents.failure import describe_call_failure
 from services.agents.source_config_service import AgentConnection
 from services.artifacts import ArtifactService
+from workflow_steps.common.agent_call import agent_client, check_timeout
 from workflow_steps.common.agent_source import resolve_agent_connection
 from workflow_steps.common.device_list import (
     DeviceEntry,
@@ -113,12 +113,7 @@ async def execute(
     connection: AgentConnection = resolve_agent_connection(
         db, parsed.agent_source_id, step_id=STEP_ID
     )
-    if parsed.timeout_seconds > connection.max_timeout_seconds:
-        raise ValueError(
-            f"{STEP_ID}: timeout_seconds ({parsed.timeout_seconds}) is above the maximum of "
-            f"{connection.max_timeout_seconds} seconds set on agent {connection.source_id!r}; "
-            "lower the step timeout or raise the agent's max timeout in Settings -> Sources"
-        )
+    check_timeout(connection, parsed.timeout_seconds, step_id=STEP_ID)
 
     logger.info(
         "%s started run_id=%s node_id=%s agent=%s transport=%s handler=%s attributes=%d",
@@ -131,14 +126,14 @@ async def execute(
         len(parsed.attributes),
     )
 
-    client = service_factory.build_agent_client(connection)
     try:
-        output = await client.invoke(parsed.handler, {}, inputs, timeout=parsed.timeout_seconds)
+        async with agent_client(connection) as client:
+            output = await client.invoke(
+                parsed.handler, {}, inputs, timeout=parsed.timeout_seconds
+            )
     except AgentCallError as exc:
         _, message, _ = describe_call_failure(exc)
         raise RuntimeError(f"{STEP_ID}: {message}") from exc
-    finally:
-        await client.aclose()
 
     entries = normalize_device_entries(_device_rows(output), step=STEP_ID)
     if not entries:

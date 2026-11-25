@@ -11,18 +11,15 @@ from core.models.runs import WorkflowRun
 from models.workflow_context import DeviceContext, StepOutcome, WorkflowContext
 from services.aci.credentials import AciCredentials
 from services.artifacts import ArtifactService
-from workflow_steps.common.aci_facts import (
+from workflow_steps.common.controller_sources import ACI, aci_node_of
+from workflow_steps.common.fact_entries import (
     Entry,
     FactError,
-    capture,
     error_entry,
-    fact,
     ok_entry,
+    parse_name_list,
     parse_output_key_config,
-    run_fact_step,
 )
-from workflow_steps.common.aci_targets import node_of
-from workflow_steps.common.fact_entries import parse_name_list
 
 if TYPE_CHECKING:
     from services.network.netmiko.session_pool import DeviceSessionPool
@@ -77,7 +74,7 @@ def _parse_facts(raw: Any) -> tuple[str, ...]:
 async def _collect(
     facts: tuple[str, ...], credentials: AciCredentials, device: DeviceContext
 ) -> dict[str, Entry]:
-    located = node_of(device)
+    located = aci_node_of(device)
     if located is None:  # cannot happen after the target split; fail the device, not the step
         return {name: error_entry("device carries no ACI node and pod id") for name in facts}
     pod_id, node_id = located
@@ -86,7 +83,7 @@ async def _collect(
 
     async def device_and_software() -> dict[str, Entry]:
         # One set of APIC reads serves both facts, so it runs once whichever of them is selected.
-        record, error = await capture(lambda: service.get_device_and_software(pod_id, node_id))
+        record, error = await ACI.capture(lambda: service.get_device_and_software(pod_id, node_id))
         wanted = [(i, name) for i, name in enumerate(("device", "software")) if name in facts]
         if record is None:
             failure = error or FactError("APIC returned no data")
@@ -97,7 +94,7 @@ async def _collect(
         method = getattr(service, _FACT_METHODS[name])
 
         async def run() -> dict[str, Entry]:
-            return {name: await fact(lambda: method(pod_id, node_id))}
+            return {name: await ACI.fact(lambda: method(pod_id, node_id))}
 
         return run
 
@@ -136,7 +133,7 @@ async def execute(
         return await _collect(facts, credentials, device)
 
     # Start and finish are logged once, by the shared fact driver (``collect_facts``).
-    return await run_fact_step(
+    return await ACI.run_fact_step(
         step_id=STEP_ID,
         context=context,
         run=run,

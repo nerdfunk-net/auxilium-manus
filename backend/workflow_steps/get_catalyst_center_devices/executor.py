@@ -18,8 +18,8 @@ from services.catalyst_center.common.exceptions import (
 )
 from services.catalyst_center.device_filters import CatalystCenterDeviceFilters
 from services.catalyst_center.device_service import CatalystCenterDeviceService
-from services.catalyst_center.source_config_service import CatalystCenterSourceNotFoundError
 from workflow_steps.common.controller_inventory import ControllerInventory, run_inventory_step
+from workflow_steps.common.controller_sources import CATALYST_CENTER
 from workflow_steps.common.device_builders import device_context_from_catalyst_center
 
 if TYPE_CHECKING:
@@ -32,13 +32,7 @@ SOURCE_ID_KEY = "catalyst_center_source_id"
 
 
 def _build_device_service(db: Session, source_id: str) -> CatalystCenterDeviceService:
-    source_config = service_factory.build_catalyst_center_source_config_service(db)
-    try:
-        credentials = source_config.resolve_credentials(source_id)
-    except CatalystCenterSourceNotFoundError as exc:
-        raise ValueError(f"{STEP_ID}: Catalyst Center source '{source_id}' not found") from exc
-    except CatalystCenterValidationError as exc:
-        raise ValueError(f"{STEP_ID}: {exc}") from exc
+    credentials = CATALYST_CENTER.resolve_credentials(db, source_id, step_id=STEP_ID)
     return service_factory.build_catalyst_center_device_service(credentials)
 
 

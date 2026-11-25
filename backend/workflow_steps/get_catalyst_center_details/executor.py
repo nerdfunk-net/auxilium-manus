@@ -9,17 +9,15 @@ from core.models.runs import WorkflowRun
 from models.workflow_context import DeviceContext, StepOutcome, WorkflowContext
 from services.artifacts import ArtifactService
 from services.catalyst_center.credentials import CatalystCenterCredentials
-from workflow_steps.common.catalyst_center_facts import (
+from workflow_steps.common.controller_sources import CATALYST_CENTER
+from workflow_steps.common.fact_entries import (
     Entry,
     FactError,
-    capture,
     error_entry,
-    fact,
     ok_entry,
+    parse_name_list,
     parse_output_key_config,
-    run_fact_step,
 )
-from workflow_steps.common.fact_entries import parse_name_list
 
 if TYPE_CHECKING:
     from services.network.netmiko.session_pool import DeviceSessionPool
@@ -48,7 +46,9 @@ async def _collect(
     record_error: FactError | None = None
     record: Any = None
     if "device" in facts or "software" in facts:
-        record, record_error = await capture(lambda: service.get_device_and_software(device_id))
+        record, record_error = await CATALYST_CENTER.capture(
+            lambda: service.get_device_and_software(device_id)
+        )
 
     for name in facts:
         if name in ("device", "software"):
@@ -57,11 +57,11 @@ async def _collect(
                 error_entry(record_error) if record_error is not None else ok_entry(record[index])
             )
         elif name == "interfaces":
-            entries[name] = await fact(lambda: service.get_interfaces(device_id))
+            entries[name] = await CATALYST_CENTER.fact(lambda: service.get_interfaces(device_id))
         elif name == "vlans":
-            entries[name] = await fact(lambda: service.get_vlans(device_id))
+            entries[name] = await CATALYST_CENTER.fact(lambda: service.get_vlans(device_id))
         elif name == "compliance":
-            entries[name] = await fact(lambda: service.get_compliance(device_id))
+            entries[name] = await CATALYST_CENTER.fact(lambda: service.get_compliance(device_id))
     return entries
 
 
@@ -89,7 +89,7 @@ async def execute(
     ) -> dict[str, Entry]:
         return await _collect(facts, credentials, device_id)
 
-    return await run_fact_step(
+    return await CATALYST_CENTER.run_fact_step(
         step_id=STEP_ID,
         context=context,
         run=run,

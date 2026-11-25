@@ -6,7 +6,8 @@ read it one way. A fact that fails is recorded as an error and does not fail the
 fails only when *every* requested fact failed (typically the controller being unreachable).
 
 The per-source parts (which exception is a controller failure, how targets are split, how
-credentials resolve) live in ``catalyst_center_facts.py`` and ``aci_facts.py``.
+credentials resolve) live in ``controller_sources.py`` (the ``ACI`` and ``CATALYST_CENTER``
+instances).
 """
 
 from __future__ import annotations

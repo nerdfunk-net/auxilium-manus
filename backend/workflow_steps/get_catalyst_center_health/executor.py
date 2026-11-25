@@ -9,12 +9,8 @@ from core.models.runs import WorkflowRun
 from models.workflow_context import DeviceContext, StepOutcome, WorkflowContext
 from services.artifacts import ArtifactService
 from services.catalyst_center.credentials import CatalystCenterCredentials
-from workflow_steps.common.catalyst_center_facts import (
-    Entry,
-    fact,
-    parse_output_key_config,
-    run_fact_step,
-)
+from workflow_steps.common.controller_sources import CATALYST_CENTER
+from workflow_steps.common.fact_entries import Entry, parse_output_key_config
 
 if TYPE_CHECKING:
     from services.network.netmiko.session_pool import DeviceSessionPool
@@ -45,9 +41,9 @@ async def execute(
         _device: DeviceContext,
     ) -> dict[str, Entry]:
         service = service_factory.build_catalyst_center_health_service(credentials)
-        return {"health": await fact(lambda: service.get_device_health(device_id))}
+        return {"health": await CATALYST_CENTER.fact(lambda: service.get_device_health(device_id))}
 
-    return await run_fact_step(
+    return await CATALYST_CENTER.run_fact_step(
         step_id=STEP_ID,
         context=context,
         run=run,

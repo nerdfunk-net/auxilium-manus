@@ -561,6 +561,19 @@ row of a failure, `copy running-config startup-config` row); each step passes it
 - **One-token names.** `device_file_upload.parse_device_token` refuses a space or line break in `file_system`,
   `destination_filename` (`upload-config`, `upload-binary`, `configure-replace-config`) and `source_filename` (`merge-config`).
 
+### Controller kit and agent calls
+
+The Cisco ACI and Catalyst Center steps share `workflow_steps/common/controller_sources.py`: `ControllerSource` names what
+differs (device `source`, controller exception class and error code, validation error, the source-config service, the
+"wrong source" code, an optional per-device check) and `ACI` / `CATALYST_CENTER` are the two instances. A step calls
+`ACI.fact(fetch)` / `ACI.capture(fetch)` (a controller failure becomes an entry or a `FactError` with its `FailureInfo`; any
+other exception propagates), `ACI.run_fact_step(...)` for a fact step, `CATALYST_CENTER.prepare_targets(context, run, ...)`
+for a hand-written per-device loop (session, `split_targets`, one credential set per source before any I/O) and
+`ACI.resolve_credentials(db, source_id, step_id=...)` for a single source. An ACI device without a pod and node id is
+rejected with `aci_node_unknown` (`aci_node_of` reads it). The agent steps (`route-to-agent`, `get-from-agent`) share
+`common/agent_call.py`: `parse_handler`, `parse_agent_source_id`, `parse_timeout` (1 to 600), `check_timeout` (a step timeout above
+the agent's maximum is refused, never clamped) and `async with agent_client(connection)` (the client is closed on every exit).
+
 ### One per-device runner
 
 A step that works on its devices one by one hands `workflow_steps/common/device_runner.py::run_per_device(context,

@@ -172,7 +172,7 @@ class HttpInteropTests(unittest.IsolatedAsyncioTestCase):
                 "resolve_agent_connection",
                 return_value=_connection("http", self.url),
             ),
-            patch.object(step_executor.service_factory, "build_agent_client", side_effect=build),
+            patch("service_factory.build_agent_client", side_effect=build),
         ):
             outcomes = await step_executor.execute(
                 config=config,

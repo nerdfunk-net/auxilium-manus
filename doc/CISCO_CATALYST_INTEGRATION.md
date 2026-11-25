@@ -104,8 +104,7 @@ backend/workflow_steps/get_catalyst_center_devices/  # executor.py, config.py
 backend/workflow_steps/run_catalyst_center_command/  # executor.py, config.py
 backend/workflow_steps/get_catalyst_center_configs/  # executor.py, config.py
 backend/workflow_steps/get_catalyst_center_{details,topology,health}/  # executor.py, config.py
-backend/workflow_steps/common/catalyst_center_targets.py  # per-source grouping, credentials, outcomes (shared by the command/config steps)
-backend/workflow_steps/common/catalyst_center_facts.py    # run_fact_step(): shared driver of the three fact steps
+backend/workflow_steps/common/controller_sources.py  # CATALYST_CENTER (and ACI): split_targets, credentials, prepare_targets, capture/fact, run_fact_step
 backend/workflow_steps/common/device_builders.py     # device_context_from_catalyst_center()
 backend/workflow_steps/config_to_attributes/catalyst_details.py  # facts -> Nautobot interfaces + device fields (source_format catalyst_details)
 backend/workflow_steps/run_catalyst_center_command/textfsm_parse.py       # parse_with_textfsm(): ntc-templates -> {parsed, error}
@@ -337,7 +336,7 @@ Both are `palette_category: cisco`, `requires: [identity]`, outcomes `success` /
 own: the target controller is each device's own `source_id`, so devices from several Catalyst Center sources can be mixed
 in one step (credentials resolve once per source, before any I/O). A device whose `source` is not `catalyst_center`
 fails individually with `not_catalyst_center_device` and goes out through `failure`. Shared helpers:
-`workflow_steps/common/catalyst_center_targets.py`.
+`workflow_steps/common/controller_sources.py` (`CATALYST_CENTER.split_targets`, `.prepare_targets`; the outcome helpers are in `device_outcomes.py`).
 
 | Step (id · name) | Config | Result on the device |
 |---|---|---|
@@ -379,7 +378,7 @@ Behaviour notes:
 Three read-only steps that read structured facts from the Intent API (no SSH, no command runner). All are `palette_category: cisco`,
 `requires: [identity]`, `produces: [parsed]`, outcomes `success` / `failure`; like the command/config steps they use each device's
 own `source_id` and reject non-Catalyst-Center devices (`not_catalyst_center_device`). They share `workflow_steps/common/
-catalyst_center_facts.py::run_fact_step`, which runs at most 5 devices in flight and applies one result rule:
+controller_sources.py` (`CATALYST_CENTER.run_fact_step`), which runs at most 5 devices in flight and applies one result rule:
 
 ```
 device.parsed[<parsed_output_key>][<fact>] = {"parsed": data | None, "error": str | None}
@@ -594,7 +593,7 @@ instead of claiming the UI was verified.
 Three step kinds already exist: an **inventory selector** (`get-catalyst-center-devices`), **command/config** steps (command runner,
 see above) and **fact** steps. A new read-only fact step (another Intent API read per device) should not copy an executor: write a
 `collect(credentials, state, device_id, device)` coroutine returning `{fact: entry}` and hand it to
-`workflow_steps/common/catalyst_center_facts.py::run_fact_step` (optional `prepare` for a once-per-controller fetch). It gives
+`workflow_steps/common/controller_sources.py` (`CATALYST_CENTER.run_fact_step`) (optional `prepare` for a once-per-controller fetch). It gives
 the per-source credentials, concurrency limit, `{parsed, error}` shape, partial-failure rule and logging for free. Fact steps write
 `device.parsed[<parsed_output_key>][<fact>]` directly (the `run-command` convention), not through `node_result.set_node_result`.
 

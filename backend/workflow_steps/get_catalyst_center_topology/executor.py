@@ -11,16 +11,15 @@ from models.catalyst_center_facts import CatalystCenterTopology
 from models.workflow_context import DeviceContext, StepOutcome, WorkflowContext
 from services.artifacts import ArtifactService
 from services.catalyst_center.credentials import CatalystCenterCredentials
-from workflow_steps.common.catalyst_center_facts import (
+from workflow_steps.common.controller_sources import CATALYST_CENTER
+from workflow_steps.common.fact_entries import (
     Entry,
     FactError,
-    capture,
     error_entry,
     ok_entry,
+    parse_name_list,
     parse_output_key_config,
-    run_fact_step,
 )
-from workflow_steps.common.fact_entries import parse_name_list
 
 if TYPE_CHECKING:
     from services.network.netmiko.session_pool import DeviceSessionPool
@@ -53,10 +52,10 @@ async def _fetch_topologies(
 
     async def fetch(name: str) -> tuple[str, CatalystCenterTopology | FactError]:
         if name == "physical":
-            graph, error = await capture(service.get_physical_topology)
+            graph, error = await CATALYST_CENTER.capture(service.get_physical_topology)
         else:
             protocol = name.removeprefix("l3_")
-            graph, error = await capture(lambda: service.get_l3_topology(protocol))
+            graph, error = await CATALYST_CENTER.capture(lambda: service.get_l3_topology(protocol))
         if graph is None:
             return name, error or FactError("Catalyst Center returned no topology")
         return name, graph
@@ -96,7 +95,7 @@ async def execute(
             for name, graph in fetched.items()
         }
 
-    return await run_fact_step(
+    return await CATALYST_CENTER.run_fact_step(
         step_id=STEP_ID,
         context=context,
         run=run,

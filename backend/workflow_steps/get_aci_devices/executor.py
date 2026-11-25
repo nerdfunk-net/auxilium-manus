@@ -13,9 +13,9 @@ from models.workflow_context import StepOutcome, WorkflowContext
 from services.aci.common.exceptions import AciAPIError, AciAuthError, AciValidationError
 from services.aci.device_filters import AciDeviceFilters
 from services.aci.device_service import AciDeviceService
-from services.aci.source_config_service import AciSourceNotFoundError
 from services.artifacts import ArtifactService
 from workflow_steps.common.controller_inventory import ControllerInventory, run_inventory_step
+from workflow_steps.common.controller_sources import ACI
 from workflow_steps.common.device_builders import device_context_from_aci
 
 if TYPE_CHECKING:
@@ -28,13 +28,7 @@ SOURCE_ID_KEY = "aci_source_id"
 
 
 def _build_device_service(db: Session, source_id: str) -> AciDeviceService:
-    source_config = service_factory.build_aci_source_config_service(db)
-    try:
-        credentials = source_config.resolve_credentials(source_id)
-    except AciSourceNotFoundError as exc:
-        raise ValueError(f"{STEP_ID}: Cisco ACI source '{source_id}' not found") from exc
-    except AciValidationError as exc:
-        raise ValueError(f"{STEP_ID}: {exc}") from exc
+    credentials = ACI.resolve_credentials(db, source_id, step_id=STEP_ID)
     return service_factory.build_aci_device_service(credentials)
 
 

@@ -15,15 +15,9 @@ from models.workflow_context import DeviceContext, StepOutcome, WorkflowContext
 from services.aci.credentials import AciCredentials
 from services.artifacts import ArtifactService
 from services.workflow_context.attribute_path import resolve_device_attribute
-from workflow_steps.common.aci_facts import (
-    ACI_ERROR_CODE,
-    Entry,
-    fact,
-    parse_output_key_config,
-)
-from workflow_steps.common.aci_targets import resolve_source_credentials
+from workflow_steps.common.controller_sources import ACI, ACI_ERROR_CODE
 from workflow_steps.common.device_outcomes import TargetSplit, failed_device
-from workflow_steps.common.fact_entries import collect_facts
+from workflow_steps.common.fact_entries import Entry, collect_facts, parse_output_key_config
 from workflow_steps.common.failure_records import INVALID_INPUT
 from workflow_steps.common.run_session import require_session
 
@@ -66,7 +60,7 @@ async def execute(
         return [StepOutcome(name="success", context=context)]
 
     db = require_session(run, STEP_ID)
-    credentials = resolve_source_credentials(db, [source_id], step_id=STEP_ID)
+    credentials = ACI.resolve_all_credentials(db, [source_id], step_id=STEP_ID)
 
     addresses: dict[str, str] = {}
     rejected: dict[str, DeviceContext] = {}
@@ -92,7 +86,7 @@ async def execute(
     async def collect(
         creds: AciCredentials, service: Any, device_id: str, _device: DeviceContext
     ) -> dict[str, Entry]:
-        return {"endpoints": await fact(lambda: service.find(addresses[device_id]))}
+        return {"endpoints": await ACI.fact(lambda: service.find(addresses[device_id]))}
 
     async def prepare(creds: AciCredentials) -> Any:
         return service_factory.build_aci_endpoint_service(creds)

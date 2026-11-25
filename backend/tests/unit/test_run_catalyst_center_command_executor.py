@@ -17,7 +17,6 @@ from workflow_steps.run_catalyst_center_command.executor import (
 )
 
 MODULE = "workflow_steps.run_catalyst_center_command.executor"
-TARGETS = "workflow_steps.common.catalyst_center_targets"
 OK = CatalystCenterCommandStatus.SUCCESS
 
 

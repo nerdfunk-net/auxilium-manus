@@ -17,7 +17,6 @@ import asyncio
 import logging
 from typing import TYPE_CHECKING, Any
 
-import service_factory
 from core.models.runs import WorkflowRun
 from models.failure import FailureInfo
 from models.workflow_context import (
@@ -30,6 +29,7 @@ from models.workflow_context import (
 from services.agents.exceptions import AgentAuthError, AgentOfflineError
 from services.agents.source_config_service import AgentConnection
 from services.artifacts import ArtifactService
+from workflow_steps.common.agent_call import agent_client, check_timeout
 from workflow_steps.common.agent_source import resolve_agent_connection
 from workflow_steps.common.attribute_write import set_device_attribute
 from workflow_steps.common.partial_outcomes import fail_device_with_error
@@ -127,14 +127,7 @@ async def execute(
         db, parsed.agent_source_id, step_id=STEP_ID
     )
 
-    if parsed.timeout_seconds > connection.max_timeout_seconds:
-        # Not clamped silently: a step set to 120 s against a 60 s agent would fail every device
-        # at 60 s as "agent_timeout" with nothing pointing at the setting.
-        raise ValueError(
-            f"{STEP_ID}: timeout_seconds ({parsed.timeout_seconds}) is above the maximum of "
-            f"{connection.max_timeout_seconds} seconds set on agent {connection.source_id!r}; "
-            "lower the step timeout or raise the agent's max timeout in Settings -> Sources"
-        )
+    check_timeout(connection, parsed.timeout_seconds, step_id=STEP_ID)
 
     logger.info(
         "%s started run_id=%s node_id=%s agent=%s transport=%s handler=%s devices=%d",
@@ -149,8 +142,7 @@ async def execute(
 
     shared = _Run()
     gate = asyncio.Semaphore(connection.max_concurrency)
-    client = service_factory.build_agent_client(connection)
-    try:
+    async with agent_client(connection) as client:
         results = await asyncio.gather(
             *[
                 _process(
@@ -165,8 +157,6 @@ async def execute(
                 for device in context.devices.values()
             ]
         )
-    finally:
-        await client.aclose()
 
     succeeded: dict[str, DeviceContext] = {}
     failed: dict[str, DeviceContext] = {}

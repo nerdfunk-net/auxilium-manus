@@ -22,7 +22,6 @@ from workflow_steps.get_aci_policy.executor import execute
 
 STEP_ID = "get-aci-policy"
 REGISTRY_PATH = Path(__file__).resolve().parents[2] / "workflow_steps" / "registry.yaml"
-FACTS_MODULE = "workflow_steps.common.aci_facts"
 WEB = "uni/tn-Heroes/ap-App/epg-web"
 DB = "uni/tn-Heroes/ap-App/epg-db"
 

@@ -19,7 +19,6 @@ from workflow_steps.find_aci_endpoints.executor import execute
 
 STEP_ID = "find-aci-endpoints"
 REGISTRY_PATH = Path(__file__).resolve().parents[2] / "workflow_steps" / "registry.yaml"
-FACTS_MODULE = "workflow_steps.common.aci_facts"
 ENDPOINT = AciEndpoint(
     mac="00:50:56:AA:BB:01",
     ips=("10.1.1.5",),

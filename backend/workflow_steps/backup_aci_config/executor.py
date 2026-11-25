@@ -19,7 +19,7 @@ from models.workflow_context import StepOutcome, WorkflowContext
 from services.aci.common.exceptions import AciAPIError, AciAuthError, AciValidationError
 from services.artifacts import ArtifactService
 from services.artifacts.sinks.git_sink import GitArtifactSink
-from workflow_steps.common.aci_targets import resolve_source_credentials
+from workflow_steps.common.controller_sources import ACI
 from workflow_steps.common.fact_entries import parse_output_key_config
 from workflow_steps.common.git_repository_loader import load_git_repository, parse_repository_id
 from workflow_steps.common.run_session import require_session
@@ -119,7 +119,7 @@ async def execute(
     )
 
     db = require_session(run, STEP_ID)
-    credentials = resolve_source_credentials(db, [source_id], step_id=STEP_ID)[source_id]
+    credentials = ACI.resolve_credentials(db, source_id, step_id=STEP_ID)
     repository = load_git_repository(repository_id)
 
     logger.info("%s started run_id=%s node_id=%s", STEP_ID, context.run_id, node_id)

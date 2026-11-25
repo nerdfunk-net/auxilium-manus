@@ -8,7 +8,6 @@ from dataclasses import dataclass
 from typing import Any
 
 from models.workflow_context import DeviceContext
-from services.agents.client import HANDLER_NAME_PATTERN
 from services.workflow_context.attribute_path import (
     DEVICE_SCALAR_FIELDS,
     resolve_device_attribute_raw,
@@ -19,9 +18,10 @@ from services.workflow_context.secret_fields import (
     contains_sealed_secret,
     is_secret_key_name,
 )
+from workflow_steps.common.agent_call import parse_agent_source_id, parse_handler, parse_timeout
 from workflow_steps.common.attribute_write import set_device_attribute
 from workflow_steps.common.content_resolver import list_exportable_content
-from workflow_steps.common.step_flags import parse_bool_flag, parse_int_flag
+from workflow_steps.common.step_flags import parse_bool_flag
 from workflow_steps.route_to_agent.config import get_config
 
 STEP_ID = "route-to-agent"
@@ -31,7 +31,6 @@ STATIC_CONTENT_INPUTS = ("running_config", "startup_config", "latest_command_out
 COMMAND_OUTPUT_PREFIX = "command_output:"
 MAX_PARAMS_BYTES = 16 * 1024
 MAX_LIST_ITEMS = 64
-TIMEOUT_RANGE = (1, 600)
 # "device" is the core device fields, "error" a read-only namespace; parsed/run_input are
 # refused by set_device_attribute itself.
 RESERVED_ROOTS = frozenset({"device", "error", "parsed", "run_input"})
@@ -199,11 +198,7 @@ def _find_secret_key(value: Any) -> str | None:
 
 
 def parse_config(config: dict[str, Any]) -> StepConfig:
-    handler = str(config.get("handler") or "").strip()
-    if not handler:
-        raise ValueError(f"{STEP_ID}: handler is required")
-    if not HANDLER_NAME_PATTERN.fullmatch(handler):
-        raise ValueError(f"{STEP_ID}: handler {handler!r} is not a valid handler name")
+    handler = parse_handler(config, step_id=STEP_ID)
 
     output_keys = _string_list(config, "output_keys")
     if not output_keys:
@@ -219,9 +214,7 @@ def parse_config(config: dict[str, Any]) -> StepConfig:
     if not input_paths and not content_inputs:
         raise ValueError(f"{STEP_ID}: select at least one input to send (input_paths or content)")
 
-    source_id = str(config.get("agent_source_id") or "").strip()
-    if not source_id:
-        raise ValueError(f"{STEP_ID}: agent_source_id is not configured")
+    source_id = parse_agent_source_id(config, step_id=STEP_ID)
 
     return StepConfig(
         agent_source_id=source_id,
@@ -232,13 +225,7 @@ def parse_config(config: dict[str, Any]) -> StepConfig:
         destination_path=_destination(config),
         output_keys=output_keys,
         allow_missing_outputs=parse_bool_flag(config, "allow_missing_outputs", default=False),
-        timeout_seconds=parse_int_flag(
-            config,
-            "timeout_seconds",
-            default=get_config()["timeout_seconds"],
-            minimum=TIMEOUT_RANGE[0],
-            maximum=TIMEOUT_RANGE[1],
-        ),
+        timeout_seconds=parse_timeout(config, default=get_config()["timeout_seconds"]),
     )
 
 
