@@ -17,7 +17,22 @@ from models.workflow_context import (
 )
 from services.artifacts import InMemoryArtifactService
 from tests.unit._step_helpers import call_step, make_context, make_device
-from workflow_steps.render_jinja_template.executor import execute
+from workflow_steps.render_jinja_template.executor import execute as _execute
+
+_LOAD_STORED = "workflow_steps.render_jinja_template.executor.load_stored_template"
+
+
+async def execute(*, config: dict, **kwargs):  # noqa: ANN003, ANN201
+    """Run the step with ``config["template"]`` as the body of stored template 1.
+
+    The step only reads stored templates (``template_id``); the tests that need a body write it
+    inline here and this wrapper stores it.
+    """
+    if "template" not in config:
+        return await _execute(config=config, **kwargs)
+    stored = {k: v for k, v in config.items() if k != "template"} | {"template_id": 1}
+    with patch(_LOAD_STORED, return_value=config["template"]):
+        return await _execute(config=stored, **kwargs)
 
 
 class RenderJinjaTemplateExecutorTests(unittest.IsolatedAsyncioTestCase):
@@ -364,15 +379,17 @@ class RenderJinjaTemplateStoredTemplateTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaisesRegex(ValueError, "has no content"):
             await self._run({"template_id": 7}, stored="  \n")
 
-    async def test_stored_template_wins_over_an_inline_template(self) -> None:
-        outcomes, artifacts, _load = await self._run(
-            {"template_id": 7, "template": "inline {{ device.hostname }}"},
-            stored="stored {{ device.hostname }}",
-        )
-
-        entry = outcomes[0].context.devices["d1"].parsed["out"]
-        rendered = await artifacts.resolve(ArtifactRef.model_validate(entry["artifact_ref"]))
-        self.assertEqual(rendered.strip(), "stored lab")
+    async def test_an_inline_template_is_not_a_template(self) -> None:
+        # W3a-09: the inline ``template`` key was compat for nodes older than the template library.
+        with self.assertRaisesRegex(ValueError, "stored template must be selected"):
+            await _execute(
+                config={"output_key": "out", "template": "inline {{ device.hostname }}"},
+                context=self._context(),
+                run=MagicMock(),
+                artifact_service=InMemoryArtifactService(),
+                node_id="n1",
+                device_sessions=MagicMock(),
+            )
 
     async def test_nothing_selected_is_a_config_error(self) -> None:
         with self.assertRaisesRegex(ValueError, "stored template must be selected"):

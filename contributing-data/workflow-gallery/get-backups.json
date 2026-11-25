@@ -345,8 +345,7 @@
         "incomeHandleSide": "top",
         "outcomeHandleSide": "right",
         "pluginConfig": {
-          "git_repository_id": 4,
-          "use_change_request_branch": false
+          "git_repository_id": 4
         }
       },
       "measured": {

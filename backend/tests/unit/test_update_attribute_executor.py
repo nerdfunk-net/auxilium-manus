@@ -64,29 +64,49 @@ class UpdateAttributeExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(resolve_device_attribute(updated, "custom.location"), "office-a")
         self.assertIn(Capability.ATTRIBUTES, updated.capabilities)
 
-    async def test_legacy_flat_config_still_works(self) -> None:
-        run = MagicMock()
+    async def test_a_flat_single_update_config_is_refused(self) -> None:
+        # W4-14: the pre-list shape is gone; the panel writes ``attributes``.
         context = WorkflowContext(
-            run_id="run-1",
-            workflow_id="wf-1",
-            devices={"dev-1": _device("dev-1")},
+            run_id="run-1", workflow_id="wf-1", devices={"dev-1": _device("dev-1")}
+        )
+
+        with self.assertRaisesRegex(ValueError, "attributes must be a list"):
+            await execute(
+                config={
+                    "mode": "fixed",
+                    "destination_path": "custom.location",
+                    "fixed_value": "office-a",
+                },
+                context=context,
+                run=MagicMock(),
+                artifact_service=MagicMock(),
+                node_id="node-1",
+                device_sessions=MagicMock(),
+            )
+
+    async def test_the_single_update_metadata_keys_are_gone(self) -> None:
+        context = WorkflowContext(
+            run_id="run-1", workflow_id="wf-1", devices={"dev-1": _device("dev-1")}
         )
 
         outcomes = await execute(
             config={
-                "mode": "fixed",
-                "destination_path": "custom.location",
-                "fixed_value": "office-a",
+                "attributes": [
+                    {"mode": "fixed", "destination_path": "custom.location", "fixed_value": "a"}
+                ]
             },
             context=context,
-            run=run,
+            run=MagicMock(),
             artifact_service=MagicMock(),
             node_id="node-1",
             device_sessions=MagicMock(),
         )
 
-        updated = outcomes[0].context.devices["dev-1"]
-        self.assertEqual(resolve_device_attribute(updated, "custom.location"), "office-a")
+        metadata = outcomes[0].context.metadata
+        self.assertEqual(metadata["node-1.attribute_count"], 1)
+        self.assertEqual(metadata["node-1.destination_paths"], ["custom.location"])
+        for key in ("node-1.mode", "node-1.destination_path", "node-1.source_path"):
+            self.assertNotIn(key, metadata)
 
     async def test_multiple_attributes_applied_in_order(self) -> None:
         run = MagicMock()

@@ -103,26 +103,6 @@ def _require_mode_fields(entry: dict[str, Any]) -> None:
             raise ValueError(f"{_STEP_ID}: {field} is required in {entry['mode']} mode")
 
 
-def _legacy_attribute_from_config(config: dict[str, Any]) -> dict[str, Any] | None:
-    """Migrate pre-list configs that stored a single update at the top level."""
-    has_legacy = any(
-        key in config
-        for key in (
-            "mode",
-            "destination_path",
-            "fixed_value",
-            "source_path",
-            "pattern",
-            "destination_template",
-            "template",
-            "regex_flags",
-        )
-    )
-    if not has_legacy:
-        return None
-    return _normalize_attribute_entry(config, index=0)
-
-
 def _parse_attributes(config: dict[str, Any]) -> list[dict[str, Any]]:
     raw_attributes = config.get("attributes")
     if isinstance(raw_attributes, list):
@@ -130,10 +110,6 @@ def _parse_attributes(config: dict[str, Any]) -> list[dict[str, Any]]:
             _normalize_attribute_entry(item, index=index)
             for index, item in enumerate(raw_attributes)
         ]
-
-    legacy = _legacy_attribute_from_config(config)
-    if legacy is not None:
-        return [legacy]
 
     # Empty default from get_config() — no updates configured.
     if "attributes" in config or not config:
@@ -353,13 +329,6 @@ async def execute(
         f"{node_id}.skipped_count": skipped_count,
         f"{node_id}.write_count": write_count,
     }
-    # Preserve legacy single-update metadata keys when exactly one attribute is configured.
-    if len(attributes) == 1:
-        only = attributes[0]
-        metadata[f"{node_id}.mode"] = only["mode"]
-        metadata[f"{node_id}.destination_path"] = only["destination_path"]
-        if only["mode"] == "regex":
-            metadata[f"{node_id}.source_path"] = str(only["source_path"]).strip()
 
     logger.info(
         "%s finished node_id=%s attributes=%d updated=%d skipped=%d writes=%d devices=%d",

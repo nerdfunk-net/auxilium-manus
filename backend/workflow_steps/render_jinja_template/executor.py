@@ -43,9 +43,7 @@ _COMMAND_VARIABLES = frozenset({"commands", "commands_by_name", "command"})
 def _resolve_template(config: dict[str, Any]) -> str:
     """Resolve the Jinja2 template body for this step.
 
-    A stored template (referenced by ``template_id``) is the source of truth.
-    An inline ``template`` string is only accepted as a fallback for legacy
-    nodes created before the template library existed.
+    Only a stored template (referenced by ``template_id``) is accepted.
     """
     raw_id = config.get("template_id")
     if raw_id not in (None, ""):
@@ -58,11 +56,6 @@ def _resolve_template(config: dict[str, Any]) -> str:
             raise ValueError(f"render-jinja-template: stored template {template_id} has no content")
         validate_jinja_template(template)
         return template
-
-    legacy_inline = str(config.get("template") or "").strip()
-    if legacy_inline:
-        validate_jinja_template(legacy_inline)
-        return legacy_inline
 
     raise ValueError("render-jinja-template: a stored template must be selected")
 
