@@ -31,6 +31,7 @@ from workflow_steps.get_device_location.chain import (
     describe_chain,
     find_locations_by_type,
 )
+from workflow_steps.get_device_location.config import get_config
 
 if TYPE_CHECKING:
     from services.network.netmiko.session_pool import DeviceSessionPool
@@ -38,7 +39,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _STEP_ID = "get-device-location"
-_DEFAULT_TARGET = "custom.location"
+_DEFAULTS = get_config()
 
 
 @dataclass(frozen=True)
@@ -67,12 +68,14 @@ def _parse_config(config: dict[str, Any]) -> _ParsedConfig:
     location_type = str(config.get("location_type") or "").strip()
     if not location_type:
         raise ValueError(f"{_STEP_ID}: location_type is not configured")
-    target = str(config.get("target_attribute") or _DEFAULT_TARGET).strip()
+    target = str(config.get("target_attribute") or _DEFAULTS["target_attribute"]).strip()
     return _ParsedConfig(
         source_id=source_id,
         location_type=location_type,
         target_attribute=_validate_target(target),
-        case_insensitive_lookup=parse_bool_flag(config, "case_insensitive_lookup", default=False),
+        case_insensitive_lookup=parse_bool_flag(
+            config, "case_insensitive_lookup", default=_DEFAULTS["case_insensitive_lookup"]
+        ),
     )
 
 

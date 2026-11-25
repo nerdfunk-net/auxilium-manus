@@ -137,7 +137,6 @@ def _enrich_membership_result(
 def _classify_device_membership(
     *,
     device: DeviceContext,
-    device_id: str,
     node_id: str,
     list_path: str,
     field: str | None,
@@ -145,8 +144,6 @@ def _classify_device_membership(
     case_sensitive: bool,
     run_id: str,
 ) -> tuple[str, DeviceContext]:
-    del device_id
-
     resolved_value = resolve_update_field_expression(
         device=device,
         field_key="value",
@@ -263,7 +260,6 @@ async def execute(
     for device_id, device in context.devices.items():
         bucket, enriched = _classify_device_membership(
             device=device,
-            device_id=device_id,
             node_id=node_id,
             list_path=list_path,
             field=field,

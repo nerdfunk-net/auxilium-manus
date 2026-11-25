@@ -14,6 +14,7 @@ from workflow_steps.common.device_file_upload import (
     parse_socket_timeout,
     record_transfer,
     remote_file_exists,
+    transfer_command_results,
     upload_outcomes,
     verify_remote_digest,
 )
@@ -62,6 +63,22 @@ class RecordTransferTests(unittest.TestCase):
         # the record rides on the device the runner marks failed; the original is untouched
         assert failed.device is not None
         self.assertEqual(failed.device.command_results["n"][0].summary, "SCP disabled")
+        self.assertEqual(device.command_results, {})
+
+
+    def test_transfer_command_results_records_without_building_a_failure(self) -> None:
+        device = _device()
+        results = transfer_command_results(
+            device=device,
+            node_id="n",
+            command="cmd",
+            result=FileTransferResult(success=False, error="SCP disabled"),
+            ok_summary="done",
+            default_error="boom",
+        )
+        record = results["n"][0]
+        self.assertEqual((record.summary, record.success), ("SCP disabled", False))
+        self.assertEqual(results["n"][0].command, "cmd")
         self.assertEqual(device.command_results, {})
 
 

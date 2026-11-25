@@ -38,8 +38,8 @@ from workflow_steps.common.device_file_upload import (
     delete_remote_file,
     parse_device_token,
     parse_socket_timeout,
-    record_transfer,
     remote_file_exists,
+    transfer_command_results,
     upload_outcomes,
     verify_remote_digest,
 )
@@ -275,7 +275,7 @@ async def _transfer_and_verify(
         credential_reference=parsed.credential_reference,
         verify_file=False,  # verified below, with this step's own read_timeout
     )
-    results, failed_transfer = record_transfer(
+    results = transfer_command_results(
         device=device,
         node_id=node_id,
         command=_STEP_ID,
@@ -284,7 +284,7 @@ async def _transfer_and_verify(
         default_error="Binary upload failed",
     )
     rows.extend(results[node_id])
-    if failed_transfer is not None:
+    if not result.success:
         return _record_and_fail(
             "upload_failed", result.error or "Binary upload failed", result.failure
         )

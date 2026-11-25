@@ -314,9 +314,8 @@ async def execute(
     node_id: str,
     device_sessions: DeviceSessionPool,
 ) -> list[StepOutcome]:
-    logger.info("log-attributes started run_id=%s node_id=%s", log_run_id(run), node_id)
-
     parsed = _parse_config(config)
+    logger.info("log-attributes started run_id=%s node_id=%s", log_run_id(run), node_id)
     snapshot = build_context_snapshot(context)
     if parsed["show_parsed_templates"]:
         await _attach_rendered_template_content(snapshot, context, artifact_service)

@@ -62,6 +62,24 @@ def parse_socket_timeout(config: dict[str, Any], *, step_id: str) -> int:
     )
 
 
+def transfer_command_results(
+    *,
+    device: DeviceContext,
+    node_id: str,
+    command: str,
+    result: FileTransferResult,
+    ok_summary: str,
+    default_error: str,
+) -> dict[str, list[CommandResult]]:
+    """The device's ``command_results`` with the transfer recorded under ``node_id``."""
+    summary = ok_summary if result.success else (result.error or default_error)
+    command_results = dict(device.command_results)
+    command_results[node_id] = [
+        CommandResult(node_id=node_id, command=command, success=result.success, summary=summary)
+    ]
+    return command_results
+
+
 def record_transfer(
     *,
     device: DeviceContext,
@@ -73,12 +91,17 @@ def record_transfer(
 ) -> tuple[dict[str, list[CommandResult]], Fail | None]:
     """Record the transfer on the device. Returns the new ``command_results`` and, when the
     transfer failed, the ``Fail`` the caller returns as it is (it carries the device with the
-    record, so the failed device keeps it)."""
-    summary = ok_summary if result.success else (result.error or default_error)
-    command_results = dict(device.command_results)
-    command_results[node_id] = [
-        CommandResult(node_id=node_id, command=command, success=result.success, summary=summary)
-    ]
+    record, so the failed device keeps it). A step that builds its own failure
+    (``upload-binary``, which also keeps its verification rows) uses
+    ``transfer_command_results`` instead."""
+    command_results = transfer_command_results(
+        device=device,
+        node_id=node_id,
+        command=command,
+        result=result,
+        ok_summary=ok_summary,
+        default_error=default_error,
+    )
     if result.success:
         return command_results, None
     return command_results, Fail(

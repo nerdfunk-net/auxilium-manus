@@ -427,6 +427,20 @@ class LogAttributesExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn(REDACTED_PLACEHOLDER, pretty)
         self.assertNotIn("s3cr3t", pretty)
 
+    async def test_an_invalid_config_is_rejected_before_the_started_line(self) -> None:
+        with patch("workflow_steps.log_attributes.executor.logger") as mock_logger:
+            with self.assertRaises(ValueError):
+                await execute(
+                    config={"output_format": "xml"},
+                    context=WorkflowContext(run_id="r", workflow_id="w", devices={}),
+                    run=MagicMock(),
+                    artifact_service=InMemoryArtifactService(),
+                    node_id="n",
+                    device_sessions=MagicMock(),
+                )
+
+        mock_logger.info.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()

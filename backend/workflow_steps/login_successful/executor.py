@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from core.models.runs import WorkflowRun
 from models.failure import FailureInfo
@@ -18,7 +18,6 @@ from models.workflow_context import (
 from services.artifacts import ArtifactService
 from services.network.netmiko.platform import resolve_connection_device_type
 from services.network.netmiko.service import NetmikoService
-from services.network.netmiko.session_pool import DeviceSessionPool
 from services.workflow_context.node_result import set_node_result
 from workflow_steps.common.credential_resolver import resolve_ssh_credential
 from workflow_steps.common.device_outcomes import outcomes_from_buckets
@@ -27,6 +26,9 @@ from workflow_steps.common.partial_outcomes import device_error_from_exception
 from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.common.run_param_reference import resolve_config_reference
 from workflow_steps.common.run_session import require_session
+
+if TYPE_CHECKING:
+    from services.network.netmiko.session_pool import DeviceSessionPool
 
 logger = logging.getLogger(__name__)
 

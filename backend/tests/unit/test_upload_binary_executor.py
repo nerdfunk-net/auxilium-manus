@@ -189,6 +189,18 @@ class UploadBinaryExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn(IMAGE_MD5, rows[1].summary)
         self.assertIn(str(len(IMAGE)), rows[0].summary)
 
+    async def test_each_device_gets_a_connecting_and_a_result_line_labelled_with_the_step(
+        self,
+    ) -> None:
+        with self.assertLogs("workflow_steps.common.device_runner", level="INFO") as logs:
+            await self._run(_config(), {"device-1": _device()})
+
+        lines = [r.getMessage() for r in logs.records]
+        self.assertEqual(len(lines), 2)
+        self.assertTrue(lines[0].startswith("upload-binary device 1/1 id=device-1 host="))
+        self.assertIn(": connecting run_id=r", lines[0])
+        self.assertIn(": ok run_id=r", lines[1])
+
     async def test_options_are_forwarded_including_the_read_timeout(self) -> None:
         _, fakes = await self._run(
             _config(
