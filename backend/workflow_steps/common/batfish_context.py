@@ -18,7 +18,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-from models.workflow_context import Capability, DeviceContext, DeviceStatus, WorkflowContext
+from models.workflow_context import DeviceContext, WorkflowContext
 from services.batfish.common.exceptions import BatfishValidationError
 from services.batfish.credentials import BatfishConnection
 from services.batfish.query_helpers import (
@@ -27,6 +27,7 @@ from services.batfish.query_helpers import (
 )
 from services.batfish.source_config_service import BatfishSourceConfigService
 from services.settings.source_config_base import SourceNotFoundError
+from workflow_steps.common.batfish_results import batfish_node_device
 from workflow_steps.common.run_session import require_session
 
 if TYPE_CHECKING:
@@ -127,27 +128,17 @@ async def resolve_batfish_snapshot_ref(
 
 
 def devices_from_nodes(rows: list[dict[str, Any]]) -> dict[str, DeviceContext]:
-    """Dedupe a Batfish answer's ``Node`` column into one DeviceContext per
-    distinct node -- the same Batfish-sourced identity shape
-    batfish-routing-table's own ``devices`` outcome already builds (kept as
-    an independent inline copy there, not refactored onto this helper, so
-    this addition carries zero behavior risk for that step). Used by
-    get-batfish-devices's executor ("Get from Batfish") to populate real
-    devices from a snapshot's node list.
+    """Dedupe a Batfish answer's ``Node`` column into one DeviceContext per distinct node.
+
+    Used by ``get-batfish-devices`` (Get from Batfish) and ``batfish-routing-table`` (Batfish
+    Routing Table) to populate devices from an answer.
     """
     device_nodes: dict[str, DeviceContext] = {}
     for row in rows:
         node = row.get("Node")
         if not node or node in device_nodes:
             continue
-        device_nodes[node] = DeviceContext(
-            id=node,
-            name=node,
-            hostname=node,
-            source="batfish",
-            capabilities={Capability.IDENTITY},
-            status=DeviceStatus.OK,
-        )
+        device_nodes[node] = batfish_node_device(node)
     return device_nodes
 
 

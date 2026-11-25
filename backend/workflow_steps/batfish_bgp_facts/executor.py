@@ -1,29 +1,22 @@
 """Executor for the batfish-bgp-facts step ("Get BGP Facts").
 
-Combines up to four Batfish BGP questions --
-bgpProcessConfiguration/bgpPeerConfiguration/bgpSessionStatus/bgpEdges --
-against the snapshot an upstream batfish-init-snapshot step initialized
-(resolved via workflow_steps.common.batfish_context), each individually
-toggleable. Pure read -- does not touch context.devices as input.
-
-Structurally identical to batfish-ospf-facts' executor (see that module for
-the fuller explanation) -- everything past "fetch each enabled question's
-rows" (per-question artifact storage, node-identity grouping, and the
-per-device merge into one combined BGP payload) lives in
-workflow_steps.common.batfish_bgp_facts / batfish_combined_facts. See
-doc/BATFISH_INTEGRATION.md "Batfish BGP Facts" for the row-shape
-verification this is built on.
+Combines up to four Batfish BGP questions (bgpProcessConfiguration, bgpPeerConfiguration,
+bgpSessionStatus, bgpEdges),
+each individually toggleable (``include_<key>``), against the snapshot an upstream
+batfish-init-snapshot step initialized. Pure read; it does not use ``context.devices`` as input.
+The body (queries, artifact per question, per-node merge) is
+``common.batfish_combined_facts.run_combined_facts_step``; this module is the question table.
+See doc/BATFISH_INTEGRATION.md "Batfish BGP Facts" for the row-shape verification.
 """
 
 from __future__ import annotations
 
-import logging
 from typing import TYPE_CHECKING, Any
 
-import service_factory
 from core.models.runs import WorkflowRun
 from models.workflow_context import StepOutcome, WorkflowContext
 from services.artifacts import ArtifactService
+from services.batfish.bgp_facts import BGP_QUESTION_SPECS
 from services.batfish.query_helpers import (
     query_bgp_edges,
     query_bgp_peer_configuration,
@@ -31,25 +24,19 @@ from services.batfish.query_helpers import (
     query_bgp_session_status,
 )
 from workflow_steps.batfish_bgp_facts.config import get_config
-from workflow_steps.common.batfish_bgp_facts import BGP_QUESTION_KEYS, build_bgp_facts_outcomes
-from workflow_steps.common.batfish_context import resolve_batfish_snapshot_ref
-from workflow_steps.common.fact_entries import parse_output_key_config
-from workflow_steps.common.run_logging import log_run_id
-from workflow_steps.common.step_flags import parse_bool_flag
+from workflow_steps.common.batfish_combined_facts import run_combined_facts_step
 
 if TYPE_CHECKING:
     from services.network.netmiko.session_pool import DeviceSessionPool
 
-logger = logging.getLogger(__name__)
-
 _STEP_ID = "batfish-bgp-facts"
 
-# Each question key maps to a config toggle named f"include_{key}" -- derived
-# from BGP_QUESTION_KEYS (single source of truth for the question set,
-# shared with the merge engine) rather than hand-listed here too.
-_QUESTION_TOGGLES: tuple[tuple[str, str], ...] = tuple(
-    (f"include_{key}", key) for key in BGP_QUESTION_KEYS
-)
+_QUERIES = {
+    "process": query_bgp_process_configuration,
+    "peers": query_bgp_peer_configuration,
+    "sessions": query_bgp_session_status,
+    "edges": query_bgp_edges,
+}
 
 
 async def execute(
@@ -63,66 +50,15 @@ async def execute(
 ) -> list[StepOutcome]:
     del device_sessions  # unused: Batfish is reached via pybatfish, not Netmiko
 
-    merged_config = {**get_config(), **config}
-    output_key = parse_output_key_config(
-        merged_config.get("output_key"),
+    return await run_combined_facts_step(
         step_id=_STEP_ID,
-        default="batfish_bgp_facts",
-        key_name="output_key",
-    )
-    enabled_keys = [
-        question_key
-        for toggle_key, question_key in _QUESTION_TOGGLES
-        if parse_bool_flag(merged_config, toggle_key, default=True, step_id=_STEP_ID)
-    ]
-    if not enabled_keys:
-        raise ValueError(
-            f"{_STEP_ID}: at least one of include_process/include_peers/"
-            "include_sessions/include_edges must be enabled"
-        )
-
-    batfish = service_factory.get_batfish_app_service()
-    snap = await resolve_batfish_snapshot_ref(
-        context=context, config=merged_config, run=run, batfish=batfish
-    )
-
-    logger.info(
-        "%s started run_id=%s node_id=%s network=%s snapshot=%s questions=%s",
-        _STEP_ID,
-        log_run_id(run),
-        node_id,
-        snap.network,
-        snap.snapshot,
-        enabled_keys,
-    )
-
-    nodes = merged_config.get("nodes")
-    rows_by_question: dict[str, list[dict[str, Any]]] = {}
-    if "process" in enabled_keys:
-        rows_by_question["process"] = await query_bgp_process_configuration(
-            batfish, snap.connection, batfish_network=snap.network, snapshot=snap.snapshot,
-            nodes=nodes,
-        )
-    if "peers" in enabled_keys:
-        rows_by_question["peers"] = await query_bgp_peer_configuration(
-            batfish, snap.connection, batfish_network=snap.network, snapshot=snap.snapshot,
-            nodes=nodes,
-        )
-    if "sessions" in enabled_keys:
-        rows_by_question["sessions"] = await query_bgp_session_status(
-            batfish, snap.connection, batfish_network=snap.network, snapshot=snap.snapshot,
-            nodes=nodes,
-        )
-    if "edges" in enabled_keys:
-        rows_by_question["edges"] = await query_bgp_edges(
-            batfish, snap.connection, batfish_network=snap.network, snapshot=snap.snapshot,
-            nodes=nodes,
-        )
-
-    return await build_bgp_facts_outcomes(
+        specs=BGP_QUESTION_SPECS,
+        queries=_QUERIES,
+        default_output_key="batfish_bgp_facts",
+        default_config=get_config(),
+        config=config,
         context=context,
+        run=run,
         artifact_service=artifact_service,
         node_id=node_id,
-        output_key=output_key,
-        rows_by_question=rows_by_question,
     )

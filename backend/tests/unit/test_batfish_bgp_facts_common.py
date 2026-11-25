@@ -5,12 +5,17 @@ batfish-bgp-facts' executor delegates to.
 
 from __future__ import annotations
 
+import functools
 import unittest
 
 from models.workflow_context import Capability, WorkflowContext
 from services.artifacts import InMemoryArtifactService
-from workflow_steps.common.batfish_bgp_facts import build_bgp_facts_outcomes
+from services.batfish.bgp_facts import BGP_QUESTION_SPECS
+from workflow_steps.common.batfish_combined_facts import build_combined_facts_outcomes
 
+build_bgp_facts_outcomes = functools.partial(
+    build_combined_facts_outcomes, step_id="batfish-bgp-facts", specs=BGP_QUESTION_SPECS
+)
 
 class BuildBgpFactsOutcomesTests(unittest.IsolatedAsyncioTestCase):
     async def test_all_four_questions_merge_per_device(self) -> None:

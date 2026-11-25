@@ -11,7 +11,7 @@ from services.batfish.credentials import BatfishConnection
 from workflow_steps.batfish_bgp_facts.executor import execute
 from workflow_steps.common.batfish_context import store_batfish_snapshot
 
-_SERVICE_FACTORY_TARGET = "workflow_steps.batfish_bgp_facts.executor.service_factory"
+_SERVICE_FACTORY_TARGET = "workflow_steps.common.batfish_combined_facts.service_factory"
 
 
 def _context_with_snapshot() -> WorkflowContext:

@@ -3,8 +3,7 @@ OSPF questions (ospfProcessConfiguration, ospfAreaConfiguration,
 ospfInterfaceConfiguration, ospfEdges) into one per-node OSPF picture.
 
 Shared by the `batfish-ospf-facts` workflow step
-(`workflow_steps.common.batfish_ospf_facts`, which re-exports
-`OSPF_QUESTION_SPECS`/`OSPF_QUESTION_KEYS` from here) and
+(`workflow_steps.batfish_ospf_facts.executor` pairs each key with its query) and
 `services.batfish.preview_service.BatfishPreviewService`'s ad-hoc "Get OSPF
 Facts" preview. See `doc/BATFISH_INTEGRATION.md` "Batfish OSPF Facts" for
 the row-shape verification this is built on (all four questions were

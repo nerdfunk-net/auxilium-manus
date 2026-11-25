@@ -47,7 +47,6 @@ for that file at all, so those route to ``failure``.
 
 from __future__ import annotations
 
-import json
 import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
@@ -70,6 +69,7 @@ from services.batfish.query_helpers import (
     query_unused_structures,
 )
 from workflow_steps.common.batfish_context import resolve_batfish_snapshot_ref
+from workflow_steps.common.batfish_results import store_batfish_result
 from workflow_steps.common.fact_entries import parse_output_key_config
 from workflow_steps.common.failure_records import INVALID_INPUT, NOT_FOUND
 from workflow_steps.common.run_logging import log_run_id
@@ -326,30 +326,20 @@ async def _store_result(
     output_key: str,
 ) -> dict[str, Any]:
     """Persist the raw answer tables as an artifact; return the context metadata with it."""
-    content = json.dumps(
+    metadata = dict(context.metadata)
+    metadata[f"{node_id}.{output_key}"] = await store_batfish_result(
+        artifact_service,
         {
             "file_parse_status": rows.parse,
             "undefined_references": rows.undefined,
             "unused_structures": rows.unused,
         },
-        indent=2,
-        default=str,
+        context=context,
+        node_id=node_id,
+        question="undefinedReferences+unusedStructures",
+        undefined_row_count=len(rows.undefined),
+        unused_row_count=len(rows.unused),
     )
-    artifact_ref = await artifact_service.store(
-        content=content,
-        kind="batfish_result",
-        device_id=f"batfish-{node_id}",
-        run_id=context.run_id,
-        media_type="application/json",
-    )
-    metadata = dict(context.metadata)
-    metadata[f"{node_id}.{output_key}"] = {
-        "kind": "batfish_result",
-        "question": "undefinedReferences+unusedStructures",
-        "artifact_ref": artifact_ref.model_dump(mode="json"),
-        "undefined_row_count": len(rows.undefined),
-        "unused_row_count": len(rows.unused),
-    }
     return metadata
 
 

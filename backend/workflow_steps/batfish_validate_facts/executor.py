@@ -47,7 +47,6 @@ mapping, is a hard step failure, not a skip -- see ``_build_git_facts_corpus``.
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import tempfile
 from pathlib import Path
@@ -72,6 +71,7 @@ from services.git.sync import agit_checkout
 from services.workflow_context.node_result import set_node_result
 from workflow_steps.batfish_validate_facts.config import get_config
 from workflow_steps.common.batfish_context import resolve_batfish_snapshot_ref
+from workflow_steps.common.batfish_results import store_batfish_result
 from workflow_steps.common.content_resolver import list_exportable_content
 from workflow_steps.common.fact_entries import parse_output_key_config
 from workflow_steps.common.failure_records import MISSING_DATA
@@ -452,22 +452,16 @@ async def execute(
         else:
             buckets["match"][device_id] = enriched
 
-    content = json.dumps(mismatches, indent=2, default=str)
-    artifact_ref = await artifact_service.store(
-        content=content,
-        kind="batfish_result",
-        device_id=f"batfish-{node_id}",
-        run_id=context.run_id,
-        media_type="application/json",
-    )
     metadata = dict(context.metadata)
-    metadata[f"{node_id}.{output_key}"] = {
-        "kind": "batfish_result",
-        "question": "validateFacts",
-        "artifact_ref": artifact_ref.model_dump(mode="json"),
-        "row_count": len(mismatches),
-        "node_count": len(node_fragments),
-    }
+    metadata[f"{node_id}.{output_key}"] = await store_batfish_result(
+        artifact_service,
+        mismatches,
+        context=context,
+        node_id=node_id,
+        question="validateFacts",
+        row_count=len(mismatches),
+        node_count=len(node_fragments),
+    )
 
     counts = {name: len(buckets[name]) for name in _OUTCOME_NAMES}
     logger.info(

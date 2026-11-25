@@ -3,8 +3,7 @@ questions (bgpProcessConfiguration, bgpPeerConfiguration, bgpSessionStatus,
 bgpEdges) into one per-node BGP picture.
 
 Shared by the `batfish-bgp-facts` workflow step
-(`workflow_steps.common.batfish_bgp_facts`, which re-exports
-`BGP_QUESTION_SPECS`/`BGP_QUESTION_KEYS` from here) and
+(`workflow_steps.batfish_bgp_facts.executor` pairs each key with its query) and
 `services.batfish.preview_service.BatfishPreviewService`'s ad-hoc "Get BGP
 Facts" preview. See `doc/BATFISH_INTEGRATION.md` "Batfish BGP Facts" for
 the row-shape verification this is built on.

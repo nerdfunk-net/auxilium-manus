@@ -28,26 +28,28 @@ verification effort.
 
 from __future__ import annotations
 
-import json
 import logging
+from collections.abc import Awaitable, Callable
 from typing import Any
 
-from models.workflow_context import (
-    Capability,
-    DeviceContext,
-    DeviceStatus,
-    StepOutcome,
-    WorkflowContext,
-)
+import service_factory
+from core.models.runs import WorkflowRun
+from models.workflow_context import Capability, DeviceContext, StepOutcome, WorkflowContext
 from services.artifacts import ArtifactService
 from services.batfish.facts_specs import (
     PropertyQuestionSpec,
     facts_by_node_for_property,
 )
 from services.workflow_context.node_result import set_node_result
+from workflow_steps.common.batfish_context import resolve_batfish_snapshot_ref
+from workflow_steps.common.batfish_results import batfish_node_device, store_batfish_result
+from workflow_steps.common.fact_entries import parse_output_key_config
+from workflow_steps.common.run_logging import log_run_id
+from workflow_steps.common.step_flags import parse_bool_flag
 
 __all__ = [
     "EMPTY_MATCH_MODES",
+    "run_property_step",
     "assert_requested_columns_present",
     "build_property_outcomes",
     "is_empty_value",
@@ -125,14 +127,7 @@ def _enrich_devices(
 
     enriched: dict[str, DeviceContext] = {}
     for node, payload in payloads_by_node.items():
-        device = DeviceContext(
-            id=node,
-            name=node,
-            hostname=node,
-            source="batfish",
-            capabilities={Capability.IDENTITY},
-            status=DeviceStatus.OK,
-        )
+        device = batfish_node_device(node)
         parsed = set_node_result(
             device.parsed, node_id, output_key, {"parsed": payload, "error": None}
         )
@@ -154,22 +149,15 @@ async def build_property_outcomes(
     properties_list: list[str],
     match_mode: str,
 ) -> list[StepOutcome]:
-    content = json.dumps(rows, indent=2, default=str)
-    artifact_ref = await artifact_service.store(
-        content=content,
-        kind="batfish_result",
-        device_id=f"batfish-{node_id}",
-        run_id=context.run_id,
-        media_type="application/json",
-    )
-
     metadata = dict(context.metadata)
-    metadata[f"{node_id}.{output_key}"] = {
-        "kind": "batfish_result",
-        "question": spec.question_label,
-        "artifact_ref": artifact_ref.model_dump(mode="json"),
-        "row_count": len(rows),
-    }
+    metadata[f"{node_id}.{output_key}"] = await store_batfish_result(
+        artifact_service,
+        rows,
+        context=context,
+        node_id=node_id,
+        question=spec.question_label,
+        row_count=len(rows),
+    )
 
     if route_empty_to_devices:
         devices_rows = [
@@ -203,3 +191,78 @@ async def build_property_outcomes(
             summary=f"{len(device_nodes)} device(s)",
         ),
     ]
+
+
+async def run_property_step(
+    *,
+    step_id: str,
+    spec: PropertyQuestionSpec,
+    query: Callable[..., Awaitable[list[dict[str, Any]]]],
+    extra_filters: tuple[str, ...] = (),
+    default_output_key: str,
+    default_config: dict[str, Any],
+    config: dict[str, Any],
+    context: WorkflowContext,
+    run: WorkflowRun,
+    artifact_service: ArtifactService,
+    node_id: str,
+) -> list[StepOutcome]:
+    """The whole body of a property step (Batfish Node / Interface Properties).
+
+    ``query`` is called with ``nodes`` and ``properties`` plus one keyword per name in
+    ``extra_filters``, each read from the config under the same name.
+    """
+    merged_config = {**default_config, **config}
+    output_key = parse_output_key_config(
+        merged_config.get("output_key"),
+        step_id=step_id,
+        default=default_output_key,
+        key_name="output_key",
+    )
+    properties_list = parse_properties_list(str(merged_config.get("properties") or ""))
+    route_empty_to_devices = parse_bool_flag(merged_config, "route_empty_to_devices")
+    match_mode = str(merged_config.get("empty_match_mode") or "any").strip().lower()
+    validate_empty_config(
+        step_id=step_id,
+        route_empty_to_devices=route_empty_to_devices,
+        properties_list=properties_list,
+        match_mode=match_mode,
+    )
+
+    batfish = service_factory.get_batfish_app_service()
+    snap = await resolve_batfish_snapshot_ref(
+        context=context, config=merged_config, run=run, batfish=batfish
+    )
+
+    logger.info(
+        "%s started run_id=%s node_id=%s network=%s snapshot=%s",
+        step_id,
+        log_run_id(run),
+        node_id,
+        snap.network,
+        snap.snapshot,
+    )
+
+    rows = await query(
+        batfish,
+        snap.connection,
+        batfish_network=snap.network,
+        snapshot=snap.snapshot,
+        nodes=merged_config.get("nodes"),
+        properties=merged_config.get("properties"),
+        **{name: merged_config.get(name) for name in extra_filters},
+    )
+
+    assert_requested_columns_present(step_id=step_id, rows=rows, properties_list=properties_list)
+
+    return await build_property_outcomes(
+        spec=spec,
+        rows=rows,
+        context=context,
+        artifact_service=artifact_service,
+        node_id=node_id,
+        output_key=output_key,
+        route_empty_to_devices=route_empty_to_devices,
+        properties_list=properties_list,
+        match_mode=match_mode,
+    )

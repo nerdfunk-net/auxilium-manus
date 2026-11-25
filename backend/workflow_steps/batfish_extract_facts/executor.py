@@ -20,7 +20,6 @@ extracted node.
 
 from __future__ import annotations
 
-import json
 import logging
 import re
 from typing import TYPE_CHECKING, Any
@@ -40,6 +39,7 @@ from services.artifacts import ArtifactService
 from workflow_steps.batfish_extract_facts.config import get_config
 from workflow_steps.batfish_extract_facts.hsrp import mark_hsrp_error, merge_hsrp_into_facts
 from workflow_steps.common.batfish_context import resolve_batfish_snapshot_ref
+from workflow_steps.common.batfish_results import store_batfish_result
 from workflow_steps.common.fact_entries import parse_output_key_config
 from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.common.step_flags import parse_bool_flag
@@ -202,23 +202,17 @@ async def execute(
             }
         )
 
-    content = json.dumps(facts, indent=2, default=str)
-    artifact_ref = await artifact_service.store(
-        content=content,
-        kind="batfish_result",
-        device_id=f"batfish-{node_id}",
-        run_id=context.run_id,
-        media_type="application/json",
-    )
     metadata = dict(context.metadata)
-    metadata[f"{node_id}.{output_key}"] = {
-        "kind": "batfish_result",
-        "question": "extractFacts",
-        "artifact_ref": artifact_ref.model_dump(mode="json"),
-        "row_count": len(node_facts),
-    }
-    if hsrp_error:
-        metadata[f"{node_id}.{output_key}"]["warnings"] = [f"HSRP groups not added: {hsrp_error}"]
+    warnings = {"warnings": [f"HSRP groups not added: {hsrp_error}"]} if hsrp_error else {}
+    metadata[f"{node_id}.{output_key}"] = await store_batfish_result(
+        artifact_service,
+        facts,
+        context=context,
+        node_id=node_id,
+        question="extractFacts",
+        row_count=len(node_facts),
+        **warnings,
+    )
 
     logger.info(
         "%s finished run_id=%s nodes_extracted=%d", _STEP_ID, log_run_id(run), len(node_facts)

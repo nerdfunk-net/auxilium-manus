@@ -5,12 +5,17 @@ batfish-ospf-facts' executor delegates to.
 
 from __future__ import annotations
 
+import functools
 import unittest
 
 from models.workflow_context import Capability, WorkflowContext
 from services.artifacts import InMemoryArtifactService
-from workflow_steps.common.batfish_ospf_facts import build_ospf_facts_outcomes
+from services.batfish.ospf_facts import OSPF_QUESTION_SPECS
+from workflow_steps.common.batfish_combined_facts import build_combined_facts_outcomes
 
+build_ospf_facts_outcomes = functools.partial(
+    build_combined_facts_outcomes, step_id="batfish-ospf-facts", specs=OSPF_QUESTION_SPECS
+)
 
 class BuildOspfFactsOutcomesTests(unittest.IsolatedAsyncioTestCase):
     async def test_all_four_questions_merge_per_device(self) -> None:

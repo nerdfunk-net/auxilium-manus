@@ -16,23 +16,20 @@ specifically so this doesn't collide with that.
 
 from __future__ import annotations
 
-import json
 import logging
 from typing import TYPE_CHECKING, Any
 
 import service_factory
 from core.models.runs import WorkflowRun
 from models.workflow_context import (
-    Capability,
-    DeviceContext,
-    DeviceStatus,
     StepOutcome,
     WorkflowContext,
 )
 from services.artifacts import ArtifactService
 from services.batfish.query_helpers import query_routes
 from workflow_steps.batfish_routing_table.config import get_config
-from workflow_steps.common.batfish_context import resolve_batfish_snapshot_ref
+from workflow_steps.common.batfish_context import devices_from_nodes, resolve_batfish_snapshot_ref
+from workflow_steps.common.batfish_results import store_batfish_result
 from workflow_steps.common.fact_entries import parse_output_key_config
 from workflow_steps.common.run_logging import log_run_id
 
@@ -89,38 +86,19 @@ async def execute(
         rib=merged_config.get("rib"),
     )
 
-    content = json.dumps(rows, indent=2, default=str)
-    artifact_ref = await artifact_service.store(
-        content=content,
-        kind="batfish_result",
-        device_id=f"batfish-{node_id}",
-        run_id=context.run_id,
-        media_type="application/json",
-    )
-
     metadata = dict(context.metadata)
-    metadata[f"{node_id}.{output_key}"] = {
-        "kind": "batfish_result",
-        "question": "routes",
-        "artifact_ref": artifact_ref.model_dump(mode="json"),
-        "row_count": len(rows),
-    }
+    metadata[f"{node_id}.{output_key}"] = await store_batfish_result(
+        artifact_service,
+        rows,
+        context=context,
+        node_id=node_id,
+        question="routes",
+        row_count=len(rows),
+    )
 
     logger.info("%s finished run_id=%s rows=%d", _STEP_ID, log_run_id(run), len(rows))
 
-    device_nodes: dict[str, DeviceContext] = {}
-    for row in rows:
-        node = row.get("Node")
-        if not node or node in device_nodes:
-            continue
-        device_nodes[node] = DeviceContext(
-            id=node,
-            name=node,
-            hostname=node,
-            source="batfish",
-            capabilities={Capability.IDENTITY},
-            status=DeviceStatus.OK,
-        )
+    device_nodes = devices_from_nodes(rows)
 
     return [
         StepOutcome(

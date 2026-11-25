@@ -258,12 +258,11 @@ backend/services/git/source_files.py   # config_source: git -- glob-based file c
 backend/workflow_steps/batfish_routing_table/{__init__.py,executor.py,config.py}
 backend/workflow_steps/batfish_node_properties/{__init__.py,executor.py,config.py}   # exposes nodeProperties' `properties` filter directly (Get from Batfish never sets it)
 backend/workflow_steps/batfish_interface_properties/{__init__.py,executor.py,config.py}   # interfaceProperties -- one row per (node, interface), a different question/shape from nodeProperties
-backend/workflow_steps/common/batfish_combined_facts.py   # shared "combined facts" engine -- CombinedQuestionSpec/
-                                               # build_combined_facts_outcomes; N-question grouping + per-device merge,
+backend/workflow_steps/common/batfish_combined_facts.py   # shared "combined facts" engine -- run_combined_facts_step (the whole step body:
+                                               # toggles, queries, snapshot) + build_combined_facts_outcomes; N-question grouping + per-device merge,
                                                # NOT a PropertyQuestionSpec (see Batfish OSPF Facts section)
-backend/workflow_steps/common/batfish_ospf_facts.py   # "Get OSPF Facts" question specs (process/areas/interfaces/edges)
+backend/workflow_steps/common/batfish_results.py   # store_batfish_result (the one artifact + metadata entry) and batfish_node_device
 backend/workflow_steps/batfish_ospf_facts/{__init__.py,executor.py,config.py}   # "Get OSPF Facts" -- each question independently toggleable
-backend/workflow_steps/common/batfish_bgp_facts.py    # "Get BGP Facts" question specs (process/peers/sessions/edges)
 backend/workflow_steps/batfish_bgp_facts/{__init__.py,executor.py,config.py}    # "Get BGP Facts" -- each question independently toggleable
 backend/workflow_steps/batfish_path_check/{__init__.py,executor.py,config.py}
 backend/workflow_steps/batfish_acl_check/{__init__.py,executor.py,config.py}
@@ -1336,9 +1335,8 @@ merge itself, implemented as a generic engine in
 (`CombinedQuestionSpec`/`build_combined_facts_outcomes`) rather than as
 another `PropertyQuestionSpec` entry (that engine assumes exactly one
 Batfish call in, one shape out — real merge logic across several
-heterogeneous row shapes is genuinely new). `workflow_steps/common/
-batfish_ospf_facts.py` supplies only the OSPF-specific `CombinedQuestionSpec`
-table on top of that shared engine — originally written as a self-contained
+heterogeneous row shapes is genuinely new). `services/batfish/ospf_facts.py` supplies only the OSPF-specific `CombinedQuestionSpec`
+table (and the step's executor the question-to-query table) on top of that shared engine — originally written as a self-contained
 module, then factored apart once **Batfish BGP Facts** (below) needed the
 identical fetch-store-merge mechanics with a different question set.
 
@@ -1444,7 +1442,7 @@ Because all four questions share the `nodeProperties` identity shape, this
 step needed no `_interface_node_key`/dict-by-name grouping at all — every
 merged field is a plain list, via the same `_node_key` extractor and a
 shared "strip the redundant `Node` field, return the list" builder
-(`workflow_steps/common/batfish_bgp_facts.py`). Genuinely less code than
+(`services/batfish/bgp_facts.py`). Genuinely less code than
 Batfish OSPF Facts for this reason, not a simplification taken at the cost
 of correctness.
 
@@ -1968,9 +1966,8 @@ directly"). So this logic moved down into `services/batfish/` —
 (`OSPF_QUESTION_SPECS`/`BGP_QUESTION_SPECS`), and
 `node_properties_spec.py`/`interface_properties_spec.py`
 (`NODE_PROPERTIES_SPEC`/`INTERFACE_PROPERTIES_SPEC`, previously built inline
-in each property step's executor). `workflow_steps/common/batfish_ospf_facts.py`/
-`batfish_bgp_facts.py`/`batfish_combined_facts.py`/`batfish_properties.py`
-now re-export the same names from their new home — a pure move, verified
+in each property step's executor). `workflow_steps/common/batfish_combined_facts.py`/`batfish_properties.py`
+used to re-export the same names from their new home (the OSPF/BGP shim modules are gone) — a pure move, verified
 behavior-identical by the full existing Batfish test suite passing unchanged
 (no test file needed an import-path update). Mirrors the precedent
 `query_helpers.py` already set for the 4 simpler questions ("shared by
