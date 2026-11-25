@@ -12,6 +12,8 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from workflow_steps.common.regex_search import match_any
+
 _MANAGEMENT_NAME_RE = re.compile(r"^(management|mgmt)", re.IGNORECASE)
 _LOOPBACK_NUMBER_RE = re.compile(r"^loopback(\d+)$", re.IGNORECASE)
 
@@ -98,21 +100,26 @@ def _select_loopback(interfaces: list[dict[str, Any]], *, highest: bool) -> tupl
     return name, address
 
 
-def _select_custom(interfaces: list[dict[str, Any]], pattern: str) -> tuple[str, str] | None:
+async def _select_custom(interfaces: list[dict[str, Any]], pattern: str) -> tuple[str, str] | None:
+    """The first interface whose name matches the author's pattern and has a usable address.
+
+    The pattern runs in the isolated regex worker; ``RegexStoppedError`` when it is too slow.
+    """
     if not pattern:
         return None
-    compiled = re.compile(pattern, re.IGNORECASE)
-    for interface in interfaces:
-        name = interface.get("name")
-        if not isinstance(name, str) or not compiled.search(name):
+    named = [i for i in interfaces if isinstance(i.get("name"), str)]
+    matched = await match_any([i["name"] for i in named], [pattern], ignore_case=True)
+    for interface, hit in zip(named, matched, strict=True):
+        if not hit:
             continue
+        name = interface["name"]
         address = interface_primary_candidate(interface)
         if address:
             return name, address
     return None
 
 
-def select_primary_ipv4(
+async def select_primary_ipv4(
     interfaces: list[dict[str, Any]],
     priority: list[str],
     custom_pattern: str,
@@ -126,7 +133,7 @@ def select_primary_ipv4(
         elif strategy == "loopback_lowest":
             result = _select_loopback(interfaces, highest=False)
         elif strategy == "custom_interface":
-            result = _select_custom(interfaces, custom_pattern)
+            result = await _select_custom(interfaces, custom_pattern)
         else:
             result = None
         if result:

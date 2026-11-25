@@ -107,6 +107,45 @@ def _match_many(items: list[dict]) -> list[bool | str]:
     return results
 
 
+def _match_any(request: dict) -> list[bool | str]:
+    """For each text: ``True`` when any of the patterns is found in it, else ``False``.
+
+    ``ignore_case`` applies to all patterns. A pattern that does not compile fails the whole
+    request (``ValueError``: the caller validated it, so this is a bug or a mismatch). A text that
+    takes too long answers ``"stopped"`` (and so does every text after the batch budget): the
+    caller must not treat that as "no match". Answers never echo a pattern or a text.
+    """
+    import re
+    import signal
+    import time
+
+    flags = re.IGNORECASE if request.get("ignore_case") else 0
+    try:
+        compiled = [re.compile(p, flags) for p in request["patterns"] if p]
+    except (re.error, RecursionError, OverflowError) as exc:
+        raise ValueError("invalid pattern") from exc
+    timed = hasattr(signal, "setitimer")
+    if timed:
+        signal.signal(signal.SIGALRM, _on_alarm)
+    deadline = time.monotonic() + BATCH_SECONDS
+    results: list[bool | str] = []
+    for text in request["texts"]:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            results.append("stopped")
+            continue
+        if timed:
+            signal.setitimer(signal.ITIMER_REAL, min(ITEM_SECONDS, remaining))
+        try:
+            results.append(any(p.search(text) is not None for p in compiled))
+        except _ItemTimeout, MemoryError:
+            results.append("stopped")
+        finally:
+            if timed:
+                signal.setitimer(signal.ITIMER_REAL, 0)
+    return results
+
+
 def _search_lines(regex, request: dict) -> list[dict]:
     """For each ``{id, text}``: the first ``max_lines`` lines (1-based number, line cut to 200
     characters) where the pattern is found. An item that takes too long gets ``stopped: true``
@@ -231,6 +270,8 @@ def main() -> None:
             result = _search_lines(regex, request)
         elif request["op"] == "search_many":
             result = _search_many(regex, request)
+        elif request["op"] == "match_any":
+            result = _match_any(request)
         elif request["op"] == "match_many":
             result = _match_many(request["items"])
         else:

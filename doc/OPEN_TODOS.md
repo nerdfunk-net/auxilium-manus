@@ -903,8 +903,8 @@ is covered by unit tests only. Open items:
   steps `render-jinja-template` and `update-content` still evaluate author-written content in the
   worker process (authors are trusted). `route-on-content`, `get-virtual-chassis` (name filter and
   index regex) already search through the isolated runner (`workflow_steps/common/regex_search.py`,
-  op `search_many`); `filter-output` and `config_to_attributes/primary_ipv4.py` compile config patterns
-  in-process and are the next candidates.
+  op `search_many`); `filter-output` and `config_to_attributes/primary_ipv4.py` now do too (op `match_any`,
+  `regex_search.match_any`, fail closed on a stopped pattern). Only `render-jinja-template` and `update-content` remain.
 
 - **Container hardening trial (S6-09).** The compose files drop all capabilities but the few
   `start.sh`/supervisord need and set `no-new-privileges`, PID and memory limits, but `read_only: true`

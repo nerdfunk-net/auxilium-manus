@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import unittest
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from models.workflow_context import Capability, DeviceContext, DeviceStatus, WorkflowContext
 from workflow_steps.config_to_attributes.config import get_config
@@ -954,6 +954,76 @@ class PrimaryIpv4SelectionTests(unittest.IsolatedAsyncioTestCase):
         by_name = {i["name"]: i for i in interfaces}
         self.assertTrue(by_name["Vlan1"]["ip_addresses"][0]["is_primary"])
         self.assertNotIn("is_primary", by_name["Vlan2"]["ip_addresses"][0])
+
+    async def test_custom_pattern_runs_in_the_isolated_worker_on_interface_names(self) -> None:
+        device = _device(
+            "dev-1",
+            parsed=_parsed(
+                self._iface("Vlan1", "192.168.1.1"), self._iface("Vlan2", "192.168.2.1")
+            ),
+        )
+        from workflow_steps.common.regex_search import match_any
+
+        with patch(
+            "workflow_steps.config_to_attributes.primary_ipv4.match_any", wraps=match_any
+        ) as spy:
+            await execute(
+                config={
+                    **_BASE_CONFIG,
+                    "update_primary_ipv4": True,
+                    "primary_ipv4_priority": [
+                        "custom_interface",
+                        "management_interface",
+                        "loopback_highest",
+                        "loopback_lowest",
+                    ],
+                    "primary_ipv4_custom_pattern": r"^vlan2$",
+                },
+                context=_context({"dev-1": device}),
+                run=_run(),
+                artifact_service=MagicMock(),
+                node_id="node-1",
+                device_sessions=MagicMock(),
+            )
+
+        (names, patterns), kwargs = spy.call_args
+        self.assertEqual((names, patterns), (["Vlan1", "Vlan2"], [r"^vlan2$"]))
+        self.assertIs(kwargs["ignore_case"], True)
+
+    async def test_an_interface_without_a_text_name_is_skipped_by_the_custom_pattern(self) -> None:
+        from workflow_steps.config_to_attributes.primary_ipv4 import select_primary_ipv4
+
+        interfaces = [
+            {"name": None, "ip_addresses": [{"address": "10.0.0.9/32"}]},
+            {"ip_addresses": [{"address": "10.0.0.8/32"}]},
+            {"name": "Vlan1", "ip_addresses": [{"address": "10.0.0.1/24"}]},
+        ]
+        match = await select_primary_ipv4(interfaces, ["custom_interface"], "vlan")
+        self.assertEqual(match, ("Vlan1", "10.0.0.1/24"))
+
+    async def test_a_catastrophic_custom_pattern_stops_the_step_instead_of_guessing(self) -> None:
+        from workflow_steps.common.regex_search import RegexStoppedError
+
+        device = _device("dev-1", parsed=_parsed(self._iface("a" * 40 + "!", "192.168.1.1")))
+        with self.assertRaises(RegexStoppedError):
+            await execute(
+                config={
+                    **_BASE_CONFIG,
+                    "update_primary_ipv4": True,
+                    "primary_ipv4_priority": [
+                        "custom_interface",
+                        "management_interface",
+                        "loopback_highest",
+                        "loopback_lowest",
+                    ],
+                    "primary_ipv4_custom_pattern": r"(a+)+$",
+                },
+                context=_context({"dev-1": device}),
+                run=_run(),
+                artifact_service=MagicMock(),
+                node_id="node-1",
+                device_sessions=MagicMock(),
+            )
 
     async def test_no_strategy_matches_routes_to_failure(self) -> None:
         device = _device(

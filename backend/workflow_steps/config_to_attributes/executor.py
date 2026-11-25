@@ -442,7 +442,7 @@ def _build_device_fields(
     return build_device_fields_from_catalyst_details(parsed_entry, _catalyst_vendor(device))
 
 
-def _resolve_primary_ipv4(
+async def _resolve_primary_ipv4(
     *,
     device: DeviceContext,
     interfaces: list[dict[str, Any]],
@@ -456,7 +456,7 @@ def _resolve_primary_ipv4(
     the device should be routed to the ``failure`` outcome.
     """
     if update_primary_ipv4:
-        match = select_primary_ipv4(interfaces, priority, custom_pattern)
+        match = await select_primary_ipv4(interfaces, priority, custom_pattern)
         if match is None:
             return False, (
                 f"No interface matched the configured primary_ipv4_priority {priority!r} "
@@ -576,7 +576,7 @@ async def execute(
 
         primary_ok, failure_message = True, ""
         if interfaces:
-            primary_ok, failure_message = _resolve_primary_ipv4(
+            primary_ok, failure_message = await _resolve_primary_ipv4(
                 device=device,
                 interfaces=interfaces,
                 update_primary_ipv4=update_primary_ipv4,

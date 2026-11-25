@@ -516,6 +516,13 @@ its own time limit. An unusable answer is `invalid` (bad pattern) or `stopped` (
 failed): `route-on-content` fails that device (`invalid_regex` / `regex_stopped`), `get-virtual-chassis`
 fails the step naming the setting.
 
+Patterns that *remove* content use the second helper, `match_any(texts, patterns, ignore_case=)` (op `match_any`:
+per text, whether any pattern is found; batches of at most 5000 texts / 4 MB): `filter-output` (key names of JSON, lines of
+text) and the `custom_interface` strategy of `config-to-attributes` (`primary_ipv4_custom_pattern` on interface names,
+case-insensitive). A stopped, failed or rejected batch raises `RegexStoppedError` (a `RuntimeError`): the device
+(`filter-output`) or the step (`config-to-attributes`) fails, because "no match" must never be inferred from a failure
+(it would keep the lines the author wanted removed). Patterns are still validated with `re.compile` at config parse time.
+
 ### The run's database session
 
 A step gets its session with `workflow_steps.common.run_session.require_session(run, step_id)`; a run without one raises `RuntimeError("<step_id>: WorkflowRun has no active DB session")`. Nothing else in `workflow_steps/` may call `object_session` (`tests/unit/test_object_session_ratchet.py`); tests patch `workflow_steps.common.run_session.object_session` (`patch_object_session()`).

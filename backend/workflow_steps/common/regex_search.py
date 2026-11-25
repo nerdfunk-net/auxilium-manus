@@ -105,3 +105,63 @@ async def search_many(
         for index, raw in zip(indexes, outcome.result, strict=True):
             answers[index] = _answer(raw)
     return answers
+
+
+class RegexStoppedError(RuntimeError):
+    """A pattern was too slow, or the worker could not answer: the result must not be guessed."""
+
+
+# ``match_any`` runs inside the worker's 1.5 s batch budget: cap the texts per batch.
+MAX_TEXTS_PER_ANY_BATCH = 5000
+
+
+def _text_batches(texts: Sequence[str]) -> list[list[int]]:
+    batches: list[list[int]] = []
+    current: list[int] = []
+    size = 0
+    for index, text in enumerate(texts):
+        cost = len(text)
+        full = len(current) >= MAX_TEXTS_PER_ANY_BATCH or size + cost > MAX_BYTES_PER_BATCH
+        if current and full:
+            batches.append(current)
+            current, size = [], 0
+        current.append(index)
+        size += cost
+    if current:
+        batches.append(current)
+    return batches
+
+
+async def match_any(
+    texts: Sequence[str], patterns: Sequence[str], *, ignore_case: bool = False
+) -> list[bool]:
+    """Per text: whether any of ``patterns`` is found in it (``re.search``), in the isolated worker.
+
+    Raises ``RegexStoppedError`` when the worker stopped a text (too slow), failed, or rejected a
+    pattern: "no match" is never inferred from a failure, because the callers *remove* what matches.
+    """
+    found: list[bool] = [False] * len(texts)
+    live = [p for p in patterns if p]
+    if not live or not texts:
+        return found
+    for indexes in _text_batches(texts):
+        outcome = await run_regex(
+            {
+                "op": "match_any",
+                "ignore_case": ignore_case,
+                "patterns": live,
+                "texts": [texts[i] for i in indexes],
+            }
+        )
+        result = outcome.result
+        if (
+            not outcome.ok
+            or not isinstance(result, list)
+            or len(result) != len(indexes)
+            or not all(isinstance(r, bool) for r in result)
+        ):
+            logger.warning("regex match_any batch failed: %s", outcome.error)
+            raise RegexStoppedError("the pattern was stopped or could not be evaluated")
+        for index, answer in zip(indexes, result, strict=True):
+            found[index] = answer
+    return found

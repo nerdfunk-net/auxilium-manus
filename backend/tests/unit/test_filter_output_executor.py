@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import unittest
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from models.workflow_context import (
     ArtifactRef,
@@ -15,6 +15,7 @@ from models.workflow_context import (
     WorkflowContext,
 )
 from services.artifacts import InMemoryArtifactService
+from workflow_steps.common.regex_search import RegexStoppedError, match_any
 from workflow_steps.filter_output.executor import (
     _apply_path_rule,
     _apply_pattern_rules,
@@ -25,6 +26,8 @@ from workflow_steps.filter_output.executor import (
     _select_export_item,
     execute,
 )
+
+MODULE = "workflow_steps.filter_output.executor"
 
 
 class ParseRulesTests(unittest.TestCase):
@@ -78,11 +81,11 @@ class ParseConfigTests(unittest.TestCase):
         self.assertEqual(cfg.source_step_node_id, "n")
 
 
-class FilterHelperTests(unittest.TestCase):
+class FilterHelperTests(unittest.IsolatedAsyncioTestCase):
     def test_apply_pattern_rules_removes_matching_keys_recursively(self) -> None:
         data = {"uptime": 1, "keep": {"uptime_secs": 2, "value": 3}, "list": [{"uptime": 4}]}
         self.assertEqual(
-            _apply_pattern_rules(data, ["uptime"]),
+            _apply_pattern_rules(data, frozenset({"uptime", "uptime_secs"})),
             {"keep": {"value": 3}, "list": [{}]},
         )
 
@@ -96,21 +99,89 @@ class FilterHelperTests(unittest.TestCase):
             _apply_path_rule(data, ["a", "b"]), [{"a": {}}, {"a": {"c": 3}}]
         )
 
-    def test_filter_json_combines_pattern_and_path(self) -> None:
+    async def test_filter_json_combines_pattern_and_path(self) -> None:
         data = {"uptime": 1, "route": {"ospf": {"pid": 9}}, "keep": 2}
-        out = _filter_json(data, [
+        out = await _filter_json(data, [
             {"type": "pattern", "value": "uptime"},
             {"type": "path", "value": "route.ospf"},
         ])
         self.assertEqual(out, {"route": {}, "keep": 2})
 
-    def test_filter_text_drops_matching_lines(self) -> None:
+    async def test_filter_text_drops_matching_lines(self) -> None:
         text = "uptime is 5 days\nhostname lab\nuptime counter 3\n"
-        self.assertEqual(_filter_text(text, [{"type": "pattern", "value": "uptime"}]),
+        self.assertEqual(await _filter_text(text, [{"type": "pattern", "value": "uptime"}]),
                          "hostname lab\n")
 
-    def test_filter_text_without_pattern_is_identity(self) -> None:
-        self.assertEqual(_filter_text("abc", [{"type": "path", "value": "x"}]), "abc")
+    async def test_filter_text_without_pattern_is_identity(self) -> None:
+        self.assertEqual(await _filter_text("abc", [{"type": "path", "value": "x"}]), "abc")
+
+
+class IsolatedPatternTests(unittest.IsolatedAsyncioTestCase):
+    """The author's patterns run in the isolated worker and a failure never means "keep" (S4-07)."""
+
+    async def test_key_patterns_match_by_search_at_any_depth_and_ask_once_per_name(self) -> None:
+        data = {"uptime": 1, "keep": {"uptime_secs": 2, "value": 3}, "list": [{"uptime": 4}]}
+        with patch(f"{MODULE}.match_any", wraps=match_any) as spy:
+            out = await _filter_json(data, [{"type": "pattern", "value": "uptime"}])
+
+        self.assertEqual(out, {"keep": {"value": 3}, "list": [{}]})
+        (names, patterns), _ = spy.call_args
+        self.assertEqual(names, sorted(["uptime", "keep", "uptime_secs", "value", "list"]))
+        self.assertEqual(patterns, ["uptime"])
+
+    async def test_key_names_are_collected_from_lists_of_objects(self) -> None:
+        out = await _filter_json(
+            [{"nested": [{"token": 1, "keep": 2}]}], [{"type": "pattern", "value": "^token$"}]
+        )
+        self.assertEqual(out, [{"nested": [{"keep": 2}]}])
+
+    async def test_text_lines_are_matched_with_every_pattern(self) -> None:
+        text = "a\nb\nc\n"
+        rules = [{"type": "pattern", "value": "^a"}, {"type": "pattern", "value": "c"}]
+        self.assertEqual(await _filter_text(text, rules), "b\n")
+
+    async def test_a_stopped_pattern_fails_instead_of_keeping_the_text(self) -> None:
+        async def stopped(texts, patterns, **kwargs):
+            raise RegexStoppedError("stopped")
+
+        with patch(f"{MODULE}.match_any", stopped):
+            with self.assertRaises(RegexStoppedError):
+                await _filter_text("secret line\n", [{"type": "pattern", "value": "x"}])
+            with self.assertRaises(RegexStoppedError):
+                await _filter_json({"password": "x"}, [{"type": "pattern", "value": "x"}])
+
+    async def test_a_catastrophic_pattern_fails_the_device_and_stores_nothing(self) -> None:
+        artifacts = InMemoryArtifactService()
+        text = "a" * 40 + "!\nhostname lab\n"
+        ref = await artifacts.store(
+            content=text, kind="command_output", device_id="d1", run_id="run-1",
+            media_type="text/plain",
+        )
+        device = DeviceContext(
+            id="d1", name="d1", hostname="d1",
+            command_results={
+                "src": [
+                    CommandResult(node_id="src", command="show run", success=True, output_ref=ref)
+                ]
+            },
+            capabilities={Capability.IDENTITY}, status=DeviceStatus.OK,
+        )
+        outcomes = await execute(
+            config={
+                "content_source": "command_output",
+                "source_step_node_id": "src",
+                "filter_rules": [{"pattern": "(a+)+$"}],
+            },
+            context=WorkflowContext(run_id="run-1", workflow_id="w", devices={"d1": device}),
+            run=_run(), artifact_service=artifacts, node_id="node-1", device_sessions=MagicMock(),
+        )
+
+        by_name = {o.name: o for o in outcomes}
+        self.assertEqual(by_name["success"].context.devices, {})
+        failed = by_name["failure"].context.devices["d1"]
+        self.assertEqual(failed.errors[-1].code, "regexstoppederror")
+        self.assertEqual(failed.status, DeviceStatus.FAILED)
+        self.assertNotIn("node-1", failed.parsed)
 
 
 class SelectAndPartitionTests(unittest.TestCase):

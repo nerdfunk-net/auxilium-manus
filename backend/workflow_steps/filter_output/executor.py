@@ -26,6 +26,7 @@ from models.workflow_context import (
 from services.artifacts import ArtifactService
 from workflow_steps.common.content_resolver import ExportableContent, list_exportable_content
 from workflow_steps.common.content_step import StoredContent, run_content_step
+from workflow_steps.common.regex_search import match_any
 from workflow_steps.common.run_logging import log_run_id
 
 if TYPE_CHECKING:
@@ -99,15 +100,24 @@ def _parse_filter_config(config: dict[str, Any]) -> _ParsedFilterConfig:
     )
 
 
-def _apply_pattern_rules(data: Any, patterns: list[str]) -> Any:
-    """Recursively remove object keys whose names match any pattern."""
+def _key_names(data: Any) -> set[str]:
+    """Every object key name in ``data``, at any depth."""
     if isinstance(data, list):
-        return [_apply_pattern_rules(item, patterns) for item in data]
+        return {name for item in data for name in _key_names(item)}
+    if isinstance(data, dict):
+        return set(data) | {name for value in data.values() for name in _key_names(value)}
+    return set()
+
+
+def _apply_pattern_rules(data: Any, dropped: frozenset[str]) -> Any:
+    """Recursively remove the object keys whose names are in ``dropped``."""
+    if isinstance(data, list):
+        return [_apply_pattern_rules(item, dropped) for item in data]
     if isinstance(data, dict):
         return {
-            key: _apply_pattern_rules(value, patterns)
+            key: _apply_pattern_rules(value, dropped)
             for key, value in data.items()
-            if not any(re.search(p, key) for p in patterns)
+            if key not in dropped
         }
     return data
 
@@ -129,21 +139,28 @@ def _apply_path_rule(data: Any, path_parts: list[str]) -> Any:
     return data
 
 
-def _filter_json(data: Any, rules: list[dict[str, str]]) -> Any:
+async def _filter_json(data: Any, rules: list[dict[str, str]]) -> Any:
     patterns = [r["value"] for r in rules if r["type"] == "pattern"]
-    result = _apply_pattern_rules(data, patterns) if patterns else data
+    result = data
+    if patterns:
+        # The author's patterns run in the isolated worker: one question per distinct key name.
+        names = sorted(_key_names(data))
+        matched = await match_any(names, patterns)
+        dropped = frozenset(n for n, hit in zip(names, matched, strict=True) if hit)
+        result = _apply_pattern_rules(data, dropped)
     for rule in rules:
         if rule["type"] == "path":
             result = _apply_path_rule(result, rule["value"].split("."))
     return result
 
 
-def _filter_text(text: str, rules: list[dict[str, str]]) -> str:
+async def _filter_text(text: str, rules: list[dict[str, str]]) -> str:
     patterns = [r["value"] for r in rules if r["type"] == "pattern"]
     if not patterns:
         return text
     lines = text.splitlines(keepends=True)
-    return "".join(line for line in lines if not any(re.search(p, line) for p in patterns))
+    matched = await match_any(lines, patterns)
+    return "".join(line for line, hit in zip(lines, matched, strict=True) if not hit)
 
 
 def _select_export_item(
@@ -163,18 +180,18 @@ def _select_export_item(
     return export_items[0]
 
 
-def _filter_content(raw_content: str, media_type: str, rules: Any) -> tuple[str, str]:
+async def _filter_content(raw_content: str, media_type: str, rules: Any) -> tuple[str, str]:
     """The filtered text and its media type (JSON stays JSON, anything else is plain text)."""
     if media_type == "application/json":
         try:
             data = json.loads(raw_content)
         except json.JSONDecodeError as exc:
             raise ValueError(f"Content is not valid JSON: {exc}") from exc
-        filtered_content = json.dumps(_filter_json(data, rules), indent=2)
+        filtered_content = json.dumps(await _filter_json(data, rules), indent=2)
         if not filtered_content.endswith("\n"):
             filtered_content += "\n"
         return filtered_content, media_type
-    return _filter_text(raw_content, rules), "text/plain"
+    return await _filter_text(raw_content, rules), "text/plain"
 
 
 async def execute(
@@ -214,7 +231,7 @@ async def execute(
             )
         item = _select_export_item(export_items, parsed=parsed)
         raw_content = await artifact_service.resolve(item.artifact_ref)
-        text, media_type = _filter_content(raw_content, item.media_type, parsed.rules)
+        text, media_type = await _filter_content(raw_content, item.media_type, parsed.rules)
         return StoredContent(text=text, media_type=media_type)
 
     return await run_content_step(
