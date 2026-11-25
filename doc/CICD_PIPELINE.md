@@ -248,7 +248,7 @@ Correlation: any pushed commit SHA equal to a `staged` CR's `commit_sha` trigger
 | Router | `backend/routers/webhooks.py` | unauthenticated `POST /webhooks/git/{repo_id}` |
 | RBAC | `backend/services/auth/rbac_seed.py` | `change_requests:read`, `change_requests:approve` |
 | Git | `backend/services/git/service.py` | `checkout_new_branch(repo, name, base_ref)`, `diff_refs(repo, a, b)` |
-| Deploy branch | `backend/workflow_steps/from_change_request/executor.py` + `backend/services/git/tree_scope.py` | checks out `manus/cr-{id}` under the repository lease, verifies `HEAD == commit_sha` (`ref_mismatch` otherwise) and restores the configured branch. The former `use_change_request_branch` flag on `git-pull` / `git-clone` / `git-status` was removed (a node still carrying it fails with a pointer to From Change Request) |
+| Deploy branch | `backend/workflow_steps/from_change_request/executor.py` + `backend/services/git/tree_scope.py` | checks out `manus/cr-{id}` under the repository lease, verifies `HEAD == commit_sha` (`ref_mismatch` otherwise) and restores the configured branch. The former `use_change_request_branch` flag on `git-pull` / `git-clone` / `git-status` is gone; a node that still carries the key has it ignored, so start a deploy workflow with From Change Request |
 | Sweep | `backend/hatchet/workflows/purge_retention.py` | `expire_sweep()` + `reconcile_all_in_flight()` on the existing cron |
 
 The `open-change-request` executor mirrors `git_push/executor.py`: load repo dict

@@ -110,8 +110,7 @@ Every git-consuming step stores `git_repository_id: int` in its plugin config â€
 string source id. Resolve it via `workflow_steps.common.git_repository_loader.load_git_repository`.
 
 Deploys of a change request start with `from-change-request`, which holds the repository lease,
-checks out `manus/cr-{id}` pinned to the reviewed commit and restores the configured branch
-(the old `use_change_request_branch` flag was removed). Every use of the shared working tree is a
+checks out `manus/cr-{id}` pinned to the reviewed commit and restores the configured branch. Every use of the shared working tree is a
 bracket: `services/git/tree_scope.py` (`git_work_tree`, `git_branch_scope`). Read steps pull
 strictly (`allow_stale_repository` opts out); `enrich-attributes` is the exception: `refresh_repository` (default off) reads the
 local copy without a pull, records the commit it read as a run event (no git status check) and holds the lease all the same. A step that reads a file from the export directory or a repository

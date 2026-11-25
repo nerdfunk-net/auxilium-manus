@@ -1,14 +1,12 @@
-"""Phase 4 of the CI/CD pipeline: deploy runs read the change-request branch,
-and a finished deploy run flips its change request to deployed/failed.
+"""Phase 4 of the CI/CD pipeline: a finished deploy run flips its change request to
+deployed/failed.
 
 See doc/CICD_PIPELINE.md.
 """
 
 from __future__ import annotations
 
-import contextlib
 import unittest
-from unittest.mock import MagicMock, patch
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -19,13 +17,11 @@ from core.models.git import GitRepository
 from core.models.runs import WorkflowRun, WorkflowStepResult
 from core.models.users import User
 from core.models.workflows import Workflow
-from models.workflow_context import WorkflowContext
 from repositories.run_repository import RunRepository
 from services.change_requests.change_request_service import (
     ChangeRequestService,
     maybe_reconcile_deploy_run,
 )
-from workflow_steps.common.git_workflow_step import run_git_workflow_step
 
 
 def _make_db():  # noqa: ANN202
@@ -43,36 +39,6 @@ def _make_db():  # noqa: ANN202
         ],
     )
     return engine, sessionmaker(bind=engine)
-
-
-class GitWorkflowStepRemovedFlagTests(unittest.IsolatedAsyncioTestCase):
-    async def test_use_change_request_branch_key_is_rejected(self) -> None:
-        # OD-7: the flag was removed; silently ignoring it would deploy the default branch.
-        operation = MagicMock()
-        with (
-            patch(
-                "workflow_steps.common.git_workflow_step.load_git_repository",
-                return_value={"id": 1, "name": "r", "url": "x", "branch": "main"},
-            ),
-            patch("service_factory.build_git_service", return_value=MagicMock()),
-            patch(
-                "workflow_steps.common.git_workflow_step.git_repo_lock",
-                lambda *_a, **_k: contextlib.nullcontext(MagicMock()),
-            ),
-        ):
-            outcomes = await run_git_workflow_step(
-                config={"git_repository_id": 1, "use_change_request_branch": True},
-                context=WorkflowContext(run_id="u", workflow_id="1", devices={}),
-                artifact_service=MagicMock(),
-                node_id="n",
-                step_id="git-pull",
-                operation=operation,
-                operation_name="pull",
-            )
-        operation.assert_not_called()
-        failure = next(o for o in outcomes if o.name == "failure")
-        meta = str(failure.context.metadata)
-        self.assertIn("From Change Request", meta)
 
 
 class MaybeReconcileDeployRunTests(unittest.TestCase):

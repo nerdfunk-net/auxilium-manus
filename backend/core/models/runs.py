@@ -46,8 +46,7 @@ class WorkflowRun(Base):
     run_inputs: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     hatchet_run_id: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
     # Set when this run is a *deploy run* dispatched by a ChangeRequest approval
-    # (see doc/CICD_PIPELINE.md). Drives status reconciliation and the
-    # use_change_request_branch override on git-pull/git-clone.
+    # (see doc/CICD_PIPELINE.md). Drives status reconciliation of the change request.
     #
     # change_requests.source_run_id/deploy_run_id reference workflow_runs.id,
     # so this column's FK back to change_requests.id forms a table-level

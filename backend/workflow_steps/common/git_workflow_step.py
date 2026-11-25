@@ -22,7 +22,6 @@ from services.artifacts import ArtifactService
 from services.git.failure import classify_git_exception
 from services.git.repo_lock import git_repo_lock
 from services.git.scrub import scrub_url_credentials
-from services.workflow_context.flags import parse_bool_flag
 from workflow_steps.common.device_outcomes import whole_step_failure
 from workflow_steps.common.git_repository_loader import load_git_repository, parse_repository_id
 
@@ -35,20 +34,6 @@ GitOperation = Callable[
     [Any, dict[str, Any], dict[str, Any], WorkflowContext],
     dict[str, Any],
 ]
-
-
-def _change_request_branch_requested(config: dict[str, Any]) -> bool:
-    """True when a node still enables the removed ``use_change_request_branch`` flag.
-
-    Only an enabled flag is rejected. An unparseable value counts as enabled so it fails
-    loudly instead of being read as false.
-    """
-    if "use_change_request_branch" not in config:
-        return False
-    try:
-        return parse_bool_flag(config, "use_change_request_branch")
-    except ValueError:
-        return True
 
 
 def _metadata_key(node_id: str) -> str:
@@ -244,16 +229,6 @@ async def run_git_workflow_step(
 
     if repository_id is None:
         return _stop(f"{step_id}: git_repository_id is not configured", _BAD_CONFIG)
-
-    if _change_request_branch_requested(config):
-        # Removed (OD-7): the flag put the shared working tree on the change-request branch.
-        # Silently ignoring an enabled flag would deploy the default branch. A leftover
-        # ``false`` (saved by older workflow versions) asks for nothing and is ignored.
-        return _stop(
-            f"{step_id}: use_change_request_branch was removed; start the deploy workflow "
-            "with From Change Request",
-            _BAD_CONFIG,
-        )
 
     if result_outcome is None and _on_inactive_branch(context):
         logger.info(
