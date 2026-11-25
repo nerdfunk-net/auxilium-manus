@@ -26,12 +26,16 @@ from __future__ import annotations
 
 from typing import Any
 
-from workflow_steps.common.nautobot_interfaces import (
+from workflow_steps.common.interface_values import (
     apply_normalized_fields,
     normalize_speed_kbps,
 )
+from workflow_steps.config_to_attributes.fact_common import (
+    DEFAULT_MANUFACTURER,
+    clean_text,
+    fact_payload,
+)
 
-DEFAULT_MANUFACTURER = "Cisco"
 PLATFORM_NAME = "Cisco ACI"
 
 # Nautobot interface type slug by speed in Kbps (the unit ``normalize_speed_kbps`` returns).
@@ -54,16 +58,6 @@ TEP_INTERFACE = "lo0"
 _UNMAPPED_ADDRESS_KINDS = frozenset({"svi"})
 
 
-def _fact_payload(entry: dict[str, Any], fact: str) -> Any:
-    fact_entry = entry.get(fact) if isinstance(entry, dict) else None
-    return fact_entry.get("parsed") if isinstance(fact_entry, dict) else None
-
-
-def _text(value: Any) -> str | None:
-    text = str(value).strip() if value is not None else ""
-    return text or None
-
-
 def _interface_type(kind: str | None, speed_kbps: int | None) -> str:
     if kind in _TYPE_BY_KIND:
         return _TYPE_BY_KIND[kind]
@@ -75,19 +69,19 @@ def _interface_type(kind: str | None, speed_kbps: int | None) -> str:
 
 
 def _build_interface(raw: dict[str, Any]) -> dict[str, Any] | None:
-    name = _text(raw.get("name"))
+    name = clean_text(raw.get("name"))
     if name is None:
         return None
-    kind = _text(raw.get("kind"))
+    kind = clean_text(raw.get("kind"))
     # The operational speed is what the port runs at; the configured one only says what it may do.
-    speed_text = _text(raw.get("oper_speed")) or _text(raw.get("speed"))
+    speed_text = clean_text(raw.get("oper_speed")) or clean_text(raw.get("speed"))
 
     iface: dict[str, Any] = {
         "name": name,
         "status": "Active",
         "enabled": str(raw.get("admin_status") or "").strip().lower() == "up",
     }
-    description = _text(raw.get("description"))
+    description = clean_text(raw.get("description"))
     if description:
         iface["description"] = description
 
@@ -106,12 +100,12 @@ def _build_interface(raw: dict[str, Any]) -> dict[str, Any] | None:
         for item in raw.get("ipv4_addresses") or []
         if kind not in _UNMAPPED_ADDRESS_KINDS
         and isinstance(item, dict)
-        and (address := _text(item.get("address")))
+        and (address := clean_text(item.get("address")))
     ]
     if addresses:
         iface["ip_addresses"] = addresses
 
-    channel = _text(raw.get("port_channel"))
+    channel = clean_text(raw.get("port_channel"))
     if channel:
         iface["lag"] = channel
     return iface
@@ -119,7 +113,7 @@ def _build_interface(raw: dict[str, Any]) -> dict[str, Any] | None:
 
 def build_interfaces_from_aci_details(entry: dict[str, Any]) -> list[dict[str, Any]]:
     """Interfaces from the ``interfaces`` fact; empty when it is missing or failed."""
-    payload = _fact_payload(entry, "interfaces")
+    payload = fact_payload(entry, "interfaces")
     if not isinstance(payload, list):
         return []
     built = (_build_interface(item) for item in payload if isinstance(item, dict))
@@ -128,21 +122,21 @@ def build_interfaces_from_aci_details(entry: dict[str, Any]) -> list[dict[str, A
 
 def build_device_fields_from_aci_details(entry: dict[str, Any]) -> dict[str, Any]:
     """Device-level Nautobot fields from the ``device`` and ``software`` facts."""
-    device = _fact_payload(entry, "device")
-    software = _fact_payload(entry, "software")
+    device = fact_payload(entry, "device")
+    software = fact_payload(entry, "software")
     device = device if isinstance(device, dict) else {}
     software = software if isinstance(software, dict) else {}
 
     fields: dict[str, Any] = {}
-    serial = _text(device.get("serial_number"))
+    serial = clean_text(device.get("serial_number"))
     if serial:
         fields["serial"] = serial
-    software_version = _text(software.get("software_version"))
+    software_version = clean_text(software.get("software_version"))
     if software_version:
         fields["software_version"] = software_version
     if device or software:
         fields["platform"] = {"name": PLATFORM_NAME}
-    model = _text(device.get("model"))
+    model = clean_text(device.get("model"))
     if model:
         fields["device_type"] = {"model": model, "manufacturer": {"name": DEFAULT_MANUFACTURER}}
     return fields

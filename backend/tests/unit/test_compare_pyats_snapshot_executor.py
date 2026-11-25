@@ -517,6 +517,29 @@ class ComparePyatsSnapshotExecutorTests(unittest.IsolatedAsyncioTestCase):
                 device_sessions=MagicMock(),
             )
 
+    async def test_bad_reference_location_is_a_config_error_before_any_device(self) -> None:
+        # W7-15: a configuration error is raised once, not reported by every device.
+        with self.assertRaisesRegex(ValueError, "compare-pyats-snapshot: reference_location"):
+            await execute(
+                config={**_BASE_CONFIG, "reference_location": "ftp"},
+                context=WorkflowContext(run_id="run-uuid-1", workflow_id="wf-1", devices={}),
+                run=MagicMock(),
+                artifact_service=InMemoryArtifactService(),
+                node_id=_NODE_ID,
+                device_sessions=MagicMock(),
+            )
+
+    async def test_git_reference_without_a_repository_is_a_config_error(self) -> None:
+        with self.assertRaisesRegex(ValueError, "compare-pyats-snapshot: git_repository_id"):
+            await execute(
+                config={**_BASE_CONFIG, "reference_location": "git", "git_repository_id": None},
+                context=WorkflowContext(run_id="run-uuid-1", workflow_id="wf-1", devices={}),
+                run=MagicMock(),
+                artifact_service=InMemoryArtifactService(),
+                node_id=_NODE_ID,
+                device_sessions=MagicMock(),
+            )
+
     async def test_no_devices_short_circuits(self) -> None:
         run = MagicMock()
         outcomes = await execute(

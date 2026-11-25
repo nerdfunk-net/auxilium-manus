@@ -25,7 +25,7 @@ from services.nautobot.credentials_bound_client import CredentialsBoundNautobotC
 from services.nautobot.devices.creation import DeviceCreationService
 from services.nautobot.devices.types import AddDeviceRequest
 from workflow_steps.common.failure_records import INVALID_INPUT
-from workflow_steps.common.nautobot_interfaces import (
+from workflow_steps.common.interface_payload import (
     build_interfaces_from_config,
     interfaces_from_nautobot_bag,
     normalize_interfaces,

@@ -24,7 +24,7 @@ from services.nautobot.credentials_bound_client import CredentialsBoundNautobotC
 from services.nautobot.devices.update import DeviceUpdateService
 from services.workflow_context.attribute_path import resolve_device_attribute_raw
 from workflow_steps.common.failure_records import NOT_FOUND
-from workflow_steps.common.nautobot_interfaces import (
+from workflow_steps.common.interface_payload import (
     NEW_TYPE_MODES,
     build_interfaces_from_config,
     interfaces_from_nautobot_bag,

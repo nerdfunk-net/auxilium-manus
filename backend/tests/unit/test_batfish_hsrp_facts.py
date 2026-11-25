@@ -12,7 +12,9 @@ from services.batfish.credentials import BatfishConnection
 from workflow_steps.batfish_extract_facts.executor import execute
 from workflow_steps.batfish_extract_facts.hsrp import merge_hsrp_into_facts
 from workflow_steps.common.batfish_context import store_batfish_snapshot
-from workflow_steps.common.nautobot_interfaces import interfaces_from_nautobot_bag
+from workflow_steps.common.interface_payload import (
+    interfaces_from_nautobot_bag,
+)
 from workflow_steps.config_to_attributes.batfish_facts import build_interfaces_from_batfish_facts
 
 # Real rows of hsrpProperties for the lab switch (Batfish 2026.09, snapshot of run 556).

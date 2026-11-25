@@ -63,7 +63,11 @@ from workflow_steps.common.failure_records import INVALID_INPUT, MISSING_DATA
 from workflow_steps.common.partial_outcomes import device_error_from_exception
 from workflow_steps.common.pyats_batch import resolve_source_credentials
 from workflow_steps.common.pyats_features import parse_feature_list
-from workflow_steps.common.reference_reader import read_reference_text
+from workflow_steps.common.reference_reader import (
+    parse_reference_location,
+    read_reference_text,
+    validate_reference_config,
+)
 from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.common.run_session import require_session
 from workflow_steps.common.step_flags import parse_bool_flag
@@ -144,6 +148,67 @@ class _FeatureResult:
     not_applied: tuple[str, ...] = ()
 
 
+async def _store_mismatch(
+    result: _FeatureResult,
+    *,
+    device_id: str,
+    node_id: str,
+    reference_path: str,
+    reference_location: str,
+    context_run_id: str,
+    artifact_service: ArtifactService,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Store the diff and both full snapshots of one mismatched feature.
+
+    Returns the ``comparison_diff`` entry and the ``per_feature`` summary entry.
+    """
+    feature = result.feature
+    text = result.diff_text or ""
+    diff_ref = await artifact_service.store(
+        content=text,
+        kind="comparison_diff",
+        device_id=device_id,
+        run_id=context_run_id,
+        media_type="text/plain",
+    )
+    # Persist both sides in full so the run detail view can show exactly what
+    # differs -- the Genie str(Diff) text above is derived from these and its
+    # line prefixes are not confirmed against a real pyATS install (see
+    # doc/PYATS_INTEGRATION.md "Open items").
+    live_ref = await artifact_service.store(
+        content=_dump_snapshot_side(result.live_data),
+        kind="comparison_snapshot",
+        device_id=device_id,
+        run_id=context_run_id,
+        media_type="application/json",
+    )
+    reference_ref = await artifact_service.store(
+        content=_dump_snapshot_side(result.reference_data),
+        kind="comparison_snapshot",
+        device_id=device_id,
+        run_id=context_run_id,
+        media_type="application/json",
+    )
+    # A format-agnostic stand-in for additions/deletions: Genie's str(Diff)
+    # line prefixes are not confirmed against a real pyATS install (see
+    # doc/PYATS_INTEGRATION.md "Open items"), so we don't try to parse them.
+    diff_stats = {"line_count": sum(1 for line in text.splitlines() if line.strip())}
+    diff_entry = {
+        "kind": "comparison_diff",
+        "matched": False,
+        "artifact_ref": diff_ref.model_dump(mode="json"),
+        "live_snapshot_ref": live_ref.model_dump(mode="json"),
+        "reference_snapshot_ref": reference_ref.model_dump(mode="json"),
+        "diff_stats": diff_stats,
+        "reference_location": reference_location,
+        "reference_path": reference_path,
+        "step_node_id": node_id,
+        "output_key": "comparison_diff",
+        "feature": feature,
+    }
+    return diff_entry, {"matched": False, "diff_stats": diff_stats}
+
+
 async def _build_device_result(
     *,
     device_id: str,
@@ -172,50 +237,15 @@ async def _build_device_result(
             per_feature[feature] = {"matched": True}
             continue
         mismatched_features.append(feature)
-        text = result.diff_text or ""
-        diff_ref = await artifact_service.store(
-            content=text,
-            kind="comparison_diff",
+        diff_map[feature], per_feature[feature] = await _store_mismatch(
+            result,
             device_id=device_id,
-            run_id=context_run_id,
-            media_type="text/plain",
+            node_id=node_id,
+            reference_path=reference_path,
+            reference_location=reference_location,
+            context_run_id=context_run_id,
+            artifact_service=artifact_service,
         )
-        # Persist both sides in full so the run detail view can show exactly what
-        # differs -- the Genie str(Diff) text above is derived from these and its
-        # line prefixes are not confirmed against a real pyATS install (see
-        # doc/PYATS_INTEGRATION.md "Open items").
-        live_ref = await artifact_service.store(
-            content=_dump_snapshot_side(result.live_data),
-            kind="comparison_snapshot",
-            device_id=device_id,
-            run_id=context_run_id,
-            media_type="application/json",
-        )
-        reference_ref = await artifact_service.store(
-            content=_dump_snapshot_side(result.reference_data),
-            kind="comparison_snapshot",
-            device_id=device_id,
-            run_id=context_run_id,
-            media_type="application/json",
-        )
-        # A format-agnostic stand-in for additions/deletions: Genie's str(Diff)
-        # line prefixes are not confirmed against a real pyATS install (see
-        # doc/PYATS_INTEGRATION.md "Open items"), so we don't try to parse them.
-        diff_stats = {"line_count": sum(1 for line in text.splitlines() if line.strip())}
-        diff_map[feature] = {
-            "kind": "comparison_diff",
-            "matched": False,
-            "artifact_ref": diff_ref.model_dump(mode="json"),
-            "live_snapshot_ref": live_ref.model_dump(mode="json"),
-            "reference_snapshot_ref": reference_ref.model_dump(mode="json"),
-            "diff_stats": diff_stats,
-            "reference_location": reference_location,
-            "reference_path": reference_path,
-            "step_node_id": node_id,
-            "output_key": "comparison_diff",
-            "feature": feature,
-        }
-        per_feature[feature] = {"matched": False, "diff_stats": diff_stats}
 
     matched = not mismatched_features
     summary: dict[str, Any] = {
@@ -537,25 +567,23 @@ async def _compare_one_device(
         features=features,
         feature_results=feature_results,
         reference_path=reference.path,
-        reference_location=str(config.get("reference_location") or "filesystem").strip().lower(),
+        reference_location=parse_reference_location(config, step_id=_STEP_ID),
         context_run_id=context_run_id,
         artifact_service=artifact_service,
     )
 
 
-async def execute(
-    *,
-    config: dict[str, Any],
-    context: WorkflowContext,
-    run: WorkflowRun,
-    artifact_service: ArtifactService,
-    node_id: str,
-    device_sessions: DeviceSessionPool,
-) -> list[StepOutcome]:
-    del device_sessions  # unused: diff is pure computation via the shim, not Netmiko
+@dataclass(frozen=True)
+class _ParsedConfig:
+    features: list[str]
+    source_step_node_id: str
+    parsed_output_key: str | None
+    exclude_keys: list[str]
+    use_snapshot_excludes: bool
 
-    merged_config = {**get_config(), **config}
 
+def _parse_config(merged_config: dict[str, Any]) -> _ParsedConfig:
+    """Validate the step config; everything wrong with it raises here, before any device."""
     features = parse_feature_list(merged_config.get("features"), step_id=_STEP_ID)
     source_step_node_id = str(merged_config.get("source_step_node_id") or "").strip()
     if not source_step_node_id:
@@ -573,6 +601,31 @@ async def execute(
 
     # Default on: the learned snapshot carries Genie's own list of volatile fields (`_exclude`).
     use_snapshot_excludes = parse_bool_flag(merged_config, "use_snapshot_excludes", default=True)
+    return _ParsedConfig(
+        features=features,
+        source_step_node_id=source_step_node_id,
+        parsed_output_key=parsed_output_key,
+        exclude_keys=exclude_keys,
+        use_snapshot_excludes=use_snapshot_excludes,
+    )
+
+
+async def execute(
+    *,
+    config: dict[str, Any],
+    context: WorkflowContext,
+    run: WorkflowRun,
+    artifact_service: ArtifactService,
+    node_id: str,
+    device_sessions: DeviceSessionPool,
+) -> list[StepOutcome]:
+    del device_sessions  # unused: diff is pure computation via the shim, not Netmiko
+
+    merged_config = {**get_config(), **config}
+    # The reference settings are configuration: a bad one raises here, once (W7-15).
+    validate_reference_config(merged_config, step_id=_STEP_ID)
+
+    cfg = _parse_config(merged_config)
 
     if not context.devices:
         return [StepOutcome(name=outcome_name, context=context) for outcome_name in _OUTCOME_NAMES]
@@ -586,9 +639,9 @@ async def execute(
         log_run_id(run),
         node_id,
         len(context.devices),
-        features,
-        source_step_node_id,
-        exclude_keys,
+        cfg.features,
+        cfg.source_step_node_id,
+        cfg.exclude_keys,
     )
 
     source_ids = {
@@ -614,12 +667,12 @@ async def execute(
             device_id=device_id,
             device=device,
             node_id=node_id,
-            features=features,
-            source_step_node_id=source_step_node_id,
-            parsed_output_key=parsed_output_key,
+            features=cfg.features,
+            source_step_node_id=cfg.source_step_node_id,
+            parsed_output_key=cfg.parsed_output_key,
             config=merged_config,
-            exclude_keys=exclude_keys,
-            use_snapshot_excludes=use_snapshot_excludes,
+            exclude_keys=cfg.exclude_keys,
+            use_snapshot_excludes=cfg.use_snapshot_excludes,
             context_run_id=context.run_id,
             source_credentials=source_credentials,
             source_errors=source_errors,

@@ -19,8 +19,8 @@ from tests.unit.test_add_to_ise_executor import (
     _patches,
     _run,
 )
-from workflow_steps.add_to_ise import executor as mod
 from workflow_steps.add_to_ise.executor import execute
+from workflow_steps.add_to_ise.parse import parse_netmask_override
 
 _SECRET = "s3cr3t-library-text 10.9.9.9"
 
@@ -87,7 +87,7 @@ async def test_an_unexpected_error_fails_that_device_and_hides_the_text() -> Non
 @pytest.mark.asyncio
 async def test_an_invalid_netmask_override_is_a_config_error_for_a_non_ascii_digit() -> None:
     with pytest.raises(ValueError, match="netmask_override"):
-        mod._parse_netmask_override("²")
+        parse_netmask_override("²")
 
 
 @pytest.mark.asyncio

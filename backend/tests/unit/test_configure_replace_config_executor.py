@@ -15,7 +15,8 @@ from models.workflow_context import (
 from services.artifacts import InMemoryArtifactService
 from services.pyats.common.exceptions import PyATSAPIError, PyATSValidationError
 from services.workflow_context.secret_fields import seal_secret
-from workflow_steps.configure_replace_config.executor import _diff_has_changes, execute
+from workflow_steps.configure_replace_config.diff_checks import diff_has_changes
+from workflow_steps.configure_replace_config.executor import execute
 
 _NODE_ID = "configure-replace-config-1"
 _DEVICE_ID = "device-1"
@@ -23,7 +24,7 @@ _REPLACE_COMMAND = "configure replace bootflash:new_config.txt force time 2"
 _CONFIRM_COMMAND = "configure confirm"
 _DIFF_COMMAND = "show archive config differences system:running-config bootflash:new_config.txt"
 # IOS's real "no differences" response: a header line plus a "no changes"
-# sentinel, never a truly blank body -- see _diff_has_changes.
+# sentinel, never a truly blank body -- see diff_has_changes.
 _DIFF_NO_CHANGES = "!Contextual Config Diffs:\n!No changes were found"
 # Diff checks default on; existing tests below focus on the replace/confirm
 # flow itself, so they're pinned off here and exercised separately.
@@ -99,17 +100,17 @@ def _replace_confirm_response(
 
 class DiffHasChangesTests(unittest.TestCase):
     def test_no_changes_sentinel_is_not_a_diff(self) -> None:
-        self.assertFalse(_diff_has_changes(_DIFF_NO_CHANGES))
+        self.assertFalse(diff_has_changes(_DIFF_NO_CHANGES))
 
     def test_blank_output_is_not_a_diff(self) -> None:
-        self.assertFalse(_diff_has_changes("   \n\n  "))
+        self.assertFalse(diff_has_changes("   \n\n  "))
 
     def test_header_only_is_not_a_diff(self) -> None:
-        self.assertFalse(_diff_has_changes("!Contextual Config Diffs:"))
+        self.assertFalse(diff_has_changes("!Contextual Config Diffs:"))
 
     def test_real_diff_lines_are_a_diff(self) -> None:
         self.assertTrue(
-            _diff_has_changes("!Contextual Config Diffs:\n+no ip http server\n-ip http server")
+            diff_has_changes("!Contextual Config Diffs:\n+no ip http server\n-ip http server")
         )
 
 

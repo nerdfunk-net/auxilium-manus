@@ -18,7 +18,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from workflow_steps.common.nautobot_interfaces import infer_interface_type_from_name
+from workflow_steps.common.interface_values import (
+    infer_interface_type_from_name,
+)
 from workflow_steps.config_to_attributes.genie_redundancy import vip_with_prefix
 
 

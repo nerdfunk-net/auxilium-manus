@@ -275,22 +275,22 @@ class ConfigToAttributesExecutorTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertNotIn("nautobot", outcomes[0].context.devices["dev-1"].attribute_bags)
 
-    async def test_noop_when_old_layer3_interfaces_key_used(self) -> None:
-        # Renamed layer3_interfaces -> interfaces; the old key is no longer
-        # recognized and must silently no-op rather than build anything.
+    async def test_unknown_attribute_group_is_a_config_error(self) -> None:
+        # W4-08: ``layer3_interfaces`` was renamed to ``interfaces``; a stale or misspelled group
+        # used to be dropped silently and the step passed as a no-op success.
         device = _device(
             "dev-1",
             parsed=_parsed({"name": "Ethernet0/0", "children": []}),
         )
-        outcomes = await execute(
-            config={**_BASE_CONFIG, "attributes": ["layer3_interfaces"]},
-            context=_context({"dev-1": device}),
-            run=_run(),
-            artifact_service=MagicMock(),
-            node_id="node-1",
-            device_sessions=MagicMock(),
-        )
-        self.assertNotIn("nautobot", outcomes[0].context.devices["dev-1"].attribute_bags)
+        with self.assertRaisesRegex(ValueError, "layer3_interfaces"):
+            await execute(
+                config={**_BASE_CONFIG, "attributes": ["interfaces", "layer3_interfaces"]},
+                context=_context({"dev-1": device}),
+                run=_run(),
+                artifact_service=MagicMock(),
+                node_id="node-1",
+                device_sessions=MagicMock(),
+            )
 
     async def test_raises_when_no_device_has_parsed_data(self) -> None:
         device = _device("dev-1", parsed={})

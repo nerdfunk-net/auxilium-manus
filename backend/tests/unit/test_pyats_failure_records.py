@@ -19,7 +19,7 @@ from tests.unit._step_helpers import make_device
 from workflow_steps.common import pyats_batch
 from workflow_steps.common.device_runner import Fail
 from workflow_steps.compare_pyats_snapshot import executor as compare_mod
-from workflow_steps.configure_replace_config import executor as replace_mod
+from workflow_steps.configure_replace_config import shim_jobs as replace_mod
 from workflow_steps.get_pyats_running_config import executor as running_mod
 from workflow_steps.get_pyats_snapshot import executor as snapshot_mod
 
@@ -230,7 +230,7 @@ async def test_configure_replace_device_level_error_carries_a_command_error() ->
         return_value={"results": {"a": {"success": False, "error": "w" * 2000}}}
     )
 
-    ok, _entries, error = await replace_mod._run_shim_job(
+    ok, _entries, error = await replace_mod.run_shim_job(
         shim,
         MagicMock(),
         operation="run",

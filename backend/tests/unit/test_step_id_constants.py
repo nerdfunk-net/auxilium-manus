@@ -48,4 +48,6 @@ def test_most_steps_declare_their_id_once() -> None:
         and _constants(_STEPS / directory / "executor.py")
     }
     # A step may take its id from a shared helper or a sibling module; the count only may rise.
-    assert len(declared) >= 84, len(declared)
+    # 84 -> 82 (P-U): add-to-ise and configure-replace-config keep their id in the module they
+    # were split into (parse.py, shim_jobs.py), which the other modules of the step import.
+    assert len(declared) >= 82, len(declared)

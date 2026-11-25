@@ -2088,7 +2088,7 @@ source is configured**. It stays non-fatal (raw output remains) as in the step. 
 **Interface-name canonicalisation: nothing to reuse.**
 
 - The only interface-name code is `infer_interface_type_from_name` (prefix to Nautobot type) in
-  `workflow_steps/common/nautobot_interfaces.py`; it has prefix tables (`te`, `twe`, `fo`, `hu`, `xe`, ...) but
+  `workflow_steps/common/interface_values.py`; it has prefix tables (`te`, `twe`, `fo`, `hu`, `xe`, ...) but
   no function that maps short to long names and it is a workflow-step module anyway.
 - The forms to reconcile: Batfish and configs use the full names (`GigabitEthernet1/0/1`); CDP *summary*
   prints short names with a space (`Gig 1/0/1`, `Ten 1/1/1`, `Fas 0/1`); CDP *detail* and LLDP print the full name;

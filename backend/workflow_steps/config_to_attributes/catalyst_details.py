@@ -15,28 +15,22 @@ from __future__ import annotations
 
 from typing import Any
 
-from workflow_steps.common.nautobot_interfaces import (
+from workflow_steps.common.interface_values import (
     cidr_from_ip_and_mask,
     infer_interface_type_from_name,
 )
+from workflow_steps.config_to_attributes.fact_common import (
+    DEFAULT_MANUFACTURER,
+    clean_text,
+    fact_payload,
+)
 
-DEFAULT_MANUFACTURER = "Cisco"
 _ACCESS = "access"
 _TRUNK = "trunk"
 
 
-def _fact_payload(entry: dict[str, Any], fact: str) -> Any:
-    fact_entry = entry.get(fact) if isinstance(entry, dict) else None
-    return fact_entry.get("parsed") if isinstance(fact_entry, dict) else None
-
-
-def _text(value: Any) -> str | None:
-    text = str(value).strip() if value is not None else ""
-    return text or None
-
-
 def _vlan(value: Any) -> int | None:
-    text = _text(value)
+    text = clean_text(value)
     if text is None or not text.isdecimal():
         return None
     vlan = int(text)
@@ -44,7 +38,7 @@ def _vlan(value: Any) -> int | None:
 
 
 def _build_interface(raw: dict[str, Any]) -> dict[str, Any] | None:
-    name = _text(raw.get("name"))
+    name = clean_text(raw.get("name"))
     if name is None:
         return None
 
@@ -55,11 +49,11 @@ def _build_interface(raw: dict[str, Any]) -> dict[str, Any] | None:
         "enabled": str(raw.get("admin_status") or "").strip().upper() == "UP",
     }
 
-    description = _text(raw.get("description"))
+    description = clean_text(raw.get("description"))
     if description:
         iface["description"] = description
 
-    mac_address = _text(raw.get("mac_address"))
+    mac_address = clean_text(raw.get("mac_address"))
     if mac_address:
         iface["mac_address"] = mac_address
 
@@ -71,7 +65,7 @@ def _build_interface(raw: dict[str, Any]) -> dict[str, Any] | None:
     if address:
         iface["ip_addresses"] = [{"address": address, "namespace": "Global"}]
 
-    port_mode = (_text(raw.get("port_mode")) or "").lower()
+    port_mode = (clean_text(raw.get("port_mode")) or "").lower()
     if port_mode == _ACCESS:
         iface["mode"] = _ACCESS
         untagged = _vlan(raw.get("vlan_id"))
@@ -88,7 +82,7 @@ def _build_interface(raw: dict[str, Any]) -> dict[str, Any] | None:
 
 def build_interfaces_from_catalyst_details(entry: dict[str, Any]) -> list[dict[str, Any]]:
     """Interfaces from the ``interfaces`` fact; empty when it is missing or failed."""
-    payload = _fact_payload(entry, "interfaces")
+    payload = fact_payload(entry, "interfaces")
     if not isinstance(payload, list):
         return []
     built = (_build_interface(item) for item in payload if isinstance(item, dict))
@@ -99,33 +93,33 @@ def build_device_fields_from_catalyst_details(
     entry: dict[str, Any], vendor: str | None
 ) -> dict[str, Any]:
     """Device-level Nautobot fields from the ``device`` and ``software`` facts."""
-    device = _fact_payload(entry, "device")
-    software = _fact_payload(entry, "software")
+    device = fact_payload(entry, "device")
+    software = fact_payload(entry, "software")
     device = device if isinstance(device, dict) else {}
     software = software if isinstance(software, dict) else {}
 
     fields: dict[str, Any] = {}
 
-    serial = _text(device.get("serial_number"))
+    serial = clean_text(device.get("serial_number"))
     if serial:
         fields["serial"] = serial
 
-    software_version = _text(software.get("software_version"))
+    software_version = clean_text(software.get("software_version"))
     if software_version:
         fields["software_version"] = software_version
 
-    platform = _text(software.get("software_type"))
+    platform = clean_text(software.get("software_type"))
     if platform:
         fields["platform"] = {"name": platform}
 
     # A stack reports a comma-separated list of models: the first one is the device type.
-    platform_id = _text(device.get("platform_id"))
+    platform_id = clean_text(device.get("platform_id"))
     model = platform_id.split(",")[0].strip() if platform_id else None
-    model = model or _text(device.get("device_type"))
+    model = model or clean_text(device.get("device_type"))
     if model:
         fields["device_type"] = {
             "model": model,
-            "manufacturer": {"name": _text(vendor) or DEFAULT_MANUFACTURER},
+            "manufacturer": {"name": clean_text(vendor) or DEFAULT_MANUFACTURER},
         }
 
     return fields

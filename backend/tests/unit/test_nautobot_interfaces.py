@@ -1,14 +1,16 @@
-"""Tests for workflow_steps/common/nautobot_interfaces.py."""
+"""Tests for the interface value normalisers and payload builders (common/interface_*.py)."""
 
 from __future__ import annotations
 
 import unittest
 
-from workflow_steps.common.nautobot_interfaces import (
+from workflow_steps.common.interface_payload import (
     build_interfaces_from_config,
-    infer_interface_type_from_name,
     interfaces_from_nautobot_bag,
     interfaces_from_parsed_list,
+)
+from workflow_steps.common.interface_values import (
+    infer_interface_type_from_name,
     normalize_duplex,
     normalize_mac,
     normalize_mtu,

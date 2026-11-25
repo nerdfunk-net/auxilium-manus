@@ -13,7 +13,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from workflow_steps.common.nautobot_interfaces import (
+from workflow_steps.common.interface_values import (
     cidr_from_ip_and_mask,
     infer_interface_type_from_name,
 )

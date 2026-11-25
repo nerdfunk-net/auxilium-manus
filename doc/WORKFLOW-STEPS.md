@@ -351,6 +351,7 @@ become `<key>#2`), `config-to-attributes` (devices without parsed data fail), `g
   that matters.
 - **`get-nautobot-attributes` replaces the whole `nautobot` bag** of a device with what it fetched; a step that
   wrote `nautobot.*` keys earlier must run after it, not before.
+- **`config-to-attributes` structure**: the five source formats (`cisco_config_parser`, `genie`, `batfish`, `catalyst_details`, `aci_details`) are one table, `workflow_steps/config_to_attributes/formats.py` (`SOURCE_FORMATS`): where the upstream entry sits, the interface mapper, optional device fields, redundancy note and the two ACI hooks. A new format is one entry. `attributes` accepts `interfaces` and `device` only; any other entry (a stale `layer3_interfaces`, a typo) is a `ValueError` instead of a silent no-op success. The Catalyst Center and ACI mappers share `fact_common.py`.
 - **`config-to-attributes` redundancy groups, Batfish format**: from `Interfaces.<name>.HSRP_Details` that `batfish-extract-facts` merges in from `hsrpProperties` (`doc/BATFISH_INTEGRATION.md`); same output shape, but no `name` (Batfish does not parse `standby <n> name`) and HSRP only for now (`vrrpProperties` exists but is not used yet).
 - **`config-to-attributes` redundancy groups** (`source_format: genie`, "Add Interfaces"): `standby [G] ip|priority|preempt|name`
   and legacy `vrrp G ip|priority|preempt|description` lines become `interface_redundancy_groups[]` on the interface:
@@ -715,7 +716,7 @@ Interfaces come from one of three sources (`interfaces_source`): `manual` rows, 
 list on the device, e.g. TextFSM `show interfaces`: `parsed_list.source_path`, `field_map`
 interface field -> column, `fixed_values` for the same value on every row). Every source supports
 `mac_address`, `type`, `port_type`, `mode`, `speed`, `duplex`, `mtu` and `vrf`; values are
-normalized by `workflow_steps/common/nautobot_interfaces.py` (MAC -> `AA:BB:CC:DD:EE:FF`, speed ->
+normalized by `workflow_steps/common/interface_values.py` (MAC -> `AA:BB:CC:DD:EE:FF`, speed ->
 **Kbps** (`"1 Gbit"` -> 1000000; a bare number is Kbps), duplex -> `full|half|auto`, mtu -> int);
 a value that cannot be understood is logged and left out. `vrf` is resolved by name through
 `NetworkResolver.resolve_vrf_id` and must exist (an unknown VRF is a warning on that interface; the

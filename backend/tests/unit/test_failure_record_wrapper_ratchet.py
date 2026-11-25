@@ -27,7 +27,8 @@ _EXTRA = frozenset({"_failed", "_fail"})
 
 LEGACY_WITHOUT_FAILURE: dict[str, int] = {
     # A verdict and a device-reported state with no kind in the vocabulary that fits yet.
-    "workflow_steps/configure_replace_config/executor.py": 2,
+    "workflow_steps/configure_replace_config/diff_checks.py": 1,
+    "workflow_steps/configure_replace_config/executor.py": 1,
 }
 
 

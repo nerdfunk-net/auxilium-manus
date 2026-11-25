@@ -10,7 +10,8 @@ import pytest
 
 from models.workflow_context import Capability, DeviceContext, DeviceStatus
 from services.workflow_context.secret_fields import REDACTED_PLACEHOLDER, seal_secret
-from workflow_steps.add_to_ise.executor import _parse_config, _resolve_device_fields
+from workflow_steps.add_to_ise.fields import resolve_device_fields
+from workflow_steps.add_to_ise.parse import parse_config
 from workflow_steps.common.value_expression import resolve_update_field_expression
 
 _KEY = {"CREDENTIAL_ENCRYPTION_KEY": "test-secret-key-for-reveal-required"}
@@ -65,8 +66,8 @@ def _config(**extra: str) -> dict:
 def test_add_to_ise_refuses_a_sealed_secret_outside_the_key(field, code) -> None:
     with patch.dict(os.environ, _KEY):
         device = _device(key="k", sealed=seal_secret("hunter2"))
-        cfg = _parse_config(_config(**{field: "{custom.sealed}"}))
-        result = _resolve_device_fields(device, cfg, "run-1")
+        cfg = parse_config(_config(**{field: "{custom.sealed}"}))
+        result = resolve_device_fields(device, cfg, "run-1")
 
     assert isinstance(result, tuple)
     assert result[0] == code
@@ -78,7 +79,7 @@ def test_add_to_ise_refuses_a_sealed_secret_outside_the_key(field, code) -> None
 def test_add_to_ise_still_reads_the_new_key_in_cleartext() -> None:
     with patch.dict(os.environ, _KEY):
         device = _device(key=seal_secret("hunter2"))
-        result = _resolve_device_fields(device, _parse_config(_config()), "run-1")
+        result = resolve_device_fields(device, parse_config(_config()), "run-1")
 
     assert not isinstance(result, tuple)
     assert result.key == "hunter2"

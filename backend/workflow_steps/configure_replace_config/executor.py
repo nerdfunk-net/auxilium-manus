@@ -67,10 +67,8 @@ silently swallowed.
 
 from __future__ import annotations
 
-import contextvars
 import logging
 import time
-from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 import service_factory
@@ -84,7 +82,6 @@ from models.workflow_context import (
     WorkflowContext,
 )
 from services.artifacts import ArtifactService
-from services.pyats.common.exceptions import PyATSAPIError
 from services.pyats.credentials import PyATSCredentials
 from services.workflow_context.node_result import set_node_result
 from services.workflow_context.secret_fields import unwrap_secret
@@ -95,20 +92,33 @@ from workflow_steps.common.failure_records import COMMAND_FAILED, INVALID_INPUT
 from workflow_steps.common.pyats_batch import (
     resolve_source_credentials,
     shim_concurrency,
-    shim_device_failure,
 )
 from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.common.run_session import require_session
 from workflow_steps.common.step_flags import parse_bool_flag, parse_int_flag
 from workflow_steps.configure_replace_config.config import get_config
+from workflow_steps.configure_replace_config.diff_checks import (
+    Target,
+    build_diff_command,
+    device_with_diff_refs,
+    pre_replace_diff,
+    verify_after_replace,
+)
+from workflow_steps.configure_replace_config.shim_jobs import (
+    JOB_TIMEOUT,
+    OUTCOME_UNKNOWN,
+    STEP_ID,
+    run_shim_job,
+)
 
 if TYPE_CHECKING:
 
     from services.network.netmiko.session_pool import DeviceSessionPool
 
+
 logger = logging.getLogger(__name__)
 
-_STEP_ID = "configure-replace-config"
+
 _CONFIRM_COMMAND = "configure confirm"
 _MIN_TIMEOUT_MINUTES = 1
 _DEFAULT_JOB_TIMEOUT_SECONDS = 120
@@ -117,8 +127,6 @@ _MAX_JOB_TIMEOUT_SECONDS = 600
 _MAX_TIMEOUT_MINUTES = 120
 _ARCHIVE_NOT_CONFIGURED_MARKER = "turn config archive on"
 _NO_PENDING_ROLLBACK_MARKER = "no rollback confirmed change pending"
-_DIFF_ARTIFACT_KIND_PRE = "configure_replace_pre_diff"
-_DIFF_ARTIFACT_KIND_POST = "configure_replace_post_diff"
 
 
 def _is_archive_not_configured_error(message: str | None) -> bool:
@@ -137,39 +145,6 @@ def _has_no_pending_rollback(raw_output: Any) -> bool:
     confirmed it; either way this run can't vouch for the outcome.
     """
     return _NO_PENDING_ROLLBACK_MARKER in str(raw_output or "").lower()
-
-
-def _diff_has_changes(diff_text: str) -> bool:
-    """True when a 'show archive config differences' response represents a
-    real difference.
-
-    The command always prints a '!Contextual Config Diffs:' header line, even
-    when there is nothing to report -- Cisco IOS then follows it with
-    '!No changes were found' rather than leaving the rest of the output
-    blank. A plain truthiness/``.strip()`` check on the raw text therefore
-    treats every call as a diff; this walks the non-blank lines and ignores
-    only those two known no-op lines.
-    """
-    for line in diff_text.splitlines():
-        stripped = line.strip()
-        if not stripped:
-            continue
-        lowered = stripped.lstrip("!").strip().lower()
-        if lowered in ("contextual config diffs:", "no changes were found"):
-            continue
-        return True
-    return False
-
-
-class _ShimError(str):
-    """An error message that also carries the closed-vocabulary classification of its cause."""
-
-    failure: FailureInfo | None
-
-    def __new__(cls, message: str, failure: FailureInfo | None = None) -> _ShimError:
-        instance = super().__new__(cls, message)
-        instance.failure = failure
-        return instance
 
 
 def _replace_failure(error: str | None) -> Fail:
@@ -193,142 +168,10 @@ def _replace_failure(error: str | None) -> Fail:
         # a client-side timeout is "outcome unknown", distinguishable from "refused"
         (
             FailureInfo(phase="task", kind="task_timeout", hint="retry_later")
-            if error and _OUTCOME_UNKNOWN in error
+            if error and OUTCOME_UNKNOWN in error
             else getattr(error, "failure", None)
         ),
     )
-
-
-# Job budget of this step run (seconds); set by execute() before the per-device tasks start.
-_JOB_TIMEOUT: contextvars.ContextVar[float | None] = contextvars.ContextVar(
-    "configure_replace_job_timeout", default=None
-)
-
-_OUTCOME_UNKNOWN = (
-    " -- the job may still have been applied on the device; check it before re-running"
-)
-
-
-async def _run_shim_job(
-    shim: Any,
-    shim_credentials: PyATSCredentials,
-    *,
-    operation: str,
-    shim_device: dict[str, Any],
-    commands: list[str],
-) -> tuple[bool, dict[str, dict[str, Any]], str | None]:
-    """Run a shim job with one or more commands over a single device connection.
-
-    The shim connects once, runs every command in ``commands`` against that
-    same connection in order, then disconnects -- see generic_script.py's
-    ``run_commands``. Returns (ok, command_entries, error_message); ``ok`` is
-    False only when the connection/job itself failed for this device (each
-    entry in ``command_entries`` -- keyed by command text -- can still carry
-    its own per-command ``error`` even when ``ok`` is True).
-    """
-    try:
-        response = await shim.run_job(
-            shim_credentials,
-            operation=operation,
-            devices=[shim_device],
-            commands=commands,
-            timeout_seconds=_JOB_TIMEOUT.get(),
-        )
-    except PyATSAPIError as exc:
-        message = str(exc)
-        if exc.code == "timeout" or "timed out" in message:
-            # A client-side timeout says nothing about what the device did (C4-01).
-            message += _OUTCOME_UNKNOWN
-        return False, {}, _ShimError(message, exc.failure)
-
-    result = (response.get("results") or {}).get(shim_device["name"])
-    if not result or not result.get("success", False):
-        message, failure = shim_device_failure(result)
-        return False, {}, _ShimError(message, failure)
-
-    return True, result.get("commands") or {}, None
-
-
-async def _call_shim(
-    shim: Any,
-    shim_credentials: PyATSCredentials,
-    *,
-    operation: str,
-    shim_device: dict[str, Any],
-    command: str,
-) -> tuple[bool, Any, str | None]:
-    """Run a single-command shim job. Returns (ok, value, error_message)."""
-    ok, command_entries, err = await _run_shim_job(
-        shim, shim_credentials, operation=operation, shim_device=shim_device, commands=[command]
-    )
-    if not ok:
-        return False, None, err
-
-    entry = command_entries.get(command) or {}
-    if entry.get("error"):
-        return False, None, entry["error"]
-
-    value = entry.get("parsed") if operation == "learn" else entry.get("raw")
-    return True, value, None
-
-
-def _build_diff_command(*, file_system: str, destination_filename: str) -> str:
-    target = f"{file_system}{destination_filename}"
-    return f"show archive config differences system:running-config {target}"
-
-
-def _device_with_diff_refs(
-    device: DeviceContext,
-    node_id: str,
-    *,
-    pre_diff_artifact_ref: Any | None,
-    post_diff_artifact_ref: Any | None,
-) -> DeviceContext:
-    """Record diff artifact refs on the device's parsed output, independent of
-    whether the device ends up succeeding or failing."""
-    if pre_diff_artifact_ref is None and post_diff_artifact_ref is None:
-        return device
-    entry: dict[str, Any] = {"kind": "configure_replace_diff"}
-    if pre_diff_artifact_ref is not None:
-        entry["pre_diff_artifact_ref"] = pre_diff_artifact_ref.model_dump(mode="json")
-    if post_diff_artifact_ref is not None:
-        entry["post_diff_artifact_ref"] = post_diff_artifact_ref.model_dump(mode="json")
-    parsed = set_node_result(device.parsed, node_id, "configure_replace_diff", entry)
-    return device.model_copy(
-        update={"parsed": parsed, "capabilities": device.capabilities | {Capability.PARSED}}
-    )
-
-
-async def _run_diff(
-    shim: Any,
-    shim_credentials: PyATSCredentials,
-    *,
-    shim_device: dict[str, Any],
-    diff_command: str,
-) -> tuple[bool, str, str | None]:
-    """Run the config-text diff command. Returns (ok, diff_text, error_message)."""
-    ok, raw, err = await _call_shim(
-        shim,
-        shim_credentials,
-        operation="execute",
-        shim_device=shim_device,
-        command=diff_command,
-    )
-    if not ok:
-        return False, "", err
-    return True, str(raw or ""), None
-
-
-@dataclass(frozen=True)
-class _Target:
-    """Everything a device needs before any shim call: its testbed bag, source credentials
-    and the shim device description."""
-
-    bag: dict[str, Any]
-    source_id: str
-    shim: Any
-    shim_credentials: PyATSCredentials
-    shim_device: dict[str, Any]
 
 
 def _prepare_target(
@@ -337,7 +180,7 @@ def _prepare_target(
     device: DeviceContext,
     source_credentials: dict[str, PyATSCredentials],
     source_errors: dict[str, str],
-) -> _Target | Fail:
+) -> Target | Fail:
     """Resolve the testbed bag, pyATS source and password; a ``Fail`` on error."""
     bag = device.attribute_bags.get("pyats_testbed")
     if not isinstance(bag, dict):
@@ -372,7 +215,7 @@ def _prepare_target(
         "username": bag.get("username"),
         "password": password,
     }
-    return _Target(
+    return Target(
         bag=bag,
         source_id=source_id,
         shim=service_factory.get_pyats_app_service(),
@@ -381,81 +224,8 @@ def _prepare_target(
     )
 
 
-@dataclass(frozen=True)
-class _PreDiff:
-    """Result of the pre-replace diff check: either the finished (skipped) device, or the
-    artifact of the pending diff (None when no check ran / it failed)."""
-
-    skipped: DeviceContext | None = None
-    artifact_ref: Any | None = None
-
-
-async def _pre_replace_diff(
-    target: _Target,
-    *,
-    device_id: str,
-    device: DeviceContext,
-    node_id: str,
-    diff_command: str,
-    destination_filename: str,
-    file_system: str,
-    timeout_minutes: int,
-    artifact_service: ArtifactService,
-    context_run_id: str,
-) -> _PreDiff:
-    diff_ok, pre_diff_text, diff_err = await _run_diff(
-        target.shim,
-        target.shim_credentials,
-        shim_device=target.shim_device,
-        diff_command=diff_command,
-    )
-    if diff_ok and not _diff_has_changes(pre_diff_text):
-        entry = {
-            "kind": "configure_replace",
-            "confirmed": False,
-            "skipped": True,
-            "reason": "no_pending_changes",
-            "destination_filename": destination_filename,
-            "file_system": file_system,
-            "timeout_minutes": timeout_minutes,
-        }
-        parsed = set_node_result(device.parsed, node_id, "configure_replace", entry)
-        enriched = device.model_copy(
-            update={
-                "parsed": parsed,
-                "capabilities": device.capabilities | {Capability.PARSED},
-                "status": DeviceStatus.OK,
-            }
-        )
-        logger.info(
-            "%s skipped device=%s host=%s reason=no_pending_changes",
-            _STEP_ID,
-            device_id,
-            target.bag.get("host"),
-        )
-        return _PreDiff(skipped=enriched)
-    if diff_ok:
-        artifact_ref = await artifact_service.store(
-            content=pre_diff_text,
-            kind=_DIFF_ARTIFACT_KIND_PRE,
-            device_id=device_id,
-            run_id=context_run_id,
-            media_type="text/plain",
-        )
-        return _PreDiff(artifact_ref=artifact_ref)
-    logger.warning(
-        "%s pre-replace diff check failed device=%s host=%s error=%s -- proceeding "
-        "with replace unverified",
-        _STEP_ID,
-        device_id,
-        target.bag.get("host"),
-        diff_err,
-    )
-    return _PreDiff()
-
-
 async def _replace_and_confirm(
-    target: _Target,
+    target: Target,
     *,
     device_id: str,
     destination_filename: str,
@@ -469,13 +239,13 @@ async def _replace_and_confirm(
     )
     logger.info(
         "%s replace device=%s host=%s command=%s",
-        _STEP_ID,
+        STEP_ID,
         device_id,
         target.bag.get("host"),
         replace_command,
     )
     started = time.monotonic()
-    ok, command_entries, err = await _run_shim_job(
+    ok, command_entries, err = await run_shim_job(
         target.shim,
         target.shim_credentials,
         operation="execute",
@@ -490,7 +260,7 @@ async def _replace_and_confirm(
         return _replace_failure(replace_error)
     logger.info(
         "%s replace returned device=%s host=%s elapsed=%.1fs",
-        _STEP_ID,
+        STEP_ID,
         device_id,
         target.bag.get("host"),
         time.monotonic() - started,
@@ -517,65 +287,6 @@ async def _replace_and_confirm(
     return None
 
 
-async def _verify_after_replace(
-    target: _Target,
-    *,
-    device_id: str,
-    device: DeviceContext,
-    node_id: str,
-    diff_command: str,
-    destination_filename: str,
-    file_system: str,
-    pre_diff_artifact_ref: Any | None,
-    artifact_service: ArtifactService,
-    context_run_id: str,
-) -> Fail | None:
-    """Diff the running config against the replacement file. Returns a ``Fail`` (carrying the
-    device with its diff refs) when the check fails or the configs still differ, else None."""
-    diff_ok, post_diff_text, diff_err = await _run_diff(
-        target.shim,
-        target.shim_credentials,
-        shim_device=target.shim_device,
-        diff_command=diff_command,
-    )
-    if not diff_ok:
-        return Fail(
-            "post_verify_failed",
-            f"'configure confirm' succeeded but the post-replace diff check failed "
-            f"({diff_err}); the running configuration could not be verified against "
-            f"{file_system}{destination_filename}",
-            device=_device_with_diff_refs(
-                device,
-                node_id,
-                pre_diff_artifact_ref=pre_diff_artifact_ref,
-                post_diff_artifact_ref=None,
-            ),
-            failure=COMMAND_FAILED,
-        )
-    if not _diff_has_changes(post_diff_text):
-        return None
-    post_diff_artifact_ref = await artifact_service.store(
-        content=post_diff_text,
-        kind=_DIFF_ARTIFACT_KIND_POST,
-        device_id=device_id,
-        run_id=context_run_id,
-        media_type="text/plain",
-    )
-    return Fail(
-        "diff_mismatch",
-        f"Running configuration still differs from "
-        f"{file_system}{destination_filename} after 'configure replace'/"
-        f"'configure confirm' succeeded; see the stored diff artifact "
-        f"(artifact_id={post_diff_artifact_ref.artifact_id}) for details",
-        device=_device_with_diff_refs(
-            device,
-            node_id,
-            pre_diff_artifact_ref=pre_diff_artifact_ref,
-            post_diff_artifact_ref=post_diff_artifact_ref,
-        ),
-    )
-
-
 def _confirmed_result(
     device: DeviceContext,
     *,
@@ -585,7 +296,7 @@ def _confirmed_result(
     file_system: str,
     timeout_minutes: int,
 ) -> DeviceContext:
-    enriched = _device_with_diff_refs(
+    enriched = device_with_diff_refs(
         device,
         node_id,
         pre_diff_artifact_ref=pre_diff_artifact_ref,
@@ -635,19 +346,19 @@ async def _process_one_device(
 
     logger.info(
         "%s replace starting device=%s host=%s os=%s source=%s",
-        _STEP_ID,
+        STEP_ID,
         device_id,
         target.bag.get("host"),
         target.bag.get("os"),
         target.source_id,
     )
 
-    diff_command = _build_diff_command(
+    diff_command = build_diff_command(
         file_system=file_system, destination_filename=destination_filename
     )
     pre_diff_artifact_ref = None
     if skip_if_no_pending_changes:
-        pre = await _pre_replace_diff(
+        pre = await pre_replace_diff(
             target,
             device_id=device_id,
             device=device,
@@ -674,7 +385,7 @@ async def _process_one_device(
         return failed
 
     if verify_diff_after_replace:
-        failed = await _verify_after_replace(
+        failed = await verify_after_replace(
             target,
             device_id=device_id,
             device=device,
@@ -704,10 +415,10 @@ def _parse_job_timeout(value: Any) -> float:
     if value is None or value == "":
         return float(_DEFAULT_JOB_TIMEOUT_SECONDS)
     if isinstance(value, bool) or not isinstance(value, (int, float)):
-        raise ValueError(f"{_STEP_ID}: job_timeout_seconds must be a number")
+        raise ValueError(f"{STEP_ID}: job_timeout_seconds must be a number")
     if not (_MIN_JOB_TIMEOUT_SECONDS <= value <= _MAX_JOB_TIMEOUT_SECONDS):
         raise ValueError(
-            f"{_STEP_ID}: job_timeout_seconds must be between {_MIN_JOB_TIMEOUT_SECONDS} and "
+            f"{STEP_ID}: job_timeout_seconds must be between {_MIN_JOB_TIMEOUT_SECONDS} and "
             f"{_MAX_JOB_TIMEOUT_SECONDS}"
         )
     return float(value)
@@ -728,19 +439,19 @@ async def execute(
 
     destination_filename = str(merged_config.get("destination_filename") or "").strip()
     if not destination_filename:
-        raise ValueError(f"{_STEP_ID}: destination_filename is required")
-    parse_device_token(destination_filename, name="destination_filename", step_id=_STEP_ID)
+        raise ValueError(f"{STEP_ID}: destination_filename is required")
+    parse_device_token(destination_filename, name="destination_filename", step_id=STEP_ID)
     file_system = str(merged_config.get("file_system") or "").strip()
     if not file_system:
-        raise ValueError(f"{_STEP_ID}: file_system is required")
-    parse_device_token(file_system, name="file_system", step_id=_STEP_ID)
+        raise ValueError(f"{STEP_ID}: file_system is required")
+    parse_device_token(file_system, name="file_system", step_id=STEP_ID)
     timeout_minutes = parse_int_flag(
         config,
         "timeout_minutes",
         default=get_config()["timeout_minutes"],
         minimum=_MIN_TIMEOUT_MINUTES,
         maximum=_MAX_TIMEOUT_MINUTES,
-        step_id=_STEP_ID,
+        step_id=STEP_ID,
     )
     job_timeout_seconds = _parse_job_timeout(merged_config.get("job_timeout_seconds"))
     skip_if_no_pending_changes = parse_bool_flag(
@@ -753,12 +464,12 @@ async def execute(
     if not context.devices:
         return [StepOutcome(name="success", context=context)]
 
-    db = require_session(run, _STEP_ID)
+    db = require_session(run, STEP_ID)
 
     logger.info(
         "%s started run_id=%s node_id=%s devices=%d destination_filename=%s file_system=%s "
         "timeout_minutes=%d",
-        _STEP_ID,
+        STEP_ID,
         log_run_id(run),
         node_id,
         len(context.devices),
@@ -777,7 +488,7 @@ async def execute(
 
     # At most as many jobs in flight as the shim runs at once, so it never has to queue them:
     # a job that waited in the shim's queue could outlive the client's timeout and still run.
-    _JOB_TIMEOUT.set(job_timeout_seconds)
+    JOB_TIMEOUT.set(job_timeout_seconds)
     # The shim's own limit (from /health/pyats), or the default of 4 when it cannot be read.
     parallel_jobs = (
         await shim_concurrency(
@@ -806,15 +517,16 @@ async def execute(
     # Any problem of one device (a shim request it refuses, an artifact that cannot be stored)
     # fails that device only; the runner keeps the others going.
     batch = await run_per_device(
-        context, work, node_id=node_id, step_id=_STEP_ID, concurrency=parallel_jobs
+        context, work, node_id=node_id, step_id=STEP_ID, concurrency=parallel_jobs
     )
     success_devices, failed_devices = batch.ok, batch.failed
 
     logger.info(
         "%s finished success=%d failure=%d run_id=%s",
-        _STEP_ID,
+        STEP_ID,
         len(success_devices),
         len(failed_devices),
         log_run_id(run),
     )
     return build_outcomes(context, success_devices, failed_devices)
+

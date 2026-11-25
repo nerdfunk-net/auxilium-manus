@@ -5,7 +5,9 @@ from __future__ import annotations
 import json
 import unittest
 
-from workflow_steps.common.nautobot_interfaces import interfaces_from_nautobot_bag
+from workflow_steps.common.interface_payload import (
+    interfaces_from_nautobot_bag,
+)
 from workflow_steps.config_to_attributes.genie_running_config import (
     build_interfaces_from_genie_running_config,
 )
