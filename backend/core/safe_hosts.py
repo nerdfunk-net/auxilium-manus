@@ -1,4 +1,4 @@
-"""Host policy for the Netmiko template-preview API (not workflow-run executors)."""
+"""Host policy for every host the app dials: the template preview, and the SSH and ICMP steps."""
 
 from __future__ import annotations
 
@@ -32,6 +32,22 @@ def validate_device_host(host: str) -> str:
         if literal_ip.is_loopback:
             raise ValueError(f"host is not allowed: {stripped}")
     return stripped
+
+
+def validate_inventory_host(host: str, *, environment: str, allow_arbitrary: bool) -> str:
+    """Return a stripped host from the inventory or raise ``ValueError``.
+
+    A host the SSH and ICMP steps dial (set by Nautobot, Get from User or a CSV) must pass
+    ``validate_device_host`` outside development. ``ENV=development`` and the
+    ``allow_netmiko_arbitrary_hosts`` switch (itself refused at startup outside development)
+    skip the address rules, so a lab on a loopback address keeps working.
+    """
+    if environment == "development" or allow_arbitrary:
+        stripped = (host or "").strip()
+        if not stripped:
+            raise ValueError("host is required")
+        return stripped
+    return validate_device_host(host)
 
 
 def validate_netmiko_preview_host(

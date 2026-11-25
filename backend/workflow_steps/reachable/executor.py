@@ -8,7 +8,9 @@ from typing import TYPE_CHECKING, Any
 
 from icmplib import ICMPLibError, NameLookupError, async_ping
 
+from core.config import settings
 from core.models.runs import WorkflowRun
+from core.safe_hosts import validate_inventory_host
 from models.failure import FailureInfo
 from models.workflow_context import (
     Capability,
@@ -68,6 +70,8 @@ def _parse_positive_number(config: dict[str, Any], key: str) -> float:
 
 
 _MISSING_HOST = FailureInfo(phase="connect", kind="bad_request", hint="check_hostname")
+# The host policy refused the address (loopback, link-local / metadata, unspecified, multicast).
+_HOST_NOT_ALLOWED = FailureInfo(phase="config", kind="bad_request", hint="check_hostname")
 _UNREACHABLE = FailureInfo(phase="connect", kind="timeout", hint="check_reachability")
 
 
@@ -93,6 +97,15 @@ async def _ping_device(
     host = bare_hostname(device.primary_ip4, device.hostname)
     if not host:
         return Fail("missing_host", "device has no primary_ip4 or hostname to ping", _MISSING_HOST)
+
+    try:
+        validate_inventory_host(
+            host,
+            environment=settings.environment,
+            allow_arbitrary=settings.allow_netmiko_arbitrary_hosts,
+        )
+    except ValueError:
+        return Fail("host_not_allowed", "host is not allowed", _HOST_NOT_ALLOWED)
 
     try:
         result = await async_ping(

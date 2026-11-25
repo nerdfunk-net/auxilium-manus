@@ -83,3 +83,37 @@ class ValidateDeviceHostTests(unittest.TestCase):
             validate_netmiko_preview_host(
                 "10.1.2.3", environment="production", allow_arbitrary=False
             )
+
+
+class ValidateInventoryHostTests(unittest.TestCase):
+    def test_production_blocks_metadata_loopback_and_link_local(self) -> None:
+        from core.safe_hosts import validate_inventory_host
+
+        for host in ("169.254.169.254", "127.0.0.1", "metadata.google.internal", "0.0.0.0"):
+            with self.subTest(host=host), self.assertRaises(ValueError):
+                validate_inventory_host(host, environment="production", allow_arbitrary=False)
+
+    def test_production_allows_a_private_address_and_a_name(self) -> None:
+        from core.safe_hosts import validate_inventory_host
+
+        for host in ("10.1.2.3", " sw1.example.net "):
+            result = validate_inventory_host(host, environment="production", allow_arbitrary=False)
+            self.assertEqual(result, host.strip())
+
+    def test_development_and_the_arbitrary_switch_skip_the_policy(self) -> None:
+        from core.safe_hosts import validate_inventory_host
+
+        self.assertEqual(
+            validate_inventory_host("127.0.0.1", environment="development", allow_arbitrary=False),
+            "127.0.0.1",
+        )
+        self.assertEqual(
+            validate_inventory_host("127.0.0.1", environment="production", allow_arbitrary=True),
+            "127.0.0.1",
+        )
+
+    def test_an_empty_host_is_refused_everywhere(self) -> None:
+        from core.safe_hosts import validate_inventory_host
+
+        with self.assertRaises(ValueError):
+            validate_inventory_host("  ", environment="development", allow_arbitrary=True)

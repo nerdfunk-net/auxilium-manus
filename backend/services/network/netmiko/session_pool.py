@@ -29,6 +29,7 @@ from dataclasses import dataclass, field
 from typing import Any, TypeVar
 
 from core.config import settings
+from core.safe_hosts import validate_inventory_host
 from services.execution.run_events_reporter import (
     build_connect_event_callback,
     current_run_event_context,
@@ -58,6 +59,15 @@ class PooledSession:
     ever_connected: bool = False
     # The executor-thread future of the operation currently using ``session``.
     inflight: asyncio.Future[Any] | None = None
+
+
+def _check_host(host: str) -> None:
+    """The host policy for an inventory host; raises ``ValueError`` before any session exists."""
+    validate_inventory_host(
+        host,
+        environment=settings.environment,
+        allow_arbitrary=settings.allow_netmiko_arbitrary_hosts,
+    )
 
 
 class DeviceSessionPool:
@@ -97,6 +107,7 @@ class DeviceSessionPool:
         ``retry`` is a connect-phase-only backoff policy (see
         ``connection.RetryPolicy``) — it never applies to ``op`` itself.
         """
+        _check_host(host)
         loop = asyncio.get_running_loop()
 
         # Contextvars don't cross into the thread executor, so resolve the live
@@ -192,6 +203,7 @@ class DeviceSessionPool:
         a live pooled session already exists for the same key (see
         doc/DURABLE_SSH_SESSION.md §11 and doc/refactoring/FORCE_SSH_LOGIN.md).
         """
+        _check_host(host)
         loop = asyncio.get_running_loop()
         session = NetmikoDeviceSession(
             host=host,

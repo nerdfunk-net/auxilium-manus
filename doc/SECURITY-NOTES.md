@@ -229,6 +229,15 @@ keys). **Accepted as-is**, all documented in `doc/AGENT_INTEGRATION.md`:
   `default` user to `nopass`: a bare `--aclfile` would drop the password of the app's Redis.
 - No secret rotation overlap yet: change the credential and the agent's `MANUS_AGENT_SECRET` together.
 
+## Inventory hosts: the host policy applies to every dial (W3b-14)
+
+`DeviceSessionPool.run_on_device` / `probe_login` (every SSH step) and `reachable` (ICMP) check the host with
+`core.safe_hosts.validate_inventory_host` before a session or a ping exists: outside `ENV=development` a loopback, link-local
+(cloud metadata), unspecified or multicast literal and the metadata names are refused (`ValueError` "host is not allowed" on the
+device, or the `host_not_allowed` failure of `reachable`). `ENV=development` and `ALLOW_NETMIKO_ARBITRARY_HOSTS` (refused at startup
+outside development) skip the address rules, so a lab on a loopback address keeps working. The inventory stays operator-controlled
+data: this is defence in depth, not a new trust boundary.
+
 ## Get from Agent: the agent chooses the devices
 
 `get-from-agent` is an inventory step, so the agent does not enrich devices, it **creates** them, and the workflow's SSH
