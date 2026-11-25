@@ -11,10 +11,9 @@ pick it up without re-deriving the context.
 What is done is in `doc/WORKFLOW-STEPS.md` ("Empty branch and step-level failure (D2)", "Which exception text a
 failed device stores (P-E, D3)"). Still open:
 
-- **SSH driver text of `run-command`.** `run_command/exec_mode.py` and `config_mode.py` store `message=str(exc)` of the
-  Netmiko error. Netmiko text can quote device output ("Pattern not detected ... in output: ..."). Decide: class name
-  plus the `FailureInfo` (as the git and database steps), or keep the sentence behind the S4 scrubbing. Blocked on that
-  decision only.
+- **SSH driver text of `run-command` (decided and done).** Both modes store the class name (a `ValueError` keeps its
+  step-written text) plus the `FailureInfo`; the driver sentence of a failed result (`result.error`) is no longer stored,
+  because it can name a refused line. The operator reads the cause from the failure record and the step's own log.
 - **Step-level failure shape of the controller steps.** `get-aci-*`, `backup-aci-config`, `compare-aci-subnets` and the
   Catalyst Center steps still raise when the whole step fails; `contact-the-ai`, `open-change-request` and the git
   steps mark the devices FAILED (`whole_step_failure`). Several of them create devices or ignore the incoming ones, so

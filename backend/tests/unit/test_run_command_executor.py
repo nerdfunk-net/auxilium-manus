@@ -932,8 +932,8 @@ class RunCommandExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(failed.status, DeviceStatus.FAILED)
         self.assertEqual(failed.errors[-1].code, "connectionerror")
         self.assertEqual(failed.errors[-1].step_id, "run-command")
-        # the driver text is still stored for this step (open decision S4, W3a-10)
-        self.assertEqual(failed.errors[-1].message, "no route")
+        # the driver text is never stored (decision S4): the class name stands in for it
+        self.assertEqual(failed.errors[-1].message, "ConnectionError")
         self.assertEqual(by_name["success"].summary, "ran 2 command(s) on 1 device(s)")
         self.assertEqual(by_name["failure"].summary, "1 device(s) failed")
 
@@ -964,7 +964,7 @@ class RunCommandExecutorTests(unittest.IsolatedAsyncioTestCase):
 
         failed = next(o for o in outcomes if o.name == "failure").context.devices["d"]
         self.assertEqual(failed.errors[-1].code, "command_failed")
-        self.assertEqual(failed.errors[-1].message, "refused")
+        self.assertEqual(failed.errors[-1].message, "run-command (config_mode) failed")
         self.assertEqual(
             failed.errors[-1].failure, FailureInfo(phase="config", kind="config_rejected")
         )

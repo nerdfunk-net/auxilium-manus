@@ -5,7 +5,6 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from models.failure import failure_from_exception
 from models.workflow_context import (
     CommandResult,
     DeviceContext,
@@ -20,6 +19,7 @@ from workflow_steps.common.config_push import store_push_result
 from workflow_steps.common.device_runner import Fail, run_per_device
 from workflow_steps.common.device_type import connection_device_type
 from workflow_steps.common.failure_records import INVALID_INPUT
+from workflow_steps.common.partial_outcomes import device_error_from_exception
 from workflow_steps.common.step_flags import record_dry_run
 from workflow_steps.run_command.constants import STEP_ID
 from workflow_steps.run_command.parsing import ParsedRunCommandConfig
@@ -82,7 +82,8 @@ def _apply_run_command_config_mode_result(
     if not result.success:
         return Fail(
             "command_failed",
-            result.error or "run-command (config_mode) failed",
+            # `result.error` is driver text: the cause is the FailureInfo, never that text.
+            "run-command (config_mode) failed",
             result.failure,
             device=recorded,
         )
@@ -148,8 +149,8 @@ async def _run_config_mode_on_device(
             device=device, node_id=node_id, result=result, step_results=step_results
         )
     except Exception as exc:
-        # The driver text is stored for this step as it always was (open decision S4, W3a-10).
-        return Fail(type(exc).__name__.lower(), str(exc), failure_from_exception(exc))
+        error = device_error_from_exception(exc, node_id=node_id, step_id="run-command")
+        return Fail(error.code, error.message, error.failure)
 
 
 async def run_config_mode(

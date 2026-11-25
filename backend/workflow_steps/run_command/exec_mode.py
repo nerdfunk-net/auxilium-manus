@@ -7,7 +7,6 @@ import json
 import logging
 from typing import Any
 
-from models.failure import failure_from_exception
 from models.workflow_context import (
     CommandResult,
     DeviceContext,
@@ -20,6 +19,7 @@ from services.network.netmiko.connection import RetryPolicy
 from services.network.netmiko.service import NetmikoService
 from workflow_steps.common.device_type import connection_device_type
 from workflow_steps.common.failure_records import INVALID_INPUT
+from workflow_steps.common.partial_outcomes import device_error_from_exception
 from workflow_steps.common.step_flags import record_dry_run
 from workflow_steps.run_command.outcomes import fail_device
 from workflow_steps.run_command.parsing import ParsedRunCommandConfig
@@ -152,7 +152,9 @@ async def _run_on_device(
                 device_id=device_id,
                 node_id=node_id,
                 code="command_failed",
-                message=result.error or "Command execution failed",
+                # `result.error` is driver text (it can name a refused line or echo a secret):
+                # the cause is the FailureInfo, never that text.
+                message="Command execution failed",
                 command_results=updated_command_results,
                 failure=result.failure,
             )
@@ -166,13 +168,14 @@ async def _run_on_device(
         )
         return device_id, enriched, True, raw_outputs
     except Exception as exc:
+        error = device_error_from_exception(exc, node_id=node_id, step_id="run-command")
         dev_id, failed, ok = fail_device(
             device=device,
             device_id=device_id,
             node_id=node_id,
-            code=type(exc).__name__.lower(),
-            message=str(exc),
-            failure=failure_from_exception(exc),
+            code=error.code,
+            message=error.message,
+            failure=error.failure,
         )
         return dev_id, failed, ok, {}
 
