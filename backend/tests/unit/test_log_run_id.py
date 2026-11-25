@@ -11,10 +11,12 @@ from workflow_steps.common.run_logging import log_run_id
 
 _STEPS = Path(__file__).resolve().parents[2] / "workflow_steps"
 _LOG_METHODS = {"debug", "info", "warning", "error", "exception", "critical"}
-# These pass ``run.id`` on purpose: it is a database foreign key (job statistics, report data,
-# the parent run of a child run), not a log value.
+# These pass ``run.id`` on purpose: it is a database foreign key (job statistics, notifications,
+# report data, the parent run of a child run), not a log value.
 _PERSISTED_RUN_ID = {
     "workflow_steps/collect_statistics/executor.py",
+    "workflow_steps/notify/executor.py",
+    "workflow_steps/notify_on_error/executor.py",
     "workflow_steps/store_for_report/executor.py",
 }
 

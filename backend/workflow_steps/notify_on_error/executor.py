@@ -14,15 +14,18 @@ from typing import TYPE_CHECKING, Any
 
 import service_factory
 from core.models.runs import WorkflowRun
+from models.failure import FailureInfo, failure_from_exception, failure_to_json
 from models.workflow_context import StepOutcome, WorkflowContext
 from repositories.notification_repository import NotificationRepository
 from services.artifacts import ArtifactService
 from services.mattermost.common.exceptions import MattermostAPIError
 from services.workflow_context.attribute_path import DEBUG_LOGS_METADATA_SUFFIX
+from workflow_steps.common.failure_records import TRANSPORT_FAILED
 from workflow_steps.common.mattermost_source import resolve_mattermost_credentials
 from workflow_steps.common.notification_context import resolve_run_workflow
+from workflow_steps.common.notification_target import parse_mattermost_target
 from workflow_steps.common.placeholder_template import render_placeholder_template
-from workflow_steps.common.step_flags import parse_bool_flag, require_text
+from workflow_steps.common.step_flags import parse_bool_flag, parse_int_flag, require_text
 from workflow_steps.notify_on_error.config import get_config
 
 if TYPE_CHECKING:
@@ -32,20 +35,6 @@ logger = logging.getLogger(__name__)
 
 _STEP_ID = "notify-on-error"
 _SEVERITY = "error"
-
-
-def _parse_max_messages(config: dict[str, Any], default: int) -> int:
-    """How many Mattermost posts one execution may send before it posts one summary."""
-    raw = config.get("max_messages")
-    if raw is None or (isinstance(raw, str) and not raw.strip()):
-        return default
-    try:
-        value = int(raw)
-    except (TypeError, ValueError) as exc:
-        raise ValueError(f"{_STEP_ID}: max_messages must be an integer, got {raw!r}") from exc
-    if value < 0:
-        raise ValueError(f"{_STEP_ID}: max_messages must be 0 or greater")
-    return value
 
 
 async def execute(
@@ -62,7 +51,9 @@ async def execute(
     defaults = get_config()
     message = require_text(config, "message", step_id=_STEP_ID, default=defaults["message"])
 
-    max_messages = _parse_max_messages(config, int(defaults["max_messages"]))
+    max_messages = parse_int_flag(
+        config, "max_messages", default=int(defaults["max_messages"]), step_id=_STEP_ID
+    )
     notify_local = parse_bool_flag(config, "notify_local", default=True)
     notify_mattermost = parse_bool_flag(config, "notify_mattermost", default=False)
     if not notify_local and not notify_mattermost:
@@ -70,13 +61,7 @@ async def execute(
             f"{_STEP_ID}: enable at least one notification channel (local or Mattermost)"
         )
 
-    mattermost_source_id = str(config.get("mattermost_source_id") or "").strip()
-    team_name = str(config.get("team_name") or "").strip()
-    channel_name = str(config.get("channel_name") or "").strip()
-    if notify_mattermost:
-        mattermost_source_id = require_text(config, "mattermost_source_id", step_id=_STEP_ID)
-        team_name = require_text(config, "team_name", step_id=_STEP_ID)
-        channel_name = require_text(config, "channel_name", step_id=_STEP_ID)
+    target = parse_mattermost_target(config, step_id=_STEP_ID) if notify_mattermost else None
 
     db, workflow, owner_username = resolve_run_workflow(run, step_id=_STEP_ID)
 
@@ -90,24 +75,30 @@ async def execute(
     mattermost_client = None
     mattermost_credentials = None
     mattermost_channel_id: str | None = None
-    if notify_mattermost and any(device.errors for device in context.devices.values()):
-        mattermost_client = service_factory.get_mattermost_app_service()
-        try:
-            mattermost_credentials = resolve_mattermost_credentials(
-                db, mattermost_source_id, step_id=_STEP_ID
-            )
-            channel = await mattermost_client.get_channel_by_name(
-                mattermost_credentials, team_name, channel_name
-            )
-            mattermost_channel_id = channel["id"]
-        except (ValueError, MattermostAPIError) as exc:
-            logger.warning(
-                "%s: Mattermost channel %s/%s unavailable, skipping: %s",
-                _STEP_ID,
-                team_name,
-                channel_name,
-                exc,
-            )
+    # Policy (D11): a configuration error (unknown source) raises, also when no device failed, so
+    # a wrong source does not stay hidden until a real failure; a transport error is recorded and
+    # the notification step still succeeds (an error sink must not fail while reporting one).
+    mattermost_failure: FailureInfo | None = None
+    if target is not None:
+        mattermost_credentials = resolve_mattermost_credentials(
+            db, target.source_id, step_id=_STEP_ID
+        )
+        if any(device.errors for device in context.devices.values()):
+            mattermost_client = service_factory.get_mattermost_app_service()
+            try:
+                channel = await mattermost_client.get_channel_by_name(
+                    mattermost_credentials, target.team_name, target.channel_name
+                )
+                mattermost_channel_id = channel["id"]
+            except MattermostAPIError as exc:
+                mattermost_failure = failure_from_exception(exc) or TRANSPORT_FAILED
+                logger.warning(
+                    "%s: Mattermost channel %s/%s unavailable, skipping: %s",
+                    _STEP_ID,
+                    target.team_name,
+                    target.channel_name,
+                    exc,
+                )
 
     rows: list[dict[str, Any]] = []
     device_logs: dict[str, dict[str, Any]] = {}
@@ -129,6 +120,7 @@ async def execute(
                 rows.append(
                     {
                         "run_id": run.id,
+                        "node_id": node_id,
                         "workflow_id": workflow.id,
                         "workflow_name": workflow.name,
                         "workflow_owner_username": owner_username,
@@ -155,8 +147,13 @@ async def execute(
                 mattermost_posted += 1
             except MattermostAPIError as exc:
                 mattermost_failed += 1
+                mattermost_failure = failure_from_exception(exc) or TRANSPORT_FAILED
                 logger.warning(
-                    "%s: could not post to %s/%s: %s", _STEP_ID, team_name, channel_name, exc
+                    "%s: could not post to %s/%s: %s",
+                    _STEP_ID,
+                    target.team_name if target else "",
+                    target.channel_name if target else "",
+                    exc,
                 )
 
         device_logs[device_id] = {
@@ -180,15 +177,20 @@ async def execute(
                 "see the run page.",
             )
         except MattermostAPIError as exc:
+            mattermost_failure = failure_from_exception(exc) or TRANSPORT_FAILED
             logger.warning(
                 "%s: could not post the summary to %s/%s: %s",
                 _STEP_ID,
-                team_name,
-                channel_name,
+                target.team_name if target else "",
+                target.channel_name if target else "",
                 exc,
             )
 
-    created = NotificationRepository(db).create_batch(rows) if notify_local else []
+    created = (
+        NotificationRepository(db).replace_for_node(run_id=run.id, node_id=node_id, rows=rows)
+        if notify_local
+        else []
+    )
 
     debug_logs = {
         "message": message,
@@ -200,6 +202,7 @@ async def execute(
         "mattermost_posted": mattermost_posted,
         "mattermost_failed": mattermost_failed,
         "mattermost_suppressed": suppressed,
+        "mattermost_failure": failure_to_json(mattermost_failure),
     }
     metadata = {
         **context.metadata,

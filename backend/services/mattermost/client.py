@@ -10,10 +10,43 @@ import httpx
 
 from core.safe_urls import UnsafeURLError, validate_source_transport_async
 from core.ssl_config import create_verified_ssl_context, verify_option
+from models.failure import FailureInfo
 from services.mattermost.common.exceptions import MattermostAPIError, MattermostValidationError
 from services.mattermost.credentials import MattermostCredentials
 
 logger = logging.getLogger(__name__)
+
+
+def _status_failure(status: int) -> FailureInfo:
+    """The closed-vocabulary record of an HTTP answer that is not a success."""
+    if status == 401:
+        return FailureInfo(
+            phase="auth", kind="auth_failed", http_status=status, hint="check_credentials"
+        )
+    if status == 403:
+        return FailureInfo(
+            phase="api", kind="permission_denied", http_status=status, hint="check_permissions"
+        )
+    if status == 404:
+        return FailureInfo(phase="api", kind="not_found", http_status=status, hint="check_request")
+    if status == 429:
+        return FailureInfo(
+            phase="api", kind="rate_limited", retryable=True, http_status=status, hint="retry_later"
+        )
+    if status >= 500:
+        return FailureInfo(
+            phase="api",
+            kind="server_error",
+            retryable=True,
+            http_status=status,
+            hint="check_controller",
+        )
+    return FailureInfo(phase="api", kind="bad_request", http_status=status, hint="check_request")
+
+
+_TIMEOUT = FailureInfo(phase="api", kind="timeout", retryable=True, hint="check_reachability")
+_UNREACHABLE = FailureInfo(phase="api", kind="unknown", hint="check_reachability")
+_INVALID_RESPONSE = FailureInfo(phase="api", kind="invalid_response", hint="check_controller")
 
 
 class MattermostService:
@@ -65,30 +98,38 @@ class MattermostService:
             )
         except httpx.TimeoutException as exc:
             raise MattermostAPIError(
-                f"Mattermost request timed out after {credentials.timeout} seconds"
+                f"Mattermost request timed out after {credentials.timeout} seconds",
+                failure=_TIMEOUT,
             ) from exc
         except Exception as exc:
             logger.error("Mattermost connection check failed: %s", exc)
-            raise MattermostAPIError("Mattermost connection check failed") from exc
+            raise MattermostAPIError(
+                "Mattermost connection check failed", failure=_UNREACHABLE
+            ) from exc
 
         if response.status_code == 401:
-            raise MattermostAPIError("Mattermost rejected the token (401 Unauthorized)")
+            raise MattermostAPIError(
+                "Mattermost rejected the token (401 Unauthorized)", failure=_status_failure(401)
+            )
         if response.is_redirect:
             location = response.headers.get("location", "")
             raise MattermostAPIError(
                 f"Mattermost redirected the request (HTTP {response.status_code}"
                 f"{f' to {location}' if location else ''}). Check that the source URL "
-                "uses the scheme and hostname Mattermost expects (e.g. https)."
+                "uses the scheme and hostname Mattermost expects (e.g. https).",
+                failure=_INVALID_RESPONSE,
             )
         if response.status_code >= 400:
             raise MattermostAPIError(
-                f"Mattermost request failed with status {response.status_code}"
+                f"Mattermost request failed with status {response.status_code}",
+                failure=_status_failure(response.status_code),
             )
         try:
             return response.json()
         except ValueError as exc:
             raise MattermostAPIError(
-                f"Mattermost returned a non-JSON response (HTTP {response.status_code})"
+                f"Mattermost returned a non-JSON response (HTTP {response.status_code})",
+                failure=_INVALID_RESPONSE,
             ) from exc
 
     async def get_channel_by_name(
@@ -110,34 +151,43 @@ class MattermostService:
             )
         except httpx.TimeoutException as exc:
             raise MattermostAPIError(
-                f"Mattermost request timed out after {credentials.timeout} seconds"
+                f"Mattermost request timed out after {credentials.timeout} seconds",
+                failure=_TIMEOUT,
             ) from exc
         except Exception as exc:
             logger.error("Mattermost channel lookup failed: %s", exc)
-            raise MattermostAPIError("Mattermost channel lookup failed") from exc
+            raise MattermostAPIError(
+                "Mattermost channel lookup failed", failure=_UNREACHABLE
+            ) from exc
 
         if response.status_code == 401:
-            raise MattermostAPIError("Mattermost rejected the token (401 Unauthorized)")
+            raise MattermostAPIError(
+                "Mattermost rejected the token (401 Unauthorized)", failure=_status_failure(401)
+            )
         if response.status_code == 404:
             raise MattermostAPIError(
-                f"Mattermost channel '{channel_name}' not found in team '{team_name}'"
+                f"Mattermost channel '{channel_name}' not found in team '{team_name}'",
+                failure=_status_failure(404),
             )
         if response.is_redirect:
             location = response.headers.get("location", "")
             raise MattermostAPIError(
                 f"Mattermost redirected the request (HTTP {response.status_code}"
                 f"{f' to {location}' if location else ''}). Check that the source URL "
-                "uses the scheme and hostname Mattermost expects (e.g. https)."
+                "uses the scheme and hostname Mattermost expects (e.g. https).",
+                failure=_INVALID_RESPONSE,
             )
         if response.status_code >= 400:
             raise MattermostAPIError(
-                f"Mattermost request failed with status {response.status_code}"
+                f"Mattermost request failed with status {response.status_code}",
+                failure=_status_failure(response.status_code),
             )
         try:
             return response.json()
         except ValueError as exc:
             raise MattermostAPIError(
-                f"Mattermost returned a non-JSON response (HTTP {response.status_code})"
+                f"Mattermost returned a non-JSON response (HTTP {response.status_code})",
+                failure=_INVALID_RESPONSE,
             ) from exc
 
     async def create_post(
@@ -157,30 +207,36 @@ class MattermostService:
             )
         except httpx.TimeoutException as exc:
             raise MattermostAPIError(
-                f"Mattermost request timed out after {credentials.timeout} seconds"
+                f"Mattermost request timed out after {credentials.timeout} seconds",
+                failure=_TIMEOUT,
             ) from exc
         except Exception as exc:
             logger.error("Mattermost post failed: %s", exc)
-            raise MattermostAPIError("Mattermost post failed") from exc
+            raise MattermostAPIError("Mattermost post failed", failure=_UNREACHABLE) from exc
 
         if response.status_code == 401:
-            raise MattermostAPIError("Mattermost rejected the token (401 Unauthorized)")
+            raise MattermostAPIError(
+                "Mattermost rejected the token (401 Unauthorized)", failure=_status_failure(401)
+            )
         if response.is_redirect:
             location = response.headers.get("location", "")
             raise MattermostAPIError(
                 f"Mattermost redirected the request (HTTP {response.status_code}"
                 f"{f' to {location}' if location else ''}). Check that the source URL "
-                "uses the scheme and hostname Mattermost expects (e.g. https)."
+                "uses the scheme and hostname Mattermost expects (e.g. https).",
+                failure=_INVALID_RESPONSE,
             )
         if response.status_code >= 400:
             raise MattermostAPIError(
-                f"Mattermost request failed with status {response.status_code}"
+                f"Mattermost request failed with status {response.status_code}",
+                failure=_status_failure(response.status_code),
             )
         try:
             return response.json()
         except ValueError as exc:
             raise MattermostAPIError(
-                f"Mattermost returned a non-JSON response (HTTP {response.status_code})"
+                f"Mattermost returned a non-JSON response (HTTP {response.status_code})",
+                failure=_INVALID_RESPONSE,
             ) from exc
 
     async def _base_url(self, credentials: MattermostCredentials) -> str:

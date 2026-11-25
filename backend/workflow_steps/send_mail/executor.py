@@ -26,12 +26,14 @@ from email.utils import parseaddr
 from typing import TYPE_CHECKING, Any
 
 from core.models.runs import WorkflowRun
+from models.failure import failure_from_exception
 from models.workflow_context import StepOutcome, WorkflowContext
 from services.artifacts import ArtifactService
 from services.mail import smtp_sender
 from services.mail.errors import MailCredentialError, MailSendError
 from services.mail.mail_service import MailService
 from services.mail.recipients import disallowed_recipients
+from workflow_steps.common.failure_records import TRANSPORT_FAILED
 from workflow_steps.common.run_message_template import (
     render_for_all_devices,
     render_for_first_device,
@@ -143,7 +145,14 @@ async def execute(
     except MailSendError as exc:
         summary = str(exc)
         logger.warning("%s: %s node_id=%s run_id=%s", _STEP_ID, summary, node_id, context.run_id)
-        return [StepOutcome(name="failure", context=context, summary=summary)]
+        return [
+            StepOutcome(
+                name="failure",
+                context=context,
+                summary=summary,
+                failure=failure_from_exception(exc) or TRANSPORT_FAILED,
+            )
+        ]
 
     logger.info(
         "%s finished node_id=%s recipients=%d run_id=%s",

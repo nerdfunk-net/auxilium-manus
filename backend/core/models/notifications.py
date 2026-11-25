@@ -15,6 +15,9 @@ class Notification(Base):
     run_id: Mapped[int] = mapped_column(
         Integer, ForeignKey("workflow_runs.id", ondelete="CASCADE"), nullable=False, index=True
     )
+    # The canvas node that wrote the row: a retry of the node replaces its rows (NULL = rows
+    # written before this column existed).
+    node_id: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
     # Denormalized snapshot columns — captured at write time so history
     # survives a workflow rename. Not a second FK on workflow_id:
     # workflow_runs already cascades from workflows.id, so deleting a

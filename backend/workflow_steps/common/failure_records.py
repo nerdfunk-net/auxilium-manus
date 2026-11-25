@@ -27,3 +27,6 @@ INVALID_RESPONSE = FailureInfo(phase="api", kind="invalid_response", hint="check
 
 # A command or session failed after the connection was made.
 COMMAND_FAILED = FailureInfo(phase="command", kind="command_error")
+
+# A notification (mail, chat post) could not be delivered and the cause was not classified.
+TRANSPORT_FAILED = FailureInfo(phase="api", kind="unknown", hint="check_reachability")

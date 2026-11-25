@@ -99,7 +99,9 @@ class NotifyOnErrorExecutorTests(unittest.IsolatedAsyncioTestCase):
         context = _context({"d1": device1, "d2": device2})
 
         notification_repo = MagicMock()
-        notification_repo.create_batch.side_effect = lambda rows: [MagicMock() for _ in rows]
+        notification_repo.replace_for_node.side_effect = lambda **kw: [
+            MagicMock() for _ in kw["rows"]
+        ]
 
         session_p, workflow_p, notification_p = _patches(
             workflow_result=(_workflow(), "alice"),
@@ -118,7 +120,7 @@ class NotifyOnErrorExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(outcomes), 1)
         self.assertEqual(outcomes[0].name, "success")
 
-        rows = notification_repo.create_batch.call_args.args[0]
+        rows = notification_repo.replace_for_node.call_args.kwargs["rows"]
         self.assertEqual(len(rows), 2)
         messages = {row["message"] for row in rows}
         self.assertEqual(
@@ -151,7 +153,9 @@ class NotifyOnErrorExecutorTests(unittest.IsolatedAsyncioTestCase):
         context = _context({"d1": device})
 
         notification_repo = MagicMock()
-        notification_repo.create_batch.side_effect = lambda rows: [MagicMock() for _ in rows]
+        notification_repo.replace_for_node.side_effect = lambda **kw: [
+            MagicMock() for _ in kw["rows"]
+        ]
 
         session_p, workflow_p, notification_p = _patches(
             workflow_result=(_workflow(), "alice"),
@@ -167,7 +171,7 @@ class NotifyOnErrorExecutorTests(unittest.IsolatedAsyncioTestCase):
                 device_sessions=MagicMock(),
             )
 
-        rows = notification_repo.create_batch.call_args.args[0]
+        rows = notification_repo.replace_for_node.call_args.kwargs["rows"]
         self.assertEqual(len(rows), 2)
         messages = {row["message"] for row in rows}
         self.assertEqual(
@@ -191,7 +195,9 @@ class NotifyOnErrorExecutorTests(unittest.IsolatedAsyncioTestCase):
         context = _context({"d1": device_failed, "d2": device_clean})
 
         notification_repo = MagicMock()
-        notification_repo.create_batch.side_effect = lambda rows: [MagicMock() for _ in rows]
+        notification_repo.replace_for_node.side_effect = lambda **kw: [
+            MagicMock() for _ in kw["rows"]
+        ]
 
         session_p, workflow_p, notification_p = _patches(
             workflow_result=(_workflow(), "alice"),
@@ -207,7 +213,7 @@ class NotifyOnErrorExecutorTests(unittest.IsolatedAsyncioTestCase):
                 device_sessions=MagicMock(),
             )
 
-        rows = notification_repo.create_batch.call_args.args[0]
+        rows = notification_repo.replace_for_node.call_args.kwargs["rows"]
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["device_name"], "router1")
 
@@ -216,7 +222,9 @@ class NotifyOnErrorExecutorTests(unittest.IsolatedAsyncioTestCase):
         context = _context({"d1": device})
 
         notification_repo = MagicMock()
-        notification_repo.create_batch.side_effect = lambda rows: [MagicMock() for _ in rows]
+        notification_repo.replace_for_node.side_effect = lambda **kw: [
+            MagicMock() for _ in kw["rows"]
+        ]
 
         session_p, workflow_p, notification_p = _patches(
             workflow_result=(_workflow(), "alice"),
@@ -232,7 +240,7 @@ class NotifyOnErrorExecutorTests(unittest.IsolatedAsyncioTestCase):
                 device_sessions=MagicMock(),
             )
 
-        notification_repo.create_batch.assert_called_once_with([])
+        self.assertEqual(notification_repo.replace_for_node.call_args.kwargs["rows"], [])
         self.assertEqual(outcomes[0].name, "success")
 
     async def test_empty_message_raises(self) -> None:
@@ -289,7 +297,9 @@ class NotifyOnErrorExecutorTests(unittest.IsolatedAsyncioTestCase):
         context = _context({"d1": device1, "d2": device2})
 
         notification_repo = MagicMock()
-        notification_repo.create_batch.side_effect = lambda rows: [MagicMock() for _ in rows]
+        notification_repo.replace_for_node.side_effect = lambda **kw: [
+            MagicMock() for _ in kw["rows"]
+        ]
         client = _mattermost_client()
 
         session_p, workflow_p, notification_p = _patches(
@@ -313,7 +323,7 @@ class NotifyOnErrorExecutorTests(unittest.IsolatedAsyncioTestCase):
             )
 
         self.assertEqual(outcomes[0].name, "success")
-        rows = notification_repo.create_batch.call_args.args[0]
+        rows = notification_repo.replace_for_node.call_args.kwargs["rows"]
         self.assertEqual(len(rows), 2)
         self.assertEqual(client.create_post.await_count, 2)
 
@@ -336,7 +346,9 @@ class NotifyOnErrorExecutorTests(unittest.IsolatedAsyncioTestCase):
         context = _context({"d1": device})
 
         notification_repo = MagicMock()
-        notification_repo.create_batch.side_effect = lambda rows: [MagicMock() for _ in rows]
+        notification_repo.replace_for_node.side_effect = lambda **kw: [
+            MagicMock() for _ in kw["rows"]
+        ]
         client = _mattermost_client()
         client.create_post.side_effect = [None, MattermostAPIError("could not post")]
 
@@ -360,7 +372,7 @@ class NotifyOnErrorExecutorTests(unittest.IsolatedAsyncioTestCase):
             )
 
         self.assertEqual(outcomes[0].name, "success")
-        rows = notification_repo.create_batch.call_args.args[0]
+        rows = notification_repo.replace_for_node.call_args.kwargs["rows"]
         self.assertEqual(len(rows), 2)
 
         debug_logs = outcomes[0].context.metadata[f"notify-on-error-1{DEBUG_LOGS_METADATA_SUFFIX}"]
@@ -376,7 +388,9 @@ class NotifyOnErrorExecutorTests(unittest.IsolatedAsyncioTestCase):
             errors=[_error("run-command", f"e{i}") for i in range(errors)],
         )
         notification_repo = MagicMock()
-        notification_repo.create_batch.side_effect = lambda rows: [MagicMock() for _ in rows]
+        notification_repo.replace_for_node.side_effect = lambda **kw: [
+            MagicMock() for _ in kw["rows"]
+        ]
         client = _mattermost_client()
         session_p, workflow_p, notification_p = _patches(
             workflow_result=(_workflow(), "alice"), notification_repo=notification_repo
@@ -400,7 +414,7 @@ class NotifyOnErrorExecutorTests(unittest.IsolatedAsyncioTestCase):
         client, notification_repo = await self._run_capped(max_messages=None)
         self.assertEqual(client.create_post.await_count, 21)
         self.assertIn("10 further error(s)", client.create_post.await_args_list[-1].args[2])
-        self.assertEqual(len(notification_repo.create_batch.call_args.args[0]), 30)
+        self.assertEqual(len(notification_repo.replace_for_node.call_args.kwargs["rows"]), 30)
 
     async def test_cap_zero_posts_only_the_summary(self) -> None:
         client, _ = await self._run_capped(max_messages=0, errors=3)
@@ -418,7 +432,9 @@ class NotifyOnErrorExecutorTests(unittest.IsolatedAsyncioTestCase):
         context = _context({"d1": device})
 
         notification_repo = MagicMock()
-        notification_repo.create_batch.side_effect = lambda rows: [MagicMock() for _ in rows]
+        notification_repo.replace_for_node.side_effect = lambda **kw: [
+            MagicMock() for _ in kw["rows"]
+        ]
         client = _mattermost_client()
         client.get_channel_by_name.side_effect = MattermostAPIError("channel not found")
 
@@ -443,7 +459,7 @@ class NotifyOnErrorExecutorTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(outcomes[0].name, "success")
         client.create_post.assert_not_awaited()
-        rows = notification_repo.create_batch.call_args.args[0]
+        rows = notification_repo.replace_for_node.call_args.kwargs["rows"]
         self.assertEqual(len(rows), 1)
 
     async def test_notify_local_false_skips_local_writes(self) -> None:
@@ -480,7 +496,7 @@ class NotifyOnErrorExecutorTests(unittest.IsolatedAsyncioTestCase):
             )
 
         self.assertEqual(outcomes[0].name, "success")
-        notification_repo.create_batch.assert_not_called()
+        notification_repo.replace_for_node.assert_not_called()
         client.create_post.assert_awaited_once()
 
     async def test_no_errors_skips_channel_resolution(self) -> None:
@@ -488,7 +504,9 @@ class NotifyOnErrorExecutorTests(unittest.IsolatedAsyncioTestCase):
         context = _context({"d1": device})
 
         notification_repo = MagicMock()
-        notification_repo.create_batch.side_effect = lambda rows: [MagicMock() for _ in rows]
+        notification_repo.replace_for_node.side_effect = lambda **kw: [
+            MagicMock() for _ in kw["rows"]
+        ]
         client = _mattermost_client()
 
         session_p, workflow_p, notification_p = _patches(

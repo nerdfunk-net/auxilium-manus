@@ -61,6 +61,7 @@ async def execute(
             rows.append(
                 {
                     "run_id": run.id,
+                    "node_id": node_id,
                     "workflow_id": workflow.id,
                     "workflow_name": workflow.name,
                     "workflow_owner_username": owner_username,
@@ -80,6 +81,7 @@ async def execute(
         rows.append(
             {
                 "run_id": run.id,
+                    "node_id": node_id,
                 "workflow_id": workflow.id,
                 "workflow_name": workflow.name,
                 "workflow_owner_username": owner_username,
@@ -89,7 +91,9 @@ async def execute(
             }
         )
 
-    created = NotificationRepository(db).create_batch(rows)
+    created = NotificationRepository(db).replace_for_node(
+        run_id=run.id, node_id=node_id, rows=rows
+    )
 
     debug_logs = {
         "message": message,

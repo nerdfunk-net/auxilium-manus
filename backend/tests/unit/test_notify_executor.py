@@ -55,7 +55,9 @@ class NotifyExecutorTests(unittest.IsolatedAsyncioTestCase):
         context = _context({"d1": device1, "d2": device2})
 
         notification_repo = MagicMock()
-        notification_repo.create_batch.side_effect = lambda rows: [MagicMock() for _ in rows]
+        notification_repo.replace_for_node.side_effect = lambda **kw: [
+            MagicMock() for _ in kw["rows"]
+        ]
 
         session_p, workflow_p, notification_p = _patches(
             workflow_result=(_workflow(), "alice"),
@@ -77,7 +79,7 @@ class NotifyExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(outcomes), 1)
         self.assertEqual(outcomes[0].name, "success")
 
-        rows = notification_repo.create_batch.call_args.args[0]
+        rows = notification_repo.replace_for_node.call_args.kwargs["rows"]
         self.assertEqual(len(rows), 2)
         names = {row["device_name"] for row in rows}
         self.assertEqual(names, {"router1", "router2"})
@@ -96,7 +98,9 @@ class NotifyExecutorTests(unittest.IsolatedAsyncioTestCase):
             f"d{i}": DeviceContext(id=f"d{i}", name=f"r{i}", hostname=f"r{i}") for i in range(130)
         }
         notification_repo = MagicMock()
-        notification_repo.create_batch.side_effect = lambda rows: [MagicMock() for _ in rows]
+        notification_repo.replace_for_node.side_effect = lambda **kw: [
+            MagicMock() for _ in kw["rows"]
+        ]
         session_p, workflow_p, notification_p = _patches(
             workflow_result=(_workflow(), "alice"), notification_repo=notification_repo
         )
@@ -109,7 +113,7 @@ class NotifyExecutorTests(unittest.IsolatedAsyncioTestCase):
                 node_id="notify-1",
                 device_sessions=MagicMock(),
             )
-        rows = notification_repo.create_batch.call_args.args[0]
+        rows = notification_repo.replace_for_node.call_args.kwargs["rows"]
         self.assertEqual(len(rows), 101)
         self.assertEqual(rows[-1]["message"], "... and 30 more devices")
 
@@ -118,7 +122,9 @@ class NotifyExecutorTests(unittest.IsolatedAsyncioTestCase):
         context = _context({"d1": device})
 
         notification_repo = MagicMock()
-        notification_repo.create_batch.side_effect = lambda rows: [MagicMock() for _ in rows]
+        notification_repo.replace_for_node.side_effect = lambda **kw: [
+            MagicMock() for _ in kw["rows"]
+        ]
 
         session_p, workflow_p, notification_p = _patches(
             workflow_result=(_workflow(), "alice"),
@@ -134,7 +140,7 @@ class NotifyExecutorTests(unittest.IsolatedAsyncioTestCase):
                 device_sessions=MagicMock(),
             )
 
-        rows = notification_repo.create_batch.call_args.args[0]
+        rows = notification_repo.replace_for_node.call_args.kwargs["rows"]
         self.assertEqual(rows[0]["message"], "key=")
 
     async def test_empty_message_raises(self) -> None:
@@ -161,7 +167,9 @@ class NotifyExecutorTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_no_devices_writes_nothing(self) -> None:
         notification_repo = MagicMock()
-        notification_repo.create_batch.side_effect = lambda rows: [MagicMock() for _ in rows]
+        notification_repo.replace_for_node.side_effect = lambda **kw: [
+            MagicMock() for _ in kw["rows"]
+        ]
 
         session_p, workflow_p, notification_p = _patches(
             workflow_result=(_workflow(), "alice"),
@@ -177,7 +185,7 @@ class NotifyExecutorTests(unittest.IsolatedAsyncioTestCase):
                 device_sessions=MagicMock(),
             )
 
-        notification_repo.create_batch.assert_called_once_with([])
+        self.assertEqual(notification_repo.replace_for_node.call_args.kwargs["rows"], [])
         self.assertEqual(outcomes[0].name, "success")
 
     async def test_missing_db_session_raises_runtime_error(self) -> None:

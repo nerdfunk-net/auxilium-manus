@@ -33,10 +33,13 @@ from typing import TYPE_CHECKING, Any
 
 import service_factory
 from core.models.runs import WorkflowRun
+from models.failure import failure_from_exception
 from models.workflow_context import StepOutcome, WorkflowContext
 from services.artifacts import ArtifactService
 from services.mattermost.common.exceptions import MattermostAPIError
+from workflow_steps.common.failure_records import TRANSPORT_FAILED
 from workflow_steps.common.mattermost_source import resolve_mattermost_credentials
+from workflow_steps.common.notification_target import parse_mattermost_target
 from workflow_steps.common.run_message_template import render_for_all_devices
 from workflow_steps.common.run_session import require_session
 from workflow_steps.common.step_flags import require_text
@@ -69,9 +72,7 @@ async def execute(
 ) -> list[StepOutcome]:
     del artifact_service, device_sessions
 
-    source_id = require_text(config, "mattermost_source_id", step_id=_STEP_ID)
-    team_name = require_text(config, "team_name", step_id=_STEP_ID)
-    channel_name = require_text(config, "channel_name", step_id=_STEP_ID)
+    source_id, team_name, channel_name = parse_mattermost_target(config, step_id=_STEP_ID)
     message = require_text(config, "message", step_id=_STEP_ID, default=get_config()["message"])
 
     rendered = render_for_all_devices(message, context)
@@ -114,6 +115,7 @@ async def execute(
                 name="failure",
                 context=context,
                 summary=f"could not post to {team_name}/{channel_name}: {exc}",
+                failure=failure_from_exception(exc) or TRANSPORT_FAILED,
             )
         ]
 

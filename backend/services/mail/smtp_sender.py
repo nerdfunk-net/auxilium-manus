@@ -12,6 +12,7 @@ from email.message import EmailMessage
 
 import aiosmtplib
 
+from models.failure import FailureInfo
 from models.mail import MailSettings
 from services.mail.errors import MailNotConfiguredError, MailSendError
 
@@ -45,12 +46,37 @@ def build_message(
     return message
 
 
+_AUTH_CODES = frozenset({530, 534, 535})
+
+
+def _classify(exc: Exception, code: object) -> FailureInfo:
+    name = type(exc).__name__
+    if code in _AUTH_CODES:
+        return FailureInfo(
+            phase="auth", kind="auth_failed", exception_type=name, hint="check_credentials"
+        )
+    if isinstance(exc, TimeoutError) or "Timeout" in name:
+        return FailureInfo(
+            phase="connect",
+            kind="timeout",
+            retryable=True,
+            exception_type=name,
+            hint="check_reachability",
+        )
+    if isinstance(exc, OSError) or "Connect" in name:
+        return FailureInfo(
+            phase="connect", kind="unknown", exception_type=name, hint="check_reachability"
+        )
+    return FailureInfo(phase="api", kind="unknown", exception_type=name)
+
+
 def _failure(settings: MailSettings, exc: Exception) -> MailSendError:
     code = getattr(exc, "code", None)
     suffix = f" (SMTP {code})" if code is not None else ""
     return MailSendError(
         f"could not send mail via {settings.smtp_server}:{settings.smtp_port}: "
-        f"{type(exc).__name__}{suffix}"
+        f"{type(exc).__name__}{suffix}",
+        failure=_classify(exc, code),
     )
 
 

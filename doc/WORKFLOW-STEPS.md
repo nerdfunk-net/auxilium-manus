@@ -718,6 +718,20 @@ final "... and N more devices" row. `notify-mattermost` cuts a post above 15 000
 failing it. The run-level placeholders `{devices}` / `{device_count}` of the notification steps are
 substituted last, so a device named `{device.hostname}` is printed, not evaluated. `collect-statistics`
 replaces its `(run, node, device)` rows on a re-execution, so a Hatchet retry does not double them.
+`notify` and `notify-on-error` do the same: `notifications.node_id` (added by `AutoSchemaMigration`; NULL on
+older rows) is the writing node, and `NotificationRepository.replace_for_node` replaces the rows of the
+devices it writes (and the device-less "left out" row) for that `(run, node)` in one transaction, with a
+rollback on failure. Mattermost posts cannot be taken back, so a retry of `notify-on-error` posts again.
+
+**Failure policy of the notification steps** (D11): a configuration error raises and fails the step: a
+missing or non-numeric value (`max_messages` is parsed by `parse_int_flag`: `true` and `7.9` raise), a
+missing Mattermost source/team/channel (`parse_mattermost_target`), an unknown or invalid source. In
+`notify-on-error` the source is resolved whenever Mattermost is enabled, not only when a device has an
+error. A transport error never fails an error sink: `notify-on-error` logs it, counts it
+(`mattermost_failed`) and stores its `FailureInfo` as `mattermost_failure` in the node's debug logs, and
+the step still ends `success`. `notify-mattermost` and `send-mail` end on their `failure` outcome and carry
+the `FailureInfo` of the client error (`MattermostAPIError.failure`, `MailSendError.failure`: status class,
+timeout, auth, connect); an unclassified error gets `TRANSPORT_FAILED`.
 
 ### Names as keys
 
