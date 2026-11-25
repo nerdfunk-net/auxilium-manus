@@ -41,7 +41,6 @@ from core.config import settings
 from core.models.runs import WorkflowRun
 from models.failure import FailureInfo
 from models.workflow_context import DeviceContext, StepOutcome, WorkflowContext
-from repositories.user_repository import UserRepository
 from services.ai_assistant.exceptions import AiAssistantError
 from services.ai_assistant.known_secrets import try_load_visible_secret_values
 from services.ai_assistant.providers.base import (
@@ -56,6 +55,7 @@ from services.ai_assistant.providers.base import (
 from services.ai_assistant.providers.registry import build_provider
 from services.ai_assistant.redaction import RedactionBudgetExceeded, Redactor
 from services.ai_assistant.settings_service import AiRuntimeConfig, AiSettingsService
+from services.ai_assistant.workflow_user import WorkflowAiUserError, resolve_workflow_user_id
 from services.artifacts import ArtifactService
 from services.workflow_context.secret_fields import path_is_known_secret
 from workflow_steps.common.attribute_write import set_device_attribute
@@ -275,24 +275,20 @@ async def execute(
 
     db = require_session(run, _STEP_ID)
 
-    username = settings.workflow_ai_username
-    if username is None:
+    try:
+        user_id = resolve_workflow_user_id(db, settings.workflow_ai_username)
+    except WorkflowAiUserError as exc:
+        if exc.reason == "not_set":
+            message = "AI is not available: WORKFLOW_AI_USER is not set"
+        else:
+            logger.warning("%s: WORKFLOW_AI_USER does not name an active user", _STEP_ID)
+            message = "AI is not available: WORKFLOW_AI_USER does not name an active user"
         return _failure(
             node_id,
-            "AI is not available: WORKFLOW_AI_USER is not set",
+            message,
             context,
             FailureInfo(phase="api", kind="permission_denied", hint="check_permissions"),
         )
-    user = UserRepository(db).get_by_username_ci(username)
-    if user is None or not user.is_active:
-        logger.warning("%s: WORKFLOW_AI_USER does not name an active user", _STEP_ID)
-        return _failure(
-            node_id,
-            "AI is not available: WORKFLOW_AI_USER does not name an active user",
-            context,
-            FailureInfo(phase="api", kind="permission_denied", hint="check_permissions"),
-        )
-    user_id = user.id
     try:
         ai = AiSettingsService.from_session(db).require_runtime_config(user_id)
     except AiAssistantError as exc:

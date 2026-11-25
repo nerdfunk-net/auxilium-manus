@@ -43,6 +43,13 @@ from models.workflow_context import (
     bare_hostname,
 )
 from services.artifacts import ArtifactService
+from services.execution.child_runs import (
+    CallingRunMissingError,
+    child_snapshot,
+    load_child_target,
+    parent_cancelled,
+    start_child,
+)
 from services.workflow.child_run_inputs import secret_input_message, secret_inputs_given
 from services.workflow.device_lines import (
     device_line,
@@ -207,80 +214,39 @@ def _inspect_target(
     return readers
 
 
-# ── database seams (each opens a short session of its own and runs in a thread) ───────────────
+# ── database seams (``services.execution.child_runs``: each call opens a short session of its own
+# and runs in a thread, because the run's session is shared with concurrent branches) ───────────
 
 
-def _check_target_sync(
-    parent_run_id: int, workflow_id: int, run_inputs: dict[str, Any], devices_input: str
-) -> list[str]:
-    from core.database import SessionLocal
-    from repositories.run_repository import RunRepository
-    from services.execution.run_service import RunService
-
-    with SessionLocal() as db:
-        parent = RunRepository(db).get_run(parent_run_id)
-        if parent is None:
-            raise ValueError(f"{_STEP_ID}: the calling run no longer exists")
-        workflow = RunService(db).require_child_target(parent, workflow_id)
-        return _inspect_target(
-            workflow.name,
-            list(workflow.canvas_nodes or []),
-            list(workflow.static_attributes or []),
-            run_inputs,
-            devices_input,
-        )
-
-
-def _start_child_sync(parent_run_id: int, workflow_id: int, run_inputs: dict[str, Any]) -> int:
-    from core.database import SessionLocal
-    from repositories.run_repository import RunRepository
-    from services.execution.run_service import RunService
-
-    with SessionLocal() as db:
-        parent = RunRepository(db).get_run(parent_run_id)
-        if parent is None:
-            raise ValueError(f"{_STEP_ID}: the calling run no longer exists")
-        return RunService(db).start_child_run(parent, workflow_id, run_inputs=run_inputs).id
-
-
-def _snapshot_sync(run_id: int) -> ChildRunSnapshot:
-    from core.database import SessionLocal
-    from services.execution.run_service import RunService
-
-    with SessionLocal() as db:
-        return RunService(db).child_run_snapshot(run_id)
-
-
-def _parent_cancelled_sync(run_id: int) -> bool:
-    from core.database import SessionLocal
-    from repositories.run_repository import RunRepository
-
-    with SessionLocal() as db:
-        parent = RunRepository(db).get_run(run_id)
-        if parent is None:
-            return True
-        db.refresh(parent)
-        return parent.status == "cancelled"
+def _calling_run_gone(exc: CallingRunMissingError) -> ValueError:
+    return ValueError(f"{_STEP_ID}: {exc}")
 
 
 async def _check_target(
     *, parent_run_id: int, workflow_id: int, run_inputs: dict[str, Any], devices_input: str
 ) -> list[str]:
-    return await asyncio.to_thread(
-        _check_target_sync, parent_run_id, workflow_id, run_inputs, devices_input
+    try:
+        target = await asyncio.to_thread(load_child_target, parent_run_id, workflow_id)
+    except CallingRunMissingError as exc:
+        raise _calling_run_gone(exc) from exc
+    return _inspect_target(
+        target.name, target.canvas_nodes, target.static_attributes, run_inputs, devices_input
     )
 
 
 async def _start_child(*, parent_run_id: int, workflow_id: int, run_inputs: dict[str, Any]) -> int:
-    return await asyncio.to_thread(_start_child_sync, parent_run_id, workflow_id, run_inputs)
+    try:
+        return await asyncio.to_thread(start_child, parent_run_id, workflow_id, run_inputs)
+    except CallingRunMissingError as exc:
+        raise _calling_run_gone(exc) from exc
 
 
 async def _snapshot(run_id: int) -> ChildRunSnapshot:
-    return await asyncio.to_thread(_snapshot_sync, run_id)
+    return await asyncio.to_thread(child_snapshot, run_id)
 
 
 async def _parent_cancelled(run_id: int) -> bool:
-    return await asyncio.to_thread(_parent_cancelled_sync, run_id)
+    return await asyncio.to_thread(parent_cancelled, run_id)
 
 
 async def _sleep(seconds: float) -> None:

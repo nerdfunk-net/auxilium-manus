@@ -16,12 +16,12 @@ from models.workflow_context import (
     bare_hostname,
 )
 from services.artifacts import ArtifactService
-from services.network.netmiko.platform import resolve_connection_device_type
 from services.network.netmiko.service import NetmikoService
 from services.workflow_context.node_result import set_node_result
 from workflow_steps.common.credential_resolver import resolve_ssh_credential
 from workflow_steps.common.device_outcomes import outcomes_from_buckets
 from workflow_steps.common.device_runner import Fail, run_per_device
+from workflow_steps.common.device_type import connection_device_type
 from workflow_steps.common.partial_outcomes import device_error_from_exception
 from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.common.run_param_reference import resolve_config_reference
@@ -117,11 +117,7 @@ async def _try_login(
 
     try:
         # An unknown platform fails this device (UnsupportedPlatformError carries the failure).
-        device_type = resolve_connection_device_type(
-            network_driver=device.network_driver,
-            platform=device.platform,
-            override=network_driver_override,
-        )
+        device_type = connection_device_type(device, network_driver_override)
         # Disposable probe login: does not touch any pooled session, so a
         # prior deploy session remains available for rollback on failure.
         alive = await netmiko.test_login(

@@ -29,7 +29,6 @@ from models.workflow_context import (
     bare_hostname,
 )
 from services.artifacts import ArtifactService
-from services.network.netmiko.platform import resolve_connection_device_type
 from services.network.netmiko.service import NetmikoService
 from services.network.netmiko.session_pool import DeviceSessionPool
 from workflow_steps.common.credential_resolver import resolve_ssh_credential
@@ -44,6 +43,7 @@ from workflow_steps.common.device_file_upload import (
     verify_remote_digest,
 )
 from workflow_steps.common.device_runner import Batch, Fail, run_per_device
+from workflow_steps.common.device_type import connection_device_type
 from workflow_steps.common.failure_records import INVALID_INPUT
 from workflow_steps.common.file_source_root import resolve_git_root
 from workflow_steps.common.git_repository_loader import parse_repository_id
@@ -191,11 +191,7 @@ async def _transfer_and_verify(
     password: str,
     netmiko: NetmikoService,
 ) -> DeviceContext | Fail:
-    device_type = resolve_connection_device_type(
-        network_driver=device.network_driver,
-        platform=device.platform,
-        override=parsed.network_driver_override,
-    )
+    device_type = connection_device_type(device, parsed.network_driver_override)
     target = RemoteTarget(
         netmiko=netmiko,
         host=host,

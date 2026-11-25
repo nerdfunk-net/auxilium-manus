@@ -21,7 +21,6 @@ from models.workflow_context import (
     bare_hostname,
 )
 from services.artifacts import ArtifactService
-from services.network.netmiko.platform import resolve_connection_device_type
 from services.network.netmiko.service import NetmikoService
 from services.network.netmiko.session_pool import DeviceSessionPool
 from workflow_steps.common.content_resolver import (
@@ -41,6 +40,7 @@ from workflow_steps.common.device_file_upload import (
     verify_remote_digest,
 )
 from workflow_steps.common.device_runner import Fail, run_per_device
+from workflow_steps.common.device_type import connection_device_type
 from workflow_steps.common.failure_records import INVALID_INPUT, MISSING_DATA
 from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.common.run_param_reference import resolve_config_reference
@@ -234,11 +234,7 @@ async def _upload_on_device(
             tmp.write(content_text)
             tmp_path = tmp.name
 
-        device_type = resolve_connection_device_type(
-            network_driver=device.network_driver,
-            platform=device.platform,
-            override=parsed.network_driver_override,
-        )
+        device_type = connection_device_type(device, parsed.network_driver_override)
         result = await netmiko.upload_file(
             host=host,
             network_driver=device.network_driver,

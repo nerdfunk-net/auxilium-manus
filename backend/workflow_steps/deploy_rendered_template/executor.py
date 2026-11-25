@@ -17,7 +17,6 @@ from models.workflow_context import (
 )
 from services.artifacts import ArtifactService
 from services.network.netmiko.connection import DeployResult, RetryPolicy
-from services.network.netmiko.platform import resolve_connection_device_type
 from services.network.netmiko.service import NetmikoService
 from services.network.netmiko.session_pool import DeviceSessionPool
 from workflow_steps.common.config_push import store_push_result
@@ -25,6 +24,7 @@ from workflow_steps.common.content_resolver import list_exportable_content
 from workflow_steps.common.credential_resolver import resolve_ssh_credential
 from workflow_steps.common.device_outcomes import build_outcomes
 from workflow_steps.common.device_runner import Fail, run_per_device
+from workflow_steps.common.device_type import connection_device_type
 from workflow_steps.common.failure_records import INVALID_INPUT, MISSING_DATA
 from workflow_steps.common.read_timeout import parse_read_timeout
 from workflow_steps.common.retry_config import parse_retry_backoff_seconds
@@ -131,11 +131,7 @@ async def _run_deploy_config(
     commands: list[str],
     netmiko: NetmikoService,
 ) -> DeployResult:
-    device_type = resolve_connection_device_type(
-        network_driver=device.network_driver,
-        platform=device.platform,
-        override=parsed.network_driver_override,
-    )
+    device_type = connection_device_type(device, parsed.network_driver_override)
     result = await netmiko.deploy_config(
         host=host,
         network_driver=device.network_driver,

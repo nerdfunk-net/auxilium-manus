@@ -14,7 +14,7 @@ answers the prompt -- there is no opt-in checkbox.
 
 Reuses the Run Command backend end to end: NetmikoService / DeviceSessionPool,
 ``resolve_config_reference`` + ``resolve_ssh_credential`` for credentials,
-``resolve_connection_device_type`` for the Netmiko device type, ArtifactService
+``connection_device_type`` for the Netmiko device type, ArtifactService
 for the stored transcript, and the success/failure StepOutcome shape.
 """
 
@@ -35,13 +35,13 @@ from models.workflow_context import (
 )
 from services.artifacts import ArtifactService
 from services.network.netmiko.connection import RetryPolicy
-from services.network.netmiko.platform import resolve_connection_device_type
 from services.network.netmiko.service import NetmikoService
 from services.network.netmiko.session_pool import DeviceSessionPool
 from workflow_steps.common.credential_resolver import resolve_ssh_credential
 from workflow_steps.common.device_file_upload import parse_device_token
 from workflow_steps.common.device_outcomes import build_outcomes
 from workflow_steps.common.device_runner import Fail, run_per_device
+from workflow_steps.common.device_type import connection_device_type
 from workflow_steps.common.failure_records import INVALID_INPUT
 from workflow_steps.common.read_timeout import parse_read_timeout
 from workflow_steps.common.retry_config import parse_retry_backoff_seconds
@@ -108,11 +108,7 @@ async def _merge_on_device(
 
     command = f"copy {parsed.source_filename} running-config"
 
-    device_type = resolve_connection_device_type(
-        network_driver=device.network_driver,
-        platform=device.platform,
-        override=parsed.network_driver_override,
-    )
+    device_type = connection_device_type(device, parsed.network_driver_override)
     result = await netmiko.merge_config(
         host=host,
         network_driver=device.network_driver,

@@ -17,8 +17,8 @@ from models.workflow_context import (
 )
 from services.artifacts import ArtifactService
 from services.network.netmiko.connection import RetryPolicy
-from services.network.netmiko.platform import resolve_connection_device_type
 from services.network.netmiko.service import NetmikoService
+from workflow_steps.common.device_type import connection_device_type
 from workflow_steps.common.failure_records import INVALID_INPUT
 from workflow_steps.common.step_flags import record_dry_run
 from workflow_steps.run_command.outcomes import fail_device
@@ -86,11 +86,7 @@ async def _run_on_device(
 
     try:
         # An unknown platform fails this device (UnsupportedPlatformError carries the failure).
-        device_type = resolve_connection_device_type(
-            network_driver=device.network_driver,
-            platform=device.platform,
-            override=network_driver_override,
-        )
+        device_type = connection_device_type(device, network_driver_override)
         result = await netmiko.send_commands(
             host=host,
             network_driver=device.network_driver,

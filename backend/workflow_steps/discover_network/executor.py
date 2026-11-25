@@ -23,10 +23,10 @@ from models.workflow_context import (
     bare_hostname,
 )
 from services.artifacts import ArtifactService
-from services.network.netmiko.platform import resolve_connection_device_type
 from services.network.netmiko.service import NetmikoService
 from workflow_steps.common.credential_resolver import resolve_ssh_credential
 from workflow_steps.common.device_outcomes import build_outcomes, mark_device_failed
+from workflow_steps.common.device_type import connection_device_type
 from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.common.run_param_reference import resolve_config_reference
 from workflow_steps.common.run_session import require_session
@@ -102,11 +102,7 @@ def _seed_target(device_id: str, device: DeviceContext, options: DiscoverOptions
     if not host:
         raise VisitError("missing_host")
     try:
-        device_type = resolve_connection_device_type(
-            network_driver=device.network_driver,
-            platform=device.platform,
-            override=options.network_driver_override,
-        )
+        device_type = connection_device_type(device, options.network_driver_override)
     except ValueError as exc:  # UnsupportedPlatformError
         raise VisitError(
             "unsupported_platform", failure_from_exception(exc) or _UNSUPPORTED

@@ -107,7 +107,9 @@ async def _run_all(
         stack.enter_context(patch(f"{_MOD}.AiSettingsService.from_session", return_value=service))
         users = MagicMock()
         users.get_by_username_ci.return_value = user
-        stack.enter_context(patch(f"{_MOD}.UserRepository", return_value=users))
+        stack.enter_context(
+            patch("services.ai_assistant.workflow_user.UserRepository", return_value=users)
+        )
         stack.enter_context(
             patch(f"{_MOD}.try_load_visible_secret_values", return_value=known or [])
             if known != "none"
@@ -285,17 +287,26 @@ class ContactTheAiTests(unittest.IsolatedAsyncioTestCase):
         outcome, fake = await _run({"prompt": "hi"}, _context(_device("r1")), username=None)
         self.assertEqual(outcome.name, "failure")
         self.assertEqual(fake.prompt, "")
+        self.assertEqual(outcome.summary, "AI is not available: WORKFLOW_AI_USER is not set")
+        self.assertEqual(outcome.failure.hint, "check_permissions")
 
     async def test_unknown_or_inactive_service_user_fails(self) -> None:
         ctx = _context(_device("r1"))
         for user in (None, SimpleNamespace(id=7, is_active=False)):
-            outcome, fake = await _run({"prompt": "hi"}, ctx, user=user)
+            with self.assertLogs("workflow_steps.contact_the_ai.executor", level="WARNING") as logs:
+                outcome, fake = await _run({"prompt": "hi"}, ctx, user=user)
             self.assertEqual(outcome.name, "failure")
             self.assertEqual(outcome.failure.kind, "permission_denied")
+            self.assertEqual(outcome.failure.hint, "check_permissions")
+            self.assertEqual(
+                outcome.summary,
+                "AI is not available: WORKFLOW_AI_USER does not name an active user",
+            )
+            self.assertIn("does not name an active user", logs.output[0])
             self.assertEqual(fake.prompt, "")
 
     async def test_service_user_is_looked_up_case_insensitively(self) -> None:
-        with patch(f"{_MOD}.UserRepository") as repo:
+        with patch("services.ai_assistant.workflow_user.UserRepository") as repo:
             repo.return_value.get_by_username_ci.return_value = SimpleNamespace(
                 id=7, is_active=True
             )

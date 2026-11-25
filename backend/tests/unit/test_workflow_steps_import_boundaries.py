@@ -19,13 +19,11 @@ _REPOSITORY_ALLOW_LIST: dict[str, set[str]] = {
     "batfish_init_snapshot/executor.py": {"repositories.run_repository"},
     "collect_statistics/executor.py": {"repositories.job_statistics_repository"},
     "common/notification_context.py": {"repositories.workflow_repository"},
-    "contact_the_ai/executor.py": {"repositories.user_repository"},
     "from_change_request/executor.py": {"repositories.change_request_repository"},
     "get_from_user/inventory_reference.py": {"repositories.user_repository"},
     "get_nautobot_devices/executor.py": {"repositories.user_repository"},
     "notify/executor.py": {"repositories.notification_repository"},
     "notify_on_error/executor.py": {"repositories.notification_repository"},
-    "start_workflow/executor.py": {"repositories.run_repository"},
 }
 
 # (d) Modules outside workflow_steps/ (and tests/) that may import it.

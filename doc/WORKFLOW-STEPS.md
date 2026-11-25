@@ -505,6 +505,14 @@ sites listed in that test (anything else goes behind a service); and only `servi
 `scripts/ai_inventory_filter.py` and `routers/workflow_crypto_attribute.py` import `workflow_steps`. A module
 that exactly one step uses lives in that step's package.
 
+Two repository imports went behind a service (W10-12): `start-workflow` reads and starts child runs through
+`services/execution/child_runs.py` (each call opens a short session of its own and runs in a thread: the run's session
+is shared with concurrent branches), and `contact-the-ai` resolves its service user with
+`services/ai_assistant/workflow_user.py::resolve_workflow_user_id` (`WorkflowAiUserError.reason`: `not_set` or
+`not_active`). A step turns its device and `network_driver_override` into a Netmiko device type with
+`workflow_steps/common/device_type.py::connection_device_type` only (a test forbids a second call of the platform
+resolver in a step).
+
 ### Author regexes on device or Nautobot data
 
 A pattern an author writes and that runs on content the worker does not control (`route-on-content`

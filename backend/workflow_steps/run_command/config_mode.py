@@ -15,10 +15,10 @@ from models.workflow_context import (
 )
 from services.artifacts import ArtifactService
 from services.network.netmiko.connection import DeployResult
-from services.network.netmiko.platform import resolve_connection_device_type
 from services.network.netmiko.service import NetmikoService
 from workflow_steps.common.config_push import store_push_result
 from workflow_steps.common.device_runner import Fail, run_per_device
+from workflow_steps.common.device_type import connection_device_type
 from workflow_steps.common.failure_records import INVALID_INPUT
 from workflow_steps.common.step_flags import record_dry_run
 from workflow_steps.run_command.constants import STEP_ID
@@ -39,11 +39,7 @@ async def _run_command_config_mode(
     password: str,
     netmiko: NetmikoService,
 ) -> DeployResult:
-    device_type = resolve_connection_device_type(
-        network_driver=device.network_driver,
-        platform=device.platform,
-        override=parsed.network_driver_override,
-    )
+    device_type = connection_device_type(device, parsed.network_driver_override)
     result = await netmiko.deploy_config(
         host=host,
         network_driver=device.network_driver,

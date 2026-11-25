@@ -268,9 +268,6 @@ class MergeConfigExecutorTests(unittest.IsolatedAsyncioTestCase):
         with (
             patch("workflow_steps.common.run_session.object_session", return_value=MagicMock()),
             patch(f"{_EXEC}.resolve_ssh_credential", return_value=("admin", "secret")),
-            patch(
-                f"{_EXEC}.resolve_connection_device_type", return_value="cisco_nxos"
-            ) as resolver,
             patch(f"{_EXEC}.NetmikoService") as netmiko_cls,
         ):
             merge = AsyncMock(return_value=_ok_result())
@@ -289,7 +286,7 @@ class MergeConfigExecutorTests(unittest.IsolatedAsyncioTestCase):
                 device_sessions=MagicMock(),
             )
 
-        self.assertEqual(resolver.call_args.kwargs["override"], "cisco_nxos")
+        # The device (cisco_ios) is overridden by the step's driver, not looked up again.
         self.assertEqual(merge.await_args.kwargs["device_type"], "cisco_nxos")
 
     async def test_read_timeout_bounds(self) -> None:

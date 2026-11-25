@@ -33,7 +33,6 @@ from models.workflow_context import (
 )
 from services.artifacts import ArtifactService
 from services.client_data.client_data_service import ClientDataService
-from services.network.netmiko.platform import resolve_connection_device_type
 from services.network.netmiko.service import NetmikoService
 from services.workflow_context.node_result import set_node_result
 from workflow_steps.collect_client_data.collector import (
@@ -48,6 +47,7 @@ from workflow_steps.collect_client_data.commands import SUPPORTED_DEVICE_TYPES
 from workflow_steps.collect_client_data.dns import HostnameResolver, reverse_lookup
 from workflow_steps.collect_client_data.options import STEP_ID, CollectOptions, parse_options
 from workflow_steps.common.credential_resolver import resolve_ssh_credential
+from workflow_steps.common.device_type import connection_device_type
 from workflow_steps.common.duplicate_keys import (
     DUPLICATE_KEY_CODE,
     DUPLICATE_KEY_FAILURE,
@@ -174,11 +174,7 @@ def _target(
             "missing_host", f"Device {device.id} has no hostname or primary IP", INVALID_INPUT
         )
     try:
-        device_type = resolve_connection_device_type(
-            network_driver=device.network_driver,
-            platform=device.platform,
-            override=options.network_driver_override,
-        )
+        device_type = connection_device_type(device, options.network_driver_override)
     except ValueError as exc:  # UnsupportedPlatformError
         raise CollectionError(
             "unsupported_platform", str(exc), failure_from_exception(exc) or _UNSUPPORTED_PLATFORM
