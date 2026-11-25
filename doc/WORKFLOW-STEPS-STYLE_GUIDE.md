@@ -468,6 +468,24 @@ copy the `text-[11px]` size explicitly rather than relying on inheritance.
 - [ ] `HelpPanel` documents every Configuration control with examples (reuse
       `workflow-steps/shared/step-help.tsx`; reference `get-nautobot-devices/help-panel.tsx`)
 
+### Shared building blocks and defaults
+
+Use these instead of writing the markup again (`workflow-steps/shared/`):
+
+- `CheckboxField` / `SwitchField`: a boolean config row (monospace key, control, hint).
+- `SourceRow` (+ `NautobotSourceStatus`) and the per-integration `*SourceSelectDialog`
+  wrappers around `SourceSelectDialog`; the key helpers come from `makeSourceConfig`.
+- `BatfishCombinedFactsPanel` for the combined Batfish fact steps; `nautobot-update-fields.tsx`
+  (`FromInterfacesSwitch`, `DryRunSwitch`, `LocationsFields`) for the Nautobot update steps.
+
+**A panel writes nothing when it is opened.** It shows the backend defaults (`get_config()`, which
+the executor applies to a missing key) and writes only when the user edits. The one exception is
+state the backend cannot default, written once per node by `useSeedConfigOnce`: a value inferred
+from the canvas (the upstream step) or node state derived from the config (`outcomes`,
+`producesParsed`). `panels-write-nothing-on-open.test.tsx` pins this; add a new step to its list.
+A key the executor reads must have a control in the panel and an entry in `registry.yaml`
+(`test_registry_declares_config_keys.py`).
+
 ### Backend executor logging
 
 - [ ] `execute()` logs at least one line when the step starts and one when it finishes
