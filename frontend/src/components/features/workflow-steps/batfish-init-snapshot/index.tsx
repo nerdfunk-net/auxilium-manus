@@ -3,7 +3,6 @@
 import { useCallback, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -26,6 +25,7 @@ import {
 } from "../shared/batfish-source-config";
 import { GitSourceConfigPanel } from "../shared/git-source-config-panel";
 import { BatfishInitSnapshotHelpPanel } from "./help-panel";
+import { SourceRow } from "../shared/source-row";
 
 const RETAIN_SNAPSHOTS_KEY = "retain_snapshots";
 const ALLOW_PARTIAL_SNAPSHOT_KEY = "allow_partial_snapshot";
@@ -170,30 +170,12 @@ function BatfishInitSnapshotConfigPanel({
         ) : null}
       </div>
 
-      <div className="space-y-1.5">
-        <div className="flex items-center gap-1.5">
-          <span className="font-mono text-xs font-medium">{BATFISH_SOURCE_ID_KEY}</span>
-          <Badge className="h-4 rounded px-1 text-[10px]" variant="secondary">
-            batfish
-          </Badge>
-        </div>
-
-        {sourceId ? (
-          <p className="font-mono text-[11px] text-muted-foreground">{sourceId}</p>
-        ) : (
-          <p className="text-[11px] text-warning-foreground">Not configured</p>
-        )}
-
-        <Button
-          className="h-7 w-full text-xs"
-          size="sm"
-          type="button"
-          variant="outline"
-          onClick={() => setSourceOpen(true)}
-        >
-          {sourceId ? "Edit Source" : "Configure Source"}
-        </Button>
-      </div>
+      <SourceRow
+        label={BATFISH_SOURCE_ID_KEY}
+        badge="batfish"
+        sourceId={sourceId}
+        onOpen={() => setSourceOpen(true)}
+      />
 
       {isGitSource ? (
         <>

@@ -2,8 +2,6 @@
 
 import { useCallback, useMemo, useState } from "react";
 
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import type {
   PluginConfigPanelProps,
   PluginUIComponent,
@@ -15,7 +13,6 @@ import { stringField } from "../shared/config-field-helpers";
 import { ExpressionField } from "../shared/expression-field";
 import {
   NAUTOBOT_SOURCE_ID_KEY,
-  isNautobotSourceConfigured,
   nautobotSourceIdFromConfig,
 } from "../shared/nautobot-source-config";
 import { NautobotSourceSelectDialog } from "../shared/nautobot-source-select-dialog";
@@ -39,6 +36,7 @@ import {
 } from "./config";
 import { UpdateNautobotVlanHelpPanel } from "./help-panel";
 import { DryRunSwitch, FromInterfacesSwitch, LocationsFields } from "../shared/nautobot-update-fields";
+import { NautobotSourceStatus, SourceRow } from "../shared/source-row";
 
 function UpdateNautobotVlanConfigPanel({
   nodeId,
@@ -49,7 +47,6 @@ function UpdateNautobotVlanConfigPanel({
 }: PluginConfigPanelProps) {
   const sourceId = useMemo(() => nautobotSourceIdFromConfig(config), [config]);
   const credentials = useNautobotSourceCredentials({ sourceId });
-  const isSourceConfigured = isNautobotSourceConfigured(config);
   const statuses = useNautobotStatusesQuery({
     sourceId,
     contentType: "ipam.vlan",
@@ -100,43 +97,19 @@ function UpdateNautobotVlanConfigPanel({
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="space-y-1.5">
-        <div className="flex items-center gap-1.5">
-          <span className="font-mono text-xs font-medium">
-            {NAUTOBOT_SOURCE_ID_KEY}
-          </span>
-          <Badge className="h-4 rounded px-1 text-[10px]" variant="secondary">
-            nautobot
-          </Badge>
-        </div>
-        {isSourceConfigured ? (
-          <p className="font-mono text-[11px] text-muted-foreground">
-            {sourceId}
-            {credentials.isReady ? (
-              <span className="block truncate font-sans text-muted-foreground">
-                {credentials.url}
-              </span>
-            ) : credentials.isLoading ? (
-              <span className="block font-sans">Loading credentials…</span>
-            ) : (
-              <span className="block font-sans text-warning-foreground">
-                Source not found in settings
-              </span>
-            )}
-          </p>
-        ) : (
-          <p className="text-[11px] text-warning-foreground">Not configured</p>
-        )}
-        <Button
-          className="h-7 w-full text-xs"
-          size="sm"
-          type="button"
-          variant="outline"
-          onClick={() => setSourceOpen(true)}
-        >
-          {isSourceConfigured ? "Edit Source" : "Configure Source"}
-        </Button>
-      </div>
+      <SourceRow
+        label={NAUTOBOT_SOURCE_ID_KEY}
+        badge="nautobot"
+        sourceId={sourceId}
+        onOpen={() => setSourceOpen(true)}
+        status={
+          <NautobotSourceStatus
+            isReady={credentials.isReady}
+            isLoading={credentials.isLoading}
+            url={credentials.url}
+          />
+        }
+      />
 
       <FromInterfacesSwitch
         label="VLANs from interfaces"

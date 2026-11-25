@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -18,6 +17,7 @@ import {
   mattermostSourceIdFromConfig,
 } from "../shared/mattermost-source-config";
 import { NotifyOnErrorHelpPanel } from "./help-panel";
+import { SourceRow } from "../shared/source-row";
 
 const MESSAGE_KEY = "message";
 const NOTIFY_LOCAL_KEY = "notify_local";
@@ -175,30 +175,12 @@ function NotifyOnErrorConfigPanel({ config, onChange, nodeId }: PluginConfigPane
         {notifyMattermost ? (
           <div className="space-y-2 pl-1">
             {/* mattermost_source_id */}
-            <div className="space-y-1.5">
-              <div className="flex items-center gap-1.5">
-                <span className="font-mono text-xs font-medium">{MATTERMOST_SOURCE_ID_KEY}</span>
-                <Badge className="h-4 rounded px-1 text-[10px]" variant="secondary">
-                  mattermost
-                </Badge>
-              </div>
-
-              {sourceId ? (
-                <p className="font-mono text-[11px] text-muted-foreground">{sourceId}</p>
-              ) : (
-                <p className="text-[11px] text-warning-foreground">Not configured</p>
-              )}
-
-              <Button
-                className="h-7 w-full text-xs"
-                size="sm"
-                type="button"
-                variant="outline"
-                onClick={() => setSourceOpen(true)}
-              >
-                {sourceId ? "Edit Source" : "Configure Source"}
-              </Button>
-            </div>
+            <SourceRow
+              label={MATTERMOST_SOURCE_ID_KEY}
+              badge="mattermost"
+              sourceId={sourceId}
+              onOpen={() => setSourceOpen(true)}
+            />
 
             {/* team_name */}
             <div className="space-y-1.5">

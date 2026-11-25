@@ -23,7 +23,6 @@ import { useNautobotSourceCredentials } from "@/hooks/queries/use-nautobot-sourc
 
 import {
   NAUTOBOT_SOURCE_ID_KEY,
-  isNautobotSourceConfigured,
   nautobotSourceIdFromConfig,
 } from "../shared/nautobot-source-config";
 import { NautobotSourceSelectDialog } from "../shared/nautobot-source-select-dialog";
@@ -43,6 +42,7 @@ import {
   type MetadataType,
   type MetadataValues,
 } from "./types";
+import { NautobotSourceStatus, SourceRow } from "../shared/source-row";
 
 const EMPTY_NODES: PersistedCanvasNode[] = [];
 const EMPTY_EDGES: WorkflowCanvasEdge[] = [];
@@ -107,47 +107,22 @@ function AddNautobotMetadataConfigPanel({
 
   const handleCloseSource = useCallback(() => setSourceOpen(false), []);
   const handleCloseDialog = useCallback(() => setDialogOpen(false), []);
-  const isSourceConfigured = isNautobotSourceConfigured(config);
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="space-y-1.5">
-        <div className="flex items-center gap-1.5">
-          <span className="font-mono text-xs font-medium">{NAUTOBOT_SOURCE_ID_KEY}</span>
-          <Badge className="h-4 rounded px-1 text-[10px]" variant="secondary">
-            nautobot
-          </Badge>
-        </div>
-
-        {isSourceConfigured ? (
-          <p className="font-mono text-[11px] text-muted-foreground">
-            {sourceId}
-            {credentials.isReady ? (
-              <span className="block truncate font-sans text-muted-foreground">
-                {credentials.url}
-              </span>
-            ) : credentials.isLoading ? (
-              <span className="block font-sans">Loading credentials…</span>
-            ) : (
-              <span className="block font-sans text-warning-foreground">
-                Source not found in settings
-              </span>
-            )}
-          </p>
-        ) : (
-          <p className="text-[11px] text-warning-foreground">Not configured</p>
-        )}
-
-        <Button
-          className="h-7 w-full text-xs"
-          size="sm"
-          type="button"
-          variant="outline"
-          onClick={() => setSourceOpen(true)}
-        >
-          {isSourceConfigured ? "Edit Source" : "Configure Source"}
-        </Button>
-      </div>
+      <SourceRow
+        label={NAUTOBOT_SOURCE_ID_KEY}
+        badge="nautobot"
+        sourceId={sourceId}
+        onOpen={() => setSourceOpen(true)}
+        status={
+          <NautobotSourceStatus
+            isReady={credentials.isReady}
+            isLoading={credentials.isLoading}
+            url={credentials.url}
+          />
+        }
+      />
 
       <div className="space-y-1.5">
         <div className="flex items-center gap-1.5">

@@ -2,8 +2,6 @@
 
 import { useCallback, useMemo, useState } from "react";
 
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
@@ -21,6 +19,7 @@ import {
 } from "../shared/nautobot-source-config";
 import { NautobotSourceSelectDialog } from "../shared/nautobot-source-select-dialog";
 import { CompareAciSubnetsHelpPanel } from "./help-panel";
+import { SourceRow } from "../shared/source-row";
 
 const NAMESPACE_KEY = "namespace";
 const FROM_VRF_KEY = "namespace_from_vrf";
@@ -32,40 +31,6 @@ const DEFAULT_OUTPUT_KEY = "aci_subnet_report";
 function scopeFromConfig(config: Record<string, unknown>): string[] {
   const raw = config[SCOPE_KEY];
   return Array.isArray(raw) ? raw.filter((v): v is string => typeof v === "string") : [];
-}
-
-interface SourceRowProps {
-  label: string;
-  badge: string;
-  sourceId: string;
-  onOpen: () => void;
-}
-
-function SourceRow({ label, badge, sourceId, onOpen }: SourceRowProps) {
-  return (
-    <div className="space-y-1.5">
-      <div className="flex items-center gap-1.5">
-        <span className="font-mono text-xs font-medium">{label}</span>
-        <Badge className="h-4 rounded px-1 text-[10px]" variant="secondary">
-          {badge}
-        </Badge>
-      </div>
-      {sourceId ? (
-        <p className="font-mono text-[11px] text-muted-foreground">{sourceId}</p>
-      ) : (
-        <p className="text-[11px] text-warning-foreground">Not configured</p>
-      )}
-      <Button
-        className="h-7 w-full text-xs"
-        size="sm"
-        type="button"
-        variant="outline"
-        onClick={onOpen}
-      >
-        {sourceId ? "Edit Source" : "Configure Source"}
-      </Button>
-    </div>
-  );
 }
 
 function CompareAciSubnetsConfigPanel({ config, onChange }: PluginConfigPanelProps) {

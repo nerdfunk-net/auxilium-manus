@@ -48,6 +48,7 @@ import {
 } from "./filter-kinds";
 import { GetAciDevicesHelpPanel } from "./help-panel";
 import { AciDevicesPreviewDialog } from "./preview-dialog";
+import { SourceRow } from "../shared/source-row";
 
 const FILTERS_KEY = "filters";
 const ALLOW_ALL_KEY = "allow_all";
@@ -240,30 +241,12 @@ function GetAciDevicesConfigPanel({ config, onChange }: PluginConfigPanelProps) 
   return (
     <div className="flex flex-col gap-4">
       {/* aci_source_id */}
-      <div className="space-y-1.5">
-        <div className="flex items-center gap-1.5">
-          <span className="font-mono text-xs font-medium">{ACI_SOURCE_ID_KEY}</span>
-          <Badge className="h-4 rounded px-1 text-[10px]" variant="secondary">
-            aci
-          </Badge>
-        </div>
-
-        {sourceId ? (
-          <p className="font-mono text-[11px] text-muted-foreground">{sourceId}</p>
-        ) : (
-          <p className="text-[11px] text-warning-foreground">Not configured</p>
-        )}
-
-        <Button
-          className="h-7 w-full text-xs"
-          size="sm"
-          type="button"
-          variant="outline"
-          onClick={() => setSourceOpen(true)}
-        >
-          {sourceId ? "Edit Source" : "Configure Source"}
-        </Button>
-      </div>
+      <SourceRow
+        label={ACI_SOURCE_ID_KEY}
+        badge="aci"
+        sourceId={sourceId}
+        onOpen={() => setSourceOpen(true)}
+      />
 
       {/* filters */}
       <div className="space-y-3">

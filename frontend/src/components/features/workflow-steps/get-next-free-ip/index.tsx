@@ -16,7 +16,6 @@ import { AttributePathPicker } from "../shared/attribute-path-picker";
 import { ExpressionField } from "../shared/expression-field";
 import {
   NAUTOBOT_SOURCE_ID_KEY,
-  isNautobotSourceConfigured,
   nautobotSourceIdFromConfig,
 } from "../shared/nautobot-source-config";
 import { NautobotSourceSelectDialog } from "../shared/nautobot-source-select-dialog";
@@ -36,6 +35,7 @@ import {
   withNumberText,
 } from "./config";
 import { GetNextFreeIpHelpPanel } from "./help-panel";
+import { NautobotSourceStatus, SourceRow } from "../shared/source-row";
 
 function GetNextFreeIpConfigPanel({
   nodeId,
@@ -46,7 +46,6 @@ function GetNextFreeIpConfigPanel({
 }: PluginConfigPanelProps) {
   const sourceId = useMemo(() => nautobotSourceIdFromConfig(config), [config]);
   const credentials = useNautobotSourceCredentials({ sourceId });
-  const isSourceConfigured = isNautobotSourceConfigured(config);
   const nodes = workflowNodes ?? [];
   const edges = workflowEdges ?? [];
 
@@ -94,41 +93,19 @@ function GetNextFreeIpConfigPanel({
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="space-y-1.5">
-        <div className="flex items-center gap-1.5">
-          <span className="font-mono text-xs font-medium">{NAUTOBOT_SOURCE_ID_KEY}</span>
-          <Badge className="h-4 rounded px-1 text-[10px]" variant="secondary">
-            nautobot
-          </Badge>
-        </div>
-        {isSourceConfigured ? (
-          <p className="font-mono text-[11px] text-muted-foreground">
-            {sourceId}
-            {credentials.isReady ? (
-              <span className="block truncate font-sans text-muted-foreground">
-                {credentials.url}
-              </span>
-            ) : credentials.isLoading ? (
-              <span className="block font-sans">Loading credentials…</span>
-            ) : (
-              <span className="block font-sans text-warning-foreground">
-                Source not found in settings
-              </span>
-            )}
-          </p>
-        ) : (
-          <p className="text-[11px] text-warning-foreground">Not configured</p>
-        )}
-        <Button
-          className="h-7 w-full text-xs"
-          size="sm"
-          type="button"
-          variant="outline"
-          onClick={() => setSourceOpen(true)}
-        >
-          {isSourceConfigured ? "Edit Source" : "Configure Source"}
-        </Button>
-      </div>
+      <SourceRow
+        label={NAUTOBOT_SOURCE_ID_KEY}
+        badge="nautobot"
+        sourceId={sourceId}
+        onOpen={() => setSourceOpen(true)}
+        status={
+          <NautobotSourceStatus
+            isReady={credentials.isReady}
+            isLoading={credentials.isLoading}
+            url={credentials.url}
+          />
+        }
+      />
 
       <ExpressionField
         configKey={PREFIX_KEY}

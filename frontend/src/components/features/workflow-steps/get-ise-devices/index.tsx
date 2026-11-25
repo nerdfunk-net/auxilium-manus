@@ -3,7 +3,6 @@
 import { HelpCircle } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
 
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -37,6 +36,7 @@ import { ISESourceSelectDialog } from "../shared/ise-source-select-dialog";
 import { iseSourceIdFromConfig, ISE_SOURCE_ID_KEY } from "../shared/ise-source-config";
 import { GetIseDevicesHelpPanel } from "./help-panel";
 import { SwitchField } from "../shared/switch-field";
+import { SourceRow } from "../shared/source-row";
 
 type QueryMode = "name" | "cidr" | "group";
 
@@ -194,30 +194,12 @@ function GetIseDevicesConfigPanel({ config, onChange }: PluginConfigPanelProps) 
       </div>
 
       {/* ise_source_id */}
-      <div className="space-y-1.5">
-        <div className="flex items-center gap-1.5">
-          <span className="font-mono text-xs font-medium">{ISE_SOURCE_ID_KEY}</span>
-          <Badge className="h-4 rounded px-1 text-[10px]" variant="secondary">
-            ise
-          </Badge>
-        </div>
-
-        {sourceId ? (
-          <p className="font-mono text-[11px] text-muted-foreground">{sourceId}</p>
-        ) : (
-          <p className="text-[11px] text-warning-foreground">Not configured</p>
-        )}
-
-        <Button
-          className="h-7 w-full text-xs"
-          size="sm"
-          type="button"
-          variant="outline"
-          onClick={() => setSourceOpen(true)}
-        >
-          {sourceId ? "Edit Source" : "Configure Source"}
-        </Button>
-      </div>
+      <SourceRow
+        label={ISE_SOURCE_ID_KEY}
+        badge="ise"
+        sourceId={sourceId}
+        onOpen={() => setSourceOpen(true)}
+      />
 
       {/* query_mode */}
       <div className="space-y-1.5">

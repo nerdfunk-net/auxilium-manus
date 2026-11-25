@@ -3,7 +3,6 @@
 import { useCallback, useMemo, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -25,6 +24,7 @@ import {
 import { PyATSSourceSelectDialog } from "../shared/pyats-source-select-dialog";
 import { pyatsSourceIdFromConfig, PYATS_SOURCE_ID_KEY } from "../shared/pyats-source-config";
 import { AddPyatsTestbedHelpPanel } from "./help-panel";
+import { SourceRow } from "../shared/source-row";
 
 const CREDENTIAL_REFERENCE_KEY = "credential_reference";
 const NETWORK_DRIVER_OVERRIDE_KEY = "network_driver_override";
@@ -89,30 +89,12 @@ function AddPyatsTestbedConfigPanel({ config, onChange }: PluginConfigPanelProps
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="space-y-1.5">
-        <div className="flex items-center gap-1.5">
-          <span className="font-mono text-xs font-medium">{PYATS_SOURCE_ID_KEY}</span>
-          <Badge className="h-4 rounded px-1 text-[10px]" variant="secondary">
-            pyats
-          </Badge>
-        </div>
-
-        {sourceId ? (
-          <p className="font-mono text-[11px] text-muted-foreground">{sourceId}</p>
-        ) : (
-          <p className="text-[11px] text-warning-foreground">Not configured</p>
-        )}
-
-        <Button
-          className="h-7 w-full text-xs"
-          size="sm"
-          type="button"
-          variant="outline"
-          onClick={() => setSourceOpen(true)}
-        >
-          {sourceId ? "Edit Source" : "Configure Source"}
-        </Button>
-      </div>
+      <SourceRow
+        label={PYATS_SOURCE_ID_KEY}
+        badge="pyats"
+        sourceId={sourceId}
+        onOpen={() => setSourceOpen(true)}
+      />
 
       <RunParamSourceField
         label="Credential"

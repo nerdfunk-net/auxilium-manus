@@ -1,14 +1,8 @@
+import { makeSourceConfig } from "./source-config";
+
+const source = makeSourceConfig("aci_source_id");
+
 /** Config key for the Cisco ACI source reference stored on workflow step nodes. */
-export const ACI_SOURCE_ID_KEY = "aci_source_id";
-
-export function aciSourceIdFromConfig(config: Record<string, unknown>): string {
-  const raw = config[ACI_SOURCE_ID_KEY];
-  if (typeof raw === "string" && raw.trim()) {
-    return raw.trim();
-  }
-  return "";
-}
-
-export function isAciSourceConfigured(config: Record<string, unknown>): boolean {
-  return Boolean(aciSourceIdFromConfig(config));
-}
+export const ACI_SOURCE_ID_KEY = source.key;
+export const aciSourceIdFromConfig = source.idFromConfig;
+export const isAciSourceConfigured = source.isConfigured;

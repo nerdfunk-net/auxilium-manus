@@ -3,7 +3,6 @@
 import { useCallback, useMemo, useState } from "react";
 import { Eye, FileText } from "lucide-react";
 
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import type {
   PluginConfigPanelProps,
@@ -13,7 +12,6 @@ import { useNautobotSourceCredentials } from "@/hooks/queries/use-nautobot-sourc
 
 import {
   NAUTOBOT_SOURCE_ID_KEY,
-  isNautobotSourceConfigured,
   nautobotSourceIdFromConfig,
 } from "../shared/nautobot-source-config";
 import { NautobotSourceSelectDialog } from "../shared/nautobot-source-select-dialog";
@@ -36,6 +34,7 @@ import { LoadInventoryDialog } from "./load-inventory-dialog";
 import { DeviceSelectionPreviewDialog } from "./preview-dialog";
 import type { SavedInventory } from "./types/saved-inventory";
 import { inventoryLinkPatch } from "./utils/inventory-link";
+import { NautobotSourceStatus, SourceRow } from "../shared/source-row";
 
 function filterFromConfig(config: Record<string, unknown>): FilterTree {
   const raw = config.device_filter;
@@ -131,7 +130,6 @@ function DeviceSelectionConfigPanel({
   );
 
   const conditionCount = useMemo(() => countConditions(filterTree), [filterTree]);
-  const isSourceConfigured = isNautobotSourceConfigured(config);
   const hasInventory = inventoryMeta.id !== null || conditionCount > 0 || deviceIds.length > 0;
   const canPreview = hasInventory && credentials.isReady;
 
@@ -145,45 +143,19 @@ function DeviceSelectionConfigPanel({
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="space-y-1.5">
-        <div className="flex items-center gap-1.5">
-          <span className="font-mono text-xs font-medium">
-            {NAUTOBOT_SOURCE_ID_KEY}
-          </span>
-          <Badge className="h-4 rounded px-1 text-[10px]" variant="secondary">
-            nautobot
-          </Badge>
-        </div>
-
-        {isSourceConfigured ? (
-          <p className="font-mono text-[11px] text-muted-foreground">
-            {sourceId}
-            {credentials.isReady ? (
-              <span className="block truncate font-sans text-muted-foreground">
-                {credentials.url}
-              </span>
-            ) : credentials.isLoading ? (
-              <span className="block font-sans">Loading credentials…</span>
-            ) : (
-              <span className="block font-sans text-warning-foreground">
-                Source not found in settings
-              </span>
-            )}
-          </p>
-        ) : (
-          <p className="text-[11px] text-warning-foreground">Not configured</p>
-        )}
-
-        <Button
-          className="h-7 w-full text-xs"
-          size="sm"
-          type="button"
-          variant="outline"
-          onClick={() => setSourceOpen(true)}
-        >
-          {isSourceConfigured ? "Edit Source" : "Configure Source"}
-        </Button>
-      </div>
+      <SourceRow
+        label={NAUTOBOT_SOURCE_ID_KEY}
+        badge="nautobot"
+        sourceId={sourceId}
+        onOpen={() => setSourceOpen(true)}
+        status={
+          <NautobotSourceStatus
+            isReady={credentials.isReady}
+            isLoading={credentials.isLoading}
+            url={credentials.url}
+          />
+        }
+      />
 
       <RunParamSourceField
         label="Inventory"
