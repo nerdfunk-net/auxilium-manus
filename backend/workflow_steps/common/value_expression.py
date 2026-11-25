@@ -104,12 +104,14 @@ def resolve_update_field_expression(
     raw_value: str,
     run_id: str | None = None,
     custom_field_name: str | None = None,
-    reveal_secrets: bool = True,
+    reveal_secrets: bool,
 ) -> str | None:
     """Resolve a field value expression for one device.
 
-    ``reveal_secrets=False`` makes a sealed secret resolve to ``REDACTED_PLACEHOLDER`` instead of
-    its cleartext; a step that copies the value elsewhere must pass it and refuse the placeholder.
+    ``reveal_secrets`` has no default: ``False`` makes a sealed secret resolve to
+    ``REDACTED_PLACEHOLDER`` instead of its cleartext (a step that copies the value elsewhere passes
+    it and refuses the placeholder); ``True`` is only for a value that goes straight to the system
+    that owns the secret (the ISE TACACS key).
     """
     expression = raw_value.strip()
     if not expression:

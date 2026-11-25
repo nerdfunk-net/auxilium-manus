@@ -25,6 +25,7 @@ from workflow_steps.common.partial_outcomes import (
     fail_device_with_error,
     mark_device_failed,
 )
+from workflow_steps.common.placeholder_scan import next_placeholder
 from workflow_steps.update_attribute.config import get_default_attribute
 
 if TYPE_CHECKING:
@@ -194,49 +195,12 @@ def _apply_regex_update(
     return set_device_attribute(device, destination_path, stored_value)
 
 
-def _next_placeholder(template: str, start: int) -> tuple[int, int] | None:
-    """Locate the next ``{path}`` placeholder at or after ``start`` as ``(open, close)``.
-
-    A path may hold list selectors, and a selector may itself hold a placeholder, to any
-    depth: ``{a.b[mac={c.d[{e.f}]}].role}``. Braces are only part of a placeholder when
-    they sit inside ``[...]``; an unbracketed ``{`` starts a new candidate, so JSON-like
-    text such as ``{"k": "{x.y}"}`` still expands just ``{x.y}``.
-    """
-    opening = template.find("{", start)
-    while opening != -1:
-        bracket = brace = 0
-        position = opening + 1
-        restart = opening + 1
-        while position < len(template):
-            char = template[position]
-            if char == "[":
-                bracket += 1
-            elif char == "]":
-                bracket = max(0, bracket - 1)
-            elif char == "{":
-                if bracket == 0:
-                    restart = position
-                    break
-                brace += 1
-            elif char == "}":
-                if bracket == 0:
-                    if position > opening + 1:
-                        return opening, position
-                    break
-                if brace == 0:
-                    break
-                brace -= 1
-            position += 1
-        opening = template.find("{", restart)
-    return None
-
-
 def _render_attribute_template(device: DeviceContext, template: str) -> str | None:
     """Expand ``{path}`` placeholders from the device; ``None`` if any is unresolved."""
     pieces: list[str] = []
     unresolved = False
     cursor = 0
-    while (span := _next_placeholder(template, cursor)) is not None:
+    while (span := next_placeholder(template, cursor)) is not None:
         opening, closing = span
         path = template[opening + 1 : closing].strip()
         # Same redaction boundary as regex mode: never rehydrate a sealed secret.

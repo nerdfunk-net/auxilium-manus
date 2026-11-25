@@ -135,6 +135,23 @@ class ExecuteTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(failed.errors[-1].code, "ip_unresolved")
         service.graphql_query.assert_not_called()
 
+    async def test_a_sealed_secret_as_the_ip_is_refused_without_a_query(self) -> None:
+        import os
+
+        from services.workflow_context.secret_fields import seal_secret
+
+        with patch.dict(os.environ, {"CREDENTIAL_ENCRYPTION_KEY": "test-key-for-exists-ip"}):
+            dev = _device("R1", attribute_bags={"custom": {"ip": seal_secret("10.9.9.9")}})
+            result, service = await _run(
+                _config(strategy="primary_ip", ip_address="{custom.ip}"),
+                _context(dev),
+                {"data": {"devices": []}},
+            )
+        failed = result["failure"].devices["R1"]
+        self.assertEqual(failed.errors[-1].code, "ip_is_secret")
+        self.assertNotIn("10.9.9.9", failed.errors[-1].message)
+        service.graphql_query.assert_not_called()
+
     async def test_query_exception_routes_failure(self) -> None:
         result, _ = await _run(_config(), _context(_device("R1")), side_effect=RuntimeError("down"))
         failed = result["failure"].devices["R1"]

@@ -212,6 +212,37 @@ class UpdateIseTacacsKeyExecutorTests(unittest.IsolatedAsyncioTestCase):
         raw_stored = updated.attribute_bags["tacacs"]["shared_secret"]
         self.assertTrue(is_sealed_secret(raw_stored))
 
+    async def test_a_sealed_key_in_the_bag_reaches_ise_in_cleartext(self) -> None:
+        from services.workflow_context.secret_fields import seal_secret
+
+        device_service = _device_service()
+        device_service.get_device = AsyncMock(
+            return_value={"NetworkDevice": {"tacacsSettings": {"sharedSecret": "old"}}}
+        )
+        sealed = seal_secret("sealed-new-secret")
+        p1, p2, p3 = _patches(device_service)
+        with p1, p2, p3:
+            await execute(
+                config={"ise_source_id": "lab-ise", "new_key": "{custom.new_tacacs_key}"},
+                context=_context(
+                    {
+                        "dev-1": _device(
+                            "dev-1",
+                            name="router1",
+                            source="ise",
+                            attribute_bags={"custom": {"new_tacacs_key": sealed}},
+                        )
+                    }
+                ),
+                run=_run(),
+                artifact_service=MagicMock(),
+                node_id="node-1",
+                device_sessions=MagicMock(),
+            )
+
+        sent = device_service.update_device.call_args.args[1]
+        self.assertEqual(sent["tacacsSettings"]["sharedSecret"], "sealed-new-secret")
+
     async def test_path_expression_resolves_per_device(self) -> None:
         device_service = _device_service()
         p1, p2, p3 = _patches(device_service)

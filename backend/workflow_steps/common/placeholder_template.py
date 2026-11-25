@@ -2,13 +2,11 @@
 
 from __future__ import annotations
 
-import re
 from collections.abc import Callable
 
 from models.workflow_context import DeviceContext, DeviceError
 from services.workflow_context.attribute_path import resolve_device_attribute
-
-_PLACEHOLDER_PATTERN = re.compile(r"\{([A-Za-z0-9_.]+)\}")
+from workflow_steps.common.placeholder_scan import is_path_shaped, next_placeholder
 
 
 def render_placeholder_template(
@@ -39,11 +37,21 @@ def render_placeholder_template(
     doc/WORKFLOW-STEPS.md.
     """
 
-    def _replace(match: re.Match[str]) -> str:
-        value = resolve_device_attribute(device, match.group(1), reveal_secrets=False, error=error)
+    pieces: list[str] = []
+    cursor = 0  # text before this index is already in ``pieces``
+    scan = 0  # where the next candidate is looked for
+    while (span := next_placeholder(template, scan)) is not None:
+        opening, closing = span
+        inner = template[opening + 1 : closing]
+        if not is_path_shaped(inner):
+            scan = opening + 1  # text in braces: leave it, look for a path after the brace
+            continue
+        value = resolve_device_attribute(device, inner, reveal_secrets=False, error=error)
         # NUL delimits the run-level markers of run_message_template; a resolved value must never
         # carry one in, or it would be expanded as a run-level placeholder.
         text = value.replace("\x00", "") if value is not None else ""
-        return value_transform(text) if value_transform else text
-
-    return _PLACEHOLDER_PATTERN.sub(_replace, template)
+        pieces.append(template[cursor:opening])
+        pieces.append(value_transform(text) if value_transform else text)
+        cursor = scan = closing + 1
+    pieces.append(template[cursor:])
+    return "".join(pieces)

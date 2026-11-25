@@ -12,6 +12,7 @@ from services.artifacts import ArtifactService
 from services.nautobot.client import NautobotService
 from services.nautobot.common.exceptions import NautobotError
 from services.nautobot.credentials import NautobotCredentials
+from services.workflow_context.secret_fields import REDACTED_PLACEHOLDER
 from workflow_steps.common.device_outcomes import outcomes_from_buckets
 from workflow_steps.common.device_runner import Fail, run_per_device
 from workflow_steps.common.failure_records import INVALID_INPUT
@@ -98,8 +99,14 @@ async def _lookup(
         )
 
     ip_address = resolve_update_field_expression(
-        device=device, field_key="ip_address", raw_value=parsed.ip_expression, run_id=run_id
+        device=device,
+        field_key="ip_address",
+        raw_value=parsed.ip_expression,
+        run_id=run_id,
+        reveal_secrets=False,
     )
+    if ip_address == REDACTED_PLACEHOLDER:
+        raise _IpIsSecretError
     if not ip_address:
         raise _IpUnresolvedError(parsed.ip_expression)
     finder = (
@@ -110,6 +117,10 @@ async def _lookup(
     return await finder(
         nautobot_service=nautobot_service, credentials=credentials, ip_address=ip_address
     )
+
+
+class _IpIsSecretError(Exception):
+    """The ip_address expression points to a sealed secret, which a lookup must not copy."""
 
 
 class _IpUnresolvedError(Exception):
@@ -136,6 +147,9 @@ async def _classify_device(
         )
     except _IpUnresolvedError as exc:
         return "failure", Fail(code="ip_unresolved", message=str(exc), failure=INVALID_INPUT)
+    except _IpIsSecretError:
+        message = "ip_address expression points to a sealed secret, which a lookup does not copy"
+        return "failure", Fail(code="ip_is_secret", message=message, failure=INVALID_INPUT)
     if nautobot_id is None:
         return "non_existing", device
     return "exists", _with_nautobot_id(device, nautobot_id)

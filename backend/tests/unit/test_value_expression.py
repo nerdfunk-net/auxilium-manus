@@ -44,6 +44,7 @@ class UpdateFieldExpressionTests(unittest.TestCase):
                 device=device,
                 field_key="location",
                 raw_value="cityA",
+                reveal_secrets=False,
             ),
             "cityA",
         )
@@ -57,6 +58,7 @@ class UpdateFieldExpressionTests(unittest.TestCase):
                 device=device,
                 field_key="location",
                 raw_value="{nautobot.origin}",
+                reveal_secrets=False,
             ),
             "office-a",
         )
@@ -73,7 +75,9 @@ class UpdateFieldExpressionTests(unittest.TestCase):
         )
 
         def resolve(raw: str, field: str = "location") -> str | None:
-            return resolve_update_field_expression(device=device, field_key=field, raw_value=raw)
+            return resolve_update_field_expression(
+                device=device, field_key=field, raw_value=raw, reveal_secrets=False
+            )
 
         self.assertEqual(resolve("{ nautobot.origin }"), "office-a")
         self.assertEqual(resolve("{nautobot.origin | default('x')}"), "office-a")
@@ -90,6 +94,7 @@ class UpdateFieldExpressionTests(unittest.TestCase):
                 device=device,
                 field_key="location",
                 raw_value="{custom.site}",
+                reveal_secrets=False,
             ),
             "lab-7",
         )
@@ -101,6 +106,7 @@ class UpdateFieldExpressionTests(unittest.TestCase):
                 device=device,
                 field_key="location",
                 raw_value="{custom.site | default('fallback')}",
+                reveal_secrets=False,
             ),
             "fallback",
         )

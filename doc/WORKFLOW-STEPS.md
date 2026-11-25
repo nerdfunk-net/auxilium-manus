@@ -627,6 +627,20 @@ name plus a `FailureInfo`, so driver text, SQL and parameters never reach the pe
 `update-content` has `fail_if_no_match` (default off): a device where every rule matched zero times fails with
 `no_rule_matched` instead of passing its unchanged content on.
 
+### Placeholders in step text and `reveal_secrets`
+
+`{path}` placeholders are found by one bracket-aware scanner (`workflow_steps/common/placeholder_scan.py`): a path may
+hold list selectors, and a selector may itself hold a placeholder (`{nautobot.interfaces[name={custom.port}].description}`).
+`update-attribute` expands every span it finds; the message steps (`render_placeholder_template`: `log-message`,
+`notify`, `notify-on-error`, `get-from-db`, `route-on-content` ...) expand only spans that look like a path (outside
+`[...]` only letters, digits, `_` and `.`), so `{hello world}` and JSON-like text stay as written.
+
+`resolve_update_field_expression` has **no default** for `reveal_secrets`: a caller must say whether it may read a sealed
+secret. Only the TACACS key of `add-to-ise` (Add to ISE) and `update-ise-tacacs-key` (Update ISE TACACS Key) passes `True`
+(the key goes to ISE, the system that holds it). Every other site passes `False` and refuses the placeholder: `add-to-ise`
+fails the device with `device_name_is_secret` / `ip_address_is_secret` / `description_is_secret`, `exists-in-nautobot` with
+`ip_is_secret`.
+
 ### Resolver contract: one meaning per path
 
 `device.<scalar>`, bare scalars, `{placeholders}` and Jinja read the same value

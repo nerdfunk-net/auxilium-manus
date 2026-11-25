@@ -135,6 +135,7 @@ async def _update_one_device(
         field_key="new_key",
         raw_value=parsed.raw_new_key,
         run_id=run_id,
+        reveal_secrets=True,  # the key goes to ISE, the system that holds it
     )
     if not new_key_value:
         return Fail(

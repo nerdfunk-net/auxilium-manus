@@ -90,7 +90,7 @@ from services.ise.common.exceptions import ALREADY_EXISTS_CODE, ISEAPIError, ISE
 from services.ise.credentials import ISECredentials
 from services.workflow_context.attribute_path import resolve_device_value
 from services.workflow_context.secret_expression import require_secret_expression
-from services.workflow_context.secret_fields import seal_secret
+from services.workflow_context.secret_fields import REDACTED_PLACEHOLDER, seal_secret
 from workflow_steps.add_to_ise.group_ensure import DeviceGroupEnsurer
 from workflow_steps.common.device_runner import AbortRun, Fail, run_per_device
 from workflow_steps.common.failure_records import INVALID_INPUT
@@ -340,6 +340,14 @@ def _resolve_device_groups(
     return resolved
 
 
+def _secret_refused(field: str) -> tuple[str, str]:
+    """``(code, message)``: a sealed secret must not be copied into any ISE field but the key."""
+    return (
+        f"{field}_is_secret",
+        f"{field} expression points to a sealed secret; only new_key may read one",
+    )
+
+
 def _resolve_device_fields(
     device: DeviceContext,
     cfg: _ParsedConfig,
@@ -351,7 +359,10 @@ def _resolve_device_fields(
         field_key="device_name",
         raw_value=cfg.raw_device_name,
         run_id=run_id,
+        reveal_secrets=False,
     )
+    if resolved_name == REDACTED_PLACEHOLDER:
+        return _secret_refused("device_name")
     if not resolved_name:
         return (
             "device_name_unresolved",
@@ -366,7 +377,10 @@ def _resolve_device_fields(
         field_key="ip_address",
         raw_value=cfg.raw_ip_address,
         run_id=run_id,
+        reveal_secrets=False,
     )
+    if resolved_ip == REDACTED_PLACEHOLDER:
+        return _secret_refused("ip_address")
     if not resolved_ip and "primary_ip4" in cfg.raw_ip_address:
         resolved_ip = _effective_primary_ip4(device)
 
@@ -407,6 +421,7 @@ def _resolve_device_fields(
         field_key="new_key",
         raw_value=cfg.raw_new_key,
         run_id=run_id,
+        reveal_secrets=True,  # the key goes to ISE, the system that holds it
     )
     if not resolved_key:
         return (
@@ -424,7 +439,10 @@ def _resolve_device_fields(
         field_key="description",
         raw_value=cfg.description,
         run_id=run_id,
+        reveal_secrets=False,
     )
+    if resolved_description == REDACTED_PLACEHOLDER:
+        return _secret_refused("description")
     if cfg.description and not resolved_description:
         logger.warning(
             "%s: description expression '%s' did not resolve for '%s'; creating without one",
