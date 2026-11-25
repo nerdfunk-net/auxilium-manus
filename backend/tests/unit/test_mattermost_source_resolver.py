@@ -29,8 +29,10 @@ def test_returns_the_resolved_credentials() -> None:
 
 
 def test_an_unknown_source_is_a_value_error_naming_step_and_source() -> None:
-    with pytest.raises(ValueError, match=r"notify: Mattermost source 'chat' not found"):
+    with pytest.raises(ValueError, match=r"notify: Mattermost source 'chat' not found") as info:
         _resolve(side_effect=MattermostSourceNotFoundError("chat"))
+
+    assert isinstance(info.value.__cause__, MattermostSourceNotFoundError)
 
 
 def test_an_invalid_source_config_is_a_value_error() -> None:
