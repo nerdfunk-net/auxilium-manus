@@ -22,6 +22,8 @@ engine = create_engine(
     pool_size=settings.database_pool_size,
     max_overflow=settings.database_max_overflow,
     pool_timeout=settings.database_pool_timeout,
+    # An error text carries the SQL; with the parameters it would carry stored device data too.
+    hide_parameters=True,
 )
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
