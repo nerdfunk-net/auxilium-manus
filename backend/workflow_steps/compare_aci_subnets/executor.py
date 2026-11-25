@@ -19,6 +19,7 @@ from models.workflow_context import StepOutcome, WorkflowContext
 from services.aci.common.exceptions import AciAPIError, AciAuthError, AciValidationError
 from services.artifacts import ArtifactService
 from services.nautobot.common.exceptions import NautobotError
+from workflow_steps.common.controller_failure import controller_failure_outcomes
 from workflow_steps.common.controller_sources import ACI
 from workflow_steps.common.fact_entries import parse_output_key_config
 from workflow_steps.common.nautobot_source import resolve_nautobot_credentials
@@ -105,10 +106,13 @@ async def execute(
     except AciValidationError as exc:
         raise ValueError(f"{STEP_ID}: {exc}") from exc
     except (AciAPIError, AciAuthError) as exc:
-        # ``from exc`` keeps the cause chain: the runner reads the structured failure from it.
-        raise RuntimeError(f"{STEP_ID}: APIC request failed: {exc}") from exc
+        return controller_failure_outcomes(
+            context, exc, label="APIC", step_id=STEP_ID, logger=logger
+        )
     except NautobotError as exc:
-        raise RuntimeError(f"{STEP_ID}: Nautobot request failed: {exc}") from exc
+        return controller_failure_outcomes(
+            context, exc, label="Nautobot", step_id=STEP_ID, logger=logger
+        )
 
     report = compare_subnets(
         aci_subnets,

@@ -710,6 +710,15 @@ than one hour even when its run is not in the sweep's snapshot, and meta files a
 `log-attributes` files are appended with `O_APPEND` and removed with their run (or by the sweep).
 `GET /workflows/{id}/runs` answers at most 50 runs (`limit` up to 200, `offset`) and reports `total`.
 
+### Controller steps that add devices or write one result
+
+`get-aci-devices` (Get from ACI), `get-catalyst-center-devices` (Get from Catalyst Center), `backup-aci-config` (Backup ACI
+Config) and `compare-aci-subnets` (Compare ACI Subnets with Nautobot) have no incoming device to mark failed, so a controller
+error (`AciAPIError`, `AciAuthError`, the Catalyst Center errors, `NautobotError`) ends the step on its `failure` handle:
+`controller_failure_outcomes` returns the context unchanged, the summary `"<controller> request failed"` and the
+`FailureInfo` the error carries (`phase="api"`, `kind="unknown"` when it carries none). The controller's text is not stored.
+A rejected query or filter (`*ValidationError`) is a configuration error and raises.
+
 ### Notification caps and idempotence
 
 `notify-on-error` posts at most `max_messages` (default 20) Mattermost messages per execution, then

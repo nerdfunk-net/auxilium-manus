@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session
 
 from core.models.runs import WorkflowRun
 from models.workflow_context import DeviceContext, StepOutcome, WorkflowContext
+from workflow_steps.common.controller_failure import controller_failure_outcomes
 from workflow_steps.common.fan_out import inventory_metadata
 from workflow_steps.common.run_session import require_session
 from workflow_steps.common.step_flags import parse_bool_flag
@@ -106,9 +107,9 @@ async def run_inventory_step(
         # Includes "matched more than max_devices": a configuration problem, not an outage.
         raise ValueError(f"{step_id}: {exc}") from exc
     except spec.request_errors as exc:
-        # ``from exc`` keeps the controller error in the cause chain: the runner reads its
-        # structured failure record from there.
-        raise RuntimeError(f"{step_id}: {spec.request_label} request failed: {exc}") from exc
+        return controller_failure_outcomes(
+            context, exc, label=spec.request_label, step_id=step_id, logger=spec.logger
+        )
 
     new_devices = {
         device.id: device for device in (spec.to_device(item, source_id) for item in found)

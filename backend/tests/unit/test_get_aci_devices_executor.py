@@ -6,7 +6,6 @@ import unittest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from models.aci import AciDevice
-from models.failure import failure_from_exception
 from models.workflow_context import Capability, DeviceContext, DeviceStatus, WorkflowContext
 from services.aci.common.exceptions import (
     AciAPIError,
@@ -257,7 +256,7 @@ class ConfigErrorTests(unittest.IsolatedAsyncioTestCase):
 
 
 class ApicFailureTests(unittest.IsolatedAsyncioTestCase):
-    async def test_apic_errors_become_runtime_errors_that_keep_the_classification(self) -> None:
+    async def test_apic_errors_end_on_the_failure_outcome_with_the_classification(self) -> None:
         cases = [
             (AciAuthError("denied", http_status=403, code="request_denied"), "permission_denied"),
             (AciAPIError("down", http_status=503), "server_error"),
@@ -265,13 +264,13 @@ class ApicFailureTests(unittest.IsolatedAsyncioTestCase):
         ]
         for error, kind in cases:
             with self.subTest(kind=kind), _Harness(search_side_effect=error):
-                with self.assertRaises(RuntimeError) as ctx:
-                    await _run(_config())
-                self.assertIn("get-aci-devices", str(ctx.exception))
-                self.assertIs(ctx.exception.__cause__, error)
-                failure = failure_from_exception(ctx.exception)
+                outcomes = await _run(_config())
+                self.assertEqual([o.name for o in outcomes], ["failure"])
+                self.assertEqual(outcomes[0].summary, "APIC request failed")
+                failure = outcomes[0].failure
                 assert failure is not None
                 self.assertEqual(failure.kind, kind)
+                self.assertEqual(outcomes[0].context.devices, {})
 
 
 if __name__ == "__main__":

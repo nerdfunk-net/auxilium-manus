@@ -19,8 +19,10 @@ from models.workflow_context import StepOutcome, WorkflowContext
 from services.aci.common.exceptions import AciAPIError, AciAuthError, AciValidationError
 from services.artifacts import ArtifactService
 from services.artifacts.sinks.git_sink import GitArtifactSink
+from workflow_steps.common.controller_failure import controller_failure_outcomes
 from workflow_steps.common.controller_sources import ACI
 from workflow_steps.common.fact_entries import parse_output_key_config
+from workflow_steps.common.failure_records import INVALID_RESPONSE
 from workflow_steps.common.git_repository_loader import load_git_repository, parse_repository_id
 from workflow_steps.common.run_session import require_session
 from workflow_steps.common.step_flags import parse_bool_flag
@@ -131,14 +133,23 @@ async def execute(
     except AciValidationError as exc:
         raise ValueError(f"{STEP_ID}: {exc}") from exc
     except (AciAPIError, AciAuthError) as exc:
-        # ``from exc`` keeps the APIC error in the cause chain for the structured failure record.
-        raise RuntimeError(f"{STEP_ID}: APIC request failed: {exc}") from exc
-    if export.errors:
-        details = "; ".join(f"{path}: {reason}" for path, reason in sorted(export.errors.items()))
-        raise RuntimeError(
-            f"{STEP_ID}: {len(export.errors)} object(s) could not be read, nothing was written "
-            f"({details})"
+        return controller_failure_outcomes(
+            context, exc, label="APIC", step_id=STEP_ID, logger=logger
         )
+    if export.errors:
+        # The object paths say what to look at; the APIC's reasons are not carried along.
+        paths = ", ".join(sorted(export.errors))
+        return [
+            StepOutcome(
+                name="failure",
+                context=context,
+                summary=(
+                    f"{len(export.errors)} object(s) could not be read, nothing was written "
+                    f"({paths})"
+                ),
+                failure=INVALID_RESPONSE,
+            )
+        ]
 
     sink = _build_sink(repository, subdirectory, commit=commit, push=push)
     # The session holds the repository lock from prepare to finalize, puts a half-written tree

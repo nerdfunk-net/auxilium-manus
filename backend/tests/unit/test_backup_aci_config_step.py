@@ -8,6 +8,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from models.failure import FailureInfo, failure_from_exception
 from models.workflow_context import Capability, DeviceContext, DeviceStatus, WorkflowContext
 from repositories.plugin_repository import PluginRepository
 from services.aci.common.exceptions import AciAPIError, AciValidationError
@@ -48,7 +49,9 @@ class RegistrationTests(unittest.TestCase):
         self.assertEqual(self.plugin.palette_category, "cisco")
         self.assertEqual(self.plugin.directory, "backup_aci_config")
         self.assertEqual(self.plugin.requires, [])
-        self.assertEqual([o.name for o in self.plugin.outcomes], ["success", "changed"])
+        self.assertEqual(
+            [o.name for o in self.plugin.outcomes], ["success", "changed", "failure"]
+        )
         self.assertTrue(self.plugin.enabled)
 
     def test_dispatch_and_documented_config(self) -> None:
@@ -252,10 +255,16 @@ class ExecutorTests(unittest.IsolatedAsyncioTestCase):
             files={"access-policies.json": "{}\n"}, errors={"tenants/SnV.json": "too big"}
         )
         with _Patched(export=export) as p:
-            with self.assertRaises(RuntimeError) as caught:
-                await _run()
-        self.assertIn("tenants/SnV.json", str(caught.exception))
-        self.assertIn("too big", str(caught.exception))
+            outcomes = await _run()
+        self.assertEqual([o.name for o in outcomes], ["failure"])
+        # the object paths name what to look at; the APIC's reason text is not carried along
+        self.assertIn("tenants/SnV.json", outcomes[0].summary)
+        self.assertTrue(outcomes[0].summary.startswith("1 object(s) could not be read"))
+        self.assertNotIn("too big", outcomes[0].summary)
+        self.assertEqual(
+            outcomes[0].failure,
+            FailureInfo(phase="api", kind="invalid_response", hint="check_controller"),
+        )
         self.assertEqual(p.sink.writes, {})
         self.assertEqual(p.sink.session_opened, 0)  # nothing was started in the repository
 
@@ -337,12 +346,16 @@ class ExecutorTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaisesRegex(ValueError, "Nope"):
                 await _run({"tenants": ["Nope"]})
 
-    async def test_an_apic_failure_fails_the_step_with_the_cause_kept(self) -> None:
-        error = AciAPIError("apic down", code="transport")
-        with _Patched(export_error=error):
-            with self.assertRaises(RuntimeError) as caught:
-                await _run()
-        self.assertIs(caught.exception.__cause__, error)
+    async def test_an_apic_failure_ends_on_the_failure_outcome_with_its_record(self) -> None:
+        error = AciAPIError("apic down", http_status=503)
+        device = DeviceContext(id="d1", name="d1", hostname="d1")
+        with _Patched(export_error=error) as p:
+            outcomes = await _run(devices=[device])
+        self.assertEqual([o.name for o in outcomes], ["failure"])
+        self.assertEqual(outcomes[0].summary, "APIC request failed")
+        self.assertEqual(outcomes[0].failure, failure_from_exception(error))
+        self.assertEqual(outcomes[0].context.devices["d1"].status, device.status)
+        self.assertEqual(p.sink.session_opened, 0)
 
     async def test_a_repository_that_cannot_be_prepared_fails_the_step_and_releases_the_lock(
         self,

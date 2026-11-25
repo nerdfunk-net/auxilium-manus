@@ -34,7 +34,7 @@ class RegistrationTests(unittest.TestCase):
     def test_capability_contract_matches_other_inventory_steps(self) -> None:
         self.assertEqual(self.plugin.requires, [])
         self.assertEqual(self.plugin.produces, ["identity"])
-        self.assertEqual([o.name for o in self.plugin.outcomes], ["success"])
+        self.assertEqual([o.name for o in self.plugin.outcomes], ["success", "failure"])
 
     def test_dispatch_table_points_at_the_executor(self) -> None:
         self.assertIs(STEP_REGISTRY[STEP_ID], execute)

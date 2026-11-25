@@ -8,6 +8,7 @@ from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from models.aci_subnets import AciSubnet
+from models.failure import failure_from_exception
 from models.workflow_context import (
     ArtifactRef,
     Capability,
@@ -53,7 +54,9 @@ class RegistrationTests(unittest.TestCase):
         self.assertEqual(self.plugin.palette_category, "cisco")
         self.assertEqual(self.plugin.directory, "compare_aci_subnets")
         self.assertEqual(self.plugin.requires, [])
-        self.assertEqual([o.name for o in self.plugin.outcomes], ["success", "differences"])
+        self.assertEqual(
+            [o.name for o in self.plugin.outcomes], ["success", "differences", "failure"]
+        )
         self.assertTrue(self.plugin.enabled)
 
     def test_dispatch_and_documented_config(self) -> None:
@@ -251,17 +254,18 @@ class ExecutorTests(unittest.IsolatedAsyncioTestCase):
     async def test_an_apic_failure_fails_the_step_with_the_cause_kept(self) -> None:
         error = AciAPIError("apic down", code="transport")
         with _Patched(aci_error=error):
-            with self.assertRaises(RuntimeError) as caught:
-                await _run()
-        self.assertIs(caught.exception.__cause__, error)
-        self.assertIn(STEP_ID, str(caught.exception))
+            outcomes, _ = await _run()
+        self.assertEqual([o.name for o in outcomes], ["failure"])
+        self.assertEqual(outcomes[0].summary, "APIC request failed")
+        self.assertEqual(outcomes[0].failure, failure_from_exception(error))
 
     async def test_a_nautobot_failure_fails_the_step_with_the_cause_kept(self) -> None:
         error = NautobotAPIError("nb down", code="transport")
         with _Patched(nautobot_error=error):
-            with self.assertRaises(RuntimeError) as caught:
-                await _run()
-        self.assertIs(caught.exception.__cause__, error)
+            outcomes, _ = await _run()
+        self.assertEqual([o.name for o in outcomes], ["failure"])
+        self.assertEqual(outcomes[0].summary, "Nautobot request failed")
+        self.assertIsNotNone(outcomes[0].failure)
 
     async def test_a_rejected_apic_query_is_a_configuration_error(self) -> None:
         with _Patched(aci_error=AciValidationError("bad filter")):

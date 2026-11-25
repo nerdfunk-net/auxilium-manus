@@ -246,13 +246,14 @@ class FetchErrorMappingTests(unittest.IsolatedAsyncioTestCase):
         ):
             await _run(_config())
 
-    async def test_api_and_auth_errors_are_runtime_errors(self) -> None:
+    async def test_api_and_auth_errors_end_on_the_failure_outcome(self) -> None:
         for exc in (CatalystCenterAPIError("down"), CatalystCenterAuthError("denied")):
-            with (
-                _Harness(search_side_effect=exc),
-                self.assertRaisesRegex(RuntimeError, "Catalyst Center request failed"),
-            ):
-                await _run(_config())
+            with _Harness(search_side_effect=exc):
+                outcomes = await _run(_config())
+            self.assertEqual([o.name for o in outcomes], ["failure"])
+            self.assertEqual(outcomes[0].summary, "Catalyst Center request failed")
+            self.assertIsNotNone(outcomes[0].failure)
+            self.assertEqual(outcomes[0].context.devices, {})
 
 
 class LoggingTests(unittest.IsolatedAsyncioTestCase):

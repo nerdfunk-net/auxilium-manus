@@ -14,10 +14,13 @@ failed device stores (P-E, D3)"). Still open:
 - **SSH driver text of `run-command` (decided and done).** Both modes store the class name (a `ValueError` keeps its
   step-written text) plus the `FailureInfo`; the driver sentence of a failed result (`result.error`) is no longer stored,
   because it can name a refused line. The operator reads the cause from the failure record and the step's own log.
-- **Step-level failure shape of the controller steps.** `get-aci-*`, `backup-aci-config`, `compare-aci-subnets` and the
-  Catalyst Center steps still raise when the whole step fails; `contact-the-ai`, `open-change-request` and the git
-  steps mark the devices FAILED (`whole_step_failure`). Several of them create devices or ignore the incoming ones, so
-  marking the existing devices is not right for all of them: decide per step.
+- **Step-level failure shape of the controller steps (decided and done).** The four steps that raised when the
+  controller could not be read (`get-aci-devices`, `get-catalyst-center-devices`, `backup-aci-config`,
+  `compare-aci-subnets`) now declare a `failure` handle and end on it (`common/controller_failure.py`): the context is
+  unchanged (they add devices or write one result, so there is no device to mark), the summary is `"<APIC | Catalyst
+  Center | Nautobot> request failed"` and the outcome carries the `FailureInfo` of the controller error. The other
+  controller steps already fail per device. Configuration errors still raise. `backup-aci-config` still raises for a
+  git failure (P-H).
 - **`open-change-request` leftovers.** The `rendered_template` case still builds its content by hand instead of
   `content_resolver.list_exportable_content`, and `NothingToReview` is used as control flow.
 - **`contact-the-ai` structure.** The sharing check is split between `prompt.py::check_path` and
