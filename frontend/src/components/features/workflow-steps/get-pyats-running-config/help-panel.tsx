@@ -39,12 +39,12 @@ export function GetPyatsRunningConfigHelpPanel() {
         <p>
           <HelpCode>output_key</HelpCode> names the slot where the parsed
           result is stored on each device. Downstream steps and templates
-          reference <HelpCode>parsed.{"{output_key}"}</HelpCode>.
+          reference <HelpCode>parsed.{"{node_id}"}.{"{output_key}"}</HelpCode>.
         </p>
         <HelpExample>
           output_key: pyats_config
           <br />
-          <span className="text-muted-foreground">→ parsed.pyats_config.running</span>
+          <span className="text-muted-foreground">→ parsed.{"{node_id}"}.pyats_config.running</span>
         </HelpExample>
       </HelpSection>
     </div>

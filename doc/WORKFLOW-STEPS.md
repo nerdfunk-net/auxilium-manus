@@ -692,7 +692,7 @@ fails the device with `device_name_is_secret` / `ip_address_is_secret` / `descri
 | `<bag>.<key>` | a leaf of an attribute bag; a bag with exactly one key also answers to its bare name `<bag>` (kept for existing workflows; a second key makes it `None`) |
 | `parsed.<key>...` | `DeviceContext.parsed`; in filename/path templates `parsed` is the small `output_key` bag |
 
-`undefined-and-unused` writes `parsed.<output_key>.undefined.parsed` / `.unused.parsed`. The persisted copy of a
+`undefined-and-unused` writes `parsed.<node_id>.<output_key>.undefined.parsed` / `.unused.parsed`. Like `batfish-extract-facts`, `get-pyats-running-config` and `get-pyats-snapshot` it nests under its own node id (W7-12), so two steps with the same `output_key` do not overwrite each other; `config-to-attributes` reads these two formats (`genie`, `batfish`) with `parsed_key` = `<node_id>.<output_key>`. The persisted copy of a
 step result redacts every scalar below `nautobot.config_context` and `nautobot.local_config_context_data`
 (`SECRET_BAG_SUBTREES`); the live context keeps the values. `log-attributes` masks well-known secret lines in
 attached configuration text (best effort). `config-to-attributes` maps interface names to Nautobot types by prefix
@@ -1864,7 +1864,7 @@ into a **list of dicts**: a segment of the form
 
 navigates to the list at `<key>`, then continues traversal from the **first**
 item whose `<field>` stringifies to `<value>` — e.g.
-`parsed.batfish_extract_facts.parsed.TACACS.TACACS_Servers[address=10.0.0.5]`
+`parsed.<node_id>.batfish_extract_facts.parsed.TACACS.TACACS_Servers[address=10.0.0.5]`
 picks the one TACACS+ server dict whose `address` field is `"10.0.0.5"` out of
 a list. Rules:
 

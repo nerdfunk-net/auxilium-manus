@@ -22,6 +22,7 @@ import type {
 } from "@/components/features/workflows/types/plugin-ui";
 
 import { ConfigToAttributesHelpPanel } from "./help-panel";
+import { parsedKeyFromAttributePath } from "./parsed-key";
 import {
   ATTRIBUTE_GROUPS,
   DEFAULT_PRIMARY_IPV4_PRIORITY,
@@ -63,18 +64,6 @@ function isGroupAvailable(key: AttributeGroupKey, format: string): boolean {
 
 function parseParsedKey(config: Record<string, unknown>): string {
   return typeof config.parsed_key === "string" ? config.parsed_key : "";
-}
-
-/**
- * The attribute path picker returns a full dotted path (e.g.
- * "parsed.pyats_config.running"), but parsed_key is just the segment right
- * after the fixed "parsed." namespace — the output_key an upstream parsing
- * step used. Extract that one segment; fall back to the raw path for any
- * shape that doesn't start with "parsed." (shouldn't normally happen here).
- */
-function parsedKeyFromAttributePath(path: string): string {
-  const match = /^parsed\.([^.[]+)/.exec(path);
-  return match ? match[1] : path;
 }
 
 function parseAttributes(config: Record<string, unknown>): AttributeGroupKey[] {
@@ -153,9 +142,9 @@ function ConfigToAttributesConfigPanel({
 
   const handlePickerSelect = useCallback(
     (path: string) => {
-      handleParsedKeyChange(parsedKeyFromAttributePath(path));
+      handleParsedKeyChange(parsedKeyFromAttributePath(path, sourceFormat));
     },
-    [handleParsedKeyChange],
+    [handleParsedKeyChange, sourceFormat],
   );
 
   const handleToggle = useCallback(
@@ -275,6 +264,8 @@ function ConfigToAttributesConfigPanel({
           <span className="font-mono">output_key</span> — Parse Cisco Config for
           cisco_config_parser, Get &amp; Parse Config for genie, Extract Facts
           for batfish, Get Details from Catalyst Center for catalyst_details, or Get Details from ACI for aci_details.
+          Genie and Batfish write under the step&apos;s node id: use{" "}
+          <span className="font-mono">node_id.output_key</span> (the picker fills it in).
         </p>
         <AttributePathPicker
           open={pickerOpen}

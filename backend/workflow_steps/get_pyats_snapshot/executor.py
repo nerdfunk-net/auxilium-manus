@@ -20,7 +20,7 @@ per-feature success/error recorded inside the stored snapshot.
 The full per-feature Genie Ops data is stored via ``artifact_service`` (same
 durable, run-scoped storage ``get-device-configs`` already uses for raw
 config content); a lightweight per-feature success/error summary plus the
-resulting ``ArtifactRef`` is written into ``device.parsed[output_key]`` for
+resulting ``ArtifactRef`` is written into ``device.parsed[node_id][output_key]`` for
 downstream Jinja/Log Attributes steps and the run-detail UI.
 """
 
@@ -41,6 +41,7 @@ from models.workflow_context import (
     WorkflowContext,
 )
 from services.artifacts import ArtifactService
+from services.workflow_context.node_result import set_node_result
 from workflow_steps.common.device_outcomes import build_outcomes
 from workflow_steps.common.device_runner import Fail, run_per_device
 from workflow_steps.common.failure_records import INVALID_RESPONSE
@@ -132,8 +133,7 @@ async def _shape_and_store_result(
             for name, r in feature_results.items()
         },
     }
-    parsed = dict(device.parsed)
-    parsed[output_key] = entry
+    parsed = set_node_result(device.parsed, node_id, output_key, entry)
     return device.model_copy(
         update={
             "parsed": parsed,

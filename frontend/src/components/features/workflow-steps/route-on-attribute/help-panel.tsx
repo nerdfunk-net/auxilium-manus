@@ -77,9 +77,9 @@ export function RouteOnAttributeHelpPanel() {
       <HelpSection title="Batfish">
         <p>
           A Batfish step (e.g. Extract Facts) writes its per-device result to{" "}
-          <HelpCode>device.parsed[output_key]</HelpCode>, so it&apos;s reachable the
+          <HelpCode>device.parsed[node_id][output_key]</HelpCode>, so it&apos;s reachable the
           same way as any other parsed output —{" "}
-          <HelpCode>parsed.&lt;output_key&gt;.parsed.&lt;Fact&gt;</HelpCode>. For
+          <HelpCode>parsed.&lt;node_id&gt;.&lt;output_key&gt;.parsed.&lt;Fact&gt;</HelpCode>. For
           Extract Facts, <HelpCode>output_key</HelpCode> defaults to{" "}
           <HelpCode>batfish_extract_facts</HelpCode> and{" "}
           <HelpCode>.parsed</HelpCode> holds that device&apos;s node facts —
@@ -108,7 +108,7 @@ export function RouteOnAttributeHelpPanel() {
         </p>
         <HelpExample>
           attribute_path:
-          parsed.batfish_extract_facts.parsed.TACACS.TACACS_Servers
+          parsed.&lt;node_id&gt;.batfish_extract_facts.parsed.TACACS.TACACS_Servers
           <br />
           routes:
           <br />

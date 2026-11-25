@@ -30,7 +30,12 @@ def _context_with_snapshot(devices: dict[str, DeviceContext] | None = None) -> W
 
 class BatfishExtractFactsExecutorTests(unittest.IsolatedAsyncioTestCase):
     async def _run(
-        self, *, facts: dict, devices: dict[str, DeviceContext], config: dict | None = None
+        self,
+        *,
+        facts: dict,
+        devices: dict[str, DeviceContext],
+        config: dict | None = None,
+        node_id: str = "node-1",
     ):
         run = MagicMock()
         run.id = 1
@@ -46,10 +51,28 @@ class BatfishExtractFactsExecutorTests(unittest.IsolatedAsyncioTestCase):
                 context=context,
                 run=run,
                 artifact_service=InMemoryArtifactService(),
-                node_id="node-1",
+                node_id=node_id,
                 device_sessions=MagicMock(),
             )
         return outcomes, batfish
+
+    async def test_two_steps_with_the_same_output_key_keep_both_results(self) -> None:
+        """W7-12: the second Extract Facts step no longer overwrites the first one's entry."""
+        first_devices = {"device-1": _device("device-1", "R1")}
+        first, _ = await self._run(
+            facts={"version": "batfish_v0", "nodes": {"r1": {"Hostname": "before"}}},
+            devices=first_devices,
+        )
+        second_devices = first[0].context.devices
+        second, _ = await self._run(
+            facts={"version": "batfish_v0", "nodes": {"r1": {"Hostname": "after"}}},
+            devices=second_devices,
+            node_id="node-2",
+        )
+        parsed = second[0].context.devices["device-1"].parsed
+        before = parsed["node-1"]["batfish_extract_facts"]["parsed"]
+        after = parsed["node-2"]["batfish_extract_facts"]["parsed"]
+        self.assertEqual((before, after), ({"Hostname": "before"}, {"Hostname": "after"}))
 
     async def test_found_node_enriches_device_parsed(self) -> None:
         devices = {"device-1": _device("device-1", "R1")}
@@ -60,7 +83,7 @@ class BatfishExtractFactsExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(outcomes), 1)
         self.assertEqual(outcomes[0].name, "success")
         device = outcomes[0].context.devices["device-1"]
-        entry = device.parsed["batfish_extract_facts"]
+        entry = device.parsed["node-1"]["batfish_extract_facts"]
         self.assertEqual(entry["parsed"], {"Hostname": "r1"})
         self.assertIsNone(entry["error"])
         self.assertIn(Capability.PARSED, device.capabilities)
@@ -81,7 +104,7 @@ class BatfishExtractFactsExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(failed.status, DeviceStatus.FAILED)
         self.assertEqual(failed.errors[-1].code, "node_not_found")
         self.assertEqual(failed.errors[-1].failure.kind, "not_found")
-        self.assertIn("r2", failed.parsed["batfish_extract_facts"]["error"])
+        self.assertIn("r2", failed.parsed["node-1"]["batfish_extract_facts"]["error"])
 
     async def test_missing_node_does_not_trip_the_capability_guard(self) -> None:
         from services.workflow_context.guards import StepCapabilitySpec, post_step_guard
@@ -152,7 +175,8 @@ class BatfishExtractFactsExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(batfish.extract_facts.call_args.kwargs["nodes"], "lab")
         self.assertEqual([o.name for o in outcomes], ["success"])
         found = outcomes[0].context.devices["device-1"]
-        self.assertEqual(found.parsed["batfish_extract_facts"]["parsed"], {"Hostname": "lab"})
+        entry = found.parsed["node-1"]["batfish_extract_facts"]
+        self.assertEqual(entry["parsed"], {"Hostname": "lab"})
 
     async def test_use_short_hostname_dedups_and_keeps_ip_names(self) -> None:
         devices = {

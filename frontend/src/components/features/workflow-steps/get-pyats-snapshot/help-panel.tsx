@@ -57,13 +57,13 @@ export function GetPyatsSnapshotHelpPanel() {
         <p>
           <HelpCode>output_key</HelpCode> names the slot where the snapshot is stored on
           each device. Downstream steps and templates reference{" "}
-          <HelpCode>parsed.{"{output_key}"}</HelpCode>.
+          <HelpCode>parsed.{"{node_id}"}.{"{output_key}"}</HelpCode>.
         </p>
         <HelpExample>
           output_key: pyats_snapshot
           <br />
           <span className="text-muted-foreground">
-            → parsed.pyats_snapshot.features.bgp.success
+            → parsed.{"{node_id}"}.pyats_snapshot.features.bgp.success
           </span>
         </HelpExample>
         <p>

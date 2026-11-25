@@ -47,11 +47,13 @@ def _device_with_pyats_snapshot() -> DeviceContext:
         hostname="lab",
         attribute_bags={"nautobot": {"location": {"name": "DC1"}}},
         parsed={
-            "pyats_snapshot": {
-                "kind": "pyats_snapshot",
-                "artifact_ref": artifact_ref.model_dump(mode="json"),
-                "step_node_id": "get-pyats-snapshot-5",
-                "features": {"bgp": {"success": True, "error": None}},
+            "get-pyats-snapshot-5": {
+                "pyats_snapshot": {
+                    "kind": "pyats_snapshot",
+                    "artifact_ref": artifact_ref.model_dump(mode="json"),
+                    "step_node_id": "get-pyats-snapshot-5",
+                    "features": {"bgp": {"success": True, "error": None}},
+                }
             }
         },
         capabilities={Capability.IDENTITY, Capability.PARSED},

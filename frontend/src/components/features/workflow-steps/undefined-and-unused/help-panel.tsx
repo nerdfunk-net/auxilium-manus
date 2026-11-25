@@ -47,10 +47,10 @@ export function UndefinedAndUnusedHelpPanel() {
       <HelpSection title="Reading the result downstream">
         <p>
           A device in <HelpCode>undefined</HelpCode> gets{" "}
-          <HelpCode>{"parsed.<output_key>.undefined.parsed"}</HelpCode>{" "}
+          <HelpCode>{"parsed.<node_id>.<output_key>.undefined.parsed"}</HelpCode>{" "}
           — a list of rows (struct type, reference name, context, line numbers). A device in{" "}
           <HelpCode>unused</HelpCode> gets the same shape under{" "}
-          <HelpCode>{"parsed.<output_key>.unused.parsed"}</HelpCode>. Both keys are always
+          <HelpCode>{"parsed.<node_id>.<output_key>.unused.parsed"}</HelpCode>. Both keys are always
           present (an empty list when there are no findings).
         </p>
       </HelpSection>

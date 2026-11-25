@@ -7,13 +7,13 @@ to compare against (see batfish-validate-facts for that). See
 doc/BATFISH_INTEGRATION.md "Batfish Extract Facts".
 
 Unlike the 3 existing pure-query steps, this enriches every device in
-context.devices directly: ``device.parsed[output_key] = {"parsed": <node's
+context.devices directly: ``device.parsed[node_id][output_key] = {"parsed": <node's
 facts>, "error": None}`` for a node Batfish returned, or ``{"parsed": None,
 "error": "..."}`` otherwise -- the same non-fatal-per-item ``{"parsed",
 "error"}`` shape run-command's TextFSM/Genie parsers use (see
 doc/WORKFLOW-STEPS.md "Normalized command-output parsing"), one level
 shallower since extraction isn't command-scoped. This is what lets a
-downstream Jinja template read ``parsed.<output_key>.parsed.<Fact>`` per
+downstream Jinja template read ``parsed.<node_id>.<output_key>.parsed.<Fact>`` per
 device, in addition to the one workflow-level artifact covering every
 extracted node.
 """
@@ -36,6 +36,7 @@ from models.workflow_context import (
     WorkflowContext,
 )
 from services.artifacts import ArtifactService
+from services.workflow_context.node_result import set_node_result
 from workflow_steps.batfish_extract_facts.config import get_config
 from workflow_steps.batfish_extract_facts.hsrp import mark_hsrp_error, merge_hsrp_into_facts
 from workflow_steps.common.batfish_context import resolve_batfish_snapshot_ref
@@ -173,9 +174,13 @@ async def execute(
     missing: dict[str, DeviceContext] = {}
     for device_id, device in context.devices.items():
         node_name = _node_name(device.name, short_hostname=short_hostname)
-        parsed = dict(device.parsed)
         if node_name in node_facts:
-            parsed[output_key] = {"parsed": node_facts[node_name], "error": None}
+            parsed = set_node_result(
+                device.parsed,
+                node_id,
+                output_key,
+                {"parsed": node_facts[node_name], "error": None},
+            )
             found[device_id] = device.model_copy(
                 update={
                     "parsed": parsed,
@@ -184,7 +189,9 @@ async def execute(
             )
             continue
         message = f"no facts found for node {node_name!r} in this Batfish snapshot"
-        parsed[output_key] = {"parsed": None, "error": message}
+        parsed = set_node_result(
+            device.parsed, node_id, output_key, {"parsed": None, "error": message}
+        )
         missing[device_id] = device.model_copy(
             update={
                 "parsed": parsed,

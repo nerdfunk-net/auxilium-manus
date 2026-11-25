@@ -83,7 +83,7 @@ Run Command with parser textfsm/genie stores under `parsed.<parsed_output_key>` 
 `parsed`, so `parsed.parsed`), one entry per command string, each `{ parsed, error }`. Use bracket
 notation: `parsed.parsed['show ip interface brief'].parsed`. Genie output appears only here.
 
-Batfish per-device steps write `parsed.<output_key>`: Extract Facts (default
+Batfish per-device steps write `parsed.<node_id>.<output_key>` (the step's own node id): Extract Facts (default
 `batfish_extract_facts`) -> `.parsed.Hostname`, `.parsed.NTP_Servers`, `.parsed.TACACS_Servers`,
 `.error`. Never reference a flat `batfish.*` variable in a template body (editor preview only).
 

@@ -376,7 +376,7 @@ per-revision gap, so requesting it via `operation="parse"` would fail on
 every device, every time — not something worth carrying as a permanent
 per-device failure mode.
 
-The Genie-parsed result is written into `device.parsed[output_key]` as
+The Genie-parsed result is written into `device.parsed[node_id][output_key]` as
 `{"running": ...}` — the same `{running, startup}` envelope the
 `parse-cisco-config` step uses (that step wraps both branches too, with the
 un-parsed side `None`; it uses `cisco_config_parser`, not Genie). This is not
@@ -477,7 +477,7 @@ change.
 **What already exists to build on.** `get-pyats-snapshot` stores each
 feature's `to_dict()` result as a JSON artifact via `ArtifactService`, plus
 a lightweight per-feature success/error summary in
-`device.parsed[output_key]` (`{"kind": "pyats_snapshot", "artifact_ref":
+`device.parsed[node_id][output_key]` (`{"kind": "pyats_snapshot", "artifact_ref":
 ..., "features": {...}}`). `workflow_steps/common/content_resolver.py`
 already recognizes `content_source: "pyats_snapshot"`, so `store-artifact`
 (export a snapshot to git/filesystem) and `compare-data` (compare a live

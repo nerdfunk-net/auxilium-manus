@@ -43,14 +43,16 @@ def _device_with_pyats_snapshot() -> DeviceContext:
         name="lab",
         hostname="lab",
         parsed={
-            "pyats_snapshot": {
-                "kind": "pyats_snapshot",
-                "artifact_ref": artifact_ref.model_dump(mode="json"),
-                "step_node_id": "get-pyats-snapshot-5",
-                "features": {
-                    "bgp": {"success": True, "error": None},
-                    "interface": {"success": True, "error": None},
-                },
+            "get-pyats-snapshot-5": {
+                "pyats_snapshot": {
+                    "kind": "pyats_snapshot",
+                    "artifact_ref": artifact_ref.model_dump(mode="json"),
+                    "step_node_id": "get-pyats-snapshot-5",
+                    "features": {
+                        "bgp": {"success": True, "error": None},
+                        "interface": {"success": True, "error": None},
+                    },
+                }
             }
         },
         status=DeviceStatus.OK,

@@ -40,11 +40,13 @@ def _device_with_snapshot(
         hostname="lab",
         attribute_bags={"pyats_testbed": {"pyats_source_id": source_id, "host": "10.0.0.1"}},
         parsed={
-            "pyats_snapshot": {
-                "kind": "pyats_snapshot",
-                "artifact_ref": artifact_ref.model_dump(mode="json"),
-                "step_node_id": _SOURCE_STEP_NODE_ID,
-                "features": {"bgp": {"success": True, "error": None}},
+            _SOURCE_STEP_NODE_ID: {
+                "pyats_snapshot": {
+                    "kind": "pyats_snapshot",
+                    "artifact_ref": artifact_ref.model_dump(mode="json"),
+                    "step_node_id": _SOURCE_STEP_NODE_ID,
+                    "features": {"bgp": {"success": True, "error": None}},
+                }
             }
         },
         capabilities={Capability.IDENTITY, Capability.PARSED},
@@ -116,14 +118,18 @@ class ComparePyatsSnapshotExecutorTests(unittest.IsolatedAsyncioTestCase):
                     run_id="run-uuid-1",
                     media_type="application/json",
                 )
-                if "pyats_snapshot" in device.parsed:
+                source_bag = device.parsed.get(_SOURCE_STEP_NODE_ID)
+                if isinstance(source_bag, dict) and "pyats_snapshot" in source_bag:
                     device = device.model_copy(
                         update={
                             "parsed": {
                                 **device.parsed,
-                                "pyats_snapshot": {
-                                    **device.parsed["pyats_snapshot"],
-                                    "artifact_ref": artifact_ref.model_dump(mode="json"),
+                                _SOURCE_STEP_NODE_ID: {
+                                    **source_bag,
+                                    "pyats_snapshot": {
+                                        **source_bag["pyats_snapshot"],
+                                        "artifact_ref": artifact_ref.model_dump(mode="json"),
+                                    },
                                 },
                             }
                         }

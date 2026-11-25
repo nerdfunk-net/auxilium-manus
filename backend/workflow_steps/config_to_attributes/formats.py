@@ -37,6 +37,20 @@ from workflow_steps.config_to_attributes.genie_running_config import (
 ParsedEntry = dict[str, Any]
 
 
+def _entry_at(parsed: dict[str, Any], parsed_key: str) -> Any:
+    """The upstream step's entry: a flat key (the controller fact steps, Parse Cisco Config) or
+    ``<node id>.<output_key>`` for the steps that write ``parsed[node_id][output_key]``
+    (Get & Parse Config, Extract Facts)."""
+    if parsed_key in parsed:
+        return parsed[parsed_key]
+    current: Any = parsed
+    for part in parsed_key.split("."):
+        if not isinstance(current, dict) or part not in current:
+            return None
+        current = current[part]
+    return current
+
+
 @dataclass(frozen=True)
 class SourceFormat:
     """How one upstream step's parsed data becomes Nautobot interfaces and device fields."""
@@ -63,7 +77,7 @@ class SourceFormat:
         self, device: DeviceContext, parsed_key: str, config_source: str
     ) -> ParsedEntry | None:
         """The parsed entry to read interfaces from, or ``None`` when the device has none."""
-        entry = device.parsed.get(parsed_key)
+        entry = _entry_at(device.parsed, parsed_key)
         if not isinstance(entry, dict):
             return None
         if self.fact_dict:

@@ -164,6 +164,7 @@ async def test_a_failing_artifact_store_fails_that_snapshot_device_only() -> Non
 async def test_running_config_marks_a_shim_failure_with_its_text_and_code() -> None:
     device = make_device("a")
     result = running_mod._shape_result(
+        node_id="n1",
         device_id="a",
         device=device,
         output_key="k",

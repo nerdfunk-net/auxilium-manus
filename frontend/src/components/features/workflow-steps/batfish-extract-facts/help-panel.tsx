@@ -44,10 +44,10 @@ export function BatfishExtractFactsHelpPanel() {
       <HelpSection title="Reading the result downstream">
         <p>
           Each device that Batfish returned facts for gets{" "}
-          <HelpCode>{"device.parsed[\"<output_key>\"] = {parsed, error}"}</HelpCode> — the
+          <HelpCode>{"device.parsed[\"<node_id>\"][\"<output_key>\"] = {parsed, error}"}</HelpCode> — the
           same shape run-command&apos;s parsers use. A downstream Render Jinja Template step
           can read e.g.{" "}
-          <HelpCode>{"{{ parsed.batfish_extract_facts.parsed.TACACS.TACACS_Servers }}"}</HelpCode>
+          <HelpCode>{"{{ parsed.<node_id>.batfish_extract_facts.parsed.TACACS.TACACS_Servers }}"}</HelpCode>
           . A device Batfish had no facts for (e.g. its name doesn&apos;t match a snapshot
           node) gets <HelpCode>parsed: null</HelpCode> and a non-fatal{" "}
           <HelpCode>error</HelpCode> message instead — this never fails the step.

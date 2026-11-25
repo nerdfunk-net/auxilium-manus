@@ -151,7 +151,7 @@ class BuilderTests(unittest.TestCase):
 class ExtractFactsStepTests(unittest.IsolatedAsyncioTestCase):
     async def _run(self, hsrp: AsyncMock, facts: dict | None = None) -> dict:
         outcome = await self._step_outcome(hsrp, facts)
-        return outcome.context.devices["d1"].parsed["batfish_extract_facts"]["parsed"]
+        return outcome.context.devices["d1"].parsed["n1"]["batfish_extract_facts"]["parsed"]
 
     async def _step_outcome(self, hsrp: AsyncMock, facts: dict | None = None):
         device = DeviceContext(id="d1", name="switch", hostname="switch", status=DeviceStatus.OK)

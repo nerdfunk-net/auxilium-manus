@@ -1190,5 +1190,50 @@ class RedundancyNotesTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("batfish down", summary)
 
 
+class NestedParsedKeyTests(unittest.IsolatedAsyncioTestCase):
+    """W7-12: Get & Parse Config and Extract Facts write ``parsed[<node id>][<output_key>]``."""
+
+    async def _summary(self, source_format: str, parsed: dict, parsed_key: str):
+        device = _device("dev-1", parsed=parsed)
+        outcomes = await execute(
+            config={**_BASE_CONFIG, "source_format": source_format, "parsed_key": parsed_key},
+            context=_context({"dev-1": device}),
+            run=_run(),
+            artifact_service=MagicMock(),
+            node_id="node-1",
+            device_sessions=MagicMock(),
+        )
+        return outcomes
+
+    async def test_genie_entry_is_found_under_node_id_dot_output_key(self) -> None:
+        running = {"interface Vlan30": {"ip address 10.30.0.2 255.255.255.0": {}}}
+        parsed = {"get-pyats-1": {"pyats_config": {"running": running}}}
+        outcomes = await self._summary("genie", parsed, "get-pyats-1.pyats_config")
+        self.assertEqual([o.name for o in outcomes], ["success"])
+        interfaces = outcomes[0].context.devices["dev-1"].attribute_bags["nautobot"]["interfaces"]
+        self.assertEqual([i["name"] for i in interfaces], ["Vlan30"])
+
+    async def test_batfish_entry_is_found_under_node_id_dot_output_key(self) -> None:
+        node = {
+            "Interfaces": {
+                "Vlan200": {
+                    "Admin_Up": True,
+                    "Primary_Address": "10.0.0.2/24",
+                    "All_Prefixes": ["10.0.0.2/24"],
+                }
+            }
+        }
+        parsed = {"extract-1": {"batfish_extract_facts": {"parsed": node, "error": None}}}
+        outcomes = await self._summary("batfish", parsed, "extract-1.batfish_extract_facts")
+        self.assertEqual([o.name for o in outcomes], ["success"])
+
+    async def test_a_nested_entry_is_not_found_under_the_bare_output_key(self) -> None:
+        running = {"interface Vlan30": {"ip address 10.30.0.2 255.255.255.0": {}}}
+        with self.assertRaisesRegex(ValueError, "no parsed config with usable data"):
+            await self._summary(
+                "genie", {"get-pyats-1": {"pyats_config": {"running": running}}}, "pyats_config"
+            )
+
+
 if __name__ == "__main__":
     unittest.main()

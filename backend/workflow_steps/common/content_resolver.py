@@ -235,11 +235,14 @@ def _exportable_from_pyats_snapshot(
     source_step_node_id: str,
     parsed_output_key: str | None = None,
 ) -> list[ExportableContent]:
+    # ``get-pyats-snapshot`` writes ``parsed[<its node id>][<output_key>]`` (W7-12).
+    bag = device.parsed.get(source_step_node_id)
+    bag = bag if isinstance(bag, dict) else {}
     if parsed_output_key:
-        raw = device.parsed.get(parsed_output_key)
+        raw = bag.get(parsed_output_key)
         candidates = [(parsed_output_key, raw)] if raw is not None else []
     else:
-        candidates = list(device.parsed.items())
+        candidates = list(bag.items())
 
     items: list[ExportableContent] = []
     for key, raw in candidates:

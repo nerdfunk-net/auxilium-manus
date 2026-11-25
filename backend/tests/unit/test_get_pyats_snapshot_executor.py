@@ -89,7 +89,7 @@ class GetPyatsSnapshotExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(outcomes[0].name, "success")
         device = outcomes[0].context.devices["device-1"]
         self.assertIn(Capability.PARSED, device.capabilities)
-        entry = device.parsed["pyats_snapshot"]
+        entry = device.parsed["node-1"]["pyats_snapshot"]
         self.assertEqual(entry["kind"], "pyats_snapshot")
         self.assertEqual(entry["features"]["bgp"], {"success": True, "error": None})
         self.assertEqual(entry["features"]["interface"], {"success": True, "error": None})
@@ -144,7 +144,7 @@ class GetPyatsSnapshotExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(names, ["success"])
         device = outcomes[0].context.devices["device-1"]
         self.assertEqual(device.status, DeviceStatus.OK)
-        entry = device.parsed["pyats_snapshot"]
+        entry = device.parsed["node-1"]["pyats_snapshot"]
         self.assertTrue(entry["features"]["bgp"]["success"])
         self.assertFalse(entry["features"]["vrf"]["success"])
         self.assertEqual(entry["features"]["vrf"]["error"], "not supported on this platform")

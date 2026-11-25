@@ -111,6 +111,7 @@ def test_get_running_config_fails_with_the_carried_failure() -> None:
     carried = FailureInfo(phase="api", kind="timeout", retryable=True)
 
     fail = running_mod._shape_result(
+        node_id="n1",
         device_id="a",
         device=make_device("a"),
         output_key="k",
@@ -123,6 +124,7 @@ def test_get_running_config_fails_with_the_carried_failure() -> None:
 
 def test_get_running_config_device_error_is_a_capped_command_error() -> None:
     fail = running_mod._shape_result(
+        node_id="n1",
         device_id="a",
         device=make_device("a"),
         output_key="k",

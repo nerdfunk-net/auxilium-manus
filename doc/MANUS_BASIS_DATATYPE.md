@@ -242,7 +242,7 @@ class DeviceContext(BaseModel):
     # Keyed by a per-step, user-configured output_key (not a fixed parser name —
     # see "Typed parser outputs" above). Document the shape in the producing step:
     #   parsed["cisco_config"]   = {"running": {...} | None, "startup": {...} | None}  ← parse-cisco-config
-    #   parsed["pyats_config"]   = {"running": {...}}                     ← get-pyats-running-config
+    #   parsed[node_id]["pyats_config"] = {"running": {...}}              ← get-pyats-running-config (nested under its node id, W7-12)
 
     command_results: dict[str, list[CommandResult]] = Field(default_factory=dict)
     # Keyed by node_id → the list of CommandResults that node produced for this

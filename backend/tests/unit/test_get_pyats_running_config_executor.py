@@ -86,7 +86,7 @@ class GetPyatsRunningConfigExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(outcomes[0].name, "success")
         device = outcomes[0].context.devices["device-1"]
         self.assertIn(Capability.PARSED, device.capabilities)
-        entry = device.parsed["pyats_config"]
+        entry = device.parsed["node-1"]["pyats_config"]
         self.assertEqual(entry["running"], {"hostname": "r1"})
         self.assertNotIn("startup", entry)
 

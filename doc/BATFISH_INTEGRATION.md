@@ -834,14 +834,14 @@ the facts stay as `extract_facts` returned them, but the nodes that have HSRP gr
 lies in it) and the write steps name a new group by their schema. VRRP is not built yet: Batfish has a `vrrpProperties` question with the same columns (it returned 0 rows on the lab snapshot, which has no VRRP), so it can be added the same way.
 
 **Enriches every device directly, unlike the three query steps below.**
-`device.parsed[output_key] = {"parsed": <node's facts>, "error": None}` for
+`device.parsed[node_id][output_key] = {"parsed": <node's facts>, "error": None}` for
 a node Batfish returned, or `{"parsed": None, "error": "no facts found for
 node '<name>' in this Batfish snapshot"}` otherwise — the exact non-fatal
 `{"parsed", "error"}` shape `run-command`'s TextFSM/Genie parsers use (see
 "Normalized command-output parsing" in `doc/WORKFLOW-STEPS.md`), one level
 shallower since extraction isn't command-scoped. This is what lets a
 downstream Render Jinja Template step read
-`{{ parsed.batfish_extract_facts.parsed.TACACS.TACACS_Servers }}` per
+`{{ parsed.<node_id>.batfish_extract_facts.parsed.TACACS.TACACS_Servers }}` per
 device, in addition to the one workflow-level artifact (`kind:
 "batfish_result"`, `question: "extractFacts"`) covering every extracted
 node.
@@ -1921,6 +1921,11 @@ own section above) — so their ad-hoc preview writes into the editor's real
 `parsed.<output_key>` namespace instead of the flat `batfish` variable,
 closing the exact "preview populates data that can never exist at runtime"
 gap the `batfish` variable's own preview-only warning exists to flag.
+
+**Known gap (W7-12):** at real runtime the steps nest under their own node id
+(`parsed.<node_id>.<output_key>`); the editor has no node id, so the preview writes the
+shorter `parsed.<output_key>`. A template tried in the editor needs `<node_id>.` added in the
+workflow.
 
 **New response shape: `facts_by_node`, not `rows`.** `BatfishQueryResponse`
 gained `facts_by_node: dict[str, Any] | None` — a `{node_name: <that node's

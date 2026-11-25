@@ -133,8 +133,8 @@ class UndefinedAndUnusedExecutorTests(unittest.IsolatedAsyncioTestCase):
         # merge-safe device copies (both parsed keys present in each).
         undefined_c = by_name["undefined"].context.devices["id-c"]
         unused_c = by_name["unused"].context.devices["id-c"]
-        self.assertIn("undefined", undefined_c.parsed["undefined_and_unused"])
-        self.assertIn("unused", undefined_c.parsed["undefined_and_unused"])
+        self.assertIn("undefined", undefined_c.parsed["node-1"]["undefined_and_unused"])
+        self.assertIn("unused", undefined_c.parsed["node-1"]["undefined_and_unused"])
         self.assertEqual(undefined_c.parsed, unused_c.parsed)
 
         # A clean device on the "success" outcome still carries
@@ -144,7 +144,7 @@ class UndefinedAndUnusedExecutorTests(unittest.IsolatedAsyncioTestCase):
         # outcome are checked.
         success_d = by_name["success"].context.devices["id-d"]
         self.assertIn(Capability.PARSED, success_d.capabilities)
-        findings = success_d.parsed["undefined_and_unused"]
+        findings = success_d.parsed["node-1"]["undefined_and_unused"]
         self.assertEqual(findings["undefined"], {"parsed": [], "error": None})
         self.assertEqual(findings["unused"], {"parsed": [], "error": None})
 
@@ -174,7 +174,7 @@ class UndefinedAndUnusedExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(stored["undefined_references"], _UNDEFINED_ROWS)
         # every outcome carries the same metadata (shared artifact)
         self.assertTrue(all(o.context.metadata == outcomes[0].context.metadata for o in outcomes))
-        self.assertIn("undefined", outcomes[1].context.devices["id-a"].parsed["findings"])
+        self.assertIn("undefined", outcomes[1].context.devices["id-a"].parsed["node-1"]["findings"])
 
     async def test_findings_are_reachable_by_dot_path(self) -> None:
         from services.workflow_context.attribute_path import resolve_device_value
@@ -194,7 +194,7 @@ class UndefinedAndUnusedExecutorTests(unittest.IsolatedAsyncioTestCase):
             )
         by_name = {o.name: o for o in outcomes}
         device = by_name["undefined"].context.devices["id-c"]
-        rows = resolve_device_value(device, "parsed.undefined_and_unused.undefined.parsed")
+        rows = resolve_device_value(device, "parsed.node-1.undefined_and_unused.undefined.parsed")
         self.assertIsInstance(rows, list)
         self.assertGreaterEqual(len(rows), 1)
 

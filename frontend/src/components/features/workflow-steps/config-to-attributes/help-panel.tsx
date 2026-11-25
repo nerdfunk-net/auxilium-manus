@@ -121,7 +121,9 @@ export function ConfigToAttributesHelpPanel() {
           <br />
           <span className="text-muted-foreground">
             → reads parsed.{"{parsed_key}"}.running (both Parse Cisco Config and
-            Get &amp; Parse Config nest their output under running / startup).
+            Get &amp; Parse Config nest their output under running / startup; for genie
+            and batfish <HelpCode>parsed_key</HelpCode> is{" "}
+            <HelpCode>node_id.output_key</HelpCode>).
           </span>
         </HelpExample>
       </HelpSection>
@@ -139,7 +141,9 @@ export function ConfigToAttributesHelpPanel() {
           from the workflow&apos;s most recent run (requires a saved, previously run
           workflow) and pick the upstream step&apos;s key directly instead of typing
           it — selecting any node under <HelpCode>parsed.*</HelpCode> fills in just
-          that key segment.
+          the key: one segment, or <HelpCode>node_id.output_key</HelpCode> for the genie
+          and batfish formats (Get &amp; Parse Config and Extract Facts write under their
+          own node id, so two steps with the same output key do not overwrite each other).
         </p>
         <HelpWarning title="Add the matching upstream step first">
           <p>

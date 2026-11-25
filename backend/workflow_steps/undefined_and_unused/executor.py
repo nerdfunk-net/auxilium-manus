@@ -68,6 +68,7 @@ from services.batfish.query_helpers import (
     query_undefined_references,
     query_unused_structures,
 )
+from services.workflow_context.node_result import set_node_result
 from workflow_steps.common.batfish_context import resolve_batfish_snapshot_ref
 from workflow_steps.common.batfish_results import store_batfish_result
 from workflow_steps.common.fact_entries import parse_output_key_config
@@ -130,17 +131,22 @@ def _fail_device(
 def _with_findings(
     device: DeviceContext,
     *,
+    node_id: str,
     output_key: str,
     undefined: list[dict[str, Any]],
     unused: list[dict[str, Any]],
 ) -> DeviceContext:
-    """``parsed[<output_key>] = {"undefined": {...}, "unused": {...}}``: reachable as
-    ``parsed.<output_key>.undefined.parsed`` (a flat key with dots in it is not)."""
-    parsed = dict(device.parsed)
-    parsed[output_key] = {
-        "undefined": {"parsed": undefined, "error": None},
-        "unused": {"parsed": unused, "error": None},
-    }
+    """``parsed[<node_id>][<output_key>] = {"undefined": {...}, "unused": {...}}``: reachable as
+    ``parsed.<node_id>.<output_key>.undefined.parsed``."""
+    parsed = set_node_result(
+        device.parsed,
+        node_id,
+        output_key,
+        {
+            "undefined": {"parsed": undefined, "error": None},
+            "unused": {"parsed": unused, "error": None},
+        },
+    )
     return device.model_copy(
         update={
             "parsed": parsed,
@@ -299,10 +305,14 @@ def _classify_devices(
         # clean device needs the capability too, not just a device with
         # findings. This also keeps the parsed shape consistent for
         # downstream consumers regardless of which outcome a device landed
-        # in (a Jinja `{{ parsed.<output_key>.undefined.parsed }}` is always
+        # in (a Jinja `{{ parsed.<node_id>.<output_key>.undefined.parsed }}` is always
         # a list, never absent).
         enriched = _with_findings(
-            device, output_key=output_key, undefined=node_undefined, unused=node_unused
+            device,
+            node_id=node_id,
+            output_key=output_key,
+            undefined=node_undefined,
+            unused=node_unused,
         )
 
         # enriched is reused (not re-read from `device`) for whichever

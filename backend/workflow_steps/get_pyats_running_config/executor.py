@@ -34,6 +34,7 @@ from models.workflow_context import (
     WorkflowContext,
 )
 from services.artifacts import ArtifactService
+from services.workflow_context.node_result import set_node_result
 from workflow_steps.common.device_outcomes import build_outcomes
 from workflow_steps.common.device_runner import Fail, run_per_device
 from workflow_steps.common.failure_records import INVALID_RESPONSE
@@ -62,6 +63,7 @@ def _shape_result(
     *,
     device_id: str,
     device: DeviceContext,
+    node_id: str,
     output_key: str,
     result: dict[str, Any] | None,
 ) -> DeviceContext | Fail:
@@ -93,8 +95,7 @@ def _shape_result(
         )
 
     entry = {"running": running_entry.get("parsed")}
-    parsed = dict(device.parsed)
-    parsed[output_key] = entry
+    parsed = set_node_result(device.parsed, node_id, output_key, entry)
     return device.model_copy(
         update={
             "parsed": parsed,
@@ -170,6 +171,7 @@ async def execute(
         return _shape_result(
             device_id=device_id,
             device=device,
+            node_id=node_id,
             output_key=output_key,
             result=raw_results.get(device_id),
         )
