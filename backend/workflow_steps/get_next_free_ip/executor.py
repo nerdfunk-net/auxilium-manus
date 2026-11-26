@@ -18,6 +18,7 @@ from services.nautobot.common.exceptions import NautobotAmbiguousMatchError
 from services.nautobot.credentials_bound_client import CredentialsBoundNautobotClient
 from services.nautobot.devices.common import DeviceCommonService
 from workflow_steps.common.attribute_write import set_device_attribute
+from workflow_steps.common.device_outcomes import fail_device_with_error
 from workflow_steps.common.nautobot_plan_fields import (
     PlanError,
     ambiguous_failure,
@@ -30,7 +31,6 @@ from workflow_steps.common.nautobot_step import bind_nautobot_client
 from workflow_steps.common.partial_outcomes import (
     NAUTOBOT_TEXT,
     device_error_from_exception,
-    fail_device_with_error,
 )
 from workflow_steps.common.step_flags import parse_int_flag
 from workflow_steps.get_next_free_ip.config import get_config

@@ -11,21 +11,36 @@ from dataclasses import replace
 from typing import Any
 
 from core.models.runs import WorkflowRun
-from models.workflow_context import StepOutcome, WorkflowContext
+from models.workflow_context import DeviceContext, StepOutcome, WorkflowContext
 from services.artifacts import ArtifactService
 from services.network.netmiko.service import NetmikoService
 from services.network.netmiko.session_pool import DeviceSessionPool
 from workflow_steps.common.credential_resolver import resolve_ssh_credential
+from workflow_steps.common.device_outcomes import build_outcomes
 from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.common.run_param_reference import resolve_config_reference
 from workflow_steps.common.run_session import require_session
 from workflow_steps.run_command.config_mode import run_config_mode
 from workflow_steps.run_command.enrichment import enrich_with_genie, enrich_with_textfsm
 from workflow_steps.run_command.exec_mode import run_exec_mode
-from workflow_steps.run_command.outcomes import build_outcomes
 from workflow_steps.run_command.parsing import ParsedRunCommandConfig, parse_run_command_config
 
 logger = logging.getLogger(__name__)
+
+
+def _outcomes(
+    context: WorkflowContext,
+    succeeded: dict[str, DeviceContext],
+    failed: dict[str, DeviceContext],
+    command_count: int,
+) -> list[StepOutcome]:
+    return build_outcomes(
+        context,
+        succeeded,
+        failed,
+        success_summary=f"ran {command_count} command(s) on {len(succeeded)} device(s)",
+        failure_summary=f"{len(failed)} device(s) failed",
+    )
 
 
 def _log_start(run_id: Any, total: int, parsed: ParsedRunCommandConfig) -> None:
@@ -96,12 +111,7 @@ async def execute(
             len(failed_devices),
             log_run_id(run),
         )
-        return build_outcomes(
-            context=context,
-            success_devices=success_devices,
-            failed_devices=failed_devices,
-            command_count=len(parsed.commands),
-        )
+        return _outcomes(context, success_devices, failed_devices, len(parsed.commands))
 
     success_devices, failed_devices, raw_outputs_by_device = await run_exec_mode(**run_kwargs)
 
@@ -129,9 +139,4 @@ async def execute(
         total,
         log_run_id(run),
     )
-    return build_outcomes(
-        context=context,
-        success_devices=success_devices,
-        failed_devices=failed_devices,
-        command_count=len(parsed.commands),
-    )
+    return _outcomes(context, success_devices, failed_devices, len(parsed.commands))

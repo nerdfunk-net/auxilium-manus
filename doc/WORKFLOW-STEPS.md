@@ -423,10 +423,10 @@ process, so a typo in a pattern shows at run time, per device, not at save. A ma
 
 ### One outcome API
 
-A step that fails a device, splits per-device results or builds its outcomes uses
-`workflow_steps/common/device_outcomes.py`, not a private copy: `mark_device_failed(device, *, node_id, step_id, code,
-message, failure=None, **updates)` (error history kept, input never mutated; `failed_device` is the older name),
-`DeviceResult(device_id, device, ok)` with `partition_results(results)`, `build_outcomes(context, succeeded, failed, *,
+A step that fails a device or builds its outcomes uses `workflow_steps/common/device_outcomes.py`, not a private copy:
+`mark_device_failed(device, *, node_id, step_id, code, message, failure=None, **updates)` (builds the `DeviceError`;
+error history kept, input never mutated), `fail_device_with_error(device, error, **updates)` (the same with an error
+already built, for example by `device_error_from_exception`), `build_outcomes(context, succeeded, failed, *,
 metadata=, success_summary=, failure_summary=)` (`success` always, `failure` only with failed devices),
 `outcomes_from_buckets(context, buckets, *, metadata=)` (every handle, empty ones included, for the routers) and
 `whole_step_failure(context, *, node_id, step_id, code, message, failure=, metadata=, empty_handles=)` (every device

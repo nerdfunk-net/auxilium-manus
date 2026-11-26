@@ -32,7 +32,7 @@ from services.artifacts import ArtifactService
 from workflow_steps.common.agent_call import agent_client, check_timeout
 from workflow_steps.common.agent_source import resolve_agent_connection
 from workflow_steps.common.attribute_write import set_device_attribute
-from workflow_steps.common.partial_outcomes import fail_device_with_error
+from workflow_steps.common.device_outcomes import fail_device_with_error
 from workflow_steps.common.run_session import require_session
 from workflow_steps.route_to_agent.output import check_output, describe_failure
 from workflow_steps.route_to_agent.request import (

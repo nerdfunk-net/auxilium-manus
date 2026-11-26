@@ -17,7 +17,7 @@ import asyncio
 from collections.abc import Awaitable, Callable, Hashable, Sequence
 
 from models.workflow_context import DeviceContext
-from workflow_steps.common.partial_outcomes import fail_device_with_error
+from workflow_steps.common.device_outcomes import fail_device_with_error
 
 # (outcome handle, device, whether the write changed the object)
 WriteResult = tuple[str, DeviceContext, bool]

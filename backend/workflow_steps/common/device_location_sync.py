@@ -25,10 +25,10 @@ from typing import Any
 from models.failure import FailureInfo
 from models.workflow_context import DeviceContext, DeviceError, StepOutcome, WorkflowContext
 from services.nautobot.common.validators import is_valid_uuid
+from workflow_steps.common.device_outcomes import fail_device_with_error
 from workflow_steps.common.partial_outcomes import (
     NAUTOBOT_TEXT,
     device_error_from_exception,
-    fail_device_with_error,
 )
 from workflow_steps.common.step_flags import record_dry_run
 

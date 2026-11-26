@@ -28,11 +28,14 @@ from services.catalyst_center.common.exceptions import (
 from services.catalyst_center.common.output import clean_command_output
 from services.catalyst_center.credentials import CatalystCenterCredentials
 from workflow_steps.common.controller_sources import CATALYST_CENTER
-from workflow_steps.common.device_outcomes import build_outcomes, failed_device
+from workflow_steps.common.device_outcomes import (
+    build_outcomes,
+    fail_device_with_error,
+    mark_device_failed,
+)
 from workflow_steps.common.fact_entries import parse_output_key_config
 from workflow_steps.common.partial_outcomes import (
     device_error_from_exception,
-    fail_device_with_error,
 )
 from workflow_steps.common.step_flags import parse_int_flag
 from workflow_steps.run_catalyst_center_command.textfsm_parse import parse_with_textfsm
@@ -177,7 +180,7 @@ async def _record_device(
 
     command_results = {**device.command_results, node_id: step_results}
     if problems:
-        failed = failed_device(
+        failed = mark_device_failed(
             device,
             step_id=STEP_ID,
             node_id=node_id,
@@ -223,7 +226,7 @@ async def _run_chunk(
         message = f"Catalyst Center request failed: {exc}"
         return {
             device_id: (
-                failed_device(
+                mark_device_failed(
                     device,
                     step_id=STEP_ID,
                     node_id=node_id,

@@ -28,10 +28,14 @@ from models.workflow_context import (
     StepOutcome,
     WorkflowContext,
 )
-from workflow_steps.common.device_outcomes import TargetSplit, build_outcomes, failed_device
+from workflow_steps.common.device_outcomes import (
+    TargetSplit,
+    build_outcomes,
+    fail_device_with_error,
+    mark_device_failed,
+)
 from workflow_steps.common.partial_outcomes import (
     device_error_from_exception,
-    fail_device_with_error,
 )
 from workflow_steps.common.step_flags import parse_output_key
 
@@ -106,7 +110,7 @@ def with_entries(
             (f for name in errors if (f := entries[name].get(FAILURE_KEY)) is not None), None
         )
         return (
-            failed_device(
+            mark_device_failed(
                 device,
                 step_id=step_id,
                 node_id=node_id,

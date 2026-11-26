@@ -49,6 +49,7 @@ from workflow_steps.common.client_data_store import (
     with_summary,
 )
 from workflow_steps.common.credential_resolver import resolve_ssh_credential
+from workflow_steps.common.device_outcomes import fail_device_with_error
 from workflow_steps.common.device_type import connection_device_type
 from workflow_steps.common.duplicate_keys import (
     find_duplicate_keys,
@@ -56,7 +57,6 @@ from workflow_steps.common.duplicate_keys import (
 from workflow_steps.common.failure_records import INVALID_INPUT
 from workflow_steps.common.partial_outcomes import (
     device_error_from_exception,
-    fail_device_with_error,
     mark_device_failed,
 )
 from workflow_steps.common.run_logging import log_run_id

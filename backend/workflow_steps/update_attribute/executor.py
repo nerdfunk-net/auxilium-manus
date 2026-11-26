@@ -19,10 +19,10 @@ from services.workflow_context.secret_fields import (
     seal_secret,
 )
 from workflow_steps.common.attribute_write import set_device_attribute
+from workflow_steps.common.device_outcomes import fail_device_with_error
 from workflow_steps.common.failure_records import INVALID_INPUT
 from workflow_steps.common.partial_outcomes import (
     device_error_from_exception,
-    fail_device_with_error,
     mark_device_failed,
 )
 from workflow_steps.common.placeholder_scan import next_placeholder

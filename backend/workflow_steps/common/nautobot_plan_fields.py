@@ -22,7 +22,7 @@ from typing import Any
 from models.failure import FailureInfo
 from models.workflow_context import DeviceContext, DeviceError, StepOutcome, WorkflowContext
 from services.workflow_context.secret_fields import REDACTED_PLACEHOLDER
-from workflow_steps.common.partial_outcomes import fail_device_with_error
+from workflow_steps.common.device_outcomes import fail_device_with_error
 from workflow_steps.common.value_expression import resolve_update_field_expression
 
 OUTCOME_NAMES = ("success", "failure")

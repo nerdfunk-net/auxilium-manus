@@ -1165,6 +1165,60 @@ class RunCommandExecutorTests(unittest.IsolatedAsyncioTestCase):
                 device_sessions=MagicMock(),
             )
 
+    async def _exec_mode(self, devices: dict[str, DeviceContext], result: NetmikoCommandResult):  # noqa: ANN202
+        run = MagicMock()
+        run.id = 1
+        with (
+            patch("workflow_steps.common.run_session.object_session", return_value=MagicMock()),
+            patch_ssh_credential("workflow_steps.run_command.executor"),
+            patch("workflow_steps.run_command.executor.NetmikoService") as netmiko_cls,
+        ):
+            send = AsyncMock(return_value=result)
+            netmiko_cls.return_value.send_commands = send
+            outcomes = await execute(
+                config={"credential_reference": "lab-ssh", "commands": ["show version"]},
+                context=WorkflowContext(run_id="r", workflow_id="w", devices=devices),
+                run=run,
+                artifact_service=InMemoryArtifactService(),
+                node_id="node-1",
+                device_sessions=MagicMock(),
+            )
+        return {o.name: o for o in outcomes}, send
+
+    async def test_exec_mode_device_without_host_fails_without_connecting(self) -> None:
+        nohost = _device("nohost").model_copy(update={"hostname": None, "primary_ip4": None})
+        ok = NetmikoCommandResult(success=True, command_outputs={"show version": "IOS"})
+
+        by_name, send = await self._exec_mode({"nohost": nohost, "good": _device("good")}, ok)
+
+        send.assert_awaited_once()
+        self.assertEqual(set(by_name["success"].context.devices), {"good"})
+        failed = by_name["failure"].context.devices["nohost"]
+        self.assertEqual(failed.status, DeviceStatus.FAILED)
+        self.assertEqual(
+            (failed.errors[-1].code, failed.errors[-1].step_id, failed.errors[-1].node_id),
+            ("missing_host", "run-command", "node-1"),
+        )
+        self.assertEqual(failed.errors[-1].failure, INVALID_INPUT)
+
+    async def test_exec_mode_failed_command_keeps_its_rows_on_the_failed_device(self) -> None:
+        rejected = FailureInfo(phase="command", kind="command_error", hint="check_command_syntax")
+        result = NetmikoCommandResult(
+            success=False,
+            command_outputs={"show version": "% Invalid input"},
+            error="% Invalid input detected",
+            failure=rejected,
+        )
+
+        by_name, _ = await self._exec_mode({"d1": _device("d1")}, result)
+
+        failed = by_name["failure"].context.devices["d1"]
+        self.assertEqual(failed.errors[-1].code, "command_failed")
+        self.assertEqual(failed.errors[-1].failure, rejected)
+        rows = failed.command_results["node-1"]
+        self.assertEqual([row.command for row in rows], ["show version"])
+        self.assertFalse(rows[0].success)
+
 
 if __name__ == "__main__":
     unittest.main()

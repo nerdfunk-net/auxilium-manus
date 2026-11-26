@@ -40,11 +40,11 @@ from workflow_steps.common.attribute_merge import (
     merge_into_device_attribute,
     validate_merge_destination,
 )
+from workflow_steps.common.device_outcomes import fail_device_with_error
 from workflow_steps.common.file_source_root import resolve_source_root
 from workflow_steps.common.git_repository_loader import parse_repository_id
 from workflow_steps.common.partial_outcomes import (
     device_error_from_exception,
-    fail_device_with_error,
 )
 from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.common.step_flags import parse_bool_flag

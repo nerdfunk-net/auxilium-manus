@@ -32,11 +32,11 @@ from services.nautobot.common.exceptions import NautobotNotFoundError
 from services.nautobot.common.validators import is_valid_uuid
 from services.nautobot.devices.common import DeviceCommonService
 from services.workflow_context.secret_fields import REDACTED_PLACEHOLDER
+from workflow_steps.common.device_outcomes import fail_device_with_error
 from workflow_steps.common.nautobot_step import bind_nautobot_client
 from workflow_steps.common.partial_outcomes import (
     NAUTOBOT_TEXT,
     device_error_from_exception,
-    fail_device_with_error,
 )
 from workflow_steps.common.step_flags import parse_bool_flag, record_dry_run
 from workflow_steps.common.value_expression import resolve_update_field_expression

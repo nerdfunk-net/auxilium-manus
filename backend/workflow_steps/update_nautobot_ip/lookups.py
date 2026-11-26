@@ -16,6 +16,7 @@ from models.workflow_context import DeviceContext, DeviceError
 from services.nautobot.common.exceptions import NautobotNotFoundError
 from services.nautobot.credentials_bound_client import CredentialsBoundNautobotClient
 from services.nautobot.devices.common import DeviceCommonService
+from workflow_steps.common.device_outcomes import fail_device_with_error
 from workflow_steps.common.nautobot_plan_fields import (
     PlanError,
     bad_request_failure,
@@ -26,7 +27,6 @@ from workflow_steps.common.nautobot_prefix_lookup import LookupFailure, find_con
 from workflow_steps.common.partial_outcomes import (
     NAUTOBOT_TEXT,
     device_error_from_exception,
-    fail_device_with_error,
 )
 
 STEP_ID = "update-nautobot-ip"

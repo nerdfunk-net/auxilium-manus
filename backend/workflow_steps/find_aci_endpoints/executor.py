@@ -16,7 +16,7 @@ from services.aci.credentials import AciCredentials
 from services.artifacts import ArtifactService
 from services.workflow_context.attribute_path import resolve_device_attribute
 from workflow_steps.common.controller_sources import ACI, ACI_ERROR_CODE
-from workflow_steps.common.device_outcomes import TargetSplit, failed_device
+from workflow_steps.common.device_outcomes import TargetSplit, mark_device_failed
 from workflow_steps.common.fact_entries import Entry, collect_facts, parse_output_key_config
 from workflow_steps.common.failure_records import INVALID_INPUT
 from workflow_steps.common.run_session import require_session
@@ -74,7 +74,7 @@ async def execute(
         if address:
             addresses[device_id] = address
         else:
-            rejected[device_id] = failed_device(
+            rejected[device_id] = mark_device_failed(
                 device,
                 step_id=STEP_ID,
                 node_id=node_id,

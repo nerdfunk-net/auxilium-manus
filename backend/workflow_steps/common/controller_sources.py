@@ -24,7 +24,7 @@ from services.catalyst_center.common.exceptions import (
     CatalystCenterError,
     CatalystCenterValidationError,
 )
-from workflow_steps.common.device_outcomes import TargetSplit, failed_device
+from workflow_steps.common.device_outcomes import TargetSplit, mark_device_failed
 from workflow_steps.common.fact_entries import (
     Entry,
     FactError,
@@ -88,7 +88,7 @@ class ControllerSource:
                 by_source.setdefault(device.source_id or "", {})[device_id] = device
                 continue
             code, message = problem
-            rejected[device_id] = failed_device(
+            rejected[device_id] = mark_device_failed(
                 device,
                 step_id=step_id,
                 node_id=node_id,

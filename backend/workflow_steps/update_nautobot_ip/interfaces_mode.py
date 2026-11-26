@@ -27,11 +27,11 @@ from models.workflow_context import DeviceContext, DeviceError, StepOutcome, Wor
 from services.nautobot.common.validators import is_valid_uuid
 from services.nautobot.credentials_bound_client import CredentialsBoundNautobotClient
 from services.nautobot.devices.common import DeviceCommonService
+from workflow_steps.common.device_outcomes import fail_device_with_error
 from workflow_steps.common.nautobot_plan_fields import bad_request_failure, resolve_fields
 from workflow_steps.common.partial_outcomes import (
     NAUTOBOT_TEXT,
     device_error_from_exception,
-    fail_device_with_error,
 )
 from workflow_steps.common.step_flags import record_dry_run
 from workflow_steps.update_nautobot_ip.address_values import AddressRef, render_address_value

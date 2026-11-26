@@ -20,10 +20,7 @@ PACKAGE = "workflow_steps.common"
 _SKIPPED_DIRS = {"tests", ".venv", "__pycache__"}
 
 # "<module>.<symbol>" -> why it has no production user yet.
-WITHOUT_PRODUCTION_USER: dict[str, str] = {
-    "device_outcomes.DeviceResult": "only tests; P-X4 decides keep or delete",
-    "device_outcomes.partition_results": "only tests; P-X4 decides keep or delete",
-}
+WITHOUT_PRODUCTION_USER: dict[str, str] = {}
 
 
 def _module_name(path: Path) -> str:

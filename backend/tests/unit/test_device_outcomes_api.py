@@ -1,8 +1,8 @@
 """P-B: the one outcome API in ``common/device_outcomes.py`` (W1-01).
 
-The module is the single home of "fail a device", "split the results" and "build the outcomes".
-``partial_outcomes`` keeps ``device_error_from_exception`` and ``abort_outcomes`` and imports the
-rest, so every old import path keeps working.
+The module is the single home of "fail a device" (``mark_device_failed`` builds the error,
+``fail_device_with_error`` takes one already built) and "build the outcomes".
+``partial_outcomes`` keeps ``device_error_from_exception`` and ``abort_outcomes``.
 """
 
 from __future__ import annotations
@@ -10,15 +10,14 @@ from __future__ import annotations
 import pytest
 
 from models.failure import FailureInfo
-from models.workflow_context import DeviceStatus, StepOutcome
+from models.workflow_context import DeviceError, DeviceStatus, StepOutcome
 from tests.unit._step_helpers import make_context, make_device
 from workflow_steps.common import device_outcomes, partial_outcomes
 from workflow_steps.common.device_outcomes import (
-    DeviceResult,
     build_outcomes,
+    fail_device_with_error,
     mark_device_failed,
     outcomes_from_buckets,
-    partition_results,
     whole_step_failure,
 )
 
@@ -29,7 +28,45 @@ def _by_name(outcomes: list[StepOutcome]) -> dict[str, StepOutcome]:
 
 def test_one_implementation_of_mark_device_failed() -> None:
     assert partial_outcomes.mark_device_failed is mark_device_failed
-    assert device_outcomes.failed_device is mark_device_failed
+
+
+@pytest.mark.parametrize(
+    ("module", "name"),
+    [
+        (device_outcomes, "failed_device"),  # the older alias of mark_device_failed (P-X4)
+        (device_outcomes, "DeviceResult"),  # never adopted outside tests (P-X4)
+        (device_outcomes, "partition_results"),
+        (partial_outcomes, "fail_device_with_error"),  # moved to device_outcomes
+    ],
+)
+def test_the_leftover_names_are_gone(module: object, name: str) -> None:
+    assert not hasattr(module, name)
+
+
+def test_fail_device_with_error_appends_the_given_error() -> None:
+    error = DeviceError(node_id="n", step_id="s", code="c", message="m")
+    first = mark_device_failed(make_device("a"), node_id="n0", step_id="s0", code="z", message="")
+
+    failed = fail_device_with_error(first, error, hostname="renamed")
+
+    assert failed.status == DeviceStatus.FAILED
+    assert failed.errors == [first.errors[0], error]
+    assert failed.hostname == "renamed"
+    assert len(first.errors) == 1  # input copy untouched
+
+
+def test_mark_device_failed_is_fail_device_with_error_on_a_built_error() -> None:
+    failure = FailureInfo(phase="api", kind="timeout")
+    error = DeviceError(node_id="n", step_id="s", code="c", message="m", failure=failure)
+    device = make_device("a")
+
+    built = mark_device_failed(
+        device, node_id="n", step_id="s", code="c", message="m", failure=failure, hostname="h"
+    )
+
+    made = built.errors[-1]
+    assert made.model_dump(exclude={"occurred_at"}) == error.model_dump(exclude={"occurred_at"})
+    assert built == fail_device_with_error(device, made, hostname="h")
 
 
 def test_mark_device_failed_appends_error_and_keeps_history() -> None:
@@ -54,22 +91,6 @@ def test_mark_device_failed_applies_extra_updates() -> None:
     )
     assert device.hostname == "renamed"
     assert device.status == DeviceStatus.FAILED
-
-
-def test_device_result_is_a_tuple_of_id_device_ok() -> None:
-    device = make_device("a")
-    result = DeviceResult("a", device, True)
-    device_id, same, ok = result  # the old tuple protocol still unpacks
-    assert (device_id, same, ok) == ("a", device, True)
-    assert result.device_id == "a" and result.device is device and result.ok is True
-
-
-def test_partition_results_splits_by_ok_flag() -> None:
-    a, b, c = make_device("a"), make_device("b"), make_device("c")
-    ok, failed = partition_results(
-        [DeviceResult("a", a, True), DeviceResult("b", b, False), ("c", c, True)]
-    )
-    assert list(ok) == ["a", "c"] and list(failed) == ["b"]
 
 
 def test_build_outcomes_success_always_failure_only_when_needed() -> None:
@@ -249,3 +270,10 @@ def test_device_error_keep_text_extends_the_kept_classes() -> None:
 
     assert kept.message == "fixed sentence"
     assert hidden.message == "Sanitised"
+
+
+def test_run_command_has_no_private_outcome_module() -> None:
+    # run-command fails devices and builds its outcomes through this module (P-X4).
+    import importlib.util
+
+    assert importlib.util.find_spec("workflow_steps.run_command.outcomes") is None

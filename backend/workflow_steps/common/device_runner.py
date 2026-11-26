@@ -29,10 +29,9 @@ from dataclasses import dataclass, field
 
 from models.failure import FailureInfo
 from models.workflow_context import DeviceContext, WorkflowContext, bare_hostname
-from workflow_steps.common.device_outcomes import mark_device_failed
+from workflow_steps.common.device_outcomes import fail_device_with_error, mark_device_failed
 from workflow_steps.common.partial_outcomes import (
     device_error_from_exception,
-    fail_device_with_error,
 )
 
 logger = logging.getLogger(__name__)

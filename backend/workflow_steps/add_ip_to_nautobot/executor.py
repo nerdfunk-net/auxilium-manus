@@ -30,6 +30,7 @@ from services.nautobot.devices.common import DeviceCommonService
 from services.workflow_context.secret_fields import REDACTED_PLACEHOLDER
 from workflow_steps.add_ip_to_nautobot.config import get_config
 from workflow_steps.common.attribute_write import set_device_attribute
+from workflow_steps.common.device_outcomes import fail_device_with_error
 from workflow_steps.common.failure_records import INVALID_INPUT
 from workflow_steps.common.nautobot_prefix_lookup import (
     LookupFailure,
@@ -41,7 +42,6 @@ from workflow_steps.common.nautobot_step import bind_nautobot
 from workflow_steps.common.partial_outcomes import (
     NAUTOBOT_TEXT,
     device_error_from_exception,
-    fail_device_with_error,
 )
 from workflow_steps.common.step_flags import parse_bool_flag, parse_int_flag
 from workflow_steps.common.value_expression import resolve_update_field_expression

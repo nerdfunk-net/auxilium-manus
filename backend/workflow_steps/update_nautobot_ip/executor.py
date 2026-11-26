@@ -21,13 +21,13 @@ from services.artifacts import ArtifactService
 from services.nautobot.common.validators import is_valid_uuid
 from services.nautobot.credentials_bound_client import CredentialsBoundNautobotClient
 from services.nautobot.devices.common import DeviceCommonService
+from workflow_steps.common.device_outcomes import fail_device_with_error
 from workflow_steps.common.nautobot_plan_fields import (
     PlanError,
     bad_request_failure,
     resolve_fields,
 )
 from workflow_steps.common.nautobot_step import bind_nautobot_client
-from workflow_steps.common.partial_outcomes import fail_device_with_error
 from workflow_steps.common.step_flags import parse_bool_flag
 from workflow_steps.update_nautobot_ip.interfaces_mode import run_from_interfaces
 from workflow_steps.update_nautobot_ip.lookups import (

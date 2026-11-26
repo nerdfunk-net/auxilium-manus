@@ -23,6 +23,7 @@ from services.nautobot.common.exceptions import NautobotAmbiguousMatchError, Nau
 from services.nautobot.common.validators import is_valid_uuid
 from services.nautobot.devices.common import DeviceCommonService
 from services.nautobot.managers.location_assignments import LocationsMode
+from workflow_steps.common.device_outcomes import fail_device_with_error
 from workflow_steps.common.location_list import split_locations
 from workflow_steps.common.nautobot_plan_fields import (
     OUTCOME_NAMES,
@@ -39,7 +40,6 @@ from workflow_steps.common.nautobot_write_groups import write_once_per_group
 from workflow_steps.common.partial_outcomes import (
     NAUTOBOT_TEXT,
     device_error_from_exception,
-    fail_device_with_error,
 )
 
 logger = logging.getLogger(__name__)

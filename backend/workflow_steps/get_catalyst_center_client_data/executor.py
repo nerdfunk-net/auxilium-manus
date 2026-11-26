@@ -41,14 +41,17 @@ from workflow_steps.common.client_data_store import (
     with_summary,
 )
 from workflow_steps.common.controller_sources import CATALYST_CENTER
-from workflow_steps.common.device_outcomes import build_outcomes, failed_device
+from workflow_steps.common.device_outcomes import (
+    build_outcomes,
+    fail_device_with_error,
+    mark_device_failed,
+)
 from workflow_steps.common.duplicate_keys import (
     find_duplicate_keys,
 )
 from workflow_steps.common.fact_entries import MAX_PARALLEL_DEVICES
 from workflow_steps.common.partial_outcomes import (
     device_error_from_exception,
-    fail_device_with_error,
 )
 from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.common.step_flags import parse_bool_flag, parse_int_flag, record_dry_run
@@ -99,7 +102,7 @@ async def _collect_one(
             # The controller answered with clients but none is usable (another switch, no MAC):
             # that is not "no clients", and storing it would replace the device's good data.
             return (
-                failed_device(
+                mark_device_failed(
                     device,
                     step_id=STEP_ID,
                     node_id=node_id,
@@ -128,7 +131,7 @@ async def _collect_one(
         )
     except CatalystCenterError as exc:
         return (
-            failed_device(
+            mark_device_failed(
                 device,
                 step_id=STEP_ID,
                 node_id=node_id,
@@ -143,7 +146,7 @@ async def _collect_one(
     except TooManyRowsError as exc:
         code, message, failure = too_many_rows_failure(exc)
         return (
-            failed_device(
+            mark_device_failed(
                 device,
                 step_id=STEP_ID,
                 node_id=node_id,
@@ -157,7 +160,7 @@ async def _collect_one(
         # ``ValueError`` also covers a client the mapper could not validate: not stored either.
         code, message, failure = storage_failure(exc)
         return (
-            failed_device(
+            mark_device_failed(
                 device,
                 step_id=STEP_ID,
                 node_id=node_id,

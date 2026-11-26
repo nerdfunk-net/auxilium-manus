@@ -9,7 +9,7 @@ from pydantic import BaseModel, ConfigDict
 
 from models.failure import FailureInfo
 from models.workflow_context import Capability, DeviceContext, DeviceStatus, WorkflowContext
-from workflow_steps.common.device_outcomes import TargetSplit, build_outcomes, failed_device
+from workflow_steps.common.device_outcomes import TargetSplit, build_outcomes, mark_device_failed
 from workflow_steps.common.fact_entries import (
     FactError,
     collect_facts,
@@ -91,11 +91,11 @@ class WithEntriesTests(unittest.TestCase):
 
 
 class OutcomeHelperTests(unittest.TestCase):
-    def test_failed_device_adds_an_error_and_keeps_the_rest(self) -> None:
-        first = failed_device(
+    def test_mark_device_failed_adds_an_error_and_keeps_the_rest(self) -> None:
+        first = mark_device_failed(
             _device(), step_id="s", node_id="n", code="a", message="m1", parsed={"x": 1}
         )
-        second = failed_device(first, step_id="s", node_id="n", code="b", message="m2")
+        second = mark_device_failed(first, step_id="s", node_id="n", code="b", message="m2")
         self.assertEqual([e.code for e in second.errors], ["a", "b"])
         self.assertEqual(second.status, DeviceStatus.FAILED)
         self.assertEqual(second.parsed, {"x": 1})
@@ -116,7 +116,7 @@ class CollectFactsTests(unittest.IsolatedAsyncioTestCase):
         split = TargetSplit(
             by_source={"src": {d: _device(d) for d in devices}},
             rejected={
-                "bad": failed_device(
+                "bad": mark_device_failed(
                     _device("bad"), step_id="s", node_id="n", code="r", message="m"
                 )
             },

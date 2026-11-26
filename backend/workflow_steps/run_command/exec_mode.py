@@ -17,11 +17,12 @@ from models.workflow_context import (
 from services.artifacts import ArtifactService
 from services.network.netmiko.connection import RetryPolicy
 from services.network.netmiko.service import NetmikoService
+from workflow_steps.common.device_outcomes import fail_device_with_error, mark_device_failed
 from workflow_steps.common.device_type import connection_device_type
 from workflow_steps.common.failure_records import INVALID_INPUT
 from workflow_steps.common.partial_outcomes import device_error_from_exception
 from workflow_steps.common.step_flags import record_dry_run
-from workflow_steps.run_command.outcomes import fail_device
+from workflow_steps.run_command.constants import STEP_ID
 from workflow_steps.run_command.parsing import ParsedRunCommandConfig
 
 logger = logging.getLogger(__name__)
@@ -61,15 +62,15 @@ async def _run_on_device(
 ) -> tuple[str, DeviceContext, bool, dict[str, str | None]]:
     host = bare_hostname(device.primary_ip4, device.hostname)
     if not host:
-        dev_id, failed, ok = fail_device(
-            device=device,
-            device_id=device_id,
+        failed = mark_device_failed(
+            device,
             node_id=node_id,
+            step_id=STEP_ID,
             code="missing_host",
             failure=INVALID_INPUT,
             message=f"Device {device_id} has no hostname or primary IP",
         )
-        return dev_id, failed, ok, {}
+        return device_id, failed, False, {}
 
     if dry_run:
         updated = record_dry_run(
@@ -147,10 +148,10 @@ async def _run_on_device(
         updated_command_results[node_id] = step_results
 
         if not result.success:
-            dev_id, failed, ok = fail_device(
-                device=device,
-                device_id=device_id,
+            failed = mark_device_failed(
+                device,
                 node_id=node_id,
+                step_id=STEP_ID,
                 code="command_failed",
                 # `result.error` is driver text (it can name a refused line or echo a secret):
                 # the cause is the FailureInfo, never that text.
@@ -158,7 +159,7 @@ async def _run_on_device(
                 command_results=updated_command_results,
                 failure=result.failure,
             )
-            return dev_id, failed, ok, {}
+            return device_id, failed, False, {}
 
         enriched = device.model_copy(
             update={
@@ -168,16 +169,8 @@ async def _run_on_device(
         )
         return device_id, enriched, True, raw_outputs
     except Exception as exc:
-        error = device_error_from_exception(exc, node_id=node_id, step_id="run-command")
-        dev_id, failed, ok = fail_device(
-            device=device,
-            device_id=device_id,
-            node_id=node_id,
-            code=error.code,
-            message=error.message,
-            failure=error.failure,
-        )
-        return dev_id, failed, ok, {}
+        error = device_error_from_exception(exc, node_id=node_id, step_id=STEP_ID)
+        return device_id, fail_device_with_error(device, error), False, {}
 
 
 async def _run_on_device_logged(

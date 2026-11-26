@@ -1,10 +1,11 @@
 """Source-agnostic helpers for steps that act on devices of one external source.
 
 The one outcome API (P-B, W1-01): failing a device with a structured
-:class:`~models.workflow_context.DeviceError` (``mark_device_failed``), splitting per-device results
-(``DeviceResult``, ``partition_results``) and building the ``success`` / ``failure`` outcomes
-(``build_outcomes``, ``outcomes_from_buckets``, ``whole_step_failure``). Also groups devices by
-``source_id`` for the controller-backed steps (Cisco Catalyst Center, Cisco ACI).
+:class:`~models.workflow_context.DeviceError` (``mark_device_failed`` builds the error,
+``fail_device_with_error`` takes one already built, for example from
+``partial_outcomes.device_error_from_exception``) and building the ``success`` / ``failure``
+outcomes (``build_outcomes``, ``outcomes_from_buckets``, ``whole_step_failure``). Also groups
+devices by ``source_id`` for the controller-backed steps (Cisco Catalyst Center, Cisco ACI).
 
 Additive: the private copies in the step packages migrate here family by family (P-C), and
 ``tests/unit/test_private_outcome_helpers_ratchet.py`` lets their number only fall.
@@ -12,9 +13,9 @@ Additive: the private copies in the step packages migrate here family by family 
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from typing import Any, NamedTuple
+from typing import Any
 
 from models.failure import FailureInfo
 from models.workflow_context import (
@@ -44,7 +45,7 @@ def mark_device_failed(
     failure: FailureInfo | None = None,
     **updates: Any,
 ) -> DeviceContext:
-    """A copy of ``device`` marked FAILED with one more ``DeviceError``.
+    """A copy of ``device`` marked FAILED with one more ``DeviceError`` built from the fields.
 
     ``updates`` are further fields of the copy (for example ``command_results``); the error
     history of ``device`` is kept and the input is never mutated.
@@ -52,32 +53,19 @@ def mark_device_failed(
     error = DeviceError(
         node_id=node_id, step_id=step_id, code=code, message=message, failure=failure
     )
+    return fail_device_with_error(device, error, **updates)
+
+
+def fail_device_with_error(
+    device: DeviceContext, error: DeviceError, **updates: Any
+) -> DeviceContext:
+    """A copy of ``device`` marked FAILED with ``error`` appended (the error is already built).
+
+    ``updates`` are further fields of the copy; the input is never mutated.
+    """
     return device.model_copy(
         update={"status": DeviceStatus.FAILED, "errors": [*device.errors, error], **updates}
     )
-
-
-# The older name of the same function; the controller steps still import it (P-X4 removes it).
-failed_device = mark_device_failed
-
-
-class DeviceResult(NamedTuple):
-    """What a per-device worker returns. A plain ``(id, device, ok)`` tuple works as well."""
-
-    device_id: str
-    device: DeviceContext
-    ok: bool
-
-
-def partition_results(
-    results: Iterable[tuple[str, DeviceContext, bool]],
-) -> tuple[dict[str, DeviceContext], dict[str, DeviceContext]]:
-    """Split ``(id, device, ok)`` results into the succeeded and the failed devices."""
-    succeeded: dict[str, DeviceContext] = {}
-    failed: dict[str, DeviceContext] = {}
-    for device_id, device, ok in results:
-        (succeeded if ok else failed)[device_id] = device
-    return succeeded, failed
 
 
 def build_outcomes(

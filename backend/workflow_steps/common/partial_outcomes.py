@@ -11,7 +11,6 @@ from models.failure import FailureInfo, failure_from_exception
 from models.workflow_context import (
     DeviceContext,
     DeviceError,
-    DeviceStatus,
     StepOutcome,
     WorkflowContext,
 )
@@ -53,12 +52,6 @@ def device_error_from_exception(
         code=type(exc).__name__.lower(),
         message=message,
         failure=failure,
-    )
-
-
-def fail_device_with_error(device: DeviceContext, error: DeviceError) -> DeviceContext:
-    return device.model_copy(
-        update={"status": DeviceStatus.FAILED, "errors": [*device.errors, error]}
     )
 
 
