@@ -19,6 +19,7 @@ from models.workflow_context import (
     WorkflowContext,
 )
 from services.artifacts import ArtifactService
+from workflow_steps.common.device_outcomes import fail_device_with_error
 from workflow_steps.common.jinja_render import (
     JinjaTemplateError,
     build_jinja_context,
@@ -26,6 +27,7 @@ from workflow_steps.common.jinja_render import (
     template_variables,
     validate_jinja_template,
 )
+from workflow_steps.common.partial_outcomes import device_error_from_exception
 from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.common.step_flags import parse_bool_flag, parse_output_key
 from workflow_steps.common.template_content import load_stored_template
@@ -224,14 +226,9 @@ async def _render_and_store_device(
             device_id,
             exc,
         )
-        failed = _mark_render_failed(
-            device,
-            node_id,
-            code=type(exc).__name__.lower(),
-            message=str(exc),
-            failure=failure_from_exception(exc),
-        )
-        return device_id, failed, False
+        # D3: not an error of this step; the class name and the record, never its text.
+        error = device_error_from_exception(exc, node_id=node_id, step_id="render-jinja-template")
+        return device_id, fail_device_with_error(device, error), False
 
 
 def _partition_render_results(

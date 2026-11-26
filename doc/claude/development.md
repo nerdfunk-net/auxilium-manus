@@ -126,6 +126,7 @@ python -m pytest tests/integration -m mutations --no-cov --run-mutations
 # before pushing. Structure ratchets of the steps live in tests/unit (two-sided: no new violation,
 # no stale legacy entry): private outcome helpers, DeviceError/wrapper failure records,
 # object_session, import boundaries, strict-xfail hygiene, sealed envelopes only via seal_secret,
+# exception text in a stored message only from a narrowed class (test_exception_text_sites_ratchet.py),
 # functions over 50 lines (test_step_function_length_ratchet.py), common/ symbols without a
 # production user, and registry / dispatch table / packages / frontend loaders in step.
 # Other workflows: docker-ci.yml (docker/check-compose.sh, docker/check-image.sh: run them locally

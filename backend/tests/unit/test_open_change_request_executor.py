@@ -20,8 +20,10 @@ from core.models.change_requests import ChangeRequest
 from core.models.runs import WorkflowRun, WorkflowStepResult
 from core.models.users import User
 from core.models.workflows import Workflow
+from models.failure import FailureInfo
 from models.workflow_context import DeviceContext, WorkflowContext
 from services.artifacts import InMemoryArtifactService
+from services.git.failure import GitOperationError
 from workflow_steps.open_change_request.executor import execute
 
 NODE_ID = "n-cr"
@@ -358,6 +360,53 @@ class OpenChangeRequestExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("s3cr3t-token", recorded)
         self.assertIsNotNone(error.failure)
         self.assertEqual(failure.failure, error.failure)
+
+    async def test_an_unexpected_staging_error_keeps_only_its_class_name(self) -> None:
+        # D3: an exception the app did not build (a driver or database error) can carry SQL,
+        # paths or credentials; the stored message is its class name, the cause is the record.
+        with patch(
+            "workflow_steps.open_change_request.executor._stage",
+            side_effect=RuntimeError("connection failed: password=hunter2hunter2 at /srv/x"),
+        ):
+            failure = await self._failure_of(
+                {"git_repository_id": 3, "content_source": "running_config"}
+            )
+
+        error = failure.context.devices["d1"].errors[-1]
+        self.assertEqual(error.message, "RuntimeError")
+        recorded = failure.context.metadata[f"{NODE_ID}.change_request"]["message"]
+        self.assertEqual(recorded, "RuntimeError")
+        self.assertIsNotNone(error.failure)
+
+    async def test_a_config_error_raised_while_staging_keeps_its_text(self) -> None:
+        with patch(
+            "workflow_steps.open_change_request.executor._stage",
+            side_effect=ValueError("path 'x/../../etc' escapes the repository"),
+        ):
+            failure = await self._failure_of(
+                {"git_repository_id": 3, "content_source": "running_config"}
+            )
+
+        self.assertIn("escapes the repository", failure.context.devices["d1"].errors[-1].message)
+
+    async def test_a_git_error_the_app_built_keeps_its_scrubbed_text(self) -> None:
+        rejected = FailureInfo(phase="git", kind="push_rejected")
+        with patch(
+            "workflow_steps.open_change_request.executor._stage",
+            side_effect=GitOperationError(
+                "push to https://bot:s3cr3t-token@git.example.com/r.git rejected"
+                " (non-fast-forward)",
+                failure=rejected,
+            ),
+        ):
+            failure = await self._failure_of(
+                {"git_repository_id": 3, "content_source": "running_config"}
+            )
+
+        error = failure.context.devices["d1"].errors[-1]
+        self.assertIn("rejected (non-fast-forward)", error.message)
+        self.assertNotIn("s3cr3t-token", error.message)
+        self.assertEqual(error.failure, rejected)
 
     async def test_no_devices_is_a_no_op_success_without_staging(self) -> None:
         context = WorkflowContext(

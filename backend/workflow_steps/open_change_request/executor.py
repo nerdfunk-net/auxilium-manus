@@ -32,7 +32,7 @@ from models.workflow_context import (
     WorkflowContext,
 )
 from services.artifacts import ArtifactService
-from services.git.failure import classify_git_exception
+from services.git.failure import GitOperationError, classify_git_exception
 from services.git.paths import write_text_within_repo
 from services.git.repo_lock import git_repo_lock
 from services.git.scrub import scrub_url_credentials
@@ -326,6 +326,14 @@ def _change_request_failure(
     )
 
 
+def _staging_message(exc: Exception) -> str:
+    """D3: a git or config error the app built keeps its text (scrubbed by the caller); any other
+    exception (GitPython, a driver, the database) only its class name, the record says why."""
+    if isinstance(exc, GitOperationError | ValueError):
+        return str(exc)
+    return type(exc).__name__
+
+
 @dataclass(frozen=True)
 class _Naming:
     branch: str
@@ -489,7 +497,7 @@ async def execute(
         return _change_request_failure(
             context=context,
             node_id=node_id,
-            message=str(exc),
+            message=_staging_message(exc),
             failure=failure_from_exception(exc) or classify_git_exception(exc),
         )
 

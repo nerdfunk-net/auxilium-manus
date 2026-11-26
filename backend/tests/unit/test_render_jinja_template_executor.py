@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import time
 import unittest
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from models.workflow_context import (
     ArtifactRef,
@@ -273,6 +273,32 @@ class RenderJinjaTemplateExecutorTests(unittest.IsolatedAsyncioTestCase):
         entry = success.parsed["device_config"]
         content = await artifact_service.resolve(ArtifactRef.model_validate(entry["artifact_ref"]))
         self.assertEqual(content, "Ethernet0/0 / 15.2 / count=2")
+
+class UnexpectedErrorTextTests(unittest.IsolatedAsyncioTestCase):
+    """D3: an exception the step did not raise itself keeps only its class name."""
+
+    async def test_a_store_error_keeps_only_its_class_name_and_gets_a_record(self) -> None:
+        artifacts = MagicMock()
+        artifacts.store = AsyncMock(
+            side_effect=RuntimeError("could not connect: password=hunter2hunter2 host=db")
+        )
+
+        outcomes = await execute(
+            config={"output_key": "cfg", "template": "hostname {{ device.hostname }}"},
+            context=make_context([make_device("d1")]),
+            run=MagicMock(),
+            artifact_service=artifacts,
+            node_id="render-1",
+            device_sessions=MagicMock(),
+        )
+
+        failed = next(o for o in outcomes if o.name == "failure").context.devices["d1"]
+        error = failed.errors[-1]
+        self.assertEqual((error.code, error.message), ("runtimeerror", "RuntimeError"))
+        self.assertEqual(error.step_id, "render-jinja-template")
+        self.assertIsNotNone(error.failure)
+        self.assertEqual(error.failure.kind, "internal_error")
+
 
 class CommandArtifactReadTests(unittest.IsolatedAsyncioTestCase):
     """W3a-15: upstream command artifacts are read only for a template that names them."""

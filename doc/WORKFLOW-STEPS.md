@@ -464,6 +464,12 @@ errors whose text is sanitised at the source:
   group ensurer decide by that code, never by message text, so an address conflict worded the same way is a failure.
 - **SSH driver, git and database** errors keep the class name and the `FailureInfo` only.
 
+A step that writes `message=str(exc)` or `message=f"...{exc}..."` itself must have `exc` narrowed to a named class
+that is not `Exception`, by its `except` clause or an `isinstance` check; a catch-all goes through
+`device_error_from_exception`. `tests/unit/test_exception_text_sites_ratchet.py` (guard 9) enforces that and pins the
+sites per file. `open-change-request` keeps the text of a `GitOperationError` (built by the app, scrubbed of URL
+credentials) or a `ValueError` raised while staging; any other staging error keeps only its class name.
+
 A failure that names a code names its cause too: `DeviceError(failure=...)`, a wrapper's `failure=` and the runner's
 `Fail(code, message, failure)`. `workflow_steps/common/failure_records.py` holds the records most steps share
 (`INVALID_INPUT`, `NOT_FOUND`, `MISSING_DATA`, `INVALID_RESPONSE`, `COMMAND_FAILED`); a cause with more facts (an HTTP
