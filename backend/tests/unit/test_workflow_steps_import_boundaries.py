@@ -17,13 +17,14 @@ _STEPS = _BACKEND / "workflow_steps"
 # a decision; behind a service is the default (``doc/claude/backend.md``).
 _REPOSITORY_ALLOW_LIST: dict[str, set[str]] = {
     "batfish_init_snapshot/executor.py": {"repositories.run_repository"},
-    "collect_statistics/executor.py": {"repositories.job_statistics_repository"},
-    "common/notification_context.py": {"repositories.workflow_repository"},
+    "common/notification_context.py": {
+        "repositories.job_statistics_repository",
+        "repositories.notification_repository",
+        "repositories.workflow_repository",
+    },
     "from_change_request/executor.py": {"repositories.change_request_repository"},
     "get_from_user/inventory_reference.py": {"repositories.user_repository"},
     "get_nautobot_devices/executor.py": {"repositories.user_repository"},
-    "notify/executor.py": {"repositories.notification_repository"},
-    "notify_on_error/executor.py": {"repositories.notification_repository"},
 }
 
 # (d) Modules outside workflow_steps/ (and tests/) that may import it.

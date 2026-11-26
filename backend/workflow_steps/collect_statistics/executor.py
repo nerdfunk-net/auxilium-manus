@@ -15,9 +15,8 @@ from typing import TYPE_CHECKING, Any
 
 from core.models.runs import WorkflowRun
 from models.workflow_context import StepOutcome, WorkflowContext
-from repositories.job_statistics_repository import JobStatisticsRepository
 from services.artifacts import ArtifactService
-from workflow_steps.common.notification_context import resolve_run_workflow
+from workflow_steps.common.notification_context import resolve_run_workflow, write_statistics
 from workflow_steps.common.run_logging import log_run_id
 
 if TYPE_CHECKING:
@@ -46,7 +45,7 @@ async def execute(
     if not context.devices:
         return [StepOutcome(name="success", context=context)]
 
-    db, workflow, _owner_username = resolve_run_workflow(run, step_id="collect-statistics")
+    workflow, _owner_username = resolve_run_workflow(run, step_id="collect-statistics")
 
     logger.info(
         "collect-statistics started run_id=%s node_id=%s devices=%d result=%s",
@@ -67,13 +66,11 @@ async def execute(
         }
         for device in context.devices.values()
     ]
-    created = JobStatisticsRepository(db).replace_for_node(
-        run_id=run.id, node_id=node_id, rows=rows
-    )
+    created = write_statistics(run_id=run.id, node_id=node_id, rows=rows)
 
     logger.info(
         "collect-statistics finished wrote=%d result=%s run_id=%s",
-        len(created),
+        created,
         result,
         log_run_id(run),
     )
@@ -82,6 +79,6 @@ async def execute(
         StepOutcome(
             name="success",
             context=context,
-            summary=f"recorded {len(created)} device(s) as {result}",
+            summary=f"recorded {created} device(s) as {result}",
         )
     ]

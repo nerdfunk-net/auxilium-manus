@@ -19,7 +19,7 @@ class NotificationRepository:
         """Idempotent per (run, node, device): the earlier rows of the devices in ``rows`` (and the
         device-less "left out" row) are replaced in one transaction, so a Hatchet retry or a re-run
         of the node does not double them. Rows of other devices of the same node (fan-out
-        children) are left alone. A failed write is rolled back, never left on the run session."""
+        children) are left alone. A failed write is rolled back."""
         names = [row["device_name"] for row in rows if row["device_name"] is not None]
         clauses = [Notification.device_name.in_(names)] if names else []
         if any(row["device_name"] is None for row in rows):

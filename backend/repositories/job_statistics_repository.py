@@ -27,18 +27,23 @@ class JobStatisticsRepository:
     ) -> list[JobStatistic]:
         """Idempotent per (run, node, device): the earlier rows of the devices in ``rows`` are
         replaced in one transaction, so a Hatchet retry or a re-run of the node does not double
-        them. Rows of other devices of the same node (fan-out children) are left alone."""
+        them. Rows of other devices of the same node (fan-out children) are left alone. A failed
+        write is rolled back."""
         device_names = [row["device_name"] for row in rows]
-        self.db.execute(
-            delete(JobStatistic).where(
-                JobStatistic.run_id == run_id,
-                JobStatistic.node_id == node_id,
-                JobStatistic.device_name.in_(device_names),
+        try:
+            self.db.execute(
+                delete(JobStatistic).where(
+                    JobStatistic.run_id == run_id,
+                    JobStatistic.node_id == node_id,
+                    JobStatistic.device_name.in_(device_names),
+                )
             )
-        )
-        stats = [JobStatistic(**row) for row in rows]
-        self.db.add_all(stats)
-        self.db.commit()
+            stats = [JobStatistic(**row) for row in rows]
+            self.db.add_all(stats)
+            self.db.commit()
+        except Exception:
+            self.db.rollback()
+            raise
         for stat in stats:
             self.db.refresh(stat)
         return stats

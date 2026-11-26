@@ -7,10 +7,9 @@ from typing import TYPE_CHECKING, Any
 
 from core.models.runs import WorkflowRun
 from models.workflow_context import StepOutcome, WorkflowContext
-from repositories.notification_repository import NotificationRepository
 from services.artifacts import ArtifactService
 from services.workflow_context.attribute_path import DEBUG_LOGS_METADATA_SUFFIX
-from workflow_steps.common.notification_context import resolve_run_workflow
+from workflow_steps.common.notification_context import resolve_run_workflow, write_notifications
 from workflow_steps.common.placeholder_template import render_placeholder_template
 from workflow_steps.common.step_flags import require_text
 from workflow_steps.notify.config import get_config
@@ -44,7 +43,7 @@ async def execute(
     if severity not in _VALID_SEVERITIES:
         raise ValueError(f"notify: invalid severity {severity!r}")
 
-    db, workflow, owner_username = resolve_run_workflow(run, step_id="notify")
+    workflow, owner_username = resolve_run_workflow(run, step_id="notify")
 
     logger.info(
         "notify node_id=%s severity=%s devices=%d",
@@ -81,7 +80,7 @@ async def execute(
         rows.append(
             {
                 "run_id": run.id,
-                    "node_id": node_id,
+                "node_id": node_id,
                 "workflow_id": workflow.id,
                 "workflow_name": workflow.name,
                 "workflow_owner_username": owner_username,
@@ -91,9 +90,7 @@ async def execute(
             }
         )
 
-    created = NotificationRepository(db).replace_for_node(
-        run_id=run.id, node_id=node_id, rows=rows
-    )
+    created = write_notifications(run_id=run.id, node_id=node_id, rows=rows)
 
     debug_logs = {
         "message": message,
@@ -106,12 +103,12 @@ async def execute(
         f"{node_id}{DEBUG_LOGS_METADATA_SUFFIX}": debug_logs,
     }
 
-    logger.info("notify node_id=%s wrote=%d notifications", node_id, len(created))
+    logger.info("notify node_id=%s wrote=%d notifications", node_id, created)
 
     return [
         StepOutcome(
             name="success",
             context=context.model_copy(update={"metadata": metadata}),
-            summary=f"notified {len(created)} device(s) at {severity}: {message!r}",
+            summary=f"notified {created} device(s) at {severity}: {message!r}",
         )
     ]

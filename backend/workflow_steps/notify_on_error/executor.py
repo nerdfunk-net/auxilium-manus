@@ -16,15 +16,15 @@ import service_factory
 from core.models.runs import WorkflowRun
 from models.failure import FailureInfo, failure_from_exception, failure_to_json
 from models.workflow_context import StepOutcome, WorkflowContext
-from repositories.notification_repository import NotificationRepository
 from services.artifacts import ArtifactService
 from services.mattermost.common.exceptions import MattermostAPIError
 from services.workflow_context.attribute_path import DEBUG_LOGS_METADATA_SUFFIX
 from workflow_steps.common.failure_records import TRANSPORT_FAILED
 from workflow_steps.common.mattermost_source import resolve_mattermost_credentials
-from workflow_steps.common.notification_context import resolve_run_workflow
+from workflow_steps.common.notification_context import resolve_run_workflow, write_notifications
 from workflow_steps.common.notification_target import parse_mattermost_target
 from workflow_steps.common.placeholder_template import render_placeholder_template
+from workflow_steps.common.run_session import require_session
 from workflow_steps.common.step_flags import parse_bool_flag, parse_int_flag, require_text
 from workflow_steps.notify_on_error.config import get_config
 
@@ -63,7 +63,7 @@ async def execute(
 
     target = parse_mattermost_target(config, step_id=_STEP_ID) if notify_mattermost else None
 
-    db, workflow, owner_username = resolve_run_workflow(run, step_id=_STEP_ID)
+    workflow, owner_username = resolve_run_workflow(run, step_id=_STEP_ID)
 
     logger.info(
         "%s node_id=%s devices=%d",
@@ -81,7 +81,7 @@ async def execute(
     mattermost_failure: FailureInfo | None = None
     if target is not None:
         mattermost_credentials = resolve_mattermost_credentials(
-            db, target.source_id, step_id=_STEP_ID
+            require_session(run, _STEP_ID), target.source_id, step_id=_STEP_ID
         )
         if any(device.errors for device in context.devices.values()):
             mattermost_client = service_factory.get_mattermost_app_service()
@@ -186,17 +186,13 @@ async def execute(
                 exc,
             )
 
-    created = (
-        NotificationRepository(db).replace_for_node(run_id=run.id, node_id=node_id, rows=rows)
-        if notify_local
-        else []
-    )
+    created = write_notifications(run_id=run.id, node_id=node_id, rows=rows) if notify_local else 0
 
     debug_logs = {
         "message": message,
         "severity": _SEVERITY,
         "device_count": len(device_logs),
-        "notification_count": len(created),
+        "notification_count": created,
         "devices": device_logs,
         "mattermost_enabled": notify_mattermost,
         "mattermost_posted": mattermost_posted,
@@ -214,12 +210,12 @@ async def execute(
         _STEP_ID,
         node_id,
         len(device_logs),
-        len(created),
+        created,
         mattermost_posted,
         mattermost_failed,
     )
 
-    summary = f"notified {len(created)} error(s) across {len(device_logs)} device(s)"
+    summary = f"notified {created} error(s) across {len(device_logs)} device(s)"
     if notify_mattermost:
         summary += f" ({mattermost_posted} posted to Mattermost)"
 

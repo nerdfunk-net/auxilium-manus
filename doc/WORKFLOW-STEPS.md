@@ -763,7 +763,10 @@ replaces its `(run, node, device)` rows on a re-execution, so a Hatchet retry do
 `notify` and `notify-on-error` do the same: `notifications.node_id` (added by `AutoSchemaMigration`; NULL on
 older rows) is the writing node, and `NotificationRepository.replace_for_node` replaces the rows of the
 devices it writes (and the device-less "left out" row) for that `(run, node)` in one transaction, with a
-rollback on failure. Mattermost posts cannot be taken back, so a retry of `notify-on-error` posts again.
+rollback on failure (`JobStatisticsRepository.replace_for_node` rolls back too). Mattermost posts cannot be taken back, so a retry of `notify-on-error` posts again.
+The three steps read the workflow on the run's session (`notification_context.resolve_run_workflow`) but write their rows in a
+session of their own (`write_notifications`, `write_statistics`, W9-09): committing the runner's session would flush whatever the
+runner has pending, and a failed write would leave that session needing a rollback.
 
 **Failure policy of the notification steps** (D11): a configuration error raises and fails the step: a
 missing or non-numeric value (`max_messages` is parsed by `parse_int_flag`: `true` and `7.9` raise), a

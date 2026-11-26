@@ -41,7 +41,7 @@ def _patches(*, workflow_result=None, job_statistics_repo=None):
             return_value=workflow_repo,
         ),
         patch(
-            "workflow_steps.collect_statistics.executor.JobStatisticsRepository",
+            "workflow_steps.common.notification_context.JobStatisticsRepository",
             return_value=repo_instance,
         ),
     )

@@ -53,7 +53,7 @@ def _patches(*, workflow_result=None, notification_repo=None):
             return_value=workflow_repo,
         ),
         patch(
-            "workflow_steps.notify_on_error.executor.NotificationRepository",
+            "workflow_steps.common.notification_context.NotificationRepository",
             return_value=notification_repo_instance,
         ),
     )

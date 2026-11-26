@@ -23,6 +23,7 @@ from workflow_steps.notify import executor as notify_executor
 from workflow_steps.notify_mattermost import executor as mm_executor
 from workflow_steps.notify_on_error import executor as on_error_executor
 
+_CONTEXT = "workflow_steps.common.notification_context"
 _MM = {"mattermost_source_id": "lab", "team_name": "net", "channel_name": "alerts"}
 
 
@@ -99,9 +100,9 @@ async def _on_error(config: dict, context: WorkflowContext, repo=None, client=No
     with (
         patch(
             "workflow_steps.notify_on_error.executor.resolve_run_workflow",
-            return_value=(MagicMock(), wf, "alice"),
+            return_value=(wf, "alice"),
         ),
-        patch("workflow_steps.notify_on_error.executor.NotificationRepository", return_value=repo),
+        patch(f"{_CONTEXT}.NotificationRepository", return_value=repo),
         patch("service_factory.get_mattermost_app_service", return_value=client or MagicMock()),
         patch(
             "workflow_steps.notify_on_error.executor.resolve_mattermost_credentials",
@@ -177,9 +178,9 @@ async def test_notify_replaces_rows_per_node() -> None:
     with (
         patch(
             "workflow_steps.notify.executor.resolve_run_workflow",
-            return_value=(MagicMock(), wf, "alice"),
+            return_value=(wf, "alice"),
         ),
-        patch("workflow_steps.notify.executor.NotificationRepository", return_value=repo),
+        patch(f"{_CONTEXT}.NotificationRepository", return_value=repo),
     ):
         await notify_executor.execute(
             config={"message": "hi"},
@@ -348,9 +349,9 @@ async def test_notify_overflow_row_carries_node_id() -> None:
     with (
         patch(
             "workflow_steps.notify.executor.resolve_run_workflow",
-            return_value=(MagicMock(), wf, "alice"),
+            return_value=(wf, "alice"),
         ),
-        patch("workflow_steps.notify.executor.NotificationRepository", return_value=repo),
+        patch(f"{_CONTEXT}.NotificationRepository", return_value=repo),
     ):
         await notify_executor.execute(
             config={"message": "hi"},
