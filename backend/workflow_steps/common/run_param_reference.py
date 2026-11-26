@@ -51,3 +51,15 @@ def resolve_config_reference(
     if is_sealed_secret(value):
         raise ValueError("a secret run parameter cannot be used here")
     return str(value).strip()
+
+
+def credential_reference(config: dict[str, Any], run_inputs: dict[str, Any] | None) -> str:
+    """The SSH credential reference of a step: ``credential_reference`` or the run parameter named
+    by ``credential_param`` when ``credential_source`` is ``run_param`` (W3a-12)."""
+    return resolve_config_reference(
+        config,
+        source_key="credential_source",
+        param_key="credential_param",
+        literal_key="credential_reference",
+        run_inputs=run_inputs,
+    )

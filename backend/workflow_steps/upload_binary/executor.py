@@ -15,7 +15,7 @@ import asyncio
 import logging
 import posixpath
 from contextlib import AsyncExitStack
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from typing import Any
 
 from core.models.runs import WorkflowRun
@@ -50,7 +50,7 @@ from workflow_steps.common.git_repository_loader import parse_repository_id
 from workflow_steps.common.partial_outcomes import device_error_from_exception
 from workflow_steps.common.read_timeout import parse_read_timeout
 from workflow_steps.common.run_logging import log_run_id
-from workflow_steps.common.run_param_reference import resolve_config_reference
+from workflow_steps.common.run_param_reference import credential_reference
 from workflow_steps.common.run_session import require_session
 from workflow_steps.common.step_flags import parse_bool_flag
 from workflow_steps.upload_binary.source_file import (
@@ -82,7 +82,9 @@ class _ParsedUploadBinary:
     read_timeout: int
 
 
-def _parse_upload_binary(config: dict[str, Any]) -> _ParsedUploadBinary:
+def _parse_upload_binary(
+    config: dict[str, Any], run_inputs: dict[str, Any] | None
+) -> _ParsedUploadBinary:
     repository_id = parse_repository_id(config.get("git_repository_id"), step_id=_STEP_ID)
     if repository_id is None:
         raise ValueError(f"{_STEP_ID}: git_repository_id is required")
@@ -102,7 +104,6 @@ def _parse_upload_binary(config: dict[str, Any]) -> _ParsedUploadBinary:
         raise ValueError(f"{_STEP_ID}: destination_filename is required")
 
     return _ParsedUploadBinary(
-        credential_reference=str(config.get("credential_reference") or "").strip(),
         git_repository_id=repository_id,
         allow_stale_repository=parse_bool_flag(config, "allow_stale_repository"),
         source_path=source_path,
@@ -115,6 +116,8 @@ def _parse_upload_binary(config: dict[str, Any]) -> _ParsedUploadBinary:
         network_driver_override=str(config.get("network_driver_override") or "").strip() or None,
         socket_timeout=parse_socket_timeout(config, step_id=_STEP_ID),
         read_timeout=parse_read_timeout(config, step_id=_STEP_ID, default=_DEFAULT_READ_TIMEOUT),
+        # last, so every other config error is reported first
+        credential_reference=credential_reference(config, run_inputs),
     )
 
 
@@ -343,16 +346,7 @@ async def execute(
     device_sessions: DeviceSessionPool,
 ) -> list[StepOutcome]:
     del artifact_service  # the bytes come from the repository, not from an artifact
-    parsed = replace(
-        _parse_upload_binary(config),
-        credential_reference=resolve_config_reference(
-            config,
-            source_key="credential_source",
-            param_key="credential_param",
-            literal_key="credential_reference",
-            run_inputs=run.run_inputs,
-        ),
-    )
+    parsed = _parse_upload_binary(config, run.run_inputs)
 
     db = require_session(run, _STEP_ID)
     username, password = resolve_ssh_credential(

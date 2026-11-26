@@ -1675,7 +1675,7 @@ are auto-bypassed by the copy engine; the prompt handler
 (`_MERGE_MAX_PROMPT_ANSWERS`, default 5) so an unexpected extra prompt is answered rather
 than hanging, and a device is failed if the transcript carries `%Error opening`, a CLI refusal or a `%Warning`
 line (the last two follow `fail_on_cli_error`, default on; see "Config push"). It reuses the Run Command backend (`NetmikoService` / `DeviceSessionPool`,
-`resolve_config_reference` + `resolve_ssh_credential`, `resolve_connection_device_type`)
+`credential_reference` + `resolve_ssh_credential`, `resolve_connection_device_type`)
 and exposes only `source_filename`, credentials, `network_driver_override`, `fail_on_cli_error` and
 `read_timeout`. It adds no capability (`produces: []`), so it is **not** in the
 `run-command` `effective_produces` special-case in `services/workflow_context/guards.py`.
@@ -1838,7 +1838,8 @@ value baked into the canvas at design time. This is **not** a canvas step:
     late-bound per triggering user (a private credential wins over a global one
     of the same name — see `credential_resolver._resolve_credential`). Every SSH
     step reads it when its `credential_source` config is `"run_param"` (pointing
-    at `credential_param`).
+    at `credential_param`). The step's config parser reads it (`common/run_param_reference.credential_reference(config,
+    run_inputs)`, W3a-12), so a parsed config is complete; a missing run parameter is a config error.
   This is how one workflow definition serves many sites/teams: a schedule (or a
   manual run) supplies a different inventory id and credential name each time.
   Operators never type an id: the manual Run Inputs dialog renders an

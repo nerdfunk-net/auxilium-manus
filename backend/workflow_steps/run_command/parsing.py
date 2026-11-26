@@ -9,6 +9,7 @@ from typing import Any
 from services.network.netmiko.connection import RetryPolicy
 from workflow_steps.common.read_timeout import parse_read_timeout
 from workflow_steps.common.retry_config import parse_retry_backoff_seconds
+from workflow_steps.common.run_param_reference import credential_reference
 from workflow_steps.common.step_flags import parse_bool_flag, parse_output_key
 from workflow_steps.run_command.config import get_config
 from workflow_steps.run_command.constants import STEP_ID
@@ -106,7 +107,9 @@ class ParsedRunCommandConfig:
     retry: RetryPolicy
 
 
-def parse_run_command_config(config: dict[str, Any]) -> ParsedRunCommandConfig:
+def parse_run_command_config(
+    config: dict[str, Any], run_inputs: dict[str, Any] | None
+) -> ParsedRunCommandConfig:
     commands = _parse_commands(config)
     parser_mode = _parse_parser_mode(config)
     execution_mode = _parse_execution_mode(config)
@@ -135,7 +138,6 @@ def parse_run_command_config(config: dict[str, Any]) -> ParsedRunCommandConfig:
         )
 
     return ParsedRunCommandConfig(
-        credential_reference="",
         commands=commands,
         parser_mode=parser_mode,
         network_driver_override=str(config.get("network_driver_override") or "").strip() or None,
@@ -150,4 +152,6 @@ def parse_run_command_config(config: dict[str, Any]) -> ParsedRunCommandConfig:
         fail_on_cli_error=parse_bool_flag(config, "fail_on_cli_error", default=True),
         dry_run=dry_run,
         retry=parse_retry_backoff_seconds(config, step_id=STEP_ID),
+        # last, so every other config error is reported first
+        credential_reference=credential_reference(config, run_inputs),
     )

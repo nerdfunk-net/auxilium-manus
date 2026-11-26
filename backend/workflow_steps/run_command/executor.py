@@ -7,7 +7,6 @@ TextFSM/Genie normalisation in ``enrichment``. This module resolves credentials 
 from __future__ import annotations
 
 import logging
-from dataclasses import replace
 from typing import Any
 
 from core.models.runs import WorkflowRun
@@ -18,7 +17,6 @@ from services.network.netmiko.session_pool import DeviceSessionPool
 from workflow_steps.common.credential_resolver import resolve_ssh_credential
 from workflow_steps.common.device_outcomes import build_outcomes
 from workflow_steps.common.run_logging import log_run_id
-from workflow_steps.common.run_param_reference import resolve_config_reference
 from workflow_steps.common.run_session import require_session
 from workflow_steps.run_command.config_mode import run_config_mode
 from workflow_steps.run_command.enrichment import enrich_with_genie, enrich_with_textfsm
@@ -70,16 +68,7 @@ async def execute(
     node_id: str,
     device_sessions: DeviceSessionPool,
 ) -> list[StepOutcome]:
-    parsed = replace(
-        parse_run_command_config(config),
-        credential_reference=resolve_config_reference(
-            config,
-            source_key="credential_source",
-            param_key="credential_param",
-            literal_key="credential_reference",
-            run_inputs=run.run_inputs,
-        ),
-    )
+    parsed = parse_run_command_config(config, run.run_inputs)
 
     if not context.devices:
         return [StepOutcome(name="success", context=context)]

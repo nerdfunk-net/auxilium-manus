@@ -7,7 +7,7 @@ import hashlib
 import logging
 import os
 import tempfile
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from typing import Any
 
 from core.models.runs import WorkflowRun
@@ -43,7 +43,7 @@ from workflow_steps.common.device_runner import Fail, run_per_device
 from workflow_steps.common.device_type import connection_device_type
 from workflow_steps.common.failure_records import INVALID_INPUT, MISSING_DATA
 from workflow_steps.common.run_logging import log_run_id
-from workflow_steps.common.run_param_reference import resolve_config_reference
+from workflow_steps.common.run_param_reference import credential_reference
 from workflow_steps.common.run_session import require_session
 from workflow_steps.common.step_flags import parse_bool_flag
 
@@ -89,7 +89,9 @@ def _parse_verify_algorithm(config: dict[str, Any]) -> str:
     return value
 
 
-def _parse_upload_config(config: dict[str, Any]) -> _ParsedUploadConfig:
+def _parse_upload_config(
+    config: dict[str, Any], run_inputs: dict[str, Any] | None
+) -> _ParsedUploadConfig:
     content_source = str(config.get("content_source") or "updated_content").strip().lower()
     if content_source not in CONTENT_SOURCES:
         raise ValueError(
@@ -112,7 +114,6 @@ def _parse_upload_config(config: dict[str, Any]) -> _ParsedUploadConfig:
         raise ValueError("upload-config: file_system is required")
 
     return _ParsedUploadConfig(
-        credential_reference=str(config.get("credential_reference") or "").strip(),
         content_source=content_source,
         source_step_node_id=source_step_node_id,
         parsed_output_key=str(config.get("parsed_output_key") or "").strip() or None,
@@ -126,6 +127,8 @@ def _parse_upload_config(config: dict[str, Any]) -> _ParsedUploadConfig:
         socket_timeout=parse_socket_timeout(config, step_id=_STEP_ID),
         verify_content=parse_bool_flag(config, "verify_content"),
         verify_algorithm=_parse_verify_algorithm(config),
+        # last, so every other config error is reported first
+        credential_reference=credential_reference(config, run_inputs),
     )
 
 
@@ -316,16 +319,7 @@ async def execute(
     node_id: str,
     device_sessions: DeviceSessionPool,
 ) -> list[StepOutcome]:
-    parsed = replace(
-        _parse_upload_config(config),
-        credential_reference=resolve_config_reference(
-            config,
-            source_key="credential_source",
-            param_key="credential_param",
-            literal_key="credential_reference",
-            run_inputs=run.run_inputs,
-        ),
-    )
+    parsed = _parse_upload_config(config, run.run_inputs)
 
     db = require_session(run, "upload-config")
     username, password = resolve_ssh_credential(

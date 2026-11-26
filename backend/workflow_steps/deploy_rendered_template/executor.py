@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from typing import Any
 
 from core.models.runs import WorkflowRun
@@ -29,7 +29,7 @@ from workflow_steps.common.failure_records import INVALID_INPUT, MISSING_DATA
 from workflow_steps.common.read_timeout import parse_read_timeout
 from workflow_steps.common.retry_config import parse_retry_backoff_seconds
 from workflow_steps.common.run_logging import log_run_id
-from workflow_steps.common.run_param_reference import resolve_config_reference
+from workflow_steps.common.run_param_reference import credential_reference
 from workflow_steps.common.run_session import require_session
 from workflow_steps.common.step_flags import parse_bool_flag, record_dry_run
 from workflow_steps.deploy_rendered_template.config import get_config
@@ -64,13 +64,14 @@ def _parse_execution_mode(config: dict[str, Any]) -> str:
     return mode
 
 
-def _parse_deploy_config(config: dict[str, Any]) -> _ParsedDeployConfig:
+def _parse_deploy_config(
+    config: dict[str, Any], run_inputs: dict[str, Any] | None
+) -> _ParsedDeployConfig:
     source_step_node_id = str(config.get("source_step_node_id") or "").strip()
     if not source_step_node_id:
         raise ValueError("deploy-rendered-template: source_step_node_id is required")
 
     return _ParsedDeployConfig(
-        credential_reference=str(config.get("credential_reference") or "").strip(),
         source_step_node_id=source_step_node_id,
         parsed_output_key=str(config.get("parsed_output_key") or "").strip() or None,
         network_driver_override=str(config.get("network_driver_override") or "").strip() or None,
@@ -83,6 +84,8 @@ def _parse_deploy_config(config: dict[str, Any]) -> _ParsedDeployConfig:
         fail_on_cli_error=parse_bool_flag(config, "fail_on_cli_error", default=True),
         dry_run=parse_bool_flag(config, "dry_run"),
         retry=parse_retry_backoff_seconds(config, step_id=_STEP_ID),
+        # last, so every other config error is reported first
+        credential_reference=credential_reference(config, run_inputs),
     )
 
 
@@ -257,16 +260,7 @@ async def execute(
     node_id: str,
     device_sessions: DeviceSessionPool,
 ) -> list[StepOutcome]:
-    parsed = replace(
-        _parse_deploy_config(config),
-        credential_reference=resolve_config_reference(
-            config,
-            source_key="credential_source",
-            param_key="credential_param",
-            literal_key="credential_reference",
-            run_inputs=run.run_inputs,
-        ),
-    )
+    parsed = _parse_deploy_config(config, run.run_inputs)
 
     if not context.devices:
         return [StepOutcome(name="success", context=context)]

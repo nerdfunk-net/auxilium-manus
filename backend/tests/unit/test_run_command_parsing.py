@@ -8,7 +8,7 @@ from workflow_steps.run_command.parsing import parse_run_command_config
 
 
 def _parse(**config):
-    return parse_run_command_config(config)
+    return parse_run_command_config(config, None)
 
 
 def test_defaults() -> None:

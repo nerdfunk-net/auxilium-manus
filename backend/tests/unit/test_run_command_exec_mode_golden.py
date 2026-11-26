@@ -75,9 +75,9 @@ def _context() -> WorkflowContext:
 
 def _parsed(**changes: Any):
     base = parse_run_command_config(
-        {"credential_reference": "lab", "commands": _COMMANDS, "parser": "textfsm"}
+        {"credential_reference": "lab", "commands": _COMMANDS, "parser": "textfsm"}, None
     )
-    return replace(base, **{"credential_reference": "lab", **changes})
+    return replace(base, **changes)
 
 
 async def _call(parsed, netmiko) -> tuple[Any, Any, Any, InMemoryArtifactService]:

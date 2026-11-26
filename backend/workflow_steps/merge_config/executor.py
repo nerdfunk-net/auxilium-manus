@@ -13,7 +13,7 @@ whatever the file contains is applied on top of the running config. It always
 answers the prompt -- there is no opt-in checkbox.
 
 Reuses the Run Command backend end to end: NetmikoService / DeviceSessionPool,
-``resolve_config_reference`` + ``resolve_ssh_credential`` for credentials,
+``credential_reference`` + ``resolve_ssh_credential`` for credentials,
 ``connection_device_type`` for the Netmiko device type, ArtifactService
 for the stored transcript, and the success/failure StepOutcome shape.
 """
@@ -21,7 +21,7 @@ for the stored transcript, and the success/failure StepOutcome shape.
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from typing import Any
 
 from core.models.runs import WorkflowRun
@@ -46,7 +46,7 @@ from workflow_steps.common.failure_records import INVALID_INPUT
 from workflow_steps.common.read_timeout import parse_read_timeout
 from workflow_steps.common.retry_config import parse_retry_backoff_seconds
 from workflow_steps.common.run_logging import log_run_id
-from workflow_steps.common.run_param_reference import resolve_config_reference
+from workflow_steps.common.run_param_reference import credential_reference
 from workflow_steps.common.run_session import require_session
 from workflow_steps.common.step_flags import parse_bool_flag
 from workflow_steps.merge_config.config import get_config
@@ -67,12 +67,13 @@ class _ParsedMergeConfig:
     retry: RetryPolicy
 
 
-def _parse_merge_config(config: dict[str, Any]) -> _ParsedMergeConfig:
+def _parse_merge_config(
+    config: dict[str, Any], run_inputs: dict[str, Any] | None
+) -> _ParsedMergeConfig:
     source_filename = str(config.get("source_filename") or "").strip()
     if not source_filename:
         raise ValueError(f"{_STEP_ID}: source_filename is required")
     return _ParsedMergeConfig(
-        credential_reference="",
         source_filename=parse_device_token(
             source_filename, name="source_filename", step_id=_STEP_ID
         ),
@@ -82,6 +83,8 @@ def _parse_merge_config(config: dict[str, Any]) -> _ParsedMergeConfig:
         ),
         fail_on_cli_error=parse_bool_flag(config, "fail_on_cli_error", default=True),
         retry=parse_retry_backoff_seconds(config, step_id=_STEP_ID),
+        # last, so every other config error is reported first
+        credential_reference=credential_reference(config, run_inputs),
     )
 
 
@@ -177,16 +180,7 @@ async def execute(
     node_id: str,
     device_sessions: DeviceSessionPool,
 ) -> list[StepOutcome]:
-    parsed = replace(
-        _parse_merge_config(config),
-        credential_reference=resolve_config_reference(
-            config,
-            source_key="credential_source",
-            param_key="credential_param",
-            literal_key="credential_reference",
-            run_inputs=run.run_inputs,
-        ),
-    )
+    parsed = _parse_merge_config(config, run.run_inputs)
 
     if not context.devices:
         return [StepOutcome(name="success", context=context)]
