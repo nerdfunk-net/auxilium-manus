@@ -1,7 +1,6 @@
 """Integration test: NetmikoService against a real DeviceSessionPool reuses one
-session across multiple calls with the same key — see the "normal linear run,
-2 SSH steps, same credential" row of the lifecycle matrix in
-doc/DURABLE_SSH_SESSION.md §6."""
+session across multiple calls with the same key (a linear run, two SSH steps, one
+credential) — doc/WORKFLOW-STEPS.md "Device sessions", reuse."""
 
 from __future__ import annotations
 

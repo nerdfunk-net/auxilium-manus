@@ -2,8 +2,9 @@
 
 Posts one message per step execution to a Mattermost channel, resolved via a
 configured Mattermost source, team name, and channel name. ``message``
-supports two run-level placeholders that don't come from any single device
--- ``{devices}`` (comma-joined device names) and ``{device_count}`` -- plus
+supports three run-level placeholders that don't come from any single device
+-- ``{devices}`` (comma-joined device names), ``{device_count}`` and
+``{run_summary}`` (see ``common/run_message_template.py``) -- plus
 ``{path.to.value}`` placeholders resolved per device (same mechanism as
 ``notify``/``log-message``). When the message contains a per-device
 placeholder and ``context.devices`` holds more than one device, the

@@ -265,7 +265,7 @@ async def _dispatch_children(
     No StepRunner/DeviceSessionPool is held across this function: the
     orchestrator itself never opens device sessions during dispatch, so there
     is nothing to suspend before the approval-gate waits — children own their
-    own pools (see doc/DURABLE_SSH_SESSION.md §3.5, §5.5 item 4).
+    own pools (doc/WORKFLOW-STEPS.md "Device sessions", fan-out boundary).
     """
     plan = _parse_fan_out_dispatch(signal)
 

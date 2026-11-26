@@ -3,7 +3,7 @@
 Every public method leaves the session in privileged-exec base state (config
 mode always exited, no pending interactive prompts) before returning, so a
 pooled session is always safe for a later step to reuse — see
-doc/DURABLE_SSH_SESSION.md §3.4.
+doc/WORKFLOW-STEPS.md "Device sessions".
 """
 
 from __future__ import annotations

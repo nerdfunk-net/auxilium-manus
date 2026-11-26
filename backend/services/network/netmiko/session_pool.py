@@ -5,7 +5,7 @@ walk, a phase-4 post-join resume, or a fan-out child). Not shared across
 Hatchet task invocations. All public methods are asyncio-safe; blocking
 Netmiko I/O runs on the pool's private thread executor.
 
-Invariant (see doc/DURABLE_SSH_SESSION.md §3.4): every ``op`` passed to
+Invariant (doc/WORKFLOW-STEPS.md "Device sessions"): every ``op`` passed to
 ``run_on_device`` must leave the session in privileged-exec base state
 (config mode always exited, no pending interactive prompts) before
 returning, since a later call may reuse the same live session.
@@ -14,7 +14,7 @@ Login probes (``probe_login``) are a separate, disposable code path: they
 never read, lock, or mutate an existing pooled entry, and the probe session
 is never inserted into ``_sessions``. This lets a step confirm a fresh SSH
 login without tearing down a pooled session a later rollback step may still
-need — see doc/refactoring/FORCE_SSH_LOGIN.md.
+need (doc/WORKFLOW-STEPS.md "Device sessions", login probe).
 """
 
 from __future__ import annotations
@@ -200,8 +200,8 @@ class DeviceSessionPool:
         Does not read, lock, mutate, or replace any pooled session for this
         host — the probe session is never stored in ``_sessions``. Used by
         ``login-successful`` to guarantee a real new authentication even when
-        a live pooled session already exists for the same key (see
-        doc/DURABLE_SSH_SESSION.md §11 and doc/refactoring/FORCE_SSH_LOGIN.md).
+        a live pooled session already exists for the same key (doc/WORKFLOW-STEPS.md
+        "Device sessions", login probe).
         """
         _check_host(host)
         loop = asyncio.get_running_loop()

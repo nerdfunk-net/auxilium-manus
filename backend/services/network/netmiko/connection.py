@@ -423,8 +423,8 @@ class NetmikoDeviceSession:
     def check_config_mode(self) -> bool:
         """True when the session is currently sitting in config mode.
 
-        Used by DeviceSessionPool's debug-only post-op guard (see
-        doc/DURABLE_SSH_SESSION.md §7) to catch an executor that left a
+        Used by DeviceSessionPool's debug-only post-op guard (doc/WORKFLOW-STEPS.md
+        "Device sessions", invariant) to catch an executor that left a
         pooled session in a non-base state.
         """
         try:
@@ -666,7 +666,7 @@ class NetmikoDeviceSession:
 
         The session is always left at the base prompt on return (or, on the
         exception path, left for the pool to reconnect lazily) so a later step
-        can safely reuse it -- see doc/DURABLE_SSH_SESSION.md.
+        can safely reuse it -- see doc/WORKFLOW-STEPS.md "Device sessions".
         """
         self.connect()
         command = f"copy {source_filename} running-config"

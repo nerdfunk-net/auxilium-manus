@@ -2,7 +2,7 @@
 
 Notification steps (``notify-mattermost``, ``send-mail``) send *one* message per
 step execution, not one per device. On top of the per-device
-``{path.to.value}`` placeholders (see ``placeholder_template``) they support two
+``{path.to.value}`` placeholders (see ``placeholder_template``) they support three
 run-level placeholders that don't belong to any single device:
 
 * ``{devices}`` -- comma-joined device names

@@ -80,7 +80,7 @@ class StepRunner:
     Owns a ``DeviceSessionPool`` (``self.device_sessions``) scoped to that
     segment. Ownership rule: whoever instantiates ``StepRunner`` must
     ``finally: await runner.close_device_sessions()`` — see
-    doc/DURABLE_SSH_SESSION.md §5.4/§5.5/§5.6 for the call sites.
+    doc/WORKFLOW-STEPS.md "Device sessions" for the three call sites.
     """
 
     def __init__(self, db: Session) -> None:

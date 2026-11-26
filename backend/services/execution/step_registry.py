@@ -7,7 +7,7 @@ Each executor lives in workflow_steps/{step_dir}/executor.py and must expose:
     ) -> list[StepOutcome]: ...
 
 ``device_sessions`` is a run-segment-scoped ``DeviceSessionPool`` (see
-services/network/netmiko/session_pool.py and doc/DURABLE_SSH_SESSION.md).
+services/network/netmiko/session_pool.py and doc/WORKFLOW-STEPS.md "Device sessions").
 Non-SSH executors take it but never use it — import ``DeviceSessionPool``
 under ``TYPE_CHECKING`` for those; SSH executors pass it to
 ``NetmikoService(pool=device_sessions)``.

@@ -730,7 +730,7 @@ A rejected query or filter (`*ValidationError`) is a configuration error and rai
 `notify-on-error` posts at most `max_messages` (default 20) Mattermost messages per execution, then
 one summary post; local notification rows are not capped. `notify` writes at most 100 rows plus a
 final "... and N more devices" row. `notify-mattermost` cuts a post above 15 000 characters instead of
-failing it. The run-level placeholders `{devices}` / `{device_count}` of the notification steps are
+failing it. The run-level placeholders `{devices}` / `{device_count}` / `{run_summary}` of the notification steps are
 substituted last, so a device named `{device.hostname}` is printed, not evaluated. `collect-statistics`
 replaces its `(run, node, device)` rows on a re-execution, so a Hatchet retry does not double them.
 `notify` and `notify-on-error` do the same: `notifications.node_id` (added by `AutoSchemaMigration`; NULL on
@@ -1474,50 +1474,60 @@ packages from outside `StepRunner` / `STEP_REGISTRY`.
 
 ### Device sessions
 
-**Full design:** `doc/DURABLE_SSH_SESSION.md`.
+This section is the contract of `DeviceSessionPool` (`services/network/netmiko/session_pool.py`); the code comments
+that speak of the pool refer to it.
 
-SSH steps (`run-command`, `get-device-configs`, `deploy-rendered-template`,
-`merge-config`) share
-live Netmiko sessions across steps within one execution segment (a phase-1 walk,
-a phase-4 post-join resume, or a fan-out child) via `DeviceSessionPool`
-(`services/network/netmiko/session_pool.py`). `StepRunner` owns one pool per
-segment and injects it into every executor call as `device_sessions`.
+**Who uses the pool.** Eight steps open SSH sessions through it: `run-command` (Run Command), `get-device-configs` (Get
+Configs), `deploy-rendered-template` (Deploy rendered Template), `merge-config` (Merge Config), `upload-config`
+(Upload Config), `upload-binary` (Upload Binary), `collect-client-data` (Collect Client Data) and `discover-network`
+(Discover Network). `login-successful` (Login Successful) uses the pool's disposable probe only (below). An SSH step
+passes the pool on as `NetmikoService(pool=device_sessions)`; a non-SSH step takes the `device_sessions` argument and
+never uses it (import `DeviceSessionPool` under `TYPE_CHECKING`).
 
-Key points for step authors:
+**Scope and ownership.** One pool per execution segment: a phase-1 walk (`hatchet/workflows/workflow_run/phase1.py`),
+a phase-4 post-join resume (`workflow_run/aggregation.py`) or a fan-out child (`hatchet/workflows/device_group_execution.py`).
+`StepRunner` creates it and injects it into every executor call as `device_sessions`; whoever creates the `StepRunner`
+calls `await runner.close_device_sessions()` in a `finally` (those three call sites). Never keep `device_sessions` or a
+session object beyond the `execute()` call.
 
-- Pooling is transparent — a step that targets the same device + credential as
-  an earlier step in the same segment silently reuses the socket. No canvas/UI
-  change is required.
-- **Invariant:** an executor must leave a pooled session in privileged-exec base
-  state before returning (config mode always exited, no pending interactive
-  prompts). A later step may reuse the same live session, so leaving it mid-prompt
-  or in config mode corrupts the next step's command.
-- **Fan-out boundary:** sessions never cross a Hatchet parent→child task
-  boundary. Each fan-out child gets its own pool; a workflow that SSHes to
-  devices both before and inside a fanned-out branch pays one extra login per
-  device at the boundary — rare by construction, accepted.
-- **Suspend:** `DeviceSessionPool.suspend()` disconnects every live session
-  but keeps the pool usable (the next network step reconnects lazily) —
-  `close()` calls it internally. Nothing in `StepRunner` calls it directly
-  today; its only call site was the per-node debug-mode pause, which has
-  been removed (see [Fan-out execution](#fan-out-execution) for the
-  `stop-here` step that replaced it for mid-run inspection).
-- Never store `device_sessions` or a session object beyond the `execute()` call
-  — the pool is scoped to the segment and closed by its owner in a `finally`
-  once the segment ends.
-- `login-successful` is the one exception to transparent reuse: it always
-  opens a disposable side connection (`DeviceSessionPool.probe_login`) to
-  force a real new authentication, and never reads, locks, or mutates a
-  pooled session — see `doc/refactoring/FORCE_SSH_LOGIN.md`. Pooled sessions
-  for the same device stay open throughout, so a failed probe still leaves a
-  live session available for a rollback step.
-- Emergency rollback: `settings.netmiko_session_pooling = False` restores the
-  legacy fresh-session-per-call behavior without a code change.
-- `run-command`'s `execution_mode: "config_mode"` branch calls the exact same
-  `NetmikoService.deploy_config()` codepath as `deploy-rendered-template`, so it
-  inherits the same base-state-on-return guarantee (`exit_config_mode()` always
-  runs, including after a mid-loop `auto_confirm_prompts` confirmation) without
-  any new code.
+**Reuse.** A session is keyed by `(host, device_type, credential_reference)`: the credential's name, never the
+username or password, so no secret is part of a key or a log line. A step that reaches the same device with the same
+credential as an earlier step of the segment reuses the live socket; no canvas or UI change is needed. The pool checks
+the host policy (`core.safe_hosts.validate_inventory_host`) before any session exists.
+
+**Invariant.** `run_on_device(op=...)` is the only way to touch a pooled session: it takes the session's lock, connects
+or reconnects lazily (the `retry` policy applies to the connect only, never to `op`), runs `op` on the pool's thread
+executor and releases. Every `op`, and every public `NetmikoService` method, must leave the session in privileged-exec
+base state: config mode exited and no interactive prompt pending, also after an error, because the next step may get
+the same live session. With `debug=True` the pool checks `check_config_mode()` after the `op` and logs a warning when a
+step left config mode open. `run-command` in `config_mode` uses the same `NetmikoService.deploy_config()` path as
+`deploy-rendered-template` and so inherits the guarantee; `merge_running_config` leaves the session at the base prompt
+or, on an error, to be reconnected on the next use.
+
+**Fan-out boundary.** Sessions never cross a Hatchet parent-to-child task boundary: each fan-out child has its own
+pool, and the orchestrator opens no session while it dispatches the children, so there is nothing to suspend before
+a Wait & Run approval gate. A workflow that logs into a device both before and inside a fanned-out branch pays one
+extra login per device at the boundary: rare by construction, accepted.
+
+**Cancellation.** A cancelled step does not detach the pool from the thread that still uses the session:
+`suspend()`, `close()` and `close_host()` wait up to 60 s for that operation before they disconnect.
+
+**Ending sessions early.**
+- `suspend()` disconnects every live session but keeps the pool usable (the next use reconnects); `close()` calls it.
+  Nothing calls it directly today (its only caller, the per-node debug pause, was replaced by `stop-here`, see
+  [Fan-out execution](#fan-out-execution)).
+- `close_host(host)` disconnects and forgets every session of one host. `discover-network` logs each visited device out
+  when its visit is done instead of holding the socket until the segment ends; a later use of the host connects again.
+
+**Login probe.** `login-successful` must prove a real new authentication even when a live pooled session for the same
+key exists. `probe_login()` opens a disposable session, checks it is alive and disconnects; it never reads, locks or
+replaces a pooled session, so a failed probe still leaves the pooled session for a rollback step.
+
+**Switching pooling off.** `NETMIKO_SESSION_POOLING=false` (`settings.netmiko_session_pooling`) restores a fresh
+session per call (connect, use once, disconnect) without a code change.
+
+Tests: `tests/unit/test_device_session_pool.py` (the pool), `test_netmiko_service_pool_integration.py` (two calls with
+the same key reuse one session), `test_step_real_session_pool*.py` (each SSH step against a real pool and a fake session).
 
 ### Calling pyATS from a step
 
@@ -1536,6 +1546,16 @@ response = await shim.run_job(
     credentials, operation="parse", devices=[...], commands=[...],
 )
 ```
+
+The snippet shows one shim call. **A step that runs the same operation on many devices does not call `run_job()`
+per device:** it uses `workflow_steps/common/pyats_batch.py::run_batched`, which groups the devices by pyATS source,
+cuts them into chunks (`DEFAULT_CHUNK_SIZE` 5; the job timeout grows with the chunk), calls `run_job()` once per chunk
+and runs at most as many chunks at once as the shim's `/health/pyats` limit allows. A failed chunk (network error,
+timeout, rejected request) fails only the devices of that chunk. `get-pyats-running-config` (Get & Parse Config) and
+`get-pyats-snapshot` (Get Snapshot) use it. Two steps call the shim directly on purpose:
+`compare-pyats-snapshot` (Compare Snapshot) calls `/v1/diff`, not a job, and `configure-replace-config`
+(Configure Replace Config) runs up to three strictly ordered jobs per device on one CLI session
+(`configure_replace_config/shim_jobs.py`).
 
 Full shim HTTP contract, job/easypy execution model, and container
 architecture: **doc/PYATS_INTEGRATION.md**.

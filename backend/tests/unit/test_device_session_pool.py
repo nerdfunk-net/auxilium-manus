@@ -1,4 +1,4 @@
-"""Tests for DeviceSessionPool (see doc/DURABLE_SSH_SESSION.md §4, §8).
+"""Tests for DeviceSessionPool (contract: doc/WORKFLOW-STEPS.md "Device sessions").
 
 Uses a fake NetmikoDeviceSession (patched in for
 ``services.network.netmiko.session_pool.NetmikoDeviceSession``) so these are
