@@ -103,6 +103,9 @@ python -m pytest
 # Workflow-step tests share builders and typed fakes (tests/unit/_step_helpers.py: make_run /
 # make_pool reject attributes the real object lacks, strict_xfail marks a test that documents a
 # known defect and must carry its finding id; tests/unit/test_strict_xfail_hygiene.py enforces it).
+# A test that patches a common/ helper or the step's own private function is re-pointed when that
+# helper is refactored: replace the patch by a fake with the real contract in _step_helpers.py
+# (FakeNautobotGraphQL runs the real device resolver; test_nautobot_writers_real_resolver.py).
 # Every run records branches (branch = true in pyproject.toml, so the 81 % gate counts statements
 # and branches together). After the full run, the branch ratchet of the steps (guard 11: fails below
 # BRANCH_FLOOR, and one point or more above it, then raise the floor):

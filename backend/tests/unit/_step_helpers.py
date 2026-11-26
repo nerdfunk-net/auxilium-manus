@@ -9,6 +9,9 @@ Adopt it in the files a refactoring touches; there is no mass rewrite of the old
   ``spec`` mock; it patches the name in the step module (or modules) that calls it.
 * ``strict_xfail`` marks a test that fails on today's code because of a known finding; it
   turns into a plain test when the fix lands (``strict=True``: an unexpected pass fails).
+* ``FakeNautobotGraphQL`` answers the device lookups of ``common/nautobot_resolve.py`` (name,
+  case-insensitive name, primary IPv4) from a list of devices, so a step test runs the real
+  resolver instead of patching ``resolve_nautobot_device_id`` (W13-06).
 """
 
 from __future__ import annotations
@@ -160,3 +163,37 @@ def settle(
 def strict_xfail(finding: str, why: str) -> pytest.MarkDecorator:
     """Mark a test that documents a known defect; ``finding`` is the W-report id (guard 12)."""
     return pytest.mark.xfail(strict=True, reason=f"{finding}: {why}")
+
+
+class FakeNautobotGraphQL:
+    """The GraphQL side of a Nautobot source with the given devices (``id``, ``name``,
+    optional ``primary_ip4`` without mask). Unknown queries fail loudly; every call must be
+    ``strict`` like the real resolver's."""
+
+    def __init__(self, devices: Iterable[dict[str, str]]) -> None:
+        self.devices = list(devices)
+        self.queries: list[str] = []
+
+    async def graphql_query(
+        self, query: str, variables: dict[str, Any], credentials: Any, *, strict: bool = False
+    ) -> dict[str, Any]:
+        assert strict, "the device resolver always queries strictly"
+        if "devices(name__ie:" in query:
+            self.queries.append("name__ie")
+            wanted = {name.casefold() for name in variables["names"]}
+            found = [d for d in self.devices if d["name"].casefold() in wanted]
+            return {"data": {"devices": [_id_and_name(d) for d in found]}}
+        if "devices(name:" in query:
+            self.queries.append("name")
+            found = [d for d in self.devices if d["name"] in variables["names"]]
+            return {"data": {"devices": [_id_and_name(d) for d in found]}}
+        if "primary_ip4_for" in query:
+            self.queries.append("primary_ip4")
+            (address,) = variables["address"]
+            owners = [_id_and_name(d) for d in self.devices if d.get("primary_ip4") == address]
+            return {"data": {"ip_addresses": [{"address": address, "primary_ip4_for": owners}]}}
+        raise AssertionError(f"unexpected query: {query[:60]!r}")
+
+
+def _id_and_name(device: dict[str, str]) -> dict[str, str]:
+    return {"id": device["id"], "name": device["name"]}
