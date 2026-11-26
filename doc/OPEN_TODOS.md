@@ -721,6 +721,9 @@ The five worst functions were split into phase helpers (all behaviour covered by
 `_process_one_device`, `run_git_workflow_step` and `open_change_request.execute` (long signatures,
 docstrings and metadata dicts); split further when those files are next touched. Q10 (`DeviceCommonService`
 pass-throughs, `InterfaceManagerService`, `DeviceUpdateService.update_device`, `GitService.push`) is untouched.
+Since 2026-11-26 `backend/tests/unit/test_step_function_length_ratchet.py` pins the functions of
+`workflow_steps` over 50 lines per file (181 in 121 files): the count may only fall, and a split
+must lower the entry.
 
 
 ---

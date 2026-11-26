@@ -103,8 +103,12 @@ python -m pytest
 # Workflow-step tests share builders and typed fakes (tests/unit/_step_helpers.py: make_run /
 # make_pool reject attributes the real object lacks, strict_xfail marks a test that documents a
 # known defect and must carry its finding id; tests/unit/test_strict_xfail_hygiene.py enforces it).
-# Branch coverage of the steps (a report, not a gate; statement coverage is the ratchet):
-python -m pytest --cov=workflow_steps --cov-branch --cov-report=term-missing:skip-covered --cov-fail-under=0 -q
+# Every run records branches (branch = true in pyproject.toml, so the 81 % gate counts statements
+# and branches together). After the full run, the branch ratchet of the steps (guard 11: fails below
+# BRANCH_FLOOR, and one point or more above it, then raise the floor):
+python scripts/check_branch_coverage.py
+# Per-file branch report of the steps:
+python -m pytest --cov=workflow_steps --cov-report=term-missing:skip-covered --cov-fail-under=0 -q
 
 # CI checks (run locally before pushing):
 pip-audit -r requirements.txt -r requirements-dev.txt --ignore-vuln PYSEC-2026-2858
@@ -118,7 +122,12 @@ python -m pytest tests/integration -m "not mutations" --no-cov
 python -m pytest tests/integration -m mutations --no-cov --run-mutations
 
 # CI (.github/workflows/backend-ci.yml) runs ruff, pyright (advisory), pip-audit, the guards and
-# pytest with the coverage ratchet; run the same locally before pushing.
+# pytest with the coverage ratchet, then scripts/check_branch_coverage.py; run the same locally
+# before pushing. Structure ratchets of the steps live in tests/unit (two-sided: no new violation,
+# no stale legacy entry): private outcome helpers, DeviceError/wrapper failure records,
+# object_session, import boundaries, strict-xfail hygiene, sealed envelopes only via seal_secret,
+# functions over 50 lines (test_step_function_length_ratchet.py), common/ symbols without a
+# production user, and registry / dispatch table / packages / frontend loaders in step.
 # Other workflows: docker-ci.yml (docker/check-compose.sh, docker/check-image.sh: run them locally
 # after a change under docker/), audit.yml (weekly pip-audit and npm audit), secret-scan.yml
 # (gitleaks with .gitleaks.toml: gitleaks detect --source . --no-git --redact -v).

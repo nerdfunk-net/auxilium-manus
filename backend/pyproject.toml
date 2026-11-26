@@ -52,6 +52,9 @@ markers = [
 
 [tool.coverage.run]
 source = ["."]
+# Branch data feeds scripts/check_branch_coverage.py (guard 11: workflow_steps may only rise);
+# the --cov-fail-under total above then counts statements and branches together.
+branch = true
 omit = ["tests/*", "migrations/*", "scripts/*", ".venv/*"]
 
 [tool.coverage.report]

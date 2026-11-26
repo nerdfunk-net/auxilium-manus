@@ -109,6 +109,9 @@ jobs:
           # Executors must not mutate their input context (DN-D, branches share contexts).
           MANUS_STRICT_CONTEXT: "1"
         run: python -m pytest
+      # Reads the .coverage of the run above (branch = true in pyproject.toml); no second run.
+      - name: workflow_steps branch coverage ratchet
+        run: python scripts/check_branch_coverage.py
 
   integration-postgres:
     # The unit job runs on SQLite, which turns the partial unique indexes into full ones and has no
