@@ -1,6 +1,6 @@
 """Default configuration for the update-nautobot-device step."""
 
-from workflow_steps.common.redundancy_groups_config import default_redundancy_groups
+from workflow_steps.common.redundancy_groups import default_redundancy_groups
 
 
 def get_config() -> dict:

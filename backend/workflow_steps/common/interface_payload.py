@@ -89,6 +89,99 @@ def normalize_interfaces(
     return normalized
 
 
+def _prefix_suffix(default_prefix_length: str) -> str:
+    """``"/24"`` for ``"24"`` or ``"/24"``: what a bare bag address gets appended."""
+    if default_prefix_length.startswith("/"):
+        return default_prefix_length
+    return f"/{default_prefix_length.lstrip('/')}"
+
+
+def _basic_fields(item: dict[str, Any], name: str) -> dict[str, Any]:
+    """Name, type, description, status and enabled, as far as the bag has them."""
+    iface: dict[str, Any] = {"name": name}
+    iface_type = strip_empty(item.get("type"))
+    if iface_type:
+        iface["type"] = iface_type
+    description = strip_empty(item.get("description"))
+    if description:
+        iface["description"] = description
+    status = item.get("status")
+    status_name = strip_empty(status.get("name") if isinstance(status, dict) else status)
+    if status_name:
+        iface["status"] = status_name
+    enabled = item.get("enabled")
+    if isinstance(enabled, bool):
+        iface["enabled"] = enabled
+    return iface
+
+
+def _clean_vlans(iface: dict[str, Any], item: dict[str, Any]) -> None:
+    """Untagged VLAN, LAG and tagged VLANs.
+
+    Each may be a pre-resolved Nautobot UUID or a raw value (a vid, an interface name such as
+    ``Port-channel10``): resolution and creation happen downstream, at Nautobot write time, so
+    they pass through as they are; only the empty markers (``None``, ``""``, ``"none"``) go.
+    """
+    untagged_vlan = item.get("untagged_vlan")
+    if untagged_vlan and untagged_vlan != "none":
+        iface["untagged_vlan"] = untagged_vlan
+    lag = item.get("lag")
+    if lag and lag != "none":
+        iface["lag"] = lag
+    tagged_vlans = item.get("tagged_vlans")
+    if isinstance(tagged_vlans, list):
+        cleaned = [v for v in tagged_vlans if v not in (None, "", "none")]
+        if cleaned:
+            iface["tagged_vlans"] = cleaned
+
+
+def _clean_ip_addresses(raw: Any, suffix: str) -> list[dict[str, Any]]:
+    """The bag's addresses (dicts or bare text), with ``suffix`` on an address without a length,
+    the namespace (``Global`` when the bag names none), the role and the primary flag."""
+    if not isinstance(raw, list):
+        return []
+    addresses: list[dict[str, Any]] = []
+    for ip_item in raw:
+        is_dict = isinstance(ip_item, dict)
+        address = strip_empty(ip_item.get("address") if is_dict else ip_item)
+        if not address:
+            continue
+        if "/" not in address:
+            address = f"{address}{suffix}"
+        namespace = (ip_namespace_name(ip_item) if is_dict else None) or "Global"
+        entry: dict[str, Any] = {"address": address, "namespace": namespace}
+        if is_dict:
+            ip_role = strip_empty(ip_item.get("ip_role"))
+            if ip_role and ip_role != "none":
+                entry["ip_role"] = ip_role
+            if ip_item.get("is_primary"):
+                entry["is_primary"] = True
+        addresses.append(entry)
+    return addresses
+
+
+def _bag_interface(item: Any, suffix: str) -> dict[str, Any] | None:
+    """One interface of the bag as the write expects it, or ``None`` for an entry without a name."""
+    if not isinstance(item, dict):
+        return None
+    name = strip_empty(item.get("name"))
+    if not name:
+        return None
+    iface = _basic_fields(item, name)
+    # mac_address, mtu, mode, port_type, speed, duplex, vrf (normalized to Nautobot's forms)
+    apply_normalized_fields(iface, item)
+    _clean_vlans(iface, item)
+    addresses = _clean_ip_addresses(item.get("ip_addresses"), suffix)
+    if addresses:
+        iface["ip_addresses"] = addresses
+    redundancy_groups = redundancy_groups_from_bag(
+        item.get("interface_redundancy_groups"), iface.get("ip_addresses", [])
+    )
+    if redundancy_groups:
+        iface["interface_redundancy_groups"] = redundancy_groups
+    return iface
+
+
 def interfaces_from_nautobot_bag(
     bag: dict[str, Any] | None, *, default_prefix_length: str
 ) -> list[dict[str, Any]]:
@@ -99,105 +192,15 @@ def interfaces_from_nautobot_bag(
     interfaces the bag actually has, each with however many IPs it has. The plural
     ``ip_addresses`` shape is passed straight through to
     ``InterfaceManagerService.update_device_interfaces``, which already supports
-    multiple IPs per interface (see ``interface.get("ip_addresses", [])`` there) —
-    no new backend service support was needed for this.
+    multiple IPs per interface (see ``interface.get("ip_addresses", [])`` there).
     """
     if not isinstance(bag, dict):
         return []
     raw_interfaces = bag.get("interfaces")
     if not isinstance(raw_interfaces, list):
         return []
-
-    suffix = (
-        default_prefix_length
-        if default_prefix_length.startswith("/")
-        else f"/{default_prefix_length.lstrip('/')}"
-    )
-
-    interfaces: list[dict[str, Any]] = []
-    for item in raw_interfaces:
-        if not isinstance(item, dict):
-            continue
-        name = strip_empty(item.get("name"))
-        if not name:
-            continue
-
-        iface: dict[str, Any] = {"name": name}
-
-        iface_type = strip_empty(item.get("type"))
-        if iface_type:
-            iface["type"] = iface_type
-
-        description = strip_empty(item.get("description"))
-        if description:
-            iface["description"] = description
-
-        status = item.get("status")
-        status_name = strip_empty(status.get("name") if isinstance(status, dict) else status)
-        if status_name:
-            iface["status"] = status_name
-
-        enabled = item.get("enabled")
-        if isinstance(enabled, bool):
-            iface["enabled"] = enabled
-
-        # mac_address, mtu, mode, port_type, speed, duplex, vrf (normalized to Nautobot's forms)
-        apply_normalized_fields(iface, item)
-
-        # untagged_vlan may be a pre-resolved Nautobot VLAN UUID or a raw vid
-        # (int) — resolution/creation happens downstream, at Nautobot write
-        # time, so it is passed through as-is here.
-        untagged_vlan = item.get("untagged_vlan")
-        if untagged_vlan and untagged_vlan != "none":
-            iface["untagged_vlan"] = untagged_vlan
-
-        # lag may be a pre-resolved Nautobot interface UUID or a raw
-        # interface name (e.g. "Port-channel10") — resolved downstream,
-        # at Nautobot write time, against the same device's interfaces.
-        lag = item.get("lag")
-        if lag and lag != "none":
-            iface["lag"] = lag
-
-        # tagged_vlans entries may be pre-resolved Nautobot VLAN UUIDs or raw
-        # vids (int) — resolved/created downstream, at Nautobot write time,
-        # same as untagged_vlan above.
-        tagged_vlans = item.get("tagged_vlans")
-        if isinstance(tagged_vlans, list):
-            cleaned_tagged_vlans = [v for v in tagged_vlans if v not in (None, "", "none")]
-            if cleaned_tagged_vlans:
-                iface["tagged_vlans"] = cleaned_tagged_vlans
-
-        raw_ip_addresses = item.get("ip_addresses")
-        if isinstance(raw_ip_addresses, list):
-            addresses: list[dict[str, Any]] = []
-            for ip_item in raw_ip_addresses:
-                is_dict = isinstance(ip_item, dict)
-                address = strip_empty(ip_item.get("address") if is_dict else ip_item)
-                if not address:
-                    continue
-                if "/" not in address:
-                    address = f"{address}{suffix}"
-                namespace = (ip_namespace_name(ip_item) if is_dict else None) or "Global"
-                entry: dict[str, Any] = {"address": address, "namespace": namespace}
-                if is_dict:
-                    ip_role = strip_empty(ip_item.get("ip_role"))
-                    if ip_role and ip_role != "none":
-                        entry["ip_role"] = ip_role
-                    if ip_item.get("is_primary"):
-                        entry["is_primary"] = True
-                addresses.append(entry)
-            if addresses:
-                iface["ip_addresses"] = addresses
-
-        redundancy_groups = redundancy_groups_from_bag(
-            item.get("interface_redundancy_groups"), iface.get("ip_addresses", [])
-        )
-        if redundancy_groups:
-            iface["interface_redundancy_groups"] = redundancy_groups
-
-        interfaces.append(iface)
-
-    return interfaces
+    suffix = _prefix_suffix(default_prefix_length)
+    return [iface for item in raw_interfaces if (iface := _bag_interface(item, suffix)) is not None]
 
 
 NEW_TYPE_MODES = frozenset({"none", "infer", "fixed"})

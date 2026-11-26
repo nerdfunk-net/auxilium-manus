@@ -351,7 +351,7 @@ become `<key>#2`), `config-to-attributes` (devices without parsed data fail), `g
   that matters.
 - **`get-nautobot-attributes` replaces the whole `nautobot` bag** of a device with what it fetched; a step that
   wrote `nautobot.*` keys earlier must run after it, not before.
-- **`config-to-attributes` structure**: the five source formats (`cisco_config_parser`, `genie`, `batfish`, `catalyst_details`, `aci_details`) are one table, `workflow_steps/config_to_attributes/formats.py` (`SOURCE_FORMATS`): where the upstream entry sits, the interface mapper, optional device fields, redundancy note and the two ACI hooks. A new format is one entry. `attributes` accepts `interfaces` and `device` only; any other entry (a stale `layer3_interfaces`, a typo) is a `ValueError` instead of a silent no-op success. The Catalyst Center and ACI mappers share `fact_common.py`.
+- **`config-to-attributes` structure**: the five source formats (`cisco_config_parser`, `genie`, `batfish`, `catalyst_details`, `aci_details`) are one table, `workflow_steps/config_to_attributes/formats.py` (`SOURCE_FORMATS`): where the upstream entry sits, the interface mapper, optional device fields, redundancy note and the two ACI hooks. A new format is one entry. `attributes` accepts `interfaces` and `device` only; any other entry (a stale `layer3_interfaces`, a typo) is a `ValueError` instead of a silent no-op success. All five mappers start an interface with `mapper_common.base_interface` and read MTU and VLAN values with `positive_int` / `vlan_id` (an MTU that is not a positive integer and a VLAN outside 1-4094 are left out); the Catalyst Center and ACI mappers also share `fact_payload` and `clean_text` there.
 - **`config-to-attributes` redundancy groups, Batfish format**: from `Interfaces.<name>.HSRP_Details` that `batfish-extract-facts` merges in from `hsrpProperties` (`doc/BATFISH_INTEGRATION.md`); same output shape, but no `name` (Batfish does not parse `standby <n> name`) and HSRP only for now (`vrrpProperties` exists but is not used yet).
 - **`config-to-attributes` redundancy groups** (`source_format: genie`, "Add Interfaces"): `standby [G] ip|priority|preempt|name`
   and legacy `vrrp G ip|priority|preempt|description` lines become `interface_redundancy_groups[]` on the interface:
@@ -838,7 +838,7 @@ other fields still apply).
   missing interface is skipped with a warning), `infer` (`infer_interface_type_from_name`) or
   `fixed` (+ `value`, lower-cased). An explicit `type` on the row wins over `type_if_new` on create.
 
-**Redundancy groups (HSRP/VRRP)** — `redundancy_groups: {enabled, name_pattern, status}` on `update-nautobot-device` and `add-to-nautobot` (parsed by `workflow_steps/common/redundancy_groups_config.py`; `add-to-nautobot` writes them after the device and its interfaces exist, through `AddDeviceRequest.redundancy_name_pattern/_status`; default off;
+**Redundancy groups (HSRP/VRRP)** — `redundancy_groups: {enabled, name_pattern, status}` on `update-nautobot-device` and `add-to-nautobot` (parsed by `workflow_steps/common/redundancy_groups.py::parse_redundancy_groups`, next to the bag reader; `add-to-nautobot` writes them after the device and its interfaces exist, through `AddDeviceRequest.redundancy_name_pattern/_status`; default off;
 `interfaces_source: nautobot_origin` only, refused otherwise). The groups come from
 `nautobot.interfaces[].interface_redundancy_groups[]` (built by `config-to-attributes` from a Genie running
 config or Batfish facts, or read by `get-nautobot-attributes`). `interfaces_from_nautobot_bag` cleans them:

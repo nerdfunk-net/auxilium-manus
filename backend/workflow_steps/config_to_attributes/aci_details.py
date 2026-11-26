@@ -30,8 +30,9 @@ from workflow_steps.common.interface_values import (
     apply_normalized_fields,
     normalize_speed_kbps,
 )
-from workflow_steps.config_to_attributes.fact_common import (
+from workflow_steps.config_to_attributes.mapper_common import (
     DEFAULT_MANUFACTURER,
+    base_interface,
     clean_text,
     fact_payload,
 )
@@ -76,14 +77,11 @@ def _build_interface(raw: dict[str, Any]) -> dict[str, Any] | None:
     # The operational speed is what the port runs at; the configured one only says what it may do.
     speed_text = clean_text(raw.get("oper_speed")) or clean_text(raw.get("speed"))
 
-    iface: dict[str, Any] = {
-        "name": name,
-        "status": "Active",
-        "enabled": str(raw.get("admin_status") or "").strip().lower() == "up",
-    }
-    description = clean_text(raw.get("description"))
-    if description:
-        iface["description"] = description
+    iface = base_interface(
+        name,
+        enabled=str(raw.get("admin_status") or "").strip().lower() == "up",
+        description=raw.get("description"),
+    )
 
     apply_normalized_fields(
         iface,

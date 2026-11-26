@@ -17,24 +17,18 @@ from typing import Any
 
 from workflow_steps.common.interface_values import (
     cidr_from_ip_and_mask,
-    infer_interface_type_from_name,
 )
-from workflow_steps.config_to_attributes.fact_common import (
+from workflow_steps.config_to_attributes.mapper_common import (
     DEFAULT_MANUFACTURER,
+    base_interface,
     clean_text,
     fact_payload,
+    positive_int,
+    vlan_id,
 )
 
 _ACCESS = "access"
 _TRUNK = "trunk"
-
-
-def _vlan(value: Any) -> int | None:
-    text = clean_text(value)
-    if text is None or not text.isdecimal():
-        return None
-    vlan = int(text)
-    return vlan or None
 
 
 def _build_interface(raw: dict[str, Any]) -> dict[str, Any] | None:
@@ -42,23 +36,18 @@ def _build_interface(raw: dict[str, Any]) -> dict[str, Any] | None:
     if name is None:
         return None
 
-    iface: dict[str, Any] = {
-        "name": name,
-        "status": "Active",
-        "type": infer_interface_type_from_name(name),
-        "enabled": str(raw.get("admin_status") or "").strip().upper() == "UP",
-    }
-
-    description = clean_text(raw.get("description"))
-    if description:
-        iface["description"] = description
+    iface = base_interface(
+        name,
+        enabled=str(raw.get("admin_status") or "").strip().upper() == "UP",
+        description=raw.get("description"),
+    )
 
     mac_address = clean_text(raw.get("mac_address"))
     if mac_address:
         iface["mac_address"] = mac_address
 
-    mtu = raw.get("mtu")
-    if isinstance(mtu, int) and not isinstance(mtu, bool) and mtu:
+    mtu = positive_int(raw.get("mtu"))
+    if mtu is not None:
         iface["mtu"] = mtu
 
     address = cidr_from_ip_and_mask(raw.get("ipv4_address"), raw.get("ipv4_mask"))
@@ -68,10 +57,10 @@ def _build_interface(raw: dict[str, Any]) -> dict[str, Any] | None:
     port_mode = (clean_text(raw.get("port_mode")) or "").lower()
     if port_mode == _ACCESS:
         iface["mode"] = _ACCESS
-        untagged = _vlan(raw.get("vlan_id"))
+        untagged = vlan_id(raw.get("vlan_id"))
     elif port_mode == _TRUNK:
         iface["mode"] = _TRUNK
-        untagged = _vlan(raw.get("native_vlan_id"))
+        untagged = vlan_id(raw.get("native_vlan_id"))
     else:
         untagged = None
     if untagged is not None:

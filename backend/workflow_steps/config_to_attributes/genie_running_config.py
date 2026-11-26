@@ -15,9 +15,9 @@ from typing import Any
 
 from workflow_steps.common.interface_values import (
     cidr_from_ip_and_mask,
-    infer_interface_type_from_name,
 )
 from workflow_steps.config_to_attributes.genie_redundancy import find_redundancy_groups
+from workflow_steps.config_to_attributes.mapper_common import base_interface, vlan_id
 
 _INTERFACE_PREFIX = "interface "
 _DESCRIPTION_RE = re.compile(r"^description\s+(.*)$", re.IGNORECASE)
@@ -69,7 +69,7 @@ def _find_access_vlan(children: dict[str, Any]) -> int | None:
     for key in children:
         match = _ACCESS_VLAN_RE.match(str(key).strip())
         if match:
-            return int(match.group(1))
+            return vlan_id(match.group(1))
     return None
 
 
@@ -79,16 +79,9 @@ def _build_interface(name: str, children: Any) -> dict[str, Any] | None:
         return None
     children = children if isinstance(children, dict) else {}
 
-    iface: dict[str, Any] = {
-        "name": name,
-        "status": "Active",
-        "type": infer_interface_type_from_name(name),
-        "enabled": not _is_shutdown(children),
-    }
-
-    description = _find_description(children)
-    if description:
-        iface["description"] = description
+    iface = base_interface(
+        name, enabled=not _is_shutdown(children), description=_find_description(children)
+    )
 
     access_vlan = _find_access_vlan(children)
     if access_vlan is not None:

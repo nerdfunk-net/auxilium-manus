@@ -32,7 +32,7 @@ from workflow_steps.common.interface_payload import (
 from workflow_steps.common.nautobot_step import bind_nautobot_client
 from workflow_steps.common.nautobot_update_fields import extract_update_fields_from_nautobot_bag
 from workflow_steps.common.partial_outcomes import NAUTOBOT_TEXT, device_error_from_exception
-from workflow_steps.common.redundancy_groups_config import (
+from workflow_steps.common.redundancy_groups import (
     DEFAULT_REDUNDANCY_STATUS,
     parse_redundancy_groups,
 )

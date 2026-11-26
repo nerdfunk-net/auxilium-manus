@@ -7,24 +7,10 @@ from typing import Any
 
 from workflow_steps.common.interface_values import (
     cidr_from_ip_and_mask,
-    infer_interface_type_from_name,
 )
+from workflow_steps.config_to_attributes.mapper_common import base_interface
 
 _VLAN_RANGE_RE = re.compile(r"^(\d+)-(\d+)$")
-
-
-def _base_interface(name: str, *, enabled: bool, description: Any = None) -> dict[str, Any]:
-    """The fields every interface of this source starts with."""
-    iface: dict[str, Any] = {
-        "name": name,
-        "status": "Active",
-        "type": infer_interface_type_from_name(name),
-        "enabled": enabled,
-    }
-    text = str(description or "").strip()
-    if text:
-        iface["description"] = text
-    return iface
 
 
 def _is_enabled(children: Any) -> bool:
@@ -38,7 +24,7 @@ def _build_interface(raw: dict[str, Any]) -> dict[str, Any] | None:
     if not name:
         return None
 
-    iface = _base_interface(
+    iface = base_interface(
         name, enabled=_is_enabled(raw.get("children")), description=raw.get("description")
     )
 
@@ -94,7 +80,7 @@ def _build_l2_access_interface(raw: dict[str, Any]) -> dict[str, Any] | None:
     if not name:
         return None
 
-    iface = _base_interface(
+    iface = base_interface(
         name, enabled=_is_enabled(raw.get("children")), description=raw.get("description")
     )
     iface["mode"] = "access"
@@ -114,7 +100,7 @@ def _build_l2_trunk_interface(raw: dict[str, Any]) -> dict[str, Any] | None:
     if not name:
         return None
 
-    iface = _base_interface(
+    iface = base_interface(
         name, enabled=_is_enabled(raw.get("children")), description=raw.get("description")
     )
     iface["mode"] = "trunk"
@@ -138,7 +124,7 @@ def _stub_interface(name: str, description: Any = None) -> dict[str, Any]:
     admin (shutdown) state cannot be recovered in this case — the library
     drops the whole interface stanza — so ``enabled`` defaults to ``True``.
     """
-    return _base_interface(name, enabled=True, description=description)
+    return base_interface(name, enabled=True, description=description)
 
 
 def _resolve_port_channel_name(port_channel: dict[str, Any]) -> str | None:

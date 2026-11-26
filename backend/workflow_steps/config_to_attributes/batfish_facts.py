@@ -18,10 +18,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from workflow_steps.common.interface_values import (
-    infer_interface_type_from_name,
-)
 from workflow_steps.config_to_attributes.genie_redundancy import vip_with_prefix
+from workflow_steps.config_to_attributes.mapper_common import base_interface, positive_int, vlan_id
 
 
 def _build_ip_addresses(iface: dict[str, Any]) -> list[dict[str, Any]]:
@@ -90,27 +88,17 @@ def _build_interface(name: str, iface: dict[str, Any]) -> dict[str, Any] | None:
     if not name:
         return None
 
-    built: dict[str, Any] = {
-        "name": name,
-        "status": "Active",
-        "type": infer_interface_type_from_name(name),
-        "enabled": bool(iface.get("Admin_Up")),
-    }
+    built = base_interface(
+        name, enabled=bool(iface.get("Admin_Up")), description=iface.get("Description")
+    )
 
-    description = iface.get("Description")
-    if isinstance(description, str) and description.strip():
-        built["description"] = description.strip()
+    mtu = positive_int(iface.get("MTU"))
+    if mtu is not None:
+        built["mtu"] = mtu
 
-    mtu = iface.get("MTU")
-    if isinstance(mtu, (int, float)) and mtu:
-        built["mtu"] = int(mtu)
-
-    access_vlan = iface.get("Access_VLAN")
-    if iface.get("Switchport_Mode") == "ACCESS" and access_vlan:
-        try:
-            vlan = int(access_vlan)
-        except TypeError, ValueError:
-            vlan = None  # a non-numeric VLAN must not fail the whole step (C2R-01)
+    if iface.get("Switchport_Mode") == "ACCESS":
+        # A non-numeric or out-of-range VLAN must not fail the whole step (C2R-01).
+        vlan = vlan_id(iface.get("Access_VLAN"))
         if vlan is not None:
             built["mode"] = "access"
             built["untagged_vlan"] = vlan

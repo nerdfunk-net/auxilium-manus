@@ -52,7 +52,7 @@ LEGACY_LONG_FUNCTIONS: dict[str, int] = {
     "workflow_steps/common/device_runner.py": 1,
     "workflow_steps/common/fact_entries.py": 1,
     "workflow_steps/common/git_workflow_step.py": 1,
-    "workflow_steps/common/interface_payload.py": 2,
+    "workflow_steps/common/interface_payload.py": 1,
     "workflow_steps/common/nautobot_object_update.py": 3,
     "workflow_steps/common/partial_outcomes.py": 1,
     "workflow_steps/common/pyats_batch.py": 2,

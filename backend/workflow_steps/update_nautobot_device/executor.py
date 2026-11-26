@@ -37,7 +37,7 @@ from workflow_steps.common.nautobot_target import (
     parse_identifier_mode,
 )
 from workflow_steps.common.partial_outcomes import NAUTOBOT_TEXT, device_error_from_exception
-from workflow_steps.common.redundancy_groups_config import (
+from workflow_steps.common.redundancy_groups import (
     DEFAULT_REDUNDANCY_STATUS,
     parse_redundancy_groups,
 )
