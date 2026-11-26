@@ -92,19 +92,17 @@ async def execute(
     netmiko = NetmikoService(pool=device_sessions)
     total = len(context.devices)
     _log_start(log_run_id(run), total, parsed)
-    run_kwargs: dict[str, Any] = {
-        "context": context,
-        "node_id": node_id,
-        "run_id": log_run_id(run),
-        "parsed": parsed,
-        "username": username,
-        "password": password,
-        "netmiko": netmiko,
-        "artifact_service": artifact_service,
-    }
-
     if parsed.execution_mode == "config_mode":
-        success_devices, failed_devices = await run_config_mode(**run_kwargs)
+        success_devices, failed_devices = await run_config_mode(
+            context=context,
+            node_id=node_id,
+            run_id=log_run_id(run),
+            parsed=parsed,
+            username=username,
+            password=password,
+            netmiko=netmiko,
+            artifact_service=artifact_service,
+        )
         logger.info(
             "run-command finished mode=config_mode success=%d failure=%d run_id=%s",
             len(success_devices),
@@ -113,7 +111,16 @@ async def execute(
         )
         return _outcomes(context, success_devices, failed_devices, len(parsed.commands))
 
-    success_devices, failed_devices, raw_outputs_by_device = await run_exec_mode(**run_kwargs)
+    success_devices, failed_devices, raw_outputs_by_device = await run_exec_mode(
+        context=context,
+        node_id=node_id,
+        run_id=log_run_id(run),
+        parsed=parsed,
+        username=username,
+        password=password,
+        netmiko=netmiko,
+        artifact_service=artifact_service,
+    )
 
     if parsed.parser_mode == "textfsm":
         success_devices = enrich_with_textfsm(

@@ -119,7 +119,6 @@ LEGACY_LONG_FUNCTIONS: dict[str, int] = {
     "workflow_steps/run_catalyst_center_command/executor.py": 3,
     "workflow_steps/run_command/config_mode.py": 1,
     "workflow_steps/run_command/enrichment.py": 2,
-    "workflow_steps/run_command/exec_mode.py": 2,
     "workflow_steps/run_command/executor.py": 1,
     "workflow_steps/send_mail/executor.py": 1,
     "workflow_steps/set_default_attributes/executor.py": 1,
