@@ -36,6 +36,9 @@ Ask the Net tools; the UI page is not built (see "Open").
   (`B,R`) or CDP's words (`Router Switch IGMP`; CDP's legacy letters mean something else, `S` is Switch there); unknown words are dropped.
   `is_infrastructure` is `bridge`, `router` or `wlan_ap` (a device with other devices behind it). The templates exist in ntc-templates for all
   four commands on IOS and NX-OS (verified in the installed index); the field names are read in `parsing.parse_neighbors` / `parse_channels`.
+  The neighbour columns come from the shared `services/parsing/neighbors.neighbor_fields` (W3b-08, 2026-11-27): `neighbor_port` is the
+  LLDP **port id** (`neighbor_port_id`), and only without one the `neighbor_interface` column (on IOS LLDP that is the neighbour's port
+  *description*; before 2026-11-27 the description won when it was set).
 * **`vrfs`** (nullable JSON) lists every discovered VRF as `{name, status, rows}`: the status of its `show ip arp vrf <name>` (`ok`,
   `not_supported`, `no_template`; `skipped` when the VRF was found but the default ARP table was unusable, so it was not read) and the
   entries parsed. `ok` with `rows: 0` is an empty VRF; the other statuses mean the table could not be read. `NULL` means VRFs were not

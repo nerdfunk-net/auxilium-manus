@@ -112,7 +112,8 @@ def test_lldp_rows_become_neighbour_entries() -> None:
     assert entries[0] == NeighborEntry(
         port="Gi1/0/48",
         neighbor_name="core1.example.net",
-        neighbor_port="TenGigabitEthernet1/1/1",
+        # the port id wins over the LLDP port description (W3b-08, shared column order)
+        neighbor_port="Te1/1/1",
         protocol="lldp",
         capabilities=("bridge", "router"),
     )

@@ -18,7 +18,7 @@ from ntc_templates.parse import ParsingException, parse_output
 
 from models.client_data import CollectionStatus
 from services.network.netmiko.output_check import find_cli_error
-from services.parsing.neighbors import TableKind, classify_neighbor_table
+from services.parsing.neighbors import TableKind, classify_neighbor_table, neighbor_fields
 from workflow_steps.collect_client_data.commands import (
     CMD_ARP,
     CMD_CHANNELS_IOS,
@@ -89,19 +89,18 @@ def parse_neighbors(
     """LLDP / CDP detail rows (ntc-templates) -> entries. Rows without a local port are skipped."""
     entries: list[NeighborEntry] = []
     for row in rows:
-        local = _text(row.get("local_interface"))
+        fields = neighbor_fields(row)
+        local = _text(fields.local_interface)
         if not local:
             continue
         entries.append(
             NeighborEntry(
                 port=normalise_port(local, platform),
-                neighbor_name=_text(row.get("neighbor_name")) or None,
-                neighbor_port=(
-                    _text(row.get("neighbor_interface")) or _text(row.get("neighbor_port_id"))
-                )
-                or None,
+                neighbor_name=_text(fields.name) or None,
+                # The port id, not the LLDP port description (W3b-08).
+                neighbor_port=_text(fields.remote_port) or None,
                 protocol=protocol,
-                capabilities=parse_capabilities(row.get("capabilities"), protocol),
+                capabilities=parse_capabilities(fields.capabilities, protocol),
             )
         )
     return entries

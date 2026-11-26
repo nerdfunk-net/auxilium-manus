@@ -3,15 +3,16 @@
 Netmiko returns a command's TextFSM result as a JSON string when a template matched and as the
 raw device text otherwise. ``discover-network`` and ``collect-client-data`` both have to decide
 what such an output is: a table (rows), an empty table, a refusal by the device, a protocol that
-is switched off, or something that is none of those. They share this decision; each keeps its own
-status vocabulary and its own row mapping (the steps read different fields and sanitise
-differently).
+is switched off, or something that is none of those. They share this decision and the reading of
+a row's columns (``neighbor_fields``, also used by the Ask the Net neighbour reader); each keeps its
+own status vocabulary and its own sanitising.
 """
 
 from __future__ import annotations
 
 import json
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any
@@ -30,6 +31,57 @@ PROTOCOL_OFF = re.compile(
     r"|\bnot (?:enabled|running)\b[^\n]*\b(?:lldp|cdp)\b",
     re.IGNORECASE,
 )
+
+
+# Characters that make a value blank for the column choice (control and invisible characters).
+_INVISIBLE = re.compile(r"[\x00-\x1f\x7f-\x9f\u200b-\u200f\u2028-\u202e\ufeff]")
+
+# The TextFSM columns of a neighbour row, first non-blank wins (ntc-templates differ per platform
+# and protocol). On IOS LLDP ``neighbor_interface`` is the neighbour's port *description* and
+# ``neighbor_port_id`` the port, so the port id comes first; NX-OS CDP has ``interface_ip``.
+_NAME = ("neighbor_name", "neighbor")
+_REMOTE_PORT = ("neighbor_port_id", "neighbor_interface")
+_ADDRESS = ("mgmt_address", "management_ip", "interface_ip")
+
+
+@dataclass(frozen=True)
+class NeighborFields:
+    """The columns of one CDP / LLDP neighbour row as text ("" when absent), not yet sanitised."""
+
+    name: str
+    local_interface: str
+    remote_port: str
+    address: str
+    platform: str
+    capabilities: str
+    description: str
+
+
+def _column(row: Mapping[str, Any], *names: str) -> str:
+    """The first column among ``names`` that is not blank; a list column gives its first item."""
+    for name in names:
+        value = row.get(name)
+        if isinstance(value, (list, tuple)):
+            value = value[0] if value else None
+        if value is None:
+            continue
+        text = str(value)
+        if _INVISIBLE.sub("", text).strip():
+            return text
+    return ""
+
+
+def neighbor_fields(row: Mapping[str, Any]) -> NeighborFields:
+    """One neighbour row read in the shared column order (W3b-08)."""
+    return NeighborFields(
+        name=_column(row, *_NAME),
+        local_interface=_column(row, "local_interface"),
+        remote_port=_column(row, *_REMOTE_PORT),
+        address=_column(row, *_ADDRESS),
+        platform=_column(row, "platform"),
+        capabilities=_column(row, "capabilities"),
+        description=_column(row, "neighbor_description"),
+    )
 
 
 class TableKind(StrEnum):

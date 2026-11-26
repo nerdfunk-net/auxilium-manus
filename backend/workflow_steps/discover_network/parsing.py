@@ -17,6 +17,7 @@ from services.parsing.neighbors import (
     SUPPORTED_CISCO_DEVICE_TYPES,
     TableKind,
     classify_neighbor_table,
+    neighbor_fields,
 )
 from workflow_steps.common.neighbor_capabilities import (
     INFRASTRUCTURE_CAPABILITIES,
@@ -98,17 +99,18 @@ def _ipv4_or_none(value: object) -> str | None:
 
 
 def _neighbor(row: dict[str, Any]) -> Neighbor | None:
-    name = sanitize_text(row.get("neighbor_name"))
+    fields = neighbor_fields(row)
+    name = sanitize_text(fields.name)
     if not name:
         return None
     return Neighbor(
         name=name,
-        ip=_ipv4_or_none(row.get("mgmt_address") or row.get("management_ip")),
-        platform=sanitize_text(row.get("platform")),
-        local_port=sanitize_text(row.get("local_interface")),
-        remote_port=sanitize_text(row.get("neighbor_interface")),
-        capabilities=parse_capabilities(row.get("capabilities"), "cdp"),
-        software=sanitize_text(row.get("neighbor_description"), _MAX_SOFTWARE),
+        ip=_ipv4_or_none(fields.address),
+        platform=sanitize_text(fields.platform),
+        local_port=sanitize_text(fields.local_interface),
+        remote_port=sanitize_text(fields.remote_port),
+        capabilities=parse_capabilities(fields.capabilities, "cdp"),
+        software=sanitize_text(fields.description, _MAX_SOFTWARE),
     )
 
 

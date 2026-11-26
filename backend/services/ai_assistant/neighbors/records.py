@@ -17,6 +17,7 @@ from typing import Any
 
 from services.ai_assistant.neighbors.catalogue import Step
 from services.network.interface_names import canonical_interface_name
+from services.parsing.neighbors import neighbor_fields
 
 Row = Mapping[str, Any]
 Record = dict[str, Any]
@@ -121,16 +122,17 @@ def _vrf_matches(row: Row, wanted: str) -> bool:
 
 
 def _l2_record(protocol: str, row: Row) -> Record:
-    ip = _ip_or_empty(_pick(row, "mgmt_address", "management_ip", "interface_ip"))
+    fields = neighbor_fields(row)  # the column order shared with the steps (W3b-08)
+    ip = _ip_or_empty(clean_text(fields.address))
     return {
         "layer": "l2",
         "protocol": protocol,
-        "local_interface": _pick(row, "local_interface"),
-        "neighbor_name": _pick(row, "neighbor_name", "neighbor"),
-        "neighbor_interface": _pick(row, "neighbor_port_id", "neighbor_interface"),
+        "local_interface": clean_text(fields.local_interface),
+        "neighbor_name": clean_text(fields.name),
+        "neighbor_interface": clean_text(fields.remote_port),
         "neighbor_ip": ip or None,
-        "platform": _pick(row, "platform") or None,
-        "capabilities": _capabilities(_pick(row, "capabilities")),
+        "platform": clean_text(fields.platform) or None,
+        "capabilities": _capabilities(clean_text(fields.capabilities)),
     }
 
 

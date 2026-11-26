@@ -2510,8 +2510,11 @@ closed again (`DeviceSessionPool.close_host`) before the next level starts. Code
 - **Reading the CDP output** is shared with `collect-client-data` (`services/parsing/neighbors.py`:
   `classify_neighbor_table` decides rows / empty / refused / protocol off / unparseable, `decode_textfsm_output`, the
   supported Cisco device types). Each step keeps its own status vocabulary: a switched-off CDP is `not_enabled` here (the
-  seed fails with `cdp_not_enabled`) and `not_supported` in `collect-client-data`. The row mapping stays per step (different
-  fields and sanitising). The Nautobot name ladder of `nautobot_lookup.py` is a deliberate copy of the library's
+  seed fails with `cdp_not_enabled`) and `not_supported` in `collect-client-data`. The columns of a row are read once,
+  `neighbor_fields` (also used by the Ask the Net neighbour reader, W3b-08): name `neighbor_name` | `neighbor`, remote port
+  `neighbor_port_id` | `neighbor_interface` (on IOS LLDP `neighbor_interface` is the neighbour's port *description*), address
+  `mgmt_address` | `management_ip` | `interface_ip` (NX-OS CDP), a list column gives its first item; each reader keeps its own
+  sanitising (this step: IPv4 only). The Nautobot name ladder of `nautobot_lookup.py` is a deliberate copy of the library's
   `_NAME_LOOKUPS`; both carry a comment that says so.
 - **Result.** `success` carries the seeds and every device that was logged into; discovered devices are new
   `DeviceContext`s (`source: "discover-network"`, `primary_ip4` = the address used, `network_driver` = the guessed type).
