@@ -8,21 +8,29 @@ found"``. A bad source is a configuration error: ``ValueError`` with the step id
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any
 
 from services.settings.source_config_base import SourceNotFoundError
 
 
 def resolve_source(
-    config_service: Any, source_id: str, *, step_id: str, invalid: type[Exception]
+    config_service: Any,
+    source_id: str,
+    *,
+    step_id: str,
+    invalid: type[Exception],
+    resolve: Callable[[str], Any] | None = None,
 ) -> Any:
     """``config_service.resolve_credentials(source_id)``, with config problems as ``ValueError``.
 
     ``invalid`` is the integration's validation error (a source whose settings are incomplete).
-    Any other exception (a database error, for instance) propagates unchanged.
+    ``resolve`` replaces ``resolve_credentials`` for a service that resolves something else (the
+    agent sources resolve a whole connection). Any other exception (a database error, for
+    instance) propagates unchanged.
     """
     try:
-        return config_service.resolve_credentials(source_id)
+        return (resolve or config_service.resolve_credentials)(source_id)
     except SourceNotFoundError as exc:
         raise ValueError(f"{step_id}: {exc}") from exc
     except invalid as exc:

@@ -142,3 +142,30 @@ def test_at_most_five_attempts() -> None:
 def test_each_delay_is_bounded(delay: int) -> None:
     with pytest.raises(ValueError, match="between 1 and 600"):
         parse_retry_backoff_seconds({"retry_backoff_seconds": [delay]}, step_id="s")
+
+
+def test_an_invalid_agent_source_becomes_a_value_error_with_the_step_id() -> None:
+    # W8-06 leftover: like every other source, a validation error names the step.
+    from services.agents.exceptions import AgentValidationError
+
+    with patch("workflow_steps.common.agent_source.AgentSourceConfigService") as service:
+        service.return_value.resolve_connection.side_effect = AgentValidationError(
+            "An agent source needs a shared-secret credential"
+        )
+
+        with pytest.raises(ValueError, match="^s: An agent source needs a shared-secret"):
+            resolve_agent_connection(MagicMock(), "x", step_id="s")
+
+
+def test_resolve_source_can_call_another_resolver() -> None:
+    from workflow_steps.common.source_credentials import resolve_source
+
+    service = MagicMock()
+
+    result = resolve_source(
+        service, "a", step_id="s", invalid=KeyError, resolve=service.resolve_connection
+    )
+
+    service.resolve_connection.assert_called_once_with("a")
+    service.resolve_credentials.assert_not_called()
+    assert result is service.resolve_connection.return_value
