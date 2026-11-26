@@ -13,12 +13,17 @@ import logging
 import re
 from typing import TYPE_CHECKING, Any
 
+from git.exc import GitCommandError
+
 import service_factory
 from core.models.runs import WorkflowRun
+from models.failure import failure_from_exception
 from models.workflow_context import StepOutcome, WorkflowContext
 from services.aci.common.exceptions import AciAPIError, AciAuthError, AciValidationError
 from services.artifacts import ArtifactService
-from services.artifacts.sinks.git_sink import GitArtifactSink
+from services.artifacts.sinks.git_sink import GitArtifactSink, GitSinkPrepareError
+from services.git.failure import GitOperationError, classify_git_exception
+from services.git.scrub import scrub_url_credentials
 from workflow_steps.common.controller_failure import controller_failure_outcomes
 from workflow_steps.common.controller_sources import ACI
 from workflow_steps.common.fact_entries import parse_output_key_config
@@ -38,6 +43,9 @@ DEFAULT_MESSAGE = "ACI configuration backup of {source_id}"
 DEFAULT_OUTPUT_KEY = "aci_backup"
 TENANT_DIR = "tenants"
 MAX_MESSAGE_CHARS = 200
+MAX_SUMMARY_CHARS = 500
+# A git error ends the step on ``failure``; anything else (a filesystem error, a bug) raises.
+_GIT_ERRORS = (GitOperationError, GitCommandError)
 _TENANT_NAME = re.compile(r"^[A-Za-z0-9_.\-]{1,64}$")
 
 
@@ -152,18 +160,14 @@ async def execute(
         ]
 
     sink = _build_sink(repository, subdirectory, commit=commit, push=push)
-    # The session holds the repository lock from prepare to finalize, puts a half-written tree
-    # back on any failure and re-checks the lease before the commit.
-    async with sink.session():
-        for path, content in sorted(export.files.items()):
-            await sink.write_text(
-                relative_path=path,
-                content=content,
-                workflow_id=context.workflow_id,
-                run_id=context.run_id,
-            )
-        stale = [] if tenants else _stale_files(sink, export.files)
-        result = await sink.finalize(message)
+    try:
+        stale, result = await _write_export(sink, export.files, context, message, tenants=tenants)
+    except GitSinkPrepareError as exc:
+        if not isinstance(exc.__cause__, _GIT_ERRORS):
+            raise
+        return _git_failure_outcomes(context, exc.__cause__)
+    except _GIT_ERRORS as exc:
+        return _git_failure_outcomes(context, exc)
 
     entry: dict[str, Any] = {
         "git_repository_id": sink.repository_ref,
@@ -192,6 +196,50 @@ async def execute(
     if entry["files_changed"] > 0:
         outcomes.append(StepOutcome(name="changed", context=new_context, summary=text))
     return outcomes
+
+
+async def _write_export(
+    sink: GitArtifactSink,
+    files: dict[str, str],
+    context: WorkflowContext,
+    message: str,
+    *,
+    tenants: tuple[str, ...] | None,
+) -> tuple[list[str], Any]:
+    """Write, list the stale files and finalize, inside the sink's session.
+
+    The session holds the repository lock from prepare to finalize, puts a half-written tree
+    back on any failure and re-checks the lease before the commit.
+    """
+    async with sink.session():
+        for path, content in sorted(files.items()):
+            await sink.write_text(
+                relative_path=path,
+                content=content,
+                workflow_id=context.workflow_id,
+                run_id=context.run_id,
+            )
+        stale = [] if tenants else _stale_files(sink, files)
+        return stale, await sink.finalize(message)
+
+
+def _git_failure_outcomes(context: WorkflowContext, exc: BaseException) -> list[StepOutcome]:
+    """``[failure]`` for a git error: context unchanged, the scrubbed git message, the record."""
+    text = scrub_url_credentials(str(exc))
+    logger.warning(
+        "%s git failed (%s) run_id=%s: %s", STEP_ID, type(exc).__name__, context.run_id, text
+    )
+    summary = f"git failed: {text}"
+    if len(summary) > MAX_SUMMARY_CHARS:
+        summary = summary[: MAX_SUMMARY_CHARS - 1] + "…"
+    return [
+        StepOutcome(
+            name="failure",
+            context=context,
+            summary=summary,
+            failure=failure_from_exception(exc) or classify_git_exception(exc),
+        )
+    ]
 
 
 def _stale_files(sink: GitArtifactSink, written: dict[str, str]) -> list[str]:

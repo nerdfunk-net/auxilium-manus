@@ -19,8 +19,8 @@ failed device stores (P-E, D3)"). Still open:
   `compare-aci-subnets`) now declare a `failure` handle and end on it (`common/controller_failure.py`): the context is
   unchanged (they add devices or write one result, so there is no device to mark), the summary is `"<APIC | Catalyst
   Center | Nautobot> request failed"` and the outcome carries the `FailureInfo` of the controller error. The other
-  controller steps already fail per device. Configuration errors still raise. `backup-aci-config` still raises for a
-  git failure (P-H).
+  controller steps already fail per device. Configuration errors still raise. `backup-aci-config` ends on `failure` for a
+  git error too (P-H, 2026-11-26); its other errors still raise.
 - **`open-change-request` leftovers.** The `rendered_template` case still builds its content by hand instead of
   `content_resolver.list_exportable_content`, and `NothingToReview` is used as control flow.
 - **`contact-the-ai` structure.** The sharing check is split between `prompt.py::check_path` and

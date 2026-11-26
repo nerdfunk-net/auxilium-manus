@@ -40,9 +40,12 @@ async def test_a_held_lease_commits_and_releases(tmp_path: Any) -> None:
 async def test_a_lost_lease_does_not_commit_and_cleans_the_tree(tmp_path: Any) -> None:
     env = Env(tmp_path)
     env.lease.ensure_held.side_effect = GitOperationError("lock expired")
-    with env.patched(), _Patched(sink=env.sink), pytest.raises(GitOperationError):
-        await call_step(execute, _CONFIG, make_context())
+    with env.patched(), _Patched(sink=env.sink):
+        outcomes = await call_step(execute, _CONFIG, make_context())
 
+    # a git error ends on the failure handle (P-H), it no longer raises
+    assert [o.name for o in outcomes] == ["failure"]
+    assert outcomes[0].summary == "git failed: lock expired"
     env.git_service.commit.assert_not_called()
     assert not env.sink.has_writes
     assert not (tmp_path / "aci" / "access-policies.json").exists()

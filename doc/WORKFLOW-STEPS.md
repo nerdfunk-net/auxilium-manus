@@ -750,7 +750,9 @@ Config) and `compare-aci-subnets` (Compare ACI Subnets with Nautobot) have no in
 error (`AciAPIError`, `AciAuthError`, the Catalyst Center errors, `NautobotError`) ends the step on its `failure` handle:
 `controller_failure_outcomes` returns the context unchanged, the summary `"<controller> request failed"` and the
 `FailureInfo` the error carries (`phase="api"`, `kind="unknown"` when it carries none). The controller's text is not stored.
-A rejected query or filter (`*ValidationError`) is a configuration error and raises.
+A rejected query or filter (`*ValidationError`) is a configuration error and raises. `backup-aci-config` also ends on `failure` for a
+git error (`GitOperationError`, `GitCommandError`): summary `git failed: <URL-scrubbed message>`, the git `FailureInfo`; its other errors raise
+(`doc/CISCO_ACI_INTEGRATION.md`).
 
 ### Notification caps and idempotence
 

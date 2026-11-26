@@ -350,7 +350,10 @@ A tenant name outside `[A-Za-z0-9_.-]{1,64}` is never put in a URL or file name 
 and always released, commit (`commit`, default on, message with `{source_id}`), push (`push`, default off, needs `commit`). Files of tenants the APIC no
 longer has are **reported** as `stale_files` in the metadata (only when all tenants are backed up) and are not deleted. The metadata entry
 `<node id>.<output_key>` (default `aci_backup`) lists files, tenants, `committed`, `pushed`, `commit_sha`, `files_changed`. Outcomes: `success` always,
-`changed` as well when the commit changed files.
+`changed` as well when the commit changed files. A git error (pull, repository lock, lost lease, commit, push: `GitOperationError` or GitPython's
+`GitCommandError`) ends the step on `failure` with the context unchanged, the summary `git failed: <message>` (URL credentials scrubbed, at most
+500 characters) and the git `FailureInfo` (a lock timeout keeps its retryable `repo_locked` record); the working tree is put back and the lock released.
+Any other error (a filesystem error, a bug) still raises.
 
 **Review before pushing.** The export holds whatever the APIC returns as configuration; check a repository before it goes to a shared remote. Attributes named `key`, `password`, `authKey`, `community` and the like are replaced by `<secret removed>` when the APIC returns a value (the sandbox returns them empty). A tenant name with `..` or an edge dot is refused (the git sink would rewrite it and two tenants could share a file). A failure after the first write restores the files the step touched (`GitArtifactSink.discard_written`), so the next pull is not blocked; the stale-file listing refuses a symlinked folder (`list_files_in_repo_dir`).
 **Verified live 2026-11-07:** 13 tenant files plus `access-policies.json` (14 files, 1.5 MB), no errors, and two consecutive exports are byte-identical (so a second run makes no commit). **Unverified:** the push to a real git remote.
