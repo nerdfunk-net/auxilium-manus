@@ -1,4 +1,10 @@
-"""Pure helpers for reading a device's location hierarchy from Nautobot GraphQL."""
+"""A device's location hierarchy from Nautobot GraphQL: the query text and its walk (pure).
+
+The caller runs ``LOCATION_CHAIN_QUERY`` (variable ``deviceId``) on its own client and hands the
+``device.location`` object to ``find_locations_by_type`` / ``describe_chain``. Used by the
+``get-device-location`` workflow step; it lives here so Ask the Net can answer "which building is
+this device in?" with the same query (W3b-12).
+"""
 
 from __future__ import annotations
 

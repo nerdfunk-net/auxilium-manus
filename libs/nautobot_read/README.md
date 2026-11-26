@@ -6,6 +6,9 @@ Read-only Nautobot queries, independent of how they are called. Two consumers:
 - `backend/services/ai_assistant/` wraps each query as an Ask the Net tool, with the
   user's permissions and the data-sharing gates.
 
+Some workflow steps read through it too: `get-virtual-chassis` (the virtual-chassis query),
+`discover-network` (the client) and `get-device-location` (`location_chain.py`).
+
 ## Layout
 
 | Module | Role |
@@ -13,6 +16,7 @@ Read-only Nautobot queries, independent of how they are called. Two consumers:
 | `client.py` | `GraphQLClient`: implement `graphql()`; paging (`list_page`, `list_all`) is shared. `NautobotError` |
 | `vocabulary.py`, `vocabularies.py` | Name vocabularies, `LocationDirectory`, TTL cache, guiding "closest / available" errors |
 | `networks.py` | Validation of IP addresses and prefixes before they reach Nautobot |
+| `location_chain.py` | A device's location hierarchy: the GraphQL text (depth 8) and its walk (`find_locations_by_type`, `describe_chain`); pure, the caller runs the query |
 | `context.py` | `QueryContext` (client + vocabularies) every query takes |
 | `queries/` | One async function per query (`organization`, `dcim`, `ipam`), keyword-only arguments |
 | `errors.py` | `EXPECTED_ERRORS`: the errors written for the LLM; a caller turns them into a tool error |

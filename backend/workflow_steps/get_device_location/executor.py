@@ -6,6 +6,12 @@ import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal
 
+from nautobot_read.location_chain import (
+    LOCATION_CHAIN_QUERY,
+    describe_chain,
+    find_locations_by_type,
+)
+
 from core.models.runs import WorkflowRun
 from models.failure import FailureInfo
 from models.workflow_context import (
@@ -24,11 +30,6 @@ from workflow_steps.common.nautobot_resolve import resolve_nautobot_device_id
 from workflow_steps.common.nautobot_step import bind_nautobot
 from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.common.step_flags import parse_bool_flag
-from workflow_steps.get_device_location.chain import (
-    LOCATION_CHAIN_QUERY,
-    describe_chain,
-    find_locations_by_type,
-)
 from workflow_steps.get_device_location.config import get_config
 
 if TYPE_CHECKING:
