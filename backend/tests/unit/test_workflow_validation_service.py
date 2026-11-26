@@ -663,7 +663,7 @@ class Tier2InventoryReferenceTests(unittest.TestCase):
         patches = {
             "service": patch("services.sources.nautobot.persistence_service.InventoryService"),
             "repo": patch("repositories.inventory_repository.InventoryRepository"),
-            "users": patch("repositories.user_repository.UserRepository"),
+            "users": patch("services.workflow.saved_inventory.UserRepository"),
         }
         started = {name: p.start() for name, p in patches.items()}
         for p in patches.values():
@@ -678,7 +678,7 @@ class Tier2InventoryReferenceTests(unittest.TestCase):
         )
 
     def test_missing_inventory_is_an_error_naming_it(self) -> None:
-        self.inventories.get_inventory.return_value = None
+        self.inventories.get_inventory_as.return_value = None
 
         result = self._validate({"inventory_id": 2, "inventory_name": "Full lab env"})
 
@@ -692,22 +692,22 @@ class Tier2InventoryReferenceTests(unittest.TestCase):
         self.assertIn("Select an inventory again", finding.message)
 
     def test_existing_accessible_inventory_produces_no_findings(self) -> None:
-        self.inventories.get_inventory.return_value = {"id": 1, "is_active": True}
+        self.inventories.get_inventory_as.return_value = {"id": 1, "is_active": True}
 
         result = self._validate({"inventory_id": 1, "inventory_name": "LAB"})
 
         self.assertEqual(result.findings, [])
         self.assertFalse(result.has_errors)
-        self.inventories.get_inventory.assert_called_once_with(1, username="alice")
+        self.inventories.get_inventory_as.assert_called_once_with(1, "alice")
 
     def test_a_numeric_string_id_is_accepted(self) -> None:
-        self.inventories.get_inventory.return_value = {"id": 5, "is_active": True}
+        self.inventories.get_inventory_as.return_value = {"id": 5, "is_active": True}
 
         self.assertEqual(self._validate({"inventory_id": "5"}).findings, [])
-        self.inventories.get_inventory.assert_called_once_with(5, username="alice")
+        self.inventories.get_inventory_as.assert_called_once_with(5, "alice")
 
     def test_private_inventory_of_another_user_is_an_error(self) -> None:
-        self.inventories.get_inventory.side_effect = PermissionError("denied")
+        self.inventories.get_inventory_as.side_effect = PermissionError("denied")
 
         (finding,) = self._validate({"inventory_id": 3}).findings
 
@@ -715,7 +715,7 @@ class Tier2InventoryReferenceTests(unittest.TestCase):
         self.assertIn("private", finding.message)
 
     def test_inactive_inventory_is_an_error(self) -> None:
-        self.inventories.get_inventory.return_value = {"id": 3, "is_active": False}
+        self.inventories.get_inventory_as.return_value = {"id": 3, "is_active": False}
 
         (finding,) = self._validate({"inventory_id": 3}).findings
 
@@ -725,10 +725,10 @@ class Tier2InventoryReferenceTests(unittest.TestCase):
         (finding,) = self._validate({"inventory_id": "abc"}).findings
 
         self.assertEqual(finding.code, "inventory_id_invalid")
-        self.inventories.get_inventory.assert_not_called()
+        self.inventories.get_inventory_as.assert_not_called()
 
     def test_static_inventories_are_checked_too(self) -> None:
-        self.inventories.get_inventory.return_value = None
+        self.inventories.get_inventory_as.return_value = None
 
         result = self._validate({"inventory_id": 9, "inventory_type": "static"})
 
@@ -736,29 +736,29 @@ class Tier2InventoryReferenceTests(unittest.TestCase):
 
     def test_run_parameter_mode_ignores_a_stale_literal_id(self) -> None:
         # In run_param mode the literal id is unused; the run parameter is what counts.
-        self.inventories.get_inventory.return_value = None
+        self.inventories.get_inventory_as.return_value = None
 
         result = self._validate(
             {"inventory_source": "run_param", "inventory_param": "target", "inventory_id": 2}
         )
 
         self.assertEqual(result.findings, [])
-        self.inventories.get_inventory.assert_not_called()
+        self.inventories.get_inventory_as.assert_not_called()
 
     def test_a_step_without_an_inventory_is_not_checked(self) -> None:
         for empty in (None, "", 0):
             with self.subTest(inventory_id=empty):
-                self.inventories.get_inventory.reset_mock()
+                self.inventories.get_inventory_as.reset_mock()
 
                 result = self._validate({"inventory_id": empty})
 
                 self.assertEqual(result.findings, [])
-                self.inventories.get_inventory.assert_not_called()
+                self.inventories.get_inventory_as.assert_not_called()
         no_config = self.svc.validate([_node("n1", "get-nautobot-devices", {})], acting_user_id=1)
         self.assertEqual(no_config.findings, [])
 
     def test_every_broken_step_is_reported_against_its_own_node(self) -> None:
-        self.inventories.get_inventory.return_value = None
+        self.inventories.get_inventory_as.return_value = None
 
         result = self.svc.validate(
             [
@@ -771,12 +771,12 @@ class Tier2InventoryReferenceTests(unittest.TestCase):
         self.assertEqual(sorted(f.node_id for f in result.findings), ["a", "b"])
 
     def test_a_system_run_without_a_user_still_checks_existence(self) -> None:
-        self.inventories.get_inventory.return_value = None
+        self.inventories.get_inventory_as.return_value = None
 
         (finding,) = self._validate({"inventory_id": 2}, user=None).findings
 
         self.assertEqual(finding.code, "inventory_not_found")
-        self.inventories.get_inventory.assert_called_once_with(2, username=None)
+        self.inventories.get_inventory_as.assert_called_once_with(2, None)
 
 
 class Tier3CapabilityFlowTests(unittest.TestCase):

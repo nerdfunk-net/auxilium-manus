@@ -186,7 +186,10 @@ deny-list for device commands: such a user can run any exec or config command on
 inventory, and data from Nautobot, CSV, git and run inputs is untrusted input to device command lines
 (line breaks in rendered values are rejected unless a step allows them). Templates, report definitions,
 global inventories and global credentials have no per-object owner check: whoever holds the write or
-delete permission can change another user's item.
+delete permission can change another user's item. A workflow run reads a saved inventory as the user that
+triggered it; a run without one (a webhook-approved change request) reads global inventories only, so an
+inventory id in a staged change request cannot reach another user's private inventory
+(`InventoryService.get_inventory_as`, W10-04).
 
 ## Repository collaborators are trusted
 

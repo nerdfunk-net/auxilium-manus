@@ -51,7 +51,7 @@ async def _run(
     with (
         patch("workflow_steps.common.run_session.object_session", return_value=MagicMock()),
         patch.object(mod, "resolve_nautobot_credentials", return_value=MagicMock()),
-        patch.object(mod, "_acting_username", return_value=username),
+        patch.object(mod, "acting_username", return_value=username),
         patch.object(mod.service_factory, "build_nautobot_source_service", return_value=service),
     ):
         outcomes = await mod.execute(

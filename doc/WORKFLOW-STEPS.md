@@ -1824,12 +1824,16 @@ value baked into the canvas at design time. This is **not** a canvas step:
   is required and selects the resolver
   (`services/execution/reference_resolver.py::REF_RESOLVERS`):
   - `ref_kind: "inventory"` → value is an **inventory id** (int); resolved via
-    the RBAC-checked `InventoryService.get_inventory(id, username=…)`.
+    `InventoryService.get_inventory_as(id, username)`: the run's user sees global inventories
+    and their own private ones; a run **without a triggering user** (a webhook-approved change
+    request) sees **global inventories only** (W10-04, also checked at run start).
     `get-nautobot-devices` reads it when its `inventory_source` config is
     `"run_param"` (pointing at `inventory_param`), in place of the inventory
-    selected in the step for that run. (A selected `inventory_id` is itself
-    resolved live on every run — both go through
-    `NautobotSourceService.resolve_saved_inventory_devices_by_id`.)
+    selected in the step for that run; `get-from-user` reads it when its `device_param` is
+    declared as an inventory reference. (A selected `inventory_id` is itself
+    resolved live on every run — all of them go through
+    `NautobotSourceService.resolve_saved_inventory_devices_by_id`; the shared helpers live in
+    `services/workflow/saved_inventory.py`.)
   - `ref_kind: "credential"` → value is a **credential vault name** (str);
     late-bound per triggering user (a private credential wins over a global one
     of the same name — see `credential_resolver._resolve_credential`). Every SSH

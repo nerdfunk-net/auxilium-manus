@@ -42,15 +42,6 @@ class ReferenceResolver(Protocol):
     def validate(self, reference: Any, *, db: Session, acting_user_id: int | None) -> None: ...
 
 
-def _acting_username(db: Session, acting_user_id: int | None) -> str | None:
-    if acting_user_id is None:
-        return None
-    from repositories.user_repository import UserRepository
-
-    user = UserRepository(db).get_by_id(acting_user_id)
-    return user.username if user else None
-
-
 def _prefer_private(matches: list[dict[str, Any]]) -> dict[str, Any]:
     """Private credential wins over a global one of the same name — mirrors
     ``workflow_steps/common/credential_resolver.py::_resolve_credential``."""
@@ -72,10 +63,13 @@ class _InventoryReferenceResolver:
                 f"{reference!r} is not a valid inventory id", code="invalid_id"
             ) from exc
 
-        username = _acting_username(db, acting_user_id)
+        from services.workflow.saved_inventory import acting_username
+
+        # A run without a triggering user may name a global inventory only (W10-04).
+        username = acting_username(db, acting_user_id)
         service = InventoryService(InventoryRepository(db))
         try:
-            inventory = service.get_inventory(inventory_id, username=username)
+            inventory = service.get_inventory_as(inventory_id, username)
         except PermissionError as exc:
             raise ReferenceValidationError(
                 f"inventory {inventory_id} is private to another user", code="not_accessible"

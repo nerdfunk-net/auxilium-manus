@@ -143,22 +143,21 @@ class NautobotSourceService:
     async def resolve_saved_inventory_devices_by_id(
         self, inventory_id: int, username: str | None
     ) -> list[DeviceInfo]:
-        """Load a saved inventory by id (RBAC-checked against *username*) and
-        resolve it to devices — the runtime counterpart of
-        ``analyze_inventory``, and the single path the ``get-nautobot-devices``
-        step uses for a saved inventory, whether it is selected in the workflow
-        builder or chosen from a run parameter.
+        """Load a saved inventory by id as the run's user *username* and resolve it to
+        devices — the runtime counterpart of ``analyze_inventory``, and the single path the
+        ``get-nautobot-devices`` and ``get-from-user`` steps use for a saved inventory.
 
         Raises ``ValueError`` if the inventory does not exist or is inactive;
-        ``PermissionError`` (from the persistence layer) if it is private to
-        another user.
+        ``PermissionError`` (from the persistence layer) if it is private to another user,
+        or private at all when *username* is ``None`` (a run without a triggering user reads
+        global inventories only, W10-04).
         """
         from utils.inventory_converter import convert_saved_inventory_to_operations
 
         if self._persistence_service is None:
             raise ValueError("Persistence service is not configured")
 
-        inventory = self._persistence_service.get_inventory(inventory_id, username=username)
+        inventory = self._persistence_service.get_inventory_as(inventory_id, username)
         if not inventory:
             raise ValueError(f"Inventory with ID {inventory_id} not found")
         if inventory.get("is_active") is False:

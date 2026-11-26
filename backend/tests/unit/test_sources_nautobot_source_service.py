@@ -207,7 +207,7 @@ class ResolveSavedInventoryByIdTests(unittest.IsolatedAsyncioTestCase):
 
     def _svc(self, inventory: dict | None) -> NautobotSourceService:
         svc = _service()
-        svc._persistence_service.get_inventory = MagicMock(return_value=inventory)
+        svc._persistence_service.get_inventory_as = MagicMock(return_value=inventory)
         svc.preview_inventory = AsyncMock(return_value=([_dev("a")], 1))
         svc.resolve_devices_by_ids = AsyncMock(return_value=[_dev("s")])
         return svc
@@ -217,7 +217,7 @@ class ResolveSavedInventoryByIdTests(unittest.IsolatedAsyncioTestCase):
 
         devices = await svc.resolve_saved_inventory_devices_by_id(4, "alice")
 
-        svc._persistence_service.get_inventory.assert_called_once_with(4, username="alice")
+        svc._persistence_service.get_inventory_as.assert_called_once_with(4, "alice")
         self.assertEqual([d.id for d in devices], ["a"])
 
     async def test_static_inventory_resolves_its_device_ids(self) -> None:

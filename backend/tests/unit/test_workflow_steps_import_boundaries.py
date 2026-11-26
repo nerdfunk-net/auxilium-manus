@@ -23,8 +23,6 @@ _REPOSITORY_ALLOW_LIST: dict[str, set[str]] = {
         "repositories.workflow_repository",
     },
     "from_change_request/executor.py": {"repositories.change_request_repository"},
-    "get_from_user/inventory_reference.py": {"repositories.user_repository"},
-    "get_nautobot_devices/executor.py": {"repositories.user_repository"},
 }
 
 # (d) Modules outside workflow_steps/ (and tests/) that may import it.

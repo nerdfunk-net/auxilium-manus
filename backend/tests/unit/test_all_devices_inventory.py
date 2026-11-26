@@ -101,7 +101,7 @@ class AllButOneDeviceTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_a_saved_inventory_with_a_failed_exclusion_does_not_resolve(self) -> None:
         svc = _service(AsyncMock(side_effect=RuntimeError("nautobot down")))
-        svc._persistence_service.get_inventory = MagicMock(
+        svc._persistence_service.get_inventory_as = MagicMock(
             return_value={
                 "inventory_type": "filter",
                 "is_active": True,

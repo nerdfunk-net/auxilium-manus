@@ -195,7 +195,7 @@ class RunServiceLinkedInventoryGateTests(unittest.TestCase):
         inventory_patches = [
             patch("services.sources.nautobot.persistence_service.InventoryService"),
             patch("repositories.inventory_repository.InventoryRepository"),
-            patch("repositories.user_repository.UserRepository"),
+            patch("services.workflow.saved_inventory.UserRepository"),
             patch("repositories.settings_repository.SettingsRepository.get_by_key"),
         ]
         started = [p.start() for p in inventory_patches]
@@ -219,7 +219,7 @@ class RunServiceLinkedInventoryGateTests(unittest.TestCase):
         )
 
     def test_a_deleted_inventory_refuses_the_run_before_any_row_is_created(self) -> None:
-        self.inventories.get_inventory.return_value = None
+        self.inventories.get_inventory_as.return_value = None
         workflow = self._workflow_linking(inventory_id=2, inventory_name="Full lab env")
 
         with self.assertRaises(ValidationFailedError) as ctx:
@@ -233,7 +233,7 @@ class RunServiceLinkedInventoryGateTests(unittest.TestCase):
         self.assertEqual(self.db.query(WorkflowRun).count(), 0)
 
     def test_an_existing_inventory_lets_the_run_dispatch(self) -> None:
-        self.inventories.get_inventory.return_value = {"id": 1, "is_active": True}
+        self.inventories.get_inventory_as.return_value = {"id": 1, "is_active": True}
 
         response = self._trigger(self._workflow_linking(inventory_id=1, inventory_name="LAB"))
 
@@ -241,11 +241,11 @@ class RunServiceLinkedInventoryGateTests(unittest.TestCase):
         self.assertIsNotNone(response.id)
 
     def test_a_step_with_no_inventory_is_not_blocked_by_this_check(self) -> None:
-        self.inventories.get_inventory.return_value = None
+        self.inventories.get_inventory_as.return_value = None
 
         self._trigger(self._workflow_linking())
 
-        self.inventories.get_inventory.assert_not_called()
+        self.inventories.get_inventory_as.assert_not_called()
         self.mock_run_no_wait.assert_called_once()
 
 

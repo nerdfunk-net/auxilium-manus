@@ -86,7 +86,6 @@ LEGACY_LONG_FUNCTIONS: dict[str, int] = {
     "workflow_steps/get_from_config/executor.py": 1,
     "workflow_steps/get_from_db/executor.py": 1,
     "workflow_steps/get_from_user/executor.py": 1,
-    "workflow_steps/get_from_user/inventory_reference.py": 1,
     "workflow_steps/get_git_devices/executor.py": 1,
     "workflow_steps/get_ise_devices/executor.py": 2,
     "workflow_steps/get_ise_tacacs_key/executor.py": 1,

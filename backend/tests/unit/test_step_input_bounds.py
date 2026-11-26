@@ -12,7 +12,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from tests.unit._step_helpers import make_run
-from workflow_steps.get_from_user import inventory_reference as inv
+from workflow_steps.get_from_user import executor as inv
 from workflow_steps.reachable.executor import _parse_positive_int, _parse_positive_number
 
 # ── reachable ──────────────────────────────────────────────────────────────────────────────────
@@ -64,84 +64,75 @@ def test_reachable_caps_the_timeout_at_sixty_seconds() -> None:
 
 # ── get-from-user: inventory reference ─────────────────────────────────────────────────────────
 
-
-def _patched(*, service: MagicMock) -> Any:
-    return (
-        patch(
-            "workflow_steps.common.run_session.object_session", return_value=MagicMock(name="db")
-        ),
-        patch.object(inv, "_pick_source_id", return_value="src"),
-        patch.object(inv, "resolve_nautobot_credentials", return_value=MagicMock()),
-        patch.object(inv.service_factory, "build_nautobot_source_service", return_value=service),
-    )
+_EXEC = "workflow_steps.get_from_user.executor"
 
 
-@pytest.mark.asyncio
-async def test_inventory_reference_without_a_db_session_is_a_runtime_error() -> None:
-    with patch("workflow_steps.common.run_session.object_session", return_value=None):
-        with pytest.raises(RuntimeError, match="no active DB session"):
-            await inv.inventory_device_text(make_run(), {}, "1")
+def _service(**kwargs: Any) -> MagicMock:
+    service = MagicMock()
+    service.resolve_saved_inventory_devices_by_id = AsyncMock(**kwargs)
+    return service
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("reference", ["abc", "", None])
 async def test_inventory_reference_must_be_an_inventory_id(reference: Any) -> None:
-    with patch("workflow_steps.common.run_session.object_session", return_value=MagicMock()):
-        with pytest.raises(ValueError, match="inventory id"):
-            await inv.inventory_device_text(make_run(), {}, reference)
+    with pytest.raises(ValueError, match="inventory id"):
+        await inv._inventory_device_text(MagicMock(), make_run(), {}, reference)
 
 
 @pytest.mark.asyncio
 async def test_inventory_is_read_as_the_triggering_user() -> None:
-    service = MagicMock()
-    service.resolve_saved_inventory_devices_by_id = AsyncMock(return_value=[])
-    user = MagicMock()
-    user.username = "alice"
-    patches = _patched(service=service)
+    service = _service(return_value=[])
     with (
-        patches[0],
-        patches[1],
-        patches[2],
-        patches[3],
-        patch.object(inv, "UserRepository") as repo,
+        patch(f"{_EXEC}.default_nautobot_source_id", return_value="src"),
+        patch(f"{_EXEC}.resolve_nautobot_credentials", return_value=MagicMock()),
+        patch.object(inv.service_factory, "build_nautobot_source_service", return_value=service),
+        patch(f"{_EXEC}.acting_username", return_value="alice") as acting,
     ):
-        repo.return_value.get_by_id.return_value = user
-        await inv.inventory_device_text(make_run(triggered_by_id=5), {}, "12")
+        await inv._inventory_device_text(MagicMock(), make_run(triggered_by_id=5), {}, "12")
 
+    acting.assert_called_once()
+    assert acting.call_args.args[1] == 5
     service.resolve_saved_inventory_devices_by_id.assert_awaited_once_with(12, "alice")
 
 
 @pytest.mark.asyncio
 async def test_a_permission_error_becomes_a_config_error() -> None:
-    service = MagicMock()
-    service.resolve_saved_inventory_devices_by_id = AsyncMock(side_effect=PermissionError("no"))
-    patches = _patched(service=service)
-    with patches[0], patches[1], patches[2], patches[3], patch.object(inv, "UserRepository"):
-        with pytest.raises(ValueError, match="not accessible"):
-            await inv.inventory_device_text(make_run(triggered_by_id=5), {}, "12")
+    service = _service(side_effect=PermissionError("no"))
+    with (
+        patch(f"{_EXEC}.default_nautobot_source_id", return_value="src"),
+        patch(f"{_EXEC}.resolve_nautobot_credentials", return_value=MagicMock()),
+        patch.object(inv.service_factory, "build_nautobot_source_service", return_value=service),
+        patch(f"{_EXEC}.acting_username", return_value="alice"),
+        pytest.raises(ValueError, match="not accessible to the user that triggered this run"),
+    ):
+        await inv._inventory_device_text(MagicMock(), make_run(triggered_by_id=5), {}, "12")
 
 
 @pytest.mark.asyncio
-async def test_a_run_without_a_triggering_user_reads_no_inventory() -> None:
-    service = MagicMock()
-    service.resolve_saved_inventory_devices_by_id = AsyncMock(return_value=[])
-    patches = _patched(service=service)
-    with patches[0], patches[1], patches[2], patches[3], patch.object(inv, "UserRepository"):
-        with pytest.raises(ValueError, match="needs the user that triggered this run"):
-            await inv.inventory_device_text(make_run(triggered_by_id=None), {}, "12")
+@pytest.mark.parametrize("triggered_by_id", [None, 99])  # no user, or a user that is gone
+async def test_a_run_without_a_user_reads_as_nobody(triggered_by_id: int | None) -> None:
+    """W10-04, maintainer decision 2026-11-27: read with no username, so the service lets only
+    a global inventory through; a private one is reported as not accessible."""
+    service = _service(side_effect=PermissionError("private"))
+    with (
+        patch(f"{_EXEC}.default_nautobot_source_id", return_value="src"),
+        patch(f"{_EXEC}.resolve_nautobot_credentials", return_value=MagicMock()),
+        patch.object(inv.service_factory, "build_nautobot_source_service", return_value=service),
+        patch(f"{_EXEC}.acting_username", return_value=None),
+        pytest.raises(ValueError, match="global inventories only"),
+    ):
+        await inv._inventory_device_text(
+            MagicMock(), make_run(triggered_by_id=triggered_by_id), {}, "12"
+        )
 
-    service.resolve_saved_inventory_devices_by_id.assert_not_awaited()
+    service.resolve_saved_inventory_devices_by_id.assert_awaited_once_with(12, None)
 
 
 @pytest.mark.asyncio
-async def test_a_triggering_user_that_no_longer_exists_reads_no_inventory() -> None:
-    service = MagicMock()
-    service.resolve_saved_inventory_devices_by_id = AsyncMock(return_value=[])
-    patches = _patched(service=service)
-    users = patch.object(inv, "UserRepository")
-    with patches[0], patches[1], patches[2], patches[3], users as repo:
-        repo.return_value.get_by_id.return_value = None
-        with pytest.raises(ValueError, match="needs the user that triggered this run"):
-            await inv.inventory_device_text(make_run(triggered_by_id=99), {}, "12")
-
-    service.resolve_saved_inventory_devices_by_id.assert_not_awaited()
+async def test_without_any_nautobot_source_the_reference_is_a_config_error() -> None:
+    with (
+        patch(f"{_EXEC}.default_nautobot_source_id", return_value=None),
+        pytest.raises(ValueError, match="no Nautobot source is configured"),
+    ):
+        await inv._inventory_device_text(MagicMock(), make_run(), {}, "12")

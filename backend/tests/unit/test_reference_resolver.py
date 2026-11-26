@@ -19,7 +19,7 @@ class InventoryReferenceResolverTests(unittest.TestCase):
     def setUp(self) -> None:
         svc_patch = patch("services.sources.nautobot.persistence_service.InventoryService")
         repo_patch = patch("repositories.inventory_repository.InventoryRepository")
-        user_patch = patch("repositories.user_repository.UserRepository")
+        user_patch = patch("services.workflow.saved_inventory.UserRepository")
         self.inv_service = svc_patch.start().return_value
         repo_patch.start()
         self.user_repo = user_patch.start().return_value
@@ -31,22 +31,22 @@ class InventoryReferenceResolverTests(unittest.TestCase):
         return [{"name": "inv", "type": "reference", "ref_kind": "inventory"}]
 
     def test_ok_for_accessible_inventory(self) -> None:
-        self.inv_service.get_inventory.return_value = {"id": 5, "is_active": True}
+        self.inv_service.get_inventory_as.return_value = {"id": 5, "is_active": True}
         validate_reference_inputs(self._attrs(), {"inv": 5}, db=MagicMock(), acting_user_id=1)
-        self.inv_service.get_inventory.assert_called_once_with(5, username="alice")
+        self.inv_service.get_inventory_as.assert_called_once_with(5, "alice")
 
     def test_missing_inventory_raises(self) -> None:
-        self.inv_service.get_inventory.return_value = None
+        self.inv_service.get_inventory_as.return_value = None
         with self.assertRaises(ReferenceValidationError):
             validate_reference_inputs(self._attrs(), {"inv": 9}, db=MagicMock(), acting_user_id=1)
 
     def test_private_inventory_of_other_user_raises(self) -> None:
-        self.inv_service.get_inventory.side_effect = PermissionError("denied")
+        self.inv_service.get_inventory_as.side_effect = PermissionError("denied")
         with self.assertRaises(ReferenceValidationError):
             validate_reference_inputs(self._attrs(), {"inv": 9}, db=MagicMock(), acting_user_id=1)
 
     def test_inactive_inventory_raises(self) -> None:
-        self.inv_service.get_inventory.return_value = {"id": 5, "is_active": False}
+        self.inv_service.get_inventory_as.return_value = {"id": 5, "is_active": False}
         with self.assertRaises(ReferenceValidationError):
             validate_reference_inputs(self._attrs(), {"inv": 5}, db=MagicMock(), acting_user_id=1)
 
@@ -62,8 +62,8 @@ class InventoryReferenceResolverTests(unittest.TestCase):
         ]
         for reference, error, inventory, expected in cases:
             with self.subTest(code=expected):
-                self.inv_service.get_inventory.side_effect = error
-                self.inv_service.get_inventory.return_value = inventory
+                self.inv_service.get_inventory_as.side_effect = error
+                self.inv_service.get_inventory_as.return_value = inventory
                 with self.assertRaises(ReferenceValidationError) as ctx:
                     resolver.validate(reference, db=MagicMock(), acting_user_id=1)
                 self.assertEqual(ctx.exception.code, expected)

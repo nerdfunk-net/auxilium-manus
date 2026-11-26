@@ -126,6 +126,23 @@ class InventoryService:
             logger.error("Error getting inventory %s: %s", inventory_id, e)
             return None
 
+    def get_inventory_as(self, inventory_id: int, username: str | None) -> dict[str, Any] | None:
+        """Get an inventory by ID for a workflow run acting as *username*.
+
+        With a user, the access rule of ``get_inventory``. Without one (a run nobody triggered,
+        such as a webhook-approved change request) only a global inventory may be read: a
+        private inventory raises ``PermissionError`` (W10-04). ``get_inventory(id)`` without a
+        username skips the check entirely and stays for the routers' own read-backs.
+        """
+        inventory = self.get_inventory(inventory_id)
+        if inventory is None:
+            return None
+        if username is not None:
+            self._assert_access(inventory, username)
+        elif inventory.get("scope") == "private":
+            raise PermissionError(f"Access denied to inventory {inventory['id']}")
+        return inventory
+
     def get_inventory_by_name(self, name: str, username: str) -> dict[str, Any] | None:
         """Get an inventory by name for a specific user."""
         try:

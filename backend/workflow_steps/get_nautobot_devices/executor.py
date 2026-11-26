@@ -10,6 +10,7 @@ from core.models.runs import WorkflowRun
 from models.sources_nautobot import DeviceInfo, LogicalCondition, LogicalOperation
 from models.workflow_context import StepOutcome, WorkflowContext
 from services.artifacts import ArtifactService
+from services.workflow.saved_inventory import acting_username
 from workflow_steps.common.device_builders import device_context_from_nautobot
 from workflow_steps.common.fan_out import inventory_metadata
 from workflow_steps.common.nautobot_source import resolve_nautobot_credentials
@@ -21,19 +22,6 @@ if TYPE_CHECKING:
     from services.network.netmiko.session_pool import DeviceSessionPool
 
 logger = logging.getLogger(__name__)
-
-
-def _acting_username(db: Any, user_id: int | None) -> str | None:
-    """Username of the user that triggered this run — used to RBAC-scope a
-    run-parameter inventory lookup to global + that user's private inventories.
-    ``None`` for a system-triggered run with no user (only global inventories
-    then resolve, via the persistence layer's access check)."""
-    if user_id is None:
-        return None
-    from repositories.user_repository import UserRepository
-
-    user = UserRepository(db).get_by_id(user_id)
-    return user.username if user else None
 
 
 def _filter_tree_to_operations(tree: dict[str, Any]) -> list[LogicalOperation]:
@@ -96,7 +84,8 @@ async def _resolve_saved_inventory(
             f"get-nautobot-devices: {origin} did not resolve to an inventory id (got {reference!r})"
         ) from exc
 
-    acting_username = _acting_username(db, run.triggered_by_id)
+    # ``None`` for a run without a triggering user: global inventories only (W10-04).
+    username = acting_username(db, run.triggered_by_id)
     logger.info(
         "get-nautobot-devices run_id=%s source_id=%s inventory_source=%s "
         "inventory_id=%s acting_user=%s",
@@ -104,12 +93,10 @@ async def _resolve_saved_inventory(
         source_id,
         "run_param" if from_run_param else "fixed",
         inventory_id,
-        acting_username,
+        username,
     )
     try:
-        return await source_service.resolve_saved_inventory_devices_by_id(
-            inventory_id, acting_username
-        )
+        return await source_service.resolve_saved_inventory_devices_by_id(inventory_id, username)
     except PermissionError as exc:
         raise ValueError(
             f"get-nautobot-devices: inventory {inventory_id} is not accessible to the "
