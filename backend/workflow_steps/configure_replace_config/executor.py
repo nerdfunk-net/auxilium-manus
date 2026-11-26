@@ -105,8 +105,6 @@ from workflow_steps.configure_replace_config.diff_checks import (
     verify_after_replace,
 )
 from workflow_steps.configure_replace_config.shim_jobs import (
-    JOB_TIMEOUT,
-    OUTCOME_UNKNOWN,
     STEP_ID,
     run_shim_job,
 )
@@ -147,10 +145,20 @@ def _has_no_pending_rollback(raw_output: Any) -> bool:
     return _NO_PENDING_ROLLBACK_MARKER in str(raw_output or "").lower()
 
 
-def _replace_failure(error: str | None) -> Fail:
+_OUTCOME_UNKNOWN_WARNING = (
+    " -- the job may still have been applied on the device; check it before re-running"
+)
+
+
+def _replace_failure(
+    error: str | None, *, failure: FailureInfo | None = None, outcome_unknown: bool = False
+) -> Fail:
     """Fail a device for a 'configure replace' error, whether it surfaced as a
     connection/job-level failure or as a per-command error on an otherwise-connected
-    session -- both land here so the archive-not-configured hint stays in one place."""
+    session -- both land here so the archive-not-configured hint stays in one place.
+
+    ``outcome_unknown`` (the client gave up waiting) is a ``task_timeout`` with a warning:
+    distinguishable from a refusal, which keeps its own ``failure``."""
     if _is_archive_not_configured_error(error):
         return Fail(
             "archive_not_configured",
@@ -162,15 +170,15 @@ def _replace_failure(error: str | None) -> Fail:
             "then retry. See this step's Help panel for details.",
             failure=INVALID_INPUT,
         )
+    if outcome_unknown:
+        return Fail(
+            "replace_failed",
+            f"'configure replace' failed or the connection was lost: {error}"
+            f"{_OUTCOME_UNKNOWN_WARNING}",
+            FailureInfo(phase="task", kind="task_timeout", hint="retry_later"),
+        )
     return Fail(
-        "replace_failed",
-        f"'configure replace' failed or the connection was lost: {error}",
-        # a client-side timeout is "outcome unknown", distinguishable from "refused"
-        (
-            FailureInfo(phase="task", kind="task_timeout", hint="retry_later")
-            if error and OUTCOME_UNKNOWN in error
-            else getattr(error, "failure", None)
-        ),
+        "replace_failed", f"'configure replace' failed or the connection was lost: {error}", failure
     )
 
 
@@ -180,6 +188,7 @@ def _prepare_target(
     device: DeviceContext,
     source_credentials: dict[str, PyATSCredentials],
     source_errors: dict[str, str],
+    job_timeout: float,
 ) -> Target | Fail:
     """Resolve the testbed bag, pyATS source and password; a ``Fail`` on error."""
     bag = device.attribute_bags.get("pyats_testbed")
@@ -221,6 +230,7 @@ def _prepare_target(
         shim=service_factory.get_pyats_app_service(),
         shim_credentials=shim_credentials,
         shim_device=shim_device,
+        job_timeout=job_timeout,
     )
 
 
@@ -245,15 +255,17 @@ async def _replace_and_confirm(
         replace_command,
     )
     started = time.monotonic()
-    ok, command_entries, err = await run_shim_job(
+    job = await run_shim_job(
         target.shim,
         target.shim_credentials,
         operation="execute",
         shim_device=target.shim_device,
         commands=[replace_command, _CONFIRM_COMMAND],
+        timeout=target.job_timeout,
     )
-    if not ok:
-        return _replace_failure(err)
+    if not job.ok:
+        return _replace_failure(job.error, failure=job.failure, outcome_unknown=job.outcome_unknown)
+    command_entries = job.entries
 
     replace_error = (command_entries.get(replace_command) or {}).get("error")
     if replace_error:
@@ -332,6 +344,7 @@ async def _process_one_device(
     verify_diff_after_replace: bool,
     source_credentials: dict[str, PyATSCredentials],
     source_errors: dict[str, str],
+    job_timeout: float,
     artifact_service: ArtifactService,
     context_run_id: str,
 ) -> DeviceContext | Fail:
@@ -340,6 +353,7 @@ async def _process_one_device(
         device=device,
         source_credentials=source_credentials,
         source_errors=source_errors,
+        job_timeout=job_timeout,
     )
     if isinstance(target, Fail):
         return target
@@ -488,7 +502,6 @@ async def execute(
 
     # At most as many jobs in flight as the shim runs at once, so it never has to queue them:
     # a job that waited in the shim's queue could outlive the client's timeout and still run.
-    JOB_TIMEOUT.set(job_timeout_seconds)
     # The shim's own limit (from /health/pyats), or the default of 4 when it cannot be read.
     parallel_jobs = (
         await shim_concurrency(
@@ -510,6 +523,7 @@ async def execute(
             verify_diff_after_replace=verify_diff_after_replace,
             source_credentials=source_credentials,
             source_errors=source_errors,
+            job_timeout=job_timeout_seconds,
             artifact_service=artifact_service,
             context_run_id=context.run_id,
         )

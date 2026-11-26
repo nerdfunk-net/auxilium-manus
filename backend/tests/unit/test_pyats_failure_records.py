@@ -232,15 +232,16 @@ async def test_configure_replace_device_level_error_carries_a_command_error() ->
         return_value={"results": {"a": {"success": False, "error": "w" * 2000}}}
     )
 
-    ok, _entries, error = await replace_mod.run_shim_job(
+    result = await replace_mod.run_shim_job(
         shim,
         MagicMock(),
         operation="run",
         shim_device={"name": "a"},
         commands=["x"],
+        timeout=120.0,
     )
 
-    assert ok is False
-    assert len(str(error)) <= pyats_batch.MAX_SHIM_TEXT + 1
-    assert error.failure is not None
-    assert error.failure.kind == "command_error"
+    assert result.ok is False
+    assert len(str(result.error)) <= pyats_batch.MAX_SHIM_TEXT + 1
+    assert result.failure is not None
+    assert result.failure.kind == "command_error"

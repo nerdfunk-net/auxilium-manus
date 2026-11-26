@@ -1,21 +1,19 @@
-"""Shim jobs of configure-replace-config: one job per device, the diff command, the error type."""
+"""Shim jobs of configure-replace-config: one job per device and the diff command.
+
+Every job gets the step's job budget as an argument and answers a ``ShimResult``; a client-side
+timeout is the ``outcome_unknown`` flag (W3a-07), never a sentence searched for in the message.
+"""
 
 from __future__ import annotations
 
-import contextvars
 import logging
-from typing import TYPE_CHECKING, Any
+from dataclasses import dataclass, field
+from typing import Any
 
 from models.failure import FailureInfo
 from services.pyats.common.exceptions import PyATSAPIError
 from services.pyats.credentials import PyATSCredentials
-from workflow_steps.common.pyats_batch import (
-    shim_device_failure,
-)
-
-if TYPE_CHECKING:
-    pass
-
+from workflow_steps.common.pyats_batch import shim_device_failure
 
 logger = logging.getLogger(__name__)
 
@@ -23,25 +21,20 @@ logger = logging.getLogger(__name__)
 STEP_ID = "configure-replace-config"
 
 
-class ShimError(str):
-    """An error message that also carries the closed-vocabulary classification of its cause."""
+@dataclass(frozen=True)
+class ShimResult:
+    """One shim job for one device.
 
-    failure: FailureInfo | None
+    ``ok`` is False only when the connection or the job itself failed; each entry of
+    ``entries`` (keyed by command text) can still carry its own per-command ``error``.
+    ``outcome_unknown`` says the client gave up waiting (C4-01): the device may have run it.
+    """
 
-    def __new__(cls, message: str, failure: FailureInfo | None = None) -> ShimError:
-        instance = super().__new__(cls, message)
-        instance.failure = failure
-        return instance
-
-
-# Job budget of this step run (seconds); set by execute() before the per-device tasks start.
-JOB_TIMEOUT: contextvars.ContextVar[float | None] = contextvars.ContextVar(
-    "configure_replace_job_timeout", default=None
-)
-
-OUTCOME_UNKNOWN = (
-    " -- the job may still have been applied on the device; check it before re-running"
-)
+    ok: bool
+    entries: dict[str, dict[str, Any]] = field(default_factory=dict)
+    error: str | None = None
+    failure: FailureInfo | None = None
+    outcome_unknown: bool = False
 
 
 async def run_shim_job(
@@ -51,15 +44,13 @@ async def run_shim_job(
     operation: str,
     shim_device: dict[str, Any],
     commands: list[str],
-) -> tuple[bool, dict[str, dict[str, Any]], str | None]:
+    timeout: float,
+) -> ShimResult:
     """Run a shim job with one or more commands over a single device connection.
 
-    The shim connects once, runs every command in ``commands`` against that
-    same connection in order, then disconnects -- see generic_script.py's
-    ``run_commands``. Returns (ok, command_entries, error_message); ``ok`` is
-    False only when the connection/job itself failed for this device (each
-    entry in ``command_entries`` -- keyed by command text -- can still carry
-    its own per-command ``error`` even when ``ok`` is True).
+    The shim connects once, runs every command in ``commands`` against that same connection in
+    order, then disconnects -- see generic_script.py's ``run_commands``. ``timeout`` is the job
+    budget in seconds (``job_timeout_seconds`` of the step).
     """
     try:
         response = await shim.run_job(
@@ -67,21 +58,24 @@ async def run_shim_job(
             operation=operation,
             devices=[shim_device],
             commands=commands,
-            timeout_seconds=JOB_TIMEOUT.get(),
+            timeout_seconds=timeout,
         )
     except PyATSAPIError as exc:
         message = str(exc)
-        if exc.code == "timeout" or "timed out" in message:
+        return ShimResult(
+            ok=False,
+            error=message,
+            failure=exc.failure,
             # A client-side timeout says nothing about what the device did (C4-01).
-            message += OUTCOME_UNKNOWN
-        return False, {}, ShimError(message, exc.failure)
+            outcome_unknown=exc.code == "timeout" or "timed out" in message,
+        )
 
     result = (response.get("results") or {}).get(shim_device["name"])
     if not result or not result.get("success", False):
         message, failure = shim_device_failure(result)
-        return False, {}, ShimError(message, failure)
+        return ShimResult(ok=False, error=message, failure=failure)
 
-    return True, result.get("commands") or {}, None
+    return ShimResult(ok=True, entries=result.get("commands") or {})
 
 
 async def call_shim(
@@ -91,15 +85,21 @@ async def call_shim(
     operation: str,
     shim_device: dict[str, Any],
     command: str,
+    timeout: float,
 ) -> tuple[bool, Any, str | None]:
     """Run a single-command shim job. Returns (ok, value, error_message)."""
-    ok, command_entries, err = await run_shim_job(
-        shim, shim_credentials, operation=operation, shim_device=shim_device, commands=[command]
+    result = await run_shim_job(
+        shim,
+        shim_credentials,
+        operation=operation,
+        shim_device=shim_device,
+        commands=[command],
+        timeout=timeout,
     )
-    if not ok:
-        return False, None, err
+    if not result.ok:
+        return False, None, result.error
 
-    entry = command_entries.get(command) or {}
+    entry = result.entries.get(command) or {}
     if entry.get("error"):
         return False, None, entry["error"]
 
@@ -113,6 +113,7 @@ async def run_diff(
     *,
     shim_device: dict[str, Any],
     diff_command: str,
+    timeout: float,
 ) -> tuple[bool, str, str | None]:
     """Run the config-text diff command. Returns (ok, diff_text, error_message)."""
     ok, raw, err = await call_shim(
@@ -121,6 +122,7 @@ async def run_diff(
         operation="execute",
         shim_device=shim_device,
         command=diff_command,
+        timeout=timeout,
     )
     if not ok:
         return False, "", err

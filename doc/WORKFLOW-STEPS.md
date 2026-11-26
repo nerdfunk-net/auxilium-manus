@@ -1580,7 +1580,9 @@ timeout, rejected request) fails only the devices of that chunk. `get-pyats-runn
 `get-pyats-snapshot` (Get Snapshot) use it. Two steps call the shim directly on purpose:
 `compare-pyats-snapshot` (Compare Snapshot) calls `/v1/diff`, not a job, and `configure-replace-config`
 (Configure Replace Config) runs up to three strictly ordered jobs per device on one CLI session
-(`configure_replace_config/shim_jobs.py`).
+(`configure_replace_config/shim_jobs.py`: `run_shim_job(..., timeout=)` takes the step's `job_timeout_seconds` as an
+argument and answers a `ShimResult`; a client-side timeout is its `outcome_unknown` flag, which fails the replace with
+`task_timeout` and the warning that the device may still have applied it).
 
 Full shim HTTP contract, job/easypy execution model, and container
 architecture: **doc/PYATS_INTEGRATION.md**.

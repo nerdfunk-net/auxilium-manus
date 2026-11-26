@@ -91,6 +91,7 @@ class Target:
     shim: Any
     shim_credentials: PyATSCredentials
     shim_device: dict[str, Any]
+    job_timeout: float  # seconds; every shim job of this device gets it
 
 
 @dataclass(frozen=True)
@@ -120,6 +121,7 @@ async def pre_replace_diff(
         target.shim_credentials,
         shim_device=target.shim_device,
         diff_command=diff_command,
+        timeout=target.job_timeout,
     )
     if diff_ok and not diff_has_changes(pre_diff_text):
         entry = {
@@ -186,6 +188,7 @@ async def verify_after_replace(
         target.shim_credentials,
         shim_device=target.shim_device,
         diff_command=diff_command,
+        timeout=target.job_timeout,
     )
     if not diff_ok:
         return Fail(
