@@ -530,8 +530,8 @@ in the worker process: `re` holds the GIL while it matches, so `(a+)+$` would st
 `workflow_steps/common/regex_search.py::search_many` sends the questions to the killable child
 (`core/regex_isolated.py`, op `search_many`) in batches of at most 50 items / 4 MB; each pattern has
 its own time limit. An unusable answer is `invalid` (bad pattern) or `stopped` (too slow, or the batch
-failed): `route-on-content` fails that device (`invalid_regex` / `regex_stopped`), `get-virtual-chassis`
-fails the step naming the setting.
+failed): `route-on-content` fails that device (`invalid_regex` with `bad_request`, `regex_stopped` with
+`resource_limit`), `get-virtual-chassis` fails the step naming the setting.
 
 Patterns that *remove* content use the second helper, `match_any(texts, patterns, ignore_case=)` (op `match_any`:
 per text, whether any pattern is found; batches of at most 5000 texts / 4 MB): `filter-output` (key names of JSON, lines of

@@ -304,7 +304,8 @@ class RouteOnContentExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(list(by_name["failure"].context.devices), ["slow"])
         error = by_name["failure"].context.devices["slow"].errors[0]
         self.assertEqual(error.code, "regex_stopped")
-        self.assertEqual(error.failure.kind, "bad_request")
+        # S4-07: stopped is a resource limit, not a bad request (REGEX_STOPPED)
+        self.assertEqual(error.failure.kind, "resource_limit")
         self.assertEqual(list(by_name["mismatch"].context.devices), ["quick"])
 
     async def test_regex_matching_goes_through_the_isolated_search(self) -> None:

@@ -896,10 +896,10 @@ is covered by unit tests only. Open items:
 - **Isolate the remaining Jinja/regex steps (S4-07): done 2026-11-26.** Every workflow step now runs author Jinja and
   author regexes in a killable child: `render-jinja-template`, `update-config-context`, `batfish-validate-facts`
   (`core/jinja_worker.py`) and `update-content` (`core/regex_worker.py` op `replace_many`), 10 s / 8 MiB / 16 MiB, see
-  `doc/WORKFLOW-STEPS.md` "Author templates and replace rules". Left: `services/templates/templates_service.py::render` has
-  no production caller any more (`POST /templates/render` uses `render_isolated`; only its tests call it): delete it; `core/textfsm_isolated.py` and
-  `services/ai_assistant/render_isolated.py` keep their own copy of the spawn-and-kill code instead of
-  `core/isolated_process.py`; `route-on-content` records a stopped pattern as `bad_request` instead of `resource_limit`.
+  `doc/WORKFLOW-STEPS.md` "Author templates and replace rules". The follow-ups are done too (2026-11-26):
+  the dead `TemplatesService.render` is deleted, `core/textfsm_isolated.py` and
+  `services/ai_assistant/render_isolated.py` spawn through `core/isolated_process.py` like the rest, and `route-on-content`
+  records a stopped pattern as `resource_limit`.
 
 - **Container hardening trial (S6-09).** The compose files drop all capabilities but the few
   `start.sh`/supervisord need and set `no-new-privileges`, PID and memory limits, but `read_only: true`

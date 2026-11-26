@@ -8,14 +8,14 @@ timeout, the same shape as ``core.regex_isolated``.
 
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
-import sys
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+from core.isolated_process import ChildSlots, run_child
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +23,6 @@ _WORKER = Path(__file__).with_name("textfsm_worker.py")
 DEFAULT_TIMEOUT_SECONDS = 30.0
 MAX_CONCURRENT_JOBS = 2
 MAX_RESPONSE_BYTES = 20_000_000
-_BUSY_POLL_SECONDS = 0.05
 
 # Fixed codes the worker returns per item.
 NO_TEMPLATE = "no_template"
@@ -34,7 +33,7 @@ TIMEOUT = "timeout"
 STOPPED = "The TextFSM parser was stopped: it used too much time or memory"
 BUSY = "The TextFSM parser is busy; try again in a moment"
 
-_active = 0
+_SLOTS = ChildSlots(MAX_CONCURRENT_JOBS)
 
 
 @dataclass(frozen=True)
@@ -58,48 +57,18 @@ async def run_textfsm(
     wait_seconds: float = 1.0,
 ) -> TextfsmOutcome:
     """Parse each ``(command, output)`` with the ntc-templates of ``platform``, in a child."""
-    global _active
-    loop = asyncio.get_running_loop()
-    deadline = loop.time() + wait_seconds
-    while _active >= MAX_CONCURRENT_JOBS:
-        if loop.time() >= deadline:
+    async with _SLOTS.hold(wait_seconds=wait_seconds) as got:
+        if not got:
             return TextfsmOutcome(ok=False, error=BUSY)
-        await asyncio.sleep(_BUSY_POLL_SECONDS)
-    _active += 1
-    try:
-        return await _run_worker(platform, items, timeout, len(items))
-    finally:
-        _active -= 1
-
-
-async def _run_worker(
-    platform: str, items: Sequence[tuple[str, str]], timeout: float, expected: int
-) -> TextfsmOutcome:
-    payload = json.dumps({"platform": platform, "items": [list(item) for item in items]}).encode()
-    try:
-        process = await asyncio.create_subprocess_exec(
-            sys.executable,
-            "-I",
-            str(_WORKER),
-            env={},  # the child must not see SECRET_KEY, database or Hatchet secrets
-            stdin=asyncio.subprocess.PIPE,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.DEVNULL,
+        payload = json.dumps(
+            {"platform": platform, "items": [list(item) for item in items]}
+        ).encode()
+        stdout = await run_child(
+            _WORKER, payload, timeout=timeout, max_response_bytes=MAX_RESPONSE_BYTES
         )
-    except OSError:
-        logger.warning("Could not start the TextFSM worker", exc_info=True)
+    if stdout is None:
         return TextfsmOutcome(ok=False, error=STOPPED)
-    try:
-        stdout, _ = await asyncio.wait_for(process.communicate(payload), timeout=timeout)
-    except TimeoutError:
-        return TextfsmOutcome(ok=False, error=STOPPED)
-    finally:
-        if process.returncode is None:  # timeout, or the request was cancelled
-            process.kill()
-            await process.wait()
-    if process.returncode != 0 or len(stdout) > MAX_RESPONSE_BYTES:
-        return TextfsmOutcome(ok=False, error=STOPPED)
-    return _decode(stdout, expected)
+    return _decode(stdout, len(items))
 
 
 def _decode(stdout: bytes, expected: int) -> TextfsmOutcome:

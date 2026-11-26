@@ -91,7 +91,7 @@ def test_a_garbage_reply_is_an_error(monkeypatch, tmp_path) -> None:
 
 
 def test_a_busy_runner_says_so(monkeypatch) -> None:
-    monkeypatch.setattr(ti, "_active", ti.MAX_CONCURRENT_JOBS)
+    monkeypatch.setattr(ti._SLOTS, "active", ti.MAX_CONCURRENT_JOBS)
 
     outcome = _run("cisco_ios", [("show version", "x")], wait_seconds=0.1)
 
@@ -101,7 +101,7 @@ def test_a_busy_runner_says_so(monkeypatch) -> None:
 def test_the_slot_is_released_after_a_run() -> None:
     _run("cisco_ios", [("show version", SHOW_VERSION)])
 
-    assert ti._active == 0
+    assert ti._SLOTS.active == 0
 
 
 @pytest.mark.skipif(not hasattr(__import__("signal"), "setitimer"), reason="needs setitimer")

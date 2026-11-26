@@ -1221,7 +1221,7 @@ device), `ref_mismatch` (a change-request deploy found a different commit than t
 `re_run_stage`. Phase `agent` with kinds `agent_offline`, `agent_handler_error`, `payload_too_large` and
 `output_rejected` (and the hint `check_agent`) describe a failed `route-to-agent` call; timeouts and
 authentication failures reuse `timeout` and `auth_failed`. Kind `resource_limit` (phase `render` for a
-Jinja template, `config` for an `update-content` replace rule) says the author's template or regular expression
+Jinja template, `config` for an `update-content` replace rule or a `route-on-content` pattern) says the author's template or regular expression
 was stopped in its isolated child: more than 10 s, too much memory or a too large result (S4-07, `doc/WORKFLOW-STEPS.md`
 "Author templates and replace rules"). A stream cut off before its terminal marker is not a failure record but a
 `provider_unavailable` error ("The answer was cut off before it was complete", §10).

@@ -65,9 +65,13 @@ async def run_child(
     timeout: float,
     max_response_bytes: int,
     args: Sequence[str] = (),
+    timeout_raises: bool = False,
 ) -> bytes | None:
     """The child's stdout, or ``None`` when it could not start, ran past ``timeout``, exited
-    with an error or answered more than ``max_response_bytes``. Never guesses a result."""
+    with an error or answered more than ``max_response_bytes``. Never guesses a result.
+
+    ``timeout_raises`` raises ``TimeoutError`` (the child already killed) instead of answering
+    ``None``, for a caller that reports a timeout differently from a crash."""
     try:
         process = await asyncio.create_subprocess_exec(
             sys.executable,
@@ -85,6 +89,8 @@ async def run_child(
     try:
         stdout, _ = await asyncio.wait_for(process.communicate(payload), timeout=timeout)
     except TimeoutError:
+        if timeout_raises:
+            raise
         return None
     finally:
         if process.returncode is None:  # timeout, or the caller was cancelled

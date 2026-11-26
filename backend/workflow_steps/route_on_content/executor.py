@@ -27,7 +27,7 @@ from workflow_steps.common.content_resolver import (
     list_exportable_content,
     parse_content_source,
 )
-from workflow_steps.common.failure_records import INVALID_INPUT, MISSING_DATA
+from workflow_steps.common.failure_records import INVALID_INPUT, MISSING_DATA, REGEX_STOPPED
 from workflow_steps.common.partial_outcomes import device_error_from_exception
 from workflow_steps.common.placeholder_template import render_placeholder_template
 from workflow_steps.common.regex_search import RegexAnswer, RegexQuestion, search_many
@@ -270,7 +270,7 @@ def _answer_regex(
             device=ready.device,
             node_id=node_id,
             code="regex_stopped" if stopped else "invalid_regex",
-            failure=INVALID_INPUT,
+            failure=REGEX_STOPPED if stopped else INVALID_INPUT,
             message=(
                 f"the regular expression {ready.rendered_pattern!r} was stopped: it used too "
                 "much time or memory on this content"

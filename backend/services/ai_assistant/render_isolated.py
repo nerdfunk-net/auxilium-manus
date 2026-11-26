@@ -8,14 +8,13 @@ and has its own CPU and memory limits (``render_worker.py``). The model can trig
 
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
-import sys
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
+from core.isolated_process import ChildSlots, run_child
 from services.ai_assistant.template_render import RenderOutcome
 
 logger = logging.getLogger(__name__)
@@ -26,8 +25,7 @@ DEFAULT_TIMEOUT_SECONDS = 5.0
 MAX_CONCURRENT_RENDERS = 4
 MAX_RESPONSE_BYTES = 2_500_000
 
-_active = 0
-_BUSY_POLL_SECONDS = 0.1
+_SLOTS = ChildSlots(MAX_CONCURRENT_RENDERS)
 
 _STOPPED = RenderOutcome(ok=False, error="Rendering was stopped: it used too much time or memory")
 _BUSY = RenderOutcome(ok=False, error="The template renderer is busy; try again in a moment")
@@ -43,19 +41,12 @@ async def render_isolated(
 ) -> RenderOutcome:
     """Same result as ``render_lenient``. Raises ``TimeoutError`` after ``timeout`` seconds (the
     child is killed first); any other failure of the child comes back as a failed outcome."""
-    global _active
     # The assistant's trial render fails fast; report generation passes ``wait_seconds`` because
     # its result is stored for good and must not record "busy".
-    deadline = asyncio.get_running_loop().time() + wait_seconds
-    while _active >= MAX_CONCURRENT_RENDERS:
-        if asyncio.get_running_loop().time() >= deadline:
+    async with _SLOTS.hold(wait_seconds=wait_seconds) as got:
+        if not got:
             return _BUSY
-        await asyncio.sleep(_BUSY_POLL_SECONDS)
-    _active += 1
-    try:
         return await _run_worker(content, context, timeout, strict)
-    finally:
-        _active -= 1
 
 
 async def _run_worker(
@@ -68,31 +59,17 @@ async def _run_worker(
         return RenderOutcome(
             ok=False, error="The template context contains a value that is not plain data"
         )
-    try:
-        process = await asyncio.create_subprocess_exec(
-            sys.executable,
-            "-I",
-            str(_WORKER),
-            env={},  # the child must not inherit SECRET_KEY, database or Hatchet secrets (S5-12)
-            stdin=asyncio.subprocess.PIPE,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.DEVNULL,
-        )
-    except OSError:
-        logger.warning("Could not start the template render worker", exc_info=True)
-        return _STOPPED
-    try:
-        stdout, _ = await asyncio.wait_for(process.communicate(payload), timeout=timeout)
-    finally:
-        if process.returncode is None:  # timeout, or the request was cancelled
-            process.kill()
-            await process.wait()
-    return _parse(process.returncode, stdout)
+    stdout = await run_child(
+        _WORKER,
+        payload,
+        timeout=timeout,
+        max_response_bytes=MAX_RESPONSE_BYTES,
+        timeout_raises=True,
+    )
+    return _STOPPED if stdout is None else _parse(stdout)
 
 
-def _parse(returncode: int | None, stdout: bytes) -> RenderOutcome:
-    if returncode != 0 or len(stdout) > MAX_RESPONSE_BYTES:
-        return _STOPPED
+def _parse(stdout: bytes) -> RenderOutcome:
     try:
         data = json.loads(stdout)
         return RenderOutcome(

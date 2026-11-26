@@ -1,9 +1,9 @@
 """Jinja2 syntax check and lenient trial render for the AI assistant's template tools.
 
-Same sandbox knobs as services/templates/templates_service.py (so the model cannot exercise
-anything the editor's own preview could not). The difference is *lenient* undefined handling:
-the template editor's device/run variables are withheld from the model, so references to them
-must not fail the render. They render as ``<<name>>`` and are reported, which lets the model
+Same sandbox knobs as the workflow steps' ``services/workflow_context/jinja_sandbox.py`` (so the
+model cannot exercise anything a step's render could not). The difference is *lenient* undefined
+handling: the template editor's device/run variables are withheld from the model, so references to
+them must not fail the render. They render as ``<<name>>`` and are reported, which lets the model
 check syntax and logic without ever seeing device data.
 """
 

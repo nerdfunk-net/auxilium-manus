@@ -77,7 +77,7 @@ def test_a_crashed_worker_is_reported_not_raised(monkeypatch: pytest.MonkeyPatch
 
 
 def test_too_many_concurrent_renders_are_refused(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(render_isolated, "_active", render_isolated.MAX_CONCURRENT_RENDERS)
+    monkeypatch.setattr(render_isolated._SLOTS, "active", render_isolated.MAX_CONCURRENT_RENDERS)
 
     outcome = run("x")
 
@@ -86,17 +86,17 @@ def test_too_many_concurrent_renders_are_refused(monkeypatch: pytest.MonkeyPatch
 
 def test_a_busy_renderer_fails_fast_by_default_and_waits_when_asked() -> None:
     async def scenario():
-        render_isolated._active = render_isolated.MAX_CONCURRENT_RENDERS
+        render_isolated._SLOTS.active = render_isolated.MAX_CONCURRENT_RENDERS
         try:
             fast = await render("x", {})
             freed = asyncio.get_running_loop().call_later(
-                0.3, lambda: setattr(render_isolated, "_active", 0)
+                0.3, lambda: setattr(render_isolated._SLOTS, "active", 0)
             )
             waited = await render("y", {}, wait_seconds=3.0)
             freed.cancel()
             return fast, waited
         finally:
-            render_isolated._active = 0
+            render_isolated._SLOTS.active = 0
 
     fast, waited = asyncio.run(scenario())
 
