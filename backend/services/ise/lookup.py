@@ -132,7 +132,7 @@ def _wildcard_matches(pattern: str, target: ipaddress.IPv4Address) -> bool:
     return True
 
 
-def ip_entry_matches(entry: dict[str, Any], target: ipaddress.IPv4Address) -> bool:
+def _ip_entry_matches(entry: dict[str, Any], target: ipaddress.IPv4Address) -> bool:
     """Check whether *target* falls within one ``NetworkDeviceIPList`` entry.
 
     ISE represents a NAD's IP coverage in several shapes, and ``mask`` is not
@@ -176,6 +176,6 @@ def ip_entry_matches(entry: dict[str, Any], target: ipaddress.IPv4Address) -> bo
 def device_ip_list_matches(detail: dict[str, Any], target: ipaddress.IPv4Address) -> bool:
     """True if any ``NetworkDeviceIPList`` entry on *detail* contains *target*."""
     for entry in detail.get("NetworkDeviceIPList") or []:
-        if ip_entry_matches(entry, target):
+        if _ip_entry_matches(entry, target):
             return True
     return False

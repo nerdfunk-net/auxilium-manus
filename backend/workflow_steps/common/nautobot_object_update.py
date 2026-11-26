@@ -36,6 +36,7 @@ from workflow_steps.common.nautobot_plan_fields import (
     not_found_failure,
     resolve_field,
 )
+from workflow_steps.common.nautobot_step import NAUTOBOT_CONCURRENCY
 from workflow_steps.common.nautobot_write_groups import write_once_per_group
 from workflow_steps.common.partial_outcomes import (
     NAUTOBOT_TEXT,
@@ -44,7 +45,6 @@ from workflow_steps.common.partial_outcomes import (
 
 logger = logging.getLogger(__name__)
 
-_CONCURRENCY = 5
 
 
 @dataclass(frozen=True)
@@ -412,7 +412,7 @@ async def run_object_update(
         else:
             ready.append(resolved)
 
-    gate = asyncio.Semaphore(_CONCURRENCY)
+    gate = asyncio.Semaphore(NAUTOBOT_CONCURRENCY)
     found: _Found = {}
 
     async def write(item: _Resolved) -> _Written:

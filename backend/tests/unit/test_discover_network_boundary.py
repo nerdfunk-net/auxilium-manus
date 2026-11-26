@@ -37,7 +37,9 @@ def _neighbor(name: str, ip: str) -> Neighbor:
 
 
 def _seed(host: str, name: str) -> Target:
-    return Target(name=name, host=host, device_type="cisco_ios", depth=0, discovered_from=None)
+    return Target(
+        name=name, host=host, device_type="cisco_ios", depth=0, discovered_from=None, seed_id=name
+    )
 
 
 def _settings() -> Any:

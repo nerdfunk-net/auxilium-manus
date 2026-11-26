@@ -11,38 +11,38 @@ from models.workflow_context import WorkflowContext
 from services.artifacts import InMemoryArtifactService
 from services.batfish.facts_specs import PropertyQuestionSpec
 from workflow_steps.common.batfish_properties import (
+    _is_empty_value,
+    _row_matches_empty,
     build_property_outcomes,
-    is_empty_value,
     parse_properties_list,
-    row_matches_empty,
     validate_empty_config,
 )
 
 
 class IsEmptyValueTests(unittest.TestCase):
     def test_none_is_empty(self) -> None:
-        self.assertTrue(is_empty_value(None))
+        self.assertTrue(_is_empty_value(None))
 
     def test_blank_and_whitespace_strings_are_empty(self) -> None:
-        self.assertTrue(is_empty_value(""))
-        self.assertTrue(is_empty_value("   "))
+        self.assertTrue(_is_empty_value(""))
+        self.assertTrue(_is_empty_value("   "))
 
     def test_non_blank_string_is_not_empty(self) -> None:
-        self.assertFalse(is_empty_value("tacacs.example.com"))
+        self.assertFalse(_is_empty_value("tacacs.example.com"))
 
     def test_empty_collections_are_empty(self) -> None:
-        self.assertTrue(is_empty_value([]))
-        self.assertTrue(is_empty_value({}))
-        self.assertTrue(is_empty_value(()))
-        self.assertTrue(is_empty_value(set()))
+        self.assertTrue(_is_empty_value([]))
+        self.assertTrue(_is_empty_value({}))
+        self.assertTrue(_is_empty_value(()))
+        self.assertTrue(_is_empty_value(set()))
 
     def test_non_empty_collection_is_not_empty(self) -> None:
-        self.assertFalse(is_empty_value(["10.0.0.5"]))
+        self.assertFalse(_is_empty_value(["10.0.0.5"]))
 
     def test_falsy_non_empty_scalars_are_not_empty(self) -> None:
         # 0/False are real values, not "unset" -- only None/blank/empty-collection count.
-        self.assertFalse(is_empty_value(0))
-        self.assertFalse(is_empty_value(False))
+        self.assertFalse(_is_empty_value(0))
+        self.assertFalse(_is_empty_value(False))
 
 
 class ParsePropertiesListTests(unittest.TestCase):
@@ -59,14 +59,14 @@ class ParsePropertiesListTests(unittest.TestCase):
 class RowMatchesEmptyTests(unittest.TestCase):
     def test_any_mode_flags_if_at_least_one_property_empty(self) -> None:
         row = {"A": [], "B": ["x"]}
-        self.assertTrue(row_matches_empty(row, properties_list=["A", "B"], match_mode="any"))
+        self.assertTrue(_row_matches_empty(row, properties_list=["A", "B"], match_mode="any"))
 
     def test_all_mode_flags_only_if_every_property_empty(self) -> None:
         row = {"A": [], "B": ["x"]}
-        self.assertFalse(row_matches_empty(row, properties_list=["A", "B"], match_mode="all"))
+        self.assertFalse(_row_matches_empty(row, properties_list=["A", "B"], match_mode="all"))
         all_empty_row = {"A": [], "B": []}
         self.assertTrue(
-            row_matches_empty(all_empty_row, properties_list=["A", "B"], match_mode="all")
+            _row_matches_empty(all_empty_row, properties_list=["A", "B"], match_mode="all")
         )
 
 

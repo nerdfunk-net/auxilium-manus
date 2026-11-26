@@ -27,6 +27,10 @@ class NautobotBinding:
     client: CredentialsBoundNautobotClient
 
 
+# Requests a Nautobot step keeps in flight at once (one per device or per object).
+NAUTOBOT_CONCURRENCY = 5
+
+
 def bind_nautobot(run: WorkflowRun, source_id: str, *, step_id: str) -> NautobotBinding:
     """Credentials, service and client of ``source_id`` for ``run``; no session is a bug."""
     db = require_session(run, step_id)

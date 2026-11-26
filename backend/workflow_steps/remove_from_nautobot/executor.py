@@ -33,7 +33,7 @@ from services.nautobot.common.validators import is_valid_uuid
 from services.nautobot.devices.common import DeviceCommonService
 from services.workflow_context.secret_fields import REDACTED_PLACEHOLDER
 from workflow_steps.common.device_outcomes import fail_device_with_error
-from workflow_steps.common.nautobot_step import bind_nautobot_client
+from workflow_steps.common.nautobot_step import NAUTOBOT_CONCURRENCY, bind_nautobot_client
 from workflow_steps.common.partial_outcomes import (
     NAUTOBOT_TEXT,
     device_error_from_exception,
@@ -48,7 +48,6 @@ logger = logging.getLogger(__name__)
 
 _STEP_ID = "remove-from-nautobot"
 _OUTCOME_NAMES = ("success", "failure")
-_CONCURRENCY = 5
 
 
 @dataclass(frozen=True)
@@ -374,7 +373,7 @@ async def execute(
     # With address removal the devices go one after another: whether an address is shared is
     # decided from Nautobot's current state, so a device removed earlier in the run must already
     # be gone when the next one looks (otherwise two holders both keep it and it is orphaned).
-    gate = asyncio.Semaphore(1 if parsed.remove_ip_addresses else _CONCURRENCY)
+    gate = asyncio.Semaphore(1 if parsed.remove_ip_addresses else NAUTOBOT_CONCURRENCY)
 
     async def run_one(device_uuid: str, device: DeviceContext) -> _Removal:
         async with gate:

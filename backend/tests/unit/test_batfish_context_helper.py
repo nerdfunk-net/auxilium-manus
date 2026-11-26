@@ -7,8 +7,8 @@ import unittest
 from models.workflow_context import Capability, DeviceStatus, WorkflowContext
 from services.batfish.credentials import BatfishConnection
 from workflow_steps.common.batfish_context import (
+    _resolve_batfish_snapshot,
     devices_from_nodes,
-    resolve_batfish_snapshot,
     store_batfish_snapshot,
 )
 
@@ -25,7 +25,7 @@ class BatfishContextHelperTests(unittest.TestCase):
         stored = store_batfish_snapshot(
             context, connection=connection, network="manus-workflow-1", snapshot="run-42"
         )
-        ref = resolve_batfish_snapshot(stored)
+        ref = _resolve_batfish_snapshot(stored)
 
         self.assertEqual(ref.connection, connection)
         self.assertEqual(ref.network, "manus-workflow-1")
@@ -34,17 +34,17 @@ class BatfishContextHelperTests(unittest.TestCase):
     def test_missing_metadata_raises_value_error(self) -> None:
         context = _context()
         with self.assertRaises(ValueError):
-            resolve_batfish_snapshot(context)
+            _resolve_batfish_snapshot(context)
 
     def test_malformed_metadata_raises_value_error(self) -> None:
         context = _context(batfish={"host": "batfish", "port": 9996})  # missing network/snapshot
         with self.assertRaises(ValueError):
-            resolve_batfish_snapshot(context)
+            _resolve_batfish_snapshot(context)
 
     def test_non_dict_metadata_raises_value_error(self) -> None:
         context = _context(batfish="not-a-dict")
         with self.assertRaises(ValueError):
-            resolve_batfish_snapshot(context)
+            _resolve_batfish_snapshot(context)
 
 
 class DevicesFromNodesTests(unittest.TestCase):

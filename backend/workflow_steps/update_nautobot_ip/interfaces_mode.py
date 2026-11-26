@@ -29,6 +29,7 @@ from services.nautobot.credentials_bound_client import CredentialsBoundNautobotC
 from services.nautobot.devices.common import DeviceCommonService
 from workflow_steps.common.device_outcomes import fail_device_with_error
 from workflow_steps.common.nautobot_plan_fields import bad_request_failure, resolve_fields
+from workflow_steps.common.nautobot_step import NAUTOBOT_CONCURRENCY
 from workflow_steps.common.partial_outcomes import (
     NAUTOBOT_TEXT,
     device_error_from_exception,
@@ -48,7 +49,6 @@ from workflow_steps.update_nautobot_ip.lookups import (
 
 logger = logging.getLogger(__name__)
 
-_CONCURRENCY = 5
 _OUTCOME_NAMES = ("success", "failure")
 _DEVICE_FIELDS = ("namespace", "type", "role", "status")  # the same for every address
 _ADDRESS_FIELDS = ("dns_name", "description")  # may differ per address
@@ -276,7 +276,7 @@ async def run_from_interfaces(
         else:
             prepared.append(result)
 
-    gate = asyncio.Semaphore(_CONCURRENCY)
+    gate = asyncio.Semaphore(NAUTOBOT_CONCURRENCY)
 
     async def one(entry: _Prepared, item: _Item) -> _Result:
         find_parent = parent_finder(client, entry.namespace_id) if entry.namespace_id else None

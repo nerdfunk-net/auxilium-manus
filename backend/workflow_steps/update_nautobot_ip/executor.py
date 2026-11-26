@@ -27,7 +27,7 @@ from workflow_steps.common.nautobot_plan_fields import (
     bad_request_failure,
     resolve_fields,
 )
-from workflow_steps.common.nautobot_step import bind_nautobot_client
+from workflow_steps.common.nautobot_step import NAUTOBOT_CONCURRENCY, bind_nautobot_client
 from workflow_steps.common.step_flags import parse_bool_flag
 from workflow_steps.update_nautobot_ip.interfaces_mode import run_from_interfaces
 from workflow_steps.update_nautobot_ip.lookups import (
@@ -48,7 +48,6 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _OUTCOME_NAMES = ("success", "failure")
-_CONCURRENCY = 5
 _IP_VERSIONS = ("", "4", "6")
 
 
@@ -220,7 +219,7 @@ async def execute(
         else:
             ready.append(resolved)
 
-    gate = asyncio.Semaphore(_CONCURRENCY)
+    gate = asyncio.Semaphore(NAUTOBOT_CONCURRENCY)
 
     async def run_one(plan: Plan) -> tuple[str, DeviceContext, bool]:
         async with gate:

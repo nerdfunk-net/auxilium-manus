@@ -44,7 +44,7 @@ class BatfishSnapshotRef:
     snapshot: str
 
 
-def resolve_batfish_snapshot(context: WorkflowContext) -> BatfishSnapshotRef:
+def _resolve_batfish_snapshot(context: WorkflowContext) -> BatfishSnapshotRef:
     raw = context.metadata.get(_METADATA_KEY)
     if not isinstance(raw, dict):
         raise ValueError(
@@ -104,12 +104,12 @@ async def resolve_batfish_snapshot_ref(
     When config has both batfish_source_id and network set, resolves and
     targets that network directly (defaulting to its most recent snapshot by
     creation timestamp when config["snapshot"] is blank), ignoring this run's
-    metadata entirely. With neither set it falls back to resolve_batfish_snapshot(context);
+    metadata entirely. With neither set it falls back to _resolve_batfish_snapshot(context);
     only one of the two is a ``ValueError`` (``parse_direct_target``).
     """
     source_id, network = parse_direct_target(config)
     if not (source_id and network):
-        return resolve_batfish_snapshot(context)
+        return _resolve_batfish_snapshot(context)
 
     db = require_session(run, "resolve_batfish_snapshot_ref")
     connection = resolve_batfish_connection(db, source_id, step_id=step_id)

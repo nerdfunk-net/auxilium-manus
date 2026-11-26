@@ -381,7 +381,7 @@ async def crawl(
         next_frontier: list[Target] = []
         for target, outcome in results:
             if isinstance(outcome, VisitError):
-                if target.seed_id is not None or target.depth == 0:
+                if target.seed_id is not None:  # a seed fails; a followed device was only seen
                     state.failed.append((target, outcome))
                 else:
                     state.seen.append(

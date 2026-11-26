@@ -50,7 +50,9 @@ class FakeNet:
 
 
 def seed(host: str, name: str = "A", device_type: str = "cisco_ios") -> Target:
-    return Target(name=name, host=host, device_type=device_type, depth=0, discovered_from=None)
+    return Target(
+        name=name, host=host, device_type=device_type, depth=0, discovered_from=None, seed_id=name
+    )
 
 
 def settings(**over: object) -> CrawlSettings:

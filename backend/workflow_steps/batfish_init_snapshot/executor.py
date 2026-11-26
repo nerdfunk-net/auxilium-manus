@@ -26,7 +26,7 @@ refreshed nightly by a Schedule), instead of the default
 The resulting (host, port, network, snapshot) is recorded in
 WorkflowContext.metadata for the three downstream query steps (Routing
 Table, Path Check, ACL Check) to read via
-workflow_steps.common.batfish_context.resolve_batfish_snapshot (or bypassed
+workflow_steps.common.batfish_context._resolve_batfish_snapshot (or bypassed
 entirely via their own batfish_source_id/network config -- see
 resolve_batfish_snapshot_ref).
 """

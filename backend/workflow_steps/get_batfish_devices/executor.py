@@ -25,7 +25,7 @@ A workflow may legitimately contain two instances of this step: one before
 Init Batfish Snapshot (case 1, placeholder) and one after it (case 2, real
 device population).
 
-Critical: resolve_batfish_snapshot_ref (and the resolve_batfish_snapshot it
+Critical: resolve_batfish_snapshot_ref (and the _resolve_batfish_snapshot it
 falls back to) always raises ValueError when nothing is resolvable -- it
 never returns a falsy sentinel. So case (1)'s precondition is checked here,
 BEFORE calling it, rather than by catching ValueError -- a blanket except

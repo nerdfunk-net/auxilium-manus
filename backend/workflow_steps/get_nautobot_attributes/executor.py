@@ -31,6 +31,7 @@ from workflow_steps.common.device_runner import Fail, run_per_device
 from workflow_steps.common.failure_records import NOT_FOUND
 from workflow_steps.common.nautobot_resolve import resolve_nautobot_device_id
 from workflow_steps.common.nautobot_source import resolve_nautobot_credentials
+from workflow_steps.common.nautobot_step import NAUTOBOT_CONCURRENCY
 from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.common.run_session import require_session
 from workflow_steps.common.step_flags import parse_bool_flag
@@ -41,7 +42,6 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _STEP_ID = "get-nautobot-attributes"
-_CONCURRENCY = 5
 
 
 @dataclass(frozen=True)
@@ -203,7 +203,7 @@ async def execute(
         work,
         node_id=node_id,
         step_id=_STEP_ID,
-        concurrency=_CONCURRENCY,
+        concurrency=NAUTOBOT_CONCURRENCY,
         keep_text=(NautobotError,),
     )
     logger.info(

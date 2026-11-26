@@ -38,7 +38,7 @@ from workflow_steps.common.nautobot_prefix_lookup import (
     list_results,
 )
 from workflow_steps.common.nautobot_resolve import resolve_nautobot_device_id
-from workflow_steps.common.nautobot_step import bind_nautobot
+from workflow_steps.common.nautobot_step import NAUTOBOT_CONCURRENCY, bind_nautobot
 from workflow_steps.common.partial_outcomes import (
     NAUTOBOT_TEXT,
     device_error_from_exception,
@@ -54,7 +54,6 @@ logger = logging.getLogger(__name__)
 _STEP_ID = "add-ip-to-nautobot"
 _OUTCOME_NAMES = ("success", "failure")
 _IP_CONTENT_TYPE = "ipam.ipaddress"
-_CONCURRENCY = 5
 _DEFAULT_MASK = {4: 24, 6: 64}
 _MAX_MASK = {4: 32, 6: 128}
 _UNRESOLVED_CODES = {"ip_address": "ip_unresolved", "interface_name": "interface_unresolved"}
@@ -520,7 +519,7 @@ async def execute(
         else:
             ready.append((plan, namespace_id, status_id))
 
-    gate = asyncio.Semaphore(_CONCURRENCY)
+    gate = asyncio.Semaphore(NAUTOBOT_CONCURRENCY)
 
     async def run_one(plan: _Plan, namespace_id: str, status_id: str) -> tuple[str, DeviceContext]:
         async with gate:

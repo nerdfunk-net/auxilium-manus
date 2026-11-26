@@ -52,9 +52,7 @@ __all__ = [
     "run_property_step",
     "assert_requested_columns_present",
     "build_property_outcomes",
-    "is_empty_value",
     "parse_properties_list",
-    "row_matches_empty",
     "validate_empty_config",
 ]
 
@@ -63,7 +61,7 @@ logger = logging.getLogger(__name__)
 EMPTY_MATCH_MODES = frozenset({"any", "all"})
 
 
-def is_empty_value(value: Any) -> bool:
+def _is_empty_value(value: Any) -> bool:
     """A property value counts as empty if it's unset, blank, or an empty
     collection -- e.g. Batfish's own `TACACS_Servers: []` for a node with no
     TACACS server configured."""
@@ -80,8 +78,8 @@ def parse_properties_list(properties: str) -> list[str]:
     return [item.strip() for item in properties.split(",") if item.strip()]
 
 
-def row_matches_empty(row: dict[str, Any], *, properties_list: list[str], match_mode: str) -> bool:
-    empty_flags = [is_empty_value(row.get(prop)) for prop in properties_list]
+def _row_matches_empty(row: dict[str, Any], *, properties_list: list[str], match_mode: str) -> bool:
+    empty_flags = [_is_empty_value(row.get(prop)) for prop in properties_list]
     if match_mode == "all":
         return all(empty_flags)
     return any(empty_flags)
@@ -163,7 +161,7 @@ async def build_property_outcomes(
         devices_rows = [
             row
             for row in rows
-            if row_matches_empty(row, properties_list=properties_list, match_mode=match_mode)
+            if _row_matches_empty(row, properties_list=properties_list, match_mode=match_mode)
         ]
     else:
         devices_rows = rows

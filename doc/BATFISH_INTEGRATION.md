@@ -249,7 +249,7 @@ backend/hatchet/worker_services.py         # BatfishService lifespan startup/shu
 backend/services/auth/rbac_seed.py         # sources.batfish read/write/delete permissions
 backend/core/source_keys.py   # "batfish" added to SourceType + BATFISH_KEY_PREFIX
 
-backend/workflow_steps/common/batfish_context.py   # resolve_batfish_snapshot/store_batfish_snapshot (metadata lookup)
+backend/workflow_steps/common/batfish_context.py   # resolve_batfish_snapshot_ref/store_batfish_snapshot (metadata lookup)
                                                      # + resolve_batfish_snapshot_ref (explicit source/network bypass)
                                                      # + devices_from_nodes (Node column -> DeviceContext dedup, shared by Get from Batfish)
 backend/workflow_steps/get_batfish_devices/{__init__.py,executor.py,config.py}       # "Get from Batfish" -- three-way: placeholder / metadata-driven / direct-target device listing
@@ -752,7 +752,7 @@ Facts both worked fine against the same snapshot).
 
 **Implementation note on why the precondition is checked explicitly, not via
 `except ValueError`.** `resolve_batfish_snapshot_ref` (and the
-`resolve_batfish_snapshot` it falls back to) always raises `ValueError` when
+`_resolve_batfish_snapshot` it falls back to) always raises `ValueError` when
 nothing is resolvable — it never returns a falsy sentinel. The executor
 replicates that same "is anything configured at all" precondition itself
 *before* calling it, so a case-1 no-op is distinguishable from a genuine

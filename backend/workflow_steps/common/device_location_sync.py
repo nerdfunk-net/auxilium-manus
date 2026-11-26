@@ -26,6 +26,7 @@ from models.failure import FailureInfo
 from models.workflow_context import DeviceContext, DeviceError, StepOutcome, WorkflowContext
 from services.nautobot.common.validators import is_valid_uuid
 from workflow_steps.common.device_outcomes import fail_device_with_error
+from workflow_steps.common.nautobot_step import NAUTOBOT_CONCURRENCY
 from workflow_steps.common.partial_outcomes import (
     NAUTOBOT_TEXT,
     device_error_from_exception,
@@ -34,7 +35,6 @@ from workflow_steps.common.step_flags import record_dry_run
 
 logger = logging.getLogger(__name__)
 
-_CONCURRENCY = 5
 _OUTCOME_NAMES = ("success", "failure")
 _BAG = "nautobot"
 
@@ -123,7 +123,7 @@ def _plan(device: DeviceContext, spec: LocationSyncSpec, node_id: str) -> _Work 
 async def _handle_pairs(
     spec: LocationSyncSpec, pairs: set[Pair], *, dry_run: bool
 ) -> dict[Pair, bool | Exception]:
-    gate = asyncio.Semaphore(_CONCURRENCY)
+    gate = asyncio.Semaphore(NAUTOBOT_CONCURRENCY)
     ordered = sorted(pairs)
     action = spec.check if dry_run else spec.write
 
