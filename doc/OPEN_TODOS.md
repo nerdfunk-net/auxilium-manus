@@ -893,13 +893,13 @@ is covered by unit tests only. Open items:
   Operators should clear them once (`UPDATE workflow_runs SET run_inputs = NULL` or delete the old
   runs) and change the declaration of such inputs to type `secret`.
 
-- **Isolate the remaining Jinja/regex steps (S4-07).** `/templates/render` and the regex probes now run
-  in a killable child (`core/regex_isolated.py`, `services/ai_assistant/render_isolated.py`). The Hatchet
-  steps `render-jinja-template` and `update-content` still evaluate author-written content in the
-  worker process (authors are trusted). `route-on-content`, `get-virtual-chassis` (name filter and
-  index regex) already search through the isolated runner (`workflow_steps/common/regex_search.py`,
-  op `search_many`); `filter-output` and `config_to_attributes/primary_ipv4.py` now do too (op `match_any`,
-  `regex_search.match_any`, fail closed on a stopped pattern). Only `render-jinja-template` and `update-content` remain.
+- **Isolate the remaining Jinja/regex steps (S4-07): done 2026-11-26.** Every workflow step now runs author Jinja and
+  author regexes in a killable child: `render-jinja-template`, `update-config-context`, `batfish-validate-facts`
+  (`core/jinja_worker.py`) and `update-content` (`core/regex_worker.py` op `replace_many`), 10 s / 8 MiB / 16 MiB, see
+  `doc/WORKFLOW-STEPS.md` "Author templates and replace rules". Left: `services/templates/templates_service.py::render` has
+  no production caller any more (`POST /templates/render` uses `render_isolated`; only its tests call it): delete it; `core/textfsm_isolated.py` and
+  `services/ai_assistant/render_isolated.py` keep their own copy of the spawn-and-kill code instead of
+  `core/isolated_process.py`; `route-on-content` records a stopped pattern as `bad_request` instead of `resource_limit`.
 
 - **Container hardening trial (S6-09).** The compose files drop all capabilities but the few
   `start.sh`/supervisord need and set `no-new-privileges`, PID and memory limits, but `read_only: true`
@@ -911,8 +911,7 @@ is covered by unit tests only. Open items:
   `*_IMAGE_TAG`; choose and review the tags, add digests for the images that hold secrets (OpenBao,
   LiteLLM, Postgres, Redis), and add the `docker` and `pip` (pyats-shim) ecosystems to Dependabot.
 - **Deferred from the security review.** Single-use refresh tokens (`jti` denylist); `path_prefix` per
-  Secret Manager connection; a batch API so `render-jinja-template` / `update-content` can use the
-  isolated runner; `/health/ready` for monitoring now that port 8000 is unpublished; `docker/infisical/`,
+  Secret Manager connection; `/health/ready` for monitoring now that port 8000 is unpublished; `docker/infisical/`,
   `Dockerfile.basic`, `Dockerfile.worker` and the helper scripts are dead code candidates (the worker
   image lacks `git`).
 

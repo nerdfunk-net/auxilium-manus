@@ -248,7 +248,7 @@ async def _prepare_contribution(
         fact_key = str(merged_config.get("fact_key") or "").strip()
         fact_template = str(merged_config.get("fact_value") or "")
         try:
-            rendered_value = render_jinja_template(
+            rendered_value = await render_jinja_template(
                 fact_template,
                 build_jinja_context(device, run_id=context.run_id, workflow_id=context.workflow_id),
                 allow_multiline_values=True,  # a fact value, not a device command line

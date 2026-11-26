@@ -538,6 +538,31 @@ case-insensitive). A stopped, failed or rejected batch raises `RegexStoppedError
 (`filter-output`) or the step (`config-to-attributes`) fails, because "no match" must never be inferred from a failure
 (it would keep the lines the author wanted removed). Patterns are still validated with `re.compile` at config parse time.
 
+### Author templates and replace rules (S4-07)
+
+Jinja templates and the `update-content` replace rules run whole, per device, in a killable child process too, never in
+the worker: a template that loops for ages or a catastrophic pattern would otherwise hold a worker thread for good.
+
+- **Jinja** (`render-jinja-template`, `update-config-context` template values, the `batfish-validate-facts` field
+  template): `workflow_steps/common/jinja_render.py::render_jinja_template` is `async` and sends the template and its
+  context as JSON to `core/jinja_worker.py`, which loads the sandbox `services/workflow_context/jinja_sandbox.py` (Jinja2
+  and the standard library only) by path. A template problem comes back as plain data and is raised as the same
+  `JinjaTemplateError` / `UnsafeTemplateValueError` with its `FailureInfo` (kind and line) as before. A context value
+  that is not JSON fails the device ("not plain data"); JSON turns tuples into lists and dict keys into strings.
+  Validation and `template_variables` only parse and stay in the worker.
+- **Replace rules** (`update-content`): `workflow_steps/common/regex_search.py::replace_many` applies all rules of one
+  device in one child (`core/regex_worker.py`, op `replace_many`).
+- **Limits** (`core/isolated_process.py`): 10 s per device (`STEP_CHILD_SECONDS`, wall clock and the child's CPU
+  limit), a rendered text of at most 8 MiB characters (`MAX_RENDERED_CHARS`), a config of at most 16 MiB characters
+  before and after the rules (`MAX_CONTENT_CHARS`). At most four children per worker process (`STEP_CHILD_SLOTS`);
+  a device waits for a slot and never fails "busy". The child runs with `python -I`, an empty environment and its own
+  memory limit (where the platform allows it).
+- **On a limit** the device fails, never falls back to an in-process run and never keeps its unchanged text:
+  `TemplateStoppedError` (code `template_error` in `render-jinja-template`, `render_error` in `batfish-validate-facts`)
+  or `ReplaceStoppedError` (code `regex_stopped` in `update-content`), both with `FailureKind` `resource_limit`
+  (`failure_records.TEMPLATE_STOPPED` / `REGEX_STOPPED`). A bad replacement template (`\9`) stays a `ValueError` with
+  its own text.
+
 ### The run's database session
 
 A step gets its session with `workflow_steps.common.run_session.require_session(run, step_id)`; a run without one raises `RuntimeError("<step_id>: WorkflowRun has no active DB session")`. Nothing else in `workflow_steps/` may call `object_session` (`tests/unit/test_object_session_ratchet.py`); tests patch `workflow_steps.common.run_session.object_session` (`patch_object_session()`).

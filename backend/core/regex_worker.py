@@ -17,15 +17,26 @@ import sys
 from pathlib import Path
 
 CPU_SECONDS = 2
+MAX_CPU_SECONDS = 30  # upper bound of the optional first argument (the step jobs pass 10)
 MEMORY_BYTES = 512 * 1024 * 1024
 _log = logging.getLogger("regex_worker")
 
 
-def _limit_resources() -> None:
+def _cpu_seconds(argv: list[str]) -> int:
+    """The CPU limit: ``CPU_SECONDS``, or the first argument within 1..``MAX_CPU_SECONDS``."""
+    if not argv:
+        return CPU_SECONDS
+    try:
+        return min(max(int(argv[0]), 1), MAX_CPU_SECONDS)
+    except ValueError:
+        return CPU_SECONDS
+
+
+def _limit_resources(cpu_seconds: int) -> None:
     try:
         import resource
 
-        resource.setrlimit(resource.RLIMIT_CPU, (CPU_SECONDS, CPU_SECONDS + 1))
+        resource.setrlimit(resource.RLIMIT_CPU, (cpu_seconds, cpu_seconds + 1))
     except ImportError, ValueError, OSError:
         _log.warning("could not set the CPU limit for the regex worker")
     with contextlib.suppress(ImportError, ValueError, OSError):
@@ -244,9 +255,32 @@ def _search_many(regex, request: dict) -> list[dict]:
     return results
 
 
+def _replace_many(regex, request: dict) -> dict:
+    """Apply ``rules`` (``{pattern, replacement, flags, replace_all}``) in order to ``text``.
+
+    ``{"too_large": True}`` when the text grows above ``max_chars`` after a rule; otherwise
+    ``{"updated_text", "match_counts"}``. A bad replacement template is a ``ValueError`` with the
+    text of ``attribute_regex`` (no pattern or content in it)."""
+    text = request["text"]
+    max_chars = int(request["max_chars"])
+    counts: list[int] = []
+    for rule in request["rules"]:
+        text, count = regex.apply_regex_content_replace(
+            source_text=text,
+            pattern=rule["pattern"],
+            replacement=rule["replacement"],
+            flags=regex.RegexFlagsConfig.from_mapping(rule.get("flags") or {}),
+            replace_all=bool(rule.get("replace_all", True)),
+        )
+        if len(text) > max_chars:
+            return {"too_large": True}
+        counts.append(count)
+    return {"updated_text": text, "match_counts": counts}
+
+
 def main() -> None:
-    _limit_resources()
-    request = json.load(sys.stdin)
+    _limit_resources(_cpu_seconds(sys.argv[1:]))
+    request = json.loads(sys.stdin.buffer.read())
     regex = _load_attribute_regex()
     flags = regex.RegexFlagsConfig.from_mapping(request.get("flags") or {})
     try:
@@ -274,12 +308,19 @@ def main() -> None:
             result = _match_any(request)
         elif request["op"] == "match_many":
             result = _match_many(request["items"])
+        elif request["op"] == "replace_many":
+            result = _replace_many(regex, request)
         else:
             raise ValueError("unknown operation")
     except ValueError as exc:
-        json.dump({"ok": False, "error": str(exc)}, sys.stdout)
+        _write({"ok": False, "error": str(exc)})
         return
-    json.dump({"ok": True, "result": result}, sys.stdout)
+    _write({"ok": True, "result": result})
+
+
+def _write(answer: dict) -> None:
+    # Bytes, not the text stream: the empty environment leaves the stream encoding to the locale.
+    sys.stdout.buffer.write(json.dumps(answer, ensure_ascii=False).encode("utf-8"))
 
 
 if __name__ == "__main__":

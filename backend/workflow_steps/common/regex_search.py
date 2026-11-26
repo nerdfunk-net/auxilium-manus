@@ -8,12 +8,16 @@ answer.
 
 from __future__ import annotations
 
+import json
 import logging
-from collections.abc import Sequence
-from dataclasses import dataclass
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Literal
 
+from core import isolated_process
 from core.regex_isolated import run_regex
+from workflow_steps.common.failure_records import REGEX_STOPPED
 
 logger = logging.getLogger(__name__)
 
@@ -165,3 +169,94 @@ async def match_any(
         for index, answer in zip(indexes, result, strict=True):
             found[index] = answer
     return found
+
+
+# --- update-content: ordered search/replace rules over one device's text --------------------
+
+_WORKER = Path(__file__).resolve().parents[2] / "core" / "regex_worker.py"
+# A device's text (before and after the rules) may be at most this many characters.
+MAX_CONTENT_CHARS = 16 * 1024 * 1024
+
+
+@dataclass(frozen=True)
+class ReplaceRule:
+    pattern: str
+    replacement: str
+    flags: Mapping[str, bool] = field(default_factory=dict)
+    replace_all: bool = True
+
+
+class ReplaceStoppedError(ValueError):
+    """The rules were stopped (time or memory) or the text is above ``MAX_CONTENT_CHARS``.
+
+    A ``ValueError``: the sentence is written here and is safe to store on the device."""
+
+    def __init__(self, message: str) -> None:
+        super().__init__(message)
+        self.failure = REGEX_STOPPED
+
+
+def _too_large() -> ReplaceStoppedError:
+    return ReplaceStoppedError(f"the content is larger than {MAX_CONTENT_CHARS} characters")
+
+
+async def replace_many(text: str, rules: Sequence[ReplaceRule]) -> tuple[str, list[int]]:
+    """Apply ``rules`` in order to ``text`` in the isolated worker: ``(new_text, match_counts)``.
+
+    Raises ``ReplaceStoppedError`` when the worker stopped or failed, or a text is above the cap
+    (never an unchanged text in its place), and ``ValueError`` for a bad replacement template."""
+    if len(text) > MAX_CONTENT_CHARS:
+        raise _too_large()
+    payload = json.dumps(
+        {
+            "op": "replace_many",
+            "text": text,
+            "max_chars": MAX_CONTENT_CHARS,
+            "rules": [
+                {
+                    "pattern": rule.pattern,
+                    "replacement": rule.replacement,
+                    "flags": dict(rule.flags),
+                    "replace_all": rule.replace_all,
+                }
+                for rule in rules
+            ],
+        }
+    ).encode()
+    seconds = isolated_process.STEP_CHILD_SECONDS
+    async with isolated_process.STEP_CHILD_SLOTS.hold(wait_seconds=None):
+        stdout = await isolated_process.run_child(
+            _WORKER,
+            payload,
+            timeout=seconds,
+            max_response_bytes=6 * MAX_CONTENT_CHARS + 1024 * 1024,
+            args=(str(int(seconds)),),
+        )
+    return _replace_answer(stdout, len(rules))
+
+
+def _replace_answer(stdout: bytes | None, rule_count: int) -> tuple[str, list[int]]:
+    stopped = ReplaceStoppedError(
+        "the replace rules were stopped: they used too much time or memory on this content"
+    )
+    if stdout is None:
+        raise stopped
+    try:
+        data = json.loads(stdout)
+        if not data["ok"]:
+            raise ValueError(str(data["error"]))
+        result = data["result"]
+        if result.get("too_large"):
+            raise _too_large()
+        updated, counts = result["updated_text"], result["match_counts"]
+    except KeyError, TypeError, AttributeError, json.JSONDecodeError:
+        logger.warning("The regex worker returned an unusable replace result")
+        raise stopped from None
+    if (
+        not isinstance(updated, str)
+        or not isinstance(counts, list)
+        or len(counts) != rule_count
+        or not all(isinstance(c, int) for c in counts)
+    ):
+        raise stopped
+    return updated, counts

@@ -7,13 +7,13 @@ memory limits, an empty environment, and is killed on timeout.
 
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
-import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+from core.isolated_process import ChildSlots, run_child
 
 logger = logging.getLogger(__name__)
 
@@ -21,9 +21,8 @@ _WORKER = Path(__file__).with_name("regex_worker.py")
 DEFAULT_TIMEOUT_SECONDS = 2.0
 MAX_CONCURRENT_REGEX_JOBS = 4
 MAX_RESPONSE_BYTES = 2_500_000
-_BUSY_POLL_SECONDS = 0.05
 
-_active = 0
+_SLOTS = ChildSlots(MAX_CONCURRENT_REGEX_JOBS)
 
 _STOPPED = "The regular expression was stopped: it used too much time or memory"
 _BUSY = "The regular expression runner is busy; try again in a moment"
@@ -44,44 +43,18 @@ async def run_regex(
 ) -> RegexOutcome:
     """``request`` is ``{"op": <op>, ...}`` with op one of replace, probe, match_many,
     search_lines, search_many or match_any; see ``regex_worker``."""
-    global _active
-    loop = asyncio.get_running_loop()
-    deadline = loop.time() + wait_seconds
-    while _active >= MAX_CONCURRENT_REGEX_JOBS:
-        if loop.time() >= deadline:
+    async with _SLOTS.hold(wait_seconds=wait_seconds) as got:
+        if not got:
             return RegexOutcome(ok=False, error=_BUSY)
-        await asyncio.sleep(_BUSY_POLL_SECONDS)
-    _active += 1
-    try:
         return await _run_worker(request, timeout)
-    finally:
-        _active -= 1
 
 
 async def _run_worker(request: dict[str, Any], timeout: float) -> RegexOutcome:
     payload = json.dumps(request).encode()  # TypeError for non-JSON input, never str()-ed
-    try:
-        process = await asyncio.create_subprocess_exec(
-            sys.executable,
-            "-I",
-            str(_WORKER),
-            env={},  # the child must not see SECRET_KEY, database or Hatchet secrets
-            stdin=asyncio.subprocess.PIPE,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.DEVNULL,
-        )
-    except OSError:
-        logger.warning("Could not start the regex worker", exc_info=True)
-        return RegexOutcome(ok=False, error=_STOPPED)
-    try:
-        stdout, _ = await asyncio.wait_for(process.communicate(payload), timeout=timeout)
-    except TimeoutError:
-        return RegexOutcome(ok=False, error=_STOPPED)
-    finally:
-        if process.returncode is None:  # timeout, or the request was cancelled
-            process.kill()
-            await process.wait()
-    if process.returncode != 0 or len(stdout) > MAX_RESPONSE_BYTES:
+    stdout = await run_child(
+        _WORKER, payload, timeout=timeout, max_response_bytes=MAX_RESPONSE_BYTES
+    )
+    if stdout is None:
         return RegexOutcome(ok=False, error=_STOPPED)
     try:
         data = json.loads(stdout)

@@ -8,14 +8,24 @@ from unittest.mock import patch
 from jinja2.sandbox import SandboxedEnvironment
 
 from models.workflow_context import Capability, DeviceContext, DeviceStatus
+from services.workflow_context.jinja_sandbox import render_plain
 from services.workflow_context.secret_fields import seal_secret
 from workflow_steps.common.jinja_render import (
     JinjaTemplateError,
+    _error_from,
     build_jinja_context,
-    render_jinja_template,
     template_variables,
     validate_jinja_template,
 )
+
+
+def render_jinja_template(template, context, *, allow_multiline_values=False):  # noqa: ANN001, ANN201
+    """The sandbox in this process plus the conversion the isolated render uses: the semantics
+    without a child per test (``test_step_author_code_isolation.py`` runs the real worker)."""
+    result = render_plain(template, context, allow_multiline_values=allow_multiline_values)
+    if result["ok"]:
+        return result["output"]
+    raise _error_from(result)
 
 
 class JinjaRenderParseTests(unittest.TestCase):

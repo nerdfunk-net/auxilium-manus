@@ -212,7 +212,7 @@ def test_git_pull_bad_repository_is_a_setup_problem() -> None:
 )
 def test_template_failures(template: str, kind: str, line: int) -> None:
     with pytest.raises(JinjaTemplateError) as info:
-        render_jinja_template(template, {"a": {}})
+        asyncio.run(render_jinja_template(template, {"a": {}}))
 
     failure = info.value.failure
     assert failure is not None
@@ -226,7 +226,7 @@ def test_template_failures(template: str, kind: str, line: int) -> None:
 
 def test_template_failure_has_no_variable_text() -> None:
     with pytest.raises(JinjaTemplateError) as info:
-        render_jinja_template("{{ secret_value_name.attr }}", {})
+        asyncio.run(render_jinja_template("{{ secret_value_name.attr }}", {}))
 
     assert "secret_value_name" not in info.value.failure.model_dump_json()
     assert failure_from_exception(info.value) is info.value.failure

@@ -64,6 +64,7 @@ FailureKind = Literal[
     "agent_handler_error",  # the agent ran the handler and it reported an error
     "payload_too_large",  # the request is above the agent's size limit
     "output_rejected",  # the agent's answer broke the step's output contract
+    "resource_limit",  # author-written Jinja or regex was stopped (time, memory or output size)
     "unknown",
 ]
 

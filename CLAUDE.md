@@ -145,7 +145,8 @@ export default function MyFeatureRoute() {
 - `/backend/core/production_guards.py` — refuses unsafe config outside `ENV=development`
 - `/backend/core/safe_urls.py`, `safe_hosts.py` — outbound URL / Netmiko host policy (SSRF)
 - `/backend/core/crypto_policy.py`, `secret_policy.py` — KDF floor / credential secret rules;
-  `/backend/core/regex_isolated.py` — killable child for caller-supplied regex and Jinja
+  `/backend/core/regex_isolated.py` — killable child for caller-supplied regex and Jinja; `core/isolated_process.py`
+  (with `jinja_worker.py`) — the same for the author Jinja and replace rules of the workflow steps
 - `/backend/services/git/paths.py`, `refs.py` — path containment and branch-name validation
 - `/backend/core/client_ip.py` — trusted-proxy client IP resolution
 - `/backend/core/rate_limit.py` — `rate_limited(...)` per-user dependency

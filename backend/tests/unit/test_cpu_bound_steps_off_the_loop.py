@@ -1,5 +1,5 @@
 """``merge-content`` and ``log-attributes`` do their CPU- and disk-bound work off the event loop
-(W4-15), as ``update-content``, ``compare-data`` and ``get-from-config`` already do."""
+(W4-15), as ``compare-data`` and ``get-from-config`` already do."""
 
 from __future__ import annotations
 

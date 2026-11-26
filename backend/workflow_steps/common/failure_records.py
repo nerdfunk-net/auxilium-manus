@@ -30,3 +30,8 @@ COMMAND_FAILED = FailureInfo(phase="command", kind="command_error")
 
 # A notification (mail, chat post) could not be delivered and the cause was not classified.
 TRANSPORT_FAILED = FailureInfo(phase="api", kind="unknown", hint="check_reachability")
+
+# The author's template or regular expression ran in the isolated worker and was stopped: it used
+# more than its time or memory, or produced more than the size cap (S4-07). Never a "no match".
+TEMPLATE_STOPPED = FailureInfo(phase="render", kind="resource_limit", hint="fix_template")
+REGEX_STOPPED = FailureInfo(phase="config", kind="resource_limit", hint="check_request")

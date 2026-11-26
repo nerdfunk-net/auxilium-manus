@@ -13,8 +13,8 @@ from models.workflow_context import (
     WorkflowContext,
 )
 from services.artifacts import InMemoryArtifactService
+from workflow_steps.common.regex_search import replace_many
 from workflow_steps.update_content.executor import (
-    _apply_rules_to_text,
     _parse_rules,
     _parse_update_content_config,
     _source_ref,
@@ -80,8 +80,8 @@ class ParseHelperTests(unittest.TestCase):
         self.assertEqual(len(cfg.rules), 1)
 
 
-class ApplyRulesTests(unittest.TestCase):
-    def test_apply_rules_in_order_with_match_counts(self) -> None:
+class ApplyRulesTests(unittest.IsolatedAsyncioTestCase):
+    async def test_apply_rules_in_order_with_match_counts(self) -> None:
         rules = _parse_rules(
             {
                 "replace_rules": [
@@ -90,7 +90,7 @@ class ApplyRulesTests(unittest.TestCase):
                 ]
             }
         )
-        out, counts = _apply_rules_to_text("foo foo\n", rules)
+        out, counts = await replace_many("foo foo\n", rules)
         self.assertEqual(out, "baz baz\n")
         self.assertEqual(counts, [2, 2])
 
@@ -159,16 +159,11 @@ class ExecuteTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("secret ***", updated)
         self.assertEqual(entry["match_counts"], [1])
 
-    async def test_the_regex_work_runs_off_the_event_loop(self) -> None:
-        # W4-15: re.sub over a large config must not stall the worker's loop.
-        import threading
-        from unittest.mock import patch
+    async def test_the_rules_go_to_the_isolated_worker(self) -> None:
+        # S4-07 (was W4-15, off the loop): the step never runs the author's regex itself.
+        from unittest.mock import AsyncMock, patch
 
-        seen: list[int] = []
-
-        def rules(text: str, parsed_rules: object) -> tuple[str, list[int]]:
-            seen.append(threading.get_ident())
-            return text, [1]
+        isolated = AsyncMock(return_value=("b\n", [1]))
 
         artifacts = InMemoryArtifactService()
         ref = await artifacts.store(
@@ -182,7 +177,7 @@ class ExecuteTests(unittest.IsolatedAsyncioTestCase):
             running_config_ref=ref,
             capabilities={Capability.IDENTITY},
         )
-        with patch("workflow_steps.update_content.executor._apply_rules_to_text", rules):
+        with patch("workflow_steps.update_content.executor.replace_many", isolated):
             await execute(
                 config={"replace_rules": [{"pattern": "a", "replacement": "b"}]},
                 context=WorkflowContext(run_id="run-1", workflow_id="w", devices={"d1": device}),
@@ -191,8 +186,10 @@ class ExecuteTests(unittest.IsolatedAsyncioTestCase):
                 node_id="uc-1",
                 device_sessions=MagicMock(),
             )
-        self.assertEqual(len(seen), 1)
-        self.assertNotEqual(seen[0], threading.get_ident())
+        isolated.assert_awaited_once()
+        text, rules = isolated.await_args.args
+        self.assertEqual(text, "a\n")
+        self.assertEqual([(r.pattern, r.replacement) for r in rules], [("a", "b")])
 
     async def test_missing_source_config_routes_to_failure(self) -> None:
         device = DeviceContext(

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import time
 import unittest
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -77,13 +76,14 @@ class RenderJinjaTemplateExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("role access-switch", content)
 
     async def test_render_runs_off_the_event_loop(self) -> None:
-        from workflow_steps.render_jinja_template import executor as mod
+        # S4-07: a template that never ends runs in the killable child; the loop keeps ticking
+        # until the child is stopped (one second here instead of ten).
+        from core import isolated_process
 
-        real_render = mod.render_jinja_template
-
-        def slow_render(*args, **kwargs):  # noqa: ANN002, ANN003
-            time.sleep(0.3)  # blocks its thread, not the event loop
-            return real_render(*args, **kwargs)
+        runaway = (
+            "{% for a in range(100000) %}{% for b in range(100000) %}{{ a }}"
+            "{% endfor %}{% endfor %}"
+        )
 
         device = DeviceContext(
             id="device-1",
@@ -103,9 +103,9 @@ class RenderJinjaTemplateExecutorTests(unittest.IsolatedAsyncioTestCase):
 
         task = asyncio.create_task(heartbeat())
         try:
-            with patch.object(mod, "render_jinja_template", slow_render):
-                await execute(
-                    config={"output_key": "cfg", "template": "hostname {{ device.hostname }}"},
+            with patch.object(isolated_process, "STEP_CHILD_SECONDS", 1.0):
+                outcomes = await execute(
+                    config={"output_key": "cfg", "template": runaway},
                     context=context,
                     run=MagicMock(),
                     artifact_service=InMemoryArtifactService(),
@@ -114,7 +114,9 @@ class RenderJinjaTemplateExecutorTests(unittest.IsolatedAsyncioTestCase):
                 )
         finally:
             task.cancel()
-        self.assertGreater(ticks, 3)
+        self.assertGreater(ticks, 20)
+        failed = {o.name: o for o in outcomes}["failure"].context.devices["device-1"]
+        self.assertEqual(failed.errors[-1].failure.kind, "resource_limit")
 
     async def test_marks_device_failed_on_template_error(self) -> None:
         run = MagicMock()

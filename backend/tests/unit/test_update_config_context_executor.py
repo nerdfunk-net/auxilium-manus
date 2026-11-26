@@ -157,11 +157,11 @@ class ParseConfigTests(unittest.TestCase):
         self.assertEqual(parsed.value_source.template_id, 7)
 
 
-class ResolveValueTests(unittest.TestCase):
-    def test_attribute_source_returns_raw_value(self) -> None:
+class ResolveValueTests(unittest.IsolatedAsyncioTestCase):
+    async def test_attribute_source_returns_raw_value(self) -> None:
         device = _device(tacacs={"shared_secret": "plain-key"})
         parsed = _parse_config(_attribute_config("tacacs.shared_secret"))
-        value = _resolve_value(
+        value = await _resolve_value(
             value_source=parsed.value_source,
             device=device,
             run_id="r",
@@ -169,10 +169,10 @@ class ResolveValueTests(unittest.TestCase):
         )
         self.assertEqual(value, "plain-key")
 
-    def test_attribute_source_unwraps_sealed_secret(self) -> None:
+    async def test_attribute_source_unwraps_sealed_secret(self) -> None:
         device = _device(tacacs={"shared_secret": seal_secret("s3cr3t")})
         parsed = _parse_config(_attribute_config("tacacs.shared_secret"))
-        value = _resolve_value(
+        value = await _resolve_value(
             value_source=parsed.value_source,
             device=device,
             run_id="r",
@@ -180,10 +180,10 @@ class ResolveValueTests(unittest.TestCase):
         )
         self.assertEqual(value, "s3cr3t")
 
-    def test_attribute_source_can_return_structured_value(self) -> None:
+    async def test_attribute_source_can_return_structured_value(self) -> None:
         device = _device(credentials={"list": [{"username": "noc", "password": "pw"}]})
         parsed = _parse_config(_attribute_config("credentials.list"))
-        value = _resolve_value(
+        value = await _resolve_value(
             value_source=parsed.value_source,
             device=device,
             run_id="r",
@@ -191,17 +191,17 @@ class ResolveValueTests(unittest.TestCase):
         )
         self.assertEqual(value, [{"username": "noc", "password": "pw"}])
 
-    def test_attribute_source_without_device_raises(self) -> None:
+    async def test_attribute_source_without_device_raises(self) -> None:
         parsed = _parse_config(_attribute_config("tacacs.shared_secret"))
         with self.assertRaises(ValueError):
-            _resolve_value(
+            await _resolve_value(
                 value_source=parsed.value_source,
                 device=None,
                 run_id="r",
                 workflow_id="w",
             )
 
-    def test_template_source_parses_json_output(self) -> None:
+    async def test_template_source_parses_json_output(self) -> None:
         config = {
             "nautobot_source_id": "s",
             "value_source": {"type": "template", "template_id": 1},
@@ -209,9 +209,11 @@ class ResolveValueTests(unittest.TestCase):
         parsed = _parse_config(config)
         with (
             patch.object(mod, "load_stored_template", return_value='{"shared_secret": "x"}'),
-            patch.object(mod, "render_jinja_template", return_value='{"shared_secret": "x"}'),
+            patch.object(
+                mod, "render_jinja_template", AsyncMock(return_value='{"shared_secret": "x"}')
+            ),
         ):
-            value = _resolve_value(
+            value = await _resolve_value(
                 value_source=parsed.value_source,
                 device=_device(),
                 run_id="r",
@@ -219,7 +221,7 @@ class ResolveValueTests(unittest.TestCase):
             )
         self.assertEqual(value, {"shared_secret": "x"})
 
-    def test_invalid_json_output_fails_the_device(self) -> None:
+    async def test_invalid_json_output_fails_the_device(self) -> None:
         # C3-04: the raw string used to be PATCHed into the config context.
         config = {
             "nautobot_source_id": "s",
@@ -228,32 +230,34 @@ class ResolveValueTests(unittest.TestCase):
         parsed = _parse_config(config)
         with (
             patch.object(mod, "load_stored_template", return_value="not-json"),
-            patch.object(mod, "render_jinja_template", return_value='{"owner": "O"Brien"}'),
+            patch.object(
+                mod, "render_jinja_template", AsyncMock(return_value='{"owner": "O"Brien"}')
+            ),
         ):
             with self.assertRaisesRegex(ValueError, "not valid JSON"):
-                _resolve_value(
+                await _resolve_value(
                     value_source=parsed.value_source,
                     device=_device(),
                     run_id="r",
                     workflow_id="w",
                 )
 
-    def test_tojson_filter_keeps_quotes_valid(self) -> None:
+    async def test_tojson_filter_keeps_quotes_valid(self) -> None:
         from workflow_steps.common.jinja_render import render_jinja_template
 
-        rendered = render_jinja_template(
+        rendered = await render_jinja_template(
             '{"owner": {{ owner | tojson }}}', {"owner": 'O"Brien'}, allow_multiline_values=True
         )
         self.assertEqual(json.loads(rendered), {"owner": 'O"Brien'})
 
-    def test_list_with_sealed_passwords_is_written_in_clear(self) -> None:
+    async def test_list_with_sealed_passwords_is_written_in_clear(self) -> None:
         from services.workflow_context.secret_fields import is_sealed_secret, seal_secret
 
         device = _device(
             tacacs={"servers": [{"address": "1.2.3.4", "key": seal_secret("clear-key")}]}
         )
         parsed = _parse_config(_attribute_config("tacacs.servers"))
-        value = _resolve_value(
+        value = await _resolve_value(
             value_source=parsed.value_source, device=device, run_id="r", workflow_id="w"
         )
         self.assertEqual(value, [{"address": "1.2.3.4", "key": "clear-key"}])
@@ -1074,7 +1078,7 @@ class DryRunApplyTests(unittest.IsolatedAsyncioTestCase):
         with (
             patch.object(mod, "resolve_nautobot_device_id", AsyncMock(return_value="nb-1")),
             patch.object(mod, "load_stored_template", return_value="{}"),
-            patch.object(mod, "render_jinja_template", return_value='{"a": 1}'),
+            patch.object(mod, "render_jinja_template", AsyncMock(return_value='{"a": 1}')),
         ):
             _key, dev, ok = await _update_one_device(
                 device_key="explicit",

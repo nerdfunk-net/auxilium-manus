@@ -160,7 +160,7 @@ def test_regex_job_does_not_stall_the_event_loop() -> None:
 
 def test_child_environment_is_empty(monkeypatch) -> None:
     """S5-12: the worker gets no SECRET_KEY / database / Hatchet secrets."""
-    import core.regex_isolated as isolated
+    import core.isolated_process as isolated  # regex_isolated spawns through it
 
     seen: dict = {}
     real = asyncio.create_subprocess_exec

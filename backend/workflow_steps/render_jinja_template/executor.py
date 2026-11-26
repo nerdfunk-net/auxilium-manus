@@ -174,12 +174,9 @@ async def _render_and_store_device(
         )
         if uses_commands:
             jinja_context.update(await _build_command_context(device, artifact_service))
-        # Pure and CPU-bound: keep the event loop (heartbeats, other devices) responsive.
-        rendered = await asyncio.to_thread(
-            render_jinja_template,
-            template,
-            jinja_context,
-            allow_multiline_values=allow_multiline_values,
+        # In the isolated worker (S4-07): a runaway template stops this device, not the worker.
+        rendered = await render_jinja_template(
+            template, jinja_context, allow_multiline_values=allow_multiline_values
         )
         artifact_ref = await artifact_service.store(
             content=rendered,

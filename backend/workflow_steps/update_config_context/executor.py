@@ -282,7 +282,7 @@ def _build_update_service(
     return nautobot_service, credentials, DeviceUpdateService(bound_client)
 
 
-def _resolve_value(
+async def _resolve_value(
     *,
     value_source: _ValueSource,
     device: DeviceContext | None,
@@ -308,7 +308,7 @@ def _resolve_value(
         raise ValueError(f"{_STEP_ID}: stored template {template_id} has no content")
     jinja_device = device or DeviceContext(id="explicit", name="explicit", hostname="explicit")
     jinja_context = build_jinja_context(jinja_device, run_id=run_id, workflow_id=workflow_id)
-    rendered = render_jinja_template(
+    rendered = await render_jinja_template(
         template_content, jinja_context, allow_multiline_values=True
     )  # JSON/YAML, not a CLI
     try:
@@ -569,7 +569,7 @@ async def _update_one_device(
                 updates=[
                     (
                         path,
-                        _resolve_value(
+                        await _resolve_value(
                             value_source=entry.value_source,
                             device=device,
                             run_id=run_id,
@@ -588,7 +588,7 @@ async def _update_one_device(
                 update_service=update_service,
                 device_id=nautobot_device_id,
                 parsed=dataclasses.replace(parsed, path=rendered_path),
-                value=_resolve_value(
+                value=await _resolve_value(
                     value_source=parsed.value_source,
                     device=device,
                     run_id=run_id,

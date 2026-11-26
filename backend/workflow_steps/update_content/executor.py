@@ -9,7 +9,6 @@ and stores the result as a new `updated_content` artifact so downstream steps
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
@@ -22,13 +21,10 @@ from models.workflow_context import (
     WorkflowContext,
 )
 from services.artifacts import ArtifactService
-from services.workflow_context.attribute_regex import (
-    RegexFlagsConfig,
-    apply_regex_content_replace,
-    compile_pattern,
-)
+from services.workflow_context.attribute_regex import RegexFlagsConfig, compile_pattern
 from workflow_steps.common.content_resolver import parse_content_source
 from workflow_steps.common.content_step import StoredContent, run_content_step
+from workflow_steps.common.regex_search import ReplaceRule, ReplaceStoppedError, replace_many
 from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.common.step_flags import parse_bool_flag
 
@@ -42,17 +38,9 @@ _SUPPORTED_SOURCES = frozenset({"running_config", "startup_config"})
 
 
 @dataclass(frozen=True)
-class _ReplaceRule:
-    pattern: str
-    replacement: str
-    regex_flags: RegexFlagsConfig
-    replace_all: bool
-
-
-@dataclass(frozen=True)
 class _ParsedUpdateContentConfig:
     content_source: str
-    rules: list[_ReplaceRule]
+    rules: list[ReplaceRule]
     fail_if_no_match: bool = False
 
 
@@ -60,14 +48,14 @@ class _NoRuleMatched(ValueError):  # noqa: N818 - internal signal, mapped to a d
     """Every rule matched zero times on this device."""
 
 
-def _parse_rules(config: dict[str, Any]) -> list[_ReplaceRule]:
+def _parse_rules(config: dict[str, Any]) -> list[ReplaceRule]:
     raw = config.get("replace_rules")
     if not raw:
         raise ValueError("update-content: at least one rule in replace_rules is required")
     if not isinstance(raw, list):
         raise ValueError("update-content: replace_rules must be a list")
 
-    rules: list[_ReplaceRule] = []
+    rules: list[ReplaceRule] = []
     for i, item in enumerate(raw):
         if not isinstance(item, dict):
             raise ValueError(f"update-content: replace_rules[{i}] must be a dict")
@@ -80,10 +68,10 @@ def _parse_rules(config: dict[str, Any]) -> list[_ReplaceRule]:
         except ValueError as exc:
             raise ValueError(f"update-content: replace_rules[{i}].{exc}") from exc
         rules.append(
-            _ReplaceRule(
+            ReplaceRule(
                 pattern=pattern,
                 replacement=str(item.get("replacement") or ""),
-                regex_flags=regex_flags,
+                flags=regex_flags,
                 replace_all=parse_bool_flag(
                     item, "replace_all", default=True, step_id=f"{_STEP_ID} replace_rules[{i}]"
                 ),
@@ -106,21 +94,6 @@ def _source_ref(device: DeviceContext, content_source: str) -> ArtifactRef | Non
     if content_source == "running_config":
         return device.running_config_ref
     return device.startup_config_ref
-
-
-def _apply_rules_to_text(text: str, rules: list[_ReplaceRule]) -> tuple[str, list[int]]:
-    match_counts: list[int] = []
-    current = text
-    for rule in rules:
-        current, match_count = apply_regex_content_replace(
-            source_text=current,
-            pattern=rule.pattern,
-            replacement=rule.replacement,
-            flags=rule.regex_flags,
-            replace_all=rule.replace_all,
-        )
-        match_counts.append(match_count)
-    return current, match_counts
 
 
 async def execute(
@@ -153,10 +126,8 @@ async def execute(
                 "Get Configs step upstream of update-content"
             )
         raw_content = await artifact_service.resolve(source_ref)
-        # Off the event loop: re.sub over a multi-megabyte config would stall every other device.
-        updated_text, match_counts = await asyncio.to_thread(
-            _apply_rules_to_text, raw_content, parsed.rules
-        )
+        # In the isolated worker (S4-07): a catastrophic pattern stops this device, not the worker.
+        updated_text, match_counts = await replace_many(raw_content, parsed.rules)
         if parsed.fail_if_no_match and not any(match_counts):
             # A typo'd pattern would otherwise let a later upload step push the unchanged config.
             raise _NoRuleMatched("no replace rule matched anything in this device's content")
@@ -174,5 +145,5 @@ async def execute(
         transform=transform,
         artifact_service=artifact_service,
         metadata_prefix="update_content",
-        code_overrides={_NoRuleMatched: "no_rule_matched"},
+        code_overrides={_NoRuleMatched: "no_rule_matched", ReplaceStoppedError: "regex_stopped"},
     )

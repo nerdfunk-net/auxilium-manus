@@ -1,21 +1,38 @@
-"""Jinja2 validation and rendering for workflow templates."""
+"""Jinja2 validation and rendering for workflow templates.
+
+A render runs the author's template in a killable child process (S4-07, ``core/jinja_worker.py``):
+an endless loop or a huge output stops that one device after ``STEP_CHILD_SECONDS`` instead of
+holding a worker thread for good. Parsing (validation, the variables a template reads) stays in
+this process.
+"""
 
 from __future__ import annotations
 
+import json
+import logging
+from pathlib import Path
 from typing import Any
 
-from jinja2 import TemplateSyntaxError, UndefinedError, meta
-from jinja2.sandbox import SandboxedEnvironment
+from jinja2 import TemplateSyntaxError, meta
 
+from core import isolated_process
 from models.failure import FailureInfo, FailureKind
 from models.workflow_context import DeviceContext
-from services.workflow_context.secret_fields import is_sealed_secret, unwrap_secret
-
-_jinja_env = SandboxedEnvironment(
-    autoescape=False,
-    trim_blocks=True,
-    lstrip_blocks=True,
+from services.workflow_context.jinja_sandbox import (
+    JINJA_ENV,
+    empty_problem,
+    syntax_problem,
 )
+from services.workflow_context.secret_fields import is_sealed_secret, unwrap_secret
+from workflow_steps.common.failure_records import TEMPLATE_STOPPED
+
+logger = logging.getLogger(__name__)
+
+_WORKER = Path(__file__).resolve().parents[2] / "core" / "jinja_worker.py"
+# A rendered text above this many characters stops the device (a loop that writes forever).
+MAX_RENDERED_CHARS = 8 * 1024 * 1024
+# Characters may grow in JSON (escapes); the worker already refused anything above the cap.
+_MAX_RESPONSE_BYTES = 6 * MAX_RENDERED_CHARS + 1024 * 1024
 
 
 class JinjaTemplateError(ValueError):
@@ -34,62 +51,45 @@ class UnsafeTemplateValueError(JinjaTemplateError):
     """A value rendered into the template contains a line break (S4-08)."""
 
 
-# Every character ``str.splitlines()`` treats as a line boundary; a value holding one could be
-# split into extra commands by any consumer that uses it.
-_LINE_SEPARATORS = frozenset("\n\r\x0b\x0c\x1c\x1d\x1e\x85\u2028\u2029")
+class TemplateStoppedError(JinjaTemplateError):
+    """The render used more than its time or memory, or wrote more than ``MAX_RENDERED_CHARS``."""
 
 
-def _reject_line_breaks(value: Any) -> Any:
-    """Jinja ``finalize`` hook: runs on every ``{{ expression }}`` result, never on template text.
+_PROBLEM_KINDS: frozenset[FailureKind] = frozenset(
+    {"template_syntax", "undefined_variable", "template_error", "unsafe_template_value"}
+)
 
-    A data value with a CR/LF would become extra device commands once rendered into a CLI
-    template, so it is refused unless the step explicitly allows multi-line values."""
-    if isinstance(value, str) and not _LINE_SEPARATORS.isdisjoint(value):
-        raise UnsafeTemplateValueError(
-            "A value rendered into the template contains a line break; enable "
-            "'Allow values with line breaks' on the step if this is intended",
-            failure=FailureInfo(
-                phase="render",
-                kind="unsafe_template_value",
-                exception_type="UnsafeTemplateValueError",
-                hint="fix_template",
-            ),
+
+def _error_from(problem: dict[str, Any]) -> JinjaTemplateError:
+    """The ``JinjaTemplateError`` for a problem dict of ``jinja_sandbox``."""
+    kind = problem.get("kind")
+    if kind == "too_large":
+        return TemplateStoppedError(
+            f"The rendered text is larger than {MAX_RENDERED_CHARS} characters",
+            failure=TEMPLATE_STOPPED,
         )
-    return value
-
-
-# Same sandbox, plus the line-break check. The default for rendering that ends up on a device CLI.
-_jinja_env_strict = _jinja_env.overlay(finalize=_reject_line_breaks)
-
-
-def _template_failure(kind: FailureKind, exc: BaseException, *, line: int | None) -> FailureInfo:
-    return FailureInfo(
+    if kind not in _PROBLEM_KINDS:
+        return _stopped()
+    line = problem.get("line")
+    failure = FailureInfo(
         phase="render",
         kind=kind,
-        exception_type=type(exc).__name__,
+        exception_type=str(problem.get("exception_type") or "") or None,
         hint="fix_template",
-        line=line,
+        line=line if isinstance(line, int) else None,
     )
+    message = str(problem.get("message") or "")
+    if kind == "unsafe_template_value":
+        return UnsafeTemplateValueError(message, failure=failure)
+    return JinjaTemplateError(message, failure=failure)
 
 
-def _render_line(exc: BaseException, *, offset: int) -> int | None:
-    """Template line (as the author sees it) where *exc* was raised, from its traceback.
-
-    Jinja compiles templates under the file name ``<template>`` and maps the frame's line number
-    to the template line. ``offset`` is the number of leading lines ``render`` stripped.
-    """
-    line: int | None = None
-    tb = exc.__traceback__
-    while tb is not None:
-        if tb.tb_frame.f_code.co_filename == "<template>":
-            line = tb.tb_lineno
-        tb = tb.tb_next
-    return line + offset if line is not None else None
-
-
-def _leading_lines_stripped(template: str) -> int:
-    leading = template[: len(template) - len(template.lstrip())]
-    return leading.count("\n")
+def _stopped() -> TemplateStoppedError:
+    return TemplateStoppedError(
+        f"The template was stopped: it used more than {isolated_process.STEP_CHILD_SECONDS:g} "
+        "seconds or too much memory",
+        failure=TEMPLATE_STOPPED,
+    )
 
 
 def _unwrap_value(value: Any) -> Any:
@@ -137,82 +137,67 @@ def build_jinja_context(
     return context
 
 
-def _syntax_error(template: str, exc: TemplateSyntaxError) -> JinjaTemplateError:
-    line = exc.lineno + _leading_lines_stripped(template) if exc.lineno else None
-    return JinjaTemplateError(
-        f"Jinja syntax error: {exc}",
-        failure=_template_failure("template_syntax", exc, line=line),
-    )
-
-
-def _require_text(template: str) -> str:
-    stripped = template.strip()
-    if not stripped:
-        raise JinjaTemplateError(
-            "Template is empty",
-            failure=_template_failure("template_syntax", ValueError(), line=None),
-        )
-    return stripped
-
-
 def validate_jinja_template(template: str) -> None:
     """Parse a template and raise JinjaTemplateError on syntax errors."""
-    stripped = _require_text(template)
+    stripped = template.strip()
+    if not stripped:
+        raise _error_from(empty_problem())
     try:
-        _jinja_env.parse(stripped)
+        JINJA_ENV.parse(stripped)
     except TemplateSyntaxError as exc:
-        raise _syntax_error(template, exc) from exc
+        raise _error_from(syntax_problem(template, exc)) from exc
 
 
 def template_variables(template: str) -> frozenset[str]:
     """The top-level names a template reads from its context (a syntax error yields none; the
     render reports it)."""
     try:
-        return frozenset(meta.find_undeclared_variables(_jinja_env.parse(template.strip())))
+        return frozenset(meta.find_undeclared_variables(JINJA_ENV.parse(template.strip())))
     except TemplateSyntaxError:
         return frozenset()
 
 
-def render_jinja_template(
+async def render_jinja_template(
     template: str, context: dict[str, Any], *, allow_multiline_values: bool = False
 ) -> str:
-    """Render a template against a namespace context.
+    """Render a template against a namespace context, in the isolated worker.
 
     By default a ``{{ value }}`` containing a line break is rejected (S4-08): external data is
-    untrusted input to device command lines."""
-    stripped = _require_text(template)
-    env = _jinja_env if allow_multiline_values else _jinja_env_strict
+    untrusted input to device command lines. Raises ``JinjaTemplateError`` (with its
+    ``FailureInfo``) for every problem, ``TemplateStoppedError`` when the render was stopped."""
     try:
-        # One parse: ``from_string`` raises the same syntax errors the validator reports.
-        compiled = env.from_string(stripped)
-        rendered = compiled.render(**context)
-    except UnsafeTemplateValueError as exc:
-        exc.failure = FailureInfo(
-            phase="render",
-            kind="unsafe_template_value",
-            exception_type="UnsafeTemplateValueError",
-            hint="fix_template",
-            line=_render_line(exc, offset=_leading_lines_stripped(template)),
+        payload = json.dumps(
+            {
+                "template": template,
+                "context": context,
+                "allow_multiline_values": allow_multiline_values,
+                "max_output_chars": MAX_RENDERED_CHARS,
+            }
+        ).encode()
+    except (TypeError, ValueError) as exc:  # no default=str: never render a value's repr
+        raise JinjaTemplateError(
+            "The template context contains a value that is not plain data",
+            failure=FailureInfo(
+                phase="render",
+                kind="template_error",
+                exception_type=type(exc).__name__,
+                hint="fix_template",
+            ),
+        ) from exc
+    async with isolated_process.STEP_CHILD_SLOTS.hold(wait_seconds=None):
+        stdout = await isolated_process.run_child(
+            _WORKER,
+            payload,
+            timeout=isolated_process.STEP_CHILD_SECONDS,
+            max_response_bytes=_MAX_RESPONSE_BYTES,
         )
-        raise
-    except TemplateSyntaxError as exc:
-        raise _syntax_error(template, exc) from exc
-    except UndefinedError as exc:
-        raise JinjaTemplateError(
-            f"Undefined template variable: {exc}",
-            failure=_template_failure(
-                "undefined_variable",
-                exc,
-                line=_render_line(exc, offset=_leading_lines_stripped(template)),
-            ),
-        ) from exc
-    except Exception as exc:
-        raise JinjaTemplateError(
-            f"Template render failed: {exc}",
-            failure=_template_failure(
-                "template_error",
-                exc,
-                line=_render_line(exc, offset=_leading_lines_stripped(template)),
-            ),
-        ) from exc
-    return rendered
+    if stdout is None:
+        raise _stopped()
+    try:
+        result = json.loads(stdout)
+        if result["ok"]:
+            return str(result["output"])
+    except ValueError, KeyError, TypeError:
+        logger.warning("The Jinja worker returned an unusable result")
+        raise _stopped() from None
+    raise _error_from(result)
