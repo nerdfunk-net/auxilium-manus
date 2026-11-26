@@ -7,7 +7,6 @@ import logging
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
-import service_factory
 from core.models.runs import WorkflowRun
 from models.failure import FailureInfo
 from models.workflow_context import (
@@ -20,7 +19,6 @@ from models.workflow_context import (
 from services.artifacts import ArtifactService
 from services.nautobot.client import NautobotService
 from services.nautobot.credentials import NautobotCredentials
-from services.nautobot.credentials_bound_client import CredentialsBoundNautobotClient
 from services.nautobot.devices.update import DeviceUpdateService
 from services.workflow_context.attribute_path import resolve_device_attribute_raw
 from workflow_steps.common.failure_records import NOT_FOUND
@@ -32,7 +30,7 @@ from workflow_steps.common.interface_payload import (
     normalize_interfaces,
 )
 from workflow_steps.common.nautobot_resolve import resolve_nautobot_device_id
-from workflow_steps.common.nautobot_source import resolve_nautobot_credentials
+from workflow_steps.common.nautobot_step import bind_nautobot
 from workflow_steps.common.nautobot_target import (
     explicit_device_context,
     parse_explicit_identifier,
@@ -44,7 +42,6 @@ from workflow_steps.common.redundancy_groups_config import (
     parse_redundancy_groups,
 )
 from workflow_steps.common.run_logging import log_run_id
-from workflow_steps.common.run_session import require_session
 from workflow_steps.common.step_flags import parse_bool_flag, record_dry_run
 from workflow_steps.common.value_expression import (
     build_resolved_update_data,
@@ -275,12 +272,10 @@ def _count_enabled_fields(raw_update_fields: dict[str, Any]) -> int:
 
 
 def _build_update_service(
-    db: Any, source_id: str
+    run: WorkflowRun, source_id: str
 ) -> tuple[NautobotService, NautobotCredentials, DeviceUpdateService]:
-    credentials = resolve_nautobot_credentials(db, source_id, step_id=_STEP_ID)
-    nautobot_service = service_factory.get_nautobot_app_service()
-    bound_client = CredentialsBoundNautobotClient(nautobot_service, credentials)
-    return nautobot_service, credentials, DeviceUpdateService(bound_client)
+    binding = bind_nautobot(run, source_id, step_id=_STEP_ID)
+    return binding.service, binding.credentials, DeviceUpdateService(binding.client)
 
 
 def _fail_device(
@@ -541,9 +536,7 @@ async def execute(
     if parsed.identifier_mode != "explicit" and not context.devices:
         return [StepOutcome(name="success", context=context)]
 
-    db = require_session(run, _STEP_ID)
-
-    nautobot_service, credentials, update_service = _build_update_service(db, parsed.source_id)
+    nautobot_service, credentials, update_service = _build_update_service(run, parsed.source_id)
     device_items = _resolve_device_items(parsed.identifier_mode, context)
     enabled_field_count = _count_enabled_fields(parsed.raw_update_fields)
 

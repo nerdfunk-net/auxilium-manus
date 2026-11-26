@@ -8,7 +8,6 @@ import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-import service_factory
 from core.models.runs import WorkflowRun
 from models.failure import FailureInfo, failure_from_exception
 from models.workflow_context import (
@@ -21,7 +20,6 @@ from models.workflow_context import (
 )
 from services.artifacts import ArtifactService
 from services.nautobot.common.exceptions import NautobotAPIError, is_duplicate_error
-from services.nautobot.credentials_bound_client import CredentialsBoundNautobotClient
 from services.nautobot.devices.creation import DeviceCreationService
 from services.nautobot.devices.types import AddDeviceRequest
 from workflow_steps.add_to_nautobot.config import get_config
@@ -31,7 +29,7 @@ from workflow_steps.common.interface_payload import (
     interfaces_from_nautobot_bag,
     normalize_interfaces,
 )
-from workflow_steps.common.nautobot_source import resolve_nautobot_credentials
+from workflow_steps.common.nautobot_step import bind_nautobot_client
 from workflow_steps.common.nautobot_update_fields import extract_update_fields_from_nautobot_bag
 from workflow_steps.common.partial_outcomes import NAUTOBOT_TEXT, device_error_from_exception
 from workflow_steps.common.redundancy_groups_config import (
@@ -39,7 +37,6 @@ from workflow_steps.common.redundancy_groups_config import (
     parse_redundancy_groups,
 )
 from workflow_steps.common.run_logging import log_run_id
-from workflow_steps.common.run_session import require_session
 from workflow_steps.common.step_flags import parse_bool_flag, record_dry_run
 from workflow_steps.common.value_expression import build_resolved_update_data
 
@@ -217,11 +214,8 @@ def _parse_config(config: dict[str, Any]) -> _ParsedConfig:
     )
 
 
-def _bind_creation_service(db: Any, source_id: str) -> DeviceCreationService:
-    credentials = resolve_nautobot_credentials(db, source_id, step_id=_STEP_ID)
-    nautobot_service = service_factory.get_nautobot_app_service()
-    bound_client = CredentialsBoundNautobotClient(nautobot_service, credentials)
-    return DeviceCreationService(bound_client)
+def _bind_creation_service(run: WorkflowRun, source_id: str) -> DeviceCreationService:
+    return DeviceCreationService(bind_nautobot_client(run, source_id, step_id=_STEP_ID))
 
 
 def _is_already_exists(exc: Exception) -> bool:
@@ -460,9 +454,7 @@ async def execute(
     if not context.devices:
         return [StepOutcome(name="success", context=context)]
 
-    db = require_session(run, _STEP_ID)
-
-    creation_service = _bind_creation_service(db, parsed.source_id)
+    creation_service = _bind_creation_service(run, parsed.source_id)
     device_items = list(context.devices.items())
     run_id = str(context.run_id) if context.run_id else None
 

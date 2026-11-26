@@ -379,26 +379,27 @@ Workflow step executors run in-process — call the service layer directly,
 
 ```python
 # backend/workflow_steps/my_ise_step/executor.py
-import service_factory
-from core.database import SessionLocal
+from workflow_steps.common.ise_step import build_ise_device_service, preflight_ise
 
-async def execute(*, config, context, run, artifact_service, node_id) -> list[StepOutcome]:
+async def execute(*, config, context, run, artifact_service, node_id, device_sessions):
     source_id = config["ise_source_id"]
+    ...  # parse and validate the config, then return early for an empty device list
 
-    with SessionLocal() as db:
-        source_config_service = service_factory.build_ise_source_config_service(db)
-        credentials = source_config_service.resolve_credentials(source_id)
-
-    device_service = service_factory.build_ise_network_device_service(credentials)
+    device_service = build_ise_device_service(run, source_id, step_id=STEP_ID)
+    unreachable = await preflight_ise(device_service, context, source_id, step_id=STEP_ID)
+    if unreachable is not None:
+        return unreachable  # one `failure` outcome for the whole context, with its cause
     result = await device_service.list_devices(filter_=f"ipaddress.EQ.{ip}")
     ...
 ```
 
 Key points:
-- `resolve_credentials` needs a DB session (it reads the settings row and
-  decrypts the paired credential) — open one with `SessionLocal()`, resolve,
-  and close it before the (potentially slow) ISE call, same pattern as
-  other DB-then-external-API steps.
+- `workflow_steps/common/ise_step.py` is the one ISE preamble of the steps (W6-03):
+  `resolve_ise_credentials(db, source_id, step_id=)` (an unknown or incomplete source is a
+  `ValueError`), `ise_credentials(run, ...)` and `build_ise_device_service(run, ...)` (the run's
+  session, `require_session`), and `preflight_ise(...)` (`test_connection()`; an unreachable ISE
+  fails the whole context). A step never calls `build_ise_source_config_service` itself
+  (`tests/unit/test_step_source_preambles.py`).
 - `service_factory.get_ise_app_service()` (the shared pooled `httpx`
   client) is a per-process singleton set up in a `lifespan()` function —
   **the FastAPI API process, the live Hatchet worker

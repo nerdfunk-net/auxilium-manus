@@ -85,7 +85,6 @@ from models.workflow_context import (
 )
 from services.artifacts import ArtifactService
 from services.ise.common.exceptions import ALREADY_EXISTS_CODE, ISEAPIError, ISEValidationError
-from services.ise.credentials import ISECredentials
 from workflow_steps.add_to_ise.fields import (
     resolve_device_fields,
 )
@@ -102,9 +101,8 @@ from workflow_steps.add_to_ise.payload import (
 )
 from workflow_steps.common.device_runner import AbortRun, Fail, run_per_device
 from workflow_steps.common.failure_records import INVALID_INPUT
+from workflow_steps.common.ise_step import build_ise_device_service, ise_credentials, preflight_ise
 from workflow_steps.common.partial_outcomes import abort_outcomes
-from workflow_steps.common.run_session import require_session
-from workflow_steps.common.source_credentials import resolve_source
 
 if TYPE_CHECKING:
     from services.ise.network_device_service import ISENetworkDeviceService
@@ -136,24 +134,9 @@ def refusal(
     return Fail(code, message, failure, device=carry)
 
 
-def _resolve_source_credentials(run: WorkflowRun, source_id: str) -> ISECredentials:
-    db = require_session(run, STEP_ID)
-
-    source_config_service = service_factory.build_ise_source_config_service(db)
-    return resolve_source(
-        source_config_service, source_id, step_id=STEP_ID, invalid=ISEValidationError
-    )
-
-
-def _build_ise_device_service(run: WorkflowRun, source_id: str) -> ISENetworkDeviceService:
-    return service_factory.build_ise_network_device_service(
-        _resolve_source_credentials(run, source_id)
-    )
-
-
 def _build_group_ensurer(run: WorkflowRun, source_id: str) -> DeviceGroupEnsurer:
     group_service = service_factory.build_ise_network_device_group_service(
-        _resolve_source_credentials(run, source_id)
+        ise_credentials(run, source_id, step_id=STEP_ID)
     )
     return DeviceGroupEnsurer(group_service)
 
@@ -335,7 +318,7 @@ async def execute(
             StepOutcome(name="failure", context=context),
         ]
 
-    device_service = _build_ise_device_service(run, parsed.source_id)
+    device_service = build_ise_device_service(run, parsed.source_id, step_id=STEP_ID)
 
     logger.info(
         "%s started run_id=%s node_id=%s devices=%d",
@@ -345,18 +328,9 @@ async def execute(
         len(context.devices),
     )
 
-    try:
-        await device_service.test_connection()
-    except ISEAPIError as exc:
-        logger.warning("%s: could not reach ISE source '%s': %s", STEP_ID, parsed.source_id, exc)
-        return [
-            StepOutcome(
-                name="failure",
-                context=context,
-                summary=f"could not reach ISE source '{parsed.source_id}': {exc}",
-                failure=exc.failure,
-            )
-        ]
+    unreachable = await preflight_ise(device_service, context, parsed.source_id, step_id=STEP_ID)
+    if unreachable is not None:
+        return unreachable
 
     group_ensurer = (
         _build_group_ensurer(run, parsed.source_id) if parsed.create_missing_groups else None

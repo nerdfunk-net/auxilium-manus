@@ -30,9 +30,9 @@ from workflow_steps.common.device_builders import (
     device_context_from_nautobot,
 )
 from workflow_steps.common.fan_out import inventory_metadata
+from workflow_steps.common.ise_step import resolve_ise_credentials
 from workflow_steps.common.nautobot_source import resolve_nautobot_credentials
 from workflow_steps.common.run_session import require_session
-from workflow_steps.common.source_credentials import resolve_source
 from workflow_steps.common.step_flags import parse_bool_flag
 
 if TYPE_CHECKING:
@@ -235,14 +235,7 @@ def _build_ise_services(
     db: Session,
     parsed: _ParsedGetIseDevicesConfig,
 ) -> tuple[ISENetworkDeviceService, NautobotSourceService | None]:
-    source_config_service = service_factory.build_ise_source_config_service(db)
-    credentials = resolve_source(
-        source_config_service,
-        parsed.source_id,
-        step_id="get-ise-devices",
-        invalid=ISEValidationError,
-    )
-
+    credentials = resolve_ise_credentials(db, parsed.source_id, step_id="get-ise-devices")
     device_service = service_factory.build_ise_network_device_service(credentials)
 
     nautobot_source_service: NautobotSourceService | None = None

@@ -29,7 +29,6 @@ from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-import service_factory
 from core.models.runs import WorkflowRun
 from models.failure import FailureInfo
 from models.workflow_context import (
@@ -42,7 +41,6 @@ from models.workflow_context import (
 from services.artifacts import ArtifactService
 from services.nautobot.client import NautobotService
 from services.nautobot.credentials import NautobotCredentials
-from services.nautobot.credentials_bound_client import CredentialsBoundNautobotClient
 from services.nautobot.devices.update import DeviceUpdateService
 from services.workflow_context.attribute_path import resolve_device_attribute, resolve_device_value
 from services.workflow_context.secret_fields import (
@@ -53,7 +51,7 @@ from workflow_steps.common.attribute_merge import deep_merge_mapping
 from workflow_steps.common.failure_records import NOT_FOUND
 from workflow_steps.common.jinja_render import build_jinja_context, render_jinja_template
 from workflow_steps.common.nautobot_resolve import resolve_nautobot_device_id
-from workflow_steps.common.nautobot_source import resolve_nautobot_credentials
+from workflow_steps.common.nautobot_step import bind_nautobot
 from workflow_steps.common.nautobot_target import (
     explicit_device_context,
     parse_explicit_identifier,
@@ -61,7 +59,6 @@ from workflow_steps.common.nautobot_target import (
 )
 from workflow_steps.common.partial_outcomes import NAUTOBOT_TEXT, device_error_from_exception
 from workflow_steps.common.run_logging import log_run_id
-from workflow_steps.common.run_session import require_session
 from workflow_steps.common.step_flags import parse_bool_flag, record_dry_run
 from workflow_steps.common.template_content import load_stored_template
 from workflow_steps.update_config_context.json_object_path import (
@@ -274,12 +271,10 @@ def _resolve_device_items(
 
 
 def _build_update_service(
-    db: Any, source_id: str
+    run: WorkflowRun, source_id: str
 ) -> tuple[NautobotService, NautobotCredentials, DeviceUpdateService]:
-    credentials = resolve_nautobot_credentials(db, source_id, step_id=_STEP_ID)
-    nautobot_service = service_factory.get_nautobot_app_service()
-    bound_client = CredentialsBoundNautobotClient(nautobot_service, credentials)
-    return nautobot_service, credentials, DeviceUpdateService(bound_client)
+    binding = bind_nautobot(run, source_id, step_id=_STEP_ID)
+    return binding.service, binding.credentials, DeviceUpdateService(binding.client)
 
 
 async def _resolve_value(
@@ -664,9 +659,7 @@ async def execute(
     if parsed.identifier_mode != "explicit" and not context.devices:
         return [StepOutcome(name="success", context=context)]
 
-    db = require_session(run, _STEP_ID)
-
-    nautobot_service, credentials, update_service = _build_update_service(db, parsed.source_id)
+    nautobot_service, credentials, update_service = _build_update_service(run, parsed.source_id)
     device_items = _resolve_device_items(parsed.identifier_mode, context)
 
     logger.info(

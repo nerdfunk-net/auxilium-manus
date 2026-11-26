@@ -67,14 +67,14 @@ def _creation_service(create_device: AsyncMock) -> MagicMock:
 def _patches(*, setting=None, creation_service_instance=None):
     if setting is None:
         resolve_patch = patch(
-            "workflow_steps.add_to_nautobot.executor.resolve_nautobot_credentials",
+            "workflow_steps.common.nautobot_step.resolve_nautobot_credentials",
             side_effect=ValueError(
                 "add-to-nautobot: Nautobot source 'prod-lab' not found in settings"
             ),
         )
     else:
         resolve_patch = patch(
-            "workflow_steps.add_to_nautobot.executor.resolve_nautobot_credentials",
+            "workflow_steps.common.nautobot_step.resolve_nautobot_credentials",
             return_value=MagicMock(),
         )
     return (
@@ -92,7 +92,7 @@ def _patches(*, setting=None, creation_service_instance=None):
             return_value=creation_service_instance,
         ),
         patch(
-            "workflow_steps.add_to_nautobot.executor.CredentialsBoundNautobotClient",
+            "workflow_steps.common.nautobot_step.CredentialsBoundNautobotClient",
             return_value=MagicMock(),
         ),
     )

@@ -15,7 +15,7 @@ from services.execution.step_runner.runner import _outcome_failure
 from services.ise.client import ISEService
 from services.ise.common.exceptions import ISEAPIError, ISEError, ISEValidationError
 from services.ise.credentials import ISECredentials
-from workflow_steps.update_ise_tacacs_key.executor import _preflight_ise
+from workflow_steps.common.ise_step import preflight_ise
 
 
 def _creds() -> ISECredentials:
@@ -104,7 +104,7 @@ def test_preflight_outcome_carries_the_failure() -> None:
     )
     context = WorkflowContext(run_id="r", workflow_id="w")
 
-    outcomes = asyncio.run(_preflight_ise(service, "ise-1", context))
+    outcomes = asyncio.run(preflight_ise(service, context, "ise-1", step_id="s"))
 
     assert outcomes is not None
     assert outcomes[0].failure is not None

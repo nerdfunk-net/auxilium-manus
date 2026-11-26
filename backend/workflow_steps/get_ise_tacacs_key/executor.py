@@ -40,7 +40,6 @@ import ipaddress
 import logging
 from typing import TYPE_CHECKING, Any
 
-import service_factory
 from core.models.runs import WorkflowRun
 from models.failure import FailureInfo
 from models.workflow_context import DeviceContext, StepOutcome, WorkflowContext
@@ -57,10 +56,9 @@ from services.workflow_context.secret_fields import seal_secret, secret_is_prese
 from workflow_steps.common.attribute_write import set_device_attribute
 from workflow_steps.common.device_outcomes import build_outcomes
 from workflow_steps.common.device_runner import AbortRun, Fail, run_per_device
+from workflow_steps.common.ise_step import build_ise_device_service, preflight_ise
 from workflow_steps.common.partial_outcomes import abort_outcomes
 from workflow_steps.common.primary_ip import effective_primary_ip4
-from workflow_steps.common.run_session import require_session
-from workflow_steps.common.source_credentials import resolve_source
 from workflow_steps.common.step_flags import parse_bool_flag
 from workflow_steps.get_ise_tacacs_key.config import get_config
 
@@ -316,32 +314,6 @@ async def _find_tacacs_key(
     return None, None
 
 
-def _resolve_ise_device_service(run: WorkflowRun, source_id: str) -> ISENetworkDeviceService:
-    db = require_session(run, _STEP_ID)
-
-    source_config_service = service_factory.build_ise_source_config_service(db)
-    credentials = resolve_source(
-        source_config_service, source_id, step_id=_STEP_ID, invalid=ISEValidationError
-    )
-
-    return service_factory.build_ise_network_device_service(credentials)
-
-
-def _ise_unreachable_outcome(
-    context: WorkflowContext,
-    source_id: str,
-    exc: ISEAPIError,
-    *,
-    prefix: str,
-) -> StepOutcome:
-    return StepOutcome(
-        name="failure",
-        context=context,
-        summary=f"{prefix} ISE source '{source_id}': {exc}",
-        failure=exc.failure,
-    )
-
-
 async def _process_devices_for_tacacs_key(
     *,
     context: WorkflowContext,
@@ -464,7 +436,7 @@ async def execute(
     if not context.devices:
         return [StepOutcome(name="success", context=context)]
 
-    device_service = _resolve_ise_device_service(run, source_id)
+    device_service = build_ise_device_service(run, source_id, step_id=_STEP_ID)
 
     logger.info(
         "%s started run_id=%s node_id=%s devices=%d",
@@ -474,11 +446,9 @@ async def execute(
         len(context.devices),
     )
 
-    try:
-        await device_service.test_connection()
-    except ISEAPIError as exc:
-        logger.warning("%s: could not reach ISE source '%s': %s", _STEP_ID, source_id, exc)
-        return [_ise_unreachable_outcome(context, source_id, exc, prefix="could not reach")]
+    unreachable = await preflight_ise(device_service, context, source_id, step_id=_STEP_ID)
+    if unreachable is not None:
+        return unreachable
 
     return await _process_devices_for_tacacs_key(
         context=context,

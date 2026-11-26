@@ -33,7 +33,7 @@ async def _call(mod: Any, config: dict[str, Any], service: MagicMock, *devices: 
     with (
         patch("workflow_steps.common.run_session.object_session", return_value=MagicMock()),
         patch("service_factory.build_ise_source_config_service", return_value=MagicMock()),
-        patch(f"{mod.__name__}.resolve_source", return_value=MagicMock()),
+        patch("workflow_steps.common.ise_step.resolve_source", return_value=MagicMock()),
         patch("service_factory.build_ise_network_device_service", return_value=service),
     ):
         outcomes = await call_step(mod.execute, config, make_context(devices), node_id="n1")
@@ -204,7 +204,7 @@ async def test_get_failure_outcome_summary_counts_the_misses() -> None:
     with (
         patch("workflow_steps.common.run_session.object_session", return_value=MagicMock()),
         patch("service_factory.build_ise_source_config_service", return_value=MagicMock()),
-        patch(f"{get_mod.__name__}.resolve_source", return_value=MagicMock()),
+        patch("workflow_steps.common.ise_step.resolve_source", return_value=MagicMock()),
         patch("service_factory.build_ise_network_device_service", return_value=service),
     ):
         outcomes = await call_step(get_mod.execute, _GET_CONFIG, context, node_id="n1")
@@ -222,7 +222,7 @@ async def test_update_rejection_carries_the_failure_record_and_summaries() -> No
     with (
         patch("workflow_steps.common.run_session.object_session", return_value=MagicMock()),
         patch("service_factory.build_ise_source_config_service", return_value=MagicMock()),
-        patch(f"{update_mod.__name__}.resolve_source", return_value=MagicMock()),
+        patch("workflow_steps.common.ise_step.resolve_source", return_value=MagicMock()),
         patch("service_factory.build_ise_network_device_service", return_value=service),
     ):
         outcomes = await call_step(update_mod.execute, _UPDATE_CONFIG, context, node_id="n1")

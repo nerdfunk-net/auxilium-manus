@@ -7,6 +7,8 @@ import unittest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from models.workflow_context import DeviceContext, DeviceStatus, WorkflowContext
+from tests.unit._step_helpers import patch_object_session
+from workflow_steps.common import nautobot_step
 from workflow_steps.update_nautobot_device import executor as mod
 from workflow_steps.update_nautobot_device.executor import (
     _apply_update_result,
@@ -35,11 +37,15 @@ class StripEmptyTests(unittest.TestCase):
 
 
 class BuildUpdateServiceTests(unittest.TestCase):
+    # The binding is common/nautobot_step.bind_nautobot (W5-06); its resolver is patched there.
     def test_resolver_error_propagates(self) -> None:
-        with patch.object(
-            mod,
-            "resolve_nautobot_credentials",
-            side_effect=ValueError("update-nautobot-device: Nautobot source 'src-1' not found"),
+        with (
+            patch_object_session(),
+            patch.object(
+                nautobot_step,
+                "resolve_nautobot_credentials",
+                side_effect=ValueError("update-nautobot-device: Nautobot source 'src-1' not found"),
+            ),
         ):
             with self.assertRaises(ValueError):
                 _build_update_service(MagicMock(), "src-1")
@@ -47,8 +53,11 @@ class BuildUpdateServiceTests(unittest.TestCase):
     def test_valid_source_returns_wired_services(self) -> None:
         creds = MagicMock(url="https://nb")
         with (
-            patch.object(mod, "resolve_nautobot_credentials", return_value=creds),
-            patch.object(mod.service_factory, "get_nautobot_app_service", return_value="svc"),
+            patch_object_session(),
+            patch.object(nautobot_step, "resolve_nautobot_credentials", return_value=creds),
+            patch.object(
+                nautobot_step.service_factory, "get_nautobot_app_service", return_value="svc"
+            ),
         ):
             svc, resolved_creds, update_service = _build_update_service(MagicMock(), "src-1")
         self.assertEqual(svc, "svc")

@@ -33,7 +33,6 @@ import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-import service_factory
 from core.models.runs import WorkflowRun
 from models.failure import FailureInfo
 from models.workflow_context import DeviceContext, StepOutcome, WorkflowContext
@@ -45,9 +44,8 @@ from services.workflow_context.secret_fields import seal_secret
 from workflow_steps.common.attribute_write import set_device_attribute
 from workflow_steps.common.device_outcomes import build_outcomes
 from workflow_steps.common.device_runner import AbortRun, Fail, run_per_device
+from workflow_steps.common.ise_step import build_ise_device_service, preflight_ise
 from workflow_steps.common.partial_outcomes import abort_outcomes
-from workflow_steps.common.run_session import require_session
-from workflow_steps.common.source_credentials import resolve_source
 from workflow_steps.common.value_expression import resolve_update_field_expression
 
 if TYPE_CHECKING:
@@ -89,37 +87,6 @@ def _parse_config(config: dict[str, Any]) -> _ParsedConfig:
     raw_new_key = require_secret_expression(raw_new_key, field="new_key", step_id=_STEP_ID)
 
     return _ParsedConfig(source_id=source_id, raw_new_key=raw_new_key)
-
-
-def _build_ise_device_service(run: WorkflowRun, source_id: str) -> ISENetworkDeviceService:
-    db = require_session(run, _STEP_ID)
-
-    source_config_service = service_factory.build_ise_source_config_service(db)
-    credentials = resolve_source(
-        source_config_service, source_id, step_id=_STEP_ID, invalid=ISEValidationError
-    )
-
-    return service_factory.build_ise_network_device_service(credentials)
-
-
-async def _preflight_ise(
-    device_service: ISENetworkDeviceService,
-    source_id: str,
-    context: WorkflowContext,
-) -> list[StepOutcome] | None:
-    try:
-        await device_service.test_connection()
-    except ISEAPIError as exc:
-        logger.warning("%s: could not reach ISE source '%s': %s", _STEP_ID, source_id, exc)
-        return [
-            StepOutcome(
-                name="failure",
-                context=context,
-                summary=f"could not reach ISE source '{source_id}': {exc}",
-                failure=exc.failure,
-            )
-        ]
-    return None
 
 
 async def _update_one_device(
@@ -204,7 +171,7 @@ async def execute(
     if not context.devices:
         return [StepOutcome(name="success", context=context)]
 
-    device_service = _build_ise_device_service(run, parsed.source_id)
+    device_service = build_ise_device_service(run, parsed.source_id, step_id=_STEP_ID)
 
     logger.info(
         "%s started run_id=%s node_id=%s devices=%d",
@@ -214,7 +181,7 @@ async def execute(
         len(context.devices),
     )
 
-    preflight = await _preflight_ise(device_service, parsed.source_id, context)
+    preflight = await preflight_ise(device_service, context, parsed.source_id, step_id=_STEP_ID)
     if preflight is not None:
         return preflight
 
