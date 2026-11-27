@@ -11,6 +11,7 @@ from workflow_steps.common.interface_values import (
     infer_interface_type_from_name,
     lower_text,
     strip_empty,
+    text_cell,
 )
 from workflow_steps.common.redundancy_groups import ip_namespace_name, redundancy_groups_from_bag
 
@@ -97,16 +98,16 @@ def _prefix_suffix(default_prefix_length: str) -> str:
 
 
 def _basic_fields(item: dict[str, Any], name: str) -> dict[str, Any]:
-    """Name, type, description, status and enabled, as far as the bag has them."""
+    """Name, type, description, status and enabled, as far as the bag has them (text only)."""
     iface: dict[str, Any] = {"name": name}
-    iface_type = strip_empty(item.get("type"))
-    if iface_type:
-        iface["type"] = iface_type
-    description = strip_empty(item.get("description"))
-    if description:
-        iface["description"] = description
+    for field in ("type", "description"):
+        text = text_cell(item.get(field), interface=name, field=field)
+        if text:
+            iface[field] = text
     status = item.get("status")
-    status_name = strip_empty(status.get("name") if isinstance(status, dict) else status)
+    status_name = text_cell(
+        status.get("name") if isinstance(status, dict) else status, interface=name, field="status"
+    )
     if status_name:
         iface["status"] = status_name
     enabled = item.get("enabled")
@@ -115,35 +116,53 @@ def _basic_fields(item: dict[str, Any], name: str) -> dict[str, Any]:
     return iface
 
 
+def _reference(value: Any, *, interface: str, field: str) -> str | int | None:
+    """A VLAN or LAG reference of the bag: an int vid, or text (a vid, a UUID, an interface
+    name). The empty markers (``None``, ``0``, ``""``, ``"none"``) go; anything else that is not
+    text is logged by field and left out (``text_cell``)."""
+    if isinstance(value, int) and not isinstance(value, bool):
+        return value or None
+    text = text_cell(value, interface=interface, field=field)
+    return None if text in (None, "none") else text
+
+
 def _clean_vlans(iface: dict[str, Any], item: dict[str, Any]) -> None:
     """Untagged VLAN, LAG and tagged VLANs.
 
     Each may be a pre-resolved Nautobot UUID or a raw value (a vid, an interface name such as
     ``Port-channel10``): resolution and creation happen downstream, at Nautobot write time, so
-    they pass through as they are; only the empty markers (``None``, ``""``, ``"none"``) go.
+    they pass through as they are (``_reference``).
     """
-    untagged_vlan = item.get("untagged_vlan")
-    if untagged_vlan and untagged_vlan != "none":
-        iface["untagged_vlan"] = untagged_vlan
-    lag = item.get("lag")
-    if lag and lag != "none":
-        iface["lag"] = lag
+    name = iface["name"]
+    for field in ("untagged_vlan", "lag"):
+        reference = _reference(item.get(field), interface=name, field=field)
+        if reference is not None:
+            iface[field] = reference
     tagged_vlans = item.get("tagged_vlans")
     if isinstance(tagged_vlans, list):
-        cleaned = [v for v in tagged_vlans if v not in (None, "", "none")]
+        cleaned = [
+            reference
+            for value in tagged_vlans
+            if (reference := _reference(value, interface=name, field="tagged_vlans")) is not None
+        ]
         if cleaned:
             iface["tagged_vlans"] = cleaned
 
 
-def _clean_ip_addresses(raw: Any, suffix: str) -> list[dict[str, Any]]:
+def _clean_ip_addresses(raw: Any, suffix: str, *, interface: str) -> list[dict[str, Any]]:
     """The bag's addresses (dicts or bare text), with ``suffix`` on an address without a length,
-    the namespace (``Global`` when the bag names none), the role and the primary flag."""
+    the namespace (``Global`` when the bag names none), the role and the primary flag. An address
+    or role that is not text is left out (``text_cell``)."""
     if not isinstance(raw, list):
         return []
     addresses: list[dict[str, Any]] = []
     for ip_item in raw:
         is_dict = isinstance(ip_item, dict)
-        address = strip_empty(ip_item.get("address") if is_dict else ip_item)
+        address = text_cell(
+            ip_item.get("address") if is_dict else ip_item,
+            interface=interface,
+            field="ip_addresses",
+        )
         if not address:
             continue
         if "/" not in address:
@@ -151,7 +170,7 @@ def _clean_ip_addresses(raw: Any, suffix: str) -> list[dict[str, Any]]:
         namespace = (ip_namespace_name(ip_item) if is_dict else None) or "Global"
         entry: dict[str, Any] = {"address": address, "namespace": namespace}
         if is_dict:
-            ip_role = strip_empty(ip_item.get("ip_role"))
+            ip_role = text_cell(ip_item.get("ip_role"), interface=interface, field="ip_role")
             if ip_role and ip_role != "none":
                 entry["ip_role"] = ip_role
             if ip_item.get("is_primary"):
@@ -164,14 +183,14 @@ def _bag_interface(item: Any, suffix: str) -> dict[str, Any] | None:
     """One interface of the bag as the write expects it, or ``None`` for an entry without a name."""
     if not isinstance(item, dict):
         return None
-    name = strip_empty(item.get("name"))
+    name = text_cell(item.get("name"), interface=None, field="name")
     if not name:
         return None
     iface = _basic_fields(item, name)
     # mac_address, mtu, mode, port_type, speed, duplex, vrf (normalized to Nautobot's forms)
     apply_normalized_fields(iface, item)
     _clean_vlans(iface, item)
-    addresses = _clean_ip_addresses(item.get("ip_addresses"), suffix)
+    addresses = _clean_ip_addresses(item.get("ip_addresses"), suffix, interface=name)
     if addresses:
         iface["ip_addresses"] = addresses
     redundancy_groups = redundancy_groups_from_bag(

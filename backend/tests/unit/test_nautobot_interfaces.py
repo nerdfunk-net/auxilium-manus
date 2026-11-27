@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import unittest
 
+from services.workflow_context.secret_fields import SEALED_MARKER
 from workflow_steps.common.interface_payload import (
     build_interfaces_from_config,
     interfaces_from_nautobot_bag,
@@ -720,6 +721,83 @@ class InterfacesFromParsedListTests(unittest.TestCase):
         )
         self.assertEqual(result[0]["type"], "1000base-t")
         self.assertEqual(result[0]["mode"], "access")
+
+
+class NonTextBagCellTests(unittest.TestCase):
+    """R7-01: a sealed envelope, list or dict in a bag cell reaches neither the body nor a log."""
+
+    SEALED = {SEALED_MARKER: True, "ct": "CIPHERTEXT-TOKEN"}
+
+    def test_sealed_and_non_text_description_and_type_are_left_out_of_the_bag_payload(
+        self,
+    ) -> None:
+        bag = {
+            "interfaces": [
+                {"name": "e0", "description": self.SEALED, "type": self.SEALED},
+                {"name": "e1", "description": ["a"], "type": {"x": 1}},
+                {"name": "e2", "description": 5, "type": 7},
+            ]
+        }
+        with self.assertLogs("workflow_steps.common", level="WARNING") as logs:
+            result = interfaces_from_nautobot_bag(bag, default_prefix_length="/24")
+        self.assertEqual(result, [{"name": "e0"}, {"name": "e1"}, {"name": "e2"}])
+        self.assertNotIn("CIPHERTEXT", "\n".join(logs.output))
+
+    def test_text_description_and_type_of_the_bag_are_kept_as_they_are(self) -> None:
+        bag = {"interfaces": [{"name": "e0", "description": " uplink ", "type": "1000base-t"}]}
+        (iface,) = interfaces_from_nautobot_bag(bag, default_prefix_length="/24")
+        self.assertEqual(iface, {"name": "e0", "description": "uplink", "type": "1000base-t"})
+
+    def test_an_interface_whose_name_is_not_text_is_skipped(self) -> None:
+        bag = {"interfaces": [{"name": self.SEALED}, {"name": "e1"}]}
+        with self.assertLogs("workflow_steps.common", level="WARNING") as logs:
+            result = interfaces_from_nautobot_bag(bag, default_prefix_length="/24")
+        self.assertEqual(result, [{"name": "e1"}])
+        self.assertNotIn("CIPHERTEXT", "\n".join(logs.output))
+
+    def test_vlan_lag_status_and_address_cells_that_are_not_text_are_left_out(self) -> None:
+        bag = {
+            "interfaces": [
+                {
+                    "name": "e0",
+                    "untagged_vlan": self.SEALED,
+                    "lag": self.SEALED,
+                    "status": {"name": self.SEALED},
+                    "tagged_vlans": [self.SEALED, True, 20, " 30 ", "none", 0],
+                    "ip_addresses": [
+                        self.SEALED,
+                        {"address": self.SEALED},
+                        {"address": "10.0.0.1", "ip_role": self.SEALED},
+                    ],
+                }
+            ]
+        }
+        with self.assertLogs("workflow_steps.common", level="WARNING") as logs:
+            (iface,) = interfaces_from_nautobot_bag(bag, default_prefix_length="/24")
+        self.assertEqual(
+            iface,
+            {
+                "name": "e0",
+                "tagged_vlans": [20, "30"],
+                "ip_addresses": [{"address": "10.0.0.1/24", "namespace": "Global"}],
+            },
+        )
+        self.assertNotIn("CIPHERTEXT", "\n".join(logs.output))
+
+    def test_int_and_text_vlan_and_lag_references_are_kept(self) -> None:
+        bag = {"interfaces": [{"name": "e0", "untagged_vlan": 10, "lag": " Po1 "}]}
+        (iface,) = interfaces_from_nautobot_bag(bag, default_prefix_length="/24")
+        self.assertEqual(iface, {"name": "e0", "untagged_vlan": 10, "lag": "Po1"})
+
+    def test_a_value_the_normalizer_cannot_read_is_not_written_to_the_log(self) -> None:
+        bag = {"interfaces": [{"name": "e0", "mtu": self.SEALED, "mode": ["x"]}]}
+        with self.assertLogs("workflow_steps.common.interface_values", level="WARNING") as logs:
+            (iface,) = interfaces_from_nautobot_bag(bag, default_prefix_length="/24")
+        self.assertEqual(iface, {"name": "e0"})
+        joined = "\n".join(logs.output)
+        self.assertNotIn("CIPHERTEXT", joined)
+        self.assertNotIn(SEALED_MARKER, joined)
+        self.assertIn("mtu", joined)
 
 
 if __name__ == "__main__":

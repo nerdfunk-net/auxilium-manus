@@ -157,24 +157,32 @@ _FIELD_NORMALIZERS: Mapping[str, Any] = MappingProxyType(
 )
 
 
-def apply_text_fields(iface: dict[str, Any], raw: dict[str, Any]) -> None:
-    """Copy ``type`` (lower-cased) and ``description`` from ``raw``, text only.
+def text_cell(value: Any, *, interface: Any, field: str) -> str | None:
+    """``value`` stripped when it is text; ``None`` when it is missing, blank or not text.
 
-    A list, dict or sealed-secret envelope in a cell is logged and left out: it must never be
-    sent in a Nautobot request body.
+    A list, dict, number or sealed-secret envelope is logged by field name only, never by value,
+    and left out: it must never be sent in a Nautobot request body (R7-01).
     """
+    if value is None:
+        return None
+    if isinstance(value, str):
+        return strip_empty(value)
+    logger.warning("Interface %r: %s value is not text - field left out", interface, field)
+    return None
+
+
+def apply_text_fields(iface: dict[str, Any], raw: dict[str, Any]) -> None:
+    """Copy ``type`` (lower-cased) and ``description`` from ``raw``, text only (``text_cell``)."""
     for field in ("type", "description"):
-        value = raw.get(field)
-        if value is None:
-            continue
-        text = strip_empty(value) if isinstance(value, str) else None
-        if text is None:
-            if not (isinstance(value, str) and not value.strip()):
-                logger.warning(
-                    "Interface %r: %s value is not text - field left out", iface.get("name"), field
-                )
-            continue
-        iface[field] = text.lower() if field == "type" else text
+        text = text_cell(raw.get(field), interface=iface.get("name"), field=field)
+        if text is not None:
+            iface[field] = text.lower() if field == "type" else text
+
+
+def _loggable(value: Any) -> Any:
+    """A rejected value as a log may show it: a scalar as it is, anything else (a list, a dict,
+    a sealed-secret envelope) only by its type."""
+    return value if isinstance(value, (str, int, float)) else f"<{type(value).__name__}>"
 
 
 def apply_normalized_fields(
@@ -182,7 +190,8 @@ def apply_normalized_fields(
 ) -> None:
     """Copy the normalizable fields of ``raw`` into ``iface``.
 
-    A non-blank value the normalizer cannot understand is logged and left out.
+    A non-blank value the normalizer cannot understand is logged and left out; a value that is
+    not a scalar is logged by its type only.
     """
     for field in fields or tuple(_FIELD_NORMALIZERS):
         if field not in raw:
@@ -196,7 +205,7 @@ def apply_normalized_fields(
                 "Interface %r: %s value %r not understood - field left out",
                 iface.get("name"),
                 field,
-                value,
+                _loggable(value),
             )
             continue
         iface[field] = normalized

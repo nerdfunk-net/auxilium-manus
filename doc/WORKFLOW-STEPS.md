@@ -831,7 +831,10 @@ interface field -> column, `fixed_values` for the same value on every row). Ever
 `mac_address`, `type`, `port_type`, `mode`, `speed`, `duplex`, `mtu` and `vrf`; values are
 normalized by `workflow_steps/common/interface_values.py` (MAC -> `AA:BB:CC:DD:EE:FF`, speed ->
 **Kbps** (`"1 Gbit"` -> 1000000; a bare number is Kbps), duplex -> `full|half|auto`, mtu -> int);
-a value that cannot be understood is logged and left out. `vrf` is resolved by name through
+a value that cannot be understood is logged and left out. A cell that is not text (a list, a dict,
+a sealed secret) is never sent: name, type, description, status, LAG, IP address and role must be
+text, a VLAN reference text or an int vid; anything else is left out and logged by field name and
+type only, never by value (R7-01). `vrf` is resolved by name through
 `NetworkResolver.resolve_vrf_id` and must exist (an unknown VRF is a warning on that interface; the
 other fields still apply).
 
