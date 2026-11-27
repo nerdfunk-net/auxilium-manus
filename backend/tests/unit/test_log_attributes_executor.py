@@ -60,7 +60,9 @@ class LogAttributesExecutorTests(unittest.IsolatedAsyncioTestCase):
         payload = outcomes[0].context.metadata[f"log-attributes-1{_METADATA_SUFFIX}"]
         self.assertEqual(payload["output_destination"], "stdout")
         self.assertEqual(payload["device_count"], 1)
-        snapshot = payload["snapshot"]
+        # W4-15: the rendered text is the one stored copy; the raw snapshot is not kept as well.
+        self.assertNotIn("snapshot", payload)
+        snapshot = json.loads(payload["content"])
         device_snapshot = snapshot["devices"]["device-1"]
         self.assertEqual(
             device_snapshot["attribute_bags"]["nautobot"]["role"]["name"], "access-switch"
@@ -198,7 +200,7 @@ class LogAttributesExecutorTests(unittest.IsolatedAsyncioTestCase):
 
         payload = outcomes[0].context.metadata[f"log-attributes-4{_METADATA_SUFFIX}"]
         self.assertFalse(payload["show_parsed_templates"])
-        entry = payload["snapshot"]["devices"]["device-1"]["parsed"]["device_config"]
+        entry = json.loads(payload["content"])["devices"]["device-1"]["parsed"]["device_config"]
         self.assertNotIn("rendered_content", entry)
 
     async def test_show_parsed_templates_resolves_rendered_output(self) -> None:
@@ -241,7 +243,7 @@ class LogAttributesExecutorTests(unittest.IsolatedAsyncioTestCase):
 
         payload = outcomes[0].context.metadata[f"log-attributes-5{_METADATA_SUFFIX}"]
         self.assertTrue(payload["show_parsed_templates"])
-        entry = payload["snapshot"]["devices"]["device-1"]["parsed"]["device_config"]
+        entry = json.loads(payload["content"])["devices"]["device-1"]["parsed"]["device_config"]
         self.assertEqual(entry["rendered_content"], "hostname lab\nrole access-switch")
 
     async def test_show_device_configs_disabled_by_default(self) -> None:
@@ -272,7 +274,7 @@ class LogAttributesExecutorTests(unittest.IsolatedAsyncioTestCase):
 
         payload = outcomes[0].context.metadata[f"log-attributes-6{_METADATA_SUFFIX}"]
         self.assertFalse(payload["show_device_configs"])
-        device_snapshot = payload["snapshot"]["devices"]["device-1"]
+        device_snapshot = json.loads(payload["content"])["devices"]["device-1"]
         self.assertNotIn("running_config_content", device_snapshot)
         self.assertNotIn("startup_config_content", device_snapshot)
 
@@ -286,7 +288,7 @@ class LogAttributesExecutorTests(unittest.IsolatedAsyncioTestCase):
         outcomes = await execute(
             config={
                 "output_destination": "stdout",
-                "output_format": "pretty_text",
+                "output_format": "json",
                 "show_device_configs": True,
             },
             context=context,
@@ -296,7 +298,7 @@ class LogAttributesExecutorTests(unittest.IsolatedAsyncioTestCase):
             device_sessions=MagicMock(),
         )
         payload = outcomes[0].context.metadata[f"log-attributes-9{_METADATA_SUFFIX}"]
-        return payload["snapshot"]["devices"]["device-1"]["running_config_content"]
+        return json.loads(payload["content"])["devices"]["device-1"]["running_config_content"]
 
     async def test_attached_config_text_has_secrets_masked(self) -> None:
         text = (
@@ -366,12 +368,6 @@ class LogAttributesExecutorTests(unittest.IsolatedAsyncioTestCase):
 
         payload = outcomes[0].context.metadata[f"log-attributes-7{_METADATA_SUFFIX}"]
         self.assertTrue(payload["show_device_configs"])
-        device_snapshot = payload["snapshot"]["devices"]["device-1"]
-        self.assertEqual(
-            device_snapshot["running_config_content"],
-            "hostname lab\ninterface GigabitEthernet0/1\n!",
-        )
-        self.assertEqual(device_snapshot["startup_config_content"], "hostname lab\n!")
         self.assertIn("Running config:", payload["content"])
         self.assertIn("interface GigabitEthernet0/1", payload["content"])
         self.assertIn("Startup config:", payload["content"])

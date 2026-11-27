@@ -4,6 +4,7 @@ decision 2026-11-27)."""
 from __future__ import annotations
 
 import asyncio
+import json
 import unittest
 from unittest.mock import MagicMock
 
@@ -87,7 +88,7 @@ class UnreadableArtifactTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual([o.name for o in outcomes], ["success"])
         payload = outcomes[0].context.metadata[f"log-attributes-5{_METADATA_SUFFIX}"]
-        devices = payload["snapshot"]["devices"]
+        devices = json.loads(payload["content"])["devices"]
         self.assertEqual(
             devices["d1"]["parsed"]["device_config"]["rendered_content"], "hostname ok"
         )
@@ -117,7 +118,7 @@ class UnreadableArtifactTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual([o.name for o in outcomes], ["success"])
         payload = outcomes[0].context.metadata[f"log-attributes-5{_METADATA_SUFFIX}"]
-        snapshot = payload["snapshot"]["devices"]["d1"]
+        snapshot = json.loads(payload["content"])["devices"]["d1"]
         self.assertEqual(snapshot["running_config_content"], "hostname lab\n!")
         self.assertEqual(snapshot["startup_config_content"], "<unavailable: OSError>")
 

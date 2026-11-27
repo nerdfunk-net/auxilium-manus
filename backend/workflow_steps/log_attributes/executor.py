@@ -382,8 +382,9 @@ async def execute(
         "file_path": file_path,
         "written_at": written_at,
         "device_count": len(snapshot.get("devices") or {}),
+        # The rendered text is the one stored copy (W4-15): the raw snapshot is not kept beside
+        # it, so a run stores the dump once.
         "content": rendered,
-        "snapshot": snapshot,
     }
 
     metadata = {

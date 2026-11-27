@@ -8,12 +8,9 @@ import type { LogAttributesPayload } from "./types";
 
 export const LOG_ATTRIBUTES_METADATA_SUFFIX = ".log_attributes";
 
+// The step stores the dump once, as the rendered `content` (W4-15).
 function isLogAttributesPayload(value: unknown): value is LogAttributesPayload {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    ("content" in value || "snapshot" in value)
-  );
+  return typeof value === "object" && value !== null && "content" in value;
 }
 
 export function extractLogAttributes(metadata: Record<string, unknown>): LogAttributesPayload[] {

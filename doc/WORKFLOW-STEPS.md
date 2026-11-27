@@ -759,7 +759,9 @@ The step output stored with a step result is capped (`STEP_OUTPUT_VALUE_MAX_BYTE
 metadata value is stored as `{"__truncated__": true, "bytes": N}`; the live context passed to the next
 step is untouched, and artifacts are unaffected. The artifact retention sweep keeps an artifact younger
 than one hour even when its run is not in the sweep's snapshot, and meta files are written atomically.
-`log-attributes` files are appended with `O_APPEND` and removed with their run (or by the sweep).
+`log-attributes` files are appended with `O_APPEND` and removed with their run (or by the sweep). Its run
+metadata (`<node id>.log_attributes`) keeps the dump once, as the rendered `content` the run viewer shows, not
+the raw snapshot beside it (W4-15).
 `GET /workflows/{id}/runs` answers at most 50 runs (`limit` up to 200, `offset`) and reports `total`.
 
 ### Controller steps that add devices or write one result
