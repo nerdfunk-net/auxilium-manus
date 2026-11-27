@@ -3,7 +3,6 @@
 import { useCallback, useMemo, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -27,10 +26,10 @@ import {
 } from "../shared/fan-out-config";
 import {
   NAUTOBOT_SOURCE_ID_KEY,
-  isNautobotSourceConfigured,
   nautobotSourceIdFromConfig,
 } from "../shared/nautobot-source-config";
 import { NautobotSourceSelectDialog } from "../shared/nautobot-source-select-dialog";
+import { NautobotSourceStatus, SourceRow } from "../shared/source-row";
 import { GetVirtualChassisHelpPanel } from "./help-panel";
 import { IntegerField } from "./integer-field";
 import {
@@ -49,21 +48,19 @@ import {
 interface FieldLabelProps {
   name: string;
   badge: string;
-  optional?: boolean;
 }
 
-function FieldLabel({ name, badge, optional = true }: FieldLabelProps) {
+/** The caption of an optional field ("name [badge] [optional]"). */
+function FieldLabel({ name, badge }: FieldLabelProps) {
   return (
     <div className="flex items-center gap-1.5">
       <span className="font-mono text-xs font-medium">{name}</span>
       <Badge className="h-4 rounded px-1 text-[10px]" variant="secondary">
         {badge}
       </Badge>
-      {optional && (
-        <Badge className="h-4 rounded px-1 text-[10px]" variant="outline">
-          optional
-        </Badge>
-      )}
+      <Badge className="h-4 rounded px-1 text-[10px]" variant="outline">
+        optional
+      </Badge>
     </div>
   );
 }
@@ -82,7 +79,6 @@ function GetVirtualChassisConfigPanel({ config, onChange }: PluginConfigPanelPro
   const indexDefault = intFromConfig(config, "index_default", DEFAULT_INDEX_DEFAULT);
   const attributeBag = stringFromConfig(config, "attribute_bag", DEFAULT_ATTRIBUTE_BAG);
   const indexKey = stringFromConfig(config, "index_key", DEFAULT_INDEX_KEY);
-  const isSourceConfigured = isNautobotSourceConfigured(config);
 
   const patch = useCallback(
     (update: Record<string, unknown>) => onChange({ ...config, ...update }),
@@ -97,36 +93,19 @@ function GetVirtualChassisConfigPanel({ config, onChange }: PluginConfigPanelPro
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="space-y-1.5">
-        <FieldLabel name={NAUTOBOT_SOURCE_ID_KEY} badge="nautobot" optional={false} />
-        {isSourceConfigured ? (
-          <p className="font-mono text-[11px] text-muted-foreground">
-            {sourceId}
-            {credentials.isReady ? (
-              <span className="block truncate font-sans text-muted-foreground">
-                {credentials.url}
-              </span>
-            ) : credentials.isLoading ? (
-              <span className="block font-sans">Loading credentials…</span>
-            ) : (
-              <span className="block font-sans text-warning-foreground">
-                Source not found in settings
-              </span>
-            )}
-          </p>
-        ) : (
-          <p className="text-[11px] text-warning-foreground">Not configured</p>
-        )}
-        <Button
-          className="h-7 w-full text-xs"
-          size="sm"
-          type="button"
-          variant="outline"
-          onClick={() => setSourceOpen(true)}
-        >
-          {isSourceConfigured ? "Edit Source" : "Configure Source"}
-        </Button>
-      </div>
+      <SourceRow
+        label={NAUTOBOT_SOURCE_ID_KEY}
+        badge="nautobot"
+        sourceId={sourceId}
+        onOpen={() => setSourceOpen(true)}
+        status={
+          <NautobotSourceStatus
+            isReady={credentials.isReady}
+            isLoading={credentials.isLoading}
+            url={credentials.url}
+          />
+        }
+      />
 
       <div className="space-y-1.5">
         <FieldLabel name="name_filter" badge="string" />

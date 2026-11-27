@@ -474,7 +474,9 @@ Use these instead of writing the markup again (`workflow-steps/shared/`):
 
 - `CheckboxField` / `SwitchField`: a boolean config row (monospace key, control, hint).
 - `SourceRow` (+ `NautobotSourceStatus`) and the per-integration `*SourceSelectDialog`
-  wrappers around `SourceSelectDialog`; the key helpers come from `makeSourceConfig`.
+  wrappers around `SourceSelectDialog`; the key helpers come from `makeSourceConfig`. Every
+  panel shows its source through `SourceRow` (`shared/source-rows.test.ts`); only
+  `discover-network` keeps its own block (a hint between the id and the button).
 - `BatfishCombinedFactsPanel` for the combined Batfish fact steps; `nautobot-update-fields.tsx`
   (`FromInterfacesSwitch`, `DryRunSwitch`, `LocationsFields`) for the Nautobot update steps.
 

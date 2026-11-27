@@ -3,7 +3,6 @@
 import { useCallback, useMemo, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type {
@@ -13,10 +12,10 @@ import type {
 
 import {
   NAUTOBOT_SOURCE_ID_KEY,
-  isNautobotSourceConfigured,
   nautobotSourceIdFromConfig,
 } from "../shared/nautobot-source-config";
 import { NautobotSourceSelectDialog } from "../shared/nautobot-source-select-dialog";
+import { SourceRow } from "../shared/source-row";
 import {
   FanOutConfigSection,
   fanOutFromConfig,
@@ -76,7 +75,6 @@ function GetFromUserConfigPanel({ config, onChange }: PluginConfigPanelProps) {
   const defaultDriver = useMemo(() => defaultDriverFromConfig(config), [config]);
   const sourceId = useMemo(() => nautobotSourceIdFromConfig(config), [config]);
   const fanOut = useMemo(() => fanOutFromConfig(config), [config]);
-  const isSourceConfigured = isNautobotSourceConfigured(config);
 
   const [sourceOpen, setSourceOpen] = useState(false);
 
@@ -180,26 +178,12 @@ function GetFromUserConfigPanel({ config, onChange }: PluginConfigPanelProps) {
 
         {lookupMode === "nautobot_search" ? (
           <div className="space-y-1.5">
-            <div className="flex items-center gap-1.5">
-              <span className="font-mono text-xs font-medium">{NAUTOBOT_SOURCE_ID_KEY}</span>
-              <Badge className="h-4 rounded px-1 text-[10px]" variant="secondary">
-                nautobot
-              </Badge>
-            </div>
-            {isSourceConfigured ? (
-              <p className="truncate font-mono text-[11px] text-muted-foreground">{sourceId}</p>
-            ) : (
-              <p className="text-[11px] text-warning-foreground">Not configured</p>
-            )}
-            <Button
-              className="h-7 w-full text-xs"
-              size="sm"
-              type="button"
-              variant="outline"
-              onClick={() => setSourceOpen(true)}
-            >
-              {isSourceConfigured ? "Edit Source" : "Configure Source"}
-            </Button>
+            <SourceRow
+              label={NAUTOBOT_SOURCE_ID_KEY}
+              badge="nautobot"
+              sourceId={sourceId}
+              onOpen={() => setSourceOpen(true)}
+            />
             <div className="rounded-lg bg-step-surface px-3 py-2 text-xs text-step-surface-foreground">
               The Run Inputs prompt suggests devices whose name contains what the operator
               types (3+ characters) against this source. Suggestions are a convenience

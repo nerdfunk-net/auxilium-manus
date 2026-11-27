@@ -1,6 +1,5 @@
 import { useState } from "react";
 
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -13,6 +12,7 @@ import {
 import { FieldHeader } from "../shared/field-header";
 import { PyATSSourceSelectDialog } from "../shared/pyats-source-select-dialog";
 import { PYATS_SOURCE_ID_KEY } from "../shared/pyats-source-config";
+import { SourceRow } from "../shared/source-row";
 import { PARSER_MODE_OPTIONS, type ParserMode } from "./config";
 
 interface ParserFieldsProps {
@@ -71,25 +71,13 @@ export function ParserFields({
       {parserMode !== "none" && (
         <div className="space-y-2 border-t pt-3">
           {parserMode === "genie" && (
-            <div className="space-y-1.5">
-              <FieldHeader name={PYATS_SOURCE_ID_KEY} type="pyats" />
-
-              {pyatsSourceId ? (
-                <p className="font-mono text-[11px] text-muted-foreground">{pyatsSourceId}</p>
-              ) : (
-                <p className="text-[11px] text-warning-foreground">Not configured</p>
-              )}
-
-              <Button
-                className="h-7 w-full text-xs"
-                size="sm"
-                type="button"
-                variant="outline"
-                onClick={() => setSourceDialogOpen(true)}
-              >
-                {pyatsSourceId ? "Edit Source" : "Configure Source"}
-              </Button>
-
+            <div>
+              <SourceRow
+                label={PYATS_SOURCE_ID_KEY}
+                badge="pyats"
+                sourceId={pyatsSourceId}
+                onOpen={() => setSourceDialogOpen(true)}
+              />
               <PyATSSourceSelectDialog
                 open={sourceDialogOpen}
                 selectedSourceId={pyatsSourceId}
