@@ -12,6 +12,7 @@ import type {
   BatfishQueryConfig,
   BatfishQueryResult,
 } from "../types";
+import type { ParsedPath } from "../utils/parsed-path";
 import type { useTemplateVariables } from "./use-template-variables";
 import { boolField, stringField } from "@/components/features/workflow-steps/shared/config-field-helpers";
 
@@ -29,9 +30,10 @@ const QUESTION_ENDPOINT: Record<BatfishEditorQuestion, string> = {
   interfaceProperties: "interface-properties",
 };
 
-/** The 5 "facts" questions write into the real `parsed.<output_key>`
- * namespace instead of the flat, preview-only `batfish` variable -- see
- * `BatfishFactsQuestion`'s own doc comment in `../types`. */
+/** The 5 "facts" questions write into the real `parsed[node_id][output_key]`
+ * entry the matching step writes at runtime, instead of the flat,
+ * preview-only `batfish` variable -- see `BatfishFactsQuestion`'s own doc
+ * comment in `../types`. */
 const FACTS_QUESTIONS: readonly BatfishFactsQuestion[] = [
   "extractFacts",
   "ospfFacts",
@@ -58,6 +60,35 @@ export const DEFAULT_OUTPUT_KEY: Record<BatfishFactsQuestion, string> = {
 
 function outputKeyFor(question: BatfishFactsQuestion, params: Record<string, unknown>): string {
   return stringField(params, "output_key").trim() || DEFAULT_OUTPUT_KEY[question];
+}
+
+/** The canvas node id of the facts step whose output the template reads: a step writes
+ * `parsed[node_id][output_key]` (W7-12), so the preview needs it too. */
+function nodeIdFor(params: Record<string, unknown>): string {
+  return stringField(params, "node_id").trim();
+}
+
+/** Where the preview writes, or `null` while the node id is missing. */
+function factsPath(
+  question: BatfishFactsQuestion,
+  params: Record<string, unknown>,
+): ParsedPath | null {
+  const nodeId = nodeIdFor(params);
+  return nodeId ? [nodeId, outputKeyFor(question, params)] : null;
+}
+
+/** The Jinja path of the preview's entry. Node ids contain dashes (`batfish-ospf-facts-2`),
+ * so the node is subscripted. */
+export function factsParsedPathLabel(
+  question: BatfishFactsQuestion,
+  params: Record<string, unknown>,
+): string {
+  return `parsed['${nodeIdFor(params) || "<node_id>"}'].${outputKeyFor(question, params)}`;
+}
+
+function samePath(a: ParsedPath | null, b: ParsedPath | null): boolean {
+  if (a === null || b === null) return a === b;
+  return a.length === b.length && a.every((part, index) => part === b[index]);
 }
 
 function buildRequestBody(
@@ -184,6 +215,9 @@ function isQuestionReady(
       Boolean(stringField(params, "dst_ips").trim())
     );
   }
+  if (isFactsQuestion(question) && !nodeIdFor(params)) {
+    return false;
+  }
   if (question === "ospfFacts") {
     return (
       boolField(params, "include_process", true) ||
@@ -203,11 +237,11 @@ function isQuestionReady(
   return true;
 }
 
-/** How many nodes matched, and what to write into `parsed.<output_key>`.
+/** How many nodes matched, and what to write into `parsed[node_id][output_key]`.
  *
  * A real workflow run always sees exactly one node per device, so when the
  * ad-hoc query also matches exactly one node, unwrap it to the identical
- * `{parsed, error}` shape `device.parsed[output_key]` holds at runtime. When
+ * `{parsed, error}` shape `device.parsed[node_id][output_key]` holds at runtime. When
  * more than one node matches, fall back to the full `{node: payload}` dict
  * (still useful to inspect, but not the real per-device shape -- callers
  * should tell the user this differs from a real run). Zero matches mirrors
@@ -246,11 +280,11 @@ export function useTemplateEditorBatfish({
   const [genericQuestionName, setGenericQuestionName] = useState("");
   const [params, setParams] = useState<Record<string, unknown>>({});
   const [result, setResult] = useState<BatfishQueryResult | null>(null);
-  // Tracks the `parsed.<output_key>` entry this tab last wrote, if any, so
-  // it can be cleared (rather than left stale) if the question/output_key
-  // changes, or the tab is disabled/switched to a non-facts question --
-  // without waiting for the next "Run Query".
-  const lastWrittenParsedKeyRef = useRef<string | null>(null);
+  // Tracks the `parsed[node_id][output_key]` entry this tab last wrote, if
+  // any, so it can be cleared (rather than left stale) if the question,
+  // node_id or output_key changes, or the tab is disabled/switched to a
+  // non-facts question -- without waiting for the next "Run Query".
+  const lastWrittenPathRef = useRef<ParsedPath | null>(null);
 
   const sourceId =
     typeof targetConfig.batfish_source_id === "string" ? targetConfig.batfish_source_id : "";
@@ -262,6 +296,9 @@ export function useTemplateEditorBatfish({
       if (!sourceId || !network.trim()) {
         throw new Error("Select a Batfish source and network first");
       }
+      if (isFactsQuestion(question) && !nodeIdFor(params)) {
+        throw new Error("Enter the node id of the facts step first");
+      }
       const endpoint = QUESTION_ENDPOINT[question];
       const body = buildRequestBody(question, network.trim(), snapshot, params, genericQuestionName);
       return apiCall<BatfishQueryResult>(`sources/batfish/${sourceId}/query/${endpoint}`, {
@@ -272,14 +309,15 @@ export function useTemplateEditorBatfish({
     },
     onSuccess: (response) => {
       setResult(response);
-      if (isFactsQuestion(question)) {
-        const outputKey = outputKeyFor(question, params);
-        if (lastWrittenParsedKeyRef.current && lastWrittenParsedKeyRef.current !== outputKey) {
-          clearParsedNamespaceEntry(lastWrittenParsedKeyRef.current);
-        }
+      // An entry written under another path was already cleared by the effect below when the
+      // question, node id or output key changed.
+      const path = isFactsQuestion(question)
+        ? factsPath(question, params)
+        : null;
+      if (path) {
         const { parsed, error } = pickFactsPayload(response.facts_by_node);
-        setParsedNamespaceEntry(outputKey, { parsed, error });
-        lastWrittenParsedKeyRef.current = outputKey;
+        setParsedNamespaceEntry(path, { parsed, error });
+        lastWrittenPathRef.current = path;
       } else {
         setBatfishResult(response);
       }
@@ -292,26 +330,34 @@ export function useTemplateEditorBatfish({
       });
       setResult(null);
       if (isFactsQuestion(question)) {
-        clearParsedNamespaceEntry(outputKeyFor(question, params));
-        lastWrittenParsedKeyRef.current = null;
+        const path = factsPath(question, params);
+        if (path) clearParsedNamespaceEntry(path);
+        lastWrittenPathRef.current = null;
       } else {
         setBatfishResult(null);
       }
     },
   });
 
-  // The `parsed.<output_key>` entry belongs to the question and key that wrote it. When the tab
-  // is disabled, switched to another question, or its output key is edited, clear the entry
-  // instead of leaving it stale until the next "Run Query".
-  const currentParsedKey =
-    enabled && isFactsQuestion(question) ? outputKeyFor(question, params) : null;
+  // The `parsed[node_id][output_key]` entry belongs to the question, node id and key that wrote
+  // it. When the tab is disabled, switched to another question, or its node id or output key is
+  // edited, clear the entry instead of leaving it stale until the next "Run Query". The path is
+  // compared part by part (two strings), so the effect depends on primitives only.
+  const currentPath =
+    enabled && isFactsQuestion(question) ? factsPath(question, params) : null;
+  const currentNodeId = currentPath ? currentPath[0] : null;
+  const currentOutputKey = currentPath ? currentPath[1] : null;
   useEffect(() => {
-    const written = lastWrittenParsedKeyRef.current;
-    if (written && written !== currentParsedKey) {
+    const written = lastWrittenPathRef.current;
+    const current: ParsedPath | null =
+      currentNodeId !== null && currentOutputKey !== null
+        ? [currentNodeId, currentOutputKey]
+        : null;
+    if (written && !samePath(written, current)) {
       clearParsedNamespaceEntry(written);
-      lastWrittenParsedKeyRef.current = null;
+      lastWrittenPathRef.current = null;
     }
-  }, [currentParsedKey, clearParsedNamespaceEntry]);
+  }, [currentNodeId, currentOutputKey, clearParsedNamespaceEntry]);
 
   // `useMutation` returns a new object on every render; only `mutate` is stable.
   const { mutate: runQuery, isPending: isRunningQuery } = runQueryMutation;
@@ -325,7 +371,7 @@ export function useTemplateEditorBatfish({
     isQuestionReady(question, params, genericQuestionName);
 
   const loadFromConfig = useCallback((config: BatfishQueryConfig | null) => {
-    lastWrittenParsedKeyRef.current = null;
+    lastWrittenPathRef.current = null;
     if (!config) {
       setEnabled(false);
       setTargetConfig({});

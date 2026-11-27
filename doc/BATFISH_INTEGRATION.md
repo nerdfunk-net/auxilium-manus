@@ -1915,25 +1915,29 @@ preview-only), the Options modal's Batfish tab also offers the 5 questions
 that mirror a real per-device workflow step: **Extract Facts**, **Get OSPF
 Facts**, **Get BGP Facts**, **Batfish Node Properties**, **Batfish Interface
 Properties**. Unlike the 4 above, these steps genuinely populate
-`device.parsed[output_key]["parsed"]` at real workflow runtime (Extract
+`device.parsed[node_id][output_key]["parsed"]` at real workflow runtime (Extract
 Facts always; the other four on their `devices` outcome — see each step's
 own section above) — so their ad-hoc preview writes into the editor's real
-`parsed.<output_key>` namespace instead of the flat `batfish` variable,
+`parsed[node_id][output_key]` entry instead of the flat `batfish` variable,
 closing the exact "preview populates data that can never exist at runtime"
 gap the `batfish` variable's own preview-only warning exists to flag.
 
-**Known gap (W7-12):** at real runtime the steps nest under their own node id
-(`parsed.<node_id>.<output_key>`); the editor has no node id, so the preview writes the
-shorter `parsed.<output_key>`. A template tried in the editor needs `<node_id>.` added in the
-workflow.
+**Node id (W7-12).** At real runtime the steps nest under their own canvas node id, so the
+tab has a **Node Id** field (the canvas node id of the facts step, e.g. `batfish-ospf-facts-2`)
+next to **Output Key**; a facts question cannot run without it. The preview writes
+`parsed[node_id][output_key]` through the path form of `setParsedNamespaceEntry`
+(`utils/parsed-path.ts`; changing the node id or output key clears the old entry, and a node
+object left empty goes too). Node ids contain dashes, so a template subscripts the node:
+`{{ parsed['batfish-ospf-facts-2'].batfish_ospf_facts.parsed... }}`. The node id is kept in the
+tab's saved `params` and is not sent to Batfish.
 
 **New response shape: `facts_by_node`, not `rows`.** `BatfishQueryResponse`
 gained `facts_by_node: dict[str, Any] | None` — a `{node_name: <that node's
 parsed payload>}` dict, byte-for-byte the same shape
-`device.parsed[output_key]["parsed"]` holds for one device at real runtime.
+`device.parsed[node_id][output_key]["parsed"]` holds for one device at real runtime.
 `rows` stays `[]` for these 5 endpoints. Frontend
 (`use-template-editor-batfish.ts::pickFactsPayload`): when exactly one node
-matches, unwrap it and write `parsed.<output_key> = {parsed: <that node's
+matches, unwrap it and write `parsed[node_id][output_key] = {parsed: <that node's
 payload>, error: null}` — the exact runtime shape; when more than one node
 matches, write the full `{node: payload}` dict instead (still inspectable,
 but not the real per-device shape — the UI says so); zero matches writes

@@ -169,7 +169,7 @@ describe("parsed config variable", () => {
     const { result } = setup();
     act(() => result.current.toggleParsedConfigVariable(true));
     act(() => result.current.setParsedConfig({ running: { hostname: "sw1" } }));
-    act(() => result.current.setParsedNamespaceEntry("facts", { rows: 3 }));
+    act(() => result.current.setParsedNamespaceEntry(["facts"], { rows: 3 }));
     expect(parsedValue(result)).toEqual({
       cisco_config: { running: { hostname: "sw1" } },
       facts: { rows: 3 },
@@ -179,11 +179,11 @@ describe("parsed config variable", () => {
   it("removes a key when its entry is cleared and empties the value with the last one", () => {
     const { result } = setup();
     act(() => result.current.toggleParsedConfigVariable(true));
-    act(() => result.current.setParsedNamespaceEntry("a", 1));
-    act(() => result.current.setParsedNamespaceEntry("b", 2));
-    act(() => result.current.clearParsedNamespaceEntry("a"));
+    act(() => result.current.setParsedNamespaceEntry(["a"], 1));
+    act(() => result.current.setParsedNamespaceEntry(["b"], 2));
+    act(() => result.current.clearParsedNamespaceEntry(["a"]));
     expect(parsedValue(result)).toEqual({ b: 2 });
-    act(() => result.current.setParsedNamespaceEntry("b", undefined));
+    act(() => result.current.setParsedNamespaceEntry(["b"], undefined));
     expect(byId(result, "auto:parsed")?.value).toBe("");
   });
 
@@ -191,11 +191,11 @@ describe("parsed config variable", () => {
     const { result } = setup();
     act(() => result.current.toggleParsedConfigVariable(true));
     act(() => result.current.updateVariableValue("auto:parsed", "not json"));
-    act(() => result.current.setParsedNamespaceEntry("a", 1));
+    act(() => result.current.setParsedNamespaceEntry(["a"], 1));
     expect(parsedValue(result)).toEqual({ a: 1 });
 
     act(() => result.current.updateVariableValue("auto:parsed", "[1,2]"));
-    act(() => result.current.setParsedNamespaceEntry("b", 2));
+    act(() => result.current.setParsedNamespaceEntry(["b"], 2));
     expect(parsedValue(result)).toEqual({ b: 2 });
   });
 
@@ -203,11 +203,62 @@ describe("parsed config variable", () => {
     const { result } = setup();
     act(() => result.current.toggleParsedConfigVariable(true));
     act(() => {
-      result.current.setParsedNamespaceEntry("zero", 0);
-      result.current.setParsedNamespaceEntry("no", false);
-      result.current.setParsedNamespaceEntry("empty", "");
+      result.current.setParsedNamespaceEntry(["zero"], 0);
+      result.current.setParsedNamespaceEntry(["no"], false);
+      result.current.setParsedNamespaceEntry(["empty"], "");
     });
     expect(parsedValue(result)).toEqual({ zero: 0, no: false, empty: "" });
+  });
+
+  // W7-12: a facts step writes parsed[node_id][output_key] at runtime; the preview does the same.
+  it("writes a nested path next to the entries already under its node", () => {
+    const { result } = setup();
+    act(() => result.current.toggleParsedConfigVariable(true));
+    act(() => result.current.setParsedNamespaceEntry(["node-1", "a"], 1));
+    act(() => result.current.setParsedNamespaceEntry(["node-1", "b"], 2));
+    act(() => result.current.setParsedNamespaceEntry(["node-2", "a"], 3));
+    expect(parsedValue(result)).toEqual({
+      "node-1": { a: 1, b: 2 },
+      "node-2": { a: 3 },
+    });
+  });
+
+  it("replaces a value that is in the way of a nested path", () => {
+    const { result } = setup();
+    act(() => result.current.toggleParsedConfigVariable(true));
+    act(() => result.current.setParsedNamespaceEntry(["node-1"], "text"));
+    act(() => result.current.setParsedNamespaceEntry(["node-1", "a"], 1));
+    expect(parsedValue(result)).toEqual({ "node-1": { a: 1 } });
+    act(() => result.current.setParsedNamespaceEntry(["node-2"], [1]));
+    act(() => result.current.setParsedNamespaceEntry(["node-2", "a"], 2));
+    expect(parsedValue(result)).toEqual({
+      "node-1": { a: 1 },
+      "node-2": { a: 2 },
+    });
+  });
+
+  it("clears a nested path and drops a node left empty", () => {
+    const { result } = setup();
+    act(() => result.current.toggleParsedConfigVariable(true));
+    act(() => result.current.setParsedNamespaceEntry(["node-1", "a"], 1));
+    act(() => result.current.setParsedNamespaceEntry(["node-1", "b"], 2));
+    act(() => result.current.setParsedNamespaceEntry(["other"], 3));
+    act(() => result.current.clearParsedNamespaceEntry(["node-1", "a"]));
+    expect(parsedValue(result)).toEqual({ "node-1": { b: 2 }, other: 3 });
+    act(() => result.current.clearParsedNamespaceEntry(["node-1", "b"]));
+    expect(parsedValue(result)).toEqual({ other: 3 });
+  });
+
+  it("clearing a path that is not there changes nothing", () => {
+    const { result } = setup();
+    act(() => result.current.toggleParsedConfigVariable(true));
+    act(() => result.current.setParsedNamespaceEntry(["node-1"], 5));
+    act(() => result.current.setParsedNamespaceEntry(["typed"], {}));
+    act(() => result.current.clearParsedNamespaceEntry(["node-1", "a"]));
+    act(() => result.current.clearParsedNamespaceEntry(["missing", "a"]));
+    // An empty object the user typed is not "left empty" by a removal that removed nothing.
+    act(() => result.current.clearParsedNamespaceEntry(["typed", "a"]));
+    expect(parsedValue(result)).toEqual({ "node-1": 5, typed: {} });
   });
 
   it("does nothing while the variable is disabled", () => {

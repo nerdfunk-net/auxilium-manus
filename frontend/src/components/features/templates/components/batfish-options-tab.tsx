@@ -21,8 +21,16 @@ import { useBatfishSnapshotsQuery } from "@/hooks/queries/use-batfish-snapshots-
 import { useBatfishSourcesQuery } from "@/hooks/queries/use-batfish-sources-query";
 import { useHasPermission } from "@/hooks/use-has-permission";
 
-import { DEFAULT_OUTPUT_KEY, isFactsQuestion } from "../hooks/use-template-editor-batfish";
-import type { BatfishEditorQuestion, BatfishQueryResult } from "../types";
+import {
+  DEFAULT_OUTPUT_KEY,
+  factsParsedPathLabel,
+  isFactsQuestion,
+} from "../hooks/use-template-editor-batfish";
+import type {
+  BatfishEditorQuestion,
+  BatfishFactsQuestion,
+  BatfishQueryResult,
+} from "../types";
 import { BatfishGenericFields } from "./batfish-generic-fields";
 import { BatfishIncludeToggles } from "./batfish-include-toggles";
 import { ParamFieldGrid } from "./batfish-param-fields";
@@ -42,31 +50,49 @@ const QUESTION_OPTIONS: { value: BatfishEditorQuestion; label: string }[] = [
 ];
 
 
-/** Shared "Output Key" field for the 5 facts questions -- the `parsed.*`
- * key their preview result gets written under, defaulting to the matching
- * canvas step's own `output_key` default. */
-function OutputKeyField({
-  placeholder,
-  value,
-  onChange,
+/** Where the preview of the 5 facts questions writes: the canvas node id of the
+ * facts step and its `output_key` (default: the step's own default). A real run
+ * writes `parsed[node_id][output_key]` (W7-12), so the preview does too. */
+function FactsTargetFields({
+  question,
+  params,
+  onParamsChange,
 }: {
-  placeholder: string;
-  value: string;
-  onChange: (event: React.ChangeEvent<HTMLInputElement>) => void;
+  question: BatfishFactsQuestion;
+  params: Record<string, unknown>;
+  onParamsChange: (params: Record<string, unknown>) => void;
 }) {
   return (
-    <div className="space-y-1.5">
-      <Label htmlFor="batfish-output-key">Output Key (Optional)</Label>
-      <Input
-        id="batfish-output-key"
-        value={value}
-        onChange={onChange}
-        placeholder={placeholder}
-      />
-      <p className="text-[11px] text-muted-foreground">
-        Written to <code>parsed.{value || placeholder}</code>.
-      </p>
-    </div>
+    <>
+      <div className="space-y-1.5">
+        <Label htmlFor="batfish-node-id">Node Id</Label>
+        <Input
+          id="batfish-node-id"
+          value={stringField(params, "node_id")}
+          onChange={(event) =>
+            onParamsChange({ ...params, node_id: event.target.value })
+          }
+          placeholder="e.g. batfish-ospf-facts-2"
+        />
+        <p className="text-[11px] text-muted-foreground">
+          The canvas node id of the facts step the template follows.
+        </p>
+      </div>
+      <div className="space-y-1.5">
+        <Label htmlFor="batfish-output-key">Output Key (Optional)</Label>
+        <Input
+          id="batfish-output-key"
+          value={stringField(params, "output_key")}
+          onChange={(event) =>
+            onParamsChange({ ...params, output_key: event.target.value })
+          }
+          placeholder={DEFAULT_OUTPUT_KEY[question]}
+        />
+        <p className="text-[11px] text-muted-foreground">
+          Written to <code>{factsParsedPathLabel(question, params)}</code>.
+        </p>
+      </div>
+    </>
   );
 }
 
@@ -184,13 +210,14 @@ export function BatfishOptionsTab({
         <Alert variant="info">
           <Info />
           <AlertDescription>
-            This preview writes into <code>parsed.{stringField(params, "output_key") || DEFAULT_OUTPUT_KEY[question]}</code>,
-            matching what a real workflow run of this step produces (see the
-            Jinja help dialog). When the query matches more than one node,
-            the full <code>{"{node: payload}"}</code> map is written instead
-            of one node&apos;s flat shape — narrow <strong>Nodes</strong>{" "}
-            to a single device to preview the exact per-device shape a real
-            run always sees.
+            This preview writes into{" "}
+            <code>{factsParsedPathLabel(question, params)}</code>, matching what
+            a real workflow run of this step produces (see the Jinja help
+            dialog); set <strong>Node Id</strong> to the canvas node id of the
+            facts step. When the query matches more than one node, the full{" "}
+            <code>{"{node: payload}"}</code> map is written instead of one
+            node&apos;s flat shape — narrow <strong>Nodes</strong> to a single
+            device to preview the exact per-device shape a real run always sees.
           </AlertDescription>
         </Alert>
       ) : (
@@ -203,11 +230,12 @@ export function BatfishOptionsTab({
             Check, and ACL Check store their results only as a workflow-level
             artifact, never on a device, so a template referencing{" "}
             <code>batfish.*</code> will render here but fail every device with
-            &quot;Undefined template variable: &apos;batfish&apos; is undefined&quot; when
-            the workflow actually runs. For real per-device Batfish data in a
-            template, use <code>parsed.&lt;output_key&gt;</code> from Extract
-            Facts, Get OSPF Facts, Get BGP Facts, or Batfish Node/Interface
-            Properties instead (see the Jinja help dialog).
+            &quot;Undefined template variable: &apos;batfish&apos; is
+            undefined&quot; when the workflow actually runs. For real per-device
+            Batfish data in a template, use{" "}
+            <code>parsed[&apos;&lt;node_id&gt;&apos;].&lt;output_key&gt;</code>{" "}
+            from Extract Facts, Get OSPF Facts, Get BGP Facts, or Batfish
+            Node/Interface Properties instead (see the Jinja help dialog).
           </AlertDescription>
         </Alert>
       )}
@@ -334,13 +362,11 @@ export function BatfishOptionsTab({
           params={params}
           onParamsChange={onParamsChange}
         >
-          {factsQuestion ? (
-            <OutputKeyField
-              placeholder={DEFAULT_OUTPUT_KEY[question]}
-              value={stringField(params, "output_key")}
-              onChange={(event) =>
-                onParamsChange({ ...params, output_key: event.target.value })
-              }
+          {isFactsQuestion(question) ? (
+            <FactsTargetFields
+              question={question}
+              params={params}
+              onParamsChange={onParamsChange}
             />
           ) : null}
           {question === "ospfFacts" || question === "bgpFacts" ? (

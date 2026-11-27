@@ -15,6 +15,11 @@ import type {
   TemplateVariableRecord,
 } from "../types";
 import type { ParsedVariableEntry } from "../utils/parse-variables";
+import {
+  type ParsedPath,
+  withParsedEntry,
+  withoutParsedEntry,
+} from "../utils/parsed-path";
 import type { StaticAttributeDef } from "@/components/features/workflows/types/workflow-persistence";
 
 /** How a name collision with an existing custom variable is resolved. */
@@ -203,46 +208,55 @@ export function useTemplateVariables() {
     });
   }, []);
 
-  /** Merge one named entry into the shared `parsed` auto-variable's JSON
-   * object -- `{...current, [key]: entry}` -- rather than replacing the
-   * whole value, so multiple sources (Get Configs's "cisco_config", a
-   * Batfish facts preview's output_key) can populate `parsed` without
-   * clobbering each other. `entry === null`/`undefined` removes that key
-   * instead of setting it to null, so a cleared source doesn't leave
-   * clutter behind. */
-  const setParsedNamespaceEntry = useCallback((key: string, entry: unknown) => {
-    setVariables((current) =>
-      current.map((variable) => {
-        if (variable.id !== PARSED_CONFIG_VARIABLE_ID) return variable;
-        let parsedValue: Record<string, unknown> = {};
-        if (variable.value) {
-          try {
-            const existing: unknown = JSON.parse(variable.value);
-            if (existing && typeof existing === "object" && !Array.isArray(existing)) {
-              parsedValue = existing as Record<string, unknown>;
+  /** Merge one entry at `path` into the shared `parsed` auto-variable's JSON
+   * object rather than replacing the whole value, so multiple sources (Get
+   * Configs's `["cisco_config"]`, a Batfish facts preview's
+   * `[node_id, output_key]`) can populate `parsed` without clobbering each
+   * other. `entry === null`/`undefined` removes that path (and a node object
+   * it leaves empty) instead of setting it to null, so a cleared source
+   * doesn't leave clutter behind. */
+  const setParsedNamespaceEntry = useCallback(
+    (path: ParsedPath, entry: unknown) => {
+      setVariables((current) =>
+        current.map((variable) => {
+          if (variable.id !== PARSED_CONFIG_VARIABLE_ID) return variable;
+          let parsedValue: Record<string, unknown> = {};
+          if (variable.value) {
+            try {
+              const existing: unknown = JSON.parse(variable.value);
+              if (
+                existing &&
+                typeof existing === "object" &&
+                !Array.isArray(existing)
+              ) {
+                parsedValue = existing as Record<string, unknown>;
+              }
+            } catch {
+              parsedValue = {};
             }
-          } catch {
-            parsedValue = {};
           }
-        }
-        if (entry === null || entry === undefined) {
-          delete parsedValue[key];
-        } else {
-          parsedValue = { ...parsedValue, [key]: entry };
-        }
-        const hasEntries = Object.keys(parsedValue).length > 0;
-        return { ...variable, value: hasEntries ? JSON.stringify(parsedValue, null, 2) : "" };
-      }),
-    );
-  }, []);
+          parsedValue =
+            entry === null || entry === undefined
+              ? withoutParsedEntry(parsedValue, path)
+              : withParsedEntry(parsedValue, path, entry);
+          const hasEntries = Object.keys(parsedValue).length > 0;
+          return {
+            ...variable,
+            value: hasEntries ? JSON.stringify(parsedValue, null, 2) : "",
+          };
+        }),
+      );
+    },
+    [],
+  );
 
   const clearParsedNamespaceEntry = useCallback(
-    (key: string) => setParsedNamespaceEntry(key, null),
+    (path: ParsedPath) => setParsedNamespaceEntry(path, null),
     [setParsedNamespaceEntry],
   );
 
   const setParsedConfig = useCallback(
-    (entry: unknown) => setParsedNamespaceEntry("cisco_config", entry),
+    (entry: unknown) => setParsedNamespaceEntry(["cisco_config"], entry),
     [setParsedNamespaceEntry],
   );
 

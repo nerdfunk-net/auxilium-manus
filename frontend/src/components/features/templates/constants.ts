@@ -91,5 +91,5 @@ export const PARSED_CONFIG_VARIABLE: { name: string; description: string } = {
 export const BATFISH_VARIABLE: { name: string; description: string } = {
   name: "batfish",
   description:
-    "PREVIEW-ONLY. Result of an ad-hoc Batfish query (Routing Table / Path Check / ACL Check) run here for exploration — never populated by an actual workflow run. Do not reference batfish.* in the template body; use it only to inspect the shape while authoring. For real per-device Batfish data, use parsed.<output_key> from Extract Facts / Get OSPF Facts / Get BGP Facts / Batfish Node or Interface Properties instead.",
+    "PREVIEW-ONLY. Result of an ad-hoc Batfish query (Routing Table / Path Check / ACL Check) run here for exploration — never populated by an actual workflow run. Do not reference batfish.* in the template body; use it only to inspect the shape while authoring. For real per-device Batfish data, use parsed['<node_id>'].<output_key> from Extract Facts / Get OSPF Facts / Get BGP Facts / Batfish Node or Interface Properties instead.",
 };

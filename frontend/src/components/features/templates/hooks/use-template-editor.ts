@@ -159,7 +159,7 @@ export function useTemplateEditor() {
   // Show/hide the shared `parsed` variable based on the "Get Configs"
   // checkbox OR the Batfish tab being enabled with a facts question selected
   // (Extract Facts/OSPF/BGP Facts/Node/Interface Properties -- these write
-  // into `parsed.<output_key>`, not the flat `batfish` variable).
+  // into `parsed[node_id][output_key]`, not the flat `batfish` variable).
   useEffect(() => {
     toggleParsedConfigVariable(
       getDeviceConfigs ||

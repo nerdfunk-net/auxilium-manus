@@ -108,15 +108,23 @@ describe("BatfishOptionsTab notices", () => {
     ["bgpFacts", "batfish_bgp_facts"],
     ["nodeProperties", "batfish_node_properties"],
     ["interfaceProperties", "batfish_interface_properties"],
-  ] as const)("names the parsed key a %s preview writes", (question, key) => {
+  ] as const)("names the parsed path a %s preview writes", (question, key) => {
     setup({ question });
     expect(screen.queryByText(/Preview-only/)).toBeNull();
-    expect(screen.getByRole("alert").textContent).toContain(`parsed.${key}`);
+    // W7-12: the step writes parsed[node_id][output_key]; node ids contain dashes.
+    expect(screen.getByRole("alert").textContent).toContain(
+      `parsed['<node_id>'].${key}`,
+    );
   });
 
-  it("names the custom output key instead of the default", () => {
-    setup({ question: "extractFacts", params: { output_key: "my_facts" } });
-    expect(screen.getByRole("alert").textContent).toContain("parsed.my_facts");
+  it("names the node id and the custom output key", () => {
+    setup({
+      question: "extractFacts",
+      params: { node_id: " bf-1 ", output_key: " my_facts " },
+    });
+    expect(screen.getByRole("alert").textContent).toContain(
+      "parsed['bf-1'].my_facts",
+    );
   });
 });
 
@@ -311,6 +319,32 @@ describe("BatfishOptionsTab question fields", () => {
   it("offers no output key for a question that does not write parsed data", () => {
     setup({ question: "routes" });
     expect(screen.queryByLabelText("Output Key (Optional)")).toBeNull();
+  });
+
+  it("writes the node id of a facts question", () => {
+    const { onParamsChange } = setup({
+      question: "ospfFacts",
+      params: { nodes: "r1" },
+    });
+    fireEvent.change(screen.getByLabelText("Node Id"), {
+      target: { value: "batfish-ospf-facts-2" },
+    });
+    expect(onParamsChange).toHaveBeenCalledWith({
+      nodes: "r1",
+      node_id: "batfish-ospf-facts-2",
+    });
+  });
+
+  it("offers no node id for a question that does not write parsed data", () => {
+    setup({ question: "generic" });
+    expect(screen.queryByLabelText("Node Id")).toBeNull();
+  });
+
+  it("shows the path the preview writes under the node id field", () => {
+    setup({ question: "bgpFacts", params: { node_id: "bgp-1" } });
+    expect(screen.getByText(/Written to/).textContent).toContain(
+      "parsed['bgp-1'].batfish_bgp_facts",
+    );
   });
 
   it("shows the include toggles for OSPF and BGP facts only", () => {

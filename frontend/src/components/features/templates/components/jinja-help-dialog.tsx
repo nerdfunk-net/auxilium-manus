@@ -75,9 +75,10 @@ Batfish  — run an ad-hoc question against a configured Batfish source.
            Nine question types, in two groups:
              Extract Facts, Get OSPF Facts, Get BGP Facts, Batfish Node
              Properties, Batfish Interface Properties — write into the
-             SAME parsed.<output_key> namespace a real workflow run of
-             that step produces. See "The parsed namespace" →
-             "Batfish (per-device steps only)" below.
+             SAME parsed['<node_id>'].<output_key> entry a real workflow
+             run of that step produces (set the tab's Node Id). See
+             "The parsed namespace" → "Batfish (per-device steps only)"
+             below.
              Routing Table, Path Check, ACL Check, Custom Question —
              preview-only: populate a flat "batfish" variable that no
              real workflow step ever writes. Never reference batfish.*
@@ -333,24 +334,34 @@ parsed.parsed['show ip interface brief'].error    null, or why parsing
             <p className="font-medium text-foreground">Batfish (per-device steps only)</p>
             <p>
               <strong>Extract Facts</strong> always enriches every device in
-              place, so its output is available under{" "}
-              <code>parsed.&lt;output_key&gt;</code> (default{" "}
-              <code>batfish_extract_facts</code>) exactly like any other step
-              here:
+              place. Like every Batfish fact step it writes under its own canvas
+              node id, then its <code>output_key</code> (default{" "}
+              <code>batfish_extract_facts</code>):{" "}
+              <code>
+                parsed[&apos;&lt;node_id&gt;&apos;].&lt;output_key&gt;
+              </code>
+              . Node ids contain dashes, so subscript the node:
             </p>
-            <CodeBlock>{`parsed.batfish_extract_facts.parsed.Hostname
-parsed.batfish_extract_facts.parsed.NTP_Servers
-parsed.batfish_extract_facts.parsed.TACACS_Servers
-parsed.batfish_extract_facts.error   null, or why this node had no facts
-                                      in the snapshot`}</CodeBlock>
+            <CodeBlock>{`parsed['batfish-extract-facts-1'].batfish_extract_facts.parsed.Hostname
+parsed['batfish-extract-facts-1'].batfish_extract_facts.parsed.NTP_Servers
+parsed['batfish-extract-facts-1'].batfish_extract_facts.parsed.TACACS_Servers
+parsed['batfish-extract-facts-1'].batfish_extract_facts.error
+    null, or why this node had no facts in the snapshot`}</CodeBlock>
             <p>
               <strong>Get OSPF Facts</strong>, <strong>Get BGP Facts</strong>,
-              and <strong>Batfish Node/Interface Properties</strong> only
-              write into <code>parsed.&lt;output_key&gt;</code> on their{" "}
-              <code>devices</code> outcome — wiring their <code>success</code>{" "}
-              outcome downstream instead never populates this namespace
-              (that outcome only stores the result as a workflow-level
-              artifact). Following <code>devices</code> also{" "}
+              and <strong>Batfish Node/Interface Properties</strong> only write
+              into{" "}
+              <code>
+                parsed[&apos;&lt;node_id&gt;&apos;].&lt;output_key&gt;
+              </code>{" "}
+              (for example{" "}
+              <code>
+                parsed[&apos;batfish-ospf-facts-2&apos;].batfish_ospf_facts
+              </code>
+              ) on their <code>devices</code> outcome — wiring their{" "}
+              <code>success</code> outcome downstream instead never populates
+              this namespace (that outcome only stores the result as a
+              workflow-level artifact). Following <code>devices</code> also{" "}
               <strong>replaces</strong> the device list with one
               Batfish-node-identity device per node, losing any Nautobot
               attributes or other <code>parsed.*</code> entries collected
@@ -361,12 +372,15 @@ parsed.batfish_extract_facts.error   null, or why this node had no facts
               all five of these directly — pick <strong>Extract Facts</strong>
               , <strong>Get OSPF Facts</strong>, <strong>Get BGP Facts</strong>,{" "}
               <strong>Batfish Node Properties</strong>, or{" "}
-              <strong>Batfish Interface Properties</strong> as the question,
-              run it, and the result is written into this same{" "}
-              <code>parsed.&lt;output_key&gt;</code> namespace — so a
-              template previewed here behaves the same once it runs after the
-              real step. When the query matches more than one node, the
-              preview writes the full <code>{"{node: payload}"}</code> map
+              <strong>Batfish Interface Properties</strong> as the question, set{" "}
+              <strong>Node Id</strong> to the canvas node id of that step, run
+              it, and the result is written into this same{" "}
+              <code>
+                parsed[&apos;&lt;node_id&gt;&apos;].&lt;output_key&gt;
+              </code>{" "}
+              entry — so a template previewed here behaves the same once it runs
+              after the real step. When the query matches more than one node,
+              the preview writes the full <code>{"{node: payload}"}</code> map
               instead of one node&apos;s flat shape, since a real run always
               sees exactly one node per device — narrow the tab&apos;s{" "}
               <strong>Nodes</strong> field to a single device to preview that

@@ -110,13 +110,52 @@ describe("canRunQuery", () => {
     ["reachability", {}, false],
     ["reachability", { start_node: "sw1" }, true],
     ["testFilters", { node: "sw1", filter_name: "acl" }, false],
-    ["testFilters", { node: "sw1", filter_name: "acl", dst_ips: "10.0.0.1" }, true],
-    ["ospfFacts", { include_process: false, include_areas: false, include_interfaces: false, include_edges: false }, false],
-    ["ospfFacts", { include_process: false, include_areas: false, include_interfaces: false }, true],
-    ["bgpFacts", { include_process: false, include_peers: false, include_sessions: false, include_edges: false }, false],
-    ["bgpFacts", {}, true],
+    [
+      "testFilters",
+      { node: "sw1", filter_name: "acl", dst_ips: "10.0.0.1" },
+      true,
+    ],
+    [
+      "ospfFacts",
+      {
+        node_id: "n",
+        include_process: false,
+        include_areas: false,
+        include_interfaces: false,
+        include_edges: false,
+      },
+      false,
+    ],
+    [
+      "ospfFacts",
+      {
+        node_id: "n",
+        include_process: false,
+        include_areas: false,
+        include_interfaces: false,
+      },
+      true,
+    ],
+    [
+      "bgpFacts",
+      {
+        node_id: "n",
+        include_process: false,
+        include_peers: false,
+        include_sessions: false,
+        include_edges: false,
+      },
+      false,
+    ],
+    ["bgpFacts", { node_id: "n" }, true],
     ["routes", {}, true],
-    ["extractFacts", {}, true],
+    // W7-12: a facts preview writes parsed[node_id][output_key], so it needs the node id.
+    ["extractFacts", {}, false],
+    ["extractFacts", { node_id: "  " }, false],
+    ["extractFacts", { node_id: "batfish-extract-facts-1" }, true],
+    ["ospfFacts", {}, false],
+    ["nodeProperties", {}, false],
+    ["interfaceProperties", { node_id: "n" }, true],
   ] as const)("%s with %j -> %s", (question, params, expected) => {
     const { result } = setup();
     configure(result, question, params);
@@ -153,11 +192,20 @@ describe("running a query", () => {
     ["bgpFacts", "bgp-facts"],
     ["nodeProperties", "node-properties"],
     ["interfaceProperties", "interface-properties"],
-  ] as const)("posts %s to the %s endpoint with the trimmed network and snapshot", async (question, endpoint) => {
-    apiCall.mockResolvedValue({ success: true, rows: [] });
-    const { result } = setup();
-    configure(result, question, { start_node: "sw1", node: "sw1", filter_name: "f", dst_ips: "1.1.1.1" });
-    if (question === "generic") act(() => result.current.setGenericQuestionName("q"));
+  ] as const)(
+    "posts %s to the %s endpoint with the trimmed network and snapshot",
+    async (question, endpoint) => {
+      apiCall.mockResolvedValue({ success: true, rows: [] });
+      const { result } = setup();
+      configure(result, question, {
+        start_node: "sw1",
+        node: "sw1",
+        filter_name: "f",
+        dst_ips: "1.1.1.1",
+        node_id: "n",
+      });
+      if (question === "generic")
+        act(() => result.current.setGenericQuestionName("q"));
 
     await run(result);
 
@@ -202,6 +250,28 @@ describe("running a query", () => {
     });
   });
 
+  it("does not call the API for a facts question without a node id, and reports why", async () => {
+    const { result } = setup();
+    configure(result, "extractFacts", { node_id: " " });
+    await run(result);
+    expect(apiCall).not.toHaveBeenCalled();
+    expect(toast).toHaveBeenCalledWith(
+      expect.objectContaining({
+        description: "Enter the node id of the facts step first",
+      }),
+    );
+    // Nothing was written, and there is no path without a node id to clear.
+    expect(clearParsedNamespaceEntry).not.toHaveBeenCalled();
+  });
+
+  it("does not send the node id or the output key to Batfish", async () => {
+    apiCall.mockResolvedValue({});
+    const { result } = setup();
+    configure(result, "extractFacts", { node_id: "n", output_key: "k" });
+    await run(result);
+    expect(lastRequest().body).toEqual({ network: "net", snapshot: "snap" });
+  });
+
   it("sends a generic question's trimmed name and raw params", async () => {
     apiCall.mockResolvedValue({});
     const { result } = setup();
@@ -214,7 +284,7 @@ describe("running a query", () => {
   it("defaults OSPF/BGP include flags to true", async () => {
     apiCall.mockResolvedValue({});
     const { result } = setup();
-    configure(result, "ospfFacts", { include_edges: false });
+    configure(result, "ospfFacts", { node_id: "n", include_edges: false });
     await run(result);
     expect(lastRequest().body).toMatchObject({
       include_process: true,
@@ -249,54 +319,80 @@ describe("preview-only questions", () => {
 });
 
 describe("facts questions", () => {
-  it("write the unwrapped payload into parsed.<default key> when output_key is blank", async () => {
+  it("write the unwrapped payload into parsed[node_id][<default key>] when output_key is blank", async () => {
     apiCall.mockResolvedValue({ facts_by_node: { sw1: { asn: 1 } } });
     const { result } = setup();
-    configure(result, "ospfFacts");
+    configure(result, "ospfFacts", { node_id: "batfish-ospf-facts-2" });
     await run(result);
     await waitFor(() =>
-      expect(setParsedNamespaceEntry).toHaveBeenCalledWith(DEFAULT_OUTPUT_KEY.ospfFacts, {
-        parsed: { asn: 1 },
-        error: null,
-      }),
+      expect(setParsedNamespaceEntry).toHaveBeenCalledWith(
+        ["batfish-ospf-facts-2", DEFAULT_OUTPUT_KEY.ospfFacts],
+        {
+          parsed: { asn: 1 },
+          error: null,
+        },
+      ),
     );
     expect(setBatfishResult).not.toHaveBeenCalled();
   });
 
-  it("use the configured output_key (trimmed)", async () => {
+  it("use the configured node_id and output_key (trimmed)", async () => {
     apiCall.mockResolvedValue({ facts_by_node: { sw1: { a: 1 } } });
     const { result } = setup();
-    configure(result, "bgpFacts", { output_key: " my_bgp " });
+    configure(result, "bgpFacts", {
+      node_id: " bgp-1 ",
+      output_key: " my_bgp ",
+    });
     await run(result);
-    await waitFor(() => expect(setParsedNamespaceEntry).toHaveBeenCalledWith("my_bgp", expect.anything()));
+    await waitFor(() =>
+      expect(setParsedNamespaceEntry).toHaveBeenCalledWith(
+        ["bgp-1", "my_bgp"],
+        expect.anything(),
+      ),
+    );
   });
 
-  it("clear the previously written key when the output_key changed before the next run", async () => {
+  it("clear the previously written path when the output_key changed before the next run", async () => {
     apiCall.mockResolvedValue({ facts_by_node: { sw1: { a: 1 } } });
     const { result } = setup();
-    configure(result, "nodeProperties", { output_key: "first" });
+    configure(result, "nodeProperties", { node_id: "n", output_key: "first" });
     await run(result);
-    await waitFor(() => expect(setParsedNamespaceEntry).toHaveBeenCalledWith("first", expect.anything()));
+    await waitFor(() =>
+      expect(setParsedNamespaceEntry).toHaveBeenCalledWith(
+        ["n", "first"],
+        expect.anything(),
+      ),
+    );
 
-    act(() => result.current.setParams({ output_key: "second" }));
+    act(() => result.current.setParams({ node_id: "n", output_key: "second" }));
     await run(result);
-    await waitFor(() => expect(setParsedNamespaceEntry).toHaveBeenCalledWith("second", expect.anything()));
-    expect(clearParsedNamespaceEntry).toHaveBeenCalledWith("first");
+    await waitFor(() =>
+      expect(setParsedNamespaceEntry).toHaveBeenCalledWith(
+        ["n", "second"],
+        expect.anything(),
+      ),
+    );
+    expect(clearParsedNamespaceEntry).toHaveBeenCalledWith(["n", "first"]);
   });
 
   it("clear their parsed entry when the query fails", async () => {
     apiCall.mockRejectedValue(new Error("nope"));
     const { result } = setup();
-    configure(result, "extractFacts");
+    configure(result, "extractFacts", { node_id: "n" });
     await run(result);
-    await waitFor(() => expect(clearParsedNamespaceEntry).toHaveBeenCalledWith(DEFAULT_OUTPUT_KEY.extractFacts));
+    await waitFor(() =>
+      expect(clearParsedNamespaceEntry).toHaveBeenCalledWith([
+        "n",
+        DEFAULT_OUTPUT_KEY.extractFacts,
+      ]),
+    );
   });
 });
 
 describe("keeping parsed in step with the tab", () => {
   async function writeFacts(result: Hook, question: "ospfFacts" | "bgpFacts", params = {}) {
     apiCall.mockResolvedValue({ facts_by_node: { sw1: { a: 1 } } });
-    configure(result, question, params);
+    configure(result, question, { node_id: "n", ...params });
     await run(result);
     await waitFor(() => expect(setParsedNamespaceEntry).toHaveBeenCalled());
     clearParsedNamespaceEntry.mockClear();
@@ -306,14 +402,20 @@ describe("keeping parsed in step with the tab", () => {
     const { result } = setup();
     await writeFacts(result, "ospfFacts");
     act(() => result.current.setEnabled(false));
-    expect(clearParsedNamespaceEntry).toHaveBeenCalledWith(DEFAULT_OUTPUT_KEY.ospfFacts);
+    expect(clearParsedNamespaceEntry).toHaveBeenCalledWith([
+      "n",
+      DEFAULT_OUTPUT_KEY.ospfFacts,
+    ]);
   });
 
   it("clears the entry when switching to a preview-only question", async () => {
     const { result } = setup();
     await writeFacts(result, "ospfFacts");
     act(() => result.current.setQuestion("routes"));
-    expect(clearParsedNamespaceEntry).toHaveBeenCalledWith(DEFAULT_OUTPUT_KEY.ospfFacts);
+    expect(clearParsedNamespaceEntry).toHaveBeenCalledWith([
+      "n",
+      DEFAULT_OUTPUT_KEY.ospfFacts,
+    ]);
   });
 
   // The entry belongs to the question that wrote it; leaving it behind would show OSPF facts
@@ -322,14 +424,44 @@ describe("keeping parsed in step with the tab", () => {
     const { result } = setup();
     await writeFacts(result, "ospfFacts");
     act(() => result.current.setQuestion("bgpFacts"));
-    expect(clearParsedNamespaceEntry).toHaveBeenCalledWith(DEFAULT_OUTPUT_KEY.ospfFacts);
+    expect(clearParsedNamespaceEntry).toHaveBeenCalledWith([
+      "n",
+      DEFAULT_OUTPUT_KEY.ospfFacts,
+    ]);
   });
 
   it("clears the entry when the output_key is edited", async () => {
     const { result } = setup();
     await writeFacts(result, "ospfFacts", { output_key: "first" });
-    act(() => result.current.setParams({ output_key: "second" }));
-    expect(clearParsedNamespaceEntry).toHaveBeenCalledWith("first");
+    act(() => result.current.setParams({ node_id: "n", output_key: "second" }));
+    expect(clearParsedNamespaceEntry).toHaveBeenCalledWith(["n", "first"]);
+  });
+
+  it("clears the entry when the node_id is edited", async () => {
+    const { result } = setup();
+    await writeFacts(result, "ospfFacts", { output_key: "k" });
+    act(() => result.current.setParams({ node_id: "m", output_key: "k" }));
+    expect(clearParsedNamespaceEntry).toHaveBeenCalledWith(["n", "k"]);
+  });
+
+  it("clears the entry when the node_id is emptied", async () => {
+    const { result } = setup();
+    await writeFacts(result, "ospfFacts", { output_key: "k" });
+    act(() => result.current.setParams({ node_id: "", output_key: "k" }));
+    expect(clearParsedNamespaceEntry).toHaveBeenCalledWith(["n", "k"]);
+  });
+
+  it("keeps the entry while node_id and output_key stay the same", async () => {
+    const { result } = setup();
+    await writeFacts(result, "ospfFacts", { output_key: "k" });
+    act(() =>
+      result.current.setParams({
+        node_id: " n ",
+        output_key: "k",
+        nodes: "sw1",
+      }),
+    );
+    expect(clearParsedNamespaceEntry).not.toHaveBeenCalled();
   });
 
   it("clears it only once", async () => {
@@ -340,9 +472,17 @@ describe("keeping parsed in step with the tab", () => {
     expect(clearParsedNamespaceEntry).toHaveBeenCalledTimes(1);
   });
 
+  it("clears it only once across several edits", async () => {
+    const { result } = setup();
+    await writeFacts(result, "ospfFacts", { output_key: "k" });
+    act(() => result.current.setParams({ node_id: "n", output_key: "k2" }));
+    act(() => result.current.setParams({ node_id: "n", output_key: "k3" }));
+    expect(clearParsedNamespaceEntry).toHaveBeenCalledTimes(1);
+  });
+
   it("leaves parsed alone when nothing was written", () => {
     const { result } = setup();
-    configure(result, "ospfFacts");
+    configure(result, "ospfFacts", { node_id: "n" });
     act(() => result.current.setQuestion("routes"));
     expect(clearParsedNamespaceEntry).not.toHaveBeenCalled();
   });

@@ -28,7 +28,7 @@ export type BatfishQueryQuestion = "routes" | "reachability" | "testFilters";
  * The 5 "facts" questions -- unlike the 3 above, these mirror a real
  * per-device workflow step (Extract Facts / Get OSPF Facts / Get BGP Facts /
  * Batfish Node Properties / Batfish Interface Properties) and populate the
- * real `parsed.<output_key>` namespace instead of the flat, preview-only
+ * real `parsed[node_id][output_key]` entry instead of the flat, preview-only
  * `batfish` variable. See `isFactsQuestion` in
  * `hooks/use-template-editor-batfish.ts` and the "Batfish (per-device steps
  * only)" section of the Jinja help dialog.
@@ -82,7 +82,7 @@ export interface BatfishQueryResult {
   /**
    * Populated only by the 5 `BatfishFactsQuestion` types:
    * `{node_name: <that node's parsed payload>}` -- the exact shape
-   * `device.parsed[output_key]["parsed"]` holds for one device at real
+   * `device.parsed[node_id][output_key]["parsed"]` holds for one device at real
    * workflow runtime. `rows` stays empty for these; see
    * `BatfishFactsQuestion`.
    */

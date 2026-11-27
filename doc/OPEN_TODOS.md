@@ -318,9 +318,9 @@ and of the six `except SourceCredentialError` sites. Rules that follow from it:
 ### What we have
 
 Extract Facts, Get OSPF Facts, Get BGP Facts, and Batfish Node/Interface
-Properties all write into `DeviceContext.parsed[output_key]`, so their
+Properties all write into `DeviceContext.parsed[node_id][output_key]`, so their
 output is reachable from `route-on-attribute` and `render-jinja-template` via
-the shared `parsed.<output_key>` namespace (see
+`parsed['<node_id>'].<output_key>` (see
 `doc/BATFISH_INTEGRATION.md` "Extract Facts" / "Batfish OSPF Facts" and
 `jinja-help-dialog.tsx`'s "Batfish (per-device steps only)" section).
 
