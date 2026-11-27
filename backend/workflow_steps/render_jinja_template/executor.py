@@ -217,14 +217,16 @@ async def _render_and_store_device(
         )
         return device_id, failed, False
     except Exception as exc:
+        # D3: not an error of this step; the class name and the record, never its text. The text
+        # and traceback go to debug only (they may carry paths or credentials).
         logger.warning(
             "render-jinja-template failed run_id=%s node_id=%s device_id=%s error=%s",
             log_run_id(run),
             node_id,
             device_id,
-            exc,
+            type(exc).__name__,
         )
-        # D3: not an error of this step; the class name and the record, never its text.
+        logger.debug("render-jinja-template failure detail device_id=%s", device_id, exc_info=True)
         error = device_error_from_exception(exc, node_id=node_id, step_id=_STEP_ID)
         return device_id, fail_device_with_error(device, error), False
 

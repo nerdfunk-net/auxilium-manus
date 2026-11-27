@@ -301,6 +301,33 @@ class UnexpectedErrorTextTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNotNone(error.failure)
         self.assertEqual(error.failure.kind, "internal_error")
 
+    async def test_the_warning_names_the_class_and_only_debug_has_the_text(self) -> None:
+        """The warning log follows D3 too: class name only; text and traceback at debug."""
+        artifacts = MagicMock()
+        artifacts.store = AsyncMock(
+            side_effect=RuntimeError("could not connect: password=hunter2hunter2 host=db")
+        )
+        logger_name = "workflow_steps.render_jinja_template.executor"
+
+        with self.assertLogs(logger_name, level="DEBUG") as logs:
+            await execute(
+                config={"output_key": "cfg", "template": "hostname {{ device.hostname }}"},
+                context=make_context([make_device("d1")]),
+                run=MagicMock(),
+                artifact_service=artifacts,
+                node_id="render-1",
+                device_sessions=MagicMock(),
+            )
+
+        warnings = [r for r in logs.records if r.levelname == "WARNING"]
+        self.assertEqual(len(warnings), 1)
+        self.assertIn("RuntimeError", warnings[0].getMessage())
+        self.assertNotIn("hunter2", warnings[0].getMessage())
+        self.assertIsNone(warnings[0].exc_info)
+        debug = [r for r in logs.records if r.levelname == "DEBUG" and r.exc_info]
+        self.assertEqual(len(debug), 1)
+        self.assertIs(debug[0].exc_info[0], RuntimeError)
+
 
 class CommandArtifactReadTests(unittest.IsolatedAsyncioTestCase):
     """W3a-15: upstream command artifacts are read only for a template that names them."""
