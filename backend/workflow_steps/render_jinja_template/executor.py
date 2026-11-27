@@ -146,12 +146,7 @@ def _mark_render_failed(
         message=message,
         failure=failure,
     )
-    return device.model_copy(
-        update={
-            "status": DeviceStatus.FAILED,
-            "errors": [*device.errors, err],
-        }
-    )
+    return fail_device_with_error(device, err)
 
 
 async def _render_and_store_device(

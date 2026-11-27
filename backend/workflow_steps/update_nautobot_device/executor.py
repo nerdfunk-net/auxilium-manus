@@ -21,6 +21,7 @@ from services.nautobot.client import NautobotService
 from services.nautobot.credentials import NautobotCredentials
 from services.nautobot.devices.update import DeviceUpdateService
 from services.workflow_context.attribute_path import resolve_device_attribute_raw
+from workflow_steps.common.device_outcomes import fail_device_with_error
 from workflow_steps.common.failure_records import NOT_FOUND
 from workflow_steps.common.interface_payload import (
     NEW_TYPE_MODES,
@@ -330,12 +331,7 @@ def _fail_device(
         message=error_message,
         failure=failure,
     )
-    failed = device.model_copy(
-        update={
-            "status": DeviceStatus.FAILED,
-            "errors": [*device.errors, err],
-        }
-    )
+    failed = fail_device_with_error(device, err)
     return device_key, failed, False
 
 

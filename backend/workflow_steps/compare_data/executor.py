@@ -32,6 +32,7 @@ from workflow_steps.common.content_resolver import (
     list_exportable_content,
     parse_content_source,
 )
+from workflow_steps.common.device_outcomes import fail_device_with_error
 from workflow_steps.common.failure_records import MISSING_DATA
 from workflow_steps.common.partial_outcomes import device_error_from_exception
 from workflow_steps.common.reference_reader import (
@@ -163,12 +164,7 @@ def _device_failure(
         message=message,
         failure=failure,
     )
-    return device.model_copy(
-        update={
-            "status": DeviceStatus.FAILED,
-            "errors": [*device.errors, err],
-        }
-    )
+    return fail_device_with_error(device, err)
 
 
 def _render_reference_path(

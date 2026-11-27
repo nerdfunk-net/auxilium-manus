@@ -12,12 +12,12 @@ from models.workflow_context import (
     Capability,
     DeviceContext,
     DeviceError,
-    DeviceStatus,
     StepOutcome,
     WorkflowContext,
 )
 from services.artifacts import ArtifactService
 from workflow_steps.common.attribute_defaults import merge_nautobot_defaults
+from workflow_steps.common.device_outcomes import fail_device_with_error
 from workflow_steps.common.failure_records import MISSING_DATA
 from workflow_steps.common.partial_outcomes import mark_device_failed
 from workflow_steps.common.run_logging import log_run_id
@@ -259,20 +259,15 @@ async def _process_device(
 
 
 def _primary_ipv4_failed(device: DeviceContext, node_id: str, message: str) -> DeviceContext:
-    return device.model_copy(
-        update={
-            "status": DeviceStatus.FAILED,
-            "errors": [
-                *device.errors,
-                DeviceError(
-                    node_id=node_id,
-                    step_id=_STEP_ID,
-                    code="primary_ipv4_not_found",
-                    message=message,
-                    failure=MISSING_DATA,
-                ),
-            ],
-        }
+    return fail_device_with_error(
+        device,
+        DeviceError(
+            node_id=node_id,
+            step_id=_STEP_ID,
+            code="primary_ipv4_not_found",
+            message=message,
+            failure=MISSING_DATA,
+        ),
     )
 
 

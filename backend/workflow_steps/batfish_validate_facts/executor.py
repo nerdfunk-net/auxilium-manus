@@ -73,6 +73,7 @@ from workflow_steps.batfish_validate_facts.config import get_config
 from workflow_steps.common.batfish_context import resolve_batfish_snapshot_ref
 from workflow_steps.common.batfish_results import store_batfish_result
 from workflow_steps.common.content_resolver import list_exportable_content
+from workflow_steps.common.device_outcomes import fail_device_with_error
 from workflow_steps.common.fact_entries import parse_output_key_config
 from workflow_steps.common.failure_records import MISSING_DATA
 from workflow_steps.common.git_repository_loader import load_git_repository, require_repository_id
@@ -397,9 +398,7 @@ async def execute(
             # (W7-03): only the text of an error this step wrote itself is kept.
             result = device_error_from_exception(exc, node_id=node_id, step_id=_STEP_ID)
         if isinstance(result, DeviceError):
-            failed = device.model_copy(
-                update={"status": DeviceStatus.FAILED, "errors": [*device.errors, result]}
-            )
+            failed = fail_device_with_error(device, result)
             buckets["failure"][device_id] = failed
             continue
         node_name, fields = result

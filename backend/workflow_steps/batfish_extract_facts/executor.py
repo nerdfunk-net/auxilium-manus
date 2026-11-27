@@ -31,7 +31,6 @@ from models.workflow_context import (
     Capability,
     DeviceContext,
     DeviceError,
-    DeviceStatus,
     StepOutcome,
     WorkflowContext,
 )
@@ -41,6 +40,7 @@ from workflow_steps.batfish_extract_facts.config import get_config
 from workflow_steps.batfish_extract_facts.hsrp import mark_hsrp_error, merge_hsrp_into_facts
 from workflow_steps.common.batfish_context import resolve_batfish_snapshot_ref
 from workflow_steps.common.batfish_results import store_batfish_result
+from workflow_steps.common.device_outcomes import fail_device_with_error
 from workflow_steps.common.fact_entries import parse_output_key_config
 from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.common.step_flags import parse_bool_flag
@@ -192,21 +192,16 @@ async def execute(
         parsed = set_node_result(
             device.parsed, node_id, output_key, {"parsed": None, "error": message}
         )
-        missing[device_id] = device.model_copy(
-            update={
-                "parsed": parsed,
-                "status": DeviceStatus.FAILED,
-                "errors": [
-                    *device.errors,
-                    DeviceError(
-                        node_id=node_id,
-                        step_id=_STEP_ID,
-                        code="node_not_found",
-                        message=message,
-                        failure=FailureInfo(phase="config", kind="not_found"),
-                    ),
-                ],
-            }
+        missing[device_id] = fail_device_with_error(
+            device,
+            DeviceError(
+                node_id=node_id,
+                step_id=_STEP_ID,
+                code="node_not_found",
+                message=message,
+                failure=FailureInfo(phase="config", kind="not_found"),
+            ),
+            parsed=parsed,
         )
 
     metadata = dict(context.metadata)

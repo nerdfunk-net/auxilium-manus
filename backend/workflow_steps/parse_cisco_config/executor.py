@@ -21,6 +21,7 @@ from services.network.cisco_config_parsing import (
     parse_cisco_config_text,
     platform_hint_for_network_driver,
 )
+from workflow_steps.common.device_outcomes import fail_device_with_error
 from workflow_steps.common.partial_outcomes import device_error_from_exception
 from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.common.step_flags import parse_output_key
@@ -170,12 +171,7 @@ async def _parse_one_device(
             )
         else:
             err = device_error_from_exception(exc, node_id=node_id, step_id=_STEP_ID)
-        failed = device.model_copy(
-            update={
-                "status": DeviceStatus.FAILED,
-                "errors": [*device.errors, err],
-            }
-        )
+        failed = fail_device_with_error(device, err)
         return device_id, failed, False
 
 

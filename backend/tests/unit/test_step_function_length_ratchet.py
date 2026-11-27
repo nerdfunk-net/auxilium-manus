@@ -132,7 +132,7 @@ LEGACY_LONG_FUNCTIONS: dict[str, int] = {
     "workflow_steps/update_config_context/json_object_path.py": 1,
     "workflow_steps/update_content/executor.py": 1,
     "workflow_steps/update_ise_tacacs_key/executor.py": 2,
-    "workflow_steps/update_nautobot_device/executor.py": 4,
+    "workflow_steps/update_nautobot_device/executor.py": 3,
     "workflow_steps/update_nautobot_ip/executor.py": 1,
     "workflow_steps/update_nautobot_ip/interfaces_mode.py": 2,
     "workflow_steps/update_nautobot_prefix/executor.py": 1,

@@ -38,6 +38,7 @@ from services.workflow_context.secret_fields import (
     path_is_known_secret,
     redact_secrets_in_data,
 )
+from workflow_steps.common.device_outcomes import fail_device_with_error
 from workflow_steps.common.duplicate_keys import find_duplicate_keys
 from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.store_for_report.config import get_config
@@ -287,9 +288,7 @@ def _device_failure(
     err = DeviceError(
         node_id=node_id, step_id=_STEP_ID, code=code, message=message, failure=failure
     )
-    return device.model_copy(
-        update={"status": DeviceStatus.FAILED, "errors": [*device.errors, err]}
-    )
+    return fail_device_with_error(device, err)
 
 
 async def execute(

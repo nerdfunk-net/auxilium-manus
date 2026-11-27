@@ -48,6 +48,7 @@ from services.workflow_context.secret_fields import (
     unwrap_all_secrets,
 )
 from workflow_steps.common.attribute_merge import deep_merge_mapping
+from workflow_steps.common.device_outcomes import fail_device_with_error
 from workflow_steps.common.failure_records import NOT_FOUND
 from workflow_steps.common.jinja_render import build_jinja_context, render_jinja_template
 from workflow_steps.common.nautobot_resolve import resolve_nautobot_device_id
@@ -500,20 +501,15 @@ def _fail_device(
         )
         return device_key, placeholder, False
 
-    failed = device.model_copy(
-        update={
-            "status": DeviceStatus.FAILED,
-            "errors": [
-                *device.errors,
-                DeviceError(
-                    node_id=node_id,
-                    step_id=_STEP_ID,
-                    code=error_code,
-                    message=error_message,
-                    failure=failure,
-                ),
-            ],
-        }
+    failed = fail_device_with_error(
+        device,
+        DeviceError(
+            node_id=node_id,
+            step_id=_STEP_ID,
+            code=error_code,
+            message=error_message,
+            failure=failure,
+        ),
     )
     return device_key, failed, False
 

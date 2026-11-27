@@ -71,6 +71,7 @@ from services.batfish.query_helpers import (
 from services.workflow_context.node_result import set_node_result
 from workflow_steps.common.batfish_context import resolve_batfish_snapshot_ref
 from workflow_steps.common.batfish_results import store_batfish_result
+from workflow_steps.common.device_outcomes import fail_device_with_error
 from workflow_steps.common.fact_entries import parse_output_key_config
 from workflow_steps.common.failure_records import INVALID_INPUT, NOT_FOUND
 from workflow_steps.common.run_logging import log_run_id
@@ -111,20 +112,15 @@ def _fail_device(
     message: str,
     failure: FailureInfo | None = None,
 ) -> DeviceContext:
-    return device.model_copy(
-        update={
-            "status": DeviceStatus.FAILED,
-            "errors": [
-                *device.errors,
-                DeviceError(
-                    node_id=node_id,
-                    step_id=_STEP_ID,
-                    code=code,
-                    message=message,
-                    failure=failure,
-                ),
-            ],
-        }
+    return fail_device_with_error(
+        device,
+        DeviceError(
+            node_id=node_id,
+            step_id=_STEP_ID,
+            code=code,
+            message=message,
+            failure=failure,
+        ),
     )
 
 

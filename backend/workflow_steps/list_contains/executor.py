@@ -24,6 +24,7 @@ from services.workflow_context.attribute_path import (
 )
 from services.workflow_context.node_result import set_node_result
 from services.workflow_context.secret_fields import REDACTED_PLACEHOLDER
+from workflow_steps.common.device_outcomes import fail_device_with_error
 from workflow_steps.common.failure_records import INVALID_INPUT, MISSING_DATA
 from workflow_steps.common.step_flags import parse_bool_flag
 from workflow_steps.common.value_expression import resolve_update_field_expression
@@ -80,9 +81,7 @@ def _device_failure(
     err = DeviceError(
         node_id=node_id, step_id=_STEP_ID, code=code, message=message, failure=failure
     )
-    return device.model_copy(
-        update={"status": DeviceStatus.FAILED, "errors": [*device.errors, err]}
-    )
+    return fail_device_with_error(device, err)
 
 
 def _parse_list_contains_config(

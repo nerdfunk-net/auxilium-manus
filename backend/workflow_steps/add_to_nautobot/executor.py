@@ -23,6 +23,7 @@ from services.nautobot.common.exceptions import NautobotAPIError, is_duplicate_e
 from services.nautobot.devices.creation import DeviceCreationService
 from services.nautobot.devices.types import AddDeviceRequest
 from workflow_steps.add_to_nautobot.config import get_config
+from workflow_steps.common.device_outcomes import fail_device_with_error
 from workflow_steps.common.failure_records import INVALID_INPUT
 from workflow_steps.common.interface_payload import (
     build_interfaces_from_config,
@@ -263,9 +264,7 @@ def _fail_device(
         message=message,
         failure=failure,
     )
-    failed = device.model_copy(
-        update={"status": DeviceStatus.FAILED, "errors": [*device.errors, err]}
-    )
+    failed = fail_device_with_error(device, err)
     return device_key, failed, False
 
 

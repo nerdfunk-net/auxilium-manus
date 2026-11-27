@@ -20,7 +20,6 @@ from models.failure import FailureInfo
 from models.workflow_context import (
     DeviceContext,
     DeviceError,
-    DeviceStatus,
     StepOutcome,
     WorkflowContext,
 )
@@ -144,9 +143,7 @@ def _fail_device(
     err = DeviceError(
         node_id=node_id, step_id=_STEP_ID, code=code, message=message, failure=failure
     )
-    return device.model_copy(
-        update={"status": DeviceStatus.FAILED, "errors": [*device.errors, err]}
-    )
+    return fail_device_with_error(device, err)
 
 
 def _sealed_conflict(

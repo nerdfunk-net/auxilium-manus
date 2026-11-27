@@ -27,6 +27,7 @@ from workflow_steps.common.content_resolver import (
     list_exportable_content,
     parse_content_source,
 )
+from workflow_steps.common.device_outcomes import fail_device_with_error
 from workflow_steps.common.failure_records import INVALID_INPUT, MISSING_DATA, REGEX_STOPPED
 from workflow_steps.common.partial_outcomes import device_error_from_exception
 from workflow_steps.common.placeholder_template import render_placeholder_template
@@ -129,9 +130,7 @@ def _device_failure(
     err = DeviceError(
         node_id=node_id, step_id=_STEP_ID, code=code, message=message, failure=failure
     )
-    return device.model_copy(
-        update={"status": DeviceStatus.FAILED, "errors": [*device.errors, err]}
-    )
+    return fail_device_with_error(device, err)
 
 
 async def _prepare_device(

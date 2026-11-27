@@ -30,6 +30,7 @@ from services.nautobot.metadata_creation import (
     MetadataCreationService,
     MetadataReferenceNotFoundError,
 )
+from workflow_steps.common.device_outcomes import fail_device_with_error
 from workflow_steps.common.failure_records import INVALID_INPUT
 from workflow_steps.common.nautobot_step import bind_nautobot_client
 from workflow_steps.common.partial_outcomes import NAUTOBOT_TEXT, device_error_from_exception
@@ -222,9 +223,7 @@ def _fail(
     error = DeviceError(
         node_id=node_id, step_id=_STEP_ID, code=code, message=message, failure=failure
     )
-    return device.model_copy(
-        update={"status": DeviceStatus.FAILED, "errors": [*device.errors, error]}
-    )
+    return fail_device_with_error(device, error)
 
 
 def _enrich(device: DeviceContext, bag_updates: dict[str, Any]) -> DeviceContext:

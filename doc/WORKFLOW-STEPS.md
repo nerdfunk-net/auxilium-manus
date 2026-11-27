@@ -431,7 +431,9 @@ metadata=, success_summary=, failure_summary=)` (`success` always, `failure` onl
 `outcomes_from_buckets(context, buckets, *, metadata=)` (every handle, empty ones included, for the routers) and
 `whole_step_failure(context, *, node_id, step_id, code, message, failure=, metadata=, empty_handles=)` (every device
 fails with one error; a routing step lists its verdict handles in `empty_handles`). `abort_outcomes` and
-`device_error_from_exception` stay in `partial_outcomes.py`. The older private `_fail*`, `_build_*outcomes` and
+`device_error_from_exception` stay in `partial_outcomes.py`. No step builds `model_copy(update={"status":
+DeviceStatus.FAILED, ...})` itself, not even inside a private helper; extra fields go through `**updates`
+(`test_failed_copy_only_in_device_outcomes.py`). The older private `_fail*`, `_build_*outcomes` and
 `_partition_*` functions in the step packages are legacy: `tests/unit/test_private_outcome_helpers_ratchet.py` pins them
 per file, lets the number only fall and fails on a new one.
 
