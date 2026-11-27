@@ -504,7 +504,9 @@ the step's own keys such as `match_counts`), the `PARSED` capability and the out
 `_failure_count`. A step supplies a `transform(device_id, device) -> StoredContent` and, where it names one, a code for a
 `ValueError` subclass (`nothing_to_merge`, `no_rule_matched`). `content_resolver` reads the entries back from one table
 (`_NODE_RESULT_SOURCES`); `list_exportable_content` and `parse_content_source` take the asking step's id, so a message
-names the step the operator configured.
+names the step the operator configured. `rendered_template` needs a `source_step_node_id` unless the caller passes
+`any_source_step=True` (only `open-change-request` does: without a source step it commits every rendered template,
+each item naming its own producer).
 
 ### Import boundaries
 

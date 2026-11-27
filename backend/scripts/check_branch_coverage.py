@@ -20,7 +20,8 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-BRANCH_FLOOR = 90.0  # percent; measured 90.50 at the guard's introduction (2026-11-26)
+# percent; 90.0 at the introduction (2026-11-26, measured 90.50), raised at 91.04 (2026-11-27)
+BRANCH_FLOOR = 91.0
 RAISE_MARGIN = 1.0
 INCLUDE = "workflow_steps/*"
 

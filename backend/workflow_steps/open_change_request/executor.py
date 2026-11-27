@@ -21,6 +21,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from dataclasses import dataclass
+from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -109,47 +110,6 @@ def _diff_stats(diff_text: str) -> dict[str, int | bool]:
     return {"additions": additions, "deletions": deletions, "files": files}
 
 
-def _all_rendered_templates(device: Any, parsed_output_key: str | None) -> list[Any]:
-    """Every rendered-template artifact on a device, regardless of which
-    render-jinja-template step produced it. Used when ``source_step_node_id`` is
-    not set — committing all rendered configs to the review branch is a safe
-    default (unlike deploy-rendered-template, which must target one step).
-    """
-    from models.workflow_context import ArtifactRef
-    from workflow_steps.common.content_resolver import ExportableContent
-
-    entries = (
-        [(parsed_output_key, device.parsed.get(parsed_output_key))]
-        if parsed_output_key
-        else list(device.parsed.items())
-    )
-    items: list[Any] = []
-    for key, raw in entries:
-        if not isinstance(raw, dict):
-            continue
-        artifact_raw = raw.get("artifact_ref")
-        if not (isinstance(artifact_raw, dict) and artifact_raw.get("artifact_id")):
-            continue
-        if raw.get("kind") not in (None, "rendered_template"):
-            continue
-        if not raw.get("step_node_id"):
-            continue
-        ref = ArtifactRef.model_validate(artifact_raw)
-        items.append(
-            ExportableContent(
-                kind="rendered_template",
-                media_type=ref.media_type,
-                artifact_ref=ref,
-                extra={
-                    "content_source": "rendered_template",
-                    "output_key": str(raw.get("output_key") or key),
-                    "source_step_node_id": str(raw.get("step_node_id") or ""),
-                },
-            )
-        )
-    return items
-
-
 def _collect_rendered_files(
     *, config: dict[str, Any], context: WorkflowContext
 ) -> list[tuple[str, str, Any]]:
@@ -166,16 +126,16 @@ def _collect_rendered_files(
 
     triples: list[tuple[str, str, Any]] = []
     for device_id, device in context.devices.items():
-        if content_source == "rendered_template" and source_step_node_id is None:
-            items = _all_rendered_templates(device, parsed_output_key)
-        else:
-            items = list_exportable_content(
-                device,
-                content_source=content_source,
-                source_step_node_id=source_step_node_id,
-                parsed_output_key=parsed_output_key,
-                step_id=_STEP_ID,
-            )
+        # Without a source step, every rendered template goes to the review branch: a safe
+        # default here (unlike deploy-rendered-template, which must target one step).
+        items = list_exportable_content(
+            device,
+            content_source=content_source,
+            source_step_node_id=source_step_node_id,
+            parsed_output_key=parsed_output_key,
+            step_id=_STEP_ID,
+            any_source_step=content_source == "rendered_template",
+        )
         for index, item in enumerate(items):
             extra = dict(item.extra)
             extra["index"] = index + 1
@@ -194,6 +154,12 @@ def _collect_rendered_files(
             f"{_STEP_ID}: no {content_source!r} content found upstream. "
             "Add a render-jinja-template step before this one."
         )
+    _refuse_shared_paths(triples)
+    return triples
+
+
+def _refuse_shared_paths(triples: list[tuple[str, str, Any]]) -> None:
+    """Two rendered files must not land on one repository path."""
     duplicates = find_duplicate_keys(
         (f"{device_id}#{index}", rel) for index, (device_id, rel, _) in enumerate(triples)
     )
@@ -204,7 +170,6 @@ def _collect_rendered_files(
             f"({', '.join(colliding)}); select one source step, or add {{parsed.output_key}} or "
             "{{command.index}} to the filename template"
         )
-    return triples
 
 
 def _device_snapshot(
@@ -236,9 +201,10 @@ def _stage_to_git(
     branch: str,
     commit_message: str,
     files: list[tuple[str, str]],
-) -> dict[str, Any]:
+) -> dict[str, Any] | None:
     """Branch, write files, commit, push, diff — all synchronous git work,
-    run inside a per-repo advisory lock. Raises RuntimeError on any git failure.
+    run inside a per-repo advisory lock. Raises RuntimeError on any git failure;
+    ``None`` when the rendered files equal the base branch (nothing to review).
     """
     repository_id = _as_int(repository.get("id"))
     with git_repo_lock(repository_id if repository_id is not None else -1) as lease:
@@ -266,7 +232,7 @@ def _stage_to_git(
             if not commit_result.success:
                 raise commit_result.error()
             if not commit_result.commit_sha:
-                raise NothingToReview()
+                return None
 
             lease.ensure_held()
             push_result = git_service.push(repository, repo=repo, branch=branch, force=True)
@@ -281,10 +247,6 @@ def _stage_to_git(
         "files_changed": commit_result.files_changed,
         "diff": raw_diff,
     }
-
-
-class NothingToReview(Exception):  # noqa: N818 - a signal, not an error
-    """The rendered files equal the base branch: no change request is needed."""
 
 
 def _unchanged_outcomes(*, context: WorkflowContext, node_id: str) -> list[StepOutcome]:
@@ -408,8 +370,9 @@ async def _stage(
     files: list[tuple[str, str]],
     run: WorkflowRun,
     repository_id: int,
-) -> dict[str, Any]:
-    """Commit + push the rendered files to the per-change branch (blocking git in a thread)."""
+) -> dict[str, Any] | None:
+    """Commit + push the rendered files to the per-change branch (blocking git in a thread);
+    ``None`` when there is nothing to review."""
     try:
         return await asyncio.to_thread(
             _stage_to_git,
@@ -430,89 +393,140 @@ async def _stage(
         raise
 
 
-async def execute(
+def _repository_id(config: dict[str, Any]) -> int:
+    """The configured repository id; also checks the expiry, so a typo fails before a push."""
+    repository_id = parse_repository_id(config.get("git_repository_id"), step_id=_STEP_ID)
+    if repository_id is None:
+        raise ValueError(f"{_STEP_ID}: git_repository_id is not configured")
+    _parse_expiry_hours(config)
+    return repository_id
+
+
+async def _resolve_files(
+    rendered: list[tuple[str, str, Any]], artifact_service: ArtifactService
+) -> tuple[list[tuple[str, str]], dict[str, str]]:
+    """``(path, content)`` of every rendered file and the first path of each device."""
+    files: list[tuple[str, str]] = []
+    device_paths: dict[str, str] = {}
+    for device_id, rel_path, artifact_ref in rendered:
+        files.append((rel_path, await artifact_service.resolve(artifact_ref)))
+        device_paths.setdefault(device_id, rel_path)
+    return files, device_paths
+
+
+async def _store_diff(
+    raw_diff: str, artifact_service: ArtifactService, run_id: str
+) -> tuple[Any, dict[str, Any]]:
+    diff_text, truncated = _truncate_diff(raw_diff)
+    diff_ref = await artifact_service.store(
+        content=diff_text,
+        kind="comparison_diff",
+        device_id=_DIFF_DEVICE_ID,
+        run_id=run_id,
+        media_type="text/plain",
+    )
+    return diff_ref, {**_diff_stats(diff_text), "truncated": truncated}
+
+
+def _success_outcomes(
+    *,
+    context: WorkflowContext,
+    node_id: str,
+    run: WorkflowRun,
+    change_request: Any,
+    naming: _Naming,
+    staged: dict[str, Any],
+    diff_ref: Any,
+    diff_stats: dict[str, Any],
+) -> list[StepOutcome]:
+    metadata = {
+        **context.metadata,
+        f"{node_id}.change_request": {
+            "success": True,
+            "change_request_id": change_request.id,
+            "uuid": change_request.uuid,
+            "branch": naming.branch,
+            "commit_sha": staged["commit_sha"],
+            "status": "staged",
+            "diff_artifact_id": diff_ref.artifact_id,
+            "diff_stats": diff_stats,
+        },
+    }
+    logger.info(
+        "%s created change_request_id=%s branch=%s commit=%s run_id=%s",
+        _STEP_ID,
+        change_request.id,
+        naming.branch,
+        str(staged["commit_sha"])[:8],
+        log_run_id(run),
+    )
+    return [StepOutcome(name="success", context=context.model_copy(update={"metadata": metadata}))]
+
+
+async def _open(
     *,
     config: dict[str, Any],
     context: WorkflowContext,
     run: WorkflowRun,
     artifact_service: ArtifactService,
     node_id: str,
-    device_sessions: DeviceSessionPool,
+    repository_id: int,
 ) -> list[StepOutcome]:
-    del device_sessions
-
-    try:
-        repository_id = parse_repository_id(config.get("git_repository_id"), step_id=_STEP_ID)
-    except ValueError as exc:
-        return _change_request_failure(context=context, node_id=node_id, message=str(exc))
-    if repository_id is None:
-        return _change_request_failure(
-            context=context,
-            node_id=node_id,
-            message=f"{_STEP_ID}: git_repository_id is not configured",
-        )
-    try:
-        _parse_expiry_hours(config)  # a typo fails here, before anything is pushed
-    except ValueError as exc:
-        return _change_request_failure(context=context, node_id=node_id, message=str(exc))
-    if not context.devices:
-        # An empty branch is a no-op (D2): nothing to review, nothing staged, nothing pushed.
-        return [StepOutcome(name="success", context=context)]
-
-    logger.info(
-        "%s started run_id=%s repository_id=%s devices=%d",
-        _STEP_ID,
-        log_run_id(run),
-        repository_id,
-        len(context.devices),
-    )
-
+    """Collect, stage, store the diff and record the change request."""
+    fail = partial(_change_request_failure, context=context, node_id=node_id)
     try:
         repository = load_git_repository(repository_id)
         rendered = _collect_rendered_files(config=config, context=context)
     except ValueError as exc:
-        return _change_request_failure(context=context, node_id=node_id, message=str(exc))
-
-    resolved_files: list[tuple[str, str]] = []
-    device_paths: dict[str, str] = {}
-    for device_id, rel_path, artifact_ref in rendered:
-        resolved_files.append((rel_path, await artifact_service.resolve(artifact_ref)))
-        device_paths.setdefault(device_id, rel_path)
-
+        return fail(message=str(exc))
+    files, device_paths = await _resolve_files(rendered, artifact_service)
     naming = _render_naming(config, run=run, workflow_id=context.workflow_id)
 
     import service_factory
 
-    git_service = service_factory.build_git_service()
-
     try:
         staged = await _stage(
-            git_service,
+            service_factory.build_git_service(),
             repository,
             naming=naming,
-            files=resolved_files,
+            files=files,
             run=run,
             repository_id=repository_id,
         )
-    except NothingToReview:
-        return _unchanged_outcomes(context=context, node_id=node_id)
     except Exception as exc:  # noqa: BLE001 — surfaced as a step failure outcome
-        return _change_request_failure(
-            context=context,
-            node_id=node_id,
+        return fail(
             message=_staging_message(exc),
             failure=failure_from_exception(exc) or classify_git_exception(exc),
         )
-
-    diff_text, truncated = _truncate_diff(staged["diff"])
-    diff_ref = await artifact_service.store(
-        content=diff_text,
-        kind="comparison_diff",
-        device_id=_DIFF_DEVICE_ID,
-        run_id=context.run_id,
-        media_type="text/plain",
+    if staged is None:
+        return _unchanged_outcomes(context=context, node_id=node_id)
+    return await _record(
+        config=config,
+        context=context,
+        run=run,
+        artifact_service=artifact_service,
+        node_id=node_id,
+        repository_id=repository_id,
+        staged=staged,
+        naming=naming,
+        device_paths=device_paths,
     )
-    diff_stats = {**_diff_stats(diff_text), "truncated": truncated}
+
+
+async def _record(
+    *,
+    config: dict[str, Any],
+    context: WorkflowContext,
+    run: WorkflowRun,
+    artifact_service: ArtifactService,
+    node_id: str,
+    repository_id: int,
+    staged: dict[str, Any],
+    naming: _Naming,
+    device_paths: dict[str, str],
+) -> list[StepOutcome]:
+    """Store the diff and persist the staged change as a change request."""
+    diff_ref, diff_stats = await _store_diff(staged["diff"], artifact_service, context.run_id)
 
     from core.domain_exceptions import ConflictError
 
@@ -530,32 +544,49 @@ async def execute(
         )
     except ConflictError as exc:
         return _change_request_failure(context=context, node_id=node_id, message=str(exc))
+    return _success_outcomes(
+        context=context,
+        node_id=node_id,
+        run=run,
+        change_request=change_request,
+        naming=naming,
+        staged=staged,
+        diff_ref=diff_ref,
+        diff_stats=diff_stats,
+    )
 
-    metadata = {
-        **context.metadata,
-        f"{node_id}.change_request": {
-            "success": True,
-            "change_request_id": change_request.id,
-            "uuid": change_request.uuid,
-            "branch": naming.branch,
-            "commit_sha": staged["commit_sha"],
-            "status": "staged",
-            "diff_artifact_id": diff_ref.artifact_id,
-            "diff_stats": diff_stats,
-        },
-    }
+
+async def execute(
+    *,
+    config: dict[str, Any],
+    context: WorkflowContext,
+    run: WorkflowRun,
+    artifact_service: ArtifactService,
+    node_id: str,
+    device_sessions: DeviceSessionPool,
+) -> list[StepOutcome]:
+    del device_sessions
+
+    try:
+        repository_id = _repository_id(config)
+    except ValueError as exc:
+        return _change_request_failure(context=context, node_id=node_id, message=str(exc))
+    if not context.devices:
+        # An empty branch is a no-op (D2): nothing to review, nothing staged, nothing pushed.
+        return [StepOutcome(name="success", context=context)]
 
     logger.info(
-        "%s created change_request_id=%s branch=%s commit=%s run_id=%s",
+        "%s started run_id=%s repository_id=%s devices=%d",
         _STEP_ID,
-        change_request.id,
-        naming.branch,
-        str(staged["commit_sha"])[:8],
         log_run_id(run),
+        repository_id,
+        len(context.devices),
     )
-    return [
-        StepOutcome(
-            name="success",
-            context=context.model_copy(update={"metadata": metadata}),
-        )
-    ]
+    return await _open(
+        config=config,
+        context=context,
+        run=run,
+        artifact_service=artifact_service,
+        node_id=node_id,
+        repository_id=repository_id,
+    )

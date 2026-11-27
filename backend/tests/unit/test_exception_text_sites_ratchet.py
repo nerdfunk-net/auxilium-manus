@@ -32,7 +32,7 @@ LEGACY_EXCEPTION_TEXT_SITES: dict[str, int] = {
     "workflow_steps/get_age_of_backup/executor.py": 1,
     "workflow_steps/get_catalyst_center_client_data/executor.py": 1,
     "workflow_steps/get_next_free_ip/executor.py": 1,
-    "workflow_steps/open_change_request/executor.py": 4,
+    "workflow_steps/open_change_request/executor.py": 3,
     "workflow_steps/parse_cisco_config/executor.py": 1,
     "workflow_steps/render_jinja_template/executor.py": 1,
     "workflow_steps/store_for_report/executor.py": 1,

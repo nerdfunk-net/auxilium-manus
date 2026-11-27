@@ -90,9 +90,17 @@ def list_exportable_content(
     step_id: str,
     source_step_node_id: str | None = None,
     parsed_output_key: str | None = None,
+    any_source_step: bool = False,
 ) -> list[ExportableContent]:
-    """Return artifact refs available on the device for the chosen source."""
-    if content_source in _NEEDS_SOURCE_NODE and not source_step_node_id:
+    """Return artifact refs available on the device for the chosen source.
+
+    ``any_source_step`` (``rendered_template`` only) lists the rendered templates of every step
+    when no ``source_step_node_id`` is given, each with its own producer as
+    ``extra["source_step_node_id"]``; a named source step still filters (W9-14).
+    """
+    if any_source_step and content_source != "rendered_template":
+        raise ValueError(f"{step_id}: any_source_step works only with rendered_template")
+    if content_source in _NEEDS_SOURCE_NODE and not source_step_node_id and not any_source_step:
         raise ValueError(f"{step_id}: source_step_node_id is required for {content_source}")
 
     if content_source in ("running_config", "startup_config"):
@@ -128,7 +136,7 @@ def list_exportable_content(
     if content_source == "rendered_template":
         return _exportable_from_parsed_templates(
             device,
-            source_step_node_id=source_step_node_id or "",
+            source_step_node_id=source_step_node_id or None,
             parsed_output_key=parsed_output_key,
         )
 
@@ -186,9 +194,10 @@ def _is_rendered_template_entry(value: Any) -> bool:
 def _exportable_from_parsed_templates(
     device: DeviceContext,
     *,
-    source_step_node_id: str,
+    source_step_node_id: str | None,
     parsed_output_key: str | None = None,
 ) -> list[ExportableContent]:
+    """Rendered templates of ``source_step_node_id``, or of every step when it is ``None``."""
     if parsed_output_key:
         raw = device.parsed.get(parsed_output_key)
         candidates = [(parsed_output_key, raw)] if raw is not None else []
@@ -199,7 +208,8 @@ def _exportable_from_parsed_templates(
     for key, raw in candidates:
         if not _is_rendered_template_entry(raw):
             continue
-        if str(raw.get("step_node_id") or "") != source_step_node_id:
+        producer = str(raw.get("step_node_id") or "")
+        if source_step_node_id is not None and producer != source_step_node_id:
             continue
         output_key = str(raw.get("output_key") or key)
         artifact_ref = ArtifactRef.model_validate(raw["artifact_ref"])
@@ -210,7 +220,7 @@ def _exportable_from_parsed_templates(
                 artifact_ref=artifact_ref,
                 extra={
                     "content_source": "rendered_template",
-                    "source_step_node_id": source_step_node_id,
+                    "source_step_node_id": producer,
                     "output_key": output_key,
                 },
             )

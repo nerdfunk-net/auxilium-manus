@@ -21,8 +21,6 @@ failed device stores (P-E, D3)"). Still open:
   Center | Nautobot> request failed"` and the outcome carries the `FailureInfo` of the controller error. The other
   controller steps already fail per device. Configuration errors still raise. `backup-aci-config` ends on `failure` for a
   git error too (P-H, 2026-11-26); its other errors still raise.
-- **`open-change-request` leftovers.** The `rendered_template` case still builds its content by hand instead of
-  `content_resolver.list_exportable_content`, and `NothingToReview` is used as control flow.
 - **`contact-the-ai` structure.** The sharing check is split between `prompt.py::check_path` and
   `executor.py::_names_gap` (one module should own "what may this template read"), and the registry says
   `produces: []` although the step writes `output_attribute`.

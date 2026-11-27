@@ -105,7 +105,7 @@ LEGACY_LONG_FUNCTIONS: dict[str, int] = {
     "workflow_steps/notify/executor.py": 1,
     "workflow_steps/notify_mattermost/executor.py": 1,
     "workflow_steps/notify_on_error/executor.py": 1,
-    "workflow_steps/open_change_request/executor.py": 3,
+    "workflow_steps/open_change_request/executor.py": 1,
     "workflow_steps/parse_cisco_config/executor.py": 1,
     "workflow_steps/reachable/executor.py": 1,
     "workflow_steps/read_config/executor.py": 2,
