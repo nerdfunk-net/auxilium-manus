@@ -3,6 +3,8 @@
 -r requirements.txt
 pytest==9.1.1
 pytest-cov==7.1.0
+# The real-session-pool step tests (tests/unit/test_step_real_session_pool*.py) use its fixtures.
+pytest-asyncio==1.4.0
 fakeredis==2.40.0
 # test_agent_interop.py runs the reference agent's aiohttp server (also a hatchet-sdk dependency).
 aiohttp==3.14.5
