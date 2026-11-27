@@ -99,6 +99,7 @@ from workflow_steps.add_to_ise.payload import (
     enrich_device_after_create,
     with_request_record,
 )
+from workflow_steps.common.device_outcomes import outcomes_from_buckets
 from workflow_steps.common.device_runner import AbortRun, Fail, run_per_device
 from workflow_steps.common.failure_records import INVALID_INPUT
 from workflow_steps.common.ise_step import build_ise_device_service, ise_credentials, preflight_ise
@@ -240,19 +241,14 @@ async def _create_one_device(
     return _CreateOneResult(kind="created", device=updated)
 
 
-def _build_outcomes(
-    *,
-    context: WorkflowContext,
-    success_devices: dict[str, DeviceContext],
-    exists_devices: dict[str, DeviceContext],
-    failed_devices: dict[str, DeviceContext],
-    node_id: str,
-) -> list[StepOutcome]:
-    created_count = len(success_devices)
-    exists_count = len(exists_devices)
-    failed_count = len(failed_devices)
+def _report(
+    *, context: WorkflowContext, node_id: str, buckets: dict[str, dict[str, DeviceContext]]
+) -> tuple[dict[str, Any], dict[str, str]]:
+    """Log the totals; the count metadata and the summary of each handle."""
+    created_count = len(buckets["success"])
+    exists_count = len(buckets["exists"])
+    failed_count = len(buckets["failure"])
     metadata = {
-        **context.metadata,
         f"{node_id}.total": len(context.devices),
         f"{node_id}.created_count": created_count,
         f"{node_id}.exists_count": exists_count,
@@ -279,23 +275,12 @@ def _build_outcomes(
         context.run_id,
     )
 
-    return [
-        StepOutcome(
-            name="success",
-            context=context.model_copy(update={"devices": success_devices, "metadata": metadata}),
-            summary=f"created {created_count}",
-        ),
-        StepOutcome(
-            name="exists",
-            context=context.model_copy(update={"devices": exists_devices, "metadata": metadata}),
-            summary=f"already exists {exists_count}",
-        ),
-        StepOutcome(
-            name="failure",
-            context=context.model_copy(update={"devices": failed_devices, "metadata": metadata}),
-            summary=f"failed {failed_count}",
-        ),
-    ]
+    summaries = {
+        "success": f"created {created_count}",
+        "exists": f"already exists {exists_count}",
+        "failure": f"failed {failed_count}",
+    }
+    return metadata, summaries
 
 
 async def execute(
@@ -378,11 +363,7 @@ async def execute(
             extra={"exists": exists_devices},
         )
 
-    return _build_outcomes(
-        context=context,
-        success_devices=success_devices,
-        exists_devices=exists_devices,
-        failed_devices=batch.failed,
-        node_id=node_id,
-    )
+    buckets = {"success": success_devices, "exists": exists_devices, "failure": batch.failed}
+    metadata, summaries = _report(context=context, node_id=node_id, buckets=buckets)
+    return outcomes_from_buckets(context, buckets, metadata=metadata, summaries=summaries)
 

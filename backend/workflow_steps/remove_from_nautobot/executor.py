@@ -32,7 +32,7 @@ from services.nautobot.common.exceptions import NautobotNotFoundError
 from services.nautobot.common.validators import is_valid_uuid
 from services.nautobot.devices.common import DeviceCommonService
 from services.workflow_context.secret_fields import REDACTED_PLACEHOLDER
-from workflow_steps.common.device_outcomes import fail_device_with_error
+from workflow_steps.common.device_outcomes import fail_device_with_error, outcomes_from_buckets
 from workflow_steps.common.nautobot_step import NAUTOBOT_CONCURRENCY, bind_nautobot_client
 from workflow_steps.common.partial_outcomes import (
     NAUTOBOT_TEXT,
@@ -295,14 +295,13 @@ def _shared_outcome(lead: _Removal, follower: DeviceContext, node_id: str) -> _R
     )
 
 
-def _build_outcomes(
+def _remove_counts(
     *,
-    context: WorkflowContext,
     node_id: str,
     buckets: dict[str, dict[str, DeviceContext]],
     removals: list[_Removal],
     dry_run: bool,
-) -> list[StepOutcome]:
+) -> dict[str, Any]:
     removed = sum(1 for r in removals if r.bucket == "success" and r.counted)
     ips = sum(r.ips_removed for r in removals)
     counts = {
@@ -315,16 +314,7 @@ def _build_outcomes(
     if dry_run:
         counts["devices_would_remove"] = removed
         counts["ips_would_remove"] = ips
-    metadata = {**context.metadata, f"{node_id}.remove_counts": counts}
-    return [
-        StepOutcome(
-            name=name,
-            context=context.model_copy(
-                update={"devices": dict(buckets[name]), "metadata": metadata}
-            ),
-        )
-        for name in _OUTCOME_NAMES
-    ]
+    return {f"{node_id}.remove_counts": counts}
 
 
 async def execute(
@@ -341,9 +331,10 @@ async def execute(
     parsed = _parse_config(config)
     buckets: dict[str, dict[str, DeviceContext]] = {name: {} for name in _OUTCOME_NAMES}
     if not context.devices:
-        return _build_outcomes(
-            context=context, node_id=node_id, buckets=buckets, removals=[], dry_run=parsed.dry_run
+        counts = _remove_counts(
+            node_id=node_id, buckets=buckets, removals=[], dry_run=parsed.dry_run
         )
+        return outcomes_from_buckets(context, buckets, metadata=counts)
 
     common = _bind_nautobot(run, parsed.source_id).common
     logger.info(
@@ -396,10 +387,7 @@ async def execute(
         parsed.dry_run,
         context.run_id,
     )
-    return _build_outcomes(
-        context=context,
-        node_id=node_id,
-        buckets=buckets,
-        removals=removals,
-        dry_run=parsed.dry_run,
+    counts = _remove_counts(
+        node_id=node_id, buckets=buckets, removals=removals, dry_run=parsed.dry_run
     )
+    return outcomes_from_buckets(context, buckets, metadata=counts)

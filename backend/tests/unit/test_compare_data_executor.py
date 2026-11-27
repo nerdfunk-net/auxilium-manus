@@ -169,6 +169,8 @@ class CompareDataExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(comparison["matched"])
         counts = by_name["match"].context.metadata["compare-data-1.comparison_counts"]
         self.assertEqual(counts["match"], 1)
+        (record,) = by_name["match"].context.metadata["compare-data-1.comparisons"]
+        self.assertEqual((record["device_id"], record["matched"]), ("device-1", True))
 
     async def test_mismatch_routes_to_mismatch_outcome_and_stores_diff(self) -> None:
         run = MagicMock()

@@ -24,7 +24,7 @@ from services.workflow_context.attribute_path import (
 )
 from services.workflow_context.node_result import set_node_result
 from services.workflow_context.secret_fields import REDACTED_PLACEHOLDER
-from workflow_steps.common.device_outcomes import fail_device_with_error
+from workflow_steps.common.device_outcomes import fail_device_with_error, outcomes_from_buckets
 from workflow_steps.common.failure_records import INVALID_INPUT, MISSING_DATA
 from workflow_steps.common.step_flags import parse_bool_flag
 from workflow_steps.common.value_expression import resolve_update_field_expression
@@ -212,25 +212,6 @@ def _classify_device_membership(
     return ("match" if matched else "mismatch"), enriched
 
 
-def _build_list_contains_outcomes(
-    *,
-    context: WorkflowContext,
-    node_id: str,
-    buckets: dict[str, dict[str, DeviceContext]],
-    counts: dict[str, int],
-) -> list[StepOutcome]:
-    metadata = {**context.metadata, f"{node_id}.membership_counts": counts}
-    return [
-        StepOutcome(
-            name=name,
-            context=context.model_copy(
-                update={"devices": dict(buckets[name]), "metadata": metadata}
-            ),
-        )
-        for name in _OUTCOME_NAMES
-    ]
-
-
 async def execute(
     *,
     config: dict[str, Any],
@@ -271,6 +252,6 @@ async def execute(
 
     counts = {name: len(buckets[name]) for name in _OUTCOME_NAMES}
     logger.info("list-contains finished run_id=%s counts=%s", context.run_id, counts)
-    return _build_list_contains_outcomes(
-        context=context, node_id=node_id, buckets=buckets, counts=counts
+    return outcomes_from_buckets(
+        context, buckets, metadata={f"{node_id}.membership_counts": counts}
     )

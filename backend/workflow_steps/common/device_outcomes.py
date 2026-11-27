@@ -121,6 +121,7 @@ def outcomes_from_buckets(
     buckets: Mapping[str, Mapping[str, DeviceContext]],
     *,
     metadata: Mapping[str, Any] | None = None,
+    summaries: Mapping[str, str] | None = None,
 ) -> list[StepOutcome]:
     """One outcome per bucket, in the order of ``buckets``, empty ones included.
 
@@ -132,6 +133,7 @@ def outcomes_from_buckets(
     return [
         StepOutcome(
             name=name,
+            summary=(summaries or {}).get(name),
             context=context.model_copy(update={"devices": dict(devices), "metadata": merged}),
         )
         for name, devices in buckets.items()

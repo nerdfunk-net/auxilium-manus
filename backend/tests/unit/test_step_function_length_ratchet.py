@@ -23,7 +23,7 @@ LEGACY_LONG_FUNCTIONS: dict[str, int] = {
     "workflow_steps/add_ip_to_nautobot/executor.py": 2,
     "workflow_steps/add_nautobot_metadata/executor.py": 1,
     "workflow_steps/add_pyats_testbed/executor.py": 1,
-    "workflow_steps/add_to_ise/executor.py": 3,
+    "workflow_steps/add_to_ise/executor.py": 2,
     "workflow_steps/add_to_ise/fields.py": 1,
     "workflow_steps/add_to_nautobot/executor.py": 3,
     "workflow_steps/backup_aci_config/executor.py": 1,

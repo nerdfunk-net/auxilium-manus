@@ -291,3 +291,18 @@ def test_split_results_keeps_the_order_and_leaves_out_a_missing_device() -> None
     assert ok["a"] is a
     assert failed == {"b": b}
     assert split_results([]) == ({}, {})
+
+
+def test_outcomes_from_buckets_sets_a_summary_per_handle() -> None:
+    # W1-01: add-to-ise's three handles each carry a summary.
+    a = make_device("a")
+    outcomes = outcomes_from_buckets(
+        make_context([a]),
+        {"success": {"a": a}, "exists": {}, "failure": {}},
+        summaries={"success": "created 1", "failure": "failed 0"},
+    )
+    assert [(o.name, o.summary) for o in outcomes] == [
+        ("success", "created 1"),
+        ("exists", None),
+        ("failure", "failed 0"),
+    ]

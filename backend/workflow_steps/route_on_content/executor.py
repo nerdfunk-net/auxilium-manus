@@ -27,7 +27,7 @@ from workflow_steps.common.content_resolver import (
     list_exportable_content,
     parse_content_source,
 )
-from workflow_steps.common.device_outcomes import fail_device_with_error
+from workflow_steps.common.device_outcomes import fail_device_with_error, outcomes_from_buckets
 from workflow_steps.common.failure_records import INVALID_INPUT, MISSING_DATA, REGEX_STOPPED
 from workflow_steps.common.partial_outcomes import device_error_from_exception
 from workflow_steps.common.placeholder_template import render_placeholder_template
@@ -285,35 +285,17 @@ def _answer_regex(
     )
 
 
-def _build_route_outcomes(
-    *,
-    context: WorkflowContext,
-    node_id: str,
-    results: list[tuple[str, DeviceContext, str]],
-) -> list[StepOutcome]:
+def _route_buckets(
+    results: list[tuple[str, DeviceContext, str]], *, run_id: str, node_id: str
+) -> tuple[dict[str, dict[str, DeviceContext]], dict[str, Any]]:
+    """The devices per handle (every handle, in the order of ``_OUTCOME_NAMES``) and the count
+    metadata; logs the counts."""
     buckets: dict[str, dict[str, DeviceContext]] = {name: {} for name in _OUTCOME_NAMES}
     for device_id, updated_device, bucket_name in results:
         buckets[bucket_name][device_id] = updated_device
-
-    counts = {name: len(buckets[name]) for name in _OUTCOME_NAMES}
-    metadata = {**context.metadata, f"{node_id}.content_match_counts": counts}
-
-    logger.info(
-        "route-on-content finished run_id=%s node_id=%s counts=%s",
-        context.run_id,
-        node_id,
-        counts,
-    )
-
-    return [
-        StepOutcome(
-            name=name,
-            context=context.model_copy(
-                update={"devices": dict(buckets[name]), "metadata": metadata}
-            ),
-        )
-        for name in _OUTCOME_NAMES
-    ]
+    counts = {name: len(devices) for name, devices in buckets.items()}
+    logger.info("route-on-content finished run_id=%s node_id=%s counts=%s", run_id, node_id, counts)
+    return buckets, {f"{node_id}.content_match_counts": counts}
 
 
 async def execute(
@@ -364,4 +346,5 @@ async def execute(
         for r, a in zip(ready, answers, strict=True)
     }
     results = [answered[id(item)] if isinstance(item, _Ready) else item for item in prepared]
-    return _build_route_outcomes(context=context, node_id=node_id, results=results)
+    buckets, metadata = _route_buckets(results, run_id=context.run_id, node_id=node_id)
+    return outcomes_from_buckets(context, buckets, metadata=metadata)

@@ -32,7 +32,7 @@ from workflow_steps.common.content_resolver import (
     list_exportable_content,
     parse_content_source,
 )
-from workflow_steps.common.device_outcomes import fail_device_with_error
+from workflow_steps.common.device_outcomes import fail_device_with_error, outcomes_from_buckets
 from workflow_steps.common.failure_records import MISSING_DATA
 from workflow_steps.common.partial_outcomes import device_error_from_exception
 from workflow_steps.common.reference_reader import (
@@ -485,26 +485,6 @@ async def _compare_loaded(
     )
 
 
-def _build_compare_outcomes(
-    *,
-    context: WorkflowContext,
-    buckets: dict[str, dict[str, DeviceContext]],
-    metadata: dict[str, Any],
-) -> list[StepOutcome]:
-    return [
-        StepOutcome(
-            name=outcome_name,
-            context=context.model_copy(
-                update={
-                    "devices": dict(buckets[outcome_name]),
-                    "metadata": metadata,
-                }
-            ),
-        )
-        for outcome_name in _OUTCOME_NAMES
-    ]
-
-
 async def execute(
     *,
     config: dict[str, Any],
@@ -563,8 +543,7 @@ async def execute(
             comparison_records.append(record)
 
     counts = {name: len(buckets[name]) for name in _OUTCOME_NAMES}
-    metadata = dict(context.metadata)
-    metadata[f"{node_id}.comparison_counts"] = counts
+    metadata: dict[str, Any] = {f"{node_id}.comparison_counts": counts}
     if comparison_records:
         metadata[f"{node_id}.comparisons"] = comparison_records
 
@@ -574,4 +553,4 @@ async def execute(
         counts,
     )
 
-    return _build_compare_outcomes(context=context, buckets=buckets, metadata=metadata)
+    return outcomes_from_buckets(context, buckets, metadata=metadata)

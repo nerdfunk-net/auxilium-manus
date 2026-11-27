@@ -844,6 +844,10 @@ class AddToIseExecutorTests(unittest.IsolatedAsyncioTestCase):
 
         dumped_requests = repr([d.model_dump()["requests"] for d in (created, exists, rejected)])
         self.assertNotIn("s3cr3t", dumped_requests)
+        self.assertEqual(
+            {name: outcome.summary for name, outcome in by_name.items()},
+            {"success": "created 1", "exists": "already exists 1", "failure": "failed 1"},
+        )
 
     async def test_bare_api_error_mid_run_aborts_with_failure_outcome(self) -> None:
         device_service = _device_service()

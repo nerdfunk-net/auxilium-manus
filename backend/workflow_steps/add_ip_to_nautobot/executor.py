@@ -30,7 +30,7 @@ from services.nautobot.devices.common import DeviceCommonService
 from services.workflow_context.secret_fields import REDACTED_PLACEHOLDER
 from workflow_steps.add_ip_to_nautobot.config import get_config
 from workflow_steps.common.attribute_write import set_device_attribute
-from workflow_steps.common.device_outcomes import fail_device_with_error
+from workflow_steps.common.device_outcomes import fail_device_with_error, outcomes_from_buckets
 from workflow_steps.common.failure_records import INVALID_INPUT
 from workflow_steps.common.nautobot_prefix_lookup import (
     LookupFailure,
@@ -435,23 +435,8 @@ def _lookup_error(exc: Exception, code: str, node_id: str, device: DeviceContext
     )
 
 
-def _build_outcomes(
-    *,
-    context: WorkflowContext,
-    node_id: str,
-    buckets: dict[str, dict[str, DeviceContext]],
-) -> list[StepOutcome]:
-    counts = {name: len(buckets[name]) for name in _OUTCOME_NAMES}
-    metadata = {**context.metadata, f"{node_id}.add_ip_counts": counts}
-    return [
-        StepOutcome(
-            name=name,
-            context=context.model_copy(
-                update={"devices": dict(buckets[name]), "metadata": metadata}
-            ),
-        )
-        for name in _OUTCOME_NAMES
-    ]
+def _counts(node_id: str, buckets: dict[str, dict[str, DeviceContext]]) -> dict[str, Any]:
+    return {f"{node_id}.add_ip_counts": {name: len(devices) for name, devices in buckets.items()}}
 
 
 async def execute(
@@ -468,7 +453,7 @@ async def execute(
     parsed = _parse_config(config)
     buckets: dict[str, dict[str, DeviceContext]] = {name: {} for name in _OUTCOME_NAMES}
     if not context.devices:
-        return _build_outcomes(context=context, node_id=node_id, buckets=buckets)
+        return outcomes_from_buckets(context, buckets, metadata=_counts(node_id, buckets))
 
     bound = _bind_nautobot(run, parsed.source_id)
     logger.info(
@@ -546,4 +531,4 @@ async def execute(
         len(buckets["failure"]),
         context.run_id,
     )
-    return _build_outcomes(context=context, node_id=node_id, buckets=buckets)
+    return outcomes_from_buckets(context, buckets, metadata=_counts(node_id, buckets))
