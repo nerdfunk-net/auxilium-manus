@@ -2,7 +2,6 @@
 
 import { useCallback, useMemo, useState } from "react";
 
-import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import type {
@@ -30,6 +29,7 @@ import {
 } from "./config";
 import { RemoveFromNautobotHelpPanel } from "./help-panel";
 import { NautobotSourceStatus, SourceRow } from "../shared/source-row";
+import { CheckboxField } from "../shared/checkbox-field";
 
 function RemoveFromNautobotConfigPanel({
   nodeId,
@@ -92,26 +92,13 @@ function RemoveFromNautobotConfigPanel({
       </ExpressionField>
 
       <div className="space-y-1.5 border-t pt-3">
-        <div className="flex items-start gap-2">
-          <Checkbox
-            id={`remove-ip-addresses-${nodeId}`}
-            checked={removeIps}
-            onCheckedChange={(checked) => patch(REMOVE_IP_ADDRESSES_KEY, checked === true)}
-            className="mt-0.5"
-          />
-          <div className="space-y-0.5">
-            <Label
-              htmlFor={`remove-ip-addresses-${nodeId}`}
-              className="font-mono text-xs font-medium"
-            >
-              {REMOVE_IP_ADDRESSES_KEY}
-            </Label>
-            <p className="text-[11px] leading-4 text-muted-foreground">
-              Also remove the IP addresses assigned to the device. They are removed first, then
-              the device. An address another device or VM also holds is kept.
-            </p>
-          </div>
-        </div>
+        <CheckboxField
+          id={`remove-ip-addresses-${nodeId}`}
+          label={REMOVE_IP_ADDRESSES_KEY}
+          checked={removeIps}
+          onCheckedChange={(checked) => patch(REMOVE_IP_ADDRESSES_KEY, checked)}
+          description="Also remove the IP addresses assigned to the device. They are removed first, then the device. An address another device or VM also holds is kept."
+        />
         <p className="rounded-lg border border-warning-border bg-warning px-3 py-2 text-[11px] text-warning-foreground">
           {removeIps
             ? "The device, its interfaces and its exclusive IP addresses are deleted permanently."

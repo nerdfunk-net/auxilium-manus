@@ -3,11 +3,9 @@
 import { useCallback, useMemo, useState } from "react";
 import { Search } from "lucide-react";
 
-import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
@@ -30,6 +28,7 @@ import {
   type EnrichAttributesSource,
 } from "./config";
 import { EnrichAttributesHelpPanel } from "./help-panel";
+import { CheckboxField } from "../shared/checkbox-field";
 
 interface FieldLabelProps {
   name: string;
@@ -199,25 +198,13 @@ function EnrichAttributesConfigPanel(props: PluginConfigPanelProps) {
         {matchHint ? <p className="text-[11px] text-muted-foreground">{matchHint}</p> : null}
       </div>
 
-      <div className="flex items-start gap-2">
-        <Checkbox
-          id="enrich-attributes-case-insensitive"
-          checked={caseInsensitive}
-          onCheckedChange={(checked) => patch({ case_insensitive: checked === true })}
-          className="mt-0.5"
-        />
-        <div className="space-y-0.5">
-          <Label
-            htmlFor="enrich-attributes-case-insensitive"
-            className="font-mono text-xs font-medium"
-          >
-            case_insensitive
-          </Label>
-          <p className="text-[11px] text-muted-foreground">
-            Compare the device value and the key ignoring upper/lower case.
-          </p>
-        </div>
-      </div>
+      <CheckboxField
+        id="enrich-attributes-case-insensitive"
+        label="case_insensitive"
+        checked={caseInsensitive}
+        onCheckedChange={(checked) => patch({ case_insensitive: checked })}
+        description="Compare the device value and the key ignoring upper/lower case."
+      />
 
       <div className="space-y-1.5">
         <FieldLabel name="destination_path" />
@@ -236,23 +223,13 @@ function EnrichAttributesConfigPanel(props: PluginConfigPanelProps) {
         </p>
       </div>
 
-      <div className="flex items-start gap-2">
-        <Checkbox
-          id="enrich-attributes-overwrite"
-          checked={overwrite}
-          onCheckedChange={(checked) => patch({ overwrite: checked === true })}
-          className="mt-0.5"
-        />
-        <div className="space-y-0.5">
-          <Label htmlFor="enrich-attributes-overwrite" className="font-mono text-xs font-medium">
-            overwrite
-          </Label>
-          <p className="text-[11px] text-muted-foreground">
-            When off (default), keys already present at the destination are kept and only new
-            keys are added. Turn on to let file values win on collisions.
-          </p>
-        </div>
-      </div>
+      <CheckboxField
+        id="enrich-attributes-overwrite"
+        label="overwrite"
+        checked={overwrite}
+        onCheckedChange={(checked) => patch({ overwrite: checked })}
+        description="When off (default), keys already present at the destination are kept and only new keys are added. Turn on to let file values win on collisions."
+      />
     </div>
   );
 }

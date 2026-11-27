@@ -2,10 +2,8 @@
 
 import { useCallback, useMemo } from "react";
 
-import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
@@ -27,6 +25,7 @@ import {
   type ReadFromFileSource,
 } from "./config";
 import { ReadFromFileHelpPanel } from "./help-panel";
+import { CheckboxField } from "../shared/checkbox-field";
 
 function ReadFromFileConfigPanel(props: PluginConfigPanelProps) {
   const { config, onChange } = props;
@@ -148,24 +147,13 @@ function ReadFromFileConfigPanel(props: PluginConfigPanelProps) {
         </p>
       </div>
 
-      <div className="flex items-start gap-2">
-        <Checkbox
-          id="read-from-file-overwrite"
-          checked={overwrite}
-          onCheckedChange={(checked) => patch({ overwrite: checked === true })}
-          className="mt-0.5"
-        />
-        <div className="space-y-0.5">
-          <Label htmlFor="read-from-file-overwrite" className="font-mono text-xs font-medium">
-            overwrite
-          </Label>
-          <p className="text-[11px] text-muted-foreground">
-            When off (default), keys already present at the destination are kept and only new
-            keys are added. Turn on to let file values win on collisions. Nested objects always
-            merge key-by-key; lists are replaced wholesale.
-          </p>
-        </div>
-      </div>
+      <CheckboxField
+        id="read-from-file-overwrite"
+        label="overwrite"
+        checked={overwrite}
+        onCheckedChange={(checked) => patch({ overwrite: checked })}
+        description="When off (default), keys already present at the destination are kept and only new keys are added. Turn on to let file values win on collisions. Nested objects always merge key-by-key; lists are replaced wholesale."
+      />
     </div>
   );
 }

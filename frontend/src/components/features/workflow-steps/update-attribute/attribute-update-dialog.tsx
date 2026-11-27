@@ -3,7 +3,6 @@
 import { Search } from "lucide-react";
 import { useCallback, useState } from "react";
 
-import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -15,7 +14,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
@@ -36,6 +34,7 @@ import {
   type RegexFlags,
   type UpdateAttributeMode,
 } from "./update-attribute-config";
+import { CheckboxField } from "../shared/checkbox-field";
 
 function AttributePathHelp() {
   return (
@@ -89,20 +88,14 @@ function RegexFlagsFields({
       </div>
       <div className="space-y-2 rounded-lg border p-3">
         {items.map((item) => (
-          <div key={item.key} className="flex items-start gap-2">
-            <Checkbox
-              id={`${item.key}-${fieldId}`}
-              checked={flags[item.key]}
-              onCheckedChange={(checked) => onChange({ [item.key]: checked === true })}
-              className="mt-0.5"
-            />
-            <div className="space-y-0.5">
-              <Label htmlFor={`${item.key}-${fieldId}`} className="font-mono text-xs font-medium">
-                {item.label}
-              </Label>
-              <p className="text-[11px] text-muted-foreground">{item.description}</p>
-            </div>
-          </div>
+          <CheckboxField
+            key={item.key}
+            id={`${item.key}-${fieldId}`}
+            label={item.label}
+            checked={flags[item.key]}
+            onCheckedChange={(checked) => onChange({ [item.key]: checked })}
+            description={item.description}
+          />
         ))}
       </div>
     </div>

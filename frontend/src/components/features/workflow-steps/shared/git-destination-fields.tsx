@@ -1,14 +1,13 @@
 "use client";
 
-import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 
 import { COMMIT_MESSAGE_PLACEHOLDERS } from "./filename-placeholders";
 import { GitRepositorySelectDialog } from "./git-repository-select-dialog";
 import { GitRepositoryValue } from "./git-repository-value";
+import { CheckboxField } from "./checkbox-field";
 
 export interface GitDestinationValues {
   git_repository_id: number | null;
@@ -92,54 +91,27 @@ export function GitDestinationFields({
         <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
           Git sync options
         </p>
-        <div className="flex items-start gap-2">
-          <Checkbox
-            id={pullId}
-            checked={values.pull_before_write}
-            onCheckedChange={(checked) => onChange({ pull_before_write: checked === true })}
-            className="mt-0.5"
-          />
-          <div className="space-y-0.5">
-            <Label htmlFor={pullId} className="font-mono text-xs font-medium">
-              pull_before_write
-            </Label>
-            <p className="text-[11px] text-muted-foreground">
-              Pull latest changes once before writing. Fails the step if pull fails.
-            </p>
-          </div>
-        </div>
-        <div className="flex items-start gap-2">
-          <Checkbox
-            id={commitId}
-            checked={values.commit_after_write}
-            onCheckedChange={(checked) => onChange({ commit_after_write: checked === true })}
-            className="mt-0.5"
-          />
-          <div className="space-y-0.5">
-            <Label htmlFor={commitId} className="font-mono text-xs font-medium">
-              commit_after_write
-            </Label>
-            <p className="text-[11px] text-muted-foreground">
-              Create one commit for all files written in this step.
-            </p>
-          </div>
-        </div>
-        <div className="flex items-start gap-2">
-          <Checkbox
-            id={pushId}
-            checked={values.push_after_write}
-            onCheckedChange={(checked) => onChange({ push_after_write: checked === true })}
-            className="mt-0.5"
-          />
-          <div className="space-y-0.5">
-            <Label htmlFor={pushId} className="font-mono text-xs font-medium">
-              push_after_write
-            </Label>
-            <p className="text-[11px] text-muted-foreground">
-              Push after commit. Disable for batch workflows that use a separate push step.
-            </p>
-          </div>
-        </div>
+        <CheckboxField
+          id={pullId}
+          label="pull_before_write"
+          checked={values.pull_before_write}
+          onCheckedChange={(checked) => onChange({ pull_before_write: checked })}
+          description="Pull latest changes once before writing. Fails the step if pull fails."
+        />
+        <CheckboxField
+          id={commitId}
+          label="commit_after_write"
+          checked={values.commit_after_write}
+          onCheckedChange={(checked) => onChange({ commit_after_write: checked })}
+          description="Create one commit for all files written in this step."
+        />
+        <CheckboxField
+          id={pushId}
+          label="push_after_write"
+          checked={values.push_after_write}
+          onCheckedChange={(checked) => onChange({ push_after_write: checked })}
+          description="Push after commit. Disable for batch workflows that use a separate push step."
+        />
       </div>
 
       <div className="space-y-1.5">

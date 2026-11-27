@@ -7,7 +7,6 @@ import {
   EMPTY_WORKFLOW_EDGES,
   EMPTY_WORKFLOW_NODES,
 } from "@/components/features/workflows/constants/empty-canvas";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -27,6 +26,7 @@ import { StoreArtifactContentFields } from "./content-fields";
 import { StoreArtifactDestinationFields } from "./destination-fields";
 import { StoreArtifactHelpPanel } from "./help-panel";
 import { useSeedConfigOnce } from "../shared/use-seed-config";
+import { CheckboxField } from "../shared/checkbox-field";
 
 type Destination = "filesystem" | "git";
 
@@ -296,24 +296,15 @@ function StoreArtifactConfigPanel({
         </p>
       </div>
 
-      <div className="flex items-start gap-2">
-        <Checkbox
-          id="strict-templates"
-          checked={strictTemplates}
-          onCheckedChange={(checked) =>
-            onChange(buildStoreArtifactConfig(config, { strict_templates: checked === true }))
-          }
-          className="mt-0.5"
-        />
-        <div className="space-y-0.5">
-          <Label htmlFor="strict-templates" className="font-mono text-xs font-medium">
-            strict_templates
-          </Label>
-          <p className="text-[11px] text-muted-foreground">
-            Fail export when nautobot.* or command.* placeholders resolve empty.
-          </p>
-        </div>
-      </div>
+      <CheckboxField
+        id="strict-templates"
+        label="strict_templates"
+        checked={strictTemplates}
+        onCheckedChange={(checked) =>
+          onChange(buildStoreArtifactConfig(config, { strict_templates: checked }))
+        }
+        description="Fail export when nautobot.* or command.* placeholders resolve empty."
+      />
 
       {!isGitDestination ? (
         <div className="space-y-1.5">

@@ -2,7 +2,6 @@
 
 import { useCallback, useState } from "react";
 
-import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -14,9 +13,9 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 
 import { createReplaceRule, type ContentReplaceRule, type RegexFlags } from "./update-content-config";
+import { CheckboxField } from "../shared/checkbox-field";
 
 function RegexFlagsFields({
   flags,
@@ -55,20 +54,14 @@ function RegexFlagsFields({
       </div>
       <div className="space-y-2 rounded-lg border p-3">
         {items.map((item) => (
-          <div key={item.key} className="flex items-start gap-2">
-            <Checkbox
-              id={`${item.key}-${fieldId}`}
-              checked={flags[item.key]}
-              onCheckedChange={(checked) => onChange({ [item.key]: checked === true })}
-              className="mt-0.5"
-            />
-            <div className="space-y-0.5">
-              <Label htmlFor={`${item.key}-${fieldId}`} className="font-mono text-xs font-medium">
-                {item.label}
-              </Label>
-              <p className="text-[11px] text-muted-foreground">{item.description}</p>
-            </div>
-          </div>
+          <CheckboxField
+            key={item.key}
+            id={`${item.key}-${fieldId}`}
+            label={item.label}
+            checked={flags[item.key]}
+            onCheckedChange={(checked) => onChange({ [item.key]: checked })}
+            description={item.description}
+          />
         ))}
       </div>
     </div>
@@ -138,22 +131,13 @@ export function ContentReplaceRuleEditor({
         </p>
       </div>
 
-      <div className="flex items-start gap-2">
-        <Checkbox
-          id={`replace-all-${fieldId}`}
-          checked={value.replace_all}
-          onCheckedChange={(checked) => onChange({ ...value, replace_all: checked === true })}
-          className="mt-0.5"
-        />
-        <div className="space-y-0.5">
-          <Label htmlFor={`replace-all-${fieldId}`} className="font-mono text-xs font-medium">
-            replace_all
-          </Label>
-          <p className="text-[11px] text-muted-foreground">
-            Replace every match. Uncheck to replace only the first match.
-          </p>
-        </div>
-      </div>
+      <CheckboxField
+        id={`replace-all-${fieldId}`}
+        label="replace_all"
+        checked={value.replace_all}
+        onCheckedChange={(checked) => onChange({ ...value, replace_all: checked })}
+        description="Replace every match. Uncheck to replace only the first match."
+      />
 
       <RegexFlagsFields
         flags={value.regex_flags}
