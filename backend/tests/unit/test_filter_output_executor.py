@@ -15,6 +15,7 @@ from models.workflow_context import (
     WorkflowContext,
 )
 from services.artifacts import InMemoryArtifactService
+from tests.unit._step_helpers import make_run
 from workflow_steps.common.regex_search import RegexStoppedError, match_any
 from workflow_steps.filter_output.executor import (
     _apply_path_rule,
@@ -173,7 +174,10 @@ class IsolatedPatternTests(unittest.IsolatedAsyncioTestCase):
                 "filter_rules": [{"pattern": "(a+)+$"}],
             },
             context=WorkflowContext(run_id="run-1", workflow_id="w", devices={"d1": device}),
-            run=_run(), artifact_service=artifacts, node_id="node-1", device_sessions=MagicMock(),
+            run=make_run(),
+            artifact_service=artifacts,
+            node_id="node-1",
+            device_sessions=MagicMock(),
         )
 
         by_name = {o.name: o for o in outcomes}
@@ -214,13 +218,6 @@ class SelectAndPartitionTests(unittest.TestCase):
         self.assertIs(_select_export_item(items, parsed=cfg), items[0])
 
 
-
-def _run() -> MagicMock:
-    run = MagicMock()
-    run.id = 1
-    return run
-
-
 class ExecuteTests(unittest.IsolatedAsyncioTestCase):
     async def _device_with_command_output(
         self, artifacts: InMemoryArtifactService, content: str, media_type: str
@@ -247,8 +244,10 @@ class ExecuteTests(unittest.IsolatedAsyncioTestCase):
         outcomes = await execute(
             config={"source_step_node_id": "n", "filter_rules": [{"pattern": "x"}]},
             context=WorkflowContext(run_id="r", workflow_id="w", devices={}),
-            run=_run(), artifact_service=InMemoryArtifactService(),
-            node_id="node-1", device_sessions=MagicMock(),
+            run=make_run(),
+            artifact_service=InMemoryArtifactService(),
+            node_id="node-1",
+            device_sessions=MagicMock(),
         )
         self.assertEqual([o.name for o in outcomes], ["success"])
 
@@ -264,7 +263,10 @@ class ExecuteTests(unittest.IsolatedAsyncioTestCase):
                 "filter_rules": [{"pattern": "uptime"}],
             },
             context=WorkflowContext(run_id="run-1", workflow_id="w", devices={"d1": device}),
-            run=_run(), artifact_service=artifacts, node_id="node-1", device_sessions=MagicMock(),
+            run=make_run(),
+            artifact_service=artifacts,
+            node_id="node-1",
+            device_sessions=MagicMock(),
         )
         success = next(o for o in outcomes if o.name == "success")
         enriched = success.context.devices["d1"]
@@ -285,7 +287,10 @@ class ExecuteTests(unittest.IsolatedAsyncioTestCase):
                 "filter_rules": [{"pattern": "uptime"}],
             },
             context=WorkflowContext(run_id="run-1", workflow_id="w", devices={"d1": device}),
-            run=_run(), artifact_service=artifacts, node_id="node-1", device_sessions=MagicMock(),
+            run=make_run(),
+            artifact_service=artifacts,
+            node_id="node-1",
+            device_sessions=MagicMock(),
         )
         self.assertEqual({o.name for o in outcomes}, {"success"})
 
@@ -309,7 +314,10 @@ class ExecuteTests(unittest.IsolatedAsyncioTestCase):
                 "filter_rules": [{"pattern": "x"}],
             },
             context=WorkflowContext(run_id="run-1", workflow_id="w", devices={"d1": device}),
-            run=_run(), artifact_service=artifacts, node_id="node-1", device_sessions=MagicMock(),
+            run=make_run(),
+            artifact_service=artifacts,
+            node_id="node-1",
+            device_sessions=MagicMock(),
         )
         failed = {o.name: o for o in outcomes}["failure"].context.devices["d1"]
         self.assertEqual(failed.errors[-1].message, "OSError")
@@ -326,7 +334,10 @@ class ExecuteTests(unittest.IsolatedAsyncioTestCase):
                 "filter_rules": [{"pattern": "x"}],
             },
             context=WorkflowContext(run_id="run-1", workflow_id="w", devices={"d1": device}),
-            run=_run(), artifact_service=artifacts, node_id="node-1", device_sessions=MagicMock(),
+            run=make_run(),
+            artifact_service=artifacts,
+            node_id="node-1",
+            device_sessions=MagicMock(),
         )
         failed = {o.name: o for o in outcomes}["failure"].context.devices["d1"]
         self.assertIn("not valid JSON", failed.errors[-1].message)
@@ -344,8 +355,10 @@ class ExecuteTests(unittest.IsolatedAsyncioTestCase):
                 "filter_rules": [{"pattern": "x"}],
             },
             context=WorkflowContext(run_id="run-1", workflow_id="w", devices={"d1": device}),
-            run=_run(), artifact_service=InMemoryArtifactService(),
-            node_id="node-1", device_sessions=MagicMock(),
+            run=make_run(),
+            artifact_service=InMemoryArtifactService(),
+            node_id="node-1",
+            device_sessions=MagicMock(),
         )
         by_name = {o.name: o for o in outcomes}
         self.assertIn("failure", by_name)

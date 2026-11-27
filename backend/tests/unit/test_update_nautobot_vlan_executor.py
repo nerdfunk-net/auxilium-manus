@@ -15,6 +15,7 @@ from models.workflow_context import (
 from services.nautobot.common.exceptions import NautobotAmbiguousMatchError, NautobotNotFoundError
 from services.nautobot.managers.location_assignments import PartialUpdateError
 from services.workflow_context.secret_fields import REDACTED_PLACEHOLDER
+from tests.unit._step_helpers import make_context
 from workflow_steps.common import nautobot_plan_fields as plan_fields
 from workflow_steps.update_nautobot_vlan import executor as mod
 from workflow_steps.update_nautobot_vlan.executor import _parse_config, execute, split_locations
@@ -36,10 +37,6 @@ def _device(did: str = "d1", **overrides: Any) -> DeviceContext:
         status=DeviceStatus.OK,
         **overrides,
     )
-
-
-def _context(*devices: DeviceContext) -> WorkflowContext:
-    return WorkflowContext(run_id="r", workflow_id="w", devices={d.id: d for d in devices})
 
 
 def _config(**overrides) -> dict:
@@ -126,7 +123,9 @@ class ExecuteTests(unittest.IsolatedAsyncioTestCase):
         error = PartialUpdateError(["fields"])
         error.__cause__ = RuntimeError("x")
         common.update_vlan = AsyncMock(side_effect=error)
-        out, _ = await _run(_config(), _context(_device("a")), common=common)
+        out, _ = await _run(
+            _config(), make_context([_device("a")], run_id="r", workflow_id="w"), common=common
+        )
         failure = out["failure"].devices["a"].errors[0]
         self.assertEqual(failure.code, "vlan_partially_updated")
         self.assertIn("fields already written", failure.message)
@@ -136,7 +135,9 @@ class ExecuteTests(unittest.IsolatedAsyncioTestCase):
         common = MagicMock()
         common.resolve_location_id_strict = AsyncMock(side_effect=lambda n: "id-" + n)
         out, common = await _run(
-            _config(locations='"Frankfurt, West", Berlin'), _context(_device("a")), common=common
+            _config(locations='"Frankfurt, West", Berlin'),
+            make_context([_device("a")], run_id="r", workflow_id="w"),
+            common=common,
         )
         self.assertEqual(
             [c.args[0] for c in common.resolve_location_id_strict.call_args_list],
@@ -151,7 +152,7 @@ class ExecuteTests(unittest.IsolatedAsyncioTestCase):
             locations="Berlin, Munich",
             locations_mode="add",
         )
-        out, common = await _run(cfg, _context(_device("a")))
+        out, common = await _run(cfg, make_context([_device("a")], run_id="r", workflow_id="w"))
         self.assertIn("a", out["success"].devices)
         args, kwargs = common.update_vlan.call_args
         self.assertEqual(args[0], _VLAN_ID)
@@ -172,7 +173,7 @@ class ExecuteTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_vid_and_group_find_the_vlan(self) -> None:
         cfg = _config(vlan_id="", vid="100", vlan_group="Campus")
-        out, common = await _run(cfg, _context(_device("a")))
+        out, common = await _run(cfg, make_context([_device("a")], run_id="r", workflow_id="w"))
         self.assertIn("a", out["success"].devices)
         common.find_vlans.assert_called_once_with(100, _GROUP_ID)
         self.assertEqual(common.update_vlan.call_args.args[0], _VLAN_ID)
@@ -181,7 +182,9 @@ class ExecuteTests(unittest.IsolatedAsyncioTestCase):
         common = MagicMock()
         common.find_vlans = AsyncMock(return_value=[])
         out, common = await _run(
-            _config(vlan_id="", vid="100"), _context(_device("a")), common=common
+            _config(vlan_id="", vid="100"),
+            make_context([_device("a")], run_id="r", workflow_id="w"),
+            common=common,
         )
         self.assertEqual(out["failure"].devices["a"].errors[0].code, "vlan_not_found")
         common.update_vlan.assert_not_called()
@@ -190,7 +193,9 @@ class ExecuteTests(unittest.IsolatedAsyncioTestCase):
         common = MagicMock()
         common.find_vlans = AsyncMock(return_value=[_VLAN_ID, _LOC_A])
         out, common = await _run(
-            _config(vlan_id="", vid="100"), _context(_device("a")), common=common
+            _config(vlan_id="", vid="100"),
+            make_context([_device("a")], run_id="r", workflow_id="w"),
+            common=common,
         )
         error = out["failure"].devices["a"].errors[0]
         self.assertEqual(error.code, "ambiguous_match")
@@ -198,16 +203,25 @@ class ExecuteTests(unittest.IsolatedAsyncioTestCase):
         common.update_vlan.assert_not_called()
 
     async def test_invalid_vlan_id_and_vid(self) -> None:
-        out, _ = await _run(_config(vlan_id="not-a-uuid"), _context(_device("a")))
+        out, _ = await _run(
+            _config(vlan_id="not-a-uuid"), make_context([_device("a")], run_id="r", workflow_id="w")
+        )
         self.assertEqual(out["failure"].devices["a"].errors[0].code, "vlan_id_invalid")
         for bad in ("0", "4095", "abc"):
-            out, _ = await _run(_config(vlan_id="", vid=bad), _context(_device("a")))
+            out, _ = await _run(
+                _config(vlan_id="", vid=bad),
+                make_context([_device("a")], run_id="r", workflow_id="w"),
+            )
             self.assertEqual(out["failure"].devices["a"].errors[0].code, "vid_invalid")
 
     async def test_unknown_location_fails_without_echoing_the_name(self) -> None:
         common = MagicMock()
         common.resolve_location_id_strict = AsyncMock(side_effect=ValueError("Location not found"))
-        out, _ = await _run(_config(locations="Secret-Site"), _context(_device("a")), common=common)
+        out, _ = await _run(
+            _config(locations="Secret-Site"),
+            make_context([_device("a")], run_id="r", workflow_id="w"),
+            common=common,
+        )
         error = out["failure"].devices["a"].errors[0]
         self.assertEqual(error.code, "location_not_found")
         self.assertNotIn("Secret-Site", error.message)
@@ -215,18 +229,28 @@ class ExecuteTests(unittest.IsolatedAsyncioTestCase):
     async def test_ambiguous_location_name(self) -> None:
         common = MagicMock()
         common.resolve_location_id_strict = AsyncMock(side_effect=NautobotAmbiguousMatchError("x"))
-        out, _ = await _run(_config(locations="Berlin"), _context(_device("a")), common=common)
+        out, _ = await _run(
+            _config(locations="Berlin"),
+            make_context([_device("a")], run_id="r", workflow_id="w"),
+            common=common,
+        )
         self.assertEqual(out["failure"].devices["a"].errors[0].code, "ambiguous_match")
 
     async def test_unknown_role_and_group(self) -> None:
         common = MagicMock()
         common.resolve_role_id_for_content_type = AsyncMock(return_value=None)
-        out, _ = await _run(_config(role="x"), _context(_device("a")), common=common)
+        out, _ = await _run(
+            _config(role="x"),
+            make_context([_device("a")], run_id="r", workflow_id="w"),
+            common=common,
+        )
         self.assertEqual(out["failure"].devices["a"].errors[0].code, "role_not_found")
         common = MagicMock()
         common.resolve_vlan_group_id = AsyncMock(side_effect=ValueError("VLAN group not found"))
         out, _ = await _run(
-            _config(vlan_id="", vid="10", vlan_group="x"), _context(_device("a")), common=common
+            _config(vlan_id="", vid="10", vlan_group="x"),
+            make_context([_device("a")], run_id="r", workflow_id="w"),
+            common=common,
         )
         self.assertEqual(out["failure"].devices["a"].errors[0].code, "vlan_group_not_found")
 
@@ -240,14 +264,17 @@ class ExecuteTests(unittest.IsolatedAsyncioTestCase):
 
         dev = _device("a", attribute_bags={"custom": {"d": "s"}})
         with patch.object(plan_fields, "resolve_update_field_expression", side_effect=fake):
-            out, common = await _run(_config(description="{custom.d}"), _context(dev))
+            out, common = await _run(
+                _config(description="{custom.d}"), make_context([dev], run_id="r", workflow_id="w")
+            )
         self.assertEqual(out["failure"].devices["a"].errors[0].code, "description_is_secret")
         common.update_vlan.assert_not_called()
 
     async def test_values_from_attributes(self) -> None:
         dev = _device("a", attribute_bags={"custom": {"vlan": _VLAN_ID, "site": "Berlin"}})
         out, common = await _run(
-            _config(vlan_id="{custom.vlan}", locations="{custom.site}"), _context(dev)
+            _config(vlan_id="{custom.vlan}", locations="{custom.site}"),
+            make_context([dev], run_id="r", workflow_id="w"),
         )
         self.assertIn("a", out["success"].devices)
         args, kwargs = common.update_vlan.call_args
@@ -257,7 +284,7 @@ class ExecuteTests(unittest.IsolatedAsyncioTestCase):
     async def test_lookups_resolved_once_for_all_devices(self) -> None:
         out, common = await _run(
             _config(role="Client", locations="Berlin"),
-            _context(_device("a"), _device("b"), _device("c")),
+            make_context([_device("a"), _device("b"), _device("c")], run_id="r", workflow_id="w"),
         )
         self.assertEqual(len(out["success"].devices), 3)
         self.assertEqual(common.resolve_status_id.call_count, 1)
@@ -267,7 +294,9 @@ class ExecuteTests(unittest.IsolatedAsyncioTestCase):
     async def test_unchanged_vlan_succeeds_and_is_counted(self) -> None:
         common = MagicMock()
         common.update_vlan = AsyncMock(return_value=False)
-        out, _ = await _run(_config(), _context(_device("a")), common=common)
+        out, _ = await _run(
+            _config(), make_context([_device("a")], run_id="r", workflow_id="w"), common=common
+        )
         self.assertIn("a", out["success"].devices)
         counts = out["success"].metadata["n1.update_vlan_counts"]
         self.assertEqual((counts["updated"], counts["unchanged"]), (0, 1))
@@ -275,7 +304,9 @@ class ExecuteTests(unittest.IsolatedAsyncioTestCase):
     async def test_missing_vlan_in_nautobot_fails_the_device(self) -> None:
         common = MagicMock()
         common.update_vlan = AsyncMock(side_effect=NautobotNotFoundError("gone"))
-        out, _ = await _run(_config(), _context(_device("a")), common=common)
+        out, _ = await _run(
+            _config(), make_context([_device("a")], run_id="r", workflow_id="w"), common=common
+        )
         self.assertEqual(out["failure"].devices["a"].errors[0].code, "vlan_not_found")
 
     async def test_nautobot_refusal_fails_only_that_device(self) -> None:
@@ -286,10 +317,14 @@ class ExecuteTests(unittest.IsolatedAsyncioTestCase):
         devices = [
             _device(name, attribute_bags={"custom": {"d": name}}) for name in ("a", "b")
         ]
-        out, _ = await _run(_config(description="{custom.d}"), _context(*devices), common=common)
+        out, _ = await _run(
+            _config(description="{custom.d}"),
+            make_context(devices, run_id="r", workflow_id="w"),
+            common=common,
+        )
         self.assertEqual(common.update_vlan.call_count, 2)
         self.assertEqual((len(out["success"].devices), len(out["failure"].devices)), (1, 1))
 
     async def test_no_devices_returns_empty_outcomes(self) -> None:
-        out, _ = await _run(_config(), _context())
+        out, _ = await _run(_config(), make_context([], run_id="r", workflow_id="w"))
         self.assertEqual((out["success"].devices, out["failure"].devices), ({}, {}))

@@ -11,6 +11,7 @@ from models.workflow_context import (
     DeviceStatus,
     WorkflowContext,
 )
+from tests.unit._step_helpers import make_run
 from workflow_steps.get_nautobot_attributes import executor as mod
 from workflow_steps.get_nautobot_attributes.executor import (
     _bind_nautobot,
@@ -97,18 +98,15 @@ class FetchDeviceTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(await _fetch_device(svc, MagicMock(), "x", {}, "query"))
 
 
-def _run() -> MagicMock:
-    run = MagicMock()
-    run.id = 1
-    return run
-
-
 class ExecuteTests(unittest.IsolatedAsyncioTestCase):
     async def test_empty_devices_returns_success(self) -> None:
         outcomes = await execute(
             config={"nautobot_source_id": "s"},
             context=WorkflowContext(run_id="r", workflow_id="w", devices={}),
-            run=_run(), artifact_service=MagicMock(), node_id="n", device_sessions=MagicMock(),
+            run=make_run(),
+            artifact_service=MagicMock(),
+            node_id="n",
+            device_sessions=MagicMock(),
         )
         self.assertEqual([o.name for o in outcomes], ["success"])
 
@@ -129,8 +127,11 @@ class ExecuteTests(unittest.IsolatedAsyncioTestCase):
         ):
             outcomes = await execute(
                 config={"nautobot_source_id": "s", "case_insensitive_lookup": True},
-                context=ctx, run=_run(),
-                artifact_service=MagicMock(), node_id="n", device_sessions=MagicMock(),
+                context=ctx,
+                run=make_run(),
+                artifact_service=MagicMock(),
+                node_id="n",
+                device_sessions=MagicMock(),
             )
         enriched = next(o for o in outcomes if o.name == "success").context.devices["d1"]
         self.assertEqual(enriched.attribute_bags["nautobot"]["custom_fields"], {"site": "NYC"})
@@ -145,8 +146,12 @@ class ExecuteTests(unittest.IsolatedAsyncioTestCase):
             patch.object(mod, "resolve_nautobot_device_id", AsyncMock(return_value=None)),
         ):
             outcomes = await execute(
-                config={"nautobot_source_id": "s"}, context=ctx, run=_run(),
-                artifact_service=MagicMock(), node_id="n", device_sessions=MagicMock(),
+                config={"nautobot_source_id": "s"},
+                context=ctx,
+                run=make_run(),
+                artifact_service=MagicMock(),
+                node_id="n",
+                device_sessions=MagicMock(),
             )
         by_name = {o.name: o for o in outcomes}
         failed = by_name["failure"].context.devices["d1"]
@@ -162,8 +167,12 @@ class ExecuteTests(unittest.IsolatedAsyncioTestCase):
             ),
         ):
             outcomes = await execute(
-                config={"nautobot_source_id": "s"}, context=ctx, run=_run(),
-                artifact_service=MagicMock(), node_id="n", device_sessions=MagicMock(),
+                config={"nautobot_source_id": "s"},
+                context=ctx,
+                run=make_run(),
+                artifact_service=MagicMock(),
+                node_id="n",
+                device_sessions=MagicMock(),
             )
         failed = {o.name: o for o in outcomes}["failure"].context.devices["d1"]
         self.assertEqual(failed.errors[-1].code, "runtimeerror")

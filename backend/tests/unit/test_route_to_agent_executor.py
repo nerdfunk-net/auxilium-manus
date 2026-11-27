@@ -24,6 +24,7 @@ from services.agents.exceptions import (
 )
 from services.agents.source_config_service import AgentConnection
 from services.workflow_context.secret_fields import seal_secret
+from tests.unit._step_helpers import make_context
 from workflow_steps.route_to_agent import executor as mod
 from workflow_steps.route_to_agent import output as output_mod
 from workflow_steps.route_to_agent.config import get_config
@@ -66,10 +67,6 @@ def _device(device_id: str, **kwargs: Any) -> DeviceContext:
         status=DeviceStatus.OK,
         **kwargs,
     )
-
-
-def _context(*devices: DeviceContext) -> WorkflowContext:
-    return WorkflowContext(run_id="run-1", workflow_id="wf-1", devices={d.id: d for d in devices})
 
 
 class FakeClient:
@@ -130,7 +127,7 @@ def _by_name(outcomes):
 
 class SuccessTests(unittest.IsolatedAsyncioTestCase):
     async def test_output_lands_under_the_destination_bag(self) -> None:
-        outcomes, fake = await _run(dict(BASE_CONFIG), _context(_device("d1"), _device("d2")))
+        outcomes, fake = await _run(dict(BASE_CONFIG), make_context([_device("d1"), _device("d2")]))
 
         self.assertEqual([o.name for o in outcomes], ["success"])
         devices = outcomes[0].context.devices
@@ -147,7 +144,7 @@ class SuccessTests(unittest.IsolatedAsyncioTestCase):
                 "other": {"x": 1},
             },
         )
-        _, fake = await _run(dict(BASE_CONFIG), _context(device))
+        _, fake = await _run(dict(BASE_CONFIG), make_context([device]))
         call = fake.calls[0]
         self.assertEqual(call["handler"], "resolve_location")
         self.assertEqual(call["params"], {"strict": True})
@@ -157,20 +154,20 @@ class SuccessTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_structured_values_keep_their_shape(self) -> None:
         config = {**BASE_CONFIG, "input_paths": ["nautobot.location"]}
-        _, fake = await _run(config, _context(_device("d1")))
+        _, fake = await _run(config, make_context([_device("d1")]))
         self.assertEqual(
             fake.calls[0]["inputs"]["attributes"], {"nautobot.location": {"name": "site-d1"}}
         )
 
     async def test_unresolved_paths_are_omitted(self) -> None:
         config = {**BASE_CONFIG, "input_paths": ["nautobot.location.name", "nautobot.nothing"]}
-        _, fake = await _run(config, _context(_device("d1")))
+        _, fake = await _run(config, make_context([_device("d1")]))
         self.assertEqual(list(fake.calls[0]["inputs"]["attributes"]), ["nautobot.location.name"])
 
     async def test_destination_can_be_nested_and_leaves_the_rest_alone(self) -> None:
         device = _device("d1")
         config = {**BASE_CONFIG, "destination_path": "agent.geo.result"}
-        outcomes, _ = await _run(config, _context(device))
+        outcomes, _ = await _run(config, make_context([device]))
         result = outcomes[0].context.devices["d1"]
         self.assertEqual(result.attribute_bags["agent"]["geo"]["result"], {"location": "Berlin"})
         self.assertEqual(result.attribute_bags["nautobot"], device.attribute_bags["nautobot"])
@@ -183,7 +180,7 @@ class SuccessTests(unittest.IsolatedAsyncioTestCase):
         config = {**BASE_CONFIG, "content_inputs": ["running_config", "startup_config"]}
         _, fake = await _run(
             config,
-            _context(_device("d1", running_config_ref=ref)),
+            make_context([_device("d1", running_config_ref=ref)]),
             artifact_service=artifacts,
         )
         # startup config is absent on this device -> omitted
@@ -191,7 +188,7 @@ class SuccessTests(unittest.IsolatedAsyncioTestCase):
         artifacts.resolve.assert_awaited_once_with(ref)
 
     async def test_empty_context_does_nothing(self) -> None:
-        outcomes, fake = await _run(dict(BASE_CONFIG), _context())
+        outcomes, fake = await _run(dict(BASE_CONFIG), make_context([]))
         self.assertEqual([o.name for o in outcomes], ["success"])
         self.assertEqual(fake.calls, [])
 
@@ -201,7 +198,7 @@ class InputContractTests(unittest.IsolatedAsyncioTestCase):
         sealed = _device(
             "d1", attribute_bags={"nautobot": {"location": {"name": seal_secret("hunter2hunter2")}}}
         )
-        outcomes, fake = await _run(dict(BASE_CONFIG), _context(sealed, _device("d2")))
+        outcomes, fake = await _run(dict(BASE_CONFIG), make_context([sealed, _device("d2")]))
         by_name = _by_name(outcomes)
         self.assertEqual(list(by_name["failure"].context.devices), ["d1"])
         error = by_name["failure"].context.devices["d1"].errors[0]
@@ -215,7 +212,7 @@ class InputContractTests(unittest.IsolatedAsyncioTestCase):
         location = {"name": "x", "k": seal_secret("abcdefgh12")}
         nested = _device("d1", attribute_bags={"nautobot": {"location": location}})
         config = {**BASE_CONFIG, "input_paths": ["nautobot.location"]}
-        outcomes, fake = await _run(config, _context(nested))
+        outcomes, fake = await _run(config, make_context([nested]))
         self.assertIn("failure", _by_name(outcomes))
         self.assertEqual(fake.calls, [])
 
@@ -226,7 +223,7 @@ class SecretInputTests(unittest.IsolatedAsyncioTestCase):
     async def _config_error(self, *paths: str) -> None:
         for path in paths:
             with self.subTest(path=path), self.assertRaises(ValueError) as ctx:
-                await _run({**BASE_CONFIG, "input_paths": [path]}, _context(_device("d1")))
+                await _run({**BASE_CONFIG, "input_paths": [path]}, make_context([_device("d1")]))
             assert "secret" in str(ctx.exception).lower(), path
 
     async def test_known_secret_paths_are_refused(self) -> None:
@@ -264,14 +261,14 @@ class SecretInputTests(unittest.IsolatedAsyncioTestCase):
         ):
             with self.subTest(path=path):
                 config = {**BASE_CONFIG, "input_paths": [path]}
-                outcomes, _ = await _run(config, _context(_device("d1")))
+                outcomes, _ = await _run(config, make_context([_device("d1")]))
                 assert [o.name for o in outcomes] == ["success"]
 
     async def test_a_secret_named_key_inside_a_selected_structure_fails_the_device(self) -> None:
         creds = {"user": "noc", "password": "hunter2hunter2"}
         device = _device("d1", attribute_bags={"custom": {"creds": creds}})
         config = {**BASE_CONFIG, "input_paths": ["custom.creds"]}
-        outcomes, fake = await _run(config, _context(device))
+        outcomes, fake = await _run(config, make_context([device]))
         error = _by_name(outcomes)["failure"].context.devices["d1"].errors[0]
         assert error.code == "source_secret"
         assert "hunter2" not in error.message and "hunter2" not in repr(fake.calls)
@@ -281,14 +278,14 @@ class SecretInputTests(unittest.IsolatedAsyncioTestCase):
         creds = {"user": "noc", "password": ""}
         device = _device("d1", attribute_bags={"custom": {"creds": creds}})
         config = {**BASE_CONFIG, "input_paths": ["custom.creds"]}
-        outcomes, _ = await _run(config, _context(device))
+        outcomes, _ = await _run(config, make_context([device]))
         assert [o.name for o in outcomes] == ["success"]
 
     async def test_secret_named_keys_inside_lists_are_found(self) -> None:
         hosts = [{"name": "a", "api_key": "k" * 20}]
         device = _device("d1", attribute_bags={"custom": {"hosts": hosts}})
         config = {**BASE_CONFIG, "input_paths": ["custom.hosts"]}
-        outcomes, fake = await _run(config, _context(device))
+        outcomes, fake = await _run(config, make_context([device]))
         assert _by_name(outcomes)["failure"].context.devices["d1"].errors[0].code == "source_secret"
         assert fake.calls == []
 
@@ -309,7 +306,7 @@ class CommandOutputTests(unittest.IsolatedAsyncioTestCase):
         artifacts = MagicMock()
         artifacts.resolve = AsyncMock(side_effect=lambda ref: texts[ref.artifact_id])
         config = {**BASE_CONFIG, "content_inputs": ["command_output:run-1"]}
-        _, fake = await _run(config, _context(device), artifact_service=artifacts)
+        _, fake = await _run(config, make_context([device]), artifact_service=artifacts)
         assert fake.calls[0]["inputs"]["content"]["command_output:run-1"] == [
             {"command": "show version", "output": "first"},
             {"command": "show clock", "output": "clock"},
@@ -318,14 +315,14 @@ class CommandOutputTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_a_step_without_results_leaves_the_content_out(self) -> None:
         config = {**BASE_CONFIG, "content_inputs": ["command_output:run-1"]}
-        _, fake = await _run(config, _context(_device("d1")))
+        _, fake = await _run(config, make_context([_device("d1")]))
         assert fake.calls[0]["inputs"]["content"] == {}
 
 
 class OutputContractTests(unittest.IsolatedAsyncioTestCase):
     async def _fail_code(self, behaviour, config=None) -> tuple[str, Any]:
         outcomes, _ = await _run(
-            config or dict(BASE_CONFIG), _context(_device("d1")), client=FakeClient(behaviour)
+            config or dict(BASE_CONFIG), make_context([_device("d1")]), client=FakeClient(behaviour)
         )
         by_name = _by_name(outcomes)
         self.assertEqual(by_name["success"].context.devices, {})
@@ -340,7 +337,9 @@ class OutputContractTests(unittest.IsolatedAsyncioTestCase):
         code, _ = await self._fail_code(lambda *_: {})
         self.assertEqual(code, "output_rejected")
         config = {**BASE_CONFIG, "allow_missing_outputs": True}
-        outcomes, _ = await _run(config, _context(_device("d1")), client=FakeClient(lambda *_: {}))
+        outcomes, _ = await _run(
+            config, make_context([_device("d1")]), client=FakeClient(lambda *_: {})
+        )
         self.assertEqual([o.name for o in outcomes], ["success"])
         self.assertEqual(outcomes[0].context.devices["d1"].attribute_bags["agent"]["geo"], {})
 
@@ -371,7 +370,7 @@ class OutputContractTests(unittest.IsolatedAsyncioTestCase):
     async def test_json_structures_are_accepted(self) -> None:
         value = {"name": "Berlin", "tags": ["a", "b"], "floor": 3, "ok": True, "none": None}
         client = FakeClient(lambda *_: {"location": value})
-        outcomes, _ = await _run(dict(BASE_CONFIG), _context(_device("d1")), client=client)
+        outcomes, _ = await _run(dict(BASE_CONFIG), make_context([_device("d1")]), client=client)
         bag = outcomes[0].context.devices["d1"].attribute_bags["agent"]["geo"]
         self.assertEqual(bag["location"], value)
 
@@ -393,7 +392,7 @@ class FailureMappingTests(unittest.IsolatedAsyncioTestCase):
             with self.subTest(kind=kind):
                 outcomes, _ = await _run(
                     dict(BASE_CONFIG),
-                    _context(_device("d1")),
+                    make_context([_device("d1")]),
                     client=FakeClient(lambda *_a, e=exc: e),
                 )
                 error = _by_name(outcomes)["failure"].context.devices["d1"].errors[0]
@@ -409,7 +408,7 @@ class FailureMappingTests(unittest.IsolatedAsyncioTestCase):
     async def test_unexpected_exception_is_reduced_to_its_class_name(self) -> None:
         outcomes, _ = await _run(
             dict(BASE_CONFIG),
-            _context(_device("d1")),
+            make_context([_device("d1")]),
             client=FakeClient(lambda *_: RuntimeError("password=hunter2 leaked")),
         )
         error = _by_name(outcomes)["failure"].context.devices["d1"].errors[0]
@@ -424,7 +423,7 @@ class FailureMappingTests(unittest.IsolatedAsyncioTestCase):
 
         outcomes, _ = await _run(
             dict(BASE_CONFIG),
-            _context(_device("d1"), _device("d2"), _device("d3")),
+            make_context([_device("d1"), _device("d2"), _device("d3")]),
             client=FakeClient(behaviour),
         )
         by_name = _by_name(outcomes)
@@ -437,7 +436,7 @@ class FailureMappingTests(unittest.IsolatedAsyncioTestCase):
         devices = [_device(f"d{i}") for i in range(6)]
         outcomes, _ = await _run(
             dict(BASE_CONFIG),
-            _context(*devices),
+            make_context(devices),
             client=client,
             connection=_connection(max_concurrency=1),
         )
@@ -451,7 +450,7 @@ class FailureMappingTests(unittest.IsolatedAsyncioTestCase):
     async def test_client_is_closed_even_when_calls_fail(self) -> None:
         _, client = await _run(
             dict(BASE_CONFIG),
-            _context(_device("d1")),
+            make_context([_device("d1")]),
             client=FakeClient(lambda *_: AgentTimeoutError("slow")),
         )
         self.assertTrue(client.closed)
@@ -462,7 +461,9 @@ class ConcurrencyTests(unittest.IsolatedAsyncioTestCase):
         client = FakeClient()
         devices = [_device(f"d{i}") for i in range(10)]
         outcomes, _ = await _run(
-            dict(BASE_CONFIG), _context(*devices), client=client,
+            dict(BASE_CONFIG),
+            make_context(devices),
+            client=client,
             connection=_connection(max_concurrency=2),
         )
         self.assertEqual(len(outcomes[0].context.devices), 10)
@@ -473,7 +474,7 @@ class ConcurrencyTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(ValueError) as ctx:
             await _run(
                 {**BASE_CONFIG, "timeout_seconds": 120},
-                _context(_device("d1")),
+                make_context([_device("d1")]),
                 connection=_connection(max_timeout_seconds=60),
             )
         assert "60" in str(ctx.exception) and "timeout" in str(ctx.exception)
@@ -481,13 +482,13 @@ class ConcurrencyTests(unittest.IsolatedAsyncioTestCase):
     async def test_a_step_timeout_equal_to_the_maximum_is_fine(self) -> None:
         _, client = await _run(
             {**BASE_CONFIG, "timeout_seconds": 60},
-            _context(_device("d1")),
+            make_context([_device("d1")]),
             connection=_connection(max_timeout_seconds=60),
         )
         assert client.calls[0]["timeout"] == 60
 
     async def test_timeout_setting_is_passed_to_the_client(self) -> None:
-        _, client = await _run({**BASE_CONFIG, "timeout_seconds": 7}, _context(_device("d1")))
+        _, client = await _run({**BASE_CONFIG, "timeout_seconds": 7}, make_context([_device("d1")]))
         self.assertEqual(client.calls[0]["timeout"], 7)
 
 
@@ -495,7 +496,7 @@ class ConfigValidationTests(unittest.IsolatedAsyncioTestCase):
     async def _expect_error(self, **overrides: Any) -> None:
         config = {**BASE_CONFIG, **overrides}
         with self.assertRaises(ValueError):
-            await _run(config, _context(_device("d1")))
+            await _run(config, make_context([_device("d1")]))
 
     async def test_required_fields(self) -> None:
         for field in ("agent_source_id", "handler", "destination_path", "output_keys"):
@@ -536,7 +537,7 @@ class ConfigValidationTests(unittest.IsolatedAsyncioTestCase):
         ):
             await execute(
                 config=dict(BASE_CONFIG),
-                context=_context(_device("d1")),
+                context=make_context([_device("d1")]),
                 run=MagicMock(),
                 artifact_service=MagicMock(),
                 node_id="node-1",

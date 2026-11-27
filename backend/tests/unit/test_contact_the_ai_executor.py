@@ -30,6 +30,7 @@ from services.plugin_registry.plugin_registry_service import PluginRegistryServi
 from services.workflow_context.guards import effective_produces, post_step_guard
 from services.workflow_context.registry import capability_spec_from_plugin
 from services.workflow_context.secret_fields import SEALED_MARKER
+from tests.unit._step_helpers import make_context
 from workflow_steps.common.run_message_template import build_run_summary
 from workflow_steps.contact_the_ai.executor import execute
 
@@ -82,10 +83,6 @@ def _device(device_id: str, *, status=DeviceStatus.OK, bags=None, errors=None) -
         attribute_bags=bags or {},
         errors=errors or [],
     )
-
-
-def _context(*devices: DeviceContext) -> WorkflowContext:
-    return WorkflowContext(run_id="run-1", workflow_id="wf-1", devices={d.id: d for d in devices})
 
 
 def _settings(username: str | None, masking: str = "tokens", address_map=None):
@@ -150,7 +147,7 @@ async def _run(config: dict, context: WorkflowContext, **kwargs):
 
 class ContactTheAiTests(unittest.IsolatedAsyncioTestCase):
     async def test_stores_reply_on_every_device(self) -> None:
-        ctx = _context(_device("r1"), _device("r2"))
+        ctx = make_context([_device("r1"), _device("r2")])
         outcome, fake = await _run({"prompt": "Summary: {run_summary}"}, ctx)
         self.assertEqual(outcome.name, "success")
         for device in outcome.context.devices.values():
@@ -160,7 +157,7 @@ class ContactTheAiTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(ctx.devices["r1"].attribute_bags, {})  # input context not mutated
 
     async def test_answer_goes_to_the_configured_attribute(self) -> None:
-        ctx = _context(_device("r1"))
+        ctx = make_context([_device("r1")])
         outcome, _ = await _run({"prompt": "hi", "output_attribute": "custom.ai_summary"}, ctx)
         bags = outcome.context.devices["r1"].attribute_bags
         self.assertEqual(bags["custom"]["ai_summary"], "All good.")
@@ -170,7 +167,7 @@ class ContactTheAiTests(unittest.IsolatedAsyncioTestCase):
         )
 
     async def test_invalid_output_attribute_is_rejected_before_anything_is_sent(self) -> None:
-        ctx = _context(_device("r1"))
+        ctx = make_context([_device("r1")])
         for bad in (
             "response",  # no bag
             "device.name",  # device field
@@ -185,7 +182,7 @@ class ContactTheAiTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(fake.prompt, "", bad)
 
     async def test_viewer_metadata_carries_the_answer(self) -> None:
-        outcome, _ = await _run({"prompt": "hi"}, _context(_device("r1")))
+        outcome, _ = await _run({"prompt": "hi"}, make_context([_device("r1")]))
         info = outcome.context.metadata["node_1.ai_response"]
         self.assertEqual(info["status"], "ok")
         self.assertEqual(info["response"], "All good.")
@@ -195,7 +192,7 @@ class ContactTheAiTests(unittest.IsolatedAsyncioTestCase):
     async def test_failure_text_is_fixed_wording_never_provider_text(self) -> None:
         outcome, _ = await _run(
             {"prompt": "hi"},
-            _context(_device("r1")),
+            make_context([_device("r1")]),
             provider=_FakeProvider(error=ProviderAuthError("sk-secret-provider-text http://x/v1")),
         )
         info = outcome.context.metadata["node_1.ai_response"]
@@ -209,7 +206,7 @@ class ContactTheAiTests(unittest.IsolatedAsyncioTestCase):
     async def test_a_failed_call_marks_every_device_failed_with_the_reason(self) -> None:
         outcome, _ = await _run(
             {"prompt": "hi"},
-            _context(_device("r1"), _device("r2")),
+            make_context([_device("r1"), _device("r2")]),
             provider=_FakeProvider(error=ProviderAuthError("sk-secret-provider-text")),
         )
         self.assertEqual(set(outcome.context.devices), {"r1", "r2"})
@@ -226,7 +223,7 @@ class ContactTheAiTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_a_failed_call_answers_the_success_handle_empty(self) -> None:
         fake = _FakeProvider(error=ProviderAuthError("x"))
-        outcomes = await _run_all({"prompt": "hi"}, _context(_device("r1")), provider=fake)
+        outcomes = await _run_all({"prompt": "hi"}, make_context([_device("r1")]), provider=fake)
         by_name = {o.name: o for o in outcomes}
         self.assertEqual(set(by_name), {"success", "failure"})
         self.assertEqual(by_name["success"].context.devices, {})
@@ -238,7 +235,7 @@ class ContactTheAiTests(unittest.IsolatedAsyncioTestCase):
         earlier = DeviceError(node_id="n0", step_id="s0", code="old", message="old")
         outcome, _ = await _run(
             {"prompt": "hi"},
-            _context(_device("r1", errors=[earlier])),
+            make_context([_device("r1", errors=[earlier])]),
             provider=_FakeProvider(error=ProviderAuthError("x")),
         )
         errors = outcome.context.devices["r1"].errors
@@ -247,38 +244,42 @@ class ContactTheAiTests(unittest.IsolatedAsyncioTestCase):
     async def test_unknown_provider_error_uses_default_wording(self) -> None:
         outcome, _ = await _run(
             {"prompt": "hi"},
-            _context(_device("r1")),
+            make_context([_device("r1")]),
             provider=_FakeProvider(error=ProviderRefusalError("declined: secret-detail")),
         )
         self.assertNotIn("secret-detail", outcome.summary or "")
 
     async def test_secret_never_reaches_provider(self) -> None:
-        ctx = _context(_device("r1", bags={"custom": {"cfg": f"hostname r1\n{_SECRET_LINE}"}}))
+        ctx = make_context(
+            [_device("r1", bags={"custom": {"cfg": f"hostname r1\n{_SECRET_LINE}"}})]
+        )
         outcome, fake = await _run({"prompt": "Config: {custom.cfg}"}, ctx)
         self.assertEqual(outcome.name, "success")
         self.assertNotIn("hunter2hunter2", fake.prompt)
         self.assertIn("__SECRET_", fake.prompt)
 
     async def test_known_credential_value_is_tokenised(self) -> None:
-        ctx = _context(_device("r1", bags={"custom": {"note": "login with s3cr3t-pass-9 now"}}))
+        ctx = make_context(
+            [_device("r1", bags={"custom": {"note": "login with s3cr3t-pass-9 now"}})]
+        )
         _, fake = await _run({"prompt": "{custom.note}"}, ctx, known=["s3cr3t-pass-9"])
         self.assertNotIn("s3cr3t-pass-9", fake.prompt)
 
     async def test_credential_values_unavailable_fails_closed(self) -> None:
-        ctx = _context(_device("r1", bags={"custom": {"note": "x"}}))
+        ctx = make_context([_device("r1", bags={"custom": {"note": "x"}})])
         outcome, fake = await _run({"prompt": "{custom.note}"}, ctx, known="none")  # type: ignore[arg-type]
         self.assertEqual(outcome.name, "failure")
         self.assertEqual(fake.prompt, "")
 
     async def test_addresses_redacted_unless_shared(self) -> None:
-        ctx = _context(_device("r1", bags={"custom": {"ip": "10.1.2.3"}}))
+        ctx = make_context([_device("r1", bags={"custom": {"ip": "10.1.2.3"}})])
         _, hidden = await _run({"prompt": "{custom.ip}"}, ctx)
         self.assertNotIn("10.1.2.3", hidden.prompt)
         _, shown = await _run({"prompt": "{custom.ip}"}, ctx, ai=_ai(share_device_addresses=True))
         self.assertIn("10.1.2.3", shown.prompt)
 
     async def test_attribute_placeholder_needs_content_switch(self) -> None:
-        ctx = _context(_device("r1", bags={"custom": {"a": "v"}}))
+        ctx = make_context([_device("r1", bags={"custom": {"a": "v"}})])
         outcome, fake = await _run({"prompt": "{custom.a}"}, ctx, ai=_ai(share_content_data=False))
         self.assertEqual(outcome.name, "failure")
         self.assertEqual(outcome.failure.kind, "permission_denied")
@@ -286,25 +287,27 @@ class ContactTheAiTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_names_need_inventory_switch(self) -> None:
         outcome, fake = await _run(
-            {"prompt": "{devices}"}, _context(_device("r1")), ai=_ai(share_inventory_data=False)
+            {"prompt": "{devices}"},
+            make_context([_device("r1")]),
+            ai=_ai(share_inventory_data=False),
         )
         self.assertEqual(outcome.name, "failure")
         self.assertEqual(fake.prompt, "")
 
     async def test_static_prompt_needs_no_switch(self) -> None:
         ai = _ai(share_inventory_data=False, share_content_data=False)
-        outcome, _ = await _run({"prompt": "Say hello"}, _context(_device("r1")), ai=ai)
+        outcome, _ = await _run({"prompt": "Say hello"}, make_context([_device("r1")]), ai=ai)
         self.assertEqual(outcome.name, "success")
 
     async def test_no_service_user_fails(self) -> None:
-        outcome, fake = await _run({"prompt": "hi"}, _context(_device("r1")), username=None)
+        outcome, fake = await _run({"prompt": "hi"}, make_context([_device("r1")]), username=None)
         self.assertEqual(outcome.name, "failure")
         self.assertEqual(fake.prompt, "")
         self.assertEqual(outcome.summary, "AI is not available: WORKFLOW_AI_USER is not set")
         self.assertEqual(outcome.failure.hint, "check_permissions")
 
     async def test_unknown_or_inactive_service_user_fails(self) -> None:
-        ctx = _context(_device("r1"))
+        ctx = make_context([_device("r1")])
         for user in (None, SimpleNamespace(id=7, is_active=False)):
             with self.assertLogs("workflow_steps.contact_the_ai.executor", level="WARNING") as logs:
                 outcome, fake = await _run({"prompt": "hi"}, ctx, user=user)
@@ -342,7 +345,7 @@ class ContactTheAiTests(unittest.IsolatedAsyncioTestCase):
                 stack.enter_context(patch(f"{_MOD}.build_provider", return_value=_FakeProvider()))
                 outcomes = await execute(
                     config={"prompt": "hi"},
-                    context=_context(_device("r1")),
+                    context=make_context([_device("r1")]),
                     run=MagicMock(),
                     artifact_service=MagicMock(),
                     node_id="node_1",
@@ -353,13 +356,13 @@ class ContactTheAiTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_ai_disabled_fails_without_provider_text(self) -> None:
         outcome, _ = await _run(
-            {"prompt": "hi"}, _context(_device("r1")), ai=AiAssistantDisabledError("off")
+            {"prompt": "hi"}, make_context([_device("r1")]), ai=AiAssistantDisabledError("off")
         )
         self.assertEqual(outcome.name, "failure")
         self.assertIsNotNone(outcome.failure)
 
     async def test_provider_errors_are_classified(self) -> None:
-        ctx = _context(_device("r1"))
+        ctx = make_context([_device("r1")])
         outcome, _ = await _run(
             {"prompt": "hi"}, ctx, provider=_FakeProvider(error=ProviderRateLimitError("slow"))
         )
@@ -374,21 +377,21 @@ class ContactTheAiTests(unittest.IsolatedAsyncioTestCase):
     async def test_timeout_fails(self) -> None:
         outcome, _ = await _run(
             {"prompt": "hi", "timeout_seconds": 1},
-            _context(_device("r1")),
+            make_context([_device("r1")]),
             provider=_FakeProvider(delay=5),
         )
         self.assertEqual((outcome.name, outcome.failure.kind), ("failure", "timeout"))
 
     async def test_empty_reply_fails(self) -> None:
         outcome, _ = await _run(
-            {"prompt": "hi"}, _context(_device("r1")), provider=_FakeProvider(reply="  ")
+            {"prompt": "hi"}, make_context([_device("r1")]), provider=_FakeProvider(reply="  ")
         )
         self.assertEqual(outcome.name, "failure")
 
     async def test_mentions_defused_and_reply_capped(self) -> None:
         reply = "@channel look @here and @all " + "x" * 12_000
         outcome, _ = await _run(
-            {"prompt": "hi"}, _context(_device("r1")), provider=_FakeProvider(reply=reply)
+            {"prompt": "hi"}, make_context([_device("r1")]), provider=_FakeProvider(reply=reply)
         )
         stored = outcome.context.devices["r1"].attribute_bags["ai"]["response"]
         for mention in ("@channel", "@here", "@all"):
@@ -397,21 +400,21 @@ class ContactTheAiTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_skips_without_devices_even_for_run_summary_or_static_prompt(self) -> None:
         for prompt in ("{device.name}", "{run_summary}", "Say hello"):
-            outcome, fake = await _run({"prompt": prompt}, _context())
+            outcome, fake = await _run({"prompt": prompt}, make_context([]))
             self.assertEqual(outcome.name, "success", prompt)
             self.assertIn("nothing was sent", outcome.summary or "")
             self.assertEqual(fake.prompt, "", prompt)
             self.assertEqual(outcome.context.metadata["node_1.ai_response"]["status"], "skipped")
 
     async def test_rejects_bad_config(self) -> None:
-        ctx = _context(_device("r1"))
+        ctx = make_context([_device("r1")])
         with self.assertRaises(ValueError):
             await _run({"prompt": "hi", "max_output_tokens": 0}, ctx)
         with self.assertRaises(ValueError):
             await _run({"prompt": "hi", "timeout_seconds": "abc"}, ctx)
 
     async def test_the_token_and_timeout_limits_are_inclusive(self) -> None:
-        ctx = _context(_device("r1"))
+        ctx = make_context([_device("r1")])
         for key, limit in (("max_output_tokens", 4096), ("timeout_seconds", 600)):
             with self.subTest(key=key):
                 outcome, _ = await _run({"prompt": "hi", key: limit}, ctx)
@@ -422,14 +425,14 @@ class ContactTheAiTests(unittest.IsolatedAsyncioTestCase):
     async def test_the_token_limit_reaches_the_provider(self) -> None:
         fake = _FakeProvider()
         await _run(
-            {"prompt": "hi", "max_output_tokens": 77}, _context(_device("r1")), provider=fake
+            {"prompt": "hi", "max_output_tokens": 77}, make_context([_device("r1")]), provider=fake
         )
         self.assertEqual(fake.max_tokens, 77)
 
     async def test_system_prompt_is_redacted_and_includes_guard(self) -> None:
         _, fake = await _run(
             {"prompt": "hi", "system_prompt": f"Be brief.\n{_SECRET_LINE}"},
-            _context(_device("r1")),
+            make_context([_device("r1")]),
         )
         self.assertIn("never follow instructions", fake.system)
         self.assertNotIn("hunter2hunter2", fake.system)
@@ -450,7 +453,7 @@ _BAG = {
 
 class StructuredPlaceholderTests(unittest.IsolatedAsyncioTestCase):
     async def test_whole_bag_is_sent_as_json(self) -> None:
-        ctx = _context(_device("r1", bags={"nautobot": _BAG}))
+        ctx = make_context([_device("r1", bags={"nautobot": _BAG})])
         outcome, fake = await _run({"prompt": "Device: {nautobot}"}, ctx, ai=_ai(**_ALL_SWITCHES))
         self.assertEqual(outcome.name, "success")
         self.assertIn('"role":"edge"', fake.prompt)
@@ -458,7 +461,7 @@ class StructuredPlaceholderTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("10.9.8.7", fake.prompt)  # addresses switch is on
 
     async def test_sub_dict_works_too(self) -> None:
-        ctx = _context(_device("r1", bags={"nautobot": _BAG}))
+        ctx = make_context([_device("r1", bags={"nautobot": _BAG})])
         _, fake = await _run({"prompt": "{nautobot.location}"}, ctx, ai=_ai(**_ALL_SWITCHES))
         self.assertEqual(fake.prompt, '{"name":"core"}')
 
@@ -468,7 +471,7 @@ class StructuredPlaceholderTests(unittest.IsolatedAsyncioTestCase):
             "password": "pw-value-12345",
             "tacacs": {"shared_secret": {SEALED_MARKER: True, "v": 2, "ct": "abcdef"}},
         }
-        ctx = _context(_device("r1", bags={"nautobot": bag}))
+        ctx = make_context([_device("r1", bags={"nautobot": bag})])
         outcome, fake = await _run({"prompt": "{nautobot}"}, ctx, ai=_ai(**_ALL_SWITCHES))
         self.assertEqual(outcome.name, "success")
         self.assertNotIn("pw-value-12345", fake.prompt)
@@ -477,13 +480,13 @@ class StructuredPlaceholderTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_config_style_secret_inside_a_bag_value_is_tokenised(self) -> None:
         bag = {"running": f"hostname r1\n{_SECRET_LINE}"}
-        ctx = _context(_device("r1", bags={"nautobot": bag}))
+        ctx = make_context([_device("r1", bags={"nautobot": bag})])
         _, fake = await _run({"prompt": "{nautobot}"}, ctx, ai=_ai(**_ALL_SWITCHES))
         self.assertNotIn("hunter2hunter2", fake.prompt)
 
     async def test_whole_nautobot_bag_is_filtered_like_the_assistant(self) -> None:
         bag = {**_BAG, "serial": "SN12345", "comments": "private note", "custom_fields": {"a": 1}}
-        ctx = _context(_device("r1", bags={"nautobot": bag}))
+        ctx = make_context([_device("r1", bags={"nautobot": bag})])
         ai = _ai(share_device_addresses=True)  # inventory + addresses, no custom fields
         outcome, fake = await _run({"prompt": "{nautobot}"}, ctx, ai=ai)
         self.assertEqual(outcome.name, "success")
@@ -493,7 +496,7 @@ class StructuredPlaceholderTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn('"withheld"', fake.prompt)
 
     async def test_whole_nautobot_bag_needs_inventory(self) -> None:
-        ctx = _context(_device("r1", bags={"nautobot": _BAG}))
+        ctx = make_context([_device("r1", bags={"nautobot": _BAG})])
         outcome, fake = await _run(
             {"prompt": "{nautobot}"}, ctx, ai=_ai(share_inventory_data=False)
         )
@@ -510,7 +513,7 @@ class StructuredPlaceholderTests(unittest.IsolatedAsyncioTestCase):
             "custom_fields": {"site": "HQ"},
             "config_context": {"snmp": "n0t-a-real-community"},
         }
-        ctx = _context(_device("r1", bags={"nautobot": bag}))
+        ctx = make_context([_device("r1", bags={"nautobot": bag})])
         denied = (
             "{nautobot.serial}",
             "{nautobot.asset_tag}",
@@ -534,7 +537,7 @@ class StructuredPlaceholderTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(fake.prompt, "")
 
     async def test_basic_fields_need_only_inventory(self) -> None:
-        ctx = _context(_device("r1", bags={"nautobot": _BAG}))
+        ctx = make_context([_device("r1", bags={"nautobot": _BAG})])
         outcome, fake = await _run({"prompt": "{nautobot.role} {device.name}"}, ctx)
         self.assertEqual((outcome.name, fake.prompt), ("success", "edge r1"))
         outcome, fake = await _run(
@@ -547,14 +550,14 @@ class StructuredPlaceholderTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((outcome.name, fake.prompt), ("failure", ""))
 
     async def test_category_switches_do_nothing_without_inventory(self) -> None:
-        ctx = _context(_device("r1", bags={"nautobot": {"serial": "SN12345"}}))
+        ctx = make_context([_device("r1", bags={"nautobot": {"serial": "SN12345"}})])
         ai = _ai(share_inventory_data=False, **_ALL_SWITCHES)
         # AiRuntimeConfig.sharing is what the executor uses: addresses without inventory is off.
         outcome, fake = await _run({"prompt": "{nautobot.serial}"}, ctx, ai=ai)
         self.assertEqual((outcome.name, fake.prompt), ("failure", ""))
 
     async def test_other_bags_need_inventory_and_content(self) -> None:
-        ctx = _context(_device("r1", bags={"custom": {"site": "HQ"}}))
+        ctx = make_context([_device("r1", bags={"custom": {"site": "HQ"}})])
         for ai in (_ai(share_content_data=False), _ai(share_inventory_data=False)):
             outcome, fake = await _run({"prompt": "{custom.site}"}, ctx, ai=ai)
             self.assertEqual((outcome.name, fake.prompt), ("failure", ""))
@@ -562,7 +565,9 @@ class StructuredPlaceholderTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((outcome.name, fake.prompt), ("success", "HQ"))
 
     async def test_category_keys_below_another_bag_are_withheld(self) -> None:
-        ctx = _context(_device("r1", bags={"custom": {"config_context": {"k": "v"}, "x": "1"}}))
+        ctx = make_context(
+            [_device("r1", bags={"custom": {"config_context": {"k": "v"}, "x": "1"}})]
+        )
         outcome, fake = await _run({"prompt": "{custom.config_context.k}"}, ctx)
         self.assertEqual((outcome.name, fake.prompt), ("failure", ""))
         # structured: the withheld key is replaced, the rest is sent
@@ -573,43 +578,43 @@ class StructuredPlaceholderTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn('"x":"1"', fake.prompt)
 
     async def test_failure_message_names_the_setting_not_the_data(self) -> None:
-        ctx = _context(_device("r1", bags={"nautobot": {"serial": "SN12345"}}))
+        ctx = make_context([_device("r1", bags={"nautobot": {"serial": "SN12345"}})])
         outcome, _ = await _run({"prompt": "{nautobot.serial}"}, ctx)
         self.assertIn("Addresses and serial numbers", outcome.summary or "")
         self.assertNotIn("SN12345", outcome.summary or "")
 
     async def test_large_bag_is_cut(self) -> None:
         bag = {"interfaces": [{"name": f"Gi0/{i}", "description": "x" * 40} for i in range(2000)]}
-        ctx = _context(_device("r1", bags={"nautobot": bag}))
+        ctx = make_context([_device("r1", bags={"nautobot": bag})])
         _, fake = await _run({"prompt": "{nautobot}"}, ctx, ai=_ai(**_ALL_SWITCHES))
         self.assertIn("more characters)", fake.prompt)
         self.assertLess(len(fake.prompt), 21_000)
 
     async def test_missing_and_empty_bags_render_empty_without_gate(self) -> None:
-        ctx = _context(_device("r1", bags={"nautobot": {"tags": {}}}))
+        ctx = make_context([_device("r1", bags={"nautobot": {"tags": {}}})])
         outcome, fake = await _run({"prompt": "a[{nautobot.tags}]b[{nope}]"}, ctx)
         self.assertEqual(outcome.name, "success")
         self.assertEqual(fake.prompt, "a[]b[]")
 
     async def test_bag_text_cannot_inject_run_placeholders(self) -> None:
         bag = {"note": "{devices} {run_summary} {device_count}"}
-        ctx = _context(_device("r1", bags={"nautobot": bag}))
+        ctx = make_context([_device("r1", bags={"nautobot": bag})])
         _, fake = await _run({"prompt": "{nautobot}"}, ctx, ai=_ai(**_ALL_SWITCHES))
         self.assertIn("{devices} {run_summary} {device_count}", fake.prompt)
 
     async def test_run_level_markers_in_values_are_not_expanded(self) -> None:
         marker = "\x00devices\x00 \x00run_summary\x00 \x00device_count\x00"
-        ctx = _context(_device("r1", bags={"custom": {"note": f"a{marker}b"}}))
+        ctx = make_context([_device("r1", bags={"custom": {"note": f"a{marker}b"}})])
         _, fake = await _run({"prompt": "[{custom.note}]"}, ctx)
         self.assertEqual(fake.prompt, "[adevices run_summary device_countb]")  # NUL stripped
-        evil = _context(_device("r1"), _device("\x00run_summary\x00"))
+        evil = make_context([_device("r1"), _device("\x00run_summary\x00")])
         _, fake = await _run({"prompt": "{devices}"}, evil, ai=_ai())
         self.assertNotIn("device(s):", fake.prompt)
 
     async def test_other_steps_still_render_a_bag_as_empty(self) -> None:
         from workflow_steps.common.run_message_template import render_for_all_devices
 
-        ctx = _context(_device("r1", bags={"nautobot": _BAG}))
+        ctx = make_context([_device("r1", bags={"nautobot": _BAG})])
         self.assertEqual(render_for_all_devices("[{nautobot}]", ctx), "[]")
 
 
@@ -621,7 +626,7 @@ class AddressMaskingTests(unittest.IsolatedAsyncioTestCase):
     _PROMPT = "gw {custom.gw} host {custom.host} other {custom.other}"
 
     async def _go(self, masking, *, reply="ok", ai=None, address_map=None):
-        ctx = _context(_device("r1", bags=self._BAGS))
+        ctx = make_context([_device("r1", bags=self._BAGS)])
         return await _run(
             {"prompt": self._PROMPT},
             ctx,
@@ -674,7 +679,7 @@ class AddressMaskingTests(unittest.IsolatedAsyncioTestCase):
         bags = {"custom": {"cfg": f"hostname r1\n{_SECRET_LINE}"}}
         outcome, fake = await _run(
             {"prompt": "{custom.cfg}"},
-            _context(_device("r1", bags=bags)),
+            make_context([_device("r1", bags=bags)]),
             provider=_FakeProvider(reply="the key is __SECRET_1__"),
             masking="map",
             address_map=self._MAP,
@@ -689,13 +694,13 @@ class AddressReviewFixTests(unittest.IsolatedAsyncioTestCase):
         bags = {"custom": {"cfg": "{{ ntp server 9.9.9.9 }}"}}
         _, fake = await _run(
             {"prompt": "{custom.cfg}"},
-            _context(_device("r1", bags=bags)),
+            make_context([_device("r1", bags=bags)]),
             masking="auto",
         )
         self.assertNotIn("9.9.9.9", fake.prompt)
 
     async def test_the_system_prompt_warns_about_stand_in_addresses(self) -> None:
-        _, fake = await _run({"prompt": "hi"}, _context(_device("r1")))
+        _, fake = await _run({"prompt": "hi"}, make_context([_device("r1")]))
         self.assertIn("stand-in values", fake.system)
         self.assertIn("never invent, complete or list other addresses", fake.system)
 
@@ -704,7 +709,9 @@ class AddressReviewFixTests(unittest.IsolatedAsyncioTestCase):
 
         bags = {"custom": {"note": "x" * 90 + " 140.1.0.15 and more"}}
         with patch.object(executor, "MAX_PROMPT_CHARS", 97):  # lands inside 140.1.0.15
-            _, fake = await _run({"prompt": "{custom.note}"}, _context(_device("r1", bags=bags)))
+            _, fake = await _run(
+                {"prompt": "{custom.note}"}, make_context([_device("r1", bags=bags)])
+            )
         self.assertNotIn("140.1.0", fake.prompt)
         self.assertIn("more characters left out", fake.prompt)
 
@@ -712,14 +719,16 @@ class AddressReviewFixTests(unittest.IsolatedAsyncioTestCase):
 class RunSummaryTests(unittest.TestCase):
     def test_counts_and_failed_devices_without_error_text(self) -> None:
         error = DeviceError(node_id="n", step_id="s", code="ssh_timeout", message="secret text")
-        ctx = _context(_device("r1"), _device("r2", status=DeviceStatus.FAILED, errors=[error]))
+        ctx = make_context(
+            [_device("r1"), _device("r2", status=DeviceStatus.FAILED, errors=[error])]
+        )
         summary = build_run_summary(ctx)
         self.assertIn("2 device(s): 1 ok, 1 failed.", summary)
         self.assertIn("Failed: r2 (ssh_timeout)", summary)
         self.assertNotIn("secret text", summary)
 
     def test_empty(self) -> None:
-        self.assertEqual(build_run_summary(_context()), "No devices in this run.")
+        self.assertEqual(build_run_summary(make_context([])), "No devices in this run.")
 
 
 class RegistryProducesTests(unittest.IsolatedAsyncioTestCase):
@@ -737,7 +746,7 @@ class RegistryProducesTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_a_success_run_meets_the_declared_produces(self) -> None:
         spec = self._spec()
-        ctx = _context(_device("r1"), _device("r2"))
+        ctx = make_context([_device("r1"), _device("r2")])
         outcomes = await _run_all(
             {"prompt": "Summary: {run_summary}"}, ctx, provider=_FakeProvider()
         )

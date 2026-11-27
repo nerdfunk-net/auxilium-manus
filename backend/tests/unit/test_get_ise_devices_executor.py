@@ -10,13 +10,8 @@ from models.workflow_context import Capability, DeviceStatus, WorkflowContext
 from services.artifacts import InMemoryArtifactService
 from services.ise.common.exceptions import ISENotFoundError
 from services.ise.source_config_service import ISESourceNotFoundError
+from tests.unit._step_helpers import make_run
 from workflow_steps.get_ise_devices.executor import execute
-
-
-def _run() -> MagicMock:
-    run = MagicMock()
-    run.id = 1
-    return run
 
 
 def _context() -> WorkflowContext:
@@ -48,7 +43,7 @@ class GetIseDevicesExecutorTests(unittest.IsolatedAsyncioTestCase):
             await execute(
                 config={},
                 context=_context(),
-                run=_run(),
+                run=make_run(),
                 artifact_service=InMemoryArtifactService(),
                 node_id="node-1",
                 device_sessions=MagicMock(),
@@ -64,7 +59,7 @@ class GetIseDevicesExecutorTests(unittest.IsolatedAsyncioTestCase):
                     await execute(
                         config={**base_config, "query_mode": query_mode},
                         context=_context(),
-                        run=_run(),
+                        run=make_run(),
                         artifact_service=InMemoryArtifactService(),
                         node_id="node-1",
                         device_sessions=MagicMock(),
@@ -93,7 +88,7 @@ class GetIseDevicesExecutorTests(unittest.IsolatedAsyncioTestCase):
                     "device_names": ["router1", "missing-device"],
                 },
                 context=_context(),
-                run=_run(),
+                run=make_run(),
                 artifact_service=InMemoryArtifactService(),
                 node_id="node-1",
                 device_sessions=MagicMock(),
@@ -139,7 +134,7 @@ class GetIseDevicesExecutorTests(unittest.IsolatedAsyncioTestCase):
                     "fan_out": {"enabled": True},
                 },
                 context=_context(),
-                run=_run(),
+                run=make_run(),
                 artifact_service=InMemoryArtifactService(),
                 node_id="node-1",
                 device_sessions=MagicMock(),
@@ -170,7 +165,7 @@ class GetIseDevicesExecutorTests(unittest.IsolatedAsyncioTestCase):
                     "device_names": ["router1"],
                 },
                 context=_context(),
-                run=_run(),
+                run=make_run(),
                 artifact_service=InMemoryArtifactService(),
                 node_id="node-1",
                 device_sessions=MagicMock(),
@@ -218,7 +213,7 @@ class GetIseDevicesExecutorTests(unittest.IsolatedAsyncioTestCase):
                     "group_name": "Location#All Locations#Building1",
                 },
                 context=_context(),
-                run=_run(),
+                run=make_run(),
                 artifact_service=InMemoryArtifactService(),
                 node_id="node-1",
                 device_sessions=MagicMock(),
@@ -257,7 +252,7 @@ class GetIseDevicesExecutorTests(unittest.IsolatedAsyncioTestCase):
                     "cidr": "10.0.0.1/32",
                 },
                 context=_context(),
-                run=_run(),
+                run=make_run(),
                 artifact_service=InMemoryArtifactService(),
                 node_id="node-1",
                 device_sessions=MagicMock(),
@@ -307,7 +302,7 @@ class GetIseDevicesExecutorTests(unittest.IsolatedAsyncioTestCase):
                     "cidr": "10.0.0.0/24",
                 },
                 context=_context(),
-                run=_run(),
+                run=make_run(),
                 artifact_service=InMemoryArtifactService(),
                 node_id="node-1",
                 device_sessions=MagicMock(),
@@ -331,7 +326,7 @@ class GetIseDevicesExecutorTests(unittest.IsolatedAsyncioTestCase):
                     "resolve_to_devices": True,
                 },
                 context=_context(),
-                run=_run(),
+                run=make_run(),
                 artifact_service=InMemoryArtifactService(),
                 node_id="node-1",
                 device_sessions=MagicMock(),
@@ -377,7 +372,7 @@ class GetIseDevicesExecutorTests(unittest.IsolatedAsyncioTestCase):
                     "nautobot_source_id": "prod-lab",
                 },
                 context=_context(),
-                run=_run(),
+                run=make_run(),
                 artifact_service=InMemoryArtifactService(),
                 node_id="node-1",
                 device_sessions=MagicMock(),
@@ -429,7 +424,7 @@ class GetIseDevicesExecutorTests(unittest.IsolatedAsyncioTestCase):
                     "nautobot_source_id": "prod-lab",
                 },
                 context=_context(),
-                run=_run(),
+                run=make_run(),
                 artifact_service=InMemoryArtifactService(),
                 node_id="node-1",
                 device_sessions=MagicMock(),
@@ -466,7 +461,7 @@ class GetIseDevicesExecutorTests(unittest.IsolatedAsyncioTestCase):
                         "device_names": ["x"],
                     },
                     context=_context(),
-                    run=_run(),
+                    run=make_run(),
                     artifact_service=InMemoryArtifactService(),
                     node_id="node-1",
                     device_sessions=MagicMock(),
@@ -498,7 +493,7 @@ class GetIseDevicesExecutorTests(unittest.IsolatedAsyncioTestCase):
                     },
                 },
                 context=_context(),
-                run=_run(),
+                run=make_run(),
                 artifact_service=InMemoryArtifactService(),
                 node_id="node-1",
                 device_sessions=MagicMock(),

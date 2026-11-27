@@ -13,6 +13,7 @@ from models.workflow_context import (
     WorkflowContext,
 )
 from services.artifacts import InMemoryArtifactService
+from tests.unit._step_helpers import make_run
 from workflow_steps.common.regex_search import replace_many
 from workflow_steps.update_content.executor import (
     _parse_rules,
@@ -111,18 +112,12 @@ class SourceRefTests(unittest.TestCase):
         self.assertEqual(_source_ref(device, "startup_config").artifact_id, "sc")
 
 
-def _run() -> MagicMock:
-    run = MagicMock()
-    run.id = 1
-    return run
-
-
 class ExecuteTests(unittest.IsolatedAsyncioTestCase):
     async def test_empty_devices_returns_success(self) -> None:
         outcomes = await execute(
             config={"replace_rules": [{"pattern": "x"}]},
             context=WorkflowContext(run_id="r", workflow_id="w", devices={}),
-            run=_run(),
+            run=make_run(),
             artifact_service=InMemoryArtifactService(),
             node_id="n",
             device_sessions=MagicMock(),
@@ -148,7 +143,7 @@ class ExecuteTests(unittest.IsolatedAsyncioTestCase):
         outcomes = await execute(
             config={"replace_rules": [{"pattern": "secret \\S+", "replacement": "secret ***"}]},
             context=WorkflowContext(run_id="run-1", workflow_id="w", devices={"d1": device}),
-            run=_run(),
+            run=make_run(),
             artifact_service=artifacts,
             node_id="uc-1",
             device_sessions=MagicMock(),
@@ -181,7 +176,7 @@ class ExecuteTests(unittest.IsolatedAsyncioTestCase):
             await execute(
                 config={"replace_rules": [{"pattern": "a", "replacement": "b"}]},
                 context=WorkflowContext(run_id="run-1", workflow_id="w", devices={"d1": device}),
-                run=_run(),
+                run=make_run(),
                 artifact_service=artifacts,
                 node_id="uc-1",
                 device_sessions=MagicMock(),
@@ -202,7 +197,7 @@ class ExecuteTests(unittest.IsolatedAsyncioTestCase):
         outcomes = await execute(
             config={"replace_rules": [{"pattern": "x"}]},
             context=WorkflowContext(run_id="run-1", workflow_id="w", devices={"d1": device}),
-            run=_run(),
+            run=make_run(),
             artifact_service=InMemoryArtifactService(),
             node_id="uc-1",
             device_sessions=MagicMock(),
@@ -226,7 +221,7 @@ class ExecuteTests(unittest.IsolatedAsyncioTestCase):
         return await execute(
             config={"replace_rules": [{"pattern": "typo-pattern", "replacement": "x"}], **extra},
             context=WorkflowContext(run_id="run-1", workflow_id="w", devices={"d1": device}),
-            run=_run(),
+            run=make_run(),
             artifact_service=artifacts,
             node_id="uc-1",
             device_sessions=MagicMock(),
@@ -264,7 +259,7 @@ class ExecuteTests(unittest.IsolatedAsyncioTestCase):
         outcomes = await execute(
             config={"replace_rules": [{"pattern": "x"}]},
             context=WorkflowContext(run_id="run-1", workflow_id="w", devices={"d1": device}),
-            run=_run(),
+            run=make_run(),
             artifact_service=artifacts,
             node_id="uc-1",
             device_sessions=MagicMock(),

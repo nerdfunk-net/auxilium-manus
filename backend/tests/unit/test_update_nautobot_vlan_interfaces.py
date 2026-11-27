@@ -7,6 +7,7 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from models.workflow_context import Capability, DeviceContext, DeviceStatus, WorkflowContext
+from tests.unit._step_helpers import make_context
 from workflow_steps.update_nautobot_vlan import executor as mod
 from workflow_steps.update_nautobot_vlan.executor import _parse_config, execute
 
@@ -40,10 +41,6 @@ def _device(did: str, location: str | None, interfaces: list | None) -> DeviceCo
         status=DeviceStatus.OK,
         attribute_bags={"nautobot": bag},
     )
-
-
-def _context(*devices: DeviceContext) -> WorkflowContext:
-    return WorkflowContext(run_id="r", workflow_id="w", devices={d.id: d for d in devices})
 
 
 def _config(**overrides: Any) -> dict[str, Any]:
@@ -100,7 +97,9 @@ class InterfaceModeTests(unittest.IsolatedAsyncioTestCase):
             {"untagged_vlan": _vlan(_V10, 10), "tagged_vlans": [_vlan(_V20, 20), _vlan(_V30, 30)]},
             {"untagged_vlan": None, "tagged_vlans": []},
         ]
-        out, common = await _run(_config(), _context(_device("a", _LOC_A, interfaces)))
+        out, common = await _run(
+            _config(), make_context([_device("a", _LOC_A, interfaces)], run_id="r", workflow_id="w")
+        )
         calls = common.update_vlan.await_args_list
         self.assertEqual({c.args[0] for c in calls}, {_V10, _V20, _V30})
         self.assertEqual(len(calls), 3)
@@ -117,13 +116,20 @@ class InterfaceModeTests(unittest.IsolatedAsyncioTestCase):
         interfaces = [{"untagged_vlan": _vlan(_V10, 10, (_LOC_A,)), "tagged_vlans": []}]
         common = MagicMock()
         common.update_vlan = AsyncMock(return_value=False)
-        out, common = await _run(_config(), _context(_device("a", _LOC_A, interfaces)), common)
+        out, common = await _run(
+            _config(),
+            make_context([_device("a", _LOC_A, interfaces)], run_id="r", workflow_id="w"),
+            common,
+        )
         common.update_vlan.assert_awaited_once()
         self.assertEqual(out["success"].metadata["n1.update_vlan_counts"]["unchanged"], 1)
 
     async def test_a_stale_bag_does_not_hide_a_missing_location_in_a_dry_run(self) -> None:
         interfaces = [{"untagged_vlan": _vlan(_V10, 10, (_LOC_A,)), "tagged_vlans": []}]
-        out, common = await _run(_config(dry_run=True), _context(_device("a", _LOC_A, interfaces)))
+        out, common = await _run(
+            _config(dry_run=True),
+            make_context([_device("a", _LOC_A, interfaces)], run_id="r", workflow_id="w"),
+        )
         common.missing_vlan_locations.assert_awaited_once_with(_V10, [_LOC_A])
         preview = out["success"].devices["a"].dry_run_results["n1"]
         self.assertEqual([v["vid"] for v in preview["would_add_location"]], [10])
@@ -137,20 +143,30 @@ class InterfaceModeTests(unittest.IsolatedAsyncioTestCase):
             devices = [_device(f"d{i}", _LOC_A, interfaces) for i in range(10)]
             common = MagicMock()
             common.update_vlan = AsyncMock(return_value=False)
-            out, _ = await _run(_config(), _context(*devices), common)
+            out, _ = await _run(
+                _config(), make_context(devices, run_id="r", workflow_id="w"), common
+            )
             counts = out["success"].metadata["n1.update_vlan_counts"]
             self.assertEqual((counts["updated"], counts["unchanged"]), (0, 1), bag_locations)
 
     async def test_same_pair_on_two_devices_is_written_once(self) -> None:
         interfaces = [{"untagged_vlan": _vlan(_V10, 10), "tagged_vlans": []}]
-        ctx = _context(_device("a", _LOC_A, interfaces), _device("b", _LOC_A, interfaces))
+        ctx = make_context(
+            [_device("a", _LOC_A, interfaces), _device("b", _LOC_A, interfaces)],
+            run_id="r",
+            workflow_id="w",
+        )
         out, common = await _run(_config(), ctx)
         self.assertEqual(common.update_vlan.await_count, 1)
         self.assertEqual(set(out["success"].devices), {"a", "b"})
 
     async def test_different_locations_are_separate_writes(self) -> None:
         interfaces = [{"untagged_vlan": _vlan(_V10, 10), "tagged_vlans": []}]
-        ctx = _context(_device("a", _LOC_A, interfaces), _device("b", _LOC_B, interfaces))
+        ctx = make_context(
+            [_device("a", _LOC_A, interfaces), _device("b", _LOC_B, interfaces)],
+            run_id="r",
+            workflow_id="w",
+        )
         _, common = await _run(_config(), ctx)
         self.assertEqual(common.update_vlan.await_count, 2)
 
@@ -161,7 +177,9 @@ class InterfaceModeTests(unittest.IsolatedAsyncioTestCase):
             side_effect=lambda vlan_id, locs: list(locs) if vlan_id == _V10 else []
         )
         out, common = await _run(
-            _config(dry_run=True), _context(_device("a", _LOC_A, interfaces)), common
+            _config(dry_run=True),
+            make_context([_device("a", _LOC_A, interfaces)], run_id="r", workflow_id="w"),
+            common,
         )
         common.update_vlan.assert_not_awaited()
         device = out["success"].devices["a"]
@@ -177,23 +195,32 @@ class InterfaceModeTests(unittest.IsolatedAsyncioTestCase):
         common = MagicMock()
         common.missing_vlan_locations = AsyncMock(return_value=[])
         out, _ = await _run(
-            _config(dry_run=True), _context(_device("a", _LOC_A, interfaces)), common
+            _config(dry_run=True),
+            make_context([_device("a", _LOC_A, interfaces)], run_id="r", workflow_id="w"),
+            common,
         )
         common.missing_vlan_locations.assert_awaited_once_with(_V10, [_LOC_A])
         self.assertEqual(out["success"].metadata["n1.update_vlan_counts"]["updated"], 0)
 
     async def test_missing_location_fails_the_device(self) -> None:
         interfaces = [{"untagged_vlan": _vlan(_V10, 10), "tagged_vlans": []}]
-        out, common = await _run(_config(), _context(_device("a", None, interfaces)))
+        out, common = await _run(
+            _config(), make_context([_device("a", None, interfaces)], run_id="r", workflow_id="w")
+        )
         self.assertEqual(out["failure"].devices["a"].errors[0].code, "device_location_missing")
         common.update_vlan.assert_not_awaited()
 
     async def test_missing_interfaces_fails_the_device(self) -> None:
-        out, _ = await _run(_config(), _context(_device("a", _LOC_A, None)))
+        out, _ = await _run(
+            _config(), make_context([_device("a", _LOC_A, None)], run_id="r", workflow_id="w")
+        )
         self.assertEqual(out["failure"].devices["a"].errors[0].code, "interfaces_missing")
 
     async def test_device_without_vlans_succeeds(self) -> None:
-        out, common = await _run(_config(), _context(_device("a", _LOC_A, [{"name": "lo0"}])))
+        out, common = await _run(
+            _config(),
+            make_context([_device("a", _LOC_A, [{"name": "lo0"}])], run_id="r", workflow_id="w"),
+        )
         self.assertIn("a", out["success"].devices)
         common.update_vlan.assert_not_awaited()
 
@@ -207,7 +234,7 @@ class InterfaceModeTests(unittest.IsolatedAsyncioTestCase):
         common.update_vlan = AsyncMock(side_effect=update)
         a = _device("a", _LOC_A, [{"untagged_vlan": _vlan(_V10, 10), "tagged_vlans": []}])
         b = _device("b", _LOC_A, [{"untagged_vlan": _vlan(_V20, 20), "tagged_vlans": []}])
-        out, _ = await _run(_config(), _context(a, b), common)
+        out, _ = await _run(_config(), make_context([a, b], run_id="r", workflow_id="w"), common)
         self.assertIn("a", out["success"].devices)
         self.assertIn("b", out["failure"].devices)
         self.assertEqual(out["failure"].metadata["n1.update_vlan_counts"]["failed"], 1)
@@ -216,13 +243,17 @@ class InterfaceModeTests(unittest.IsolatedAsyncioTestCase):
         bad = {"id": "not-a-uuid", "vid": 5, "name": "x", "locations": []}
         out, common = await _run(
             _config(),
-            _context(_device("a", _LOC_A, [{"untagged_vlan": bad, "tagged_vlans": []}])),
+            make_context(
+                [_device("a", _LOC_A, [{"untagged_vlan": bad, "tagged_vlans": []}])],
+                run_id="r",
+                workflow_id="w",
+            ),
         )
         common.update_vlan.assert_not_awaited()
         self.assertIn("a", out["success"].devices)
 
     async def test_no_devices_makes_no_connection(self) -> None:
-        out, common = await _run(_config(), _context())
+        out, common = await _run(_config(), make_context([], run_id="r", workflow_id="w"))
         self.assertEqual(out["success"].devices, {})
         common.update_vlan.assert_not_awaited()
 

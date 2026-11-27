@@ -18,6 +18,7 @@ from models.workflow_context import Capability, DeviceContext, DeviceStatus, Wor
 from services.aci.common.exceptions import AciAPIError, AciValidationError
 from services.aci.source_config_service import AciSourceNotFoundError
 from services.artifacts import InMemoryArtifactService
+from tests.unit._step_helpers import make_context
 from workflow_steps.common.device_builders import device_context_from_aci
 from workflow_steps.get_aci_details.config import get_config
 from workflow_steps.get_aci_details.executor import (
@@ -34,10 +35,6 @@ def _aci_device(node_id: int, *, source_id: str = "lab", pod_id: int = 1) -> Dev
         AciDevice(node_id=node_id, name=f"leaf-{node_id}", role="leaf", pod_id=pod_id),
         source_id=source_id,
     )
-
-
-def _context(*devices: DeviceContext) -> WorkflowContext:
-    return WorkflowContext(run_id="run-1", workflow_id="wf-1", devices={d.id: d for d in devices})
 
 
 def _service(**overrides) -> MagicMock:
@@ -120,13 +117,13 @@ class ConfigTests(unittest.IsolatedAsyncioTestCase):
         for config in bad:
             with self.subTest(config=config), _Patched(_service()) as p:
                 with self.assertRaises(ValueError) as ctx:
-                    await _run(config, _context(_aci_device(101)))
+                    await _run(config, make_context([_aci_device(101)]))
                 self.assertIn("get-aci-details", str(ctx.exception))
                 p.source_config.resolve_credentials.assert_not_called()
 
     async def test_unknown_facts_are_named_with_the_valid_choices(self) -> None:
         with _Patched(_service()), self.assertRaises(ValueError) as ctx:
-            await _run({"facts": ["devices"]}, _context(_aci_device(101)))
+            await _run({"facts": ["devices"]}, make_context([_aci_device(101)]))
         self.assertIn("devices", str(ctx.exception))
         self.assertIn("interfaces", str(ctx.exception))
 
@@ -159,7 +156,7 @@ class ConfigTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_missing_facts_use_the_default(self) -> None:
         with _Patched(_service()) as p:
-            outcomes = await _run({}, _context(_aci_device(101)))
+            outcomes = await _run({}, make_context([_aci_device(101)]))
         parsed = outcomes[0].context.devices["aci-lab-101"].parsed["aci_details"]
         self.assertEqual(list(parsed), ["device", "software", "interfaces"])
         p.service.get_hardware.assert_not_called()
@@ -168,7 +165,7 @@ class ConfigTests(unittest.IsolatedAsyncioTestCase):
 class TargetTests(unittest.IsolatedAsyncioTestCase):
     async def test_no_devices_is_a_noop_success(self) -> None:
         with _Patched(_service()) as p:
-            outcomes = await _run({"facts": ["device"]}, _context())
+            outcomes = await _run({"facts": ["device"]}, make_context([]))
         self.assertEqual([o.name for o in outcomes], ["success"])
         p.source_config.resolve_credentials.assert_not_called()
 
@@ -177,7 +174,7 @@ class TargetTests(unittest.IsolatedAsyncioTestCase):
             id="nb", name="x", hostname="x", source="nautobot", source_id="nb1"
         )
         with _Patched(_service()) as p:
-            outcomes = await _run({"facts": ["device"]}, _context(nautobot, _aci_device(101)))
+            outcomes = await _run({"facts": ["device"]}, make_context([nautobot, _aci_device(101)]))
         by_name = {o.name: o for o in outcomes}
         failed = by_name["failure"].context.devices["nb"]
         self.assertEqual(failed.status, DeviceStatus.FAILED)
@@ -189,7 +186,7 @@ class TargetTests(unittest.IsolatedAsyncioTestCase):
     async def test_an_aci_device_without_a_node_in_its_bag_fails(self) -> None:
         broken = _aci_device(101).model_copy(update={"attribute_bags": {}})
         with _Patched(_service()) as p:
-            outcomes = await _run({"facts": ["device"]}, _context(broken))
+            outcomes = await _run({"facts": ["device"]}, make_context([broken]))
         failed = {o.name: o for o in outcomes}["failure"].context.devices[broken.id]
         self.assertEqual(failed.errors[0].code, "aci_node_unknown")
         self.assertEqual(failed.errors[0].failure.kind, "bad_request")
@@ -204,7 +201,7 @@ class TargetTests(unittest.IsolatedAsyncioTestCase):
         ):
             broken = _aci_device(101).model_copy(update={"attribute_bags": {"aci": bag}})
             with self.subTest(bag=bag), _Patched(_service()) as p:
-                outcomes = await _run({"facts": ["device"]}, _context(broken))
+                outcomes = await _run({"facts": ["device"]}, make_context([broken]))
                 failed = {o.name: o for o in outcomes}["failure"].context.devices[broken.id]
                 self.assertEqual(failed.errors[0].code, "aci_node_unknown")
                 self.assertEqual(failed.errors[0].failure.kind, "bad_request")
@@ -217,7 +214,7 @@ class TargetTests(unittest.IsolatedAsyncioTestCase):
             _aci_device(1, source_id="b"),
         ]
         with _Patched(_service()) as p:
-            await _run({"facts": ["device"]}, _context(*devices))
+            await _run({"facts": ["device"]}, make_context(devices))
         resolved = sorted(c.args[0] for c in p.source_config.resolve_credentials.call_args_list)
         self.assertEqual(resolved, ["a", "b"])
         self.assertEqual(p.builder.call_count, 3)  # one details service per device
@@ -227,18 +224,18 @@ class TargetTests(unittest.IsolatedAsyncioTestCase):
             _Patched(_service(), AciSourceNotFoundError("lab")),
             self.assertRaisesRegex(ValueError, "'lab' not found"),
         ):
-            await _run({"facts": ["device"]}, _context(_aci_device(101)))
+            await _run({"facts": ["device"]}, make_context([_aci_device(101)]))
 
     async def test_a_source_without_a_usable_credential_is_a_config_error(self) -> None:
         with (
             _Patched(_service(), AciValidationError("no linked credential")),
             self.assertRaisesRegex(ValueError, "no linked credential"),
         ):
-            await _run({"facts": ["device"]}, _context(_aci_device(101)))
+            await _run({"facts": ["device"]}, make_context([_aci_device(101)]))
 
     async def test_a_missing_db_session_is_a_runtime_error(self) -> None:
         with _Patched(_service(), db=None), self.assertRaises(RuntimeError):
-            await _run({"facts": ["device"]}, _context(_aci_device(101)))
+            await _run({"facts": ["device"]}, make_context([_aci_device(101)]))
 
 
 class CollectTests(unittest.IsolatedAsyncioTestCase):
@@ -259,12 +256,14 @@ class CollectTests(unittest.IsolatedAsyncioTestCase):
         }
         for fact, method in expected.items():
             with self.subTest(fact=fact), _Patched(_service()) as p:
-                await _run({"facts": [fact]}, _context(_aci_device(101, pod_id=2)))
+                await _run({"facts": [fact]}, make_context([_aci_device(101, pod_id=2)]))
                 getattr(p.service, method).assert_awaited_once_with(2, 101)
 
     async def test_device_and_software_share_one_call(self) -> None:
         with _Patched(_service()) as p:
-            outcomes = await _run({"facts": ["software", "device"]}, _context(_aci_device(101)))
+            outcomes = await _run(
+                {"facts": ["software", "device"]}, make_context([_aci_device(101)])
+            )
         p.service.get_device_and_software.assert_awaited_once_with(1, 101)
         parsed = outcomes[0].context.devices["aci-lab-101"].parsed["aci_details"]
         self.assertEqual(list(parsed), ["device", "software"])
@@ -274,7 +273,8 @@ class CollectTests(unittest.IsolatedAsyncioTestCase):
     async def test_facts_land_in_the_canonical_order_without_duplicates(self) -> None:
         with _Patched(_service()):
             outcomes = await _run(
-                {"facts": ["interfaces", "device", "device", "health"]}, _context(_aci_device(101))
+                {"facts": ["interfaces", "device", "device", "health"]},
+                make_context([_aci_device(101)]),
             )
         parsed = outcomes[0].context.devices["aci-lab-101"].parsed["aci_details"]
         self.assertEqual(list(parsed), ["device", "interfaces", "health"])
@@ -283,7 +283,9 @@ class CollectTests(unittest.IsolatedAsyncioTestCase):
         self,
     ) -> None:
         with _Patched(_service()):
-            outcomes = await _run({"facts": ["interfaces", "health"]}, _context(_aci_device(101)))
+            outcomes = await _run(
+                {"facts": ["interfaces", "health"]}, make_context([_aci_device(101)])
+            )
         device = outcomes[0].context.devices["aci-lab-101"]
         entry = device.parsed["aci_details"]["interfaces"]
         self.assertEqual(entry["error"], None)
@@ -299,14 +301,14 @@ class CollectTests(unittest.IsolatedAsyncioTestCase):
         device = _aci_device(101).model_copy(update={"parsed": {"other": {"x": 1}}})
         with _Patched(_service()):
             outcomes = await _run(
-                {"facts": ["health"], "parsed_output_key": "fabric"}, _context(device)
+                {"facts": ["health"], "parsed_output_key": "fabric"}, make_context([device])
             )
         parsed = outcomes[0].context.devices[device.id].parsed
         self.assertEqual(set(parsed), {"other", "fabric"})
         self.assertEqual(parsed["other"], {"x": 1})
 
     async def test_the_input_context_is_not_mutated(self) -> None:
-        context = _context(_aci_device(101))
+        context = make_context([_aci_device(101)])
         before = context.model_dump()
         with _Patched(_service()):
             await _run({"facts": ["interfaces"]}, context)
@@ -318,7 +320,7 @@ class CollectTests(unittest.IsolatedAsyncioTestCase):
         )
         with _Patched(service):
             outcomes = await _run(
-                {"facts": ["device", "interfaces", "health"]}, _context(_aci_device(101))
+                {"facts": ["device", "interfaces", "health"]}, make_context([_aci_device(101)])
             )
         self.assertEqual([o.name for o in outcomes], ["success"])
         parsed = outcomes[0].context.devices["aci-lab-101"].parsed["aci_details"]
@@ -334,7 +336,9 @@ class CollectTests(unittest.IsolatedAsyncioTestCase):
             get_interfaces=AsyncMock(side_effect=err), get_health=AsyncMock(side_effect=err)
         )
         with _Patched(service):
-            outcomes = await _run({"facts": ["interfaces", "health"]}, _context(_aci_device(101)))
+            outcomes = await _run(
+                {"facts": ["interfaces", "health"]}, make_context([_aci_device(101)])
+            )
         self.assertEqual([o.name for o in outcomes], ["success", "failure"])
         failed = outcomes[1].context.devices["aci-lab-101"]
         self.assertEqual(failed.status, DeviceStatus.FAILED)
@@ -349,7 +353,9 @@ class CollectTests(unittest.IsolatedAsyncioTestCase):
             get_device_and_software=AsyncMock(side_effect=AciAPIError("nope", code="transport"))
         )
         with _Patched(service):
-            outcomes = await _run({"facts": ["device", "software"]}, _context(_aci_device(101)))
+            outcomes = await _run(
+                {"facts": ["device", "software"]}, make_context([_aci_device(101)])
+            )
         failed = {o.name: o for o in outcomes}["failure"].context.devices["aci-lab-101"]
         self.assertEqual(failed.parsed["aci_details"]["device"]["error"], "nope")
         self.assertEqual(failed.parsed["aci_details"]["software"]["error"], "nope")
@@ -362,7 +368,7 @@ class CollectTests(unittest.IsolatedAsyncioTestCase):
 
         with _Patched(_service(get_interfaces=interfaces)):
             outcomes = await _run(
-                {"facts": ["interfaces"]}, _context(_aci_device(101), _aci_device(102))
+                {"facts": ["interfaces"]}, make_context([_aci_device(101), _aci_device(102)])
             )
         by_name = {o.name: o for o in outcomes}
         self.assertEqual(list(by_name["success"].context.devices), ["aci-lab-101"])
@@ -372,7 +378,7 @@ class CollectTests(unittest.IsolatedAsyncioTestCase):
         """W8-01: it used to escape the step; it is not swallowed, it is on the failed device."""
         service = _service(get_interfaces=AsyncMock(side_effect=RuntimeError("bug")))
         with _Patched(service):
-            outcomes = await _run({"facts": ["interfaces"]}, _context(_aci_device(101)))
+            outcomes = await _run({"facts": ["interfaces"]}, make_context([_aci_device(101)]))
 
         failed = next(o for o in outcomes if o.name == "failure").context.devices["aci-lab-101"]
         error = failed.errors[-1]
@@ -396,7 +402,7 @@ class CollectTests(unittest.IsolatedAsyncioTestCase):
         with _Patched(_service(**overrides)):
             await _run(
                 {"facts": ["hardware", "interfaces", "neighbors", "vlans", "routes", "endpoints"]},
-                _context(_aci_device(101)),
+                make_context([_aci_device(101)]),
             )
         self.assertGreater(state["max"], 1)
         self.assertLessEqual(state["max"], 4)
@@ -406,7 +412,7 @@ class CollectTests(unittest.IsolatedAsyncioTestCase):
             _Patched(_service()),
             self.assertLogs("workflow_steps.common.fact_entries", level="INFO") as logs,
         ):
-            await _run({"facts": ["device"]}, _context(_aci_device(101)))
+            await _run({"facts": ["device"]}, make_context([_aci_device(101)]))
         text = "\n".join(logs.output)
         self.assertIn("get-aci-details started", text)
         self.assertIn("get-aci-details finished success=1 failure=0", text)

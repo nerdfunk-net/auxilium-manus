@@ -13,6 +13,7 @@ from models.workflow_context import (
     DeviceStatus,
     WorkflowContext,
 )
+from tests.unit._step_helpers import make_run
 from workflow_steps.reachable.executor import (
     _parse_positive_int,
     _parse_positive_number,
@@ -57,12 +58,6 @@ class ParseHelperTests(unittest.TestCase):
                 _parse_positive_number({"timeout_seconds": raw}, "timeout_seconds")
 
 
-def _run() -> MagicMock:
-    run = MagicMock()
-    run.id = 1
-    return run
-
-
 _PING = "workflow_steps.reachable.executor.async_ping"
 
 
@@ -71,8 +66,10 @@ class ExecuteTests(unittest.IsolatedAsyncioTestCase):
         return await execute(
             config=config,
             context=WorkflowContext(run_id="r", workflow_id="w", devices=devices),
-            run=_run(), artifact_service=MagicMock(),
-            node_id="reach-1", device_sessions=MagicMock(),
+            run=make_run(),
+            artifact_service=MagicMock(),
+            node_id="reach-1",
+            device_sessions=MagicMock(),
         )
 
     async def test_empty_devices_returns_both_outcomes(self) -> None:

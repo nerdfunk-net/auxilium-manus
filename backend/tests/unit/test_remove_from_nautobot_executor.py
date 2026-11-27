@@ -15,6 +15,7 @@ from models.workflow_context import (
 )
 from services.nautobot.common.exceptions import NautobotAPIError, NautobotNotFoundError
 from services.workflow_context.secret_fields import REDACTED_PLACEHOLDER
+from tests.unit._step_helpers import make_context
 from workflow_steps.remove_from_nautobot import executor as mod
 from workflow_steps.remove_from_nautobot.executor import _parse_config, execute
 
@@ -34,10 +35,6 @@ def _device(did: str = _DEVICE_UUID, **overrides: Any) -> DeviceContext:
         status=DeviceStatus.OK,
         **overrides,
     )
-
-
-def _context(*devices: DeviceContext) -> WorkflowContext:
-    return WorkflowContext(run_id="r", workflow_id="w", devices={d.id: d for d in devices})
 
 
 def _config(**overrides: Any) -> dict:
@@ -95,7 +92,7 @@ class ParseConfigTests(unittest.TestCase):
 class ExecuteTests(unittest.IsolatedAsyncioTestCase):
     async def test_removes_device_by_uuid_without_touching_ips(self) -> None:
         common = _common(owned=[_IP_A])
-        out = await _run(_config(), _context(_device()), common)
+        out = await _run(_config(), make_context([_device()], run_id="r", workflow_id="w"), common)
         self.assertIn(_DEVICE_UUID, out["success"].devices)
         self.assertEqual(out["failure"].devices, {})
         common.delete_device.assert_awaited_once_with(_DEVICE_UUID)
@@ -110,14 +107,22 @@ class ExecuteTests(unittest.IsolatedAsyncioTestCase):
         common = _common(owned=[_IP_A, _IP_B])
         common.delete_ip_address = AsyncMock(side_effect=lambda ip: order.append(f"ip:{ip}"))
         common.delete_device = AsyncMock(side_effect=lambda d: order.append(f"device:{d}"))
-        out = await _run(_config(remove_ip_addresses=True), _context(_device()), common)
+        out = await _run(
+            _config(remove_ip_addresses=True),
+            make_context([_device()], run_id="r", workflow_id="w"),
+            common,
+        )
         self.assertEqual(order, [f"ip:{_IP_A}", f"ip:{_IP_B}", f"device:{_DEVICE_UUID}"])
         counts = out["success"].metadata["n1.remove_counts"]
         self.assertEqual(counts["ips_removed"], 2)
 
     async def test_shared_ip_is_kept_and_counted(self) -> None:
         common = _common(owned=[_IP_A], shared=[_IP_SHARED])
-        out = await _run(_config(remove_ip_addresses=True), _context(_device()), common)
+        out = await _run(
+            _config(remove_ip_addresses=True),
+            make_context([_device()], run_id="r", workflow_id="w"),
+            common,
+        )
         deleted = [c.args[0] for c in common.delete_ip_address.await_args_list]
         self.assertEqual(deleted, [_IP_A])
         counts = out["success"].metadata["n1.remove_counts"]
@@ -129,7 +134,11 @@ class ExecuteTests(unittest.IsolatedAsyncioTestCase):
         common.delete_ip_address = AsyncMock(
             side_effect=[None, NautobotAPIError("boom", http_status=500)]
         )
-        out = await _run(_config(remove_ip_addresses=True), _context(_device()), common)
+        out = await _run(
+            _config(remove_ip_addresses=True),
+            make_context([_device()], run_id="r", workflow_id="w"),
+            common,
+        )
         common.delete_device.assert_not_awaited()
         failed = out["failure"].devices[_DEVICE_UUID]
         self.assertEqual(failed.errors[-1].code, "ip_delete_failed")
@@ -141,21 +150,29 @@ class ExecuteTests(unittest.IsolatedAsyncioTestCase):
     async def test_not_a_uuid_fails_without_calls(self) -> None:
         common = _common()
         dev = _device("not-a-uuid")
-        out = await _run(_config(), _context(dev), common)
+        out = await _run(_config(), make_context([dev], run_id="r", workflow_id="w"), common)
         self.assertEqual(out["failure"].devices["not-a-uuid"].errors[-1].code, "device_id_invalid")
         common.delete_device.assert_not_awaited()
         common.get_device_details.assert_not_awaited()
 
     async def test_fixed_uuid_in_config_wins_over_device_id(self) -> None:
         common = _common()
-        await _run(_config(device_id=_OTHER_UUID), _context(_device()), common)
+        await _run(
+            _config(device_id=_OTHER_UUID),
+            make_context([_device()], run_id="r", workflow_id="w"),
+            common,
+        )
         common.get_device_details.assert_awaited_once_with(_OTHER_UUID)
         common.delete_device.assert_awaited_once_with(_OTHER_UUID)
 
     async def test_device_not_found(self) -> None:
         common = _common()
         common.get_device_details = AsyncMock(side_effect=NautobotNotFoundError("x"))
-        out = await _run(_config(remove_ip_addresses=True), _context(_device()), common)
+        out = await _run(
+            _config(remove_ip_addresses=True),
+            make_context([_device()], run_id="r", workflow_id="w"),
+            common,
+        )
         self.assertEqual(out["failure"].devices[_DEVICE_UUID].errors[-1].code, "device_not_found")
         common.delete_device.assert_not_awaited()
         common.delete_ip_address.assert_not_awaited()
@@ -163,7 +180,7 @@ class ExecuteTests(unittest.IsolatedAsyncioTestCase):
     async def test_device_delete_failure(self) -> None:
         common = _common()
         common.delete_device = AsyncMock(side_effect=NautobotAPIError("no", http_status=409))
-        out = await _run(_config(), _context(_device()), common)
+        out = await _run(_config(), make_context([_device()], run_id="r", workflow_id="w"), common)
         self.assertIn(_DEVICE_UUID, out["failure"].devices)
         self.assertEqual(out["failure"].devices[_DEVICE_UUID].status, DeviceStatus.FAILED)
 
@@ -172,7 +189,9 @@ class ExecuteTests(unittest.IsolatedAsyncioTestCase):
         with patch.object(
             mod, "resolve_update_field_expression", return_value=REDACTED_PLACEHOLDER
         ):
-            out = await _run(_config(), _context(_device()), common)
+            out = await _run(
+                _config(), make_context([_device()], run_id="r", workflow_id="w"), common
+            )
         self.assertEqual(
             out["failure"].devices[_DEVICE_UUID].errors[-1].code, "device_id_is_secret"
         )
@@ -181,7 +200,9 @@ class ExecuteTests(unittest.IsolatedAsyncioTestCase):
     async def test_unresolved_expression_fails_device(self) -> None:
         common = _common()
         with patch.object(mod, "resolve_update_field_expression", return_value=None):
-            out = await _run(_config(), _context(_device()), common)
+            out = await _run(
+                _config(), make_context([_device()], run_id="r", workflow_id="w"), common
+            )
         self.assertEqual(
             out["failure"].devices[_DEVICE_UUID].errors[-1].code, "device_id_unresolved"
         )
@@ -190,7 +211,7 @@ class ExecuteTests(unittest.IsolatedAsyncioTestCase):
         with patch.object(mod, "_bind_nautobot", side_effect=AssertionError("bound")):
             outcomes = await execute(
                 config=_config(),
-                context=_context(),
+                context=make_context([], run_id="r", workflow_id="w"),
                 run=MagicMock(id="r"),
                 artifact_service=MagicMock(),
                 node_id="n1",
@@ -203,7 +224,13 @@ class ExecuteTests(unittest.IsolatedAsyncioTestCase):
         common.get_device_details = AsyncMock(
             side_effect=[NautobotNotFoundError("x"), {"id": _OTHER_UUID}]
         )
-        out = await _run(_config(), _context(_device(_DEVICE_UUID), _device(_OTHER_UUID)), common)
+        out = await _run(
+            _config(),
+            make_context(
+                [_device(_DEVICE_UUID), _device(_OTHER_UUID)], run_id="r", workflow_id="w"
+            ),
+            common,
+        )
         self.assertEqual(list(out["failure"].devices), [_DEVICE_UUID])
         self.assertEqual(list(out["success"].devices), [_OTHER_UUID])
 
@@ -256,7 +283,9 @@ class SharedAddressInOneRunTests(unittest.IsolatedAsyncioTestCase):
         fake = _FakeNautobot({_IP_SHARED: {_DEVICE_UUID, _OTHER_UUID}, _IP_A: {_DEVICE_UUID}})
         out = await _run(
             _config(remove_ip_addresses=True),
-            _context(_device(_DEVICE_UUID), _device(_OTHER_UUID)),
+            make_context(
+                [_device(_DEVICE_UUID), _device(_OTHER_UUID)], run_id="r", workflow_id="w"
+            ),
             fake.common(),
         )
         self.assertEqual(out["failure"].devices, {})
@@ -279,7 +308,9 @@ class SharedAddressInOneRunTests(unittest.IsolatedAsyncioTestCase):
         common.get_device_details = AsyncMock(side_effect=details)
         await _run(
             _config(remove_ip_addresses=True),
-            _context(_device(_DEVICE_UUID), _device(_OTHER_UUID)),
+            make_context(
+                [_device(_DEVICE_UUID), _device(_OTHER_UUID)], run_id="r", workflow_id="w"
+            ),
             common,
         )
         self.assertEqual(peak, 1)
@@ -289,7 +320,11 @@ class DeviceDeleteFailureTests(unittest.IsolatedAsyncioTestCase):
     async def test_failed_device_delete_names_the_addresses_already_removed(self) -> None:
         common = _common(owned=[_IP_A, _IP_B])
         common.delete_device = AsyncMock(side_effect=NautobotAPIError("no", http_status=409))
-        out = await _run(_config(remove_ip_addresses=True), _context(_device()), common)
+        out = await _run(
+            _config(remove_ip_addresses=True),
+            make_context([_device()], run_id="r", workflow_id="w"),
+            common,
+        )
         error = out["failure"].devices[_DEVICE_UUID].errors[-1]
         self.assertEqual(error.code, "device_delete_failed")
         self.assertIn(_IP_A, error.message)
@@ -299,7 +334,7 @@ class DeviceDeleteFailureTests(unittest.IsolatedAsyncioTestCase):
     async def test_failed_device_delete_without_ip_removal_keeps_the_class_code(self) -> None:
         common = _common()
         common.delete_device = AsyncMock(side_effect=NautobotAPIError("no", http_status=409))
-        out = await _run(_config(), _context(_device()), common)
+        out = await _run(_config(), make_context([_device()], run_id="r", workflow_id="w"), common)
         self.assertNotEqual(
             out["failure"].devices[_DEVICE_UUID].errors[-1].code, "device_delete_failed"
         )
@@ -307,7 +342,7 @@ class DeviceDeleteFailureTests(unittest.IsolatedAsyncioTestCase):
     async def test_device_gone_at_delete_time_is_device_not_found(self) -> None:
         common = _common()
         common.delete_device = AsyncMock(side_effect=NautobotNotFoundError("gone"))
-        out = await _run(_config(), _context(_device()), common)
+        out = await _run(_config(), make_context([_device()], run_id="r", workflow_id="w"), common)
         error = out["failure"].devices[_DEVICE_UUID].errors[-1]
         self.assertEqual(error.code, "device_not_found")
 
@@ -316,7 +351,11 @@ class DeviceDeleteFailureTests(unittest.IsolatedAsyncioTestCase):
     ) -> None:
         common = _common(owned=[_IP_A])
         common.delete_device = AsyncMock(side_effect=NautobotNotFoundError("gone"))
-        out = await _run(_config(remove_ip_addresses=True), _context(_device()), common)
+        out = await _run(
+            _config(remove_ip_addresses=True),
+            make_context([_device()], run_id="r", workflow_id="w"),
+            common,
+        )
         error = out["failure"].devices[_DEVICE_UUID].errors[-1]
         self.assertEqual(error.code, "device_not_found")
         self.assertNotIn("nothing was removed", error.message)
@@ -327,7 +366,11 @@ class IpDeleteFailureKindTests(unittest.IsolatedAsyncioTestCase):
     async def _failure(self, status: int):
         common = _common(owned=[_IP_A])
         common.delete_ip_address = AsyncMock(side_effect=NautobotAPIError("x", http_status=status))
-        out = await _run(_config(remove_ip_addresses=True), _context(_device()), common)
+        out = await _run(
+            _config(remove_ip_addresses=True),
+            make_context([_device()], run_id="r", workflow_id="w"),
+            common,
+        )
         error = out["failure"].devices[_DEVICE_UUID].errors[-1]
         self.assertEqual(error.code, "ip_delete_failed")
         self.assertIn("the device was not removed", error.message)
@@ -352,7 +395,7 @@ class SameNautobotDeviceTests(unittest.IsolatedAsyncioTestCase):
     """Two workflow devices that resolve to one Nautobot UUID are removed once (W5-07)."""
 
     def _context(self) -> WorkflowContext:
-        return _context(_device("wf-a"), _device("wf-b"))
+        return make_context([_device("wf-a"), _device("wf-b")], run_id="r", workflow_id="w")
 
     async def test_the_second_one_shares_the_outcome_of_the_first(self) -> None:
         common = _common(owned=[_IP_A])
@@ -395,7 +438,9 @@ class DryRunTests(unittest.IsolatedAsyncioTestCase):
     async def test_nothing_is_written_and_the_plan_is_stored(self) -> None:
         common = _common(owned=[_IP_A, _IP_B], shared=[_IP_SHARED])
         out = await _run(
-            _config(remove_ip_addresses=True, dry_run=True), _context(_device()), common
+            _config(remove_ip_addresses=True, dry_run=True),
+            make_context([_device()], run_id="r", workflow_id="w"),
+            common,
         )
         common.delete_device.assert_not_awaited()
         common.delete_ip_address.assert_not_awaited()
@@ -425,7 +470,9 @@ class DryRunTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_without_ip_removal_the_addresses_are_not_looked_up(self) -> None:
         common = _common(owned=[_IP_A])
-        out = await _run(_config(dry_run=True), _context(_device()), common)
+        out = await _run(
+            _config(dry_run=True), make_context([_device()], run_id="r", workflow_id="w"), common
+        )
         common.list_device_ip_ids.assert_not_awaited()
         payload = out["success"].devices[_DEVICE_UUID].dry_run_results["n1"]
         self.assertEqual(payload["would_remove_ips"], [])
@@ -434,13 +481,17 @@ class DryRunTests(unittest.IsolatedAsyncioTestCase):
     async def test_a_missing_device_still_fails_in_a_preview(self) -> None:
         common = _common()
         common.get_device_details = AsyncMock(side_effect=NautobotNotFoundError("x"))
-        out = await _run(_config(dry_run=True), _context(_device()), common)
+        out = await _run(
+            _config(dry_run=True), make_context([_device()], run_id="r", workflow_id="w"), common
+        )
         self.assertEqual(out["failure"].devices[_DEVICE_UUID].errors[-1].code, "device_not_found")
         self.assertEqual(out["success"].devices, {})
 
     async def test_a_bad_uuid_still_fails_in_a_preview(self) -> None:
         out = await _run(
-            _config(device_id="not-a-uuid", dry_run=True), _context(_device()), _common()
+            _config(device_id="not-a-uuid", dry_run=True),
+            make_context([_device()], run_id="r", workflow_id="w"),
+            _common(),
         )
         self.assertEqual(out["failure"].devices[_DEVICE_UUID].errors[-1].code, "device_id_invalid")
 
@@ -448,7 +499,9 @@ class DryRunTests(unittest.IsolatedAsyncioTestCase):
         common = _common()
         common.list_device_ip_ids = AsyncMock(side_effect=NautobotAPIError("x", http_status=403))
         out = await _run(
-            _config(remove_ip_addresses=True, dry_run=True), _context(_device()), common
+            _config(remove_ip_addresses=True, dry_run=True),
+            make_context([_device()], run_id="r", workflow_id="w"),
+            common,
         )
         error = out["failure"].devices[_DEVICE_UUID].errors[-1]
         self.assertEqual(error.failure.kind, "permission_denied")
@@ -457,7 +510,7 @@ class DryRunTests(unittest.IsolatedAsyncioTestCase):
         common = _common(owned=[_IP_A])
         out = await _run(
             _config(device_id=_DEVICE_UUID, remove_ip_addresses=True, dry_run=True),
-            _context(_device("wf-a"), _device("wf-b")),
+            make_context([_device("wf-a"), _device("wf-b")], run_id="r", workflow_id="w"),
             common,
         )
         self.assertEqual(sorted(out["success"].devices), ["wf-a", "wf-b"])

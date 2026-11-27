@@ -11,6 +11,7 @@ from models.workflow_context import (
     DeviceStatus,
     WorkflowContext,
 )
+from tests.unit._step_helpers import make_context
 from workflow_steps.exists_in_nautobot import executor as mod
 from workflow_steps.exists_in_nautobot.executor import _parse_config, execute
 
@@ -28,10 +29,6 @@ def _device(did: str = "d1", **overrides) -> DeviceContext:
     )
     defaults.update(overrides)
     return DeviceContext(**defaults)
-
-
-def _context(*devices: DeviceContext) -> WorkflowContext:
-    return WorkflowContext(run_id="r", workflow_id="w", devices={d.id: d for d in devices})
 
 
 def _config(**overrides) -> dict:
@@ -81,7 +78,7 @@ class ParseConfigTests(unittest.TestCase):
 class ExecuteTests(unittest.IsolatedAsyncioTestCase):
     async def test_name_found_routes_exists_and_sets_bag_id(self) -> None:
         dev = _device("R1")
-        ctx = _context(dev)
+        ctx = make_context([dev], run_id="r", workflow_id="w")
         result, _ = await _run(_config(), ctx, {"data": {"devices": [{"id": _UUID, "name": "R1"}]}})
         self.assertEqual(list(result["exists"].devices), ["R1"])
         self.assertEqual(result["exists"].devices["R1"].attribute_bags["nautobot"]["id"], _UUID)
@@ -89,14 +86,18 @@ class ExecuteTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["failure"].devices, {})
 
     async def test_name_not_found_routes_non_existing(self) -> None:
-        result, _ = await _run(_config(), _context(_device("R1")), {"data": {"devices": []}})
+        result, _ = await _run(
+            _config(),
+            make_context([_device("R1")], run_id="r", workflow_id="w"),
+            {"data": {"devices": []}},
+        )
         self.assertEqual(list(result["non_existing"].devices), ["R1"])
         self.assertNotIn("nautobot", result["non_existing"].devices["R1"].attribute_bags)
 
     async def test_primary_ip_strategy_uses_expression_and_strips_mask(self) -> None:
         result, service = await _run(
             _config(strategy="primary_ip", ip_address="{device.primary_ip4}"),
-            _context(_device("R1")),
+            make_context([_device("R1")], run_id="r", workflow_id="w"),
             {
                 "data": {
                     "ip_addresses": [
@@ -118,7 +119,7 @@ class ExecuteTests(unittest.IsolatedAsyncioTestCase):
         }
         result, _ = await _run(
             _config(strategy="interface_ip", ip_address="192.168.178.120"),
-            _context(_device("R1")),
+            make_context([_device("R1")], run_id="r", workflow_id="w"),
             response,
         )
         self.assertEqual(result["exists"].devices["R1"].attribute_bags["nautobot"]["id"], _UUID)
@@ -127,7 +128,7 @@ class ExecuteTests(unittest.IsolatedAsyncioTestCase):
         dev = _device("R1", primary_ip4=None)
         result, service = await _run(
             _config(strategy="primary_ip", ip_address="{device.primary_ip4}"),
-            _context(dev),
+            make_context([dev], run_id="r", workflow_id="w"),
             {"data": {"devices": []}},
         )
         failed = result["failure"].devices["R1"]
@@ -144,7 +145,7 @@ class ExecuteTests(unittest.IsolatedAsyncioTestCase):
             dev = _device("R1", attribute_bags={"custom": {"ip": seal_secret("10.9.9.9")}})
             result, service = await _run(
                 _config(strategy="primary_ip", ip_address="{custom.ip}"),
-                _context(dev),
+                make_context([dev], run_id="r", workflow_id="w"),
                 {"data": {"devices": []}},
             )
         failed = result["failure"].devices["R1"]
@@ -153,14 +154,18 @@ class ExecuteTests(unittest.IsolatedAsyncioTestCase):
         service.graphql_query.assert_not_called()
 
     async def test_query_exception_routes_failure(self) -> None:
-        result, _ = await _run(_config(), _context(_device("R1")), side_effect=RuntimeError("down"))
+        result, _ = await _run(
+            _config(),
+            make_context([_device("R1")], run_id="r", workflow_id="w"),
+            side_effect=RuntimeError("down"),
+        )
         failed = result["failure"].devices["R1"]
         self.assertEqual(failed.status, DeviceStatus.FAILED)
         self.assertEqual(failed.errors[-1].step_id, "exists-in-nautobot")
 
     async def test_existing_nautobot_bag_keys_kept_and_input_not_mutated(self) -> None:
         dev = _device("R1", attribute_bags={"nautobot": {"role": {"name": "edge"}}})
-        ctx = _context(dev)
+        ctx = make_context([dev], run_id="r", workflow_id="w")
         result, _ = await _run(_config(), ctx, {"data": {"devices": [{"id": _UUID, "name": "R1"}]}})
         bag = result["exists"].devices["R1"].attribute_bags["nautobot"]
         self.assertEqual(bag, {"role": {"name": "edge"}, "id": _UUID})
@@ -182,7 +187,7 @@ class ExecuteTests(unittest.IsolatedAsyncioTestCase):
         ):
             outcomes = await execute(
                 config=_config(),
-                context=_context(_device("A"), _device("B")),
+                context=make_context([_device("A"), _device("B")], run_id="r", workflow_id="w"),
                 run=MagicMock(id="r"),
                 artifact_service=MagicMock(),
                 node_id="n1",
@@ -201,7 +206,7 @@ class ExecuteTests(unittest.IsolatedAsyncioTestCase):
 
         result, _service = await _run(
             _config(),
-            _context(_device("A")),
+            make_context([_device("A")], run_id="r", workflow_id="w"),
             side_effect=NautobotAPIError("reported an error", code="graphql_error"),
         )
         self.assertEqual(list(result["failure"].devices), ["A"])
@@ -212,14 +217,16 @@ class ExecuteTests(unittest.IsolatedAsyncioTestCase):
     async def test_ambiguous_device_name_is_marked_failed(self) -> None:
         result, _service = await _run(
             _config(),
-            _context(_device("A")),
+            make_context([_device("A")], run_id="r", workflow_id="w"),
             response={"data": {"devices": [{"id": "x", "name": "A"}, {"id": "y", "name": "A"}]}},
         )
         error = result["failure"].devices["A"].errors[-1]
         self.assertEqual(error.failure.kind, "ambiguous_match")
 
     async def test_no_devices_emits_all_outcomes(self) -> None:
-        result, service = await _run(_config(), _context(), {"data": {}})
+        result, service = await _run(
+            _config(), make_context([], run_id="r", workflow_id="w"), {"data": {}}
+        )
         self.assertEqual(set(result), {"exists", "non_existing", "failure"})
         service.graphql_query.assert_not_called()
 

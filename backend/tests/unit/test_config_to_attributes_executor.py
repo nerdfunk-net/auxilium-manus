@@ -6,6 +6,7 @@ import unittest
 from unittest.mock import MagicMock, patch
 
 from models.workflow_context import Capability, DeviceContext, DeviceStatus, WorkflowContext
+from tests.unit._step_helpers import make_run
 from workflow_steps.config_to_attributes.config import get_config
 from workflow_steps.config_to_attributes.executor import execute
 
@@ -73,12 +74,6 @@ def _device(
     )
 
 
-def _run() -> MagicMock:
-    run = MagicMock()
-    run.id = 1
-    return run
-
-
 def _context(devices: dict[str, DeviceContext]) -> WorkflowContext:
     return WorkflowContext(run_id="run-uuid-1", workflow_id="wf-1", devices=devices)
 
@@ -96,7 +91,7 @@ class ConfigToAttributesExecutorTests(unittest.IsolatedAsyncioTestCase):
         outcomes = await execute(
             config=_BASE_CONFIG,
             context=_context({"dev-1": device}),
-            run=_run(),
+            run=make_run(),
             artifact_service=MagicMock(),
             node_id="node-1",
             device_sessions=MagicMock(),
@@ -120,7 +115,7 @@ class ConfigToAttributesExecutorTests(unittest.IsolatedAsyncioTestCase):
         outcomes = await execute(
             config=_BASE_CONFIG,
             context=_context({"dev-1": device}),
-            run=_run(),
+            run=make_run(),
             artifact_service=MagicMock(),
             node_id="node-1",
             device_sessions=MagicMock(),
@@ -164,7 +159,7 @@ class ConfigToAttributesExecutorTests(unittest.IsolatedAsyncioTestCase):
         outcomes = await execute(
             config=_BASE_CONFIG,
             context=_context({"dev-1": device}),
-            run=_run(),
+            run=make_run(),
             artifact_service=MagicMock(),
             node_id="node-1",
             device_sessions=MagicMock(),
@@ -212,7 +207,7 @@ class ConfigToAttributesExecutorTests(unittest.IsolatedAsyncioTestCase):
         outcomes = await execute(
             config={**_BASE_CONFIG, "config_source": "startup"},
             context=_context({"dev-1": device}),
-            run=_run(),
+            run=make_run(),
             artifact_service=MagicMock(),
             node_id="node-1",
             device_sessions=MagicMock(),
@@ -231,7 +226,7 @@ class ConfigToAttributesExecutorTests(unittest.IsolatedAsyncioTestCase):
             await execute(
                 config={**_BASE_CONFIG, "config_source": "startup"},
                 context=_context({"dev-1": device}),
-                run=_run(),
+                run=make_run(),
                 artifact_service=MagicMock(),
                 node_id="node-1",
                 device_sessions=MagicMock(),
@@ -249,7 +244,7 @@ class ConfigToAttributesExecutorTests(unittest.IsolatedAsyncioTestCase):
         outcomes = await execute(
             config=_BASE_CONFIG,
             context=_context({"dev-1": device}),
-            run=_run(),
+            run=make_run(),
             artifact_service=MagicMock(),
             node_id="node-1",
             device_sessions=MagicMock(),
@@ -268,7 +263,7 @@ class ConfigToAttributesExecutorTests(unittest.IsolatedAsyncioTestCase):
         outcomes = await execute(
             config={**_BASE_CONFIG, "attributes": []},
             context=_context({"dev-1": device}),
-            run=_run(),
+            run=make_run(),
             artifact_service=MagicMock(),
             node_id="node-1",
             device_sessions=MagicMock(),
@@ -286,7 +281,7 @@ class ConfigToAttributesExecutorTests(unittest.IsolatedAsyncioTestCase):
             await execute(
                 config={**_BASE_CONFIG, "attributes": ["interfaces", "layer3_interfaces"]},
                 context=_context({"dev-1": device}),
-                run=_run(),
+                run=make_run(),
                 artifact_service=MagicMock(),
                 node_id="node-1",
                 device_sessions=MagicMock(),
@@ -298,7 +293,7 @@ class ConfigToAttributesExecutorTests(unittest.IsolatedAsyncioTestCase):
             await execute(
                 config=_BASE_CONFIG,
                 context=_context({"dev-1": device}),
-                run=_run(),
+                run=make_run(),
                 artifact_service=MagicMock(),
                 node_id="node-1",
                 device_sessions=MagicMock(),
@@ -315,7 +310,7 @@ class ConfigToAttributesExecutorTests(unittest.IsolatedAsyncioTestCase):
         outcomes = await execute(
             config={},
             context=_context({"dev-1": device}),
-            run=_run(),
+            run=make_run(),
             artifact_service=MagicMock(),
             node_id="node-1",
             device_sessions=MagicMock(),
@@ -357,7 +352,7 @@ class ConfigToAttributesExecutorTests(unittest.IsolatedAsyncioTestCase):
         outcomes = await execute(
             config={**_BASE_CONFIG, "source_format": "genie"},
             context=_context({"dev-1": device}),
-            run=_run(),
+            run=make_run(),
             artifact_service=MagicMock(),
             node_id="node-1",
             device_sessions=MagicMock(),
@@ -414,7 +409,7 @@ class ConfigToAttributesExecutorTests(unittest.IsolatedAsyncioTestCase):
         outcomes = await execute(
             config={**_BASE_CONFIG, "source_format": "genie"},
             context=_context({"dev-1": device}),
-            run=_run(),
+            run=make_run(),
             artifact_service=MagicMock(),
             node_id="node-1",
             device_sessions=MagicMock(),
@@ -430,7 +425,7 @@ class ConfigToAttributesExecutorTests(unittest.IsolatedAsyncioTestCase):
         outcomes = await execute(
             config={**_BASE_CONFIG, "source_format": "genie"},
             context=_context({"dev-1": device}),
-            run=_run(),
+            run=make_run(),
             artifact_service=MagicMock(),
             node_id="node-1",
             device_sessions=MagicMock(),
@@ -445,7 +440,7 @@ class ConfigToAttributesExecutorTests(unittest.IsolatedAsyncioTestCase):
             await execute(
                 config={**_BASE_CONFIG, "source_format": "genie", "config_source": "startup"},
                 context=_context({"dev-1": device}),
-                run=_run(),
+                run=make_run(),
                 artifact_service=MagicMock(),
                 node_id="node-1",
                 device_sessions=MagicMock(),
@@ -484,7 +479,7 @@ class ConfigToAttributesExecutorTests(unittest.IsolatedAsyncioTestCase):
                 "parsed_key": "batfish_extract_facts",
             },
             context=_context({"dev-1": device}),
-            run=_run(),
+            run=make_run(),
             artifact_service=MagicMock(),
             node_id="node-1",
             device_sessions=MagicMock(),
@@ -530,7 +525,7 @@ class ConfigToAttributesExecutorTests(unittest.IsolatedAsyncioTestCase):
                     "config_source": "startup",
                 },
                 context=_context({"dev-1": device}),
-                run=_run(),
+                run=make_run(),
                 artifact_service=MagicMock(),
                 node_id="node-1",
                 device_sessions=MagicMock(),
@@ -566,7 +561,7 @@ class ConfigToAttributesExecutorTests(unittest.IsolatedAsyncioTestCase):
                 "parsed_key": "batfish_extract_facts",
             },
             context=_context({"dev-1": failed_device, "dev-2": ok_device}),
-            run=_run(),
+            run=make_run(),
             artifact_service=MagicMock(),
             node_id="node-1",
             device_sessions=MagicMock(),
@@ -598,7 +593,7 @@ class ConfigToAttributesExecutorTests(unittest.IsolatedAsyncioTestCase):
                 "parsed_key": "batfish_extract_facts",
             },
             context=_context({"dev-1": bare_device, "dev-2": ok_device}),
-            run=_run(),
+            run=make_run(),
             artifact_service=MagicMock(),
             node_id="node-1",
             device_sessions=MagicMock(),
@@ -658,7 +653,7 @@ class ConfigToAttributesExecutorTests(unittest.IsolatedAsyncioTestCase):
         outcomes = await execute(
             config=_BASE_CONFIG,
             context=_context({"dev-1": device}),
-            run=_run(),
+            run=make_run(),
             artifact_service=MagicMock(),
             node_id="node-1",
             device_sessions=MagicMock(),
@@ -687,7 +682,7 @@ class ConfigToAttributesExecutorTests(unittest.IsolatedAsyncioTestCase):
         outcomes = await execute(
             config=_BASE_CONFIG,
             context=_context({"dev-1": device}),
-            run=_run(),
+            run=make_run(),
             artifact_service=MagicMock(),
             node_id="node-1",
             device_sessions=MagicMock(),
@@ -728,7 +723,7 @@ class ConfigToAttributesExecutorTests(unittest.IsolatedAsyncioTestCase):
         outcomes = await execute(
             config=_BASE_CONFIG,
             context=_context({"dev-1": device}),
-            run=_run(),
+            run=make_run(),
             artifact_service=MagicMock(),
             node_id="node-1",
             device_sessions=MagicMock(),
@@ -781,7 +776,7 @@ class ConfigToAttributesExecutorTests(unittest.IsolatedAsyncioTestCase):
         outcomes = await execute(
             config=_BASE_CONFIG,
             context=_context({"dev-1": device}),
-            run=_run(),
+            run=make_run(),
             artifact_service=MagicMock(),
             node_id="node-1",
             device_sessions=MagicMock(),
@@ -810,7 +805,7 @@ class ConfigToAttributesExecutorTests(unittest.IsolatedAsyncioTestCase):
         outcomes = await execute(
             config=_BASE_CONFIG,
             context=_context({"dev-1": device}),
-            run=_run(),
+            run=make_run(),
             artifact_service=MagicMock(),
             node_id="node-1",
             device_sessions=MagicMock(),
@@ -826,7 +821,7 @@ class ConfigToAttributesExecutorTests(unittest.IsolatedAsyncioTestCase):
             await execute(
                 config={**_BASE_CONFIG, "source_format": "bogus"},
                 context=_context({"dev-1": device}),
-                run=_run(),
+                run=make_run(),
                 artifact_service=MagicMock(),
                 node_id="node-1",
                 device_sessions=MagicMock(),
@@ -840,7 +835,7 @@ class ConfigToAttributesExecutorTests(unittest.IsolatedAsyncioTestCase):
         outcomes = await execute(
             config=_BASE_CONFIG,
             context=_context({"dev-1": device}),
-            run=_run(),
+            run=make_run(),
             artifact_service=MagicMock(),
             node_id="node-1",
             device_sessions=MagicMock(),
@@ -863,7 +858,7 @@ class PrimaryIpv4SelectionTests(unittest.IsolatedAsyncioTestCase):
         outcomes = await execute(
             config={**_BASE_CONFIG, "update_primary_ipv4": True},
             context=_context({"dev-1": device}),
-            run=_run(),
+            run=make_run(),
             artifact_service=MagicMock(),
             node_id="node-1",
             device_sessions=MagicMock(),
@@ -884,7 +879,7 @@ class PrimaryIpv4SelectionTests(unittest.IsolatedAsyncioTestCase):
         outcomes = await execute(
             config={**_BASE_CONFIG, "update_primary_ipv4": True},
             context=_context({"dev-1": device}),
-            run=_run(),
+            run=make_run(),
             artifact_service=MagicMock(),
             node_id="node-1",
             device_sessions=MagicMock(),
@@ -914,7 +909,7 @@ class PrimaryIpv4SelectionTests(unittest.IsolatedAsyncioTestCase):
                 ],
             },
             context=_context({"dev-1": device}),
-            run=_run(),
+            run=make_run(),
             artifact_service=MagicMock(),
             node_id="node-1",
             device_sessions=MagicMock(),
@@ -945,7 +940,7 @@ class PrimaryIpv4SelectionTests(unittest.IsolatedAsyncioTestCase):
                 "primary_ipv4_custom_pattern": r"^Vlan1$",
             },
             context=_context({"dev-1": device}),
-            run=_run(),
+            run=make_run(),
             artifact_service=MagicMock(),
             node_id="node-1",
             device_sessions=MagicMock(),
@@ -980,7 +975,7 @@ class PrimaryIpv4SelectionTests(unittest.IsolatedAsyncioTestCase):
                     "primary_ipv4_custom_pattern": r"^vlan2$",
                 },
                 context=_context({"dev-1": device}),
-                run=_run(),
+                run=make_run(),
                 artifact_service=MagicMock(),
                 node_id="node-1",
                 device_sessions=MagicMock(),
@@ -1019,7 +1014,7 @@ class PrimaryIpv4SelectionTests(unittest.IsolatedAsyncioTestCase):
                     "primary_ipv4_custom_pattern": r"(a+)+$",
                 },
                 context=_context({"dev-1": device}),
-                run=_run(),
+                run=make_run(),
                 artifact_service=MagicMock(),
                 node_id="node-1",
                 device_sessions=MagicMock(),
@@ -1033,7 +1028,7 @@ class PrimaryIpv4SelectionTests(unittest.IsolatedAsyncioTestCase):
         outcomes = await execute(
             config={**_BASE_CONFIG, "update_primary_ipv4": True},
             context=_context({"dev-1": device}),
-            run=_run(),
+            run=make_run(),
             artifact_service=MagicMock(),
             node_id="node-1",
             device_sessions=MagicMock(),
@@ -1058,7 +1053,7 @@ class PrimaryIpv4SelectionTests(unittest.IsolatedAsyncioTestCase):
                     "primary_ipv4_priority": ["management_interface", "loopback_highest"],
                 },
                 context=_context({"dev-1": device}),
-                run=_run(),
+                run=make_run(),
                 artifact_service=MagicMock(),
                 node_id="node-1",
                 device_sessions=MagicMock(),
@@ -1074,7 +1069,7 @@ class PrimaryIpv4SelectionTests(unittest.IsolatedAsyncioTestCase):
                     "primary_ipv4_custom_pattern": "[unclosed",
                 },
                 context=_context({"dev-1": device}),
-                run=_run(),
+                run=make_run(),
                 artifact_service=MagicMock(),
                 node_id="node-1",
                 device_sessions=MagicMock(),
@@ -1092,7 +1087,7 @@ class PrimaryIpv4SelectionTests(unittest.IsolatedAsyncioTestCase):
         outcomes = await execute(
             config=_BASE_CONFIG,
             context=_context({"dev-1": device}),
-            run=_run(),
+            run=make_run(),
             artifact_service=MagicMock(),
             node_id="node-1",
             device_sessions=MagicMock(),
@@ -1112,7 +1107,7 @@ class PrimaryIpv4SelectionTests(unittest.IsolatedAsyncioTestCase):
         outcomes = await execute(
             config=_BASE_CONFIG,
             context=_context({"dev-1": device}),
-            run=_run(),
+            run=make_run(),
             artifact_service=MagicMock(),
             node_id="node-1",
             device_sessions=MagicMock(),
@@ -1131,7 +1126,7 @@ class PrimaryIpv4SelectionTests(unittest.IsolatedAsyncioTestCase):
         outcomes = await execute(
             config=_BASE_CONFIG,
             context=_context({"dev-1": device}),
-            run=_run(),
+            run=make_run(),
             artifact_service=MagicMock(),
             node_id="node-1",
             device_sessions=MagicMock(),
@@ -1149,7 +1144,7 @@ class RedundancyNotesTests(unittest.IsolatedAsyncioTestCase):
         outcomes = await execute(
             config={**_BASE_CONFIG, "source_format": source_format, "parsed_key": key},
             context=_context({"dev-1": device}),
-            run=_run(),
+            run=make_run(),
             artifact_service=MagicMock(),
             node_id="node-1",
             device_sessions=MagicMock(),
@@ -1198,7 +1193,7 @@ class NestedParsedKeyTests(unittest.IsolatedAsyncioTestCase):
         outcomes = await execute(
             config={**_BASE_CONFIG, "source_format": source_format, "parsed_key": parsed_key},
             context=_context({"dev-1": device}),
-            run=_run(),
+            run=make_run(),
             artifact_service=MagicMock(),
             node_id="node-1",
             device_sessions=MagicMock(),

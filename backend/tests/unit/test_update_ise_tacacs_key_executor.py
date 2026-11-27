@@ -13,6 +13,7 @@ from models.workflow_context import (
 )
 from services.ise.common.exceptions import ISEAPIError, ISENotFoundError, ISEValidationError
 from services.workflow_context.attribute_path import resolve_device_attribute
+from tests.unit._step_helpers import make_run
 from workflow_steps.update_ise_tacacs_key.executor import execute
 
 
@@ -40,12 +41,6 @@ def _device(
         capabilities={Capability.IDENTITY},
         status=DeviceStatus.OK,
     )
-
-
-def _run() -> MagicMock:
-    run = MagicMock()
-    run.id = 1
-    return run
 
 
 def _context(devices: dict[str, DeviceContext]) -> WorkflowContext:
@@ -90,7 +85,7 @@ class UpdateIseTacacsKeyExecutorTests(unittest.IsolatedAsyncioTestCase):
             await execute(
                 config={"new_key": "{custom.new_tacacs_key}"},
                 context=_context({}),
-                run=_run(),
+                run=make_run(),
                 artifact_service=MagicMock(),
                 node_id="node-1",
                 device_sessions=MagicMock(),
@@ -102,7 +97,7 @@ class UpdateIseTacacsKeyExecutorTests(unittest.IsolatedAsyncioTestCase):
                 await execute(
                     config={"ise_source_id": "lab-ise", "new_key": literal},
                     context=_context({"dev-1": _device("dev-1", name="router1")}),
-                    run=_run(),
+                    run=make_run(),
                     artifact_service=MagicMock(),
                     node_id="node-1",
                     device_sessions=MagicMock(),
@@ -113,7 +108,7 @@ class UpdateIseTacacsKeyExecutorTests(unittest.IsolatedAsyncioTestCase):
             await execute(
                 config={"ise_source_id": "lab-ise"},
                 context=_context({}),
-                run=_run(),
+                run=make_run(),
                 artifact_service=MagicMock(),
                 node_id="node-1",
                 device_sessions=MagicMock(),
@@ -126,7 +121,7 @@ class UpdateIseTacacsKeyExecutorTests(unittest.IsolatedAsyncioTestCase):
             outcomes = await execute(
                 config={"ise_source_id": "lab-ise", "new_key": "{custom.new_tacacs_key}"},
                 context=_context({}),
-                run=_run(),
+                run=make_run(),
                 artifact_service=MagicMock(),
                 node_id="node-1",
                 device_sessions=MagicMock(),
@@ -146,7 +141,7 @@ class UpdateIseTacacsKeyExecutorTests(unittest.IsolatedAsyncioTestCase):
             outcomes = await execute(
                 config={"ise_source_id": "lab-ise", "new_key": "{custom.new_tacacs_key}"},
                 context=_context({"dev-1": _device("dev-1", name="router1")}),
-                run=_run(),
+                run=make_run(),
                 artifact_service=MagicMock(),
                 node_id="node-1",
                 device_sessions=MagicMock(),
@@ -184,7 +179,7 @@ class UpdateIseTacacsKeyExecutorTests(unittest.IsolatedAsyncioTestCase):
                         )
                     }
                 ),
-                run=_run(),
+                run=make_run(),
                 artifact_service=MagicMock(),
                 node_id="node-1",
                 device_sessions=MagicMock(),
@@ -234,7 +229,7 @@ class UpdateIseTacacsKeyExecutorTests(unittest.IsolatedAsyncioTestCase):
                         )
                     }
                 ),
-                run=_run(),
+                run=make_run(),
                 artifact_service=MagicMock(),
                 node_id="node-1",
                 device_sessions=MagicMock(),
@@ -259,7 +254,7 @@ class UpdateIseTacacsKeyExecutorTests(unittest.IsolatedAsyncioTestCase):
                         )
                     }
                 ),
-                run=_run(),
+                run=make_run(),
                 artifact_service=MagicMock(),
                 node_id="node-1",
                 device_sessions=MagicMock(),
@@ -278,7 +273,7 @@ class UpdateIseTacacsKeyExecutorTests(unittest.IsolatedAsyncioTestCase):
             outcomes = await execute(
                 config={"ise_source_id": "lab-ise", "new_key": "{custom.missing}"},
                 context=_context({"dev-1": _device("dev-1", name="router1", source="ise")}),
-                run=_run(),
+                run=make_run(),
                 artifact_service=MagicMock(),
                 node_id="node-1",
                 device_sessions=MagicMock(),
@@ -301,7 +296,7 @@ class UpdateIseTacacsKeyExecutorTests(unittest.IsolatedAsyncioTestCase):
             await execute(
                 config={"ise_source_id": "lab-ise", "new_key": "{custom.new_tacacs_key}"},
                 context=_context({"dev-1": _device("dev-1", name="router1", source="ise")}),
-                run=_run(),
+                run=make_run(),
                 artifact_service=MagicMock(),
                 node_id="node-1",
                 device_sessions=MagicMock(),
@@ -320,7 +315,7 @@ class UpdateIseTacacsKeyExecutorTests(unittest.IsolatedAsyncioTestCase):
             outcomes = await execute(
                 config={"ise_source_id": "lab-ise", "new_key": "{custom.new_tacacs_key}"},
                 context=_context({"dev-1": _device("dev-1", name="router1", source="nautobot")}),
-                run=_run(),
+                run=make_run(),
                 artifact_service=MagicMock(),
                 node_id="node-1",
                 device_sessions=MagicMock(),
@@ -342,7 +337,7 @@ class UpdateIseTacacsKeyExecutorTests(unittest.IsolatedAsyncioTestCase):
             outcomes = await execute(
                 config={"ise_source_id": "lab-ise", "new_key": "{custom.new_tacacs_key}"},
                 context=_context({"dev-1": _device("dev-1", name="router1", source="nautobot")}),
-                run=_run(),
+                run=make_run(),
                 artifact_service=MagicMock(),
                 node_id="node-1",
                 device_sessions=MagicMock(),
@@ -365,7 +360,7 @@ class UpdateIseTacacsKeyExecutorTests(unittest.IsolatedAsyncioTestCase):
             outcomes = await execute(
                 config={"ise_source_id": "lab-ise", "new_key": "{custom.new_tacacs_key}"},
                 context=_context({"dev-1": _device("dev-1", name="router1", source="ise")}),
-                run=_run(),
+                run=make_run(),
                 artifact_service=MagicMock(),
                 node_id="node-1",
                 device_sessions=MagicMock(),
@@ -387,7 +382,7 @@ class UpdateIseTacacsKeyExecutorTests(unittest.IsolatedAsyncioTestCase):
             outcomes = await execute(
                 config={"ise_source_id": "lab-ise", "new_key": "{custom.new_tacacs_key}"},
                 context=_context({"dev-1": _device("dev-1", name="router1", source="ise")}),
-                run=_run(),
+                run=make_run(),
                 artifact_service=MagicMock(),
                 node_id="node-1",
                 device_sessions=MagicMock(),
@@ -417,7 +412,7 @@ class UpdateIseTacacsKeyExecutorTests(unittest.IsolatedAsyncioTestCase):
             outcomes = await execute(
                 config={"ise_source_id": "lab-ise", "new_key": "{custom.new_tacacs_key}"},
                 context=_context(devices),
-                run=_run(),
+                run=make_run(),
                 artifact_service=MagicMock(),
                 node_id="node-1",
                 device_sessions=MagicMock(),
@@ -444,7 +439,7 @@ class UpdateIseTacacsKeyExecutorTests(unittest.IsolatedAsyncioTestCase):
             outcomes = await execute(
                 config={"ise_source_id": "lab-ise", "new_key": "{custom.new_tacacs_key}"},
                 context=context,
-                run=_run(),
+                run=make_run(),
                 artifact_service=MagicMock(),
                 node_id="node-1",
                 device_sessions=MagicMock(),

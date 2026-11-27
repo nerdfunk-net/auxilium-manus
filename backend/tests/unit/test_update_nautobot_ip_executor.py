@@ -14,6 +14,7 @@ from models.workflow_context import (
 )
 from services.nautobot.common.exceptions import NautobotAPIError, NautobotNotFoundError
 from services.workflow_context.secret_fields import REDACTED_PLACEHOLDER
+from tests.unit._step_helpers import make_context
 from workflow_steps.common import nautobot_plan_fields as plan_fields
 from workflow_steps.common.nautobot_prefix_lookup import not_found
 from workflow_steps.update_nautobot_ip import executor as mod
@@ -35,10 +36,6 @@ def _device(did: str = "d1", **overrides: Any) -> DeviceContext:
         status=DeviceStatus.OK,
         **overrides,
     )
-
-
-def _context(*devices: DeviceContext) -> WorkflowContext:
-    return WorkflowContext(run_id="r", workflow_id="w", devices={d.id: d for d in devices})
 
 
 def _config(**overrides) -> dict:
@@ -111,7 +108,7 @@ class ExecuteTests(unittest.IsolatedAsyncioTestCase):
             dns_name="host.example.org",
             description="moved",
         )
-        out, common = await _run(cfg, _context(_device("a")))
+        out, common = await _run(cfg, make_context([_device("a")], run_id="r", workflow_id="w"))
         self.assertIn("a", out["success"].devices)
         args, kwargs = common.update_ip_address.call_args
         self.assertEqual(
@@ -136,7 +133,7 @@ class ExecuteTests(unittest.IsolatedAsyncioTestCase):
         )
 
     async def test_only_configured_fields_are_sent(self) -> None:
-        _, common = await _run(_config(), _context(_device("a")))
+        _, common = await _run(_config(), make_context([_device("a")], run_id="r", workflow_id="w"))
         args, kwargs = common.update_ip_address.call_args
         self.assertEqual(args[1], {"status": _STATUS_ID})
         self.assertIsNone(kwargs["find_parent"])
@@ -146,7 +143,7 @@ class ExecuteTests(unittest.IsolatedAsyncioTestCase):
         rest = _containing((_PREFIX_ID, "203.0.113.0/24"), ("x", "203.0.0.0/16"), seen=seen)
         out, common = await _run(
             {"nautobot_source_id": "s", "ip_id": _IP_ID, "namespace": "Lab"},
-            _context(_device("a")),
+            make_context([_device("a")], run_id="r", workflow_id="w"),
             rest=rest,
         )
         self.assertIn("a", out["success"].devices)
@@ -162,7 +159,11 @@ class ExecuteTests(unittest.IsolatedAsyncioTestCase):
         common.update_ip_address = AsyncMock(
             side_effect=not_found("prefix_not_found", "No prefix contains 203.0.113.5")
         )
-        out, _ = await _run(_config(namespace="Lab"), _context(_device("a")), common=common)
+        out, _ = await _run(
+            _config(namespace="Lab"),
+            make_context([_device("a")], run_id="r", workflow_id="w"),
+            common=common,
+        )
         error = out["failure"].devices["a"].errors[0]
         self.assertEqual(error.code, "prefix_not_found")
         self.assertIsNotNone(error.failure)
@@ -170,7 +171,8 @@ class ExecuteTests(unittest.IsolatedAsyncioTestCase):
     async def test_ip_id_and_values_from_attributes(self) -> None:
         dev = _device("a", attribute_bags={"custom": {"ip_id": _IP_ID, "dns": "a.example.org"}})
         out, common = await _run(
-            _config(ip_id="{custom.ip_id}", dns_name="{custom.dns}"), _context(dev)
+            _config(ip_id="{custom.ip_id}", dns_name="{custom.dns}"),
+            make_context([dev], run_id="r", workflow_id="w"),
         )
         self.assertIn("a", out["success"].devices)
         args = common.update_ip_address.call_args.args
@@ -180,7 +182,7 @@ class ExecuteTests(unittest.IsolatedAsyncioTestCase):
     async def test_lookups_resolved_once_for_all_devices(self) -> None:
         out, common = await _run(
             _config(role="Secondary", namespace="Global"),
-            _context(_device("a"), _device("b"), _device("c")),
+            make_context([_device("a"), _device("b"), _device("c")], run_id="r", workflow_id="w"),
         )
         self.assertEqual(len(out["success"].devices), 3)
         self.assertEqual(common.resolve_status_id.call_count, 1)
@@ -190,37 +192,50 @@ class ExecuteTests(unittest.IsolatedAsyncioTestCase):
     async def test_unchanged_ip_succeeds_and_is_counted(self) -> None:
         common = MagicMock()
         common.update_ip_address = AsyncMock(return_value=False)
-        out, _ = await _run(_config(), _context(_device("a")), common=common)
+        out, _ = await _run(
+            _config(), make_context([_device("a")], run_id="r", workflow_id="w"), common=common
+        )
         self.assertIn("a", out["success"].devices)
         counts = out["success"].metadata["n1.update_ip_counts"]
         self.assertEqual(counts["unchanged"], 1)
         self.assertEqual(counts["updated"], 0)
 
     async def test_no_devices_returns_empty_outcomes(self) -> None:
-        out, common = await _run(_config(), _context())
+        out, common = await _run(_config(), make_context([], run_id="r", workflow_id="w"))
         self.assertEqual((out["success"].devices, out["failure"].devices), ({}, {}))
         common.update_ip_address.assert_not_awaited()
 
     async def test_invalid_ip_id_fails_device_without_writing(self) -> None:
-        out, common = await _run(_config(ip_id="10.0.0.1"), _context(_device("a")))
+        out, common = await _run(
+            _config(ip_id="10.0.0.1"), make_context([_device("a")], run_id="r", workflow_id="w")
+        )
         self.assertEqual(out["failure"].devices["a"].errors[0].code, "ip_id_invalid")
         common.update_ip_address.assert_not_awaited()
 
     async def test_unresolved_expression_fails_device(self) -> None:
-        out, _ = await _run(_config(ip_id="{custom.missing}"), _context(_device("a")))
+        out, _ = await _run(
+            _config(ip_id="{custom.missing}"),
+            make_context([_device("a")], run_id="r", workflow_id="w"),
+        )
         error = out["failure"].devices["a"].errors[0]
         self.assertEqual(error.code, "ip_id_unresolved")
         self.assertIsNotNone(error.failure)
 
     async def test_invalid_type_fails_device(self) -> None:
-        out, common = await _run(_config(type="network"), _context(_device("a")))
+        out, common = await _run(
+            _config(type="network"), make_context([_device("a")], run_id="r", workflow_id="w")
+        )
         self.assertEqual(out["failure"].devices["a"].errors[0].code, "type_invalid")
         common.update_ip_address.assert_not_awaited()
 
     async def test_unknown_role_fails_device(self) -> None:
         common = MagicMock()
         common.resolve_role_id_for_content_type = AsyncMock(return_value=None)
-        out, _ = await _run(_config(role="Nope"), _context(_device("a")), common=common)
+        out, _ = await _run(
+            _config(role="Nope"),
+            make_context([_device("a")], run_id="r", workflow_id="w"),
+            common=common,
+        )
         error = out["failure"].devices["a"].errors[0]
         self.assertEqual(error.code, "role_not_found")
         self.assertNotIn("Nope", error.message)
@@ -228,7 +243,11 @@ class ExecuteTests(unittest.IsolatedAsyncioTestCase):
     async def test_unknown_status_fails_device(self) -> None:
         common = MagicMock()
         common.resolve_status_id = AsyncMock(side_effect=ValueError("Status 'x' not found"))
-        out, _ = await _run(_config(status="Secret-Name"), _context(_device("a")), common=common)
+        out, _ = await _run(
+            _config(status="Secret-Name"),
+            make_context([_device("a")], run_id="r", workflow_id="w"),
+            common=common,
+        )
         error = out["failure"].devices["a"].errors[0]
         self.assertEqual(error.code, "status_not_found")
         self.assertNotIn("Secret-Name", error.message)
@@ -237,7 +256,11 @@ class ExecuteTests(unittest.IsolatedAsyncioTestCase):
     async def test_unknown_namespace_fails_device(self) -> None:
         common = MagicMock()
         common.resolve_namespace_id = AsyncMock(side_effect=ValueError("namespace not found"))
-        out, _ = await _run(_config(namespace="Nope"), _context(_device("a")), common=common)
+        out, _ = await _run(
+            _config(namespace="Nope"),
+            make_context([_device("a")], run_id="r", workflow_id="w"),
+            common=common,
+        )
         error = out["failure"].devices["a"].errors[0]
         self.assertEqual(error.code, "namespace_not_found")
         self.assertNotIn("Nope", error.message)
@@ -245,7 +268,9 @@ class ExecuteTests(unittest.IsolatedAsyncioTestCase):
     async def test_missing_ip_fails_device_with_not_found(self) -> None:
         common = MagicMock()
         common.update_ip_address = AsyncMock(side_effect=NautobotNotFoundError("gone"))
-        out, _ = await _run(_config(), _context(_device("a")), common=common)
+        out, _ = await _run(
+            _config(), make_context([_device("a")], run_id="r", workflow_id="w"), common=common
+        )
         error = out["failure"].devices["a"].errors[0]
         self.assertEqual(error.code, "ip_not_found")
         self.assertEqual(out["failure"].devices["a"].status, DeviceStatus.FAILED)
@@ -258,7 +283,11 @@ class ExecuteTests(unittest.IsolatedAsyncioTestCase):
                 "REST request failed with status 400: address: taken", http_status=400
             )
         )
-        out, _ = await _run(_config(namespace="Other"), _context(_device("a")), common=common)
+        out, _ = await _run(
+            _config(namespace="Other"),
+            make_context([_device("a")], run_id="r", workflow_id="w"),
+            common=common,
+        )
         error = out["failure"].devices["a"].errors[0]
         self.assertIn("address: taken", error.message)
         self.assertEqual(error.failure.kind, "bad_request")
@@ -266,7 +295,11 @@ class ExecuteTests(unittest.IsolatedAsyncioTestCase):
     async def test_an_unexpected_error_fails_the_device_without_raw_text(self) -> None:
         common = MagicMock()
         common.update_ip_address = AsyncMock(side_effect=RuntimeError("secret-ish body"))
-        out, _ = await _run(_config(namespace="Other"), _context(_device("a")), common=common)
+        out, _ = await _run(
+            _config(namespace="Other"),
+            make_context([_device("a")], run_id="r", workflow_id="w"),
+            common=common,
+        )
         error = out["failure"].devices["a"].errors[0]
         self.assertEqual(error.message, "RuntimeError")
         self.assertNotIn("secret-ish", repr(error))
@@ -277,14 +310,19 @@ class ExecuteTests(unittest.IsolatedAsyncioTestCase):
             return REDACTED_PLACEHOLDER if field_key == "description" else raw_value
 
         with patch.object(plan_fields, "resolve_update_field_expression", side_effect=resolve):
-            out, common = await _run(_config(description="{x.y}"), _context(_device("a")))
+            out, common = await _run(
+                _config(description="{x.y}"),
+                make_context([_device("a")], run_id="r", workflow_id="w"),
+            )
         self.assertEqual(out["failure"].devices["a"].errors[0].code, "description_is_secret")
         common.update_ip_address.assert_not_awaited()
 
     async def test_devices_split_between_outcomes(self) -> None:
         good = _device("a", attribute_bags={"custom": {"ip_id": _IP_ID}})
         bad = _device("b")
-        out, _ = await _run(_config(ip_id="{custom.ip_id}"), _context(good, bad))
+        out, _ = await _run(
+            _config(ip_id="{custom.ip_id}"), make_context([good, bad], run_id="r", workflow_id="w")
+        )
         self.assertEqual(list(out["success"].devices), ["a"])
         self.assertEqual(list(out["failure"].devices), ["b"])
 
@@ -292,7 +330,7 @@ class ExecuteTests(unittest.IsolatedAsyncioTestCase):
         dev = _device("a", attribute_bags={"custom": {"d": ""}})
         out, common = await _run(
             {"nautobot_source_id": "s", "ip_id": _IP_ID, "description": "{custom.d}"},
-            _context(dev),
+            make_context([dev], run_id="r", workflow_id="w"),
         )
         self.assertEqual(out["failure"].devices["a"].errors[0].code, "description_unresolved")
         common.update_ip_address.assert_not_awaited()
@@ -304,7 +342,7 @@ class ExecuteTests(unittest.IsolatedAsyncioTestCase):
                 "ip_id": _IP_ID,
                 "description": "{custom.d | default('')}",
             },
-            _context(_device("a")),
+            make_context([_device("a")], run_id="r", workflow_id="w"),
         )
         self.assertEqual(out["failure"].devices["a"].errors[0].code, "nothing_to_update")
         common.update_ip_address.assert_not_awaited()

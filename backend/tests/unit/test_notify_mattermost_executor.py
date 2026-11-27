@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from models.workflow_context import DeviceContext, WorkflowContext
 from services.mattermost.common.exceptions import MattermostAPIError, MattermostValidationError
 from services.mattermost.source_config_service import MattermostSourceNotFoundError
+from tests.unit._step_helpers import make_run
 from workflow_steps.notify_mattermost.executor import execute
 
 _BASE_CONFIG = {
@@ -26,12 +27,6 @@ def _device(device_id: str, *, name: str | None = None, attribute_bags: dict | N
         hostname=resolved_name,
         attribute_bags=attribute_bags or {},
     )
-
-
-def _run() -> MagicMock:
-    run = MagicMock()
-    run.id = 1
-    return run
 
 
 def _context(devices: dict[str, DeviceContext]) -> WorkflowContext:
@@ -76,7 +71,7 @@ class NotifyMattermostExecutorTests(unittest.IsolatedAsyncioTestCase):
             outcomes = await execute(
                 config=_BASE_CONFIG,
                 context=context,
-                run=_run(),
+                run=make_run(),
                 artifact_service=MagicMock(),
                 node_id="notify-mattermost-1",
                 device_sessions=MagicMock(),
@@ -101,7 +96,7 @@ class NotifyMattermostExecutorTests(unittest.IsolatedAsyncioTestCase):
             outcomes = await execute(
                 config=config,
                 context=_context(devices),
-                run=_run(),
+                run=make_run(),
                 artifact_service=MagicMock(),
                 node_id="notify-mattermost-1",
                 device_sessions=MagicMock(),
@@ -124,7 +119,7 @@ class NotifyMattermostExecutorTests(unittest.IsolatedAsyncioTestCase):
             await execute(
                 config=config,
                 context=context,
-                run=_run(),
+                run=make_run(),
                 artifact_service=MagicMock(),
                 node_id="notify-mattermost-1",
                 device_sessions=MagicMock(),
@@ -142,7 +137,7 @@ class NotifyMattermostExecutorTests(unittest.IsolatedAsyncioTestCase):
             outcomes = await execute(
                 config=config,
                 context=context,
-                run=_run(),
+                run=make_run(),
                 artifact_service=MagicMock(),
                 node_id="notify-mattermost-1",
                 device_sessions=MagicMock(),
@@ -161,7 +156,7 @@ class NotifyMattermostExecutorTests(unittest.IsolatedAsyncioTestCase):
             outcomes = await execute(
                 config=config,
                 context=context,
-                run=_run(),
+                run=make_run(),
                 artifact_service=MagicMock(),
                 node_id="notify-mattermost-1",
                 device_sessions=MagicMock(),
@@ -185,7 +180,7 @@ class NotifyMattermostExecutorTests(unittest.IsolatedAsyncioTestCase):
             outcomes = await execute(
                 config=config,
                 context=context,
-                run=_run(),
+                run=make_run(),
                 artifact_service=MagicMock(),
                 node_id="notify-mattermost-1",
                 device_sessions=MagicMock(),
@@ -207,7 +202,7 @@ class NotifyMattermostExecutorTests(unittest.IsolatedAsyncioTestCase):
             outcomes = await execute(
                 config=_BASE_CONFIG,
                 context=_context({}),
-                run=_run(),
+                run=make_run(),
                 artifact_service=MagicMock(),
                 node_id="notify-mattermost-1",
                 device_sessions=MagicMock(),
@@ -225,7 +220,7 @@ class NotifyMattermostExecutorTests(unittest.IsolatedAsyncioTestCase):
             outcomes = await execute(
                 config=_BASE_CONFIG,
                 context=_context({}),
-                run=_run(),
+                run=make_run(),
                 artifact_service=MagicMock(),
                 node_id="notify-mattermost-1",
                 device_sessions=MagicMock(),
@@ -239,7 +234,7 @@ class NotifyMattermostExecutorTests(unittest.IsolatedAsyncioTestCase):
             await execute(
                 config=config,
                 context=_context({}),
-                run=_run(),
+                run=make_run(),
                 artifact_service=MagicMock(),
                 node_id="notify-mattermost-1",
                 device_sessions=MagicMock(),
@@ -251,7 +246,7 @@ class NotifyMattermostExecutorTests(unittest.IsolatedAsyncioTestCase):
             await execute(
                 config=config,
                 context=_context({}),
-                run=_run(),
+                run=make_run(),
                 artifact_service=MagicMock(),
                 node_id="notify-mattermost-1",
                 device_sessions=MagicMock(),
@@ -263,7 +258,7 @@ class NotifyMattermostExecutorTests(unittest.IsolatedAsyncioTestCase):
             await execute(
                 config=config,
                 context=_context({}),
-                run=_run(),
+                run=make_run(),
                 artifact_service=MagicMock(),
                 node_id="notify-mattermost-1",
                 device_sessions=MagicMock(),
@@ -275,7 +270,7 @@ class NotifyMattermostExecutorTests(unittest.IsolatedAsyncioTestCase):
             await execute(
                 config=config,
                 context=_context({}),
-                run=_run(),
+                run=make_run(),
                 artifact_service=MagicMock(),
                 node_id="notify-mattermost-1",
                 device_sessions=MagicMock(),
@@ -290,7 +285,7 @@ class NotifyMattermostExecutorTests(unittest.IsolatedAsyncioTestCase):
                 await execute(
                     config=_BASE_CONFIG,
                     context=_context({}),
-                    run=_run(),
+                    run=make_run(),
                     artifact_service=MagicMock(),
                     node_id="notify-mattermost-1",
                     device_sessions=MagicMock(),
@@ -307,7 +302,7 @@ class NotifyMattermostExecutorTests(unittest.IsolatedAsyncioTestCase):
                 await execute(
                     config=_BASE_CONFIG,
                     context=_context({}),
-                    run=_run(),
+                    run=make_run(),
                     artifact_service=MagicMock(),
                     node_id="notify-mattermost-1",
                     device_sessions=MagicMock(),
@@ -319,7 +314,7 @@ class NotifyMattermostExecutorTests(unittest.IsolatedAsyncioTestCase):
                 await execute(
                     config=_BASE_CONFIG,
                     context=_context({}),
-                    run=_run(),
+                    run=make_run(),
                     artifact_service=MagicMock(),
                     node_id="notify-mattermost-1",
                     device_sessions=MagicMock(),

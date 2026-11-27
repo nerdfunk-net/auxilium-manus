@@ -10,6 +10,7 @@ from models.workflow_context import Capability, DeviceContext, DeviceStatus, Wor
 from services.artifacts import InMemoryArtifactService
 from services.catalyst_center.common.exceptions import CatalystCenterAPIError
 from services.catalyst_center.source_config_service import CatalystCenterSourceNotFoundError
+from tests.unit._step_helpers import make_context
 from workflow_steps.run_catalyst_center_command.config import get_config
 from workflow_steps.run_catalyst_center_command.executor import (
     DEVICES_PER_REQUEST,
@@ -26,10 +27,6 @@ def _device(
     return DeviceContext(
         id=device_id, name=device_id, hostname=device_id, source=source, source_id=source_id
     )
-
-
-def _context(*devices: DeviceContext) -> WorkflowContext:
-    return WorkflowContext(run_id="run-1", workflow_id="wf-1", devices={d.id: d for d in devices})
 
 
 def _result(device_id: str, command: str, output: str, status=OK) -> CatalystCenterCommandResult:
@@ -95,17 +92,17 @@ class ConfigValidationTests(unittest.IsolatedAsyncioTestCase):
         for config in bad:
             with self.subTest(config=config), _Harness() as h:
                 with self.assertRaises(ValueError):
-                    await _run(config, _context(_device("a")))
+                    await _run(config, make_context([_device("a")]))
                 h.source_config.resolve_credentials.assert_not_called()
 
     async def test_unknown_source_is_a_value_error(self) -> None:
         with _Harness(resolve_side_effect=CatalystCenterSourceNotFoundError("lab")):
             with self.assertRaisesRegex(ValueError, "'lab' not found"):
-                await _run(get_config(), _context(_device("a")))
+                await _run(get_config(), make_context([_device("a")]))
 
     async def test_no_devices_is_a_noop_success(self) -> None:
         with _Harness() as h:
-            outcomes = await _run(get_config(), _context())
+            outcomes = await _run(get_config(), make_context([]))
         self.assertEqual([o.name for o in outcomes], ["success"])
         h.build_command_service.assert_not_called()
 
@@ -117,7 +114,9 @@ class SuccessPathTests(unittest.IsolatedAsyncioTestCase):
             return_value=(_result("a", "show clock", "show clock\n15:22:13\nsw1#"),)
         )
         with _Harness(run_commands):
-            outcomes = await _run({"commands": ["show clock"]}, _context(_device("a")), artifacts)
+            outcomes = await _run(
+                {"commands": ["show clock"]}, make_context([_device("a")]), artifacts
+            )
 
         self.assertEqual([o.name for o in outcomes], ["success"])
         device = outcomes[0].context.devices["a"]
@@ -134,7 +133,7 @@ class SuccessPathTests(unittest.IsolatedAsyncioTestCase):
             side_effect=lambda ids, cmds, timeout: tuple(_result(i, cmds[0], "ok") for i in ids)
         )
         with _Harness(run_commands):
-            outcomes = await _run({"commands": ["show x"]}, _context(*devices))
+            outcomes = await _run({"commands": ["show x"]}, make_context(devices))
 
         self.assertEqual(run_commands.await_count, 2)
         self.assertEqual(len(outcomes[0].context.devices), DEVICES_PER_REQUEST + 1)
@@ -147,7 +146,7 @@ class SuccessPathTests(unittest.IsolatedAsyncioTestCase):
         with _Harness(run_commands) as h:
             await _run(
                 {"commands": ["show x"]},
-                _context(_device("a", source_id="one"), _device("b", source_id="two")),
+                make_context([_device("a", source_id="one"), _device("b", source_id="two")]),
             )
         resolved = {c.args[0] for c in h.source_config.resolve_credentials.call_args_list}
         self.assertEqual(resolved, {"one", "two"})
@@ -157,7 +156,7 @@ class FailurePathTests(unittest.IsolatedAsyncioTestCase):
     async def test_non_catalyst_device_fails_without_a_request(self) -> None:
         with _Harness() as h:
             outcomes = await _run(
-                get_config(), _context(_device("n1", source="nautobot", source_id="nb"))
+                get_config(), make_context([_device("n1", source="nautobot", source_id="nb")])
             )
         failure = next(o for o in outcomes if o.name == "failure")
         self.assertEqual(failure.context.devices["n1"].errors[0].code, "not_catalyst_center_device")
@@ -172,7 +171,9 @@ class FailurePathTests(unittest.IsolatedAsyncioTestCase):
             )
         )
         with _Harness(run_commands):
-            outcomes = await _run({"commands": ["show clock", "reload"]}, _context(_device("a")))
+            outcomes = await _run(
+                {"commands": ["show clock", "reload"]}, make_context([_device("a")])
+            )
 
         failure = next(o for o in outcomes if o.name == "failure")
         device = failure.context.devices["a"]
@@ -182,7 +183,9 @@ class FailurePathTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_missing_device_output_is_a_failure(self) -> None:
         with _Harness(AsyncMock(return_value=(_result("a", "show x", "ok"),))):
-            outcomes = await _run({"commands": ["show x"]}, _context(_device("a"), _device("b")))
+            outcomes = await _run(
+                {"commands": ["show x"]}, make_context([_device("a"), _device("b")])
+            )
         self.assertEqual(
             set(next(o for o in outcomes if o.name == "success").context.devices), {"a"}
         )
@@ -192,7 +195,7 @@ class FailurePathTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_controller_error_fails_the_batch_not_the_step(self) -> None:
         with _Harness(AsyncMock(side_effect=CatalystCenterAPIError("boom"))):
-            outcomes = await _run({"commands": ["show x"]}, _context(_device("a")))
+            outcomes = await _run({"commands": ["show x"]}, make_context([_device("a")]))
         failure = next(o for o in outcomes if o.name == "failure")
         self.assertEqual(failure.context.devices["a"].errors[0].code, "catalyst_center_error")
         self.assertEqual(failure.context.devices["a"].status, DeviceStatus.FAILED)
@@ -216,7 +219,7 @@ class TextFsmParserTests(unittest.IsolatedAsyncioTestCase):
         run_commands = AsyncMock(return_value=(_result("a", "show ip interface brief", IP_BRIEF),))
         with _Harness(run_commands):
             outcomes = await _run(
-                {"commands": ["show ip interface brief"]}, _context(_driver_device("a"))
+                {"commands": ["show ip interface brief"]}, make_context([_driver_device("a")])
             )
         device = outcomes[0].context.devices["a"]
         self.assertEqual(device.parsed, {})
@@ -228,7 +231,7 @@ class TextFsmParserTests(unittest.IsolatedAsyncioTestCase):
         with _Harness(run_commands):
             outcomes = await _run(
                 {"commands": [command], "parser": "textfsm", "parsed_output_key": "ifaces"},
-                _context(_driver_device("a")),
+                make_context([_driver_device("a")]),
             )
         device = outcomes[0].context.devices["a"]
         entry = device.parsed["ifaces"][command]
@@ -246,7 +249,7 @@ class TextFsmParserTests(unittest.IsolatedAsyncioTestCase):
         with _Harness(run_commands):
             outcomes = await _run(
                 {"commands": ["show clock", "show ip interface brief"], "parser": "textfsm"},
-                _context(_driver_device("a")),
+                make_context([_driver_device("a")]),
             )
         self.assertEqual([o.name for o in outcomes], ["success"])
         parsed = outcomes[0].context.devices["a"].parsed["parsed"]
@@ -259,7 +262,8 @@ class TextFsmParserTests(unittest.IsolatedAsyncioTestCase):
         run_commands = AsyncMock(return_value=(_result("a", command, IP_BRIEF),))
         with _Harness(run_commands):
             outcomes = await _run(
-                {"commands": [command], "parser": "textfsm"}, _context(_driver_device("a", None))
+                {"commands": [command], "parser": "textfsm"},
+                make_context([_driver_device("a", None)]),
             )
         self.assertIn(
             "network driver", outcomes[0].context.devices["a"].parsed["parsed"][command]["error"]
@@ -272,7 +276,7 @@ class TextFsmParserTests(unittest.IsolatedAsyncioTestCase):
                     "parser": "textfsm",
                     "network_driver_override": "cisco_ios",
                 },
-                _context(_driver_device("a", None)),
+                make_context([_driver_device("a", None)]),
             )
         self.assertIsNotNone(outcomes[0].context.devices["a"].parsed["parsed"][command]["parsed"])
 
@@ -280,5 +284,7 @@ class TextFsmParserTests(unittest.IsolatedAsyncioTestCase):
         for extra in ({"parser": "genie"}, {"parser": "textfsm", "parsed_output_key": "1 bad"}):
             with self.subTest(extra=extra), _Harness() as h:
                 with self.assertRaises(ValueError):
-                    await _run({"commands": ["show x"], **extra}, _context(_driver_device("a")))
+                    await _run(
+                        {"commands": ["show x"], **extra}, make_context([_driver_device("a")])
+                    )
                 h.source_config.resolve_credentials.assert_not_called()

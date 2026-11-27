@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from models.workflow_context import Capability, DeviceContext, DeviceStatus, WorkflowContext
 from services.workflow_context.secret_fields import REDACTED_PLACEHOLDER
+from tests.unit._step_helpers import make_context
 from workflow_steps.update_nautobot_ip import address_values
 from workflow_steps.update_nautobot_ip import executor as mod
 from workflow_steps.update_nautobot_ip.address_values import AddressRef, render_address_value
@@ -40,10 +41,6 @@ def _device(did: str = "d1", interfaces: list | None = None, **bags: Any) -> Dev
         status=DeviceStatus.OK,
         attribute_bags={"nautobot": nautobot, **bags},
     )
-
-
-def _context(*devices: DeviceContext) -> WorkflowContext:
-    return WorkflowContext(run_id="r", workflow_id="w", devices={d.id: d for d in devices})
 
 
 def _config(**overrides: Any) -> dict[str, Any]:
@@ -164,7 +161,9 @@ class InterfaceModeTests(unittest.IsolatedAsyncioTestCase):
             _iface(_IF1, "Gi0/0", _ip(_IP1, "10.0.0.1/24")),
             _iface(_IF2, "Gi0/1", _ip(_IP1, "10.0.0.1/24"), _ip(_IP2, "10.0.1.1/24")),
         ]
-        out, common = await _run(_config(), _context(_device("a", interfaces)))
+        out, common = await _run(
+            _config(), make_context([_device("a", interfaces)], run_id="r", workflow_id="w")
+        )
         calls = common.update_ip_address.await_args_list
         self.assertEqual({c.args[0] for c in calls}, {_IP1, _IP2})
         self.assertEqual(len(calls), 2)
@@ -178,14 +177,19 @@ class InterfaceModeTests(unittest.IsolatedAsyncioTestCase):
         interfaces = [
             _iface(_IF1, "Gi0/0", _ip(_IP1, "10.0.0.1/24"), _ip(_IP6, "2001:db8::1/64", 6))
         ]
-        _, common = await _run(_config(ip_version="6"), _context(_device("a", interfaces)))
+        _, common = await _run(
+            _config(ip_version="6"),
+            make_context([_device("a", interfaces)], run_id="r", workflow_id="w"),
+        )
         self.assertEqual([c.args[0] for c in common.update_ip_address.await_args_list], [_IP6])
 
     async def test_shared_addresses_are_skipped_and_counted(self) -> None:
         interfaces = [_iface(_IF1, "Gi0/0", _ip(_IP1, "10.0.0.1/24"), _ip(_IP2, "10.0.0.2/24"))]
         common = MagicMock()
         common.shared_ip_ids = AsyncMock(return_value={_IP2})
-        out, common = await _run(_config(), _context(_device("a", interfaces)), common)
+        out, common = await _run(
+            _config(), make_context([_device("a", interfaces)], run_id="r", workflow_id="w"), common
+        )
         self.assertEqual([c.args[0] for c in common.update_ip_address.await_args_list], [_IP1])
         common.shared_ip_ids.assert_awaited_once()
         self.assertEqual(common.shared_ip_ids.await_args.args[1], {_IF1})
@@ -198,7 +202,9 @@ class InterfaceModeTests(unittest.IsolatedAsyncioTestCase):
                 dns_name="{interface.slug}.{custom.site}.example.org",
                 description="{interface.name} {ip.address}",
             ),
-            _context(_device("a", interfaces, custom={"site": "lab"})),
+            make_context(
+                [_device("a", interfaces, custom={"site": "lab"})], run_id="r", workflow_id="w"
+            ),
         )
         fields = common.update_ip_address.await_args.args[1]
         self.assertEqual(fields["dns_name"], "gi0-0.lab.example.org")
@@ -208,7 +214,8 @@ class InterfaceModeTests(unittest.IsolatedAsyncioTestCase):
     async def test_unresolved_value_fails_the_device_before_any_write(self) -> None:
         interfaces = [_iface(_IF1, "Gi0/0", _ip(_IP1, "10.0.0.1/24"))]
         out, common = await _run(
-            _config(dns_name="{custom.nope}.x"), _context(_device("a", interfaces))
+            _config(dns_name="{custom.nope}.x"),
+            make_context([_device("a", interfaces)], run_id="r", workflow_id="w"),
         )
         self.assertEqual(out["failure"].devices["a"].errors[0].code, "dns_name_unresolved")
         common.update_ip_address.assert_not_awaited()
@@ -221,7 +228,7 @@ class InterfaceModeTests(unittest.IsolatedAsyncioTestCase):
         ]
         out, common = await _run(
             _config(status="", description="{interface.slug}"),
-            _context(_device("a", interfaces)),
+            make_context([_device("a", interfaces)], run_id="r", workflow_id="w"),
         )
         self.assertEqual([c.args[0] for c in common.update_ip_address.await_args_list], [_IP2])
         self.assertIn("a", out["success"].devices)
@@ -233,7 +240,7 @@ class InterfaceModeTests(unittest.IsolatedAsyncioTestCase):
         interfaces = [_iface(_IF1, "///", _ip(_IP1, "10.0.0.1/24"))]
         out, common = await _run(
             _config(status="", description="{interface.slug}", dry_run=True),
-            _context(_device("a", interfaces)),
+            make_context([_device("a", interfaces)], run_id="r", workflow_id="w"),
         )
         common.update_ip_address.assert_not_awaited()
         common.plan_ip_update.assert_not_awaited()
@@ -244,7 +251,8 @@ class InterfaceModeTests(unittest.IsolatedAsyncioTestCase):
     async def test_an_empty_value_never_uses_the_empty_configuration_code(self) -> None:
         interfaces = [_iface(_IF1, ".", _ip(_IP1, "10.0.0.1/24"))]
         out, _ = await _run(
-            _config(status="", description="{interface.slug}"), _context(_device("a", interfaces))
+            _config(status="", description="{interface.slug}"),
+            make_context([_device("a", interfaces)], run_id="r", workflow_id="w"),
         )
         self.assertNotIn("a", out["failure"].devices)
 
@@ -252,7 +260,8 @@ class InterfaceModeTests(unittest.IsolatedAsyncioTestCase):
         # status resolves to nothing at device level: a configuration problem, not a skipped one.
         interfaces = [_iface(_IF1, "Gi0/0", _ip(_IP1, "10.0.0.1/24"))]
         out, common = await _run(
-            _config(status="{custom.nope}"), _context(_device("a", interfaces))
+            _config(status="{custom.nope}"),
+            make_context([_device("a", interfaces)], run_id="r", workflow_id="w"),
         )
         self.assertEqual(out["failure"].devices["a"].errors[0].code, "status_unresolved")
         common.update_ip_address.assert_not_awaited()
@@ -260,7 +269,8 @@ class InterfaceModeTests(unittest.IsolatedAsyncioTestCase):
     async def test_namespace_makes_a_parent_finder(self) -> None:
         interfaces = [_iface(_IF1, "Gi0/0", _ip(_IP1, "10.0.0.1/24"))]
         _, common = await _run(
-            _config(status="", namespace="Global"), _context(_device("a", interfaces))
+            _config(status="", namespace="Global"),
+            make_context([_device("a", interfaces)], run_id="r", workflow_id="w"),
         )
         self.assertIsNotNone(common.update_ip_address.await_args.kwargs["find_parent"])
 
@@ -270,7 +280,11 @@ class InterfaceModeTests(unittest.IsolatedAsyncioTestCase):
         common.plan_ip_update = AsyncMock(
             side_effect=lambda ip_id, *_a, **_k: {"status": "x"} if ip_id == _IP1 else {}
         )
-        out, common = await _run(_config(dry_run=True), _context(_device("a", interfaces)), common)
+        out, common = await _run(
+            _config(dry_run=True),
+            make_context([_device("a", interfaces)], run_id="r", workflow_id="w"),
+            common,
+        )
         common.update_ip_address.assert_not_awaited()
         preview = out["success"].devices["a"].dry_run_results["n1"]
         self.assertEqual(
@@ -288,7 +302,7 @@ class InterfaceModeTests(unittest.IsolatedAsyncioTestCase):
         common.plan_ip_update = AsyncMock(return_value={"parent": "p"})
         out, _ = await _run(
             _config(status="", namespace="Global", dry_run=True),
-            _context(_device("a", interfaces)),
+            make_context([_device("a", interfaces)], run_id="r", workflow_id="w"),
             common,
         )
         preview = out["success"].devices["a"].dry_run_results["n1"]
@@ -304,19 +318,26 @@ class InterfaceModeTests(unittest.IsolatedAsyncioTestCase):
 
         common = MagicMock()
         common.update_ip_address = AsyncMock(side_effect=update)
-        out, common = await _run(_config(), _context(_device("a", interfaces)), common)
+        out, common = await _run(
+            _config(), make_context([_device("a", interfaces)], run_id="r", workflow_id="w"), common
+        )
         self.assertEqual(common.update_ip_address.await_count, 2)
         error = out["failure"].devices["a"].errors[0]
         self.assertIn("1 of 2 addresses", error.message)
         self.assertEqual(out["failure"].metadata["n1.update_ip_counts"]["failed"], 1)
 
     async def test_missing_interfaces_fail_the_device(self) -> None:
-        out, common = await _run(_config(), _context(_device("a", None)))
+        out, common = await _run(
+            _config(), make_context([_device("a", None)], run_id="r", workflow_id="w")
+        )
         self.assertEqual(out["failure"].devices["a"].errors[0].code, "interfaces_missing")
         common.update_ip_address.assert_not_awaited()
 
     async def test_device_without_addresses_succeeds_without_lookups(self) -> None:
-        out, common = await _run(_config(), _context(_device("a", [_iface(_IF1, "lo0")])))
+        out, common = await _run(
+            _config(),
+            make_context([_device("a", [_iface(_IF1, "lo0")])], run_id="r", workflow_id="w"),
+        )
         self.assertIn("a", out["success"].devices)
         common.shared_ip_ids.assert_not_awaited()
 
@@ -324,7 +345,11 @@ class InterfaceModeTests(unittest.IsolatedAsyncioTestCase):
         interfaces = [_iface(_IF1, "Gi0/0", _ip(_IP1, "10.0.0.1/24"))]
         common = MagicMock()
         common.resolve_status_id = AsyncMock(side_effect=ValueError("nope"))
-        out, _ = await _run(_config(status="Nowhere"), _context(_device("a", interfaces)), common)
+        out, _ = await _run(
+            _config(status="Nowhere"),
+            make_context([_device("a", interfaces)], run_id="r", workflow_id="w"),
+            common,
+        )
         error = out["failure"].devices["a"].errors[0]
         self.assertEqual(error.code, "status_not_found")
         self.assertNotIn("Nowhere", error.message)
@@ -332,11 +357,14 @@ class InterfaceModeTests(unittest.IsolatedAsyncioTestCase):
     async def test_status_lookup_is_made_once_for_all_devices(self) -> None:
         one = [_iface(_IF1, "Gi0/0", _ip(_IP1, "10.0.0.1/24"))]
         two = [_iface(_IF2, "Gi0/0", _ip(_IP2, "10.0.0.2/24"))]
-        _, common = await _run(_config(), _context(_device("a", one), _device("b", two)))
+        _, common = await _run(
+            _config(),
+            make_context([_device("a", one), _device("b", two)], run_id="r", workflow_id="w"),
+        )
         self.assertEqual(common.resolve_status_id.await_count, 1)
 
     async def test_no_devices(self) -> None:
-        out, _ = await _run(_config(), _context())
+        out, _ = await _run(_config(), make_context([], run_id="r", workflow_id="w"))
         self.assertEqual(out["success"].devices, {})
 
 

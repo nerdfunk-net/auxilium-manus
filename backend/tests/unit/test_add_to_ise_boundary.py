@@ -11,13 +11,13 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from services.ise.common.exceptions import ISEValidationError
+from tests.unit._step_helpers import make_run
 from tests.unit.test_add_to_ise_executor import (
     _BASE_CONFIG,
     _context,
     _device,
     _device_service,
     _patches,
-    _run,
 )
 from workflow_steps.add_to_ise.executor import execute
 from workflow_steps.add_to_ise.parse import parse_netmask_override
@@ -36,7 +36,7 @@ async def _run_step(devices: dict, service: MagicMock, config: dict | None = Non
         return await execute(
             config={**_BASE_CONFIG, **(config or {})},
             context=_context(devices),
-            run=_run(),
+            run=make_run(),
             artifact_service=MagicMock(),
             node_id="node-1",
             device_sessions=MagicMock(),

@@ -12,6 +12,7 @@ from models.workflow_context import (
     WorkflowContext,
 )
 from services.artifacts import InMemoryArtifactService
+from tests.unit._step_helpers import make_run
 from workflow_steps.common.regex_search import RegexAnswer
 from workflow_steps.route_on_content.executor import _parse_route_config, execute
 
@@ -40,18 +41,12 @@ async def _device_with_config(
     )
 
 
-def _run() -> MagicMock:
-    run = MagicMock()
-    run.id = 1
-    return run
-
-
 class RouteOnContentExecutorTests(unittest.IsolatedAsyncioTestCase):
     async def test_empty_devices_returns_all_outcomes_empty(self) -> None:
         outcomes = await execute(
             config={"pattern": "tacacs-server"},
             context=WorkflowContext(run_id="run-1", workflow_id="wf-1", devices={}),
-            run=_run(),
+            run=make_run(),
             artifact_service=InMemoryArtifactService(),
             node_id="route-on-content-1",
             device_sessions=MagicMock(),
@@ -76,7 +71,7 @@ class RouteOnContentExecutorTests(unittest.IsolatedAsyncioTestCase):
             outcomes = await execute(
                 config={**base, "pattern": pattern, "store_matched_text": True},
                 context=WorkflowContext(run_id="r", workflow_id="w", devices={"d1": device}),
-                run=_run(),
+                run=make_run(),
                 artifact_service=artifact_service,
                 node_id="n",
                 device_sessions=MagicMock(),
@@ -110,7 +105,7 @@ class RouteOnContentExecutorTests(unittest.IsolatedAsyncioTestCase):
                 workflow_id="wf-1",
                 devices={"dev-new": matching, "dev-old": non_matching},
             ),
-            run=_run(),
+            run=make_run(),
             artifact_service=artifact_service,
             node_id="node-1",
             device_sessions=MagicMock(),
@@ -141,7 +136,7 @@ class RouteOnContentExecutorTests(unittest.IsolatedAsyncioTestCase):
                 "case_sensitive": False,
             },
             context=WorkflowContext(run_id="run-1", workflow_id="wf-1", devices={"dev-1": device}),
-            run=_run(),
+            run=make_run(),
             artifact_service=artifact_service,
             node_id="node-1",
             device_sessions=MagicMock(),
@@ -152,7 +147,7 @@ class RouteOnContentExecutorTests(unittest.IsolatedAsyncioTestCase):
         outcomes_sensitive = await execute(
             config={"match_mode": "fixed_text", "pattern": "tacacs server", "case_sensitive": True},
             context=WorkflowContext(run_id="run-1", workflow_id="wf-1", devices={"dev-1": device}),
-            run=_run(),
+            run=make_run(),
             artifact_service=artifact_service,
             node_id="node-1",
             device_sessions=MagicMock(),
@@ -175,7 +170,7 @@ class RouteOnContentExecutorTests(unittest.IsolatedAsyncioTestCase):
                 "multiline": True,
             },
             context=WorkflowContext(run_id="run-1", workflow_id="wf-1", devices={"dev-1": device}),
-            run=_run(),
+            run=make_run(),
             artifact_service=artifact_service,
             node_id="node-1",
             device_sessions=MagicMock(),
@@ -198,7 +193,7 @@ class RouteOnContentExecutorTests(unittest.IsolatedAsyncioTestCase):
                 "multiline": False,
             },
             context=WorkflowContext(run_id="run-1", workflow_id="wf-1", devices={"dev-1": device}),
-            run=_run(),
+            run=make_run(),
             artifact_service=artifact_service,
             node_id="node-1",
             device_sessions=MagicMock(),
@@ -221,7 +216,7 @@ class RouteOnContentExecutorTests(unittest.IsolatedAsyncioTestCase):
                 "pattern": "tacacs-server host {custom.expected_ip}",
             },
             context=WorkflowContext(run_id="run-1", workflow_id="wf-1", devices={"dev-1": device}),
-            run=_run(),
+            run=make_run(),
             artifact_service=artifact_service,
             node_id="node-1",
             device_sessions=MagicMock(),
@@ -249,7 +244,7 @@ class RouteOnContentExecutorTests(unittest.IsolatedAsyncioTestCase):
                 "pattern": r"host {custom.expected_ip} key",
             },
             context=WorkflowContext(run_id="run-1", workflow_id="wf-1", devices={"dev-1": device}),
-            run=_run(),
+            run=make_run(),
             artifact_service=artifact_service,
             node_id="node-1",
             device_sessions=MagicMock(),
@@ -268,7 +263,7 @@ class RouteOnContentExecutorTests(unittest.IsolatedAsyncioTestCase):
         outcomes = await execute(
             config={"content_source": "running_config", "pattern": "tacacs"},
             context=WorkflowContext(run_id="run-1", workflow_id="wf-1", devices={"dev-1": device}),
-            run=_run(),
+            run=make_run(),
             artifact_service=InMemoryArtifactService(),
             node_id="node-1",
             device_sessions=MagicMock(),
@@ -294,7 +289,7 @@ class RouteOnContentExecutorTests(unittest.IsolatedAsyncioTestCase):
             context=WorkflowContext(
                 run_id="run-1", workflow_id="wf-1", devices={"slow": slow, "quick": quick}
             ),
-            run=_run(),
+            run=make_run(),
             artifact_service=artifact_service,
             node_id="node-1",
             device_sessions=MagicMock(),
@@ -332,7 +327,7 @@ class RouteOnContentExecutorTests(unittest.IsolatedAsyncioTestCase):
                 context=WorkflowContext(
                     run_id="run-1", workflow_id="wf-1", devices={"dev-1": device}
                 ),
-                run=_run(),
+                run=make_run(),
                 artifact_service=artifact_service,
                 node_id="node-1",
                 device_sessions=MagicMock(),
@@ -355,7 +350,7 @@ class RouteOnContentExecutorTests(unittest.IsolatedAsyncioTestCase):
         outcomes = await execute(
             config={"match_mode": "regex", "pattern": "tacacs-server("},
             context=WorkflowContext(run_id="run-1", workflow_id="wf-1", devices={"dev-1": device}),
-            run=_run(),
+            run=make_run(),
             artifact_service=artifact_service,
             node_id="node-1",
             device_sessions=MagicMock(),
@@ -374,7 +369,7 @@ class RouteOnContentExecutorTests(unittest.IsolatedAsyncioTestCase):
         outcomes = await execute(
             config={"match_mode": "fixed_text", "pattern": "{custom.missing_path}"},
             context=WorkflowContext(run_id="run-1", workflow_id="wf-1", devices={"dev-1": device}),
-            run=_run(),
+            run=make_run(),
             artifact_service=artifact_service,
             node_id="node-1",
             device_sessions=MagicMock(),
@@ -398,7 +393,7 @@ class RouteOnContentExecutorTests(unittest.IsolatedAsyncioTestCase):
                         )
                     },
                 ),
-                run=_run(),
+                run=make_run(),
                 artifact_service=InMemoryArtifactService(),
                 node_id="node-1",
                 device_sessions=MagicMock(),
@@ -417,7 +412,7 @@ class RouteOnContentExecutorTests(unittest.IsolatedAsyncioTestCase):
                         )
                     },
                 ),
-                run=_run(),
+                run=make_run(),
                 artifact_service=InMemoryArtifactService(),
                 node_id="node-1",
                 device_sessions=MagicMock(),
@@ -458,7 +453,7 @@ class RouteOnContentExecutorTests(unittest.IsolatedAsyncioTestCase):
                 "pattern": "one",
             },
             context=WorkflowContext(run_id="run-1", workflow_id="wf-1", devices={"dev-1": device}),
-            run=_run(),
+            run=make_run(),
             artifact_service=artifact_service,
             node_id="route-1",
             device_sessions=MagicMock(),

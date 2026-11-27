@@ -10,6 +10,7 @@ from models.workflow_context import Capability, DeviceContext, DeviceStatus, Wor
 from services.nautobot.common.exceptions import NautobotNotFoundError
 from services.nautobot.managers.location_assignments import PartialUpdateError
 from services.workflow_context.secret_fields import REDACTED_PLACEHOLDER
+from tests.unit._step_helpers import make_context
 from workflow_steps.common import nautobot_plan_fields as plan_fields
 from workflow_steps.update_nautobot_prefix import executor as mod
 from workflow_steps.update_nautobot_prefix.executor import _parse_config, execute
@@ -33,10 +34,6 @@ def _device(did: str = "d1", bag: dict | None = None, **overrides: Any) -> Devic
         attribute_bags={"nautobot": bag} if bag is not None else {},
         **overrides,
     )
-
-
-def _context(*devices: DeviceContext) -> WorkflowContext:
-    return WorkflowContext(run_id="r", workflow_id="w", devices={d.id: d for d in devices})
 
 
 def _config(**overrides: Any) -> dict:
@@ -124,7 +121,8 @@ class ParseConfigTests(unittest.TestCase):
 class ManualModeTests(unittest.IsolatedAsyncioTestCase):
     async def test_updates_by_id(self) -> None:
         out, common = await _run(
-            _config(locations="Berlin", locations_mode="add"), _context(_device("a"))
+            _config(locations="Berlin", locations_mode="add"),
+            make_context([_device("a")], run_id="r", workflow_id="w"),
         )
         common.update_prefix.assert_awaited_once_with(
             _PFX, {"status": _STATUS}, locations=(_LOC_A,), locations_mode="add"
@@ -134,7 +132,8 @@ class ManualModeTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_prefix_and_namespace_find_the_prefix(self) -> None:
         out, common = await _run(
-            _config(prefix_id="", prefix="10.0.0.0/24", namespace="Global"), _context(_device("a"))
+            _config(prefix_id="", prefix="10.0.0.0/24", namespace="Global"),
+            make_context([_device("a")], run_id="r", workflow_id="w"),
         )
         common.find_prefixes.assert_awaited_once_with("10.0.0.0/24", _NS)
         self.assertIn("a", out["success"].devices)
@@ -142,7 +141,7 @@ class ManualModeTests(unittest.IsolatedAsyncioTestCase):
     async def test_the_network_is_looked_up_in_its_canonical_form(self) -> None:
         _, common = await _run(
             _config(prefix_id="", prefix="2001:DB8::/32", namespace="Global"),
-            _context(_device("a")),
+            make_context([_device("a")], run_id="r", workflow_id="w"),
         )
         common.find_prefixes.assert_awaited_once_with("2001:db8::/32", _NS)
 
@@ -150,37 +149,51 @@ class ManualModeTests(unittest.IsolatedAsyncioTestCase):
         cfg = _config(prefix_id="", prefix="10.0.0.0/24")
         common = MagicMock()
         common.find_prefixes = AsyncMock(return_value=[])
-        out, _ = await _run(cfg, _context(_device("a")), common)
+        out, _ = await _run(cfg, make_context([_device("a")], run_id="r", workflow_id="w"), common)
         self.assertEqual(out["failure"].devices["a"].errors[0].code, "prefix_not_found")
         common = MagicMock()
         common.find_prefixes = AsyncMock(return_value=[_PFX, _PFX2])
-        out, common = await _run(cfg, _context(_device("a")), common)
+        out, common = await _run(
+            cfg, make_context([_device("a")], run_id="r", workflow_id="w"), common
+        )
         self.assertEqual(out["failure"].devices["a"].errors[0].code, "ambiguous_match")
         common.update_prefix.assert_not_awaited()
 
     async def test_invalid_values(self) -> None:
-        out, _ = await _run(_config(prefix_id="nope"), _context(_device("a")))
+        out, _ = await _run(
+            _config(prefix_id="nope"), make_context([_device("a")], run_id="r", workflow_id="w")
+        )
         self.assertEqual(out["failure"].devices["a"].errors[0].code, "prefix_id_invalid")
-        out, _ = await _run(_config(prefix_id="", prefix="10.0.0.5/24"), _context(_device("a")))
+        out, _ = await _run(
+            _config(prefix_id="", prefix="10.0.0.5/24"),
+            make_context([_device("a")], run_id="r", workflow_id="w"),
+        )
         self.assertEqual(out["failure"].devices["a"].errors[0].code, "prefix_invalid")
 
     async def test_namespace_is_ignored_when_the_prefix_id_is_set(self) -> None:
         # A UUID selects the prefix by itself: its namespace is neither looked up nor needed.
-        out, common = await _run(_config(namespace="NoSuchNamespace"), _context(_device("a")))
+        out, common = await _run(
+            _config(namespace="NoSuchNamespace"),
+            make_context([_device("a")], run_id="r", workflow_id="w"),
+        )
         self.assertIn("a", out["success"].devices)
         common.resolve_namespace_id.assert_not_awaited()
         common.find_prefixes.assert_not_awaited()
 
     async def test_prefix_id_is_written_in_lower_case(self) -> None:
         mixed = "ABCDEF12-3456-7890-ABCD-EF1234567890"
-        out, common = await _run(_config(prefix_id=mixed), _context(_device("a")))
+        out, common = await _run(
+            _config(prefix_id=mixed), make_context([_device("a")], run_id="r", workflow_id="w")
+        )
         self.assertIn("a", out["success"].devices)
         self.assertEqual(common.update_prefix.await_args.args[0], mixed.lower())
 
     async def test_unchanged_is_counted(self) -> None:
         common = MagicMock()
         common.update_prefix = AsyncMock(return_value=False)
-        out, _ = await _run(_config(), _context(_device("a")), common)
+        out, _ = await _run(
+            _config(), make_context([_device("a")], run_id="r", workflow_id="w"), common
+        )
         self.assertEqual(out["success"].metadata["n1.update_prefix_counts"]["unchanged"], 1)
 
     async def test_partial_update_is_reported(self) -> None:
@@ -188,7 +201,9 @@ class ManualModeTests(unittest.IsolatedAsyncioTestCase):
         error = PartialUpdateError(["fields"])
         error.__cause__ = RuntimeError("x")
         common.update_prefix = AsyncMock(side_effect=error)
-        out, _ = await _run(_config(), _context(_device("a")), common)
+        out, _ = await _run(
+            _config(), make_context([_device("a")], run_id="r", workflow_id="w"), common
+        )
         failure = out["failure"].devices["a"].errors[0]
         self.assertEqual(failure.code, "prefix_partially_updated")
         self.assertIn("run the step again", failure.message)
@@ -196,19 +211,27 @@ class ManualModeTests(unittest.IsolatedAsyncioTestCase):
     async def test_missing_prefix_in_nautobot(self) -> None:
         common = MagicMock()
         common.update_prefix = AsyncMock(side_effect=NautobotNotFoundError("gone"))
-        out, _ = await _run(_config(), _context(_device("a")), common)
+        out, _ = await _run(
+            _config(), make_context([_device("a")], run_id="r", workflow_id="w"), common
+        )
         self.assertEqual(out["failure"].devices["a"].errors[0].code, "prefix_not_found")
 
     async def test_unknown_location_does_not_echo_the_name(self) -> None:
         common = MagicMock()
         common.resolve_location_id_strict = AsyncMock(side_effect=ValueError("secret-name"))
-        out, _ = await _run(_config(locations="Nowhere"), _context(_device("a")), common)
+        out, _ = await _run(
+            _config(locations="Nowhere"),
+            make_context([_device("a")], run_id="r", workflow_id="w"),
+            common,
+        )
         error = out["failure"].devices["a"].errors[0]
         self.assertEqual(error.code, "location_not_found")
         self.assertNotIn("Nowhere", error.message)
 
     async def test_lookups_are_made_once_for_all_devices(self) -> None:
-        _, common = await _run(_config(), _context(_device("a"), _device("b")))
+        _, common = await _run(
+            _config(), make_context([_device("a"), _device("b")], run_id="r", workflow_id="w")
+        )
         self.assertEqual(common.resolve_status_id.await_count, 1)
 
     async def test_secret_values_are_refused(self) -> None:
@@ -220,12 +243,15 @@ class ManualModeTests(unittest.IsolatedAsyncioTestCase):
             return real(**kwargs)
 
         with patch.object(plan_fields, "resolve_update_field_expression", side_effect=fake):
-            out, common = await _run(_config(status="{secrets.x}"), _context(_device("a")))
+            out, common = await _run(
+                _config(status="{secrets.x}"),
+                make_context([_device("a")], run_id="r", workflow_id="w"),
+            )
         self.assertEqual(out["failure"].devices["a"].errors[0].code, "status_is_secret")
         common.update_prefix.assert_not_awaited()
 
     async def test_no_devices(self) -> None:
-        out, _ = await _run(_config(), _context())
+        out, _ = await _run(_config(), make_context([], run_id="r", workflow_id="w"))
         self.assertEqual(out["success"].devices, {})
 
 
@@ -262,7 +288,10 @@ class InterfaceModeTests(unittest.IsolatedAsyncioTestCase):
             },
             {"ip_addresses": []},
         ]
-        out, common = await _run(_IFACE_CFG, _context(_device("a", _bag(_LOC_A, interfaces))))
+        out, common = await _run(
+            _IFACE_CFG,
+            make_context([_device("a", _bag(_LOC_A, interfaces))], run_id="r", workflow_id="w"),
+        )
         calls = common.update_prefix.await_args_list
         self.assertEqual({c.args[0] for c in calls}, {_PFX, _PFX2})
         for call in calls:
@@ -275,7 +304,9 @@ class InterfaceModeTests(unittest.IsolatedAsyncioTestCase):
         common = MagicMock()
         common.update_prefix = AsyncMock(return_value=False)
         out, common = await _run(
-            _IFACE_CFG, _context(_device("a", _bag(_LOC_A, interfaces))), common
+            _IFACE_CFG,
+            make_context([_device("a", _bag(_LOC_A, interfaces))], run_id="r", workflow_id="w"),
+            common,
         )
         common.update_prefix.assert_awaited_once()
         self.assertEqual(out["success"].metadata["n1.update_prefix_counts"]["unchanged"], 1)
@@ -283,7 +314,8 @@ class InterfaceModeTests(unittest.IsolatedAsyncioTestCase):
     async def test_a_stale_bag_does_not_hide_a_missing_location_in_a_dry_run(self) -> None:
         interfaces = [{"ip_addresses": [{"parent": _prefix(_PFX, "10.0.0.0/24", (_LOC_A,))}]}]
         out, common = await _run(
-            {**_IFACE_CFG, "dry_run": True}, _context(_device("a", _bag(_LOC_A, interfaces)))
+            {**_IFACE_CFG, "dry_run": True},
+            make_context([_device("a", _bag(_LOC_A, interfaces))], run_id="r", workflow_id="w"),
         )
         common.missing_prefix_locations.assert_awaited_once_with(_PFX, [_LOC_A])
         preview = out["success"].devices["a"].dry_run_results["n1"]
@@ -297,14 +329,17 @@ class InterfaceModeTests(unittest.IsolatedAsyncioTestCase):
             devices = [_device(f"d{i}", _bag(_LOC_A, interfaces)) for i in range(10)]
             common = MagicMock()
             common.update_prefix = AsyncMock(return_value=False)
-            out, _ = await _run(_IFACE_CFG, _context(*devices), common)
+            out, _ = await _run(
+                _IFACE_CFG, make_context(devices, run_id="r", workflow_id="w"), common
+            )
             counts = out["success"].metadata["n1.update_prefix_counts"]
             self.assertEqual((counts["updated"], counts["unchanged"]), (0, 1), bag_locations)
 
     async def test_dry_run_previews_and_writes_nothing(self) -> None:
         interfaces = [{"ip_addresses": [{"parent": _prefix(_PFX, "10.0.0.0/24")}]}]
         out, common = await _run(
-            {**_IFACE_CFG, "dry_run": True}, _context(_device("a", _bag(_LOC_A, interfaces)))
+            {**_IFACE_CFG, "dry_run": True},
+            make_context([_device("a", _bag(_LOC_A, interfaces))], run_id="r", workflow_id="w"),
         )
         common.update_prefix.assert_not_awaited()
         common.missing_prefix_locations.assert_awaited_once_with(_PFX, [_LOC_A])
@@ -316,14 +351,22 @@ class InterfaceModeTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_bag_without_parent_prefix_does_nothing(self) -> None:
         interfaces = [{"ip_addresses": [{"id": "x", "address": "10.0.0.1/24"}]}]
-        out, common = await _run(_IFACE_CFG, _context(_device("a", _bag(_LOC_A, interfaces))))
+        out, common = await _run(
+            _IFACE_CFG,
+            make_context([_device("a", _bag(_LOC_A, interfaces))], run_id="r", workflow_id="w"),
+        )
         common.update_prefix.assert_not_awaited()
         self.assertIn("a", out["success"].devices)
 
     async def test_missing_location_or_interfaces_fail_the_device(self) -> None:
-        out, _ = await _run(_IFACE_CFG, _context(_device("a", _bag(None, []))))
+        out, _ = await _run(
+            _IFACE_CFG, make_context([_device("a", _bag(None, []))], run_id="r", workflow_id="w")
+        )
         self.assertEqual(out["failure"].devices["a"].errors[0].code, "device_location_missing")
-        out, _ = await _run(_IFACE_CFG, _context(_device("a", _bag(_LOC_A, None))))
+        out, _ = await _run(
+            _IFACE_CFG,
+            make_context([_device("a", _bag(_LOC_A, None))], run_id="r", workflow_id="w"),
+        )
         self.assertEqual(out["failure"].devices["a"].errors[0].code, "interfaces_missing")
 
 

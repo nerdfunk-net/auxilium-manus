@@ -11,6 +11,7 @@ from models.workflow_context import Capability, DeviceContext, DeviceStatus, Wor
 from services.artifacts import InMemoryArtifactService
 from services.catalyst_center.common.exceptions import CatalystCenterAuthError
 from services.catalyst_center.source_config_service import CatalystCenterSourceNotFoundError
+from tests.unit._step_helpers import make_context
 from workflow_steps.get_catalyst_center_client_data.executor import execute
 
 MODULE = "workflow_steps.get_catalyst_center_client_data.executor"
@@ -27,10 +28,6 @@ def _device(device_id: str, *, name: str | None = None, source: str = "catalyst_
         source=source,
         source_id="lab",
     )
-
-
-def _context(*devices: DeviceContext) -> WorkflowContext:
-    return WorkflowContext(run_id="run-1", workflow_id="wf-1", devices={d.id: d for d in devices})
 
 
 def _client(mac: str = "aa:bb:cc:dd:ee:01", device_id: str | None = "a") -> CatalystCenterClient:
@@ -102,17 +99,17 @@ class ConfigTests(unittest.IsolatedAsyncioTestCase):
         for value in (0, 169, "x", True, 1.5):
             with self.subTest(value=value), _Env() as env:
                 with self.assertRaisesRegex(ValueError, "lookback_hours"):
-                    await _run({"lookback_hours": value}, _context(_device("a")))
+                    await _run({"lookback_hours": value}, make_context([_device("a")]))
                 env.source_config.resolve_credentials.assert_not_called()
 
     async def test_unknown_source_is_a_value_error(self) -> None:
         with _Env(resolve_error=CatalystCenterSourceNotFoundError("lab")):
             with self.assertRaisesRegex(ValueError, "'lab' not found"):
-                await _run({}, _context(_device("a")))
+                await _run({}, make_context([_device("a")]))
 
     async def test_no_devices_is_a_noop_success(self) -> None:
         with _Env() as env:
-            outcomes = await _run({}, _context())
+            outcomes = await _run({}, make_context([]))
         self.assertEqual([o.name for o in outcomes], ["success"])
         env.service.get_wired_clients.assert_not_called()
 
@@ -121,7 +118,7 @@ class CollectTests(unittest.IsolatedAsyncioTestCase):
     async def test_stores_rows_and_summarises(self) -> None:
         with _Env([_client()]) as env:
             outcomes = _by_name(
-                await _run({"lookback_hours": 48}, _context(_device("a", name="sw1")))
+                await _run({"lookback_hours": 48}, make_context([_device("a", name="sw1")]))
             )
         self.assertEqual(list(outcomes), ["success"])
         # The controller is asked about the device UUID, not the name or the management IP.
@@ -141,14 +138,14 @@ class CollectTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_no_clients_is_a_success_that_is_still_stored(self) -> None:
         with _Env([]) as env:
-            outcomes = _by_name(await _run({}, _context(_device("a"))))
+            outcomes = _by_name(await _run({}, make_context([_device("a")])))
         self.assertEqual(list(outcomes), ["success"])
         self.assertEqual(env.store.call_args.kwargs["ip_rows"], ())
         self.assertEqual(env.store.call_args.kwargs["mac_rows"], ())
 
     async def test_client_of_another_switch_is_dropped(self) -> None:
         with _Env([_client(device_id="other"), _client("aa:bb:cc:dd:ee:02", device_id="a")]) as env:
-            await _run({}, _context(_device("a")))
+            await _run({}, make_context([_device("a")]))
         self.assertEqual(len(env.store.call_args.kwargs["mac_rows"]), 1)
 
     async def test_clients_none_of_which_is_usable_fail_and_store_nothing(self) -> None:
@@ -158,7 +155,7 @@ class CollectTests(unittest.IsolatedAsyncioTestCase):
             [_client(mac="garbage")],
         ):
             with self.subTest(clients=clients), _Env(clients) as env:
-                outcomes = _by_name(await _run({}, _context(_device("a"))))
+                outcomes = _by_name(await _run({}, make_context([_device("a")])))
             err = outcomes["failure"].context.devices["a"].errors[-1]
             self.assertEqual(err.code, "no_usable_clients")
             self.assertEqual(outcomes["success"].context.devices, {})
@@ -167,7 +164,7 @@ class CollectTests(unittest.IsolatedAsyncioTestCase):
     async def test_non_catalyst_device_is_rejected(self) -> None:
         with _Env([_client()]) as env:
             outcomes = _by_name(
-                await _run({}, _context(_device("a"), _device("b", source="nautobot")))
+                await _run({}, make_context([_device("a"), _device("b", source="nautobot")]))
             )
         self.assertEqual(list(outcomes["success"].context.devices), ["a"])
         failed = outcomes["failure"].context.devices["b"]
@@ -178,7 +175,7 @@ class CollectTests(unittest.IsolatedAsyncioTestCase):
     async def test_duplicate_names_fail_the_second_device(self) -> None:
         with _Env([_client()]) as env:
             outcomes = _by_name(
-                await _run({}, _context(_device("a", name="sw1"), _device("b", name="sw1")))
+                await _run({}, make_context([_device("a", name="sw1"), _device("b", name="sw1")]))
             )
         self.assertEqual(list(outcomes["success"].context.devices), ["a"])
         self.assertEqual(outcomes["failure"].context.devices["b"].errors[-1].code, "duplicate_key")
@@ -186,7 +183,7 @@ class CollectTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_dry_run_neither_queries_nor_stores(self) -> None:
         with _Env([_client()]) as env:
-            outcomes = _by_name(await _run({"dry_run": True}, _context(_device("a"))))
+            outcomes = _by_name(await _run({"dry_run": True}, make_context([_device("a")])))
         device = outcomes["success"].context.devices["a"]
         self.assertIn("node-1", device.dry_run_results)
         env.service.get_wired_clients.assert_not_called()
@@ -197,7 +194,7 @@ class FailureTests(unittest.IsolatedAsyncioTestCase):
     async def test_controller_error_fails_only_that_device(self) -> None:
         error = CatalystCenterAuthError("denied", http_status=403, code="request_denied")
         with _Env(service_error=error) as env:
-            outcomes = _by_name(await _run({}, _context(_device("a"))))
+            outcomes = _by_name(await _run({}, make_context([_device("a")])))
         self.assertEqual(outcomes["success"].context.devices, {})
         err = outcomes["failure"].context.devices["a"].errors[-1]
         self.assertEqual(err.code, "catalyst_center_error")
@@ -206,17 +203,17 @@ class FailureTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_storage_conflict_is_a_duplicate_key(self) -> None:
         with _Env([_client()], store_error=CollectionConflictError()):
-            outcomes = _by_name(await _run({}, _context(_device("a"))))
+            outcomes = _by_name(await _run({}, make_context([_device("a")])))
         self.assertEqual(outcomes["failure"].context.devices["a"].errors[-1].code, "duplicate_key")
 
     async def test_row_cap_fails_the_device(self) -> None:
         with _Env([_client()], store_error=TooManyRowsError("MAC", 5)):
-            outcomes = _by_name(await _run({}, _context(_device("a"))))
+            outcomes = _by_name(await _run({}, make_context([_device("a")])))
         self.assertEqual(outcomes["failure"].context.devices["a"].errors[-1].code, "too_many_rows")
 
     async def test_storage_error_keeps_only_the_class_name(self) -> None:
         with _Env([_client()], store_error=ValueError("secret SQL text")):
-            outcomes = _by_name(await _run({}, _context(_device("a"))))
+            outcomes = _by_name(await _run({}, make_context([_device("a")])))
         err = outcomes["failure"].context.devices["a"].errors[-1]
         self.assertEqual(err.code, "storage_failed")
         self.assertNotIn("secret", err.message)

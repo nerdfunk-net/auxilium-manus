@@ -18,6 +18,7 @@ from models.workflow_context import Capability, DeviceContext, DeviceStatus, Wor
 from services.artifacts import InMemoryArtifactService
 from services.catalyst_center.common.exceptions import CatalystCenterAPIError
 from services.catalyst_center.source_config_service import CatalystCenterSourceNotFoundError
+from tests.unit._step_helpers import make_context
 from workflow_steps.get_catalyst_center_details.executor import execute as details
 from workflow_steps.get_catalyst_center_health.executor import execute as health
 from workflow_steps.get_catalyst_center_topology.executor import execute as topology
@@ -29,10 +30,6 @@ def _device(
     return DeviceContext(
         id=device_id, name=device_id, hostname=device_id, source=source, source_id=source_id
     )
-
-
-def _context(*devices: DeviceContext) -> WorkflowContext:
-    return WorkflowContext(run_id="run-1", workflow_id="wf-1", devices={d.id: d for d in devices})
 
 
 class _Patched:
@@ -106,17 +103,17 @@ class DetailsConfigTests(unittest.IsolatedAsyncioTestCase):
         ):
             with self.subTest(config=config), _Patched(BUILD_DETAILS, _details_service()) as p:
                 with self.assertRaises(ValueError):
-                    await _run(details, config, _context(_device("a")))
+                    await _run(details, config, make_context([_device("a")]))
                 p.source_config.resolve_credentials.assert_not_called()
 
     async def test_unknown_source_is_a_value_error(self) -> None:
         with _Patched(BUILD_DETAILS, _details_service(), CatalystCenterSourceNotFoundError("lab")):
             with self.assertRaisesRegex(ValueError, "'lab' not found"):
-                await _run(details, {"facts": ["device"]}, _context(_device("a")))
+                await _run(details, {"facts": ["device"]}, make_context([_device("a")]))
 
     async def test_no_devices_is_a_noop_success(self) -> None:
         with _Patched(BUILD_DETAILS, _details_service()) as p:
-            outcomes = await _run(details, {}, _context())
+            outcomes = await _run(details, {}, make_context([]))
         self.assertEqual([o.name for o in outcomes], ["success"])
         p.builder.assert_not_called()
 
@@ -125,7 +122,7 @@ class DetailsFactTests(unittest.IsolatedAsyncioTestCase):
     async def test_defaults_read_device_and_interfaces_only(self) -> None:
         service = _details_service()
         with _Patched(BUILD_DETAILS, service):
-            outcomes = await _run(details, {}, _context(_device("a")))
+            outcomes = await _run(details, {}, make_context([_device("a")]))
         device = outcomes[0].context.devices["a"]
         bag = device.parsed["catalyst_details"]
         self.assertEqual(list(bag), ["device", "interfaces"])
@@ -141,7 +138,7 @@ class DetailsFactTests(unittest.IsolatedAsyncioTestCase):
             outcomes = await _run(
                 details,
                 {"facts": ["software", "device"], "parsed_output_key": "d"},
-                _context(_device("a")),
+                make_context([_device("a")]),
             )
         service.get_device_and_software.assert_awaited_once_with("a")
         bag = outcomes[0].context.devices["a"].parsed["d"]
@@ -151,7 +148,7 @@ class DetailsFactTests(unittest.IsolatedAsyncioTestCase):
     async def test_a_failed_fact_is_recorded_without_failing_the_device(self) -> None:
         with _Patched(BUILD_DETAILS, _details_service()):
             outcomes = await _run(
-                details, {"facts": ["device", "compliance"]}, _context(_device("a"))
+                details, {"facts": ["device", "compliance"]}, make_context([_device("a")])
             )
         self.assertEqual([o.name for o in outcomes], ["success"])
         bag = outcomes[0].context.devices["a"].parsed["catalyst_details"]
@@ -164,7 +161,7 @@ class DetailsFactTests(unittest.IsolatedAsyncioTestCase):
         service = _details_service(get_device_and_software=boom, get_interfaces=boom)
         with _Patched(BUILD_DETAILS, service):
             outcomes = await _run(
-                details, {"facts": ["device", "interfaces"]}, _context(_device("a"))
+                details, {"facts": ["device", "interfaces"]}, make_context([_device("a")])
             )
         failure = next(o for o in outcomes if o.name == "failure")
         failed = failure.context.devices["a"]
@@ -175,7 +172,7 @@ class DetailsFactTests(unittest.IsolatedAsyncioTestCase):
     async def test_non_catalyst_device_is_rejected_without_a_request(self) -> None:
         service = _details_service()
         with _Patched(BUILD_DETAILS, service):
-            outcomes = await _run(details, {}, _context(_device("n", source="nautobot")))
+            outcomes = await _run(details, {}, make_context([_device("n", source="nautobot")]))
         failure = next(o for o in outcomes if o.name == "failure")
         self.assertEqual(failure.context.devices["n"].errors[0].code, "not_catalyst_center_device")
         self.assertEqual(failure.context.devices["n"].errors[0].failure.kind, "bad_request")
@@ -186,7 +183,7 @@ class DetailsFactTests(unittest.IsolatedAsyncioTestCase):
             await _run(
                 details,
                 {"facts": ["device"]},
-                _context(_device("a", source_id="one"), _device("b", source_id="two")),
+                make_context([_device("a", source_id="one"), _device("b", source_id="two")]),
             )
         resolved = {c.args[0] for c in p.source_config.resolve_credentials.call_args_list}
         self.assertEqual(resolved, {"one", "two"})
@@ -222,7 +219,7 @@ class TopologyTests(unittest.IsolatedAsyncioTestCase):
         for config in ({"topologies": []}, {"topologies": ["l3_bgp"]}, {"topologies": "physical"}):
             with self.subTest(config=config), _Patched(BUILD_TOPOLOGY, self._service()):
                 with self.assertRaises(ValueError):
-                    await _run(topology, config, _context(_device("a")))
+                    await _run(topology, config, make_context([_device("a")]))
 
     async def test_graph_is_fetched_once_per_source_and_sliced_per_device(self) -> None:
         service = self._service()
@@ -230,7 +227,7 @@ class TopologyTests(unittest.IsolatedAsyncioTestCase):
             outcomes = await _run(
                 topology,
                 {"topologies": ["physical", "l3_ospf"]},
-                _context(_device("a"), _device("b")),
+                make_context([_device("a"), _device("b")]),
             )
         service.get_physical_topology.assert_awaited_once()
         service.get_l3_topology.assert_awaited_once_with("ospf")
@@ -243,7 +240,7 @@ class TopologyTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_device_outside_the_graph_succeeds_with_no_links(self) -> None:
         with _Patched(BUILD_TOPOLOGY, self._service()):
-            outcomes = await _run(topology, {}, _context(_device("zzz")))
+            outcomes = await _run(topology, {}, make_context([_device("zzz")]))
         entry = outcomes[0].context.devices["zzz"].parsed["catalyst_topology"]["physical"]
         self.assertEqual(entry["parsed"], {"node": None, "links": []})
 
@@ -253,7 +250,7 @@ class TopologyTests(unittest.IsolatedAsyncioTestCase):
         )
         with _Patched(BUILD_TOPOLOGY, service):
             outcomes = await _run(
-                topology, {"topologies": ["physical", "l3_ospf"]}, _context(_device("a"))
+                topology, {"topologies": ["physical", "l3_ospf"]}, make_context([_device("a")])
             )
         bag = outcomes[0].context.devices["a"].parsed["catalyst_topology"]
         self.assertIsNone(bag["physical"]["error"])
@@ -264,7 +261,7 @@ class TopologyTests(unittest.IsolatedAsyncioTestCase):
             get_physical_topology=AsyncMock(side_effect=CatalystCenterAPIError("down"))
         )
         with _Patched(BUILD_TOPOLOGY, service):
-            outcomes = await _run(topology, {}, _context(_device("a")))
+            outcomes = await _run(topology, {}, make_context([_device("a")]))
         self.assertIn("a", next(o for o in outcomes if o.name == "failure").context.devices)
 
 
@@ -280,7 +277,7 @@ class HealthTests(unittest.IsolatedAsyncioTestCase):
             )
         )
         with _Patched(BUILD_HEALTH, service):
-            outcomes = await _run(health, {"parsed_output_key": "h"}, _context(_device("a")))
+            outcomes = await _run(health, {"parsed_output_key": "h"}, make_context([_device("a")]))
         entry = outcomes[0].context.devices["a"].parsed["h"]["health"]
         self.assertEqual((entry["parsed"]["overall_health"], entry["error"]), (10.0, None))
         service.get_device_health.assert_awaited_once_with("a")
@@ -289,10 +286,10 @@ class HealthTests(unittest.IsolatedAsyncioTestCase):
         service = MagicMock()
         service.get_device_health = AsyncMock(side_effect=CatalystCenterAPIError("no health data"))
         with _Patched(BUILD_HEALTH, service):
-            outcomes = await _run(health, {}, _context(_device("a")))
+            outcomes = await _run(health, {}, make_context([_device("a")]))
         failed = next(o for o in outcomes if o.name == "failure").context.devices["a"]
         self.assertIn("no health data", failed.errors[0].message)
 
     async def test_bad_output_key_raises(self) -> None:
         with _Patched(BUILD_HEALTH, MagicMock()), self.assertRaises(ValueError):
-            await _run(health, {"parsed_output_key": "no good"}, _context(_device("a")))
+            await _run(health, {"parsed_output_key": "no good"}, make_context([_device("a")]))

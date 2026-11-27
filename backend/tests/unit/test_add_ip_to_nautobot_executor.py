@@ -12,6 +12,7 @@ from models.workflow_context import (
     WorkflowContext,
 )
 from services.nautobot.common.exceptions import NautobotAPIError, NoParentPrefixError
+from tests.unit._step_helpers import make_context
 from workflow_steps.add_ip_to_nautobot import executor as mod
 from workflow_steps.add_ip_to_nautobot.executor import _parse_config, execute
 
@@ -33,10 +34,6 @@ def _device(did: str = "d1", **overrides) -> DeviceContext:
     )
     defaults.update(overrides)
     return DeviceContext(**defaults)
-
-
-def _context(*devices: DeviceContext) -> WorkflowContext:
-    return WorkflowContext(run_id="r", workflow_id="w", devices={d.id: d for d in devices})
 
 
 def _config(**overrides) -> dict:
@@ -135,7 +132,10 @@ class ParseConfigTests(unittest.TestCase):
 
 class ExecuteTests(unittest.IsolatedAsyncioTestCase):
     async def test_fixed_address_is_created(self) -> None:
-        out, common = await _run(_config(result_attribute="custom.ip_id"), _context(_device("a")))
+        out, common = await _run(
+            _config(result_attribute="custom.ip_id"),
+            make_context([_device("a")], run_id="r", workflow_id="w"),
+        )
         self.assertEqual(out["success"].devices["a"].attribute_bags["custom"]["ip_id"], _IP_ID)
         args, kwargs = common.ensure_ip_address_exists.call_args
         self.assertEqual(args, ("192.168.178.10/24", _NS_ID, _STATUS_ID))
@@ -144,28 +144,37 @@ class ExecuteTests(unittest.IsolatedAsyncioTestCase):
         common.resolve_status_id.assert_called_once_with("Active", content_type="ipam.ipaddress")
 
     async def test_namespace_and_status_resolved_once_for_all_devices(self) -> None:
-        out, common = await _run(_config(), _context(_device("a"), _device("b"), _device("c")))
+        out, common = await _run(
+            _config(),
+            make_context([_device("a"), _device("b"), _device("c")], run_id="r", workflow_id="w"),
+        )
         self.assertEqual(len(out["success"].devices), 3)
         self.assertEqual(common.resolve_namespace_id.call_count, 1)
         self.assertEqual(common.resolve_status_id.call_count, 1)
 
     async def test_address_from_attribute(self) -> None:
         dev = _device("a", attribute_bags={"custom": {"new_ip": "192.168.178.20/24"}})
-        out, common = await _run(_config(ip_address="{custom.new_ip}"), _context(dev))
+        out, common = await _run(
+            _config(ip_address="{custom.new_ip}"), make_context([dev], run_id="r", workflow_id="w")
+        )
         self.assertIn("a", out["success"].devices)
         self.assertEqual(common.ensure_ip_address_exists.call_args.args[0], "192.168.178.20/24")
 
     async def test_bare_address_takes_mask_from_most_specific_prefix(self) -> None:
         rest = _containing((_PREFIX_ID, "192.168.178.0/24"), ("x", "192.168.0.0/16"))
         out, common = await _run(
-            _config(ip_address="192.168.178.10"), _context(_device("a")), rest=rest
+            _config(ip_address="192.168.178.10"),
+            make_context([_device("a")], run_id="r", workflow_id="w"),
+            rest=rest,
         )
         self.assertIn("a", out["success"].devices)
         self.assertEqual(common.ensure_ip_address_exists.call_args.args[0], "192.168.178.10/24")
 
     async def test_bare_address_without_prefix_fails(self) -> None:
         out, common = await _run(
-            _config(ip_address="192.168.178.10"), _context(_device("a")), rest=_containing()
+            _config(ip_address="192.168.178.10"),
+            make_context([_device("a")], run_id="r", workflow_id="w"),
+            rest=_containing(),
         )
         self.assertEqual(out["failure"].devices["a"].errors[0].code, "prefix_not_found")
         common.ensure_ip_address_exists.assert_not_called()
@@ -173,7 +182,7 @@ class ExecuteTests(unittest.IsolatedAsyncioTestCase):
     async def test_bare_address_without_prefix_uses_default_mask_when_creating(self) -> None:
         out, common = await _run(
             _config(ip_address="192.168.178.10", create_prefix=True, default_mask_length=26),
-            _context(_device("a")),
+            make_context([_device("a")], run_id="r", workflow_id="w"),
             rest=_containing(),
         )
         self.assertIn("a", out["success"].devices)
@@ -184,26 +193,33 @@ class ExecuteTests(unittest.IsolatedAsyncioTestCase):
     async def test_default_mask_for_ipv6_is_64(self) -> None:
         _, common = await _run(
             _config(ip_address="2001:db8::5", create_prefix=True),
-            _context(_device("a")),
+            make_context([_device("a")], run_id="r", workflow_id="w"),
             rest=_containing(),
         )
         self.assertEqual(common.ensure_ip_address_exists.call_args.args[0], "2001:db8::5/64")
 
     async def test_invalid_address_fails_device(self) -> None:
-        out, common = await _run(_config(ip_address="not-an-ip"), _context(_device("a")))
+        out, common = await _run(
+            _config(ip_address="not-an-ip"),
+            make_context([_device("a")], run_id="r", workflow_id="w"),
+        )
         self.assertEqual(out["failure"].devices["a"].errors[0].code, "ip_invalid")
         common.ensure_ip_address_exists.assert_not_called()
 
     async def test_unresolved_expression_fails_only_that_device(self) -> None:
         good = _device("good", attribute_bags={"custom": {"ip": "10.1.1.1/24"}})
-        out, _ = await _run(_config(ip_address="{custom.ip}"), _context(good, _device("bad")))
+        out, _ = await _run(
+            _config(ip_address="{custom.ip}"),
+            make_context([good, _device("bad")], run_id="r", workflow_id="w"),
+        )
         self.assertIn("good", out["success"].devices)
         self.assertEqual(out["failure"].devices["bad"].errors[0].code, "ip_unresolved")
 
     async def test_description_and_dns_name_are_passed(self) -> None:
         dev = _device("a", attribute_bags={"custom": {"d": "core switch"}})
         _, common = await _run(
-            _config(description="{custom.d}", dns_name="sw1.example.org"), _context(dev)
+            _config(description="{custom.d}", dns_name="sw1.example.org"),
+            make_context([dev], run_id="r", workflow_id="w"),
         )
         kwargs = common.ensure_ip_address_exists.call_args.kwargs
         self.assertEqual(
@@ -213,13 +229,21 @@ class ExecuteTests(unittest.IsolatedAsyncioTestCase):
     async def test_unknown_status_fails_with_status_code(self) -> None:
         common = MagicMock()
         common.resolve_status_id = AsyncMock(side_effect=ValueError("Status 'x' not found"))
-        out, _ = await _run(_config(status="x"), _context(_device("a")), common=common)
+        out, _ = await _run(
+            _config(status="x"),
+            make_context([_device("a")], run_id="r", workflow_id="w"),
+            common=common,
+        )
         self.assertEqual(out["failure"].devices["a"].errors[0].code, "status_not_found")
 
     async def test_unknown_namespace_fails_with_namespace_code(self) -> None:
         common = MagicMock()
         common.resolve_namespace_id = AsyncMock(side_effect=ValueError("Namespace 'x' not found"))
-        out, _ = await _run(_config(namespace="x"), _context(_device("a")), common=common)
+        out, _ = await _run(
+            _config(namespace="x"),
+            make_context([_device("a")], run_id="r", workflow_id="w"),
+            common=common,
+        )
         self.assertEqual(out["failure"].devices["a"].errors[0].code, "namespace_not_found")
 
     async def test_missing_parent_prefix_error_is_explained(self) -> None:
@@ -227,7 +251,9 @@ class ExecuteTests(unittest.IsolatedAsyncioTestCase):
         common.ensure_ip_address_exists = AsyncMock(
             side_effect=NoParentPrefixError("Cannot create IP: No suitable parent prefix exists")
         )
-        out, _ = await _run(_config(), _context(_device("a")), common=common)
+        out, _ = await _run(
+            _config(), make_context([_device("a")], run_id="r", workflow_id="w"), common=common
+        )
         error = out["failure"].devices["a"].errors[0]
         self.assertEqual(error.code, "prefix_not_found")
         self.assertIn("create_prefix", error.message)
@@ -238,33 +264,46 @@ class ExecuteTests(unittest.IsolatedAsyncioTestCase):
         common.ensure_ip_address_exists = AsyncMock(
             side_effect=NautobotAPIError("Cannot create IP: No suitable parent prefix exists")
         )
-        out, _ = await _run(_config(), _context(_device("a")), common=common)
+        out, _ = await _run(
+            _config(), make_context([_device("a")], run_id="r", workflow_id="w"), common=common
+        )
         self.assertNotEqual(out["failure"].devices["a"].errors[0].code, "prefix_not_found")
 
     async def test_lookup_error_never_repeats_the_looked_up_name(self) -> None:
         common = MagicMock()
         common.resolve_status_id = AsyncMock(side_effect=ValueError("Status 'TopSecret' not found"))
-        out, _ = await _run(_config(status="x"), _context(_device("a")), common=common)
+        out, _ = await _run(
+            _config(status="x"),
+            make_context([_device("a")], run_id="r", workflow_id="w"),
+            common=common,
+        )
         error = out["failure"].devices["a"].errors[0]
         self.assertEqual(error.code, "status_not_found")
         self.assertNotIn("TopSecret", error.message)
 
         common = MagicMock()
         common.resolve_namespace_id = AsyncMock(side_effect=ValueError("Namespace 'Hidden' gone"))
-        out, _ = await _run(_config(namespace="x"), _context(_device("a")), common=common)
+        out, _ = await _run(
+            _config(namespace="x"),
+            make_context([_device("a")], run_id="r", workflow_id="w"),
+            common=common,
+        )
         self.assertNotIn("Hidden", out["failure"].devices["a"].errors[0].message)
 
     async def test_nautobot_error_is_reduced_to_class_name(self) -> None:
         common = MagicMock()
         common.ensure_ip_address_exists = AsyncMock(side_effect=RuntimeError("token abc123"))
-        out, _ = await _run(_config(), _context(_device("a")), common=common)
+        out, _ = await _run(
+            _config(), make_context([_device("a")], run_id="r", workflow_id="w"), common=common
+        )
         error = out["failure"].devices["a"].errors[0]
         self.assertNotIn("abc123", error.message)
         self.assertIsNotNone(error.failure)
 
     async def test_interface_assignment_and_primary(self) -> None:
         out, common = await _run(
-            _config(interface_name="Vlan1", set_primary=True), _context(_device("a"))
+            _config(interface_name="Vlan1", set_primary=True),
+            make_context([_device("a")], run_id="r", workflow_id="w"),
         )
         self.assertIn("a", out["success"].devices)
         common.resolve_interface_by_name.assert_called_once_with(_DEVICE_ID, "Vlan1")
@@ -272,7 +311,10 @@ class ExecuteTests(unittest.IsolatedAsyncioTestCase):
         common.assign_primary_ip_to_device.assert_called_once_with(_DEVICE_ID, _IP_ID)
 
     async def test_primary_not_set_without_the_option(self) -> None:
-        _, common = await _run(_config(interface_name="Vlan1"), _context(_device("a")))
+        _, common = await _run(
+            _config(interface_name="Vlan1"),
+            make_context([_device("a")], run_id="r", workflow_id="w"),
+        )
         common.assign_primary_ip_to_device.assert_not_called()
 
     async def test_missing_interface_fails_before_anything_is_written(self) -> None:
@@ -280,7 +322,7 @@ class ExecuteTests(unittest.IsolatedAsyncioTestCase):
         common.resolve_interface_by_name = AsyncMock(return_value=None)
         out, common = await _run(
             _config(interface_name="Vlan9", result_attribute="custom.ip_id", create_prefix=True),
-            _context(_device("a")),
+            make_context([_device("a")], run_id="r", workflow_id="w"),
             common=common,
         )
         device = out["failure"].devices["a"]
@@ -296,7 +338,7 @@ class ExecuteTests(unittest.IsolatedAsyncioTestCase):
 
         out, common = await _run(
             _config(interface_name="Vlan1", set_primary=True),
-            _context(_device("a")),
+            make_context([_device("a")], run_id="r", workflow_id="w"),
             rest=rest,
         )
         error = out["failure"].devices["a"].errors[0]
@@ -312,7 +354,7 @@ class ExecuteTests(unittest.IsolatedAsyncioTestCase):
         common.assign_primary_ip_to_device = AsyncMock(return_value=False)
         out, _ = await _run(
             _config(interface_name="Vlan1", set_primary=True, result_attribute="custom.ip_id"),
-            _context(_device("a")),
+            make_context([_device("a")], run_id="r", workflow_id="w"),
             common=common,
         )
         device = out["failure"].devices["a"]
@@ -323,7 +365,7 @@ class ExecuteTests(unittest.IsolatedAsyncioTestCase):
     async def test_set_primary_refuses_ipv6_before_writing(self) -> None:
         out, common = await _run(
             _config(ip_address="2001:db8::5/64", interface_name="Vlan1", set_primary=True),
-            _context(_device("a")),
+            make_context([_device("a")], run_id="r", workflow_id="w"),
         )
         error = out["failure"].devices["a"].errors[0]
         self.assertEqual(error.code, "primary_ipv6_unsupported")
@@ -334,7 +376,7 @@ class ExecuteTests(unittest.IsolatedAsyncioTestCase):
     async def test_default_mask_longer_than_the_family_allows_is_refused(self) -> None:
         out, common = await _run(
             _config(ip_address="192.168.178.10", create_prefix=True, default_mask_length=64),
-            _context(_device("a")),
+            make_context([_device("a")], run_id="r", workflow_id="w"),
             rest=_containing(),
         )
         self.assertEqual(out["failure"].devices["a"].errors[0].code, "mask_invalid")
@@ -342,7 +384,10 @@ class ExecuteTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_unresolved_description_or_dns_name_fails_the_device(self) -> None:
         for key in ("description", "dns_name"):
-            out, common = await _run(_config(**{key: "{custom.missing}"}), _context(_device("a")))
+            out, common = await _run(
+                _config(**{key: "{custom.missing}"}),
+                make_context([_device("a")], run_id="r", workflow_id="w"),
+            )
             self.assertEqual(out["failure"].devices["a"].errors[0].code, f"{key}_unresolved")
             common.ensure_ip_address_exists.assert_not_called()
 
@@ -351,7 +396,9 @@ class ExecuteTests(unittest.IsolatedAsyncioTestCase):
 
         dev = _device("a", attribute_bags={"custom": {"token": seal_secret("hunter2-secret")}})
         for key in ("description", "dns_name", "ip_address"):
-            out, common = await _run(_config(**{key: "{custom.token}"}), _context(dev))
+            out, common = await _run(
+                _config(**{key: "{custom.token}"}), make_context([dev], run_id="r", workflow_id="w")
+            )
             error = out["failure"].devices["a"].errors[0]
             self.assertEqual(error.code, f"{key}_is_secret")
             self.assertNotIn("hunter2", error.message)
@@ -359,27 +406,36 @@ class ExecuteTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_invalid_address_error_does_not_echo_the_value(self) -> None:
         dev = _device("a", attribute_bags={"custom": {"ip": "top-secret-text"}})
-        out, _ = await _run(_config(ip_address="{custom.ip}"), _context(dev))
+        out, _ = await _run(
+            _config(ip_address="{custom.ip}"), make_context([dev], run_id="r", workflow_id="w")
+        )
         error = out["failure"].devices["a"].errors[0]
         self.assertEqual(error.code, "ip_invalid")
         self.assertNotIn("top-secret-text", error.message)
 
     async def test_device_not_in_nautobot(self) -> None:
-        out, _ = await _run(_config(interface_name="Vlan1"), _context(_device("a")), device_id=None)
+        out, _ = await _run(
+            _config(interface_name="Vlan1"),
+            make_context([_device("a")], run_id="r", workflow_id="w"),
+            device_id=None,
+        )
         self.assertEqual(out["failure"].devices["a"].errors[0].code, "device_not_in_nautobot")
 
     async def test_input_devices_not_mutated(self) -> None:
         dev = _device("a")
-        await _run(_config(result_attribute="custom.ip_id"), _context(dev))
+        await _run(
+            _config(result_attribute="custom.ip_id"),
+            make_context([dev], run_id="r", workflow_id="w"),
+        )
         self.assertEqual(dev.attribute_bags, {})
 
     async def test_no_devices_makes_no_calls(self) -> None:
-        out, common = await _run(_config(), _context())
+        out, common = await _run(_config(), make_context([], run_id="r", workflow_id="w"))
         self.assertEqual(out["success"].devices, {})
         common.resolve_namespace_id.assert_not_called()
 
     async def test_counts_in_metadata(self) -> None:
-        out, _ = await _run(_config(), _context(_device("a")))
+        out, _ = await _run(_config(), make_context([_device("a")], run_id="r", workflow_id="w"))
         self.assertEqual(out["success"].metadata["n1.add_ip_counts"], {"success": 1, "failure": 0})
 
 

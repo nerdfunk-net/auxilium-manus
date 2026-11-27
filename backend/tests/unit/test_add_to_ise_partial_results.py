@@ -13,13 +13,13 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from services.ise.common.exceptions import ISEAPIError, ISEValidationError
+from tests.unit._step_helpers import make_run
 from tests.unit.test_add_to_ise_executor import (
     _BASE_CONFIG,
     _context,
     _device,
     _device_service,
     _patches,
-    _run,
 )
 from workflow_steps.add_to_ise.executor import execute
 
@@ -37,7 +37,7 @@ async def _lose_the_connection_after_the_first_device() -> list:  # noqa: ANN202
             context=_context(
                 {"a": _device("a", name="router1"), "b": _device("b", name="router2")}
             ),
-            run=_run(),
+            run=make_run(),
             artifact_service=MagicMock(),
             node_id="node-1",
             device_sessions=MagicMock(),
@@ -93,7 +93,7 @@ async def test_a_device_that_already_exists_keeps_its_exists_handle_on_abort() -
                     "c": _device("c", name="router3"),
                 }
             ),
-            run=_run(),
+            run=make_run(),
             artifact_service=MagicMock(),
             node_id="node-1",
             device_sessions=MagicMock(),

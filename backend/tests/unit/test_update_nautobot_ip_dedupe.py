@@ -13,7 +13,8 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from services.nautobot.common.exceptions import NautobotAPIError
-from tests.unit.test_update_nautobot_ip_executor import _IP_ID, _config, _context, _device, _run
+from tests.unit._step_helpers import make_context
+from tests.unit.test_update_nautobot_ip_executor import _IP_ID, _config, _device, _run
 
 pytestmark = pytest.mark.asyncio
 
@@ -21,7 +22,10 @@ _OTHER_IP = "66666666-6666-6666-6666-666666666666"
 
 
 async def test_devices_of_one_address_and_values_share_one_write() -> None:
-    out, common = await _run(_config(), _context(_device("a"), _device("b"), _device("c")))
+    out, common = await _run(
+        _config(),
+        make_context([_device("a"), _device("b"), _device("c")], run_id="r", workflow_id="w"),
+    )
 
     assert common.update_ip_address.await_count == 1
     assert sorted(out["success"].devices) == ["a", "b", "c"]
@@ -32,7 +36,11 @@ async def test_devices_of_one_address_and_values_share_one_write() -> None:
 async def test_a_failed_shared_write_fails_every_device_of_the_group() -> None:
     common = MagicMock()
     common.update_ip_address = AsyncMock(side_effect=NautobotAPIError("refused", http_status=400))
-    out, _ = await _run(_config(), _context(_device("a"), _device("b")), common=common)
+    out, _ = await _run(
+        _config(),
+        make_context([_device("a"), _device("b")], run_id="r", workflow_id="w"),
+        common=common,
+    )
 
     assert common.update_ip_address.await_count == 1
     assert sorted(out["failure"].devices) == ["a", "b"]
@@ -42,7 +50,9 @@ async def test_a_failed_shared_write_fails_every_device_of_the_group() -> None:
 async def test_different_addresses_are_written_separately() -> None:
     a = _device("a", attribute_bags={"custom": {"ip_id": _IP_ID}})
     b = _device("b", attribute_bags={"custom": {"ip_id": _OTHER_IP}})
-    out, common = await _run(_config(ip_id="{custom.ip_id}"), _context(a, b))
+    out, common = await _run(
+        _config(ip_id="{custom.ip_id}"), make_context([a, b], run_id="r", workflow_id="w")
+    )
 
     assert common.update_ip_address.await_count == 2
     assert sorted(out["success"].devices) == ["a", "b"]
@@ -63,7 +73,11 @@ async def test_two_value_sets_of_one_address_do_not_run_at_once() -> None:
     common.update_ip_address = AsyncMock(side_effect=update)
     a = _device("a", attribute_bags={"custom": {"text": "one"}})
     b = _device("b", attribute_bags={"custom": {"text": "two"}})
-    out, _ = await _run(_config(description="{custom.text}"), _context(a, b), common=common)
+    out, _ = await _run(
+        _config(description="{custom.text}"),
+        make_context([a, b], run_id="r", workflow_id="w"),
+        common=common,
+    )
 
     assert common.update_ip_address.await_count == 2
     assert peak == 1
@@ -79,7 +93,7 @@ async def test_one_address_moved_to_two_namespaces_is_not_one_write() -> None:
     b = _device("b", attribute_bags={"custom": {"ns": "Prod"}})
     out, common = await _run(
         {"nautobot_source_id": "s", "ip_id": _IP_ID, "namespace": "{custom.ns}"},
-        _context(a, b),
+        make_context([a, b], run_id="r", workflow_id="w"),
         common=common,
     )
 

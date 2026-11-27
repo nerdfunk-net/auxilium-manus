@@ -15,6 +15,7 @@ from models.workflow_context import (
     WorkflowContext,
 )
 from services.artifacts import InMemoryArtifactService
+from tests.unit._step_helpers import make_run
 from workflow_steps.merge_content.executor import (
     _merge_items_to_string,
     _parse_merge_config,
@@ -113,18 +114,12 @@ class MergeItemsToStringTests(unittest.TestCase):
         self.assertEqual(media, "application/json")
 
 
-def _run() -> MagicMock:
-    run = MagicMock()
-    run.id = 1
-    return run
-
-
 class ExecuteTests(unittest.IsolatedAsyncioTestCase):
     async def test_empty_devices_returns_success(self) -> None:
         outcomes = await execute(
             config={},
             context=WorkflowContext(run_id="r", workflow_id="w", devices={}),
-            run=_run(),
+            run=make_run(),
             artifact_service=InMemoryArtifactService(),
             node_id="n",
             device_sessions=MagicMock(),
@@ -162,7 +157,7 @@ class ExecuteTests(unittest.IsolatedAsyncioTestCase):
         outcomes = await execute(
             config={"merge_mode": "text_sectioned"},
             context=WorkflowContext(run_id="run-1", workflow_id="w", devices={"d1": device}),
-            run=_run(),
+            run=make_run(),
             artifact_service=artifacts,
             node_id="merge-1",
             device_sessions=MagicMock(),
@@ -187,7 +182,7 @@ class ExecuteTests(unittest.IsolatedAsyncioTestCase):
         outcomes = await execute(
             config={"content_source": "filtered_output", "source_step_node_ids": ["f-1"]},
             context=WorkflowContext(run_id="run-1", workflow_id="w", devices={"d1": device}),
-            run=_run(),
+            run=make_run(),
             artifact_service=artifact_service,
             node_id="merge-1",
             device_sessions=MagicMock(),

@@ -13,6 +13,7 @@ from models.workflow_context import (
 )
 from services.ise.common.exceptions import ISEAPIError, ISENotFoundError
 from services.workflow_context.attribute_path import resolve_device_attribute
+from tests.unit._step_helpers import make_run
 from workflow_steps.get_ise_tacacs_key.executor import execute
 
 
@@ -33,12 +34,6 @@ def _device(
         capabilities={Capability.IDENTITY},
         status=DeviceStatus.OK,
     )
-
-
-def _run() -> MagicMock:
-    run = MagicMock()
-    run.id = 1
-    return run
 
 
 def _context(devices: dict[str, DeviceContext]) -> WorkflowContext:
@@ -100,7 +95,7 @@ class GetIseTacacsKeyExecutorTests(unittest.IsolatedAsyncioTestCase):
             await execute(
                 config={},
                 context=_context({}),
-                run=_run(),
+                run=make_run(),
                 artifact_service=MagicMock(),
                 node_id="node-1",
                 device_sessions=MagicMock(),
@@ -124,7 +119,7 @@ class GetIseTacacsKeyExecutorTests(unittest.IsolatedAsyncioTestCase):
                     ),
                 },
                 context=_context({"dev-1": _device("dev-1")}),
-                run=_run(),
+                run=make_run(),
                 artifact_service=MagicMock(),
                 node_id="node-1",
                 device_sessions=MagicMock(),
@@ -140,7 +135,7 @@ class GetIseTacacsKeyExecutorTests(unittest.IsolatedAsyncioTestCase):
             outcomes = await execute(
                 config={"ise_source_id": "lab-ise", "priority": _priority()},
                 context=_context({"dev-1": _device("dev-1", name="router1")}),
-                run=_run(),
+                run=make_run(),
                 artifact_service=MagicMock(),
                 node_id="node-1",
                 device_sessions=MagicMock(),
@@ -167,7 +162,7 @@ class GetIseTacacsKeyExecutorTests(unittest.IsolatedAsyncioTestCase):
                     ),
                 },
                 context=_context({"dev-1": _device("dev-1", name="router1")}),
-                run=_run(),
+                run=make_run(),
                 artifact_service=MagicMock(),
                 node_id="node-1",
                 device_sessions=MagicMock(),
@@ -207,7 +202,7 @@ class GetIseTacacsKeyExecutorTests(unittest.IsolatedAsyncioTestCase):
                     ),
                 },
                 context=_context(devices),
-                run=_run(),
+                run=make_run(),
                 artifact_service=MagicMock(),
                 node_id="node-1",
                 device_sessions=MagicMock(),
@@ -235,7 +230,7 @@ class GetIseTacacsKeyExecutorTests(unittest.IsolatedAsyncioTestCase):
                     ),
                 },
                 context=_context({"dev-1": _device("dev-1", name="router1")}),
-                run=_run(),
+                run=make_run(),
                 artifact_service=MagicMock(),
                 node_id="node-1",
                 device_sessions=MagicMock(),
@@ -258,7 +253,7 @@ class GetIseTacacsKeyExecutorTests(unittest.IsolatedAsyncioTestCase):
             outcomes = await execute(
                 config={"ise_source_id": "lab-ise", "priority": _priority()},
                 context=_context({"dev-1": _device("dev-1", name="router1")}),
-                run=_run(),
+                run=make_run(),
                 artifact_service=MagicMock(),
                 node_id="node-1",
                 device_sessions=MagicMock(),
@@ -286,7 +281,7 @@ class GetIseTacacsKeyExecutorTests(unittest.IsolatedAsyncioTestCase):
             outcomes = await execute(
                 config={"ise_source_id": "lab-ise", "priority": _priority()},
                 context=_context({"dev-1": _device("dev-1", name="router1")}),
-                run=_run(),
+                run=make_run(),
                 artifact_service=MagicMock(),
                 node_id="node-1",
                 device_sessions=MagicMock(),
@@ -317,7 +312,7 @@ class GetIseTacacsKeyExecutorTests(unittest.IsolatedAsyncioTestCase):
                     ),
                 },
                 context=_context({"dev-1": _device("dev-1", name="lab")}),
-                run=_run(),
+                run=make_run(),
                 artifact_service=MagicMock(),
                 node_id="node-1",
                 device_sessions=MagicMock(),
@@ -366,7 +361,7 @@ class GetIseTacacsKeyExecutorTests(unittest.IsolatedAsyncioTestCase):
                         )
                     }
                 ),
-                run=_run(),
+                run=make_run(),
                 artifact_service=MagicMock(),
                 node_id="node-1",
                 device_sessions=MagicMock(),
@@ -412,7 +407,7 @@ class GetIseTacacsKeyExecutorTests(unittest.IsolatedAsyncioTestCase):
                 context=_context(
                     {"dev-1": _device("dev-1", name="lab", primary_ip4="192.168.178.240/24")}
                 ),
-                run=_run(),
+                run=make_run(),
                 artifact_service=MagicMock(),
                 node_id="node-1",
                 device_sessions=MagicMock(),
@@ -452,7 +447,7 @@ class GetIseTacacsKeyExecutorTests(unittest.IsolatedAsyncioTestCase):
                 context=_context(
                     {"dev-1": _device("dev-1", name="lab", primary_ip4="10.0.0.5/24")}
                 ),
-                run=_run(),
+                run=make_run(),
                 artifact_service=MagicMock(),
                 node_id="node-1",
                 device_sessions=MagicMock(),
@@ -496,7 +491,7 @@ class GetIseTacacsKeyExecutorTests(unittest.IsolatedAsyncioTestCase):
                     ),
                 },
                 context=_context(devices),
-                run=_run(),
+                run=make_run(),
                 artifact_service=MagicMock(),
                 node_id="node-1",
                 device_sessions=MagicMock(),
@@ -551,7 +546,7 @@ class GetIseTacacsKeyExecutorTests(unittest.IsolatedAsyncioTestCase):
                         )
                     }
                 ),
-                run=_run(),
+                run=make_run(),
                 artifact_service=MagicMock(),
                 node_id="node-1",
                 device_sessions=MagicMock(),
@@ -582,7 +577,7 @@ class GetIseTacacsKeyExecutorTests(unittest.IsolatedAsyncioTestCase):
                 context=_context(
                     {"dev-1": _device("dev-1", name="lab", primary_ip4="192.168.178.240/24")}
                 ),
-                run=_run(),
+                run=make_run(),
                 artifact_service=MagicMock(),
                 node_id="node-1",
                 device_sessions=MagicMock(),
@@ -621,7 +616,7 @@ class GetIseTacacsKeyExecutorTests(unittest.IsolatedAsyncioTestCase):
                 context=_context(
                     {"dev-1": _device("dev-1", name="lab", primary_ip4="192.168.178.240/24")}
                 ),
-                run=_run(),
+                run=make_run(),
                 artifact_service=MagicMock(),
                 node_id="node-1",
                 device_sessions=MagicMock(),
@@ -663,7 +658,7 @@ class GetIseTacacsKeyExecutorTests(unittest.IsolatedAsyncioTestCase):
                 context=_context(
                     {"dev-1": _device("dev-1", name="lab", primary_ip4="192.168.178.240/24")}
                 ),
-                run=_run(),
+                run=make_run(),
                 artifact_service=MagicMock(),
                 node_id="node-1",
                 device_sessions=MagicMock(),
@@ -706,7 +701,7 @@ class GetIseTacacsKeyExecutorTests(unittest.IsolatedAsyncioTestCase):
                 context=_context(
                     {"dev-1": _device("dev-1", name="lab", primary_ip4="192.168.178.240/24")}
                 ),
-                run=_run(),
+                run=make_run(),
                 artifact_service=MagicMock(),
                 node_id="node-1",
                 device_sessions=MagicMock(),
@@ -731,7 +726,7 @@ class GetIseTacacsKeyExecutorTests(unittest.IsolatedAsyncioTestCase):
                         )
                     }
                 ),
-                run=_run(),
+                run=make_run(),
                 artifact_service=MagicMock(),
                 node_id="node-1",
                 device_sessions=MagicMock(),

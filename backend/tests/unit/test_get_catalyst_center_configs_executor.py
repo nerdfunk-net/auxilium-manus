@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from models.workflow_context import Capability, DeviceContext, DeviceStatus, WorkflowContext
 from services.artifacts import InMemoryArtifactService
 from services.catalyst_center.common.exceptions import CatalystCenterAPIError
+from tests.unit._step_helpers import make_context
 from workflow_steps.get_catalyst_center_configs.executor import execute
 
 MODULE = "workflow_steps.get_catalyst_center_configs.executor"
@@ -17,10 +18,6 @@ def _device(device_id: str, *, source: str = "catalyst_center") -> DeviceContext
     return DeviceContext(
         id=device_id, name=device_id, hostname=device_id, source=source, source_id="lab"
     )
-
-
-def _context(*devices: DeviceContext) -> WorkflowContext:
-    return WorkflowContext(run_id="run-1", workflow_id="wf-1", devices={d.id: d for d in devices})
 
 
 class _Harness:
@@ -66,7 +63,7 @@ class GetCatalystCenterConfigsTests(unittest.IsolatedAsyncioTestCase):
     async def test_stores_running_config_and_adds_capability(self) -> None:
         artifacts = InMemoryArtifactService()
         with _Harness(AsyncMock(return_value="hostname sw1\n!")):
-            outcomes = await _run(_context(_device("a")), artifacts)
+            outcomes = await _run(make_context([_device("a")]), artifacts)
 
         self.assertEqual([o.name for o in outcomes], ["success"])
         device = outcomes[0].context.devices["a"]
@@ -81,7 +78,7 @@ class GetCatalystCenterConfigsTests(unittest.IsolatedAsyncioTestCase):
             return "cfg"
 
         with _Harness(AsyncMock(side_effect=fetch)):
-            outcomes = await _run(_context(_device("a"), _device("b")))
+            outcomes = await _run(make_context([_device("a"), _device("b")]))
 
         by_name = {o.name: o for o in outcomes}
         self.assertEqual(set(by_name["success"].context.devices), {"a"})
@@ -93,7 +90,7 @@ class GetCatalystCenterConfigsTests(unittest.IsolatedAsyncioTestCase):
     async def test_non_catalyst_device_is_rejected_without_a_request(self) -> None:
         get_config = AsyncMock(return_value="cfg")
         with _Harness(get_config):
-            outcomes = await _run(_context(_device("n", source="nautobot")))
+            outcomes = await _run(make_context([_device("n", source="nautobot")]))
         failure = next(o for o in outcomes if o.name == "failure")
         self.assertEqual(failure.context.devices["n"].errors[0].code, "not_catalyst_center_device")
         self.assertEqual(failure.context.devices["n"].errors[0].failure.kind, "bad_request")
@@ -101,5 +98,5 @@ class GetCatalystCenterConfigsTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_no_devices_is_a_noop_success(self) -> None:
         with _Harness(AsyncMock()):
-            outcomes = await _run(_context())
+            outcomes = await _run(make_context([]))
         self.assertEqual([o.name for o in outcomes], ["success"])

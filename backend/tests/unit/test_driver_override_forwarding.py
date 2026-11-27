@@ -16,6 +16,7 @@ from services.network.netmiko.connection import CommandResult as NetmikoCommandR
 from services.network.netmiko.connection import DeployResult, FileTransferResult
 from tests.unit import test_deploy_rendered_template_executor as deploy_tests
 from tests.unit import test_upload_config_executor as upload_tests
+from tests.unit._step_helpers import make_run
 from tests.unit.test_collect_client_data_executor import _device as collect_device
 from tests.unit.test_run_command_executor import _device as command_device
 from workflow_steps.collect_client_data.config import get_config as collect_config
@@ -29,12 +30,6 @@ from workflow_steps.run_command.executor import execute as command_execute
 from workflow_steps.upload_config.executor import execute as upload_execute
 
 CASES = [("cisco_nxos", "cisco_nxos"), (None, "cisco_ios"), ("  ", "cisco_ios")]
-
-
-def _run() -> MagicMock:
-    run = MagicMock()
-    run.id = 1
-    return run
 
 
 async def _call(execute, module: str, config: dict, devices: dict, artifacts=None, **patches):
@@ -51,7 +46,7 @@ async def _call(execute, module: str, config: dict, devices: dict, artifacts=Non
         await execute(
             config=config,
             context=WorkflowContext(run_id="r", workflow_id="w", devices=devices),
-            run=_run(),
+            run=make_run(),
             artifact_service=artifacts,
             node_id="n-1",
             device_sessions=MagicMock(),

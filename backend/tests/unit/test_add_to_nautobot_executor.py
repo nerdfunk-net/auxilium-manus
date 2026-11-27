@@ -12,6 +12,7 @@ from models.workflow_context import (
     WorkflowContext,
 )
 from services.nautobot.common.exceptions import NautobotAPIError
+from tests.unit._step_helpers import make_run
 from workflow_steps.add_to_nautobot.config import get_config
 from workflow_steps.add_to_nautobot.executor import execute
 
@@ -41,12 +42,6 @@ def _device(
         status=DeviceStatus.OK,
         attribute_bags={"nautobot": nautobot_bag} if nautobot_bag is not None else {},
     )
-
-
-def _run() -> MagicMock:
-    run = MagicMock()
-    run.id = 1
-    return run
 
 
 def _context(devices: dict[str, DeviceContext]) -> WorkflowContext:
@@ -105,7 +100,7 @@ class AddToNautobotExecutorTests(unittest.IsolatedAsyncioTestCase):
             await execute(
                 config=config,
                 context=_context({"dev-1": _device("dev-1", name="router1")}),
-                run=_run(),
+                run=make_run(),
                 artifact_service=MagicMock(),
                 node_id="node-1",
                 device_sessions=MagicMock(),
@@ -115,7 +110,7 @@ class AddToNautobotExecutorTests(unittest.IsolatedAsyncioTestCase):
         outcomes = await execute(
             config=_BASE_CONFIG,
             context=_context({}),
-            run=_run(),
+            run=make_run(),
             artifact_service=MagicMock(),
             node_id="node-1",
             device_sessions=MagicMock(),
@@ -130,7 +125,7 @@ class AddToNautobotExecutorTests(unittest.IsolatedAsyncioTestCase):
                 await execute(
                     config=_BASE_CONFIG,
                     context=_context({"dev-1": _device("dev-1", name="router1")}),
-                    run=_run(),
+                    run=make_run(),
                     artifact_service=MagicMock(),
                     node_id="node-1",
                     device_sessions=MagicMock(),
@@ -158,7 +153,7 @@ class AddToNautobotExecutorTests(unittest.IsolatedAsyncioTestCase):
             outcomes = await execute(
                 config=_BASE_CONFIG,
                 context=_context({"dev-1": _device("dev-1", name="router1")}),
-                run=_run(),
+                run=make_run(),
                 artifact_service=MagicMock(),
                 node_id="node-1",
                 device_sessions=MagicMock(),
@@ -190,7 +185,7 @@ class AddToNautobotExecutorTests(unittest.IsolatedAsyncioTestCase):
             return await execute(
                 config=_BASE_CONFIG,
                 context=_context({"dev-1": _device("dev-1", name="router1")}),
-                run=_run(),
+                run=make_run(),
                 artifact_service=MagicMock(),
                 node_id="node-1",
                 device_sessions=MagicMock(),
@@ -263,7 +258,7 @@ class AddToNautobotExecutorTests(unittest.IsolatedAsyncioTestCase):
             await execute(
                 config=config,
                 context=_context({"dev-1": _device("dev-1", name="router1", nautobot_bag=bag)}),
-                run=_run(),
+                run=make_run(),
                 artifact_service=MagicMock(),
                 node_id="node-1",
                 device_sessions=MagicMock(),
@@ -290,7 +285,7 @@ class AddToNautobotExecutorTests(unittest.IsolatedAsyncioTestCase):
             outcomes = await execute(
                 config=config,
                 context=_context({"dev-1": _device("dev-1", name="router1")}),
-                run=_run(),
+                run=make_run(),
                 artifact_service=MagicMock(),
                 node_id="node-1",
                 device_sessions=MagicMock(),
@@ -311,7 +306,7 @@ class AddToNautobotExecutorTests(unittest.IsolatedAsyncioTestCase):
             outcomes = await execute(
                 config=config,
                 context=_context({"dev-1": _device("dev-1", name="router1")}),
-                run=_run(),
+                run=make_run(),
                 artifact_service=MagicMock(),
                 node_id="node-1",
                 device_sessions=MagicMock(),
@@ -353,7 +348,7 @@ class AddToNautobotExecutorTests(unittest.IsolatedAsyncioTestCase):
                         )
                     }
                 ),
-                run=_run(),
+                run=make_run(),
                 artifact_service=MagicMock(),
                 node_id="node-1",
                 device_sessions=MagicMock(),
@@ -381,7 +376,7 @@ class AddToNautobotExecutorTests(unittest.IsolatedAsyncioTestCase):
             outcomes = await execute(
                 config=_BASE_CONFIG,
                 context=_context({"dev-1": _device("dev-1", name="router1")}),
-                run=_run(),
+                run=make_run(),
                 artifact_service=MagicMock(),
                 node_id="node-1",
                 device_sessions=MagicMock(),
@@ -418,7 +413,7 @@ class AddToNautobotExecutorTests(unittest.IsolatedAsyncioTestCase):
             await execute(
                 config=config,
                 context=_context({"dev-1": device}),
-                run=_run(),
+                run=make_run(),
                 artifact_service=MagicMock(),
                 node_id="node-1",
                 device_sessions=MagicMock(),
@@ -452,7 +447,7 @@ class AddToNautobotExecutorTests(unittest.IsolatedAsyncioTestCase):
             await execute(
                 config=config,
                 context=_context({"dev-a": device_a, "dev-b": device_b}),
-                run=_run(),
+                run=make_run(),
                 artifact_service=MagicMock(),
                 node_id="node-1",
                 device_sessions=MagicMock(),
@@ -505,7 +500,7 @@ class AddToNautobotExecutorTests(unittest.IsolatedAsyncioTestCase):
             await execute(
                 config=config,
                 context=_context({"dev-1": device}),
-                run=_run(),
+                run=make_run(),
                 artifact_service=MagicMock(),
                 node_id="node-1",
                 device_sessions=MagicMock(),
@@ -550,7 +545,7 @@ class AddToNautobotExecutorTests(unittest.IsolatedAsyncioTestCase):
             await execute(
                 config=config,
                 context=_context({"dev-1": _device("dev-1", name="router1")}),
-                run=_run(),
+                run=make_run(),
                 artifact_service=MagicMock(),
                 node_id="node-1",
                 device_sessions=MagicMock(),
@@ -565,7 +560,7 @@ class AddToNautobotExecutorTests(unittest.IsolatedAsyncioTestCase):
             await execute(
                 config=config,
                 context=_context({"dev-1": _device("dev-1", name="router1")}),
-                run=_run(),
+                run=make_run(),
                 artifact_service=MagicMock(),
                 node_id="node-1",
                 device_sessions=MagicMock(),
@@ -577,7 +572,7 @@ class AddToNautobotExecutorTests(unittest.IsolatedAsyncioTestCase):
             await execute(
                 config=config,
                 context=_context({"dev-1": _device("dev-1", name="router1")}),
-                run=_run(),
+                run=make_run(),
                 artifact_service=MagicMock(),
                 node_id="node-1",
                 device_sessions=MagicMock(),
@@ -612,7 +607,7 @@ class AddToNautobotExecutorTests(unittest.IsolatedAsyncioTestCase):
             outcomes = await execute(
                 config=config,
                 context=_context({"dev-1": _device("dev-1", name="router1")}),
-                run=_run(),
+                run=make_run(),
                 artifact_service=MagicMock(),
                 node_id="node-1",
                 device_sessions=MagicMock(),
@@ -642,7 +637,7 @@ class AddToNautobotExecutorTests(unittest.IsolatedAsyncioTestCase):
                         "dev-2": _device("dev-2", name="router2"),
                     }
                 ),
-                run=_run(),
+                run=make_run(),
                 artifact_service=MagicMock(),
                 node_id="node-1",
                 device_sessions=MagicMock(),
@@ -672,7 +667,7 @@ class AddToNautobotExecutorTests(unittest.IsolatedAsyncioTestCase):
             outcomes = await execute(
                 config=_BASE_CONFIG,
                 context=_context({"dev-1": _device("dev-1", name="router1")}),
-                run=_run(),
+                run=make_run(),
                 artifact_service=MagicMock(),
                 node_id="node-1",
                 device_sessions=MagicMock(),
@@ -696,7 +691,7 @@ class AddToNautobotExecutorTests(unittest.IsolatedAsyncioTestCase):
             outcomes = await execute(
                 config=_BASE_CONFIG,
                 context=_context({"dev-1": _device("dev-1", name="router1")}),
-                run=_run(),
+                run=make_run(),
                 artifact_service=MagicMock(),
                 node_id="node-1",
                 device_sessions=MagicMock(),
@@ -721,7 +716,7 @@ class AddToNautobotExecutorTests(unittest.IsolatedAsyncioTestCase):
             outcomes = await execute(
                 config=_BASE_CONFIG,
                 context=_context({"dev-1": _device("dev-1", name="LAB")}),
-                run=_run(),
+                run=make_run(),
                 artifact_service=MagicMock(),
                 node_id="node-1",
                 device_sessions=MagicMock(),
@@ -768,7 +763,7 @@ class AddToNautobotExecutorTests(unittest.IsolatedAsyncioTestCase):
             outcomes = await execute(
                 config=_BASE_CONFIG,
                 context=_context({"dev-1": _device("dev-1", name="device-1")}),
-                run=_run(),
+                run=make_run(),
                 artifact_service=MagicMock(),
                 node_id="node-1",
                 device_sessions=MagicMock(),
@@ -833,7 +828,7 @@ class AddToNautobotExecutorTests(unittest.IsolatedAsyncioTestCase):
             outcomes = await execute(
                 config=_BASE_CONFIG,
                 context=_context({"dev-1": _device("dev-1", name="LAB")}),
-                run=_run(),
+                run=make_run(),
                 artifact_service=MagicMock(),
                 node_id="node-1",
                 device_sessions=MagicMock(),
@@ -884,7 +879,7 @@ class AddToNautobotExecutorTests(unittest.IsolatedAsyncioTestCase):
             outcomes = await execute(
                 config=_BASE_CONFIG,
                 context=_context({"dev-1": device}),
-                run=_run(),
+                run=make_run(),
                 artifact_service=MagicMock(),
                 node_id="node-1",
                 device_sessions=MagicMock(),
@@ -924,7 +919,7 @@ class AddToNautobotExecutorTests(unittest.IsolatedAsyncioTestCase):
             outcomes = await execute(
                 config=config,
                 context=_context({"dev-1": device}),
-                run=_run(),
+                run=make_run(),
                 artifact_service=MagicMock(),
                 node_id="node-1",
                 device_sessions=MagicMock(),
@@ -952,7 +947,7 @@ class AddToNautobotExecutorTests(unittest.IsolatedAsyncioTestCase):
             outcomes = await execute(
                 config=_BASE_CONFIG,
                 context=_context({"dev-1": _device("dev-1", name="router1")}),
-                run=_run(),
+                run=make_run(),
                 artifact_service=MagicMock(),
                 node_id="node-1",
                 device_sessions=MagicMock(),
@@ -1000,7 +995,7 @@ class RedundancyGroupsTests(unittest.IsolatedAsyncioTestCase):
             await execute(
                 config=config,
                 context=_context({"d": _device("d", name="r1", nautobot_bag=self._BAG)}),
-                run=_run(),
+                run=make_run(),
                 artifact_service=MagicMock(),
                 node_id="node-1",
                 device_sessions=MagicMock(),
