@@ -16,6 +16,8 @@ from workflow_steps.git_push.helpers import collect_export_paths_for_commit
 if TYPE_CHECKING:
     from services.network.netmiko.session_pool import DeviceSessionPool
 
+_STEP_ID = "git-push"
+
 
 def _commit_message(config: dict[str, Any], context: WorkflowContext) -> str:
     template = str(
@@ -43,7 +45,7 @@ def _push_operation(
     files_changed = 0
     committed = False
 
-    if parse_bool_flag(config, "commit_before_push", default=True, step_id="git-push"):
+    if parse_bool_flag(config, "commit_before_push", default=True, step_id=_STEP_ID):
         export_paths = collect_export_paths_for_commit(context, repo_root=repo_path)
         if export_paths:
             commit_result = git_service.commit(
@@ -98,7 +100,7 @@ async def execute(
         context=context,
         artifact_service=artifact_service,
         node_id=node_id,
-        step_id="git-push",
+        step_id=_STEP_ID,
         operation=_push_operation,
         operation_name="push",
     )

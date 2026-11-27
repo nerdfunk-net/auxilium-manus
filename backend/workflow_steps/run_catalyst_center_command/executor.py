@@ -46,7 +46,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-STEP_ID = "run-catalyst-center-command"
+_STEP_ID = "run-catalyst-center-command"
 # The service polls the controller task for at most its DEFAULT_COMMAND_TIMEOUT (300) seconds,
 # so a larger timeout could never be honoured.
 MAX_TIMEOUT = 300
@@ -69,15 +69,15 @@ class _ParsedConfig:
 
 def _parse_commands(raw: Any) -> tuple[str, ...]:
     if not isinstance(raw, list) or not all(isinstance(item, str) for item in raw):
-        raise ValueError(f"{STEP_ID}: commands must be a list of strings")
+        raise ValueError(f"{_STEP_ID}: commands must be a list of strings")
     commands = tuple(item.strip() for item in raw if item.strip())
     if not commands:
-        raise ValueError(f"{STEP_ID}: at least one command is required")
+        raise ValueError(f"{_STEP_ID}: at least one command is required")
     if len(commands) > MAX_COMMANDS:
-        raise ValueError(f"{STEP_ID}: at most {MAX_COMMANDS} commands are allowed")
+        raise ValueError(f"{_STEP_ID}: at most {MAX_COMMANDS} commands are allowed")
     if len(set(commands)) != len(commands):
         # Results come back keyed by command text, so a duplicate would collapse.
-        raise ValueError(f"{STEP_ID}: commands must be unique")
+        raise ValueError(f"{_STEP_ID}: commands must be unique")
     return commands
 
 
@@ -88,14 +88,14 @@ def _parse_timeout(raw: Any) -> int:
         default=get_config()["timeout"],
         minimum=1,
         maximum=MAX_TIMEOUT,
-        step_id=STEP_ID,
+        step_id=_STEP_ID,
     )
 
 
 def _parse_parser_mode(raw: Any) -> str:
     mode = str(raw if raw is not None else "none").strip().lower()
     if mode not in _PARSER_MODES:
-        raise ValueError(f"{STEP_ID}: parser must be one of {sorted(_PARSER_MODES)}, got {mode!r}")
+        raise ValueError(f"{_STEP_ID}: parser must be one of {sorted(_PARSER_MODES)}, got {mode!r}")
     return mode
 
 
@@ -107,7 +107,7 @@ def _parse_config(config: dict[str, Any]) -> _ParsedConfig:
         parser_mode=parser_mode,
         parsed_output_key=parse_output_key_config(
             config.get("parsed_output_key"),
-            step_id=STEP_ID,
+            step_id=_STEP_ID,
             default=get_config()["parsed_output_key"],
         )
         if parser_mode != "none"
@@ -183,7 +183,7 @@ async def _record_device(
     if problems:
         failed = mark_device_failed(
             device,
-            step_id=STEP_ID,
+            step_id=_STEP_ID,
             node_id=node_id,
             code="command_failed",
             message="; ".join(problems),
@@ -218,7 +218,7 @@ async def _run_chunk(
         # Transport/controller failures fail this chunk's devices, not the whole step.
         logger.warning(
             "%s request failed run_id=%s node_id=%s devices=%d error=%s",
-            STEP_ID,
+            _STEP_ID,
             run_id,
             node_id,
             len(chunk),
@@ -229,7 +229,7 @@ async def _run_chunk(
             device_id: (
                 mark_device_failed(
                     device,
-                    step_id=STEP_ID,
+                    step_id=_STEP_ID,
                     node_id=node_id,
                     code="catalyst_center_error",
                     message=message,
@@ -244,13 +244,13 @@ async def _run_chunk(
         # Not a controller error: still only this chunk's devices fail (W8-01).
         logger.warning(
             "%s request raised run_id=%s node_id=%s devices=%d error=%s",
-            STEP_ID,
+            _STEP_ID,
             run_id,
             node_id,
             len(chunk),
             type(exc).__name__,
         )
-        error = device_error_from_exception(exc, node_id=node_id, step_id=STEP_ID)
+        error = device_error_from_exception(exc, node_id=node_id, step_id=_STEP_ID)
         return {
             device_id: (fail_device_with_error(device, error), False)
             for device_id, device in chunk.items()
@@ -283,7 +283,7 @@ async def _record_or_fail(
     try:
         return await _record_device(device_id=device_id, device=device, node_id=node_id, **kwargs)
     except Exception as exc:
-        error = device_error_from_exception(exc, node_id=node_id, step_id=STEP_ID)
+        error = device_error_from_exception(exc, node_id=node_id, step_id=_STEP_ID)
         return fail_device_with_error(device, error), False
 
 
@@ -310,13 +310,13 @@ async def execute(
     if not context.devices:
         return [StepOutcome(name="success", context=context)]
 
-    prepared = CATALYST_CENTER.prepare_targets(context, run, step_id=STEP_ID, node_id=node_id)
+    prepared = CATALYST_CENTER.prepare_targets(context, run, step_id=_STEP_ID, node_id=node_id)
     split, credentials = prepared.split, prepared.credentials
 
     total = len(context.devices)
     logger.info(
         "%s started run_id=%s node_id=%s devices=%d commands=%d",
-        STEP_ID,
+        _STEP_ID,
         context.run_id,
         node_id,
         total,
@@ -348,7 +348,7 @@ async def execute(
 
     logger.info(
         "%s finished success=%d failure=%d run_id=%s",
-        STEP_ID,
+        _STEP_ID,
         len(succeeded),
         len(failed),
         context.run_id,

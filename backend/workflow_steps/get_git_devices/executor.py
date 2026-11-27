@@ -46,7 +46,7 @@ async def execute(
         raise ValueError("get-git-devices: git_repository_id is not configured")
     if not filename_pattern:
         raise ValueError("get-git-devices: filename_pattern is not configured")
-    git_repository_id = require_repository_id(raw_repository_id, step_id="get-git-devices")
+    git_repository_id = require_repository_id(raw_repository_id, step_id=_STEP_ID)
 
     logger.info(
         "get-git-devices started run_id=%s git_repository_id=%s filename_pattern=%s",

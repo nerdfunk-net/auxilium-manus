@@ -249,7 +249,7 @@ async def execute(
     if not context.devices:
         return [StepOutcome(name="success", context=context)]
 
-    db = require_session(run, "collect-client-data")
+    db = require_session(run, STEP_ID)
     username, password = resolve_ssh_credential(db, reference, acting_user_id=run.triggered_by_id)
     credentials = (username, password, reference)
     netmiko = NetmikoService(pool=device_sessions)

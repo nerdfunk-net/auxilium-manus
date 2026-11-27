@@ -40,6 +40,7 @@ if TYPE_CHECKING:
     from services.network.netmiko.session_pool import DeviceSessionPool
 
 logger = logging.getLogger(__name__)
+_STEP_ID = "get-ise-devices"
 
 _QUERY_MODES = {"name", "cidr", "group"}
 _LIST_PAGE_SIZE = 100
@@ -159,7 +160,7 @@ def _cidr_for_group_or_prefix(device: dict[str, Any]) -> str | None:
 
 
 def _build_nautobot_source_service(db: Session, nautobot_source_id: str) -> NautobotSourceService:
-    credentials = resolve_nautobot_credentials(db, nautobot_source_id, step_id="get-ise-devices")
+    credentials = resolve_nautobot_credentials(db, nautobot_source_id, step_id=_STEP_ID)
     return service_factory.build_nautobot_source_service(credentials, db)
 
 
@@ -236,7 +237,7 @@ def _build_ise_services(
     db: Session,
     parsed: _ParsedGetIseDevicesConfig,
 ) -> tuple[ISENetworkDeviceService, NautobotSourceService | None]:
-    credentials = resolve_ise_credentials(db, parsed.source_id, step_id="get-ise-devices")
+    credentials = resolve_ise_credentials(db, parsed.source_id, step_id=_STEP_ID)
     device_service = service_factory.build_ise_network_device_service(credentials)
 
     nautobot_source_service: NautobotSourceService | None = None
@@ -336,7 +337,7 @@ def _build_get_ise_devices_outcome(
                 errors=[
                     DeviceError(
                         node_id=node_id,
-                        step_id="get-ise-devices",
+                        step_id=_STEP_ID,
                         code="ise_device_not_found",
                         message=f"device '{name}' is not known to ISE source '{source_id}'",
                         failure=FailureInfo(phase="api", kind="not_found"),
@@ -368,7 +369,7 @@ async def execute(
 
     parsed = _parse_get_ise_devices_config(config)
 
-    db = require_session(run, "get-ise-devices")
+    db = require_session(run, _STEP_ID)
 
     device_service, nautobot_source_service = _build_ise_services(db, parsed)
 

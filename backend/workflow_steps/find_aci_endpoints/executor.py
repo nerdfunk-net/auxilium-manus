@@ -25,7 +25,7 @@ from workflow_steps.find_aci_endpoints.config import get_config
 if TYPE_CHECKING:
     from services.network.netmiko.session_pool import DeviceSessionPool
 
-STEP_ID = "find-aci-endpoints"
+_STEP_ID = "find-aci-endpoints"
 SOURCE_ID_KEY = "aci_source_id"
 
 
@@ -33,7 +33,7 @@ def _address_path(config: dict[str, Any]) -> str:
     raw = config.get("address_path")
     path = get_config()["address_path"] if raw is None else str(raw).strip()
     if not path:
-        raise ValueError(f"{STEP_ID}: address_path is empty")
+        raise ValueError(f"{_STEP_ID}: address_path is empty")
     return path
 
 
@@ -50,16 +50,16 @@ async def execute(
 
     source_id = str(config.get(SOURCE_ID_KEY) or "").strip()
     if not source_id:
-        raise ValueError(f"{STEP_ID}: {SOURCE_ID_KEY} is not configured")
+        raise ValueError(f"{_STEP_ID}: {SOURCE_ID_KEY} is not configured")
     address_path = _address_path(config)
     output_key = parse_output_key_config(
-        config.get("parsed_output_key"), step_id=STEP_ID, default=get_config()["parsed_output_key"]
+        config.get("parsed_output_key"), step_id=_STEP_ID, default=get_config()["parsed_output_key"]
     )
     if not context.devices:
         return [StepOutcome(name="success", context=context)]
 
-    db = require_session(run, STEP_ID)
-    credentials = ACI.resolve_all_credentials(db, [source_id], step_id=STEP_ID)
+    db = require_session(run, _STEP_ID)
+    credentials = ACI.resolve_all_credentials(db, [source_id], step_id=_STEP_ID)
 
     addresses: dict[str, str] = {}
     rejected: dict[str, DeviceContext] = {}
@@ -75,7 +75,7 @@ async def execute(
         else:
             rejected[device_id] = mark_device_failed(
                 device,
-                step_id=STEP_ID,
+                step_id=_STEP_ID,
                 node_id=node_id,
                 code="no_address",
                 failure=INVALID_INPUT,
@@ -95,7 +95,7 @@ async def execute(
         rejected=rejected,
     )
     return await collect_facts(
-        step_id=STEP_ID,
+        step_id=_STEP_ID,
         context=context,
         node_id=node_id,
         output_key=output_key,

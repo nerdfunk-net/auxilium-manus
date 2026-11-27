@@ -29,7 +29,7 @@ from workflow_steps.get_aci_policy.config import get_config
 if TYPE_CHECKING:
     from services.network.netmiko.session_pool import DeviceSessionPool
 
-STEP_ID = "get-aci-policy"
+_STEP_ID = "get-aci-policy"
 ENTRY_NAMES = ("epgs", "contracts", "l3outs")
 
 # Per-source state: the policy snapshot, or the error that stopped it.
@@ -58,7 +58,7 @@ async def execute(
     del artifact_service, device_sessions  # the policy is JSON kept inline on the device
 
     output_key = parse_output_key_config(
-        config.get("parsed_output_key"), step_id=STEP_ID, default=get_config()["parsed_output_key"]
+        config.get("parsed_output_key"), step_id=_STEP_ID, default=get_config()["parsed_output_key"]
     )
 
     async def collect(
@@ -84,7 +84,7 @@ async def execute(
         }
 
     return await ACI.run_fact_step(
-        step_id=STEP_ID,
+        step_id=_STEP_ID,
         context=context,
         run=run,
         node_id=node_id,

@@ -309,7 +309,7 @@ async def execute(
     if not context.devices:
         return [StepOutcome(name="success", context=context)]
 
-    db = require_session(run, "discover-network")
+    db = require_session(run, STEP_ID)
     username, password = resolve_ssh_credential(db, reference, acting_user_id=run.triggered_by_id)
 
     logger.info(

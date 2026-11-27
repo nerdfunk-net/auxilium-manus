@@ -63,7 +63,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-STEP_ID = "get-catalyst-center-client-data"
+_STEP_ID = "get-catalyst-center-client-data"
 MAX_LOOKBACK_HOURS = 168
 _CATALYST_ERROR = "catalyst_center_error"
 
@@ -104,7 +104,7 @@ async def _collect_one(
             return (
                 mark_device_failed(
                     device,
-                    step_id=STEP_ID,
+                    step_id=_STEP_ID,
                     node_id=node_id,
                     code="no_usable_clients",
                     message=(
@@ -133,7 +133,7 @@ async def _collect_one(
         return (
             mark_device_failed(
                 device,
-                step_id=STEP_ID,
+                step_id=_STEP_ID,
                 node_id=node_id,
                 code=_CATALYST_ERROR,
                 message=str(exc),
@@ -142,13 +142,13 @@ async def _collect_one(
             False,
         )
     except CollectionConflictError:
-        return duplicate_failure(device, node_id, step_id=STEP_ID), False
+        return duplicate_failure(device, node_id, step_id=_STEP_ID), False
     except TooManyRowsError as exc:
         code, message, failure = too_many_rows_failure(exc)
         return (
             mark_device_failed(
                 device,
-                step_id=STEP_ID,
+                step_id=_STEP_ID,
                 node_id=node_id,
                 code=code,
                 message=message,
@@ -162,7 +162,7 @@ async def _collect_one(
         return (
             mark_device_failed(
                 device,
-                step_id=STEP_ID,
+                step_id=_STEP_ID,
                 node_id=node_id,
                 code=code,
                 message=message,
@@ -174,7 +174,7 @@ async def _collect_one(
         # Not a controller or storage error (a bug, a parser error): fail this device only, the
         # same catch-all as ``collect-client-data`` (W8-01, W8-04).
         logger.warning("client data collection failed error=%s", type(exc).__name__)
-        error = device_error_from_exception(exc, node_id=node_id, step_id=STEP_ID)
+        error = device_error_from_exception(exc, node_id=node_id, step_id=_STEP_ID)
         return fail_device_with_error(device, error), False
     summary = {
         "source": "catalyst_center",
@@ -206,13 +206,13 @@ async def execute(
             maximum=MAX_LOOKBACK_HOURS,
         )
     except ValueError as exc:
-        raise ValueError(f"{STEP_ID}: {exc}") from exc
+        raise ValueError(f"{_STEP_ID}: {exc}") from exc
     dry_run = parse_bool_flag(config, "dry_run")
 
     if not context.devices:
         return [StepOutcome(name="success", context=context)]
 
-    prepared = CATALYST_CENTER.prepare_targets(context, run, step_id=STEP_ID, node_id=node_id)
+    prepared = CATALYST_CENTER.prepare_targets(context, run, step_id=_STEP_ID, node_id=node_id)
     split, credentials = prepared.split, prepared.credentials
     duplicates = find_duplicate_keys(
         (device_id, d.name) for device_id, d in context.devices.items()
@@ -220,7 +220,7 @@ async def execute(
 
     logger.info(
         "%s started run_id=%s devices=%d lookback_hours=%d dry_run=%s",
-        STEP_ID,
+        _STEP_ID,
         log_run_id(run),
         len(context.devices),
         lookback_hours,
@@ -234,7 +234,7 @@ async def execute(
         source_id: str, device_id: str, device: DeviceContext
     ) -> tuple[str, DeviceContext, bool]:
         if device_id in duplicates:
-            return device_id, duplicate_failure(device, node_id, step_id=STEP_ID), False
+            return device_id, duplicate_failure(device, node_id, step_id=_STEP_ID), False
         result, ok = await _collect_one(
             device_id=device_id,
             device=device,
@@ -259,7 +259,7 @@ async def execute(
     failed = {**split.rejected, **{i: d for i, d, ok in results if not ok}}
     logger.info(
         "%s finished success=%d failure=%d run_id=%s",
-        STEP_ID,
+        _STEP_ID,
         len(succeeded),
         len(failed),
         log_run_id(run),

@@ -1714,6 +1714,13 @@ constant or a literal, so the panel's pre-filled value and the value the step fa
 cannot drift apart. A shared constant from `common/` (such as `DEFAULT_SOCKET_TIMEOUT`) is
 imported by `config.py`. `tests/unit/test_step_defaults_declared_once.py` enforces it.
 
+**The step id is one constant.** A module that needs its own registry id declares
+`_STEP_ID = "<registry id>"` and uses only that name (never the literal again). When several
+modules of one step need it, one of them declares a public `STEP_ID` and the others import it
+(`run_command/constants.py`, `discover_network/scope.py`, ...); a public `STEP_ID` no sibling
+imports is private. `tests/unit/test_step_id_constants.py` checks the value against
+`registry.yaml`, the spelling and stray literals (a dict key with the same text is not the id).
+
 ```python
 # backend/workflow_steps/get_nautobot_devices/config.py
 def get_config() -> dict:

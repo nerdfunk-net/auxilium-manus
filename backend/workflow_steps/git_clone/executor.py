@@ -12,6 +12,8 @@ from workflow_steps.common.git_workflow_step import run_git_workflow_step
 if TYPE_CHECKING:
     from services.network.netmiko.session_pool import DeviceSessionPool
 
+_STEP_ID = "git-clone"
+
 
 def _clone_operation(
     git_service: Any,
@@ -47,7 +49,7 @@ async def execute(
         context=context,
         artifact_service=artifact_service,
         node_id=node_id,
-        step_id="git-clone",
+        step_id=_STEP_ID,
         operation=_clone_operation,
         operation_name="clone",
     )

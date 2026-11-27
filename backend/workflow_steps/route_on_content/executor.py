@@ -38,6 +38,7 @@ if TYPE_CHECKING:
     from services.network.netmiko.session_pool import DeviceSessionPool
 
 logger = logging.getLogger(__name__)
+_STEP_ID = "route-on-content"
 
 _OUTCOME_NAMES = ("match", "mismatch", "failure")
 _MATCH_MODES = frozenset({"fixed_text", "regex"})
@@ -68,7 +69,7 @@ class _Ready:
 
 def _parse_route_config(config: dict[str, Any]) -> _ParsedRouteConfig:
     content_source = parse_content_source(
-        config, step_id="route-on-content", default=str(get_config()["content_source"])
+        config, step_id=_STEP_ID, default=str(get_config()["content_source"])
     )
     source_step_node_id = str(config.get("source_step_node_id") or "").strip() or None
     parsed_output_key = str(config.get("parsed_output_key") or "").strip() or None
@@ -130,7 +131,7 @@ def _device_failure(
     failure: FailureInfo | None = None,
 ) -> DeviceContext:
     err = DeviceError(
-        node_id=node_id, step_id="route-on-content", code=code, message=message, failure=failure
+        node_id=node_id, step_id=_STEP_ID, code=code, message=message, failure=failure
     )
     return device.model_copy(
         update={"status": DeviceStatus.FAILED, "errors": [*device.errors, err]}
@@ -151,7 +152,7 @@ async def _prepare_device(
         content_source=parsed.content_source,
         source_step_node_id=parsed.source_step_node_id,
         parsed_output_key=parsed.parsed_output_key,
-        step_id="route-on-content",
+        step_id=_STEP_ID,
     )
     if not export_items:
         failed = _device_failure(
@@ -180,7 +181,7 @@ async def _prepare_device(
     try:
         content_text = await artifact_service.resolve(item.artifact_ref)
     except Exception as exc:  # noqa: BLE001 - surfaced as a per-device failure below
-        err = device_error_from_exception(exc, node_id=node_id, step_id="route-on-content")
+        err = device_error_from_exception(exc, node_id=node_id, step_id=_STEP_ID)
         failed = _device_failure(
             device=device,
             node_id=node_id,

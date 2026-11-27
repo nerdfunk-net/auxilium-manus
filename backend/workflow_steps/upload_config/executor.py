@@ -121,9 +121,9 @@ def _parse_upload_config(
         source_step_node_id=source_step_node_id,
         parsed_output_key=str(config.get("parsed_output_key") or "").strip() or None,
         destination_filename=parse_device_token(
-            destination_filename, name="destination_filename", step_id="upload-config"
+            destination_filename, name="destination_filename", step_id=_STEP_ID
         ),
-        file_system=parse_device_token(file_system, name="file_system", step_id="upload-config"),
+        file_system=parse_device_token(file_system, name="file_system", step_id=_STEP_ID),
         overwrite=parse_bool_flag(config, "overwrite"),
         inline_transfer=parse_bool_flag(config, "inline_transfer"),
         network_driver_override=str(config.get("network_driver_override") or "").strip() or None,
@@ -264,7 +264,7 @@ async def _upload_on_device(
     updated_command_results, failed_transfer = record_transfer(
         device=device,
         node_id=node_id,
-        command="upload-config",
+        command=_STEP_ID,
         result=result,
         ok_summary=(
             f"uploaded {parsed.destination_filename} to {parsed.file_system} "
@@ -324,7 +324,7 @@ async def execute(
 ) -> list[StepOutcome]:
     parsed = _parse_upload_config(config, run.run_inputs)
 
-    db = require_session(run, "upload-config")
+    db = require_session(run, _STEP_ID)
     username, password = resolve_ssh_credential(
         db, parsed.credential_reference, acting_user_id=run.triggered_by_id
     )

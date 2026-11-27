@@ -185,7 +185,7 @@ async def execute(
     if not context.devices:
         return [StepOutcome(name=name, context=context) for name in _OUTCOME_NAMES]
 
-    db = require_session(run, "login-successful")
+    db = require_session(run, _STEP_ID)
 
     username, password = resolve_ssh_credential(
         db, credential_reference, acting_user_id=run.triggered_by_id

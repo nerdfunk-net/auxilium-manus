@@ -33,6 +33,7 @@ if TYPE_CHECKING:
     from services.network.netmiko.session_pool import DeviceSessionPool
 
 logger = logging.getLogger(__name__)
+_STEP_ID = "list-contains"
 
 _OUTCOME_NAMES = ("match", "mismatch", "failure")
 
@@ -77,7 +78,7 @@ def _device_failure(
     failure: FailureInfo | None = None,
 ) -> DeviceContext:
     err = DeviceError(
-        node_id=node_id, step_id="list-contains", code=code, message=message, failure=failure
+        node_id=node_id, step_id=_STEP_ID, code=code, message=message, failure=failure
     )
     return device.model_copy(
         update={"status": DeviceStatus.FAILED, "errors": [*device.errors, err]}

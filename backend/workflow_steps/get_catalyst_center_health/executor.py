@@ -16,7 +16,7 @@ from workflow_steps.get_catalyst_center_health.config import get_config
 if TYPE_CHECKING:
     from services.network.netmiko.session_pool import DeviceSessionPool
 
-STEP_ID = "get-catalyst-center-health"
+_STEP_ID = "get-catalyst-center-health"
 
 
 async def execute(
@@ -31,7 +31,7 @@ async def execute(
     del artifact_service, device_sessions
 
     output_key = parse_output_key_config(
-        config.get("parsed_output_key"), step_id=STEP_ID, default=get_config()["parsed_output_key"]
+        config.get("parsed_output_key"), step_id=_STEP_ID, default=get_config()["parsed_output_key"]
     )
 
     async def collect(
@@ -44,7 +44,7 @@ async def execute(
         return {"health": await CATALYST_CENTER.fact(lambda: service.get_device_health(device_id))}
 
     return await CATALYST_CENTER.run_fact_step(
-        step_id=STEP_ID,
+        step_id=_STEP_ID,
         context=context,
         run=run,
         node_id=node_id,

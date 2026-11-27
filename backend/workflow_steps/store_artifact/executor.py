@@ -104,9 +104,7 @@ def _build_sink(config: dict[str, Any], *, base_dir: Path) -> ArtifactSink:
         raw_repository_id = config.get("git_repository_id")
         if raw_repository_id in (None, ""):
             raise ValueError("store-artifact: git_repository_id is required when destination=git")
-        repository = load_git_repository(
-            require_repository_id(raw_repository_id, step_id="store-artifact")
-        )
+        repository = load_git_repository(require_repository_id(raw_repository_id, step_id=_STEP_ID))
         return GitArtifactSink(
             repository,
             repository_subdirectory=str(

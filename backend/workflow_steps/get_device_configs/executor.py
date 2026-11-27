@@ -148,7 +148,7 @@ async def execute(
     if not context.devices:
         return [StepOutcome(name="success", context=context)]
 
-    db = require_session(run, "get-device-configs")
+    db = require_session(run, _STEP_ID)
 
     credential_reference = resolve_config_reference(
         config,

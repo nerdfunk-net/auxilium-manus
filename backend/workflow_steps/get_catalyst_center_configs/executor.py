@@ -30,7 +30,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-STEP_ID = "get-catalyst-center-configs"
+_STEP_ID = "get-catalyst-center-configs"
 # One request per device; keep the load on a single controller modest.
 MAX_PARALLEL_REQUESTS = 5
 
@@ -77,12 +77,12 @@ async def execute(
     if not context.devices:
         return [StepOutcome(name="success", context=context)]
 
-    prepared = CATALYST_CENTER.prepare_targets(context, run, step_id=STEP_ID, node_id=node_id)
+    prepared = CATALYST_CENTER.prepare_targets(context, run, step_id=_STEP_ID, node_id=node_id)
     split, credentials = prepared.split, prepared.credentials
 
     total = len(context.devices)
     logger.info(
-        "%s started run_id=%s node_id=%s devices=%d", STEP_ID, context.run_id, node_id, total
+        "%s started run_id=%s node_id=%s devices=%d", _STEP_ID, context.run_id, node_id, total
     )
 
     source_of = {
@@ -104,7 +104,7 @@ async def execute(
         context,
         work,
         node_id=node_id,
-        step_id=STEP_ID,
+        step_id=_STEP_ID,
         concurrency=MAX_PARALLEL_REQUESTS,
         only=set(source_of),
     )
@@ -113,7 +113,7 @@ async def execute(
 
     logger.info(
         "%s finished success=%d failure=%d run_id=%s",
-        STEP_ID,
+        _STEP_ID,
         len(succeeded),
         len(failed),
         context.run_id,

@@ -50,7 +50,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-_STEP = "get-from-user"
+_STEP_ID = "get-from-user"
 
 
 async def _inventory_device_text(
@@ -61,13 +61,13 @@ async def _inventory_device_text(
         inventory_id = int(str(reference).strip())
     except (TypeError, ValueError) as exc:
         raise ValueError(
-            f"{_STEP}: run parameter did not resolve to an inventory id (got {reference!r})"
+            f"{_STEP_ID}: run parameter did not resolve to an inventory id (got {reference!r})"
         ) from exc
     configured = str(config.get("nautobot_source_id") or "").strip()
     source_id = configured or default_nautobot_source_id(db)
     if not source_id:
-        raise ValueError(f"{_STEP}: no Nautobot source is configured to resolve the inventory")
-    credentials = resolve_nautobot_credentials(db, source_id, step_id=_STEP)
+        raise ValueError(f"{_STEP_ID}: no Nautobot source is configured to resolve the inventory")
+    credentials = resolve_nautobot_credentials(db, source_id, step_id=_STEP_ID)
     service = service_factory.build_nautobot_source_service(credentials, db)
     logger.info(
         "get-from-user run_id=%s resolving inventory_id=%s source_id=%s",
@@ -84,9 +84,11 @@ async def _inventory_device_text(
             if username
             else "a run without a triggering user (global inventories only)"
         )
-        raise ValueError(f"{_STEP}: inventory {inventory_id} is not accessible to {who}") from exc
+        raise ValueError(
+            f"{_STEP_ID}: inventory {inventory_id} is not accessible to {who}"
+        ) from exc
     except ValueError as exc:
-        raise ValueError(f"{_STEP}: inventory {inventory_id} cannot be used: {exc}") from exc
+        raise ValueError(f"{_STEP_ID}: inventory {inventory_id} cannot be used: {exc}") from exc
     return "\n".join(lines)
 
 
@@ -117,13 +119,13 @@ async def execute(
         validated_driver(
             config.get("default_network_driver"),
             where="default_network_driver",
-            step="get-from-user",
+            step=_STEP_ID,
         )
         or DEFAULT_NETWORK_DRIVER
     )
     raw_value = run_inputs[param_name]
     # Without a session the inventory id would be parsed as a device name (W10-04).
-    db = require_session(run, "get-from-user")
+    db = require_session(run, _STEP_ID)
     # An inventory reference carries an inventory id; read that inventory's devices.
     if is_inventory_reference(db, run.workflow_id, param_name):
         raw_value = await _inventory_device_text(db, run, config, raw_value)

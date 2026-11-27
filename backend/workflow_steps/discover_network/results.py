@@ -9,9 +9,10 @@ from models.workflow_context import Capability, DeviceContext, DeviceStatus
 from services.workflow_context.node_result import set_node_result
 from workflow_steps.discover_network.crawler import CrawlResult, Seen, Visited
 from workflow_steps.discover_network.parsing import Neighbor
+from workflow_steps.discover_network.scope import STEP_ID
 
 RESULT_KEY = "discovery"
-SOURCE = "discover-network"
+SOURCE = STEP_ID
 # The summary is persisted with the step result: keep it bounded and say so when it was cut.
 MAX_SEEN = 500
 MAX_EDGES = 1000

@@ -37,6 +37,7 @@ if TYPE_CHECKING:
     from services.network.netmiko.session_pool import DeviceSessionPool
 
 logger = logging.getLogger(__name__)
+_STEP_ID = "render-jinja-template"
 
 # The names `_build_command_context` adds to the template namespace.
 _COMMAND_VARIABLES = frozenset({"commands", "commands_by_name", "command"})
@@ -53,7 +54,7 @@ def _resolve_template(config: dict[str, Any]) -> str:
             template_id = int(raw_id)
         except (TypeError, ValueError) as exc:
             raise ValueError("render-jinja-template: template_id must be an integer") from exc
-        template = load_stored_template(template_id, step_id="render-jinja-template").strip()
+        template = load_stored_template(template_id, step_id=_STEP_ID).strip()
         if not template:
             raise ValueError(f"render-jinja-template: stored template {template_id} has no content")
         validate_jinja_template(template)
@@ -140,7 +141,7 @@ def _mark_render_failed(
 ) -> DeviceContext:
     err = DeviceError(
         node_id=node_id,
-        step_id="render-jinja-template",
+        step_id=_STEP_ID,
         code=code,
         message=message,
         failure=failure,
@@ -224,7 +225,7 @@ async def _render_and_store_device(
             exc,
         )
         # D3: not an error of this step; the class name and the record, never its text.
-        error = device_error_from_exception(exc, node_id=node_id, step_id="render-jinja-template")
+        error = device_error_from_exception(exc, node_id=node_id, step_id=_STEP_ID)
         return device_id, fail_device_with_error(device, error), False
 
 

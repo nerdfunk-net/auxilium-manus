@@ -149,7 +149,7 @@ async def _run_config_mode_on_device(
             device=device, node_id=node_id, result=result, step_results=step_results
         )
     except Exception as exc:
-        error = device_error_from_exception(exc, node_id=node_id, step_id="run-command")
+        error = device_error_from_exception(exc, node_id=node_id, step_id=STEP_ID)
         return Fail(error.code, error.message, error.failure)
 
 

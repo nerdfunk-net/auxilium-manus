@@ -23,7 +23,7 @@ from workflow_steps.get_catalyst_center_details.config import get_config
 if TYPE_CHECKING:
     from services.network.netmiko.session_pool import DeviceSessionPool
 
-STEP_ID = "get-catalyst-center-details"
+_STEP_ID = "get-catalyst-center-details"
 # Order of the entries on the device; ``device`` and ``software`` share one controller call.
 FACTS = ("device", "software", "interfaces", "vlans", "compliance")
 DEFAULT_FACTS = ("device", "interfaces")
@@ -31,7 +31,7 @@ DEFAULT_FACTS = ("device", "interfaces")
 
 def _parse_facts(raw: Any) -> tuple[str, ...]:
     return parse_name_list(
-        raw, step_id=STEP_ID, key="facts", noun="fact", allowed=FACTS, default=DEFAULT_FACTS
+        raw, step_id=_STEP_ID, key="facts", noun="fact", allowed=FACTS, default=DEFAULT_FACTS
     )
 
 
@@ -78,7 +78,7 @@ async def execute(
 
     facts = _parse_facts(config.get("facts"))
     output_key = parse_output_key_config(
-        config.get("parsed_output_key"), step_id=STEP_ID, default=get_config()["parsed_output_key"]
+        config.get("parsed_output_key"), step_id=_STEP_ID, default=get_config()["parsed_output_key"]
     )
 
     async def collect(
@@ -90,7 +90,7 @@ async def execute(
         return await _collect(facts, credentials, device_id)
 
     return await CATALYST_CENTER.run_fact_step(
-        step_id=STEP_ID,
+        step_id=_STEP_ID,
         context=context,
         run=run,
         node_id=node_id,

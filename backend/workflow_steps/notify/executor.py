@@ -43,7 +43,7 @@ async def execute(
     if severity not in _VALID_SEVERITIES:
         raise ValueError(f"notify: invalid severity {severity!r}")
 
-    workflow, owner_username = resolve_run_workflow(run, step_id="notify")
+    workflow, owner_username = resolve_run_workflow(run, step_id=_STEP_ID)
 
     logger.info(
         "notify node_id=%s severity=%s devices=%d",

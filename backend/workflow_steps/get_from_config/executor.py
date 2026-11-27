@@ -24,6 +24,7 @@ if TYPE_CHECKING:
     from services.network.netmiko.session_pool import DeviceSessionPool
 
 logger = logging.getLogger(__name__)
+_STEP_ID = "get-from-config"
 
 
 @dataclass(frozen=True)
@@ -45,7 +46,7 @@ def _parse_get_from_config(config: dict[str, Any]) -> _ParsedGetFromConfig:
     if not search_text:
         raise ValueError("get-from-config: search_text is not configured")
     return _ParsedGetFromConfig(
-        git_repository_id=require_repository_id(raw_repository_id, step_id="get-from-config"),
+        git_repository_id=require_repository_id(raw_repository_id, step_id=_STEP_ID),
         search_text=search_text,
         directory=(config.get("directory") or "").strip(),
         file_filter=(config.get("file_filter") or "").strip(),

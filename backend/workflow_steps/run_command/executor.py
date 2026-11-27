@@ -19,6 +19,7 @@ from workflow_steps.common.device_outcomes import build_outcomes
 from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.common.run_session import require_session
 from workflow_steps.run_command.config_mode import run_config_mode
+from workflow_steps.run_command.constants import STEP_ID
 from workflow_steps.run_command.enrichment import enrich_with_genie, enrich_with_textfsm
 from workflow_steps.run_command.exec_mode import run_exec_mode
 from workflow_steps.run_command.parsing import ParsedRunCommandConfig, parse_run_command_config
@@ -73,7 +74,7 @@ async def execute(
     if not context.devices:
         return [StepOutcome(name="success", context=context)]
 
-    db = require_session(run, "run-command")
+    db = require_session(run, STEP_ID)
 
     username, password = resolve_ssh_credential(
         db, parsed.credential_reference, acting_user_id=run.triggered_by_id

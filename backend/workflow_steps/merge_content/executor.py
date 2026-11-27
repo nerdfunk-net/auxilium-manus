@@ -25,6 +25,7 @@ if TYPE_CHECKING:
     from services.network.netmiko.session_pool import DeviceSessionPool
 
 logger = logging.getLogger(__name__)
+_STEP_ID = "merge-content"
 
 _MERGE_MODES = frozenset({"text_sectioned", "text_plain", "json_merged"})
 _CONTENT_SOURCES = frozenset({"command_output", "filtered_output", "merged_content"})
@@ -72,7 +73,7 @@ def _decode_separator(raw: str) -> str:
 
 def _parse_merge_config(config: dict[str, Any]) -> _ParsedMergeConfig:
     content_source = parse_content_source(
-        config, step_id="merge-content", default="command_output", allowed=_CONTENT_SOURCES
+        config, step_id=_STEP_ID, default="command_output", allowed=_CONTENT_SOURCES
     )
     source_node_ids = _parse_source_step_node_ids(config)
     if content_source != "command_output" and not source_node_ids:
@@ -88,7 +89,7 @@ def _parse_merge_config(config: dict[str, Any]) -> _ParsedMergeConfig:
             str(config.get("section_separator") or get_config()["section_separator"])
         ),
         include_command_header=parse_bool_flag(
-            config, "include_command_header", default=True, step_id="merge-content"
+            config, "include_command_header", default=True, step_id=_STEP_ID
         ),
     )
 
@@ -119,7 +120,7 @@ async def _collect_merge_items(
                 device,
                 content_source=parsed.content_source,
                 source_step_node_id=src_node_id,
-                step_id="merge-content",
+                step_id=_STEP_ID,
             )
             for export_item in export_items:
                 text = await artifact_service.resolve(export_item.artifact_ref)
@@ -213,7 +214,7 @@ async def execute(
 
     return await run_content_step(
         context,
-        step_id="merge-content",
+        step_id=_STEP_ID,
         node_id=node_id,
         kind="merged_content",
         transform=transform,

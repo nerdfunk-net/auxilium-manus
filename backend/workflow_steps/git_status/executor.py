@@ -15,6 +15,8 @@ from workflow_steps.common.step_flags import parse_bool_flag
 if TYPE_CHECKING:
     from services.network.netmiko.session_pool import DeviceSessionPool
 
+_STEP_ID = "git-status"
+
 _CLEAN = "clean"
 _DIRTY = "dirty"
 
@@ -113,7 +115,7 @@ async def execute(
         context=context,
         artifact_service=artifact_service,
         node_id=node_id,
-        step_id="git-status",
+        step_id=_STEP_ID,
         operation=_status_operation,
         operation_name="status",
         result_outcome=_result_outcome,

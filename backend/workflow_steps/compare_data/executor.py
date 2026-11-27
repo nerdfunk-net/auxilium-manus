@@ -46,6 +46,7 @@ if TYPE_CHECKING:
     from services.network.netmiko.session_pool import DeviceSessionPool
 
 logger = logging.getLogger(__name__)
+_STEP_ID = "compare-data"
 
 _OUTCOME_NAMES = ("match", "mismatch", "failure")
 
@@ -61,10 +62,10 @@ class _ParsedCompareConfig:
 
 
 def _parse_compare_config(config: dict[str, Any]) -> _ParsedCompareConfig:
-    validate_reference_config(config, step_id="compare-data")
+    validate_reference_config(config, step_id=_STEP_ID)
     return _ParsedCompareConfig(
         content_source=parse_content_source(
-            config, step_id="compare-data", default=str(get_config()["content_source"])
+            config, step_id=_STEP_ID, default=str(get_config()["content_source"])
         ),
         source_step_node_id=str(config.get("source_step_node_id") or "").strip() or None,
         parsed_output_key=str(config.get("parsed_output_key") or "").strip() or None,
@@ -163,7 +164,7 @@ def _device_failure(
 ) -> DeviceContext:
     err = DeviceError(
         node_id=node_id,
-        step_id="compare-data",
+        step_id=_STEP_ID,
         code=code,
         message=message,
         failure=failure,
@@ -213,7 +214,7 @@ def _resolve_compare_export_item(
         content_source=parsed.content_source,
         source_step_node_id=parsed.source_step_node_id,
         parsed_output_key=parsed.parsed_output_key,
-        step_id="compare-data",
+        step_id=_STEP_ID,
     )
     if not export_items:
         return None
@@ -242,7 +243,7 @@ async def _load_compare_texts(
     reference_content = await read_reference_text(
         config=config,
         relative_path=reference_path,
-        step_id="compare-data",
+        step_id=_STEP_ID,
     )
     return source_content, reference_content, reference_path
 
@@ -416,7 +417,7 @@ async def _compare_for_device(
             artifact_service=artifact_service,
         )
     except Exception as exc:
-        err = device_error_from_exception(exc, node_id=node_id, step_id="compare-data")
+        err = device_error_from_exception(exc, node_id=node_id, step_id=_STEP_ID)
         failed = _device_failure(
             device=device, node_id=node_id, message=err.message, failure=err.failure
         )
@@ -438,7 +439,7 @@ async def _compare_for_device(
         )
     except Exception as exc:
         # The diff or the artifact store failed for this device: it fails, the others go on.
-        err = device_error_from_exception(exc, node_id=node_id, step_id="compare-data")
+        err = device_error_from_exception(exc, node_id=node_id, step_id=_STEP_ID)
         failed = _device_failure(
             device=device, node_id=node_id, message=err.message, failure=err.failure
         )

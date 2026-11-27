@@ -23,6 +23,7 @@ if TYPE_CHECKING:
     from services.network.netmiko.session_pool import DeviceSessionPool
 
 logger = logging.getLogger(__name__)
+_STEP_ID = "collect-statistics"
 
 _VALID_RESULTS = {"success", "failed"}
 
@@ -45,7 +46,7 @@ async def execute(
     if not context.devices:
         return [StepOutcome(name="success", context=context)]
 
-    workflow, _owner_username = resolve_run_workflow(run, step_id="collect-statistics")
+    workflow, _owner_username = resolve_run_workflow(run, step_id=_STEP_ID)
 
     logger.info(
         "collect-statistics started run_id=%s node_id=%s devices=%d result=%s",

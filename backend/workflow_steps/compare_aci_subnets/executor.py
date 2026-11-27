@@ -33,7 +33,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-STEP_ID = "compare-aci-subnets"
+_STEP_ID = "compare-aci-subnets"
 ARTIFACT_KIND = "aci_subnet_report"
 # Differences copied into the run metadata (the artifact holds all of them).
 METADATA_SAMPLE = 50
@@ -42,7 +42,7 @@ METADATA_SAMPLE = 50
 def _required(config: dict[str, Any], key: str) -> str:
     value = str(config.get(key) or "").strip()
     if not value:
-        raise ValueError(f"{STEP_ID}: {key} is not configured")
+        raise ValueError(f"{_STEP_ID}: {key} is not configured")
     return value
 
 
@@ -50,11 +50,11 @@ def _scope_prefixes(raw: Any) -> list[str]:
     if raw is None:
         return []
     if not isinstance(raw, list) or not all(isinstance(item, str) for item in raw):
-        raise ValueError(f"{STEP_ID}: scope_prefixes must be a list of prefixes")
+        raise ValueError(f"{_STEP_ID}: scope_prefixes must be a list of prefixes")
     try:
         return [str(network) for network in parse_scope_prefixes([i for i in raw if i.strip()])]
     except ValueError as exc:
-        raise ValueError(f"{STEP_ID}: {exc}") from exc
+        raise ValueError(f"{_STEP_ID}: {exc}") from exc
 
 
 def _sample(items: list[dict[str, Any]] | None) -> list[str] | None:
@@ -88,16 +88,16 @@ async def execute(
     scope = _scope_prefixes(config.get("scope_prefixes"))
     output_key = parse_output_key_config(
         config.get("output_key"),
-        step_id=STEP_ID,
+        step_id=_STEP_ID,
         default=get_config()["output_key"],
         key_name="output_key",
     )
 
-    db = require_session(run, STEP_ID)
-    aci_credentials = ACI.resolve_credentials(db, aci_source, step_id=STEP_ID)
-    nautobot_credentials = resolve_nautobot_credentials(db, nautobot_source, step_id=STEP_ID)
+    db = require_session(run, _STEP_ID)
+    aci_credentials = ACI.resolve_credentials(db, aci_source, step_id=_STEP_ID)
+    nautobot_credentials = resolve_nautobot_credentials(db, nautobot_source, step_id=_STEP_ID)
 
-    logger.info("%s started run_id=%s node_id=%s", STEP_ID, context.run_id, node_id)
+    logger.info("%s started run_id=%s node_id=%s", _STEP_ID, context.run_id, node_id)
     subnets = service_factory.build_aci_subnet_service(aci_credentials)
     prefixes = service_factory.build_nautobot_prefix_reader(nautobot_credentials)
     try:
@@ -105,14 +105,14 @@ async def execute(
             subnets.list_subnets(), prefixes.list_prefixes()
         )
     except AciValidationError as exc:
-        raise ValueError(f"{STEP_ID}: {exc}") from exc
+        raise ValueError(f"{_STEP_ID}: {exc}") from exc
     except (AciAPIError, AciAuthError) as exc:
         return controller_failure_outcomes(
-            context, exc, label="APIC", step_id=STEP_ID, logger=logger
+            context, exc, label="APIC", step_id=_STEP_ID, logger=logger
         )
     except NautobotError as exc:
         return controller_failure_outcomes(
-            context, exc, label="Nautobot", step_id=STEP_ID, logger=logger
+            context, exc, label="Nautobot", step_id=_STEP_ID, logger=logger
         )
 
     report = compare_subnets(
@@ -143,7 +143,7 @@ async def execute(
     }
     logger.info(
         "%s finished run_id=%s aci=%d matched=%d missing_in_nautobot=%d",
-        STEP_ID,
+        _STEP_ID,
         context.run_id,
         summary["aci_subnets"],
         summary["matched"],

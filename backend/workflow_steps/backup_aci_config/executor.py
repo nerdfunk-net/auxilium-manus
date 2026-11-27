@@ -38,7 +38,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-STEP_ID = "backup-aci-config"
+_STEP_ID = "backup-aci-config"
 TENANT_DIR = "tenants"
 MAX_MESSAGE_CHARS = 200
 MAX_SUMMARY_CHARS = 500
@@ -60,11 +60,11 @@ def _build_sink(
 
 
 def _repository_id(config: dict[str, Any]) -> int:
-    value = parse_repository_id(config.get("git_repository_id"), step_id=STEP_ID)
+    value = parse_repository_id(config.get("git_repository_id"), step_id=_STEP_ID)
     if value is None:
-        raise ValueError(f"{STEP_ID}: git_repository_id is not configured")
+        raise ValueError(f"{_STEP_ID}: git_repository_id is not configured")
     if value < 1:
-        raise ValueError(f"{STEP_ID}: git_repository_id must be a whole number")
+        raise ValueError(f"{_STEP_ID}: git_repository_id must be a whole number")
     return value
 
 
@@ -72,7 +72,7 @@ def _subdirectory(config: dict[str, Any]) -> str:
     raw = config.get("repository_subdirectory")
     value = get_config()["repository_subdirectory"] if raw is None else str(raw).strip()
     if value.startswith(("/", "\\")) or ".." in value.replace("\\", "/").split("/"):
-        raise ValueError(f"{STEP_ID}: repository_subdirectory must stay inside the repository")
+        raise ValueError(f"{_STEP_ID}: repository_subdirectory must stay inside the repository")
     return value.strip("/\\")
 
 
@@ -80,11 +80,11 @@ def _tenants(raw: Any) -> tuple[str, ...] | None:
     if raw is None:
         return None
     if not isinstance(raw, list) or not all(isinstance(item, str) for item in raw):
-        raise ValueError(f"{STEP_ID}: tenants must be a list of tenant names")
+        raise ValueError(f"{_STEP_ID}: tenants must be a list of tenant names")
     names = [item.strip() for item in raw if item.strip()]
     bad = [name for name in names if not _TENANT_NAME.match(name)]
     if bad:
-        raise ValueError(f"{STEP_ID}: not a tenant name: {', '.join(repr(b) for b in bad)}")
+        raise ValueError(f"{_STEP_ID}: not a tenant name: {', '.join(repr(b) for b in bad)}")
     return tuple(names) or None
 
 
@@ -92,7 +92,7 @@ def _message(config: dict[str, Any], source_id: str) -> str:
     raw = config.get("commit_message")
     template = get_config()["commit_message"] if raw is None else str(raw).strip()
     if not template or len(template) > MAX_MESSAGE_CHARS:
-        raise ValueError(f"{STEP_ID}: commit_message must be 1 to {MAX_MESSAGE_CHARS} characters")
+        raise ValueError(f"{_STEP_ID}: commit_message must be 1 to {MAX_MESSAGE_CHARS} characters")
     return template.replace("{source_id}", source_id)
 
 
@@ -109,7 +109,7 @@ async def execute(
 
     source_id = str(config.get("aci_source_id") or "").strip()
     if not source_id:
-        raise ValueError(f"{STEP_ID}: aci_source_id is not configured")
+        raise ValueError(f"{_STEP_ID}: aci_source_id is not configured")
     repository_id = _repository_id(config)
     subdirectory = _subdirectory(config)
     tenants = _tenants(config.get("tenants"))
@@ -117,30 +117,30 @@ async def execute(
     commit = parse_bool_flag(config, "commit", default=True)
     push = parse_bool_flag(config, "push", default=False)
     if push and not commit:
-        raise ValueError(f"{STEP_ID}: push needs commit")
+        raise ValueError(f"{_STEP_ID}: push needs commit")
     message = _message(config, source_id)
     output_key = parse_output_key_config(
         config.get("output_key"),
-        step_id=STEP_ID,
+        step_id=_STEP_ID,
         default=get_config()["output_key"],
         key_name="output_key",
     )
 
-    db = require_session(run, STEP_ID)
-    credentials = ACI.resolve_credentials(db, source_id, step_id=STEP_ID)
+    db = require_session(run, _STEP_ID)
+    credentials = ACI.resolve_credentials(db, source_id, step_id=_STEP_ID)
     repository = load_git_repository(repository_id)
 
-    logger.info("%s started run_id=%s node_id=%s", STEP_ID, context.run_id, node_id)
+    logger.info("%s started run_id=%s node_id=%s", _STEP_ID, context.run_id, node_id)
     service = service_factory.build_aci_config_export_service(credentials)
     try:
         export = await service.export(
             tenants=tenants, include_access_policies=include_access_policies
         )
     except AciValidationError as exc:
-        raise ValueError(f"{STEP_ID}: {exc}") from exc
+        raise ValueError(f"{_STEP_ID}: {exc}") from exc
     except (AciAPIError, AciAuthError) as exc:
         return controller_failure_outcomes(
-            context, exc, label="APIC", step_id=STEP_ID, logger=logger
+            context, exc, label="APIC", step_id=_STEP_ID, logger=logger
         )
     if export.errors:
         # The object paths say what to look at; the APIC's reasons are not carried along.
@@ -180,7 +180,7 @@ async def execute(
     }
     logger.info(
         "%s finished run_id=%s files=%d changed=%d stale=%d",
-        STEP_ID,
+        _STEP_ID,
         context.run_id,
         len(export.files),
         entry["files_changed"],
@@ -225,7 +225,7 @@ def _git_failure_outcomes(context: WorkflowContext, exc: BaseException) -> list[
     """``[failure]`` for a git error: context unchanged, the scrubbed git message, the record."""
     text = scrub_url_credentials(str(exc))
     logger.warning(
-        "%s git failed (%s) run_id=%s: %s", STEP_ID, type(exc).__name__, context.run_id, text
+        "%s git failed (%s) run_id=%s: %s", _STEP_ID, type(exc).__name__, context.run_id, text
     )
     summary = f"git failed: {text}"
     if len(summary) > MAX_SUMMARY_CHARS:

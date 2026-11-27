@@ -12,6 +12,8 @@ from workflow_steps.common.git_workflow_step import run_git_workflow_step
 if TYPE_CHECKING:
     from services.network.netmiko.session_pool import DeviceSessionPool
 
+_STEP_ID = "git-pull"
+
 
 def _pull_operation(
     git_service: Any,
@@ -50,7 +52,7 @@ async def execute(
         context=context,
         artifact_service=artifact_service,
         node_id=node_id,
-        step_id="git-pull",
+        step_id=_STEP_ID,
         operation=_pull_operation,
         operation_name="pull",
     )

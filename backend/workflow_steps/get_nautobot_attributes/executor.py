@@ -92,10 +92,10 @@ def _parse_config(config: dict[str, Any]) -> _ParsedConfig:
 def _bind_nautobot(
     run: WorkflowRun, source_id: str
 ) -> tuple[NautobotCredentials, NautobotService]:
-    db = require_session(run, "get-nautobot-attributes")
+    db = require_session(run, _STEP_ID)
 
     credentials = resolve_nautobot_credentials(
-        db, source_id, step_id="get-nautobot-attributes"
+        db, source_id, step_id=_STEP_ID
     )
     nautobot_service = service_factory.get_nautobot_app_service()
     return credentials, nautobot_service

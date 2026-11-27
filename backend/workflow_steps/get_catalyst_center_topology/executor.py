@@ -25,7 +25,7 @@ from workflow_steps.get_catalyst_center_topology.config import get_config
 if TYPE_CHECKING:
     from services.network.netmiko.session_pool import DeviceSessionPool
 
-STEP_ID = "get-catalyst-center-topology"
+_STEP_ID = "get-catalyst-center-topology"
 TOPOLOGIES = ("physical", "l3_ospf", "l3_isis", "l3_eigrp", "l3_static")
 DEFAULT_TOPOLOGIES = ("physical",)
 
@@ -36,7 +36,7 @@ _Fetched = dict[str, CatalystCenterTopology | FactError]
 def _parse_topologies(raw: Any) -> tuple[str, ...]:
     return parse_name_list(
         raw,
-        step_id=STEP_ID,
+        step_id=_STEP_ID,
         key="topologies",
         noun="topology",
         allowed=TOPOLOGIES,
@@ -76,7 +76,7 @@ async def execute(
 
     topologies = _parse_topologies(config.get("topologies"))
     output_key = parse_output_key_config(
-        config.get("parsed_output_key"), step_id=STEP_ID, default=get_config()["parsed_output_key"]
+        config.get("parsed_output_key"), step_id=_STEP_ID, default=get_config()["parsed_output_key"]
     )
 
     async def prepare(credentials: CatalystCenterCredentials) -> _Fetched:
@@ -96,7 +96,7 @@ async def execute(
         }
 
     return await CATALYST_CENTER.run_fact_step(
-        step_id=STEP_ID,
+        step_id=_STEP_ID,
         context=context,
         run=run,
         node_id=node_id,

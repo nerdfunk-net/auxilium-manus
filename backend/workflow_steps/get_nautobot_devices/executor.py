@@ -23,6 +23,7 @@ if TYPE_CHECKING:
     from services.network.netmiko.session_pool import DeviceSessionPool
 
 logger = logging.getLogger(__name__)
+_STEP_ID = "get-nautobot-devices"
 
 
 def _filter_tree_to_operations(tree: dict[str, Any]) -> list[LogicalOperation]:
@@ -133,9 +134,9 @@ async def execute(
     if not source_id:
         raise ValueError("get-nautobot-devices: nautobot_source_id is not configured")
 
-    db = require_session(run, "get-nautobot-devices")
+    db = require_session(run, _STEP_ID)
 
-    credentials = resolve_nautobot_credentials(db, source_id, step_id="get-nautobot-devices")
+    credentials = resolve_nautobot_credentials(db, source_id, step_id=_STEP_ID)
     source_service = service_factory.build_nautobot_source_service(credentials, db)
 
     from_run_param = (

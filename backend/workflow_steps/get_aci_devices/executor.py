@@ -23,12 +23,12 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-STEP_ID = "get-aci-devices"
+_STEP_ID = "get-aci-devices"
 SOURCE_ID_KEY = "aci_source_id"
 
 
 def _build_device_service(db: Session, source_id: str) -> AciDeviceService:
-    credentials = ACI.resolve_credentials(db, source_id, step_id=STEP_ID)
+    credentials = ACI.resolve_credentials(db, source_id, step_id=_STEP_ID)
     return service_factory.build_aci_device_service(credentials)
 
 
@@ -37,7 +37,7 @@ async def _search(service: AciDeviceService, filters: Any, max_devices: int | No
 
 
 _SPEC = ControllerInventory(
-    step_id=STEP_ID,
+    step_id=_STEP_ID,
     source_id_key=SOURCE_ID_KEY,
     logger=logger,
     request_label="APIC",

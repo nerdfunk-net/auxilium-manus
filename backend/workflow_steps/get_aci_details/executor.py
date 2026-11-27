@@ -25,7 +25,7 @@ from workflow_steps.get_aci_details.config import get_config
 if TYPE_CHECKING:
     from services.network.netmiko.session_pool import DeviceSessionPool
 
-STEP_ID = "get-aci-details"
+_STEP_ID = "get-aci-details"
 # Order of the entries on the device; ``device`` and ``software`` share one set of APIC reads.
 FACTS = (
     "device",
@@ -67,7 +67,7 @@ _FACT_METHODS = {
 
 def _parse_facts(raw: Any) -> tuple[str, ...]:
     return parse_name_list(
-        raw, step_id=STEP_ID, key="facts", noun="fact", allowed=FACTS, default=DEFAULT_FACTS
+        raw, step_id=_STEP_ID, key="facts", noun="fact", allowed=FACTS, default=DEFAULT_FACTS
     )
 
 
@@ -124,7 +124,7 @@ async def execute(
 
     facts = _parse_facts(config.get("facts"))
     output_key = parse_output_key_config(
-        config.get("parsed_output_key"), step_id=STEP_ID, default=get_config()["parsed_output_key"]
+        config.get("parsed_output_key"), step_id=_STEP_ID, default=get_config()["parsed_output_key"]
     )
 
     async def collect(
@@ -134,7 +134,7 @@ async def execute(
 
     # Start and finish are logged once, by the shared fact driver (``collect_facts``).
     return await ACI.run_fact_step(
-        step_id=STEP_ID,
+        step_id=_STEP_ID,
         context=context,
         run=run,
         node_id=node_id,
