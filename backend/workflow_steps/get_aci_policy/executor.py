@@ -42,7 +42,7 @@ async def _prepare(credentials: AciCredentials) -> _State:
     return snapshot if snapshot is not None else error or FactError("APIC returned no policy")
 
 
-def _failed(error: FactError) -> dict[str, Entry]:
+def _error_entries(error: FactError) -> dict[str, Entry]:
     return {name: error_entry(error) for name in ENTRY_NAMES}
 
 
@@ -65,15 +65,15 @@ async def execute(
         credentials: AciCredentials, state: _State, _device_id: str, device: DeviceContext
     ) -> dict[str, Entry]:
         if isinstance(state, FactError):
-            return _failed(state)
+            return _error_entries(state)
         located = aci_node_of(device)
         if located is None:  # cannot happen after the target split
-            return _failed(FactError("device carries no ACI node and pod id"))
+            return _error_entries(FactError("device carries no ACI node and pod id"))
         pod_id, node = located
         details = service_factory.build_aci_details_service(credentials)
         deployed, error = await ACI.capture(lambda: details.get_epgs(pod_id, node))
         if deployed is None:
-            return _failed(error or FactError("APIC returned no EPGs"))
+            return _error_entries(error or FactError("APIC returned no EPGs"))
         epgs, contracts, l3outs = state.for_device(
             {e.epg_dn for e in deployed if e.epg_dn}, pod_id, node
         )

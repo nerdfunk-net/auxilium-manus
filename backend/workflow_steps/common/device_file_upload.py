@@ -177,7 +177,7 @@ async def verify_remote_digest(
     """Run ``verify /<algorithm> <fs><file>`` on the device and compare it with ``local_digest``."""
     command = f"verify /{algorithm} {file_system}{filename}"
 
-    def _failed(message: str, failure: FailureInfo | None, digest: str | None):
+    def _unverified(message: str, failure: FailureInfo | None, digest: str | None):
         return RemoteDigestCheck(
             ok=False,
             command_result=CommandResult(
@@ -190,18 +190,20 @@ async def verify_remote_digest(
 
     result = await target.run(command, read_timeout=read_timeout)
     if not result.success:
-        return _failed(result.error or f"verify command failed: {command}", result.failure, None)
+        return _unverified(
+            result.error or f"verify command failed: {command}", result.failure, None
+        )
 
     output = result.command_outputs.get(command, "") or result.output
     match = VERIFY_HASH_PATTERN.search(output)
     if match is None:
-        return _failed(
+        return _unverified(
             f"Could not parse a {algorithm} checksum from the device's verify output", None, None
         )
 
     device_digest = match.group(1).lower()
     if device_digest != local_digest.lower():
-        return _failed(
+        return _unverified(
             f"{algorithm} mismatch: expected {local_digest}, device reported {device_digest}",
             None,
             device_digest,

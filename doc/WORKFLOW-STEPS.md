@@ -438,8 +438,8 @@ DeviceStatus.FAILED, ...})` itself, not even inside a private helper; extra fiel
 (`test_failed_copy_only_in_device_outcomes.py`). A step keeps only what is its own (its counts, a record type such
 as `remove-from-nautobot`'s `_Removal`); the Nautobot device steps with an explicit target share
 `nautobot_target.target_failure` (the error from a code or an exception, a FAILED placeholder for a target that is not a
-context device). `tests/unit/test_private_outcome_helpers_ratchet.py` fails on a new private `_fail*`, `_build_*outcomes` or
-`_partition_*` function in a step package; the few left are listed there (W1-01).
+context device). `tests/unit/test_private_outcome_helpers_ratchet.py` fails on any private `_fail*`, `_build_*outcomes` or
+`_partition_*` function in a step package (W1-01); a function that only matches the name is named for what it builds.
 
 ### Failure records of Batfish and pyATS (P-E, D3)
 

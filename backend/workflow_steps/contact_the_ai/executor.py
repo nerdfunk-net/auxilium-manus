@@ -109,7 +109,7 @@ def _with_ai_metadata(
     return context.model_copy(update={"metadata": metadata})
 
 
-def _failure(
+def _step_failed(
     node_id: str, summary: str, context: WorkflowContext, info: FailureInfo | None
 ) -> list[StepOutcome]:
     """The step as a whole failed (D2): every device is FAILED with one ``DeviceError``.
@@ -285,7 +285,7 @@ async def execute(
         else:
             logger.warning("%s: WORKFLOW_AI_USER does not name an active user", _STEP_ID)
             message = "AI is not available: WORKFLOW_AI_USER does not name an active user"
-        return _failure(
+        return _step_failed(
             node_id,
             message,
             context,
@@ -295,7 +295,7 @@ async def execute(
         ai = AiSettingsService.from_session(db).require_runtime_config(user_id)
     except AiAssistantError as exc:
         logger.warning("%s: AI not available (%s)", _STEP_ID, type(exc).__name__)
-        return _failure(
+        return _step_failed(
             node_id,
             f"AI is not available: {type(exc).__name__}",
             context,
@@ -309,7 +309,7 @@ async def execute(
 
     gap = _names_gap(prompt_template, ai)
     if gap is not None:
-        return _failure(
+        return _step_failed(
             node_id,
             f"prompt not sent: {gap}",
             context,
@@ -319,7 +319,7 @@ async def execute(
     known = try_load_visible_secret_values(user_id)
     if known is None:
         # Exact-match redaction is unavailable: do not send attribute content without it.
-        return _failure(
+        return _step_failed(
             node_id,
             "prompt not sent: credential values for redaction could not be loaded",
             context,
@@ -348,14 +348,14 @@ async def execute(
         prompt = _redact(text, ai, redactor)
         system = _redact(f"{_SYSTEM_PROMPT}\n{extra_system}".strip(), ai, redactor)
     except PromptWithheldError as exc:
-        return _failure(
+        return _step_failed(
             node_id,
             f"prompt not sent: {exc}",
             context,
             FailureInfo(phase="api", kind="permission_denied", hint="check_permissions"),
         )
     except RedactionBudgetExceeded:
-        return _failure(
+        return _step_failed(
             node_id,
             "prompt not sent: too much text to redact",
             context,
@@ -376,7 +376,7 @@ async def execute(
         )
     except TimeoutError:
         logger.warning("%s: provider call timed out after %ss", _STEP_ID, timeout)
-        return _failure(
+        return _step_failed(
             node_id,
             f"the AI did not answer within {timeout} seconds",
             context,
@@ -385,12 +385,14 @@ async def execute(
     except ProviderError as exc:
         logger.warning("%s: provider call failed (%s)", _STEP_ID, type(exc).__name__)
         info = _provider_failure(exc)
-        return _failure(node_id, _PROVIDER_WORDING.get(info.kind, _PROVIDER_DEFAULT), context, info)
+        return _step_failed(
+            node_id, _PROVIDER_WORDING.get(info.kind, _PROVIDER_DEFAULT), context, info
+        )
 
     # Fake addresses the model repeats go back to the real ones; tokens and secrets never do.
     answer = _clean_reply(redactor.restore_addresses(reply))
     if not answer:
-        return _failure(
+        return _step_failed(
             node_id,
             "the AI returned an empty answer",
             context,

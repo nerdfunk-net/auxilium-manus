@@ -263,7 +263,7 @@ def _assign(parsed: _ParsedConfig, device: DeviceContext, addresses: list[str]) 
     return set_device_attribute(device, parsed.attribute_path, value)
 
 
-def _fail_all(
+def _group_failure_results(
     members: list[DeviceContext], node_id: str, exc: Exception
 ) -> dict[str, tuple[str, DeviceContext]]:
     if isinstance(exc, LookupFailure):
@@ -304,7 +304,7 @@ async def _serve_group(
             bound=bound,
         )
     except Exception as exc:
-        return _fail_all(members, node_id, exc)
+        return _group_failure_results(members, node_id, exc)
 
     results: dict[str, tuple[str, DeviceContext]] = {}
     used = 0
@@ -402,7 +402,7 @@ async def execute(
     for key, device in keyed:
         target = targets[key]
         if isinstance(target, Exception):
-            outcome_by_device.update(_fail_all([device], node_id, target))
+            outcome_by_device.update(_group_failure_results([device], node_id, target))
             continue
         groups.setdefault(target.prefix_id, (target, []))[1].append(device)
 
