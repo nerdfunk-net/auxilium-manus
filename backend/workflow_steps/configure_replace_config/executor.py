@@ -82,7 +82,7 @@ from models.workflow_context import (
     WorkflowContext,
 )
 from services.artifacts import ArtifactService
-from services.pyats.batch import shim_concurrency
+from services.pyats.batch import cap_shim_text, shim_concurrency
 from services.pyats.credentials import PyATSCredentials
 from services.workflow_context.node_result import set_node_result
 from services.workflow_context.secret_fields import unwrap_secret
@@ -167,6 +167,8 @@ def _replace_failure(
             "then retry. See this step's Help panel for details.",
             failure=INVALID_INPUT,
         )
+    # The archive hint reads the whole text; what is stored is capped (R4-01).
+    error = cap_shim_text(error) if error else error
     if outcome_unknown:
         return Fail(
             "replace_failed",
@@ -280,7 +282,8 @@ async def _replace_and_confirm(
         return Fail(
             "confirm_failed",
             f"'configure replace' succeeded but sending '{_CONFIRM_COMMAND}' on the same "
-            f"connection failed ({confirm_entry['error']}); device will auto-revert after "
+            f"connection failed ({cap_shim_text(str(confirm_entry['error']))}); device will "
+            f"auto-revert after "
             f"{timeout_minutes} minute(s)",
             failure=COMMAND_FAILED,
         )

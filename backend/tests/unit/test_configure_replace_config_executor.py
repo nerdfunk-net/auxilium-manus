@@ -13,6 +13,7 @@ from models.workflow_context import (
     WorkflowContext,
 )
 from services.artifacts import InMemoryArtifactService
+from services.pyats.batch import MAX_SHIM_TEXT
 from services.pyats.common.exceptions import PyATSAPIError, PyATSValidationError
 from services.workflow_context.secret_fields import seal_secret
 from workflow_steps.configure_replace_config.diff_checks import diff_has_changes
@@ -242,6 +243,70 @@ class ConfigureReplaceConfigExecutorTests(unittest.IsolatedAsyncioTestCase):
         error_code = failure_outcome.context.devices[_DEVICE_ID].errors[0].code
         self.assertEqual(error_code, "replace_failed")
         self.assertEqual(shim.run_job.await_count, 1)
+
+    # R4-01: a per-command error from the shim is the device's exception chain; it is stored
+    # capped (MAX_SHIM_TEXT), never in full.
+    _LONG_SHIM_ERROR = "SubCommandFailure: " + "x" * 500 + " TAILMARK"
+
+    def _assert_capped(self, message: str) -> None:
+        self.assertNotIn("TAILMARK", message)
+        self.assertIn("SubCommandFailure: xxx", message)
+        self.assertLess(len(message), MAX_SHIM_TEXT + 250)
+
+    async def test_a_long_replace_command_error_is_stored_capped(self) -> None:
+        outcomes, _shim, _ = await self._run(
+            device=_device_with_testbed(),
+            run_job_side_effect=[
+                _replace_confirm_response(
+                    replace_raw=None, replace_error=self._LONG_SHIM_ERROR, include_confirm=False
+                ),
+            ],
+        )
+        err = next(o for o in outcomes if o.name == "failure").context.devices[_DEVICE_ID].errors[0]
+        self.assertEqual(err.code, "replace_failed")
+        self._assert_capped(err.message)
+
+    async def test_the_archive_hint_is_found_beyond_the_cap(self) -> None:
+        late_marker = "x" * 400 + " %Turn config archive on before using Rollback Confirmed Change"
+        outcomes, _shim, _ = await self._run(
+            device=_device_with_testbed(),
+            run_job_side_effect=[
+                _replace_confirm_response(
+                    replace_raw=None, replace_error=late_marker, include_confirm=False
+                ),
+            ],
+        )
+        err = next(o for o in outcomes if o.name == "failure").context.devices[_DEVICE_ID].errors[0]
+        self.assertEqual(err.code, "archive_not_configured")
+
+    async def test_a_long_confirm_command_error_is_stored_capped(self) -> None:
+        outcomes, _shim, _ = await self._run(
+            device=_device_with_testbed(),
+            run_job_side_effect=[
+                _replace_confirm_response(
+                    replace_raw="Rollback Done", confirm_error=self._LONG_SHIM_ERROR
+                ),
+            ],
+        )
+        err = next(o for o in outcomes if o.name == "failure").context.devices[_DEVICE_ID].errors[0]
+        self.assertEqual(err.code, "confirm_failed")
+        self.assertIn("auto-revert", err.message)
+        self._assert_capped(err.message)
+
+    async def test_a_long_post_diff_command_error_is_stored_capped(self) -> None:
+        outcomes, _shim, _ = await self._run(
+            device=_device_with_testbed(),
+            config={**_BASE_CONFIG, "verify_diff_after_replace": True},
+            run_job_side_effect=[
+                _replace_confirm_response(
+                    replace_raw="Rollback Done", confirm_raw="Confirm the configuration change"
+                ),
+                _execute_response(_DIFF_COMMAND, error=self._LONG_SHIM_ERROR),
+            ],
+        )
+        err = next(o for o in outcomes if o.name == "failure").context.devices[_DEVICE_ID].errors[0]
+        self.assertEqual(err.code, "post_verify_failed")
+        self._assert_capped(err.message)
 
     async def test_replace_command_archive_not_configured_gives_clear_message(self) -> None:
         outcomes, shim, _ = await self._run(

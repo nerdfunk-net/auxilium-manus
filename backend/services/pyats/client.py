@@ -12,6 +12,7 @@ import httpx
 
 from core.safe_urls import UnsafeURLError, validate_outbound_http_url_async
 from core.ssl_config import create_verified_ssl_context, verify_option
+from services.pyats.batch import cap_shim_text
 from services.pyats.common.exceptions import PyATSAPIError, PyATSValidationError
 from services.pyats.credentials import PyATSCredentials
 
@@ -340,4 +341,8 @@ class PyATSShimService:
         except ValueError:
             return "pyATS shim rejected the request (400 Bad Request)"
         detail = payload.get("detail")
-        return str(detail) if detail else "pyATS shim rejected the request (400 Bad Request)"
+        if not detail:
+            return "pyATS shim rejected the request (400 Bad Request)"
+        # The shim puts library exception text in a 400 detail ("Genie diff failed: ..."); it is
+        # kept, capped like a device error, because callers store it (R9-01).
+        return cap_shim_text(str(detail))

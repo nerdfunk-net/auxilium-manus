@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock
 
 import httpx
 
+from services.pyats.batch import MAX_SHIM_TEXT
 from services.pyats.client import PyATSShimService
 from services.pyats.common.exceptions import PyATSAPIError, PyATSValidationError
 from services.pyats.credentials import PyATSCredentials
@@ -92,6 +93,19 @@ class PyATSShimServiceDiffTests(unittest.IsolatedAsyncioTestCase):
             )
         self.assertIn("incompatible shapes", str(ctx.exception))
 
+    async def test_diff_400_detail_is_capped(self) -> None:
+        """R9-01: a shim 400 detail (Genie's exception text) is kept capped, never in full."""
+        detail = "Genie diff failed: " + "x" * 500 + "TAILMARK"
+        self.mock_client.request.return_value = httpx.Response(400, json={"detail": detail})
+        with self.assertRaises(PyATSValidationError) as ctx:
+            await self.service.diff(
+                _credentials(), snapshot_a={"info": {}}, snapshot_b={"info": {}}
+            )
+        message = str(ctx.exception)
+        self.assertTrue(message.startswith("Genie diff failed: xxx"))
+        self.assertNotIn("TAILMARK", message)
+        self.assertLessEqual(len(message), MAX_SHIM_TEXT + 1)
+
     async def test_diff_500_raises_api_error(self) -> None:
         self.mock_client.request.return_value = httpx.Response(500)
         with self.assertRaises(PyATSAPIError):
@@ -145,6 +159,14 @@ class PyATSShimServiceParseBatchTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(PyATSValidationError) as ctx:
             await self.service.parse_batch(_credentials(), devices={})
         self.assertIn("devices is required", str(ctx.exception))
+
+    async def test_parse_batch_400_detail_is_capped(self) -> None:
+        detail = "y" * 400 + "TAILMARK"
+        self.mock_client.request.return_value = httpx.Response(400, json={"detail": detail})
+        with self.assertRaises(PyATSValidationError) as ctx:
+            await self.service.parse_batch(_credentials(), devices={})
+        self.assertNotIn("TAILMARK", str(ctx.exception))
+        self.assertLessEqual(len(str(ctx.exception)), MAX_SHIM_TEXT + 1)
 
     async def test_parse_batch_500_raises_api_error(self) -> None:
         self.mock_client.request.return_value = httpx.Response(500)

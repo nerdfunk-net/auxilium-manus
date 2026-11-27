@@ -43,6 +43,12 @@ _GENERIC_DEVICE_ERROR = "pyATS shim reported failure for this device"
 _DEVICE_LEVEL_FAILURE = FailureInfo(phase="command", kind="command_error")
 
 
+def cap_shim_text(text: str) -> str:
+    """Text the shim produced (a device's exception chain, a 400 detail) as it may be stored or
+    shown: at most ``MAX_SHIM_TEXT`` characters plus an ellipsis (R4-01, R9-01)."""
+    return f"{text[:MAX_SHIM_TEXT]}…" if len(text) > MAX_SHIM_TEXT else text
+
+
 def shim_device_failure(result: dict[str, Any] | None) -> tuple[str, FailureInfo]:
     """The message and the classification of a failed per-device shim result.
 
@@ -50,9 +56,7 @@ def shim_device_failure(result: dict[str, Any] | None) -> tuple[str, FailureInfo
     device-level error from the shim does not, and is a generic ``command_error``.
     """
     carried = (result or {}).get("failure")
-    text = str((result or {}).get("error") or "").strip() or _GENERIC_DEVICE_ERROR
-    if len(text) > MAX_SHIM_TEXT:
-        text = f"{text[:MAX_SHIM_TEXT]}…"
+    text = cap_shim_text(str((result or {}).get("error") or "").strip() or _GENERIC_DEVICE_ERROR)
     return text, carried if isinstance(carried, FailureInfo) else _DEVICE_LEVEL_FAILURE
 
 

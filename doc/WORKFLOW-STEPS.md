@@ -449,7 +449,10 @@ per file, lets the number only fall and fails on a new one.
   per-device result (`run_batched`), and `get-pyats-running-config`, `get-pyats-snapshot`, `configure-replace-config` and
   `compare-pyats-snapshot` copy it onto the `DeviceError`. A device-level error from the shim (what the device printed)
   keeps its text capped at 300 characters with a generic `command_error`; an unexpected error is the class name plus
-  `internal_error`. `batfish-extract-facts` stores the class name only when the HSRP question fails.
+  `internal_error`. The cap is `services/pyats/batch.py::cap_shim_text`, and it also covers the per-command `error` of
+  a `configure-replace-config` job (replace, confirm and diff; the archive hint is read before the cut) and every shim
+  400 `detail` (`PyATSShimService._extract_error_message`, for example `compare-pyats-snapshot`'s "Genie diff failed"),
+  so no shim text is stored in full (R4-01, R9-01). `batfish-extract-facts` stores the class name only when the HSRP question fails.
 
 ### Which exception text a failed device stores (P-E, D3)
 

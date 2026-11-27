@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from models.failure import FailureInfo
-from services.pyats.batch import shim_device_failure
+from services.pyats.batch import cap_shim_text, shim_device_failure
 from services.pyats.common.exceptions import PyATSAPIError
 from services.pyats.credentials import PyATSCredentials
 
@@ -101,7 +101,8 @@ async def call_shim(
 
     entry = result.entries.get(command) or {}
     if entry.get("error"):
-        return False, None, entry["error"]
+        # A per-command error is the device's exception chain: stored capped (R4-01).
+        return False, None, cap_shim_text(str(entry["error"]))
 
     value = entry.get("parsed") if operation == "learn" else entry.get("raw")
     return True, value, None
