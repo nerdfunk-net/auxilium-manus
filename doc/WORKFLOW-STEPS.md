@@ -489,7 +489,7 @@ A failure that names a code names its cause too: `DeviceError(failure=...)`, a w
 `Fail(code, message, failure)`. `workflow_steps/common/failure_records.py` holds the records most steps share
 (`INVALID_INPUT`, `NOT_FOUND`, `MISSING_DATA`, `INVALID_RESPONSE`, `COMMAND_FAILED`); a cause with more facts (an HTTP
 status, a transport kind) builds its own. `test_device_error_failure_ratchet.py` (direct `DeviceError(...)` calls) and
-`test_failure_record_wrapper_ratchet.py` (calls through `_fail_device`, `mark_device_failed`, `Fail`, ...) may only fall.
+`test_failure_record_wrapper_ratchet.py` (calls through `mark_device_failed`, `target_failure`, `Fail`, ...) may only fall.
 
 ### Empty branch and step-level failure (D2)
 

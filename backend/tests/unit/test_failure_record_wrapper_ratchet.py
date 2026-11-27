@@ -1,8 +1,8 @@
 """Guard 3 (P-E, W3a-10): a failure recorded through a wrapper names its cause.
 
 ``test_device_error_failure_ratchet.py`` counts ``DeviceError(...)`` calls without ``failure=``, but
-most steps build the error inside a small wrapper (``_fail_device``, ``_device_failure``,
-``mark_device_failed``, ...), where the ratchet cannot see it. This one counts the calls of those
+steps build the error through a wrapper (``mark_device_failed``, ``nautobot_target.target_failure``,
+``_device_failure``, ...), where the ratchet cannot see it. This one counts the calls of those
 wrappers (and the runner's ``Fail(code, message)``) that give a ``code`` and no ``failure``. The
 legacy sites are pinned per file and may only fall; never raise a number or add a file. When a
 count reaches zero, delete the entry.
@@ -17,11 +17,9 @@ from pathlib import Path
 
 STEPS_ROOT = Path(__file__).resolve().parents[2] / "workflow_steps"
 HOME = "workflow_steps/common/device_outcomes.py"
-# ``device_file_upload._failed`` builds a checksum-check result, not a device error.
-NOT_DEVICE_ERRORS = frozenset({"workflow_steps/common/device_file_upload.py"})
 _WRAPPER = re.compile(
     r"^(_?fail(ed)?_device|_fail(ed)?|_?failed_device|_device_failure|_mark_failed"
-    r"|mark_device_failed|_refusal)$"
+    r"|mark_device_failed|target_failure|_refusal)$"
 )
 _EXTRA = frozenset({"_failed", "_fail"})
 
@@ -36,7 +34,7 @@ def _calls_without_failure() -> Counter[str]:
     counts: Counter[str] = Counter()
     for path in sorted(STEPS_ROOT.rglob("*.py")):
         rel = path.relative_to(STEPS_ROOT.parent).as_posix()
-        if rel == HOME or rel in NOT_DEVICE_ERRORS:
+        if rel == HOME:
             continue
         for node in ast.walk(ast.parse(path.read_text())):
             if not isinstance(node, ast.Call):
@@ -77,3 +75,12 @@ def test_wrapper_ratchet_list_is_not_stale() -> None:
         f: (n, actual.get(f, 0)) for f, n in LEGACY_WITHOUT_FAILURE.items() if actual.get(f, 0) < n
     }
     assert not stale, f"lower these entries in LEGACY_WITHOUT_FAILURE (listed, found): {stale}"
+
+
+def test_the_wrapper_pattern_covers_the_current_wrappers() -> None:
+    # W1-01 moved the steps onto these; a call through any of them must name its cause.
+    for name in ("mark_device_failed", "target_failure", "_device_failure", "_refusal"):
+        assert _WRAPPER.match(name), name
+    # Not wrappers: the shared helper that takes an already-built error, and a checksum record.
+    for name in ("fail_device_with_error", "_unverified"):
+        assert not _WRAPPER.match(name) and name not in _EXTRA, name

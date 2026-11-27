@@ -22,8 +22,8 @@ failed device stores (P-E, D3)"). Still open:
   controller steps already fail per device. Configuration errors still raise. `backup-aci-config` ends on `failure` for a
   git error too (P-H, 2026-11-26); its other errors still raise.
 - **`contact-the-ai` structure.** The sharing check is split between `prompt.py::check_path` and
-  `executor.py::_names_gap` (one module should own "what may this template read"), and the registry says
-  `produces: []` although the step writes `output_attribute`.
+  `executor.py::_names_gap` (one module should own "what may this template read"). (The registry's `produces` is
+  `[attributes]` since 2026-11-27, W10-11.)
 - **Two failures with no kind yet.** `configure-replace-config` `diff_mismatch` and `confirm_not_pending` record no
   `FailureInfo` (pinned in `test_failure_record_wrapper_ratchet.py`); no kind in `models/failure.py` fits them.
 - **`store-for-report` keeps its own loop** by decision (it already records a `FailureInfo` per branch and its repository
