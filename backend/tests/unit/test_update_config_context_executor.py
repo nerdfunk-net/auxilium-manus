@@ -1121,12 +1121,12 @@ class FailDeviceTextPolicyTests(unittest.TestCase):
 
     def _error(self, exc: Exception):
         from models.workflow_context import DeviceContext
-        from workflow_steps.update_config_context import executor as step
+        from workflow_steps.common.nautobot_target import target_failure
 
         device = DeviceContext(id="d1", name="d1", hostname="d1")
-        _key, failed, _ok, *_rest = (*step._fail_device(
-            device_key="d1", device=device, node_id="n", exc=exc
-        ),)
+        _key, failed, _ok = target_failure(
+            device_key="d1", device=device, node_id="n", step_id="update-config-context", exc=exc
+        )
         return failed.errors[-1]
 
     def test_an_unexpected_error_shows_only_its_class_name(self) -> None:

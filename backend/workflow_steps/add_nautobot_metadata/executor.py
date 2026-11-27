@@ -20,7 +20,6 @@ from models.failure import FailureInfo
 from models.workflow_context import (
     Capability,
     DeviceContext,
-    DeviceError,
     DeviceStatus,
     StepOutcome,
     WorkflowContext,
@@ -33,6 +32,7 @@ from services.nautobot.metadata_creation import (
 from workflow_steps.common.device_outcomes import (
     build_outcomes,
     fail_device_with_error,
+    mark_device_failed,
     split_results,
 )
 from workflow_steps.common.failure_records import INVALID_INPUT
@@ -217,19 +217,6 @@ class _SharedCalls:
         return await task
 
 
-def _fail(
-    device: DeviceContext,
-    node_id: str,
-    code: str,
-    message: str,
-    failure: FailureInfo | None = None,
-) -> DeviceContext:
-    error = DeviceError(
-        node_id=node_id, step_id=_STEP_ID, code=code, message=message, failure=failure
-    )
-    return fail_device_with_error(device, error)
-
-
 def _enrich(device: DeviceContext, bag_updates: dict[str, Any]) -> DeviceContext:
     # Merge into (never replace) the existing nautobot bag so attributes read by an
     # upstream step survive.
@@ -265,18 +252,26 @@ async def _process_device(
     except _DeviceFailure as failure:
         return (
             device_key,
-            _fail(device, node_id, failure.code, failure.message, INVALID_INPUT),
+            mark_device_failed(
+                device,
+                node_id=node_id,
+                code=failure.code,
+                message=failure.message,
+                failure=INVALID_INPUT,
+                step_id=_STEP_ID,
+            ),
             False,
         )
     except MetadataReferenceNotFoundError as exc:
         return (
             device_key,
-            _fail(
+            mark_device_failed(
                 device,
-                node_id,
-                "reference_not_found",
-                str(exc),
-                FailureInfo(phase="api", kind="not_found", hint="check_request"),
+                node_id=node_id,
+                code="reference_not_found",
+                message=str(exc),
+                failure=FailureInfo(phase="api", kind="not_found", hint="check_request"),
+                step_id=_STEP_ID,
             ),
             False,
         )
@@ -284,8 +279,7 @@ async def _process_device(
         error = device_error_from_exception(
             exc, node_id=node_id, step_id=_STEP_ID, keep_text=NAUTOBOT_TEXT
         )
-        failed = _fail(device, node_id, error.code, error.message, error.failure)
-        return device_key, failed, False
+        return device_key, fail_device_with_error(device, error), False
     return device_key, _enrich(device, bag_updates), True
 
 

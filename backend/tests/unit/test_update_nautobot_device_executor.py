@@ -9,16 +9,17 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from models.workflow_context import DeviceContext, DeviceStatus, WorkflowContext
 from tests.unit._step_helpers import patch_object_session
 from workflow_steps.common import nautobot_step
+from workflow_steps.common.nautobot_target import target_failure
 from workflow_steps.update_nautobot_device import executor as mod
 from workflow_steps.update_nautobot_device.executor import (
     _apply_update_result,
     _build_update_service,
-    _fail_device,
     _strip_empty,
     _update_one_device,
     execute,
 )
 
+_STEP = "update-nautobot-device"
 _CFG = {
     "nautobot_source_id": "src-1",
     "update_fields": {"name": {"enabled": True, "value": "new"}},
@@ -67,17 +68,18 @@ class BuildUpdateServiceTests(unittest.TestCase):
 
 class FailAndApplyTests(unittest.TestCase):
     def test_fail_device_with_none_builds_placeholder(self) -> None:
-        key, dev, ok = _fail_device(
-            device_key="explicit", device=None, node_id="n", exc=RuntimeError("boom")
+        key, dev, ok = target_failure(
+            device_key="explicit", device=None, node_id="n", step_id=_STEP, exc=RuntimeError("boom")
         )
         self.assertEqual((key, ok), ("explicit", False))
         self.assertEqual(dev.status, DeviceStatus.FAILED)
         self.assertEqual(dev.errors[0].code, "runtimeerror")
 
     def test_fail_device_with_device_appends_error(self) -> None:
-        _, dev, ok = _fail_device(
-            device_key="d1", device=_device(), node_id="n", code="x", message="m"
+        _, dev, ok = target_failure(
+            device_key="d1", device=_device(), node_id="n", step_id=_STEP, code="x", message="m"
         )
+        self.assertEqual(dev.errors[-1].step_id, _STEP)
         self.assertFalse(ok)
         self.assertEqual(dev.errors[-1].code, "x")
 
@@ -618,11 +620,10 @@ class FailDeviceTextPolicyTests(unittest.TestCase):
 
     def _error(self, exc: Exception):
         from models.workflow_context import DeviceContext
-        from workflow_steps.update_nautobot_device import executor as step
 
         device = DeviceContext(id="d1", name="d1", hostname="d1")
-        _key, failed, _ok = step._fail_device(
-            device_key="d1", device=device, node_id="n", exc=exc
+        _key, failed, _ok = target_failure(
+            device_key="d1", device=device, node_id="n", step_id=_STEP, exc=exc
         )
         return failed.errors[-1]
 

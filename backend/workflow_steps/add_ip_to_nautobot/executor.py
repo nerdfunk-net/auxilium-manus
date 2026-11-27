@@ -16,7 +16,6 @@ from core.models.runs import WorkflowRun
 from models.failure import FailureInfo
 from models.workflow_context import (
     DeviceContext,
-    DeviceError,
     StepOutcome,
     WorkflowContext,
 )
@@ -30,7 +29,11 @@ from services.nautobot.devices.common import DeviceCommonService
 from services.workflow_context.secret_fields import REDACTED_PLACEHOLDER
 from workflow_steps.add_ip_to_nautobot.config import get_config
 from workflow_steps.common.attribute_write import set_device_attribute
-from workflow_steps.common.device_outcomes import fail_device_with_error, outcomes_from_buckets
+from workflow_steps.common.device_outcomes import (
+    fail_device_with_error,
+    mark_device_failed,
+    outcomes_from_buckets,
+)
 from workflow_steps.common.failure_records import INVALID_INPUT
 from workflow_steps.common.nautobot_prefix_lookup import (
     LookupFailure,
@@ -138,20 +141,6 @@ def _bind_nautobot(run: WorkflowRun, source_id: str) -> _Bound:
     nautobot = bind_nautobot(run, source_id, step_id=_STEP_ID)
     client = nautobot.client
     return _Bound(DeviceCommonService(client), client, nautobot.service, nautobot.credentials)
-
-
-def _failed(
-    device: DeviceContext,
-    *,
-    node_id: str,
-    code: str,
-    message: str,
-    failure: FailureInfo | None = None,
-) -> DeviceContext:
-    error = DeviceError(
-        node_id=node_id, step_id=_STEP_ID, code=code, message=message, failure=failure
-    )
-    return fail_device_with_error(device, error)
 
 
 def _not_found_failure() -> FailureInfo:
@@ -330,12 +319,13 @@ async def _process(
             resolved = await _resolve_target(bound, plan)
             if isinstance(resolved, tuple):
                 code, message = resolved
-                return "failure", _failed(
+                return "failure", mark_device_failed(
                     device,
                     node_id=node_id,
                     code=code,
                     message=message,
                     failure=_not_found_failure(),
+                    step_id=_STEP_ID,
                 )
             target = resolved
         extras = {
@@ -352,16 +342,22 @@ async def _process(
             **extras,
         )
     except LookupFailure as exc:
-        return "failure", _failed(
-            device, node_id=node_id, code=exc.code, message=str(exc), failure=exc.failure
+        return "failure", mark_device_failed(
+            device,
+            node_id=node_id,
+            code=exc.code,
+            message=str(exc),
+            failure=exc.failure,
+            step_id=_STEP_ID,
         )
     except NoParentPrefixError:
-        return "failure", _failed(
+        return "failure", mark_device_failed(
             device,
             node_id=node_id,
             code="prefix_not_found",
             message="No parent prefix exists for the address; enable create_prefix",
             failure=_not_found_failure(),
+            step_id=_STEP_ID,
         )
     except Exception as exc:
         error = device_error_from_exception(
@@ -379,12 +375,13 @@ async def _process(
             return "failure", fail_device_with_error(device, error)
         if problem is not None:
             code, message = problem
-            return "failure", _failed(
+            return "failure", mark_device_failed(
                 device,
                 node_id=node_id,
                 code=code,
                 message=f"{message} (IP address {ip_id})",
                 failure=_attach_failure(code),
+                step_id=_STEP_ID,
             )
 
     if parsed.result_attribute:
@@ -421,12 +418,13 @@ def _attach_failure(code: str) -> FailureInfo:
 
 def _lookup_error(exc: Exception, code: str, node_id: str, device: DeviceContext) -> DeviceContext:
     if isinstance(exc, ValueError):
-        return _failed(
+        return mark_device_failed(
             device,
             node_id=node_id,
             code=code,
             message=_LOOKUP_MESSAGES[code],
             failure=_not_found_failure(),
+            step_id=_STEP_ID,
         )
     return fail_device_with_error(
         device, device_error_from_exception(
@@ -471,8 +469,13 @@ async def execute(
             code, message = planned
             results[device.id] = (
                 "failure",
-                _failed(
-                    device, node_id=node_id, code=code, message=message, failure=INVALID_INPUT
+                mark_device_failed(
+                    device,
+                    node_id=node_id,
+                    code=code,
+                    message=message,
+                    failure=INVALID_INPUT,
+                    step_id=_STEP_ID,
                 ),
             )
         else:

@@ -23,7 +23,6 @@ from core.models.runs import WorkflowRun
 from models.failure import FailureInfo
 from models.workflow_context import (
     DeviceContext,
-    DeviceError,
     StepOutcome,
     WorkflowContext,
 )
@@ -32,7 +31,11 @@ from services.nautobot.common.exceptions import NautobotNotFoundError
 from services.nautobot.common.validators import is_valid_uuid
 from services.nautobot.devices.common import DeviceCommonService
 from services.workflow_context.secret_fields import REDACTED_PLACEHOLDER
-from workflow_steps.common.device_outcomes import fail_device_with_error, outcomes_from_buckets
+from workflow_steps.common.device_outcomes import (
+    fail_device_with_error,
+    mark_device_failed,
+    outcomes_from_buckets,
+)
 from workflow_steps.common.nautobot_step import NAUTOBOT_CONCURRENCY, bind_nautobot_client
 from workflow_steps.common.partial_outcomes import (
     NAUTOBOT_TEXT,
@@ -100,24 +103,6 @@ def _config_failure() -> FailureInfo:
 
 def _not_found_failure() -> FailureInfo:
     return FailureInfo(phase="api", kind="not_found", hint="check_request")
-
-
-def _failed(
-    device: DeviceContext,
-    *,
-    node_id: str,
-    code: str,
-    message: str,
-    failure: FailureInfo,
-    ips_removed: int = 0,
-    ips_shared_skipped: int = 0,
-) -> _Removal:
-    error = DeviceError(
-        node_id=node_id, step_id=_STEP_ID, code=code, message=message, failure=failure
-    )
-    return _Removal(
-        "failure", fail_device_with_error(device, error), ips_removed, ips_shared_skipped
-    )
 
 
 def _resolve_device_uuid(
@@ -222,12 +207,16 @@ async def _remove(
         try:
             await common.get_device_details(device_uuid)
         except NautobotNotFoundError:
-            return _failed(
-                device,
-                node_id=node_id,
-                code="device_not_found",
-                message="The device was not found in Nautobot; nothing was removed",
-                failure=_not_found_failure(),
+            return _Removal(
+                "failure",
+                mark_device_failed(
+                    device,
+                    node_id=node_id,
+                    code="device_not_found",
+                    message="The device was not found in Nautobot; nothing was removed",
+                    failure=_not_found_failure(),
+                    step_id=_STEP_ID,
+                ),
             )
         if parsed.dry_run:
             return await _preview(common, parsed, device, node_id, device_uuid)
@@ -239,31 +228,40 @@ async def _remove(
                 classified = device_error_from_exception(
                     ip_failure.error, node_id=node_id, step_id=_STEP_ID, keep_text=NAUTOBOT_TEXT
                 )
-                return _failed(
-                    device,
-                    node_id=node_id,
-                    code="ip_delete_failed",
-                    message=(
-                        f"IP address {ip_failure.ip_id} could not be removed; the device was not "
-                        f"removed.{_already_removed_note(removed)}"
+                return _Removal(
+                    "failure",
+                    mark_device_failed(
+                        device,
+                        node_id=node_id,
+                        code="ip_delete_failed",
+                        message=(
+                            f"IP address {ip_failure.ip_id} could not be removed; the device was "
+                            f"not removed.{_already_removed_note(removed)}"
+                        ),
+                        failure=classified.failure or FailureInfo(phase="api", kind="server_error"),
+                        step_id=_STEP_ID,
                     ),
-                    failure=classified.failure or FailureInfo(phase="api", kind="server_error"),
-                    ips_removed=len(removed),
-                    ips_shared_skipped=skipped,
+                    len(removed),
+                    skipped,
                 )
         await common.delete_device(device_uuid)
     except NautobotNotFoundError:
         # Another worker removed the device between the check and the delete.
-        return _failed(
-            device,
-            node_id=node_id,
-            code="device_not_found",
-            message=(
-                f"The device was already gone when it was deleted.{_already_removed_note(removed)}"
+        return _Removal(
+            "failure",
+            mark_device_failed(
+                device,
+                node_id=node_id,
+                code="device_not_found",
+                message=(
+                    "The device was already gone when it was deleted."
+                    f"{_already_removed_note(removed)}"
+                ),
+                failure=_not_found_failure(),
+                step_id=_STEP_ID,
             ),
-            failure=_not_found_failure(),
-            ips_removed=len(removed),
-            ips_shared_skipped=skipped,
+            len(removed),
+            skipped,
         )
     except Exception as exc:
         # Nautobot cannot delete a device and its addresses atomically: addresses removed
@@ -355,7 +353,17 @@ async def execute(
         resolved = _resolve_device_uuid(parsed, device, context.run_id)
         if isinstance(resolved, tuple):
             code, message, failure = resolved
-            removal = _failed(device, node_id=node_id, code=code, message=message, failure=failure)
+            removal = _Removal(
+                "failure",
+                mark_device_failed(
+                    device,
+                    node_id=node_id,
+                    code=code,
+                    message=message,
+                    failure=failure,
+                    step_id=_STEP_ID,
+                ),
+            )
             buckets["failure"][device.id] = removal.device
             removals.append(removal)
         else:

@@ -19,7 +19,6 @@ from core.models.runs import WorkflowRun
 from models.failure import FailureInfo
 from models.workflow_context import (
     DeviceContext,
-    DeviceError,
     StepOutcome,
     WorkflowContext,
 )
@@ -39,7 +38,7 @@ from workflow_steps.common.attribute_merge import (
     merge_into_device_attribute,
     validate_merge_destination,
 )
-from workflow_steps.common.device_outcomes import fail_device_with_error
+from workflow_steps.common.device_outcomes import fail_device_with_error, mark_device_failed
 from workflow_steps.common.file_source_root import resolve_source_root
 from workflow_steps.common.git_repository_loader import parse_repository_id
 from workflow_steps.common.partial_outcomes import (
@@ -130,20 +129,6 @@ def _parse_config(config: dict[str, Any]) -> _Parsed:
         allow_stale=parse_bool_flag(config, "allow_stale_repository"),
         refresh=parse_bool_flag(config, "refresh_repository"),
     )
-
-
-def _fail_device(
-    *,
-    device: DeviceContext,
-    node_id: str,
-    code: str,
-    message: str,
-    failure: FailureInfo,
-) -> DeviceContext:
-    err = DeviceError(
-        node_id=node_id, step_id=_STEP_ID, code=code, message=message, failure=failure
-    )
-    return fail_device_with_error(device, err)
 
 
 def _sealed_conflict(
@@ -264,12 +249,13 @@ async def execute(
             continue
         conflict = _sealed_conflict(device, parsed.destination_path, row.values)
         if conflict is not None:
-            failed_devices[device_id] = _fail_device(
-                device=device,
+            failed_devices[device_id] = mark_device_failed(
+                device,
                 node_id=node_id,
                 code="sealed_secret_conflict",
                 message=f"{conflict} holds a sealed secret; it is not overwritten by a CSV value",
                 failure=FailureInfo(phase="internal", kind="bad_request"),
+                step_id=_STEP_ID,
             )
             continue
         try:

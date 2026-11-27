@@ -10,7 +10,10 @@ from __future__ import annotations
 
 from typing import Any
 
-from models.workflow_context import DeviceContext
+from models.failure import FailureInfo
+from models.workflow_context import DeviceContext, DeviceError
+from workflow_steps.common.device_outcomes import fail_device_with_error
+from workflow_steps.common.partial_outcomes import NAUTOBOT_TEXT, device_error_from_exception
 
 _IDENTIFIER_KEYS = ("id", "name", "ip_address")
 _IDENTIFIER_MODES = ("from_context", "explicit")
@@ -62,3 +65,40 @@ def explicit_device_context(identifier: dict[str, str]) -> DeviceContext:
         source="nautobot",
         primary_ip4=identifier.get("ip_address") or None,
     )
+
+
+def target_failure(
+    *,
+    device_key: str,
+    device: DeviceContext | None,
+    node_id: str,
+    step_id: str,
+    code: str | None = None,
+    message: str | None = None,
+    exc: Exception | None = None,
+    failure: FailureInfo | None = None,
+) -> tuple[str, DeviceContext, bool]:
+    """``(device_key, failed device, False)`` for a device the step could not update.
+
+    The error is built from ``code`` / ``message`` / ``failure`` or, when given, from ``exc``
+    (Nautobot text kept, anything else reduced to the class name). An explicit target that is
+    not a context device (``device`` is None) becomes a FAILED placeholder named by the key.
+    """
+    from_exc = (
+        device_error_from_exception(exc, node_id=node_id, step_id=step_id, keep_text=NAUTOBOT_TEXT)
+        if exc is not None
+        else None
+    )
+    error_code = code or (from_exc.code if from_exc else "error")
+    error_message = message or (from_exc.message if from_exc else "Unknown error")
+    failure = failure or (from_exc.failure if from_exc else None)
+
+    error = DeviceError(
+        node_id=node_id, step_id=step_id, code=error_code, message=error_message, failure=failure
+    )
+    target = (
+        device
+        if device is not None
+        else DeviceContext(id=device_key, name=device_key, hostname=device_key, source="nautobot")
+    )
+    return device_key, fail_device_with_error(target, error), False

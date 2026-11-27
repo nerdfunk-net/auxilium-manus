@@ -30,10 +30,8 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from core.models.runs import WorkflowRun
-from models.failure import FailureInfo
 from models.workflow_context import (
     DeviceContext,
-    DeviceError,
     DeviceStatus,
     StepOutcome,
     WorkflowContext,
@@ -50,7 +48,6 @@ from services.workflow_context.secret_fields import (
 from workflow_steps.common.attribute_merge import deep_merge_mapping
 from workflow_steps.common.device_outcomes import (
     build_outcomes,
-    fail_device_with_error,
     split_results,
 )
 from workflow_steps.common.failure_records import NOT_FOUND
@@ -61,8 +58,8 @@ from workflow_steps.common.nautobot_target import (
     explicit_device_context,
     parse_explicit_identifier,
     parse_identifier_mode,
+    target_failure,
 )
-from workflow_steps.common.partial_outcomes import NAUTOBOT_TEXT, device_error_from_exception
 from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.common.step_flags import parse_bool_flag, record_dry_run
 from workflow_steps.common.template_content import load_stored_template
@@ -465,59 +462,6 @@ def _append_document(current: dict[str, Any], path: str, value: Any) -> dict[str
     return set_at_path(current, path, merged)
 
 
-def _fail_device(
-    *,
-    device_key: str,
-    device: DeviceContext | None,
-    node_id: str,
-    code: str | None = None,
-    message: str | None = None,
-    exc: Exception | None = None,
-    failure: FailureInfo | None = None,
-) -> tuple[str, DeviceContext | None, bool]:
-    from_exc = (
-        device_error_from_exception(
-            exc, node_id=node_id, step_id=_STEP_ID, keep_text=NAUTOBOT_TEXT
-        )
-        if exc is not None
-        else None
-    )
-    error_code = code or (from_exc.code if from_exc else "error")
-    error_message = message or (from_exc.message if from_exc else "Unknown error")
-    failure = failure or (from_exc.failure if from_exc else None)
-
-    if device is None:
-        placeholder = DeviceContext(
-            id=device_key,
-            name=device_key,
-            hostname=device_key,
-            source="nautobot",
-            status=DeviceStatus.FAILED,
-            errors=[
-                DeviceError(
-                    node_id=node_id,
-                    step_id=_STEP_ID,
-                    code=error_code,
-                    message=error_message,
-                    failure=failure,
-                )
-            ],
-        )
-        return device_key, placeholder, False
-
-    failed = fail_device_with_error(
-        device,
-        DeviceError(
-            node_id=node_id,
-            step_id=_STEP_ID,
-            code=error_code,
-            message=error_message,
-            failure=failure,
-        ),
-    )
-    return device_key, failed, False
-
-
 async def _update_one_device(
     *,
     device_key: str,
@@ -545,14 +489,17 @@ async def _update_one_device(
             device=target,
         )
         if nautobot_device_id is None:
-            return _fail_device(
+            return target_failure(
                 device_key=device_key,
                 device=device,
                 node_id=node_id,
                 code="not_found",
                 failure=NOT_FOUND,
-                message=f"No Nautobot device found for {device_key} "
-                f"(name={target.name!r}, ip={target.primary_ip4!r})",
+                message=(
+                    f"No Nautobot device found for {device_key} "
+                    f"(name={target.name!r}, ip={target.primary_ip4!r})"
+                ),
+                step_id=_STEP_ID,
             )
 
         run_id = str(context.run_id) if context.run_id else None
@@ -609,7 +556,9 @@ async def _update_one_device(
             )
         return device_key, result, True
     except Exception as exc:
-        return _fail_device(device_key=device_key, device=device, node_id=node_id, exc=exc)
+        return target_failure(
+            device_key=device_key, device=device, node_id=node_id, exc=exc, step_id=_STEP_ID
+        )
 
 
 def _preview_payload(mode: str, change: _ContextChange) -> dict[str, Any]:

@@ -13,7 +13,6 @@ from models.failure import FailureInfo, failure_from_exception
 from models.workflow_context import (
     Capability,
     DeviceContext,
-    DeviceError,
     DeviceStatus,
     StepOutcome,
     WorkflowContext,
@@ -25,7 +24,7 @@ from services.nautobot.devices.types import AddDeviceRequest
 from workflow_steps.add_to_nautobot.config import get_config
 from workflow_steps.common.device_outcomes import (
     build_outcomes,
-    fail_device_with_error,
+    mark_device_failed,
     split_results,
 )
 from workflow_steps.common.failure_records import INVALID_INPUT
@@ -254,26 +253,6 @@ def _create_failure(exc: Exception) -> FailureInfo | None:
     return failure_from_exception(exc)
 
 
-def _fail_device(
-    *,
-    device: DeviceContext,
-    device_key: str,
-    node_id: str,
-    code: str,
-    message: str,
-    failure: FailureInfo | None = None,
-) -> tuple[str, DeviceContext, bool]:
-    err = DeviceError(
-        node_id=node_id,
-        step_id=_STEP_ID,
-        code=code,
-        message=message,
-        failure=failure,
-    )
-    failed = fail_device_with_error(device, err)
-    return device_key, failed, False
-
-
 async def _create_one_device(
     *,
     device_key: str,
@@ -306,13 +285,17 @@ async def _create_one_device(
 
         missing = [key for key in _REQUIRED_FIELDS if not resolved.get(key)]
         if missing:
-            return _fail_device(
-                device=device,
-                device_key=device_key,
-                node_id=node_id,
-                code="missing_required_field",
-                failure=INVALID_INPUT,
-                message=(f"Required field(s) could not be resolved: {', '.join(missing)}"),
+            return (
+                device_key,
+                mark_device_failed(
+                    device,
+                    node_id=node_id,
+                    code="missing_required_field",
+                    failure=INVALID_INPUT,
+                    message=f"Required field(s) could not be resolved: {', '.join(missing)}",
+                    step_id=_STEP_ID,
+                ),
+                False,
             )
 
         request = _build_request(resolved=resolved, parsed=parsed, interfaces=interfaces)
@@ -320,13 +303,17 @@ async def _create_one_device(
 
         if request.dry_run:
             if not result.get("success"):
-                return _fail_device(
-                    device=device,
-                    device_key=device_key,
-                    node_id=node_id,
-                    code="dry_run_validation_failed",
-                    failure=INVALID_INPUT,
-                    message="; ".join(result.get("errors") or ["dry run validation failed"]),
+                return (
+                    device_key,
+                    mark_device_failed(
+                        device,
+                        node_id=node_id,
+                        code="dry_run_validation_failed",
+                        failure=INVALID_INPUT,
+                        message="; ".join(result.get("errors") or ["dry run validation failed"]),
+                        step_id=_STEP_ID,
+                    ),
+                    False,
                 )
             enriched = device.model_copy(
                 update={
@@ -349,14 +336,18 @@ async def _create_one_device(
 
         if not result.get("success"):
             # Pre-flight checks failed: nothing was created in Nautobot.
-            return _fail_device(
-                device=device,
-                device_key=device_key,
-                node_id=node_id,
-                code="preflight_failed",
-                message="; ".join(str(e) for e in result.get("errors") or [])
-                or "pre-flight checks failed",
-                failure=FailureInfo(phase="api", kind="bad_request"),
+            return (
+                device_key,
+                mark_device_failed(
+                    device,
+                    node_id=node_id,
+                    code="preflight_failed",
+                    message="; ".join(str(e) for e in result.get("errors") or [])
+                    or "pre-flight checks failed",
+                    failure=FailureInfo(phase="api", kind="bad_request"),
+                    step_id=_STEP_ID,
+                ),
+                False,
             )
 
         problems: list[str] = []
@@ -369,13 +360,17 @@ async def _create_one_device(
             created = device.model_copy(
                 update={"id": str(result.get("device_id") or device.id), "source": "nautobot"}
             )
-            return _fail_device(
-                device=created,
-                device_key=device_key,
-                node_id=node_id,
-                code="device_created_incomplete",
-                message="; ".join(problems),
-                failure=FailureInfo(phase="api", kind="server_error"),
+            return (
+                device_key,
+                mark_device_failed(
+                    created,
+                    node_id=node_id,
+                    code="device_created_incomplete",
+                    message="; ".join(problems),
+                    failure=FailureInfo(phase="api", kind="server_error"),
+                    step_id=_STEP_ID,
+                ),
+                False,
             )
 
         update_fields: dict[str, Any] = {
@@ -410,13 +405,17 @@ async def _create_one_device(
         error = device_error_from_exception(
             exc, node_id=node_id, step_id=_STEP_ID, keep_text=NAUTOBOT_TEXT
         )
-        return _fail_device(
-            device=device,
-            device_key=device_key,
-            node_id=node_id,
-            code=code,
-            message=error.message,
-            failure=_create_failure(exc) or error.failure,
+        return (
+            device_key,
+            mark_device_failed(
+                device,
+                node_id=node_id,
+                code=code,
+                message=error.message,
+                failure=_create_failure(exc) or error.failure,
+                step_id=_STEP_ID,
+            ),
+            False,
         )
 
 

@@ -262,7 +262,10 @@ class ExecuteTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_prefix_not_found(self) -> None:
         out, _ = await _run(_config(), _context(_device("a")), _rest(prefixes=[]))
-        self.assertEqual(out["failure"].devices["a"].errors[0].code, "prefix_not_found")
+        error = out["failure"].devices["a"].errors[0]
+        self.assertEqual(error.code, "prefix_not_found")
+        # The lookup's record goes onto each device of the group (W1-01: not pinned before).
+        self.assertEqual(error.failure.kind, "not_found")
 
     async def test_prefix_ambiguous(self) -> None:
         rest = _rest(prefixes=[{"id": _PREFIX_ID}, {"id": "other"}])

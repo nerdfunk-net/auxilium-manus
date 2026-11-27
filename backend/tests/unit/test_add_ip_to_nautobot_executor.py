@@ -325,7 +325,10 @@ class ExecuteTests(unittest.IsolatedAsyncioTestCase):
             _config(ip_address="2001:db8::5/64", interface_name="Vlan1", set_primary=True),
             _context(_device("a")),
         )
-        self.assertEqual(out["failure"].devices["a"].errors[0].code, "primary_ipv6_unsupported")
+        error = out["failure"].devices["a"].errors[0]
+        self.assertEqual(error.code, "primary_ipv6_unsupported")
+        # The lookup's own record goes onto the device (W1-01: not pinned before).
+        self.assertEqual((error.failure.phase, error.failure.kind), ("config", "bad_request"))
         common.ensure_ip_address_exists.assert_not_called()
 
     async def test_default_mask_longer_than_the_family_allows_is_refused(self) -> None:

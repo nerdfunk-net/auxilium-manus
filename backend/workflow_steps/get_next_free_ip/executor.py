@@ -174,12 +174,6 @@ async def _available_ips(bound: _Bound, prefix_id: str, *, limit: int) -> list[A
         raise _invalid_response(exc) from exc
 
 
-def _failed(
-    device: DeviceContext, *, node_id: str, code: str, message: str, failure: FailureInfo
-) -> DeviceContext:
-    return failed(_STEP_ID, device, node_id=node_id, code=code, message=message, failure=failure)
-
-
 def _resolve_group_key(
     parsed: _ParsedConfig, device: DeviceContext, run_id: str
 ) -> _GroupKey | PlanError:
@@ -276,7 +270,14 @@ def _fail_all(
         return {
             d.id: (
                 "failure",
-                _failed(d, node_id=node_id, code=exc.code, message=str(exc), failure=exc.failure),
+                failed(
+                    _STEP_ID,
+                    d,
+                    node_id=node_id,
+                    code=exc.code,
+                    message=str(exc),
+                    failure=exc.failure,
+                ),
             )
             for d in members
         }
@@ -319,7 +320,8 @@ async def _serve_group(
             )
             results[device.id] = (
                 "failure",
-                _failed(
+                failed(
+                    _STEP_ID,
                     device,
                     node_id=node_id,
                     code=code,
@@ -374,7 +376,9 @@ async def execute(
             code, message, failure = key
             outcome_by_device[device.id] = (
                 "failure",
-                _failed(device, node_id=node_id, code=code, message=message, failure=failure),
+                failed(
+                    _STEP_ID, device, node_id=node_id, code=code, message=message, failure=failure
+                ),
             )
             continue
         keyed.append((key, device))

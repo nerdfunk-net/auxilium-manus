@@ -428,14 +428,18 @@ A step that fails a device or builds its outcomes uses `workflow_steps/common/de
 error history kept, input never mutated), `fail_device_with_error(device, error, **updates)` (the same with an error
 already built, for example by `device_error_from_exception`), `build_outcomes(context, succeeded, failed, *,
 metadata=, success_summary=, failure_summary=)` (`success` always, `failure` only with failed devices),
-`outcomes_from_buckets(context, buckets, *, metadata=)` (every handle, empty ones included, for the routers) and
+`split_results(results)` (the `(id, device, ok)` results as `(succeeded, failed)`, a `None` device left out),
+`outcomes_from_buckets(context, buckets, *, metadata=, summaries=)` (every handle, empty ones included, for the
+routers; an optional summary per handle) and
 `whole_step_failure(context, *, node_id, step_id, code, message, failure=, metadata=, empty_handles=)` (every device
 fails with one error; a routing step lists its verdict handles in `empty_handles`). `abort_outcomes` and
 `device_error_from_exception` stay in `partial_outcomes.py`. No step builds `model_copy(update={"status":
 DeviceStatus.FAILED, ...})` itself, not even inside a private helper; extra fields go through `**updates`
-(`test_failed_copy_only_in_device_outcomes.py`). The older private `_fail*`, `_build_*outcomes` and
-`_partition_*` functions in the step packages are legacy: `tests/unit/test_private_outcome_helpers_ratchet.py` pins them
-per file, lets the number only fall and fails on a new one.
+(`test_failed_copy_only_in_device_outcomes.py`). A step keeps only what is its own (its counts, a record type such
+as `remove-from-nautobot`'s `_Removal`); the Nautobot device steps with an explicit target share
+`nautobot_target.target_failure` (the error from a code or an exception, a FAILED placeholder for a target that is not a
+context device). `tests/unit/test_private_outcome_helpers_ratchet.py` fails on a new private `_fail*`, `_build_*outcomes` or
+`_partition_*` function in a step package; the few left are listed there (W1-01).
 
 ### Failure records of Batfish and pyATS (P-E, D3)
 

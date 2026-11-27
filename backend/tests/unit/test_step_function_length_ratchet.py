@@ -128,7 +128,7 @@ LEGACY_LONG_FUNCTIONS: dict[str, int] = {
     "workflow_steps/store_in_db/executor.py": 2,
     "workflow_steps/undefined_and_unused/executor.py": 2,
     "workflow_steps/update_attribute/executor.py": 1,
-    "workflow_steps/update_config_context/executor.py": 3,
+    "workflow_steps/update_config_context/executor.py": 2,
     "workflow_steps/update_config_context/json_object_path.py": 1,
     "workflow_steps/update_content/executor.py": 1,
     "workflow_steps/update_ise_tacacs_key/executor.py": 2,

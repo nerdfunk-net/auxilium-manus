@@ -135,6 +135,8 @@ class ExecuteTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(failed.errors[-1].code, "ip_delete_failed")
         self.assertIn(_IP_B, failed.errors[-1].message)
         self.assertEqual(out["success"].devices, {})
+        # The address removed before the failure is counted (W1-01: not pinned before).
+        self.assertEqual(out["failure"].metadata["n1.remove_counts"]["ips_removed"], 1)
 
     async def test_not_a_uuid_fails_without_calls(self) -> None:
         common = _common()

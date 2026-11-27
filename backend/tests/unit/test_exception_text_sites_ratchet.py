@@ -23,6 +23,9 @@ BROAD = frozenset({"Exception", "BaseException"})
 
 LEGACY_EXCEPTION_TEXT_SITES: dict[str, int] = {
     "workflow_steps/add_ip_to_nautobot/executor.py": 1,
+    # MetadataReferenceNotFoundError (the service's "reference not found" sentence, R7); it was a
+    # positional argument of the private _fail until W1-01 (2026-11-27), so the guard saw it then.
+    "workflow_steps/add_nautobot_metadata/executor.py": 1,
     "workflow_steps/add_pyats_testbed/executor.py": 1,
     "workflow_steps/add_to_ise/executor.py": 2,
     "workflow_steps/batfish_validate_facts/executor.py": 1,

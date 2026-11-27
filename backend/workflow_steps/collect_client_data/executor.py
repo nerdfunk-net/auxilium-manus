@@ -93,18 +93,6 @@ def _summary(collection: DeviceCollection, hostname_count: int) -> dict[str, Any
     }
 
 
-def _fail(
-    device: DeviceContext,
-    node_id: str,
-    code: str,
-    message: str,
-    failure: FailureInfo | None = None,
-) -> DeviceContext:
-    return mark_device_failed(
-        device, node_id=node_id, step_id=STEP_ID, code=code, message=message, failure=failure
-    )
-
-
 def _target(
     device: DeviceContext, options: CollectOptions, credentials: tuple[str, str, str]
 ) -> DeviceTarget:
@@ -195,17 +183,33 @@ async def _collect_one(
             target_host=target.host,
         )
     except CollectionError as exc:
-        return _fail(device, node_id, exc.code, exc.message, exc.failure), False
+        return mark_device_failed(
+            device,
+            node_id=node_id,
+            code=exc.code,
+            message=exc.message,
+            failure=exc.failure,
+            step_id=STEP_ID,
+        ), False
     except CollectionConflictError:
         # Another execution (a fan-out sibling) stored a different device with this name.
         return duplicate_failure(device, node_id, step_id=STEP_ID), False
     except TooManyRowsError as exc:
         # The storage layer's own check (the collector normally catches this first).
         failed = too_many_rows_error(exc)
-        return _fail(device, node_id, failed.code, failed.message, failed.failure), False
+        return mark_device_failed(
+            device,
+            node_id=node_id,
+            code=failed.code,
+            message=failed.message,
+            failure=failed.failure,
+            step_id=STEP_ID,
+        ), False
     except (SQLAlchemyError, StorageRejected) as exc:
         code, message, failure = storage_failure(exc)
-        return _fail(device, node_id, code, message, failure), False
+        return mark_device_failed(
+            device, node_id=node_id, code=code, message=message, failure=failure, step_id=STEP_ID
+        ), False
     except Exception as exc:
         # Reduced to a closed vocabulary: library messages can carry host, banner or SQL text.
         error = device_error_from_exception(exc, node_id=node_id, step_id=STEP_ID)

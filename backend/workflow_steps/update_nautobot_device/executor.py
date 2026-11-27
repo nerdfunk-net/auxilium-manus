@@ -11,7 +11,6 @@ from core.models.runs import WorkflowRun
 from models.failure import FailureInfo
 from models.workflow_context import (
     DeviceContext,
-    DeviceError,
     DeviceStatus,
     StepOutcome,
     WorkflowContext,
@@ -23,7 +22,6 @@ from services.nautobot.devices.update import DeviceUpdateService
 from services.workflow_context.attribute_path import resolve_device_attribute_raw
 from workflow_steps.common.device_outcomes import (
     build_outcomes,
-    fail_device_with_error,
     split_results,
 )
 from workflow_steps.common.failure_records import NOT_FOUND
@@ -40,8 +38,8 @@ from workflow_steps.common.nautobot_target import (
     explicit_device_context,
     parse_explicit_identifier,
     parse_identifier_mode,
+    target_failure,
 )
-from workflow_steps.common.partial_outcomes import NAUTOBOT_TEXT, device_error_from_exception
 from workflow_steps.common.redundancy_groups import (
     DEFAULT_REDUNDANCY_STATUS,
     parse_redundancy_groups,
@@ -288,57 +286,6 @@ def _build_update_service(
     return binding.service, binding.credentials, DeviceUpdateService(binding.client)
 
 
-def _fail_device(
-    *,
-    device_key: str,
-    device: DeviceContext | None,
-    node_id: str,
-    code: str | None = None,
-    message: str | None = None,
-    exc: Exception | None = None,
-    failure: FailureInfo | None = None,
-) -> tuple[str, DeviceContext | None, bool]:
-    from_exc = (
-        device_error_from_exception(
-            exc, node_id=node_id, step_id=_STEP_ID, keep_text=NAUTOBOT_TEXT
-        )
-        if exc is not None
-        else None
-    )
-    error_code = code or (from_exc.code if from_exc else "error")
-    error_message = message or (from_exc.message if from_exc else "Unknown error")
-    failure = failure or (from_exc.failure if from_exc else None)
-
-    if device is None:
-        placeholder = DeviceContext(
-            id=device_key,
-            name=device_key,
-            hostname=device_key,
-            source="nautobot",
-            status=DeviceStatus.FAILED,
-            errors=[
-                DeviceError(
-                    node_id=node_id,
-                    step_id=_STEP_ID,
-                    code=error_code,
-                    message=error_message,
-                    failure=failure,
-                )
-            ],
-        )
-        return device_key, placeholder, False
-
-    err = DeviceError(
-        node_id=node_id,
-        step_id=_STEP_ID,
-        code=error_code,
-        message=error_message,
-        failure=failure,
-    )
-    failed = fail_device_with_error(device, err)
-    return device_key, failed, False
-
-
 def _apply_update_result(
     *,
     device_key: str,
@@ -428,7 +375,7 @@ async def _update_one_device(
             device=target,
         )
         if nautobot_device_id is None:
-            return _fail_device(
+            return target_failure(
                 device_key=device_key,
                 device=device,
                 node_id=node_id,
@@ -438,6 +385,7 @@ async def _update_one_device(
                     f"No Nautobot device found for workflow device {device_key} "
                     f"(name={target.name!r}, ip={target.primary_ip4!r})"
                 ),
+                step_id=_STEP_ID,
             )
 
         device_identifier = {"id": nautobot_device_id}
@@ -482,7 +430,7 @@ async def _update_one_device(
         )
         if int(result.get("interfaces_failed") or 0) > 0:
             # The device fields and the other interfaces are already written (W5-14).
-            return _fail_device(
+            return target_failure(
                 device_key=device_key,
                 device=device,
                 node_id=node_id,
@@ -493,13 +441,14 @@ async def _update_one_device(
                     "interfaces are already written in Nautobot; run the step again to complete it"
                 ),
                 failure=FailureInfo(phase="api", kind="unknown", retryable=True),
+                step_id=_STEP_ID,
             )
         return _apply_update_result(
             device_key=device_key, device=device, result=result, node_id=node_id
         )
     except Exception as exc:
-        return _fail_device(
-            device_key=device_key, device=device, node_id=node_id, exc=exc
+        return target_failure(
+            device_key=device_key, device=device, node_id=node_id, exc=exc, step_id=_STEP_ID
         )
 
 
