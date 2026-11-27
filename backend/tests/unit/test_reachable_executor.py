@@ -50,6 +50,12 @@ class ParseHelperTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             _parse_positive_number({"timeout_seconds": 0}, "timeout_seconds")
 
+    def test_positive_number_refuses_nan_and_infinity(self) -> None:
+        # W13-02: float() reads these spellings; a ping timeout must stay a finite number.
+        for raw in ("nan", "inf", "-inf", float("nan"), float("inf")):
+            with self.subTest(raw=raw), self.assertRaises(ValueError):
+                _parse_positive_number({"timeout_seconds": raw}, "timeout_seconds")
+
 
 def _run() -> MagicMock:
     run = MagicMock()

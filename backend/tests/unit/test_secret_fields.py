@@ -257,6 +257,16 @@ class RunSecretScopeConcurrencyTests(unittest.IsolatedAsyncioTestCase):
         result = await segment()
         self.assertEqual(result["msg"], "***REDACTED*** / ***REDACTED***")
 
+    async def test_seal_secret_registers_its_cleartext_for_redaction(self) -> None:
+        # W13-02: a secret a step only seals (never registers itself) is still redacted.
+        @with_run_secret_scope
+        async def segment() -> dict:
+            seal_secret("sealed-only-98765", encryption=_ENC)
+            return scrub_known_secrets({"msg": "error near sealed-only-98765"})
+
+        result = await segment()
+        self.assertEqual(result["msg"], "error near ***REDACTED***")
+
     async def test_scrub_known_secrets_keeps_sealed_envelopes_usable(self) -> None:
         sealed = seal_secret("tacacs-key-12345", encryption=_ENC)
 
