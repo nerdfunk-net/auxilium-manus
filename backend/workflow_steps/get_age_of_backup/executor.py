@@ -43,6 +43,7 @@ from workflow_steps.common.git_repository_loader import parse_repository_id
 from workflow_steps.common.placeholder_template import render_placeholder_template
 from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.common.step_flags import parse_bool_flag
+from workflow_steps.get_age_of_backup.config import get_config
 
 if TYPE_CHECKING:
     from services.network.netmiko.session_pool import DeviceSessionPool
@@ -50,7 +51,6 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _STEP_ID = "get-age-of-backup"
-_DEFAULT_BAG = "backup_age"
 _BAG_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 _SECONDS_PER_DAY = 86400
 _MAX_NAMED_DEVICES = 5
@@ -97,7 +97,7 @@ def _parse(config: dict[str, Any]) -> _Parsed:
     if not path_template:
         raise ValueError(f"{_STEP_ID}: path_template is required")
 
-    output_bag = str(config.get("output_bag") or _DEFAULT_BAG).strip()
+    output_bag = str(config.get("output_bag") or get_config()["output_bag"]).strip()
     if not _BAG_NAME.match(output_bag):
         raise ValueError(f"{_STEP_ID}: output_bag must be letters, digits and underscores")
     if output_bag in RESERVED_BAG_NAMES or output_bag in DEVICE_SCALAR_FIELDS:

@@ -46,6 +46,7 @@ from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.common.run_param_reference import credential_reference
 from workflow_steps.common.run_session import require_session
 from workflow_steps.common.step_flags import parse_bool_flag
+from workflow_steps.upload_config.config import get_config
 
 logger = logging.getLogger(__name__)
 
@@ -81,7 +82,7 @@ class _ParsedUploadConfig:
 
 
 def _parse_verify_algorithm(config: dict[str, Any]) -> str:
-    value = str(config.get("verify_algorithm") or "md5").strip().lower()
+    value = str(config.get("verify_algorithm") or get_config()["verify_algorithm"]).strip().lower()
     if value not in _VERIFY_ALGORITHMS:
         raise ValueError(
             f"upload-config: verify_algorithm must be one of {sorted(_VERIFY_ALGORITHMS)}"
@@ -92,7 +93,9 @@ def _parse_verify_algorithm(config: dict[str, Any]) -> str:
 def _parse_upload_config(
     config: dict[str, Any], run_inputs: dict[str, Any] | None
 ) -> _ParsedUploadConfig:
-    content_source = str(config.get("content_source") or "updated_content").strip().lower()
+    content_source = (
+        str(config.get("content_source") or get_config()["content_source"]).strip().lower()
+    )
     if content_source not in CONTENT_SOURCES:
         raise ValueError(
             f"upload-config: content_source {content_source!r} must be one of "

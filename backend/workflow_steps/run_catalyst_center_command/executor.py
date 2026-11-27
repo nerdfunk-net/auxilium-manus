@@ -38,6 +38,7 @@ from workflow_steps.common.partial_outcomes import (
     device_error_from_exception,
 )
 from workflow_steps.common.step_flags import parse_int_flag
+from workflow_steps.run_catalyst_center_command.config import get_config
 from workflow_steps.run_catalyst_center_command.textfsm_parse import parse_with_textfsm
 
 if TYPE_CHECKING:
@@ -46,9 +47,8 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 STEP_ID = "run-catalyst-center-command"
-DEFAULT_TIMEOUT = 300
-# The service polls the controller task for at most DEFAULT_TIMEOUT seconds, so a larger
-# timeout could never be honoured.
+# The service polls the controller task for at most its DEFAULT_COMMAND_TIMEOUT (300) seconds,
+# so a larger timeout could never be honoured.
 MAX_TIMEOUT = 300
 # Per-request device/command limits are undocumented; stay conservative.
 DEVICES_PER_REQUEST = 20
@@ -56,7 +56,6 @@ MAX_COMMANDS = 20
 MAX_PARALLEL_REQUESTS = 3
 _SUMMARY_PREVIEW_CHARS = 80
 _PARSER_MODES = frozenset({"none", "textfsm"})
-DEFAULT_PARSED_OUTPUT_KEY = "parsed"
 
 
 @dataclass(frozen=True)
@@ -86,7 +85,7 @@ def _parse_timeout(raw: Any) -> int:
     return parse_int_flag(
         {"timeout": raw},
         "timeout",
-        default=DEFAULT_TIMEOUT,
+        default=get_config()["timeout"],
         minimum=1,
         maximum=MAX_TIMEOUT,
         step_id=STEP_ID,
@@ -107,7 +106,9 @@ def _parse_config(config: dict[str, Any]) -> _ParsedConfig:
         timeout=_parse_timeout(config.get("timeout")),
         parser_mode=parser_mode,
         parsed_output_key=parse_output_key_config(
-            config.get("parsed_output_key"), step_id=STEP_ID, default=DEFAULT_PARSED_OUTPUT_KEY
+            config.get("parsed_output_key"),
+            step_id=STEP_ID,
+            default=get_config()["parsed_output_key"],
         )
         if parser_mode != "none"
         else "",

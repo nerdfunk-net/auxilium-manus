@@ -24,6 +24,7 @@ from services.artifacts import ArtifactService
 from services.artifacts.sinks.git_sink import GitArtifactSink, GitSinkPrepareError
 from services.git.failure import GitOperationError, classify_git_exception
 from services.git.scrub import scrub_url_credentials
+from workflow_steps.backup_aci_config.config import get_config
 from workflow_steps.common.controller_failure import controller_failure_outcomes
 from workflow_steps.common.controller_sources import ACI
 from workflow_steps.common.fact_entries import parse_output_key_config
@@ -38,9 +39,6 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 STEP_ID = "backup-aci-config"
-DEFAULT_SUBDIRECTORY = "aci"
-DEFAULT_MESSAGE = "ACI configuration backup of {source_id}"
-DEFAULT_OUTPUT_KEY = "aci_backup"
 TENANT_DIR = "tenants"
 MAX_MESSAGE_CHARS = 200
 MAX_SUMMARY_CHARS = 500
@@ -72,7 +70,7 @@ def _repository_id(config: dict[str, Any]) -> int:
 
 def _subdirectory(config: dict[str, Any]) -> str:
     raw = config.get("repository_subdirectory")
-    value = DEFAULT_SUBDIRECTORY if raw is None else str(raw).strip()
+    value = get_config()["repository_subdirectory"] if raw is None else str(raw).strip()
     if value.startswith(("/", "\\")) or ".." in value.replace("\\", "/").split("/"):
         raise ValueError(f"{STEP_ID}: repository_subdirectory must stay inside the repository")
     return value.strip("/\\")
@@ -92,7 +90,7 @@ def _tenants(raw: Any) -> tuple[str, ...] | None:
 
 def _message(config: dict[str, Any], source_id: str) -> str:
     raw = config.get("commit_message")
-    template = DEFAULT_MESSAGE if raw is None else str(raw).strip()
+    template = get_config()["commit_message"] if raw is None else str(raw).strip()
     if not template or len(template) > MAX_MESSAGE_CHARS:
         raise ValueError(f"{STEP_ID}: commit_message must be 1 to {MAX_MESSAGE_CHARS} characters")
     return template.replace("{source_id}", source_id)
@@ -124,7 +122,7 @@ async def execute(
     output_key = parse_output_key_config(
         config.get("output_key"),
         step_id=STEP_ID,
-        default=DEFAULT_OUTPUT_KEY,
+        default=get_config()["output_key"],
         key_name="output_key",
     )
 

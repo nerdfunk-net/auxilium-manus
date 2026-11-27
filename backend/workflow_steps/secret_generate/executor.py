@@ -33,6 +33,7 @@ from workflow_steps.common.attribute_write import set_device_attribute
 from workflow_steps.common.device_runner import Fail
 from workflow_steps.common.secret_manager_step import SecretStepSpec, run_secret_step
 from workflow_steps.common.step_flags import parse_int_flag
+from workflow_steps.secret_generate.config import get_config
 
 if TYPE_CHECKING:
     from services.network.netmiko.session_pool import DeviceSessionPool
@@ -51,11 +52,11 @@ def _parse_config(config: dict[str, Any]) -> tuple[int, str, str, str, SecretGen
     # node whose config was never actually edited (only displayed with an
     # illustrative default in the UI) must behave identically to one where
     # the user explicitly accepted that same value.
-    path_template = str(config.get("path_template") or "network/{device.name}/tacacs").strip()
+    path_template = str(config.get("path_template") or get_config()["path_template"]).strip()
     if not path_template:
         raise ValueError(f"{_STEP_ID}: path_template is required")
 
-    field = str(config.get("field") or "key").strip()
+    field = str(config.get("field") or get_config()["field"]).strip()
     if not field:
         raise ValueError(f"{_STEP_ID}: field is required")
     try:
@@ -63,17 +64,21 @@ def _parse_config(config: dict[str, Any]) -> tuple[int, str, str, str, SecretGen
     except ValueError as exc:
         raise ValueError(f"{_STEP_ID}: {exc}") from exc
 
-    destination_path = str(config.get("destination_path") or "tacacs.shared_secret").strip()
+    destination_path = str(
+        config.get("destination_path") or get_config()["destination_path"]
+    ).strip()
     if not destination_path:
         raise ValueError(f"{_STEP_ID}: destination_path is required")
 
-    raw_charset = str(config.get("charset") or "hex").strip()
+    raw_charset = str(config.get("charset") or get_config()["charset"]).strip()
     try:
         charset = SecretCharset(raw_charset)
     except ValueError as exc:
         raise ValueError(f"{_STEP_ID}: unsupported charset {raw_charset!r}") from exc
 
-    length = parse_int_flag(config, "length", default=32, minimum=-(2**31), step_id=_STEP_ID)
+    length = parse_int_flag(
+        config, "length", default=get_config()["length"], minimum=-(2**31), step_id=_STEP_ID
+    )
 
     try:
         policy = SecretGenerationPolicy(charset=charset, length=length)

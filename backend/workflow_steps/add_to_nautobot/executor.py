@@ -157,21 +157,29 @@ def _parse_config(config: dict[str, Any]) -> _ParsedConfig:
     if not isinstance(raw_device_fields, dict):
         raise ValueError(f"{_STEP_ID}: device_fields must be an object")
 
-    custom_fields_source = str(config.get("custom_fields_source") or "manual").strip().lower()
+    custom_fields_source = (
+        str(config.get("custom_fields_source") or get_config()["custom_fields_source"])
+        .strip()
+        .lower()
+    )
     if custom_fields_source not in _SOURCE_MODES:
         raise ValueError(
             f"{_STEP_ID}: custom_fields_source must be one of {sorted(_SOURCE_MODES)}, "
             f"got {custom_fields_source!r}"
         )
 
-    interfaces_source = str(config.get("interfaces_source") or "manual").strip().lower()
+    interfaces_source = (
+        str(config.get("interfaces_source") or get_config()["interfaces_source"]).strip().lower()
+    )
     if interfaces_source not in _SOURCE_MODES:
         raise ValueError(
             f"{_STEP_ID}: interfaces_source must be one of {sorted(_SOURCE_MODES)}, "
             f"got {interfaces_source!r}"
         )
 
-    default_prefix_length = str(config.get("default_prefix_length") or "/24")
+    default_prefix_length = str(
+        config.get("default_prefix_length") or get_config()["default_prefix_length"]
+    )
     manual_interfaces = normalize_interfaces(
         build_interfaces_from_config(config, step_id=_STEP_ID),
         default_prefix_length,

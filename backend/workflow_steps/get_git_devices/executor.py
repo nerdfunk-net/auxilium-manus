@@ -17,6 +17,7 @@ from workflow_steps.common.git_repository_loader import load_git_repository, req
 from workflow_steps.common.partial_outcomes import mark_device_failed
 from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.common.step_flags import parse_bool_flag
+from workflow_steps.get_git_devices.config import get_config
 
 if TYPE_CHECKING:
     from services.network.netmiko.session_pool import DeviceSessionPool
@@ -66,8 +67,8 @@ async def execute(
                 filename_pattern,
                 directory,
                 config.get("device_mapping"),
-                file_format=str(config.get("file_format") or "yaml"),
-                csv_delimiter=str(config.get("csv_delimiter") or ";"),
+                file_format=str(config.get("file_format") or get_config()["file_format"]),
+                csv_delimiter=str(config.get("csv_delimiter") or get_config()["csv_delimiter"]),
                 csv_multiline=parse_bool_flag(config, "csv_multiline"),
             ),
         )

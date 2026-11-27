@@ -20,19 +20,18 @@ from workflow_steps.common.device_outcomes import TargetSplit, mark_device_faile
 from workflow_steps.common.fact_entries import Entry, collect_facts, parse_output_key_config
 from workflow_steps.common.failure_records import INVALID_INPUT
 from workflow_steps.common.run_session import require_session
+from workflow_steps.find_aci_endpoints.config import get_config
 
 if TYPE_CHECKING:
     from services.network.netmiko.session_pool import DeviceSessionPool
 
 STEP_ID = "find-aci-endpoints"
 SOURCE_ID_KEY = "aci_source_id"
-DEFAULT_ADDRESS_PATH = "primary_ip4"
-DEFAULT_OUTPUT_KEY = "aci_endpoint"
 
 
 def _address_path(config: dict[str, Any]) -> str:
     raw = config.get("address_path")
-    path = DEFAULT_ADDRESS_PATH if raw is None else str(raw).strip()
+    path = get_config()["address_path"] if raw is None else str(raw).strip()
     if not path:
         raise ValueError(f"{STEP_ID}: address_path is empty")
     return path
@@ -54,7 +53,7 @@ async def execute(
         raise ValueError(f"{STEP_ID}: {SOURCE_ID_KEY} is not configured")
     address_path = _address_path(config)
     output_key = parse_output_key_config(
-        config.get("parsed_output_key"), step_id=STEP_ID, default=DEFAULT_OUTPUT_KEY
+        config.get("parsed_output_key"), step_id=STEP_ID, default=get_config()["parsed_output_key"]
     )
     if not context.devices:
         return [StepOutcome(name="success", context=context)]

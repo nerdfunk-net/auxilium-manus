@@ -19,13 +19,13 @@ from workflow_steps.common.content_resolver import list_exportable_content, pars
 from workflow_steps.common.content_step import StoredContent, run_content_step
 from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.common.step_flags import parse_bool_flag
+from workflow_steps.merge_content.config import get_config
 
 if TYPE_CHECKING:
     from services.network.netmiko.session_pool import DeviceSessionPool
 
 logger = logging.getLogger(__name__)
 
-_DEFAULT_SEPARATOR = "\n"
 _MERGE_MODES = frozenset({"text_sectioned", "text_plain", "json_merged"})
 _CONTENT_SOURCES = frozenset({"command_output", "filtered_output", "merged_content"})
 
@@ -57,7 +57,7 @@ def _parse_source_step_node_ids(config: dict[str, Any]) -> list[str]:
 
 
 def _parse_merge_mode(config: dict[str, Any]) -> str:
-    mode = str(config.get("merge_mode") or "text_sectioned").strip().lower()
+    mode = str(config.get("merge_mode") or get_config()["merge_mode"]).strip().lower()
     if mode not in _MERGE_MODES:
         raise ValueError(
             f"merge-content: merge_mode {mode!r} must be one of {sorted(_MERGE_MODES)}"
@@ -85,7 +85,7 @@ def _parse_merge_config(config: dict[str, Any]) -> _ParsedMergeConfig:
         source_node_ids=source_node_ids,
         merge_mode=_parse_merge_mode(config),
         section_separator=_decode_separator(
-            str(config.get("section_separator") or _DEFAULT_SEPARATOR)
+            str(config.get("section_separator") or get_config()["section_separator"])
         ),
         include_command_header=parse_bool_flag(
             config, "include_command_header", default=True, step_id="merge-content"

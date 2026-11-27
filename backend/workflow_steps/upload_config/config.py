@@ -1,3 +1,6 @@
+from workflow_steps.common.device_file_upload import DEFAULT_SOCKET_TIMEOUT
+
+
 def get_config() -> dict:
     return {
         "credential_reference": "",
@@ -11,7 +14,7 @@ def get_config() -> dict:
         "overwrite": False,
         "inline_transfer": False,
         "network_driver_override": "",
-        "socket_timeout": 10,
+        "socket_timeout": DEFAULT_SOCKET_TIMEOUT,
         "verify_content": False,
         "verify_algorithm": "md5",
     }

@@ -37,13 +37,13 @@ from workflow_steps.common.virtual_chassis import (
     member_bag,
     plain_name,
 )
+from workflow_steps.get_virtual_chassis.config import get_config
 
 STEP_ID = "get-virtual-chassis"
 
 NAME_MATCH_MODES = ("exact", "contains", "regex")
 MAX_REGEX_LENGTH = 200
 
-DEFAULT_INDEX_REGEX = r":(\d+)"
 
 
 @dataclass(frozen=True)
@@ -88,7 +88,7 @@ def _validated_pattern(pattern: str, key: str) -> str:
 
 def parse_settings(config: dict[str, Any]) -> StackSettings:
     """Validate ``config`` and compile its regexes. Raises ``ValueError`` on bad input."""
-    name_match = str(config.get("name_match") or "exact").strip()
+    name_match = str(config.get("name_match") or get_config()["name_match"]).strip()
     if name_match not in NAME_MATCH_MODES:
         raise ValueError(f"{STEP_ID}: name_match must be one of {', '.join(NAME_MATCH_MODES)}")
 
@@ -105,7 +105,7 @@ def parse_settings(config: dict[str, Any]) -> StackSettings:
         name_filter_pattern=name_filter_pattern,
         split_members=parse_bool_flag(config, "split_members"),
         index_pattern=_validated_pattern(
-            str(config.get("index_regex") or DEFAULT_INDEX_REGEX), "index_regex"
+            str(config.get("index_regex") or get_config()["index_regex"]), "index_regex"
         ),
         index_offset=_as_int(config, "index_offset", -1),
         index_default=_as_int(config, "index_default", 0),

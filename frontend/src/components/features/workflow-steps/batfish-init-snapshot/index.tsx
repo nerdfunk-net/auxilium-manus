@@ -295,7 +295,7 @@ function BatfishInitSnapshotConfigPanel({
         />
         <p className="text-[11px] leading-4 text-muted-foreground">
           Snapshots for this network beyond the N most recent are deleted after each
-          successful run.
+          successful run. Blank uses 5; 0 keeps every snapshot.
         </p>
       </div>
 

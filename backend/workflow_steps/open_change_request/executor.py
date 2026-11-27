@@ -60,7 +60,6 @@ logger = logging.getLogger(__name__)
 _STEP_ID = "open-change-request"
 _DIFF_MAX_BYTES = 2 * 1024 * 1024
 _DIFF_DEVICE_ID = "__change_request__"
-_DEFAULT_EXPIRY_HOURS = 168
 
 
 def _config_value(config: dict[str, Any], key: str) -> Any:
@@ -80,7 +79,11 @@ def _as_int(value: Any) -> int | None:
 def _parse_expiry_hours(config: dict[str, Any]) -> int:
     """Hours until an un-actioned change request expires; ``0`` disables expiry (registry)."""
     return parse_int_flag(
-        config, "expires_after_hours", default=_DEFAULT_EXPIRY_HOURS, minimum=0, step_id=_STEP_ID
+        config,
+        "expires_after_hours",
+        default=get_config()["expires_after_hours"],
+        minimum=0,
+        step_id=_STEP_ID,
     )
 
 

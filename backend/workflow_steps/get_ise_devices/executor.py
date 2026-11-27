@@ -34,6 +34,7 @@ from workflow_steps.common.ise_step import resolve_ise_credentials
 from workflow_steps.common.nautobot_source import resolve_nautobot_credentials
 from workflow_steps.common.run_session import require_session
 from workflow_steps.common.step_flags import parse_bool_flag
+from workflow_steps.get_ise_devices.config import get_config
 
 if TYPE_CHECKING:
     from services.network.netmiko.session_pool import DeviceSessionPool
@@ -116,7 +117,7 @@ async def _fetch_by_cidr(
 async def _fetch_devices(
     device_service: ISENetworkDeviceService, config: dict[str, Any]
 ) -> tuple[list[dict[str, Any]], list[str]]:
-    query_mode = config.get("query_mode", "name")
+    query_mode = config.get("query_mode", get_config()["query_mode"])
 
     if query_mode == "name":
         names = config.get("device_names") or []
@@ -210,7 +211,7 @@ def _parse_get_ise_devices_config(config: dict[str, Any]) -> _ParsedGetIseDevice
     if not source_id:
         raise ValueError("get-ise-devices: ise_source_id is not configured")
 
-    query_mode = config.get("query_mode", "name")
+    query_mode = config.get("query_mode", get_config()["query_mode"])
     if query_mode not in _QUERY_MODES:
         raise ValueError(f"get-ise-devices: unsupported query_mode '{query_mode}'")
 

@@ -9,6 +9,7 @@ from services.network.netmiko.connection import DEFAULT_READ_TIMEOUT, RetryPolic
 from workflow_steps.common.read_timeout import parse_read_timeout
 from workflow_steps.common.retry_config import parse_retry_backoff_seconds
 from workflow_steps.common.step_flags import parse_bool_flag, parse_int_flag
+from workflow_steps.discover_network.config import get_config
 from workflow_steps.discover_network.scope import STEP_ID, Prefixes, parse_prefixes
 
 __all__ = ["STEP_ID", "DiscoverOptions", "parse_options"]
@@ -45,13 +46,28 @@ def parse_options(config: dict[str, Any]) -> DiscoverOptions:
             config, "follow_only_infrastructure", default=True
         ),
         max_devices=parse_int_flag(
-            config, "max_devices", default=50, minimum=1, maximum=500, step_id=STEP_ID
+            config,
+            "max_devices",
+            default=get_config()["max_devices"],
+            minimum=1,
+            maximum=500,
+            step_id=STEP_ID,
         ),
         max_depth=parse_int_flag(
-            config, "max_depth", default=5, minimum=1, maximum=20, step_id=STEP_ID
+            config,
+            "max_depth",
+            default=get_config()["max_depth"],
+            minimum=1,
+            maximum=20,
+            step_id=STEP_ID,
         ),
         concurrency=parse_int_flag(
-            config, "concurrency", default=5, minimum=1, maximum=20, step_id=STEP_ID
+            config,
+            "concurrency",
+            default=get_config()["concurrency"],
+            minimum=1,
+            maximum=20,
+            step_id=STEP_ID,
         ),
         network_driver_override=str(config.get("network_driver_override") or "").strip() or None,
         read_timeout=parse_read_timeout(config, step_id=STEP_ID, default=DEFAULT_READ_TIMEOUT),

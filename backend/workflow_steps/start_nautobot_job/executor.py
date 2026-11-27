@@ -152,7 +152,7 @@ def _parse_config(config: dict[str, Any]) -> _ParsedConfig:
 
     task_queue = str(config.get("task_queue") or "").strip() or None
 
-    bag_name = str(config.get("bag_name") or defaults["bag_name"]).strip() or "nautobot_job"
+    bag_name = str(config.get("bag_name") or "").strip() or defaults["bag_name"]
 
     return _ParsedConfig(
         source_id=source_id,
@@ -165,7 +165,11 @@ def _parse_config(config: dict[str, Any]) -> _ParsedConfig:
         bag_name=bag_name,
         # Jobs started at once: one job per device must not flood Nautobot's workers.
         max_concurrency=parse_int_flag(
-            config, "max_concurrency", default=5, minimum=1, step_id=_STEP_ID
+            config,
+            "max_concurrency",
+            default=get_config()["max_concurrency"],
+            minimum=1,
+            step_id=_STEP_ID,
         ),
     )
 

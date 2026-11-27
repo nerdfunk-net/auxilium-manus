@@ -90,7 +90,7 @@ def _parse_config(config: dict[str, Any]) -> _ParsedConfig:
             f"{_MAX_TOTAL_WAIT_SECONDS}s ceiling"
         )
 
-    bag_name = str(config.get("bag_name") or defaults["bag_name"]).strip() or "nautobot_job"
+    bag_name = str(config.get("bag_name") or "").strip() or defaults["bag_name"]
 
     return _ParsedConfig(
         source_id=source_id,

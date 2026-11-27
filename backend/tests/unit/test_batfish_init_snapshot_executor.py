@@ -233,7 +233,9 @@ class BatfishInitSnapshotExecutorTests(unittest.IsolatedAsyncioTestCase):
         _, kwargs = batfish.delete_snapshot.call_args
         self.assertEqual(kwargs["snapshot_name"], "run-10")
 
-    async def _execute_with_entries(self, entries: list[dict], *, active: set[int], node_id: str):
+    async def _execute_with_entries(
+        self, entries: list[dict], *, active: set[int], node_id: str, retain: object = 1
+    ):
         artifact_service = InMemoryArtifactService()
         device = await _device_with_running_config(artifact_service)
         with (
@@ -252,7 +254,7 @@ class BatfishInitSnapshotExecutorTests(unittest.IsolatedAsyncioTestCase):
             batfish.delete_snapshot = AsyncMock()
             service_factory_mock.get_batfish_app_service.return_value = batfish
             await execute(
-                config={"batfish_source_id": "lab-batfish", "retain_snapshots": 1},
+                config={"batfish_source_id": "lab-batfish", "retain_snapshots": retain},
                 context=WorkflowContext(
                     run_id="run-uuid-1", workflow_id="7", devices={"device-1": device}
                 ),
@@ -272,6 +274,16 @@ class BatfishInitSnapshotExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             second.init_snapshot.call_args.kwargs["snapshot_name"], "run-42-init-after"
         )
+
+    async def test_a_blank_retain_snapshots_keeps_the_default_five(self) -> None:
+        """W1-06: blank used to mean 0 (keep all); the panel shows 5 and get_config says 5."""
+        entries = [
+            {"name": f"run-{n}-n", "metadata": {"creationTimestamp": f"2026-09-12T1{n}:00:00.000Z"}}
+            for n in range(7)
+        ]
+        batfish = await self._execute_with_entries(entries, active=set(), node_id="n", retain="")
+        deleted = [c.kwargs["snapshot_name"] for c in batfish.delete_snapshot.await_args_list]
+        self.assertEqual(deleted, ["run-0-n", "run-1-n"])
 
     async def test_sweep_never_deletes_snapshot_of_active_run(self) -> None:
         entries = [

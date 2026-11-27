@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from services.network.netmiko.connection import DEFAULT_READ_TIMEOUT, RetryPolicy
+from workflow_steps.collect_client_data.config import get_config
 from workflow_steps.common.read_timeout import parse_read_timeout
 from workflow_steps.common.retry_config import parse_retry_backoff_seconds
 from workflow_steps.common.step_flags import (
@@ -54,7 +55,7 @@ def parse_options(config: dict[str, Any]) -> CollectOptions:
     concurrency = parse_int_flag(
         config,
         "dns_concurrency",
-        default=20,
+        default=get_config()["dns_concurrency"],
         minimum=1,
         maximum=_MAX_DNS_CONCURRENCY,
         step_id=STEP_ID,

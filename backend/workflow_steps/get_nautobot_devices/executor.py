@@ -17,6 +17,7 @@ from workflow_steps.common.nautobot_source import resolve_nautobot_credentials
 from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.common.run_param_reference import resolve_config_reference
 from workflow_steps.common.run_session import require_session
+from workflow_steps.get_nautobot_devices.config import get_config
 
 if TYPE_CHECKING:
     from services.network.netmiko.session_pool import DeviceSessionPool
@@ -126,7 +127,7 @@ async def execute(
 
     source_id = config.get("nautobot_source_id", "").strip()
     device_filter = config.get("device_filter", {})
-    inventory_type = config.get("inventory_type", "filter")
+    inventory_type = config.get("inventory_type", get_config()["inventory_type"])
     device_ids = config.get("device_ids") or []
 
     if not source_id:
@@ -137,7 +138,10 @@ async def execute(
     credentials = resolve_nautobot_credentials(db, source_id, step_id="get-nautobot-devices")
     source_service = service_factory.build_nautobot_source_service(credentials, db)
 
-    from_run_param = str(config.get("inventory_source") or "fixed").strip() == "run_param"
+    from_run_param = (
+        str(config.get("inventory_source") or get_config()["inventory_source"]).strip()
+        == "run_param"
+    )
     # The inventory id comes either from a run parameter or from the id selected in
     # the workflow builder (`inventory_id`); the helper raises if a run parameter
     # is selected but unset, instead of falling back to a stale literal.

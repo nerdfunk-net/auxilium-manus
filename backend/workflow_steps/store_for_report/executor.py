@@ -40,6 +40,7 @@ from services.workflow_context.secret_fields import (
 )
 from workflow_steps.common.duplicate_keys import find_duplicate_keys
 from workflow_steps.common.run_logging import log_run_id
+from workflow_steps.store_for_report.config import get_config
 
 if TYPE_CHECKING:
     from services.artifacts import ArtifactService
@@ -66,7 +67,7 @@ class FieldSpec:
 
 
 def _parse_mode(config: dict[str, Any]) -> str:
-    mode = str(config.get("mode") or "device").strip().lower()
+    mode = str(config.get("mode") or get_config()["mode"]).strip().lower()
     if mode not in _MODES:
         raise ValueError(f"{_STEP_ID}: mode must be one of {sorted(_MODES)}")
     return mode

@@ -1398,7 +1398,8 @@ plugins:
         - name: retain_snapshots
           description: >
             Keep only the N most recent snapshots for this workflow's Batfish
-            network; older ones are deleted after a successful init.
+            network; older ones are deleted after a successful init. A blank
+            value uses the default 5; 0 keeps every snapshot.
           data_type: integer
           required: false
           default: 5

@@ -20,6 +20,7 @@ from workflow_steps.common.fact_entries import (
     parse_name_list,
     parse_output_key_config,
 )
+from workflow_steps.get_aci_details.config import get_config
 
 if TYPE_CHECKING:
     from services.network.netmiko.session_pool import DeviceSessionPool
@@ -43,7 +44,6 @@ FACTS = (
     "contracts",
 )
 DEFAULT_FACTS = ("device", "software", "interfaces")
-DEFAULT_OUTPUT_KEY = "aci_details"
 # Facts of one switch are read concurrently (each is a few APIC requests), but never more than
 # this many at once: ``MAX_PARALLEL_DEVICES`` switches run in parallel on top of it.
 MAX_PARALLEL_FACTS = 4
@@ -124,7 +124,7 @@ async def execute(
 
     facts = _parse_facts(config.get("facts"))
     output_key = parse_output_key_config(
-        config.get("parsed_output_key"), step_id=STEP_ID, default=DEFAULT_OUTPUT_KEY
+        config.get("parsed_output_key"), step_id=STEP_ID, default=get_config()["parsed_output_key"]
     )
 
     async def collect(

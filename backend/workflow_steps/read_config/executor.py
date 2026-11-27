@@ -29,6 +29,7 @@ from workflow_steps.common.file_source_root import resolve_source_root
 from workflow_steps.common.git_repository_loader import parse_repository_id
 from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.common.step_flags import parse_bool_flag
+from workflow_steps.read_config.config import get_config
 
 if TYPE_CHECKING:
     from services.network.netmiko.session_pool import DeviceSessionPool
@@ -51,7 +52,7 @@ class _ParsedReadConfig:
 
 
 def _parse_read_config(config: dict[str, Any]) -> _ParsedReadConfig:
-    source = str(config.get("source") or "filesystem").strip().lower()
+    source = str(config.get("source") or get_config()["source"]).strip().lower()
     if source not in _SOURCES:
         raise ValueError(f"{_STEP_ID}: source must be one of {sorted(_SOURCES)}")
 

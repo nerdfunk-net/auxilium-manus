@@ -61,6 +61,7 @@ from workflow_steps.common.partial_outcomes import NAUTOBOT_TEXT, device_error_f
 from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.common.step_flags import parse_bool_flag, record_dry_run
 from workflow_steps.common.template_content import load_stored_template
+from workflow_steps.update_config_context.config import get_config
 from workflow_steps.update_config_context.json_object_path import (
     get_at_path,
     set_at_path,
@@ -236,7 +237,7 @@ def _parse_config(config: dict[str, Any]) -> _ParsedConfig:
         else {}
     )
 
-    mode = str(config.get("mode") or "write").strip().lower()
+    mode = str(config.get("mode") or get_config()["mode"]).strip().lower()
     if mode not in _MODES:
         raise ValueError(f"{_STEP_ID}: mode must be one of {', '.join(_MODES)}")
 

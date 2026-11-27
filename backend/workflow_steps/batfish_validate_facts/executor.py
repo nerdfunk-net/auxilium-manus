@@ -333,7 +333,9 @@ async def execute(
         default="batfish_validate_facts",
         key_name="output_key",
     )
-    facts_source = str(merged_config.get("facts_source") or "rendered_yaml").strip().lower()
+    facts_source = (
+        str(merged_config.get("facts_source") or get_config()["facts_source"]).strip().lower()
+    )
     if facts_source not in _FACTS_SOURCES:
         raise ValueError(f"{_STEP_ID}: facts_source must be one of {sorted(_FACTS_SOURCES)}")
     if facts_source == "rendered_yaml":

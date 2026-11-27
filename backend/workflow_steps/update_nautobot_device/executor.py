@@ -48,6 +48,7 @@ from workflow_steps.common.value_expression import (
     config_has_enabled_update_fields,
     normalize_field_spec,
 )
+from workflow_steps.update_nautobot_device.config import get_config
 
 if TYPE_CHECKING:
     from services.network.netmiko.session_pool import DeviceSessionPool
@@ -164,14 +165,18 @@ def _parse_config(config: dict[str, Any]) -> _ParsedConfig:
     if not isinstance(raw_update_fields, dict):
         raise ValueError(f"{_STEP_ID}: update_fields must be an object")
 
-    interfaces_source = str(config.get("interfaces_source") or "manual").strip().lower()
+    interfaces_source = (
+        str(config.get("interfaces_source") or get_config()["interfaces_source"]).strip().lower()
+    )
     if interfaces_source not in _SOURCE_MODES:
         raise ValueError(
             f"{_STEP_ID}: interfaces_source must be one of {sorted(_SOURCE_MODES)}, "
             f"got {interfaces_source!r}"
         )
 
-    default_prefix_length = str(config.get("default_prefix_length") or "/24")
+    default_prefix_length = str(
+        config.get("default_prefix_length") or get_config()["default_prefix_length"]
+    )
     # The manual rows are only read (and validated) when they are the interface source; the
     # other sources ignore them, so a stale or hand-edited ``interfaces`` value must not fail them.
     manual_interfaces = (

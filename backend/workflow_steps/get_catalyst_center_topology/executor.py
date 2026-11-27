@@ -20,6 +20,7 @@ from workflow_steps.common.fact_entries import (
     parse_name_list,
     parse_output_key_config,
 )
+from workflow_steps.get_catalyst_center_topology.config import get_config
 
 if TYPE_CHECKING:
     from services.network.netmiko.session_pool import DeviceSessionPool
@@ -27,7 +28,6 @@ if TYPE_CHECKING:
 STEP_ID = "get-catalyst-center-topology"
 TOPOLOGIES = ("physical", "l3_ospf", "l3_isis", "l3_eigrp", "l3_static")
 DEFAULT_TOPOLOGIES = ("physical",)
-DEFAULT_OUTPUT_KEY = "catalyst_topology"
 
 # name -> topology, or the error text when the controller call failed
 _Fetched = dict[str, CatalystCenterTopology | FactError]
@@ -76,7 +76,7 @@ async def execute(
 
     topologies = _parse_topologies(config.get("topologies"))
     output_key = parse_output_key_config(
-        config.get("parsed_output_key"), step_id=STEP_ID, default=DEFAULT_OUTPUT_KEY
+        config.get("parsed_output_key"), step_id=STEP_ID, default=get_config()["parsed_output_key"]
     )
 
     async def prepare(credentials: CatalystCenterCredentials) -> _Fetched:

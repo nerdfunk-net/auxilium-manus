@@ -28,6 +28,7 @@ from workflow_steps.common.content_resolver import ExportableContent, list_expor
 from workflow_steps.common.content_step import StoredContent, run_content_step
 from workflow_steps.common.regex_search import match_any
 from workflow_steps.common.run_logging import log_run_id
+from workflow_steps.filter_output.config import get_config
 
 if TYPE_CHECKING:
     from services.network.netmiko.session_pool import DeviceSessionPool
@@ -76,7 +77,9 @@ def _parse_filter_rules(config: dict[str, Any]) -> list[dict[str, str]]:
 
 
 def _parse_filter_config(config: dict[str, Any]) -> _ParsedFilterConfig:
-    content_source = str(config.get("content_source") or "command_output").strip().lower()
+    content_source = (
+        str(config.get("content_source") or get_config()["content_source"]).strip().lower()
+    )
     source_step_node_id = str(config.get("source_step_node_id") or "").strip()
     source_command = str(config.get("source_command") or "").strip()
 

@@ -21,6 +21,7 @@ from services.artifacts import ArtifactService
 from services.workflow_context.secret_fields import seal_secret
 from workflow_steps.common.attribute_write import set_device_attribute
 from workflow_steps.common.step_flags import parse_int_flag
+from workflow_steps.generate_password.config import get_config
 from workflow_steps.generate_password.password_policy import PasswordPolicy, generate_password
 
 if TYPE_CHECKING:
@@ -44,7 +45,9 @@ def _int_field(config: dict[str, Any], key: str, default: int, *, allow_negative
 
 
 def _parse_config(config: dict[str, Any]) -> tuple[str, PasswordPolicy]:
-    destination_path = str(config.get("destination_path") or "generated_password.value").strip()
+    destination_path = str(
+        config.get("destination_path") or get_config()["destination_path"]
+    ).strip()
     if not destination_path:
         raise ValueError(f"{_STEP_ID}: destination_path is required")
 

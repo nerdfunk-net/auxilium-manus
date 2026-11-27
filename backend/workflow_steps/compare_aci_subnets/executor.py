@@ -26,6 +26,7 @@ from workflow_steps.common.nautobot_source import resolve_nautobot_credentials
 from workflow_steps.common.run_session import require_session
 from workflow_steps.common.step_flags import parse_bool_flag
 from workflow_steps.compare_aci_subnets.compare import compare_subnets, parse_scope_prefixes
+from workflow_steps.compare_aci_subnets.config import get_config
 
 if TYPE_CHECKING:
     from services.network.netmiko.session_pool import DeviceSessionPool
@@ -33,8 +34,6 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 STEP_ID = "compare-aci-subnets"
-DEFAULT_NAMESPACE = "Global"
-DEFAULT_OUTPUT_KEY = "aci_subnet_report"
 ARTIFACT_KIND = "aci_subnet_report"
 # Differences copied into the run metadata (the artifact holds all of them).
 METADATA_SAMPLE = 50
@@ -80,15 +79,17 @@ async def execute(
     namespace_from_vrf = parse_bool_flag(config, "namespace_from_vrf", default=False)
     # With namespace_from_vrf the namespace is ignored, so an empty field is fine.
     namespace = (
-        config.get("namespace") or DEFAULT_NAMESPACE
+        config.get("namespace") or get_config()["namespace"]
         if namespace_from_vrf
-        else _required({"namespace": config.get("namespace", DEFAULT_NAMESPACE)}, "namespace")
+        else _required(
+            {"namespace": config.get("namespace", get_config()["namespace"])}, "namespace"
+        )
     )
     scope = _scope_prefixes(config.get("scope_prefixes"))
     output_key = parse_output_key_config(
         config.get("output_key"),
         step_id=STEP_ID,
-        default=DEFAULT_OUTPUT_KEY,
+        default=get_config()["output_key"],
         key_name="output_key",
     )
 

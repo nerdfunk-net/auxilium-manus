@@ -119,7 +119,6 @@ logger = logging.getLogger(__name__)
 
 _CONFIRM_COMMAND = "configure confirm"
 _MIN_TIMEOUT_MINUTES = 1
-_DEFAULT_JOB_TIMEOUT_SECONDS = 120
 _MIN_JOB_TIMEOUT_SECONDS = 30
 _MAX_JOB_TIMEOUT_SECONDS = 600
 _MAX_TIMEOUT_MINUTES = 120
@@ -427,7 +426,7 @@ async def _process_one_device(
 def _parse_job_timeout(value: Any) -> float:
     """Per-job budget in seconds, same bound as the shim's ``JobRequest.timeout_seconds``."""
     if value is None or value == "":
-        return float(_DEFAULT_JOB_TIMEOUT_SECONDS)
+        return float(get_config()["job_timeout_seconds"])
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise ValueError(f"{STEP_ID}: job_timeout_seconds must be a number")
     if not (_MIN_JOB_TIMEOUT_SECONDS <= value <= _MAX_JOB_TIMEOUT_SECONDS):

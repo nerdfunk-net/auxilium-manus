@@ -275,7 +275,9 @@ async def execute(
     del device_sessions  # unused: Batfish is reached via pybatfish, not Netmiko
 
     merged_config = {**get_config(), **config}
-    config_source = str(merged_config.get("config_source") or "live").strip().lower()
+    config_source = (
+        str(merged_config.get("config_source") or get_config()["config_source"]).strip().lower()
+    )
     if config_source not in _CONFIG_SOURCES:
         raise ValueError(f"{_STEP_ID}: config_source must be one of {sorted(_CONFIG_SOURCES)}")
 
@@ -285,7 +287,12 @@ async def execute(
     source_id = str(merged_config.get("batfish_source_id") or "").strip()
     if not source_id:
         raise ValueError(f"{_STEP_ID}: batfish_source_id is required")
-    retain = parse_int_flag(merged_config, "retain_snapshots", default=0, step_id=_STEP_ID)
+    retain = parse_int_flag(
+        merged_config,
+        "retain_snapshots",
+        default=get_config()["retain_snapshots"],
+        step_id=_STEP_ID,
+    )
 
     db = require_session(run, _STEP_ID)
 

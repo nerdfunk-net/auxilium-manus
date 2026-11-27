@@ -87,7 +87,7 @@ def _parse_store_config(config: dict[str, Any]) -> _ParsedStoreConfig:
 
 
 def _build_sink(config: dict[str, Any], *, base_dir: Path) -> ArtifactSink:
-    destination = str(config.get("destination") or "filesystem").strip().lower()
+    destination = str(config.get("destination") or get_config()["destination"]).strip().lower()
     if destination not in _DESTINATIONS:
         raise ValueError(f"store-artifact: destination must be one of {sorted(_DESTINATIONS)}")
     if destination == "filesystem":

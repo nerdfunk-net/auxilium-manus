@@ -55,6 +55,7 @@ from workflow_steps.common.partial_outcomes import (
 )
 from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.common.step_flags import parse_bool_flag, parse_int_flag, record_dry_run
+from workflow_steps.get_catalyst_center_client_data.config import get_config
 from workflow_steps.get_catalyst_center_client_data.mapping import map_clients
 
 if TYPE_CHECKING:
@@ -63,7 +64,6 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 STEP_ID = "get-catalyst-center-client-data"
-DEFAULT_LOOKBACK_HOURS = 24
 MAX_LOOKBACK_HOURS = 168
 _CATALYST_ERROR = "catalyst_center_error"
 
@@ -201,7 +201,7 @@ async def execute(
         lookback_hours = parse_int_flag(
             config,
             "lookback_hours",
-            default=DEFAULT_LOOKBACK_HOURS,
+            default=get_config()["lookback_hours"],
             minimum=1,
             maximum=MAX_LOOKBACK_HOURS,
         )

@@ -1706,6 +1706,14 @@ what the staged file contains:
 A `config.py` is exposed via `GET /api/workflow-steps/{plugin_id}/get-config` and used
 by the frontend to pre-populate a step's config panel.
 
+**A default is declared once, in `get_config()`.** When the executor needs a default for a
+missing or blank key it reads `get_config()["key"]` (for example
+`parse_int_flag(config, "length", default=get_config()["length"], ...)` or
+`config.get("mode") or get_config()["mode"]`); it does not restate the value as a module
+constant or a literal, so the panel's pre-filled value and the value the step falls back to
+cannot drift apart. A shared constant from `common/` (such as `DEFAULT_SOCKET_TIMEOUT`) is
+imported by `config.py`. `tests/unit/test_step_defaults_declared_once.py` enforces it.
+
 ```python
 # backend/workflow_steps/get_nautobot_devices/config.py
 def get_config() -> dict:

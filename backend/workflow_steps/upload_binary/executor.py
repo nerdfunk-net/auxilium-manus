@@ -53,6 +53,7 @@ from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.common.run_param_reference import credential_reference
 from workflow_steps.common.run_session import require_session
 from workflow_steps.common.step_flags import parse_bool_flag
+from workflow_steps.upload_binary.config import get_config
 from workflow_steps.upload_binary.source_file import (
     SourceSnapshot,
     parse_expected_md5,
@@ -63,7 +64,6 @@ logger = logging.getLogger(__name__)
 
 _STEP_ID = "upload-binary"
 # `verify /md5` of an IOS image on slow flash takes minutes: the longest wait the helper allows.
-_DEFAULT_READ_TIMEOUT = 600
 _VERIFY_ALGORITHM = "md5"
 
 
@@ -115,7 +115,9 @@ def _parse_upload_binary(
         overwrite=parse_bool_flag(config, "overwrite"),
         network_driver_override=str(config.get("network_driver_override") or "").strip() or None,
         socket_timeout=parse_socket_timeout(config, step_id=_STEP_ID),
-        read_timeout=parse_read_timeout(config, step_id=_STEP_ID, default=_DEFAULT_READ_TIMEOUT),
+        read_timeout=parse_read_timeout(
+            config, step_id=_STEP_ID, default=get_config()["read_timeout"]
+        ),
         # last, so every other config error is reported first
         credential_reference=credential_reference(config, run_inputs),
     )

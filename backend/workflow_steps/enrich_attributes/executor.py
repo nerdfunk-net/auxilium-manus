@@ -48,6 +48,7 @@ from workflow_steps.common.partial_outcomes import (
 )
 from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.common.step_flags import parse_bool_flag
+from workflow_steps.enrich_attributes.config import get_config
 
 if TYPE_CHECKING:
     from services.network.netmiko.session_pool import DeviceSessionPool
@@ -58,7 +59,6 @@ _STEP_ID = "enrich-attributes"
 _SOURCES = frozenset({"filesystem", "git"})
 _MATCH_MODES = frozenset({"match", "contains"})
 # The registry and get_config() advertise this default; validation accepts a blank field.
-_DEFAULT_DESTINATION = "data"
 
 
 @dataclass(frozen=True)
@@ -85,7 +85,7 @@ def _delimiter(raw: Any) -> str:
 
 
 def _parse_config(config: dict[str, Any]) -> _Parsed:
-    source = str(config.get("source") or "filesystem").strip().lower()
+    source = str(config.get("source") or get_config()["source"]).strip().lower()
     if source not in _SOURCES:
         raise ValueError(f"{_STEP_ID}: source must be one of {sorted(_SOURCES)}")
 
@@ -105,11 +105,13 @@ def _parse_config(config: dict[str, Any]) -> _Parsed:
     if not device_attribute_path:
         raise ValueError(f"{_STEP_ID}: device_attribute_path is required")
 
-    match_mode = str(config.get("match_mode") or "match").strip().lower()
+    match_mode = str(config.get("match_mode") or get_config()["match_mode"]).strip().lower()
     if match_mode not in _MATCH_MODES:
         raise ValueError(f"{_STEP_ID}: match_mode must be one of {sorted(_MATCH_MODES)}")
 
-    destination_path = str(config.get("destination_path") or "").strip() or _DEFAULT_DESTINATION
+    destination_path = (
+        str(config.get("destination_path") or "").strip() or get_config()["destination_path"]
+    )
     try:
         validate_merge_destination(destination_path)
     except ValueError as exc:

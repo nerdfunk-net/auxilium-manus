@@ -39,6 +39,7 @@ from services.workflow_context.secret_fields import REDACTED_PLACEHOLDER, seal_s
 from workflow_steps.common.attribute_write import set_device_attribute
 from workflow_steps.common.device_runner import Fail
 from workflow_steps.common.secret_manager_step import SecretStepSpec, run_secret_step
+from workflow_steps.secret_set.config import get_config
 
 if TYPE_CHECKING:
     from services.network.netmiko.session_pool import DeviceSessionPool
@@ -65,11 +66,11 @@ def _parse_config(config: dict[str, Any]) -> tuple[int, str, str, str, str]:
     # node whose config was never actually edited (only displayed with an
     # illustrative default in the UI) must behave identically to one where
     # the user explicitly accepted that same value.
-    path_template = str(config.get("path_template") or "network/{device.name}/tacacs").strip()
+    path_template = str(config.get("path_template") or get_config()["path_template"]).strip()
     if not path_template:
         raise ValueError(f"{_STEP_ID}: path_template is required")
 
-    field = str(config.get("field") or "key").strip()
+    field = str(config.get("field") or get_config()["field"]).strip()
     if not field:
         raise ValueError(f"{_STEP_ID}: field is required")
     try:
@@ -77,11 +78,13 @@ def _parse_config(config: dict[str, Any]) -> tuple[int, str, str, str, str]:
     except ValueError as exc:
         raise ValueError(f"{_STEP_ID}: {exc}") from exc
 
-    source_path = str(config.get("source_path") or "run_input.new_tacacs_key").strip()
+    source_path = str(config.get("source_path") or get_config()["source_path"]).strip()
     if not source_path:
         raise ValueError(f"{_STEP_ID}: source_path is required")
 
-    destination_path = str(config.get("destination_path") or "tacacs.shared_secret").strip()
+    destination_path = str(
+        config.get("destination_path") or get_config()["destination_path"]
+    ).strip()
     if not destination_path:
         raise ValueError(f"{_STEP_ID}: destination_path is required")
 

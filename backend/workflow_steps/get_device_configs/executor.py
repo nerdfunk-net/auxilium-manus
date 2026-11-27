@@ -27,6 +27,7 @@ from workflow_steps.common.retry_config import parse_retry_backoff_seconds
 from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.common.run_param_reference import resolve_config_reference
 from workflow_steps.common.run_session import require_session
+from workflow_steps.get_device_configs.config import get_config
 
 if TYPE_CHECKING:
     from services.network.netmiko.session_pool import DeviceSessionPool
@@ -54,7 +55,9 @@ def _config_targets(config_format: str) -> tuple[bool, bool]:
 
 
 def _parse_config(config: dict[str, Any]) -> _ParsedConfig:
-    config_format = str(config.get("config_format") or "both").strip().lower()
+    config_format = (
+        str(config.get("config_format") or get_config()["config_format"]).strip().lower()
+    )
     if config_format not in _CONFIG_FORMATS:
         raise ValueError(
             f"get-device-configs: config_format must be one of {sorted(_CONFIG_FORMATS)}"

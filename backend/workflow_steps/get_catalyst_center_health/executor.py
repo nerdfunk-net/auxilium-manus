@@ -11,12 +11,12 @@ from services.artifacts import ArtifactService
 from services.catalyst_center.credentials import CatalystCenterCredentials
 from workflow_steps.common.controller_sources import CATALYST_CENTER
 from workflow_steps.common.fact_entries import Entry, parse_output_key_config
+from workflow_steps.get_catalyst_center_health.config import get_config
 
 if TYPE_CHECKING:
     from services.network.netmiko.session_pool import DeviceSessionPool
 
 STEP_ID = "get-catalyst-center-health"
-DEFAULT_OUTPUT_KEY = "catalyst_health"
 
 
 async def execute(
@@ -31,7 +31,7 @@ async def execute(
     del artifact_service, device_sessions
 
     output_key = parse_output_key_config(
-        config.get("parsed_output_key"), step_id=STEP_ID, default=DEFAULT_OUTPUT_KEY
+        config.get("parsed_output_key"), step_id=STEP_ID, default=get_config()["parsed_output_key"]
     )
 
     async def collect(
