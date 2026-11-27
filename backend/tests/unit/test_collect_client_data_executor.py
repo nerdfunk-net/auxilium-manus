@@ -350,6 +350,31 @@ class CollectClientDataExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(failed.errors[-1].failure, failure)
         self.assertEqual(self._all(ClientDataCollection), [])
 
+    async def test_a_failed_command_stores_a_fixed_sentence_not_the_driver_text(self) -> None:
+        """W3b-06 (as run-command, W3a-10): ``result.error`` is driver text that can name a refused
+        line or echo a secret; the cause is the FailureInfo."""
+        failure = FailureInfo(phase="command", kind="command_timeout")
+        driver_text = "% Invalid input: enable secret hunter2hunter2"
+        netmiko = _FakeNetmiko(
+            {},
+            failing={
+                "10.0.0.3": {
+                    "when": None,
+                    "result": NetmikoCommandResult(
+                        success=False, error=driver_text, failure=failure
+                    ),
+                }
+            },
+        )
+
+        outcomes = await self._run({"d3": _device("d3", "down1", "10.0.0.3")}, netmiko)
+
+        error = self._by_name(outcomes, "failure")["d3"].errors[-1]
+        self.assertEqual(error.code, "command_failed")
+        self.assertEqual(error.message, "Command execution failed")
+        self.assertEqual(error.failure, failure)
+        self.assertNotIn("hunter2", repr(outcomes))
+
     async def test_failure_while_collecting_a_vrf_fails_the_device(self) -> None:
         netmiko = _FakeNetmiko(
             {"10.0.0.1": CORE1},

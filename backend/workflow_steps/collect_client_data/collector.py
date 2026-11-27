@@ -118,9 +118,9 @@ async def _send(
         retry=options.retry,
     )
     if not result.success:
-        raise CollectionError(
-            "command_failed", result.error or "Command execution failed", result.failure
-        )
+        # `result.error` is driver text (it can name a refused line or echo a secret): the cause
+        # is the FailureInfo, never that text (W3b-06, as run-command).
+        raise CollectionError("command_failed", "Command execution failed", result.failure)
     return result
 
 
