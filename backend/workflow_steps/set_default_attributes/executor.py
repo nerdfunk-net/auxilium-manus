@@ -26,7 +26,6 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _STEP_ID = "set-default-attributes"
-_SUPPORTED_TYPES = frozenset({"device"})
 
 
 def _enabled_value(spec: Any) -> str | None:
@@ -108,10 +107,6 @@ async def execute(
     device_sessions: DeviceSessionPool,
 ) -> list[StepOutcome]:
     del artifact_service  # unused for this step
-
-    resource_type = str(config.get("type") or "device").strip().lower()
-    if resource_type not in _SUPPORTED_TYPES:
-        raise ValueError(f"{_STEP_ID}: type '{resource_type}' is not yet supported (only 'device')")
 
     overwrite = parse_bool_flag(config, "overwrite", default=False)
     mode = str(config.get("mode") or "manual").strip().lower()

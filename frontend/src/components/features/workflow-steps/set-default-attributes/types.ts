@@ -1,4 +1,3 @@
-export type ResourceType = "device" | "ip_address" | "ip_prefix";
 export type DefaultsMode = "manual" | "git";
 
 export interface AttributeFieldSpec {
@@ -93,13 +92,3 @@ export const RACK_FIELD_DEFINITIONS = [
   { key: "face", label: "Face", placeholder: "front or rear" },
   { key: "position", label: "Position", placeholder: "12" },
 ] as const satisfies ReadonlyArray<FieldDefinition>;
-
-export const RESOURCE_TYPE_OPTIONS: ReadonlyArray<{
-  value: ResourceType;
-  label: string;
-  enabled: boolean;
-}> = [
-  { value: "device", label: "Device", enabled: true },
-  { value: "ip_address", label: "IP Address (coming soon)", enabled: false },
-  { value: "ip_prefix", label: "IP Prefix (coming soon)", enabled: false },
-];

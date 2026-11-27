@@ -6,7 +6,6 @@ import type {
   DeviceTypeDefaultSpec,
   GitDefaultsConfig,
   InterfaceDefaultSpec,
-  ResourceType,
 } from "./types";
 
 const EMPTY_FIELD_SPEC: AttributeFieldSpec = { enabled: false, value: "" };
@@ -15,11 +14,6 @@ const EMPTY_DEVICE_TYPE_SPEC: DeviceTypeDefaultSpec = {
   model: "",
   manufacturer: "",
 };
-
-export function resourceTypeFromConfig(config: Record<string, unknown>): ResourceType {
-  const raw = config.type;
-  return raw === "ip_address" || raw === "ip_prefix" ? raw : "device";
-}
 
 export function modeFromConfig(config: Record<string, unknown>): DefaultsMode {
   return config.mode === "git" ? "git" : "manual";

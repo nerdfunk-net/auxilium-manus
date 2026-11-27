@@ -26,15 +26,6 @@ export function SetDefaultAttributesHelpPanel() {
         </p>
       </HelpSection>
 
-      <HelpSection title="Type">
-        <p>
-          Resource type these defaults apply to. Only <HelpCode>Device</HelpCode> is
-          implemented — <HelpCode>IP Address</HelpCode> and{" "}
-          <HelpCode>IP Prefix</HelpCode> are shown but disabled, reserved for a future
-          release. Running the step with any other type raises a clear error.
-        </p>
-      </HelpSection>
-
       <HelpSection title="Mode">
         <p>
           Where the default values come from:
@@ -47,8 +38,9 @@ export function SetDefaultAttributesHelpPanel() {
           </li>
           <li>
             <span className="font-medium text-foreground">Git repo (YAML)</span> —
-            read a YAML file from a configured Git source. The matched file must
-            contain a top-level <HelpCode>devices</HelpCode> mapping, e.g.:
+            read a YAML file from a configured Git source. Exactly one file must match{" "}
+            <HelpCode>filename_pattern</HelpCode> (several matches fail the step and are
+            named); it must contain a top-level <HelpCode>devices</HelpCode> mapping, e.g.:
           </li>
         </ul>
         <HelpExample>
@@ -158,8 +150,8 @@ export function SetDefaultAttributesHelpPanel() {
           </li>
         </ul>
         <p>
-          There is no failure outcome — a bad configuration (unsupported type, missing
-          git source, invalid YAML) fails the whole step rather than routing specific
+          There is no failure outcome — a bad configuration (missing git source, no
+          or several matching files, invalid YAML) fails the whole step rather than routing specific
           devices.
         </p>
       </HelpSection>

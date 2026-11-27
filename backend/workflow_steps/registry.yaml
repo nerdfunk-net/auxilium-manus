@@ -3408,13 +3408,6 @@ plugins:
       - name: success
     metadata:
       configuration_input:
-        - name: type
-          description: >
-            Resource type these defaults apply to. Only "device" is implemented;
-            "ip_address" and "ip_prefix" are reserved for a future release.
-          data_type: string
-          required: true
-          example: device
         - name: mode
           description: >
             Where the default values come from: "manual" (the attributes panel below)
@@ -3449,7 +3442,8 @@ plugins:
           description: >
             Git-mode source — git_repository_id (from Settings → Git Repositories),
             filename_pattern (glob, e.g. "*.yaml"), and an optional directory to
-            search within the repository. The matched file must contain a top-level
+            search within the repository. Exactly one file must match (several
+            matches are an error naming them); it must contain a top-level
             "devices" mapping of default attribute values. Used only when mode is
             "git".
           data_type: object

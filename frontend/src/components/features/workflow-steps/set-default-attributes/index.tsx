@@ -28,15 +28,12 @@ import {
   overwriteFromConfig,
   parseAttributesConfig,
   parseGitConfig,
-  resourceTypeFromConfig,
 } from "./set-default-attributes-config";
 import { SetDefaultAttributesDialog } from "./set-default-attributes-dialog";
-import type { AttributesConfig, DefaultsMode, ResourceType } from "./types";
-import { RESOURCE_TYPE_OPTIONS } from "./types";
+import type { AttributesConfig, DefaultsMode } from "./types";
 import { SetDefaultAttributesHelpPanel } from "./help-panel";
 
 function SetDefaultAttributesConfigPanel({ config, onChange }: PluginConfigPanelProps) {
-  const resourceType = useMemo(() => resourceTypeFromConfig(config), [config]);
   const mode = useMemo(() => modeFromConfig(config), [config]);
   const overwrite = useMemo(() => overwriteFromConfig(config), [config]);
   const attributes = useMemo(() => parseAttributesConfig(config), [config]);
@@ -45,13 +42,6 @@ function SetDefaultAttributesConfigPanel({ config, onChange }: PluginConfigPanel
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [repositoryOpen, setRepositoryOpen] = useState(false);
-
-  const handleTypeChange = useCallback(
-    (value: string) => {
-      onChange({ ...config, type: value as ResourceType });
-    },
-    [config, onChange],
-  );
 
   const handleModeChange = useCallback(
     (value: string) => {
@@ -90,27 +80,6 @@ function SetDefaultAttributesConfigPanel({ config, onChange }: PluginConfigPanel
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="space-y-1.5">
-        <div className="flex items-center gap-1.5">
-          <span className="font-mono text-xs font-medium">type</span>
-          <Badge className="h-4 rounded px-1 text-[10px]" variant="secondary">
-            string
-          </Badge>
-        </div>
-        <Select value={resourceType} onValueChange={handleTypeChange}>
-          <SelectTrigger className="h-8 text-xs">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {RESOURCE_TYPE_OPTIONS.map((option) => (
-              <SelectItem key={option.value} value={option.value} disabled={!option.enabled}>
-                {option.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
-
       <div className="space-y-1.5">
         <div className="flex items-center gap-1.5">
           <span className="font-mono text-xs font-medium">mode</span>
@@ -202,8 +171,8 @@ function SetDefaultAttributesConfigPanel({ config, onChange }: PluginConfigPanel
               onChange={handleFilenamePatternChange}
             />
             <p className="text-[11px] text-muted-foreground">
-              The matched file must contain a top-level <span className="font-mono">devices</span>{" "}
-              mapping of default values.
+              Exactly one file must match (several matches fail the step). It must contain a
+              top-level <span className="font-mono">devices</span> mapping of default values.
             </p>
           </div>
         </div>

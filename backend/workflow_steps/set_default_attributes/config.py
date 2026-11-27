@@ -3,7 +3,6 @@
 
 def get_config() -> dict:
     return {
-        "type": "device",
         "mode": "manual",
         "overwrite": False,
         "attributes": {

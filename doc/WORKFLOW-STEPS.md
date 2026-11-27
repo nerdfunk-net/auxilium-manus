@@ -1120,6 +1120,9 @@ from Nautobot. Outcomes `success` / `failure`, `requires: [identity]`, `produces
 - **Default interface type** (`set-default-attributes`, `interface_type`): sets `type` on every interface of the
   `nautobot` bag that has none and changes nothing else on it (with `overwrite` it also replaces an existing
   type). It creates no interfaces and is not stored in the bag (`common/attribute_defaults.py`).
+- **Git defaults file** (`set-default-attributes`, mode `git`): `filename_pattern` (below the optional
+  `directory`) must match **exactly one** file; several matches fail the step and name them (repository-relative,
+  at most five), no match fails it too. The step is device-only (it has no `type` key).
 - **IP namespace** (`add-to-nautobot`, interfaces from the Nautobot attributes): the namespace of an interface IP
   is its `parent.namespace.name`, else a `namespace` (name or `{name}` object), else `Global`; a blank value
   counts as unset (`interface_workflow/payload.py::ip_namespace`).

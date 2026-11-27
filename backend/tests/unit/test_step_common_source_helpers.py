@@ -60,10 +60,37 @@ def _load(tmp_path: Path, **kwargs: Any) -> Any:
         )
 
 
-def test_the_first_matching_yaml_file_is_parsed(tmp_path: Path) -> None:
+def test_the_one_matching_yaml_file_is_parsed(tmp_path: Path) -> None:
     (tmp_path / "a.yaml").write_text("site: ber\nvlan: 10\n")
+    (tmp_path / "notes.txt").write_text("not yaml\n")
 
     assert _load(tmp_path) == {"site": "ber", "vlan": 10}
+
+
+def test_several_matching_files_are_an_error_naming_them(tmp_path: Path) -> None:
+    """W4-11: the step no longer reads the alphabetically first of several matches."""
+    (tmp_path / "sub").mkdir()
+    (tmp_path / "b.yaml").write_text("x: 1\n")
+    (tmp_path / "sub" / "a.yaml").write_text("x: 2\n")
+
+    with pytest.raises(ValueError) as caught:
+        _load(tmp_path)
+
+    message = str(caught.value)
+    assert message.startswith("s: 2 files match '*.yaml' in git repository 'defaults'")
+    assert "b.yaml, sub/a.yaml" in message
+    assert str(tmp_path) not in message
+    assert "exactly one" in message
+
+
+def test_the_named_files_are_capped(tmp_path: Path) -> None:
+    for index in range(7):
+        (tmp_path / f"f{index}.yaml").write_text("x: 1\n")
+
+    with pytest.raises(ValueError, match=r"7 files match .*f4\.yaml, \.\.\.\)") as caught:
+        _load(tmp_path)
+
+    assert "f5.yaml" not in str(caught.value)
 
 
 def test_the_directory_narrows_the_search(tmp_path: Path) -> None:

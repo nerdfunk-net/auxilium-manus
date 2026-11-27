@@ -342,17 +342,28 @@ class SetDefaultAttributesManualModeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(outcomes), 1)
         self.assertEqual(outcomes[0].context.devices, {})
 
-    async def test_unsupported_type_raises(self) -> None:
-        config = {**get_config(), "type": "ip_address"}
-        with self.assertRaises(ValueError):
-            await execute(
-                config=config,
-                context=_context({"dev-1": _device("dev-1")}),
-                run=_run(),
-                artifact_service=MagicMock(),
-                node_id="node-1",
-                device_sessions=MagicMock(),
-            )
+    async def test_the_step_has_no_type_key_and_ignores_a_leftover_one(self) -> None:
+        """W4-11: the one-member `type` key is gone; the step is device-only."""
+        self.assertNotIn("type", get_config())
+        config = {
+            **get_config(),
+            "type": "ip_address",
+            "attributes": {
+                **get_config()["attributes"],
+                "role": {"enabled": True, "value": "edge"},
+            },
+        }
+        outcomes = await execute(
+            config=config,
+            context=_context({"dev-1": _device("dev-1")}),
+            run=_run(),
+            artifact_service=MagicMock(),
+            node_id="node-1",
+            device_sessions=MagicMock(),
+        )
+        self.assertEqual(outcomes[0].name, "success")
+        bag = outcomes[0].context.devices["dev-1"].attribute_bags["nautobot"]
+        self.assertEqual(bag["role"], {"name": "edge"})
 
     async def test_invalid_mode_raises(self) -> None:
         config = {**get_config(), "mode": "bogus"}
