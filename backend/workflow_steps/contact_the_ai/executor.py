@@ -70,7 +70,12 @@ from workflow_steps.contact_the_ai.config import (
     MAX_TIMEOUT_SECONDS,
     get_config,
 )
-from workflow_steps.contact_the_ai.prompt import PromptWithheldError, cut_text, render_prompt
+from workflow_steps.contact_the_ai.prompt import (
+    PLACEHOLDER,
+    PromptWithheldError,
+    cut_text,
+    render_prompt,
+)
 
 if TYPE_CHECKING:
     from services.network.netmiko.session_pool import DeviceSessionPool
@@ -84,7 +89,6 @@ AI_RESPONSE_METADATA_SUFFIX = ".ai_response"
 MAX_PROMPT_CHARS = 100_000
 MAX_RESPONSE_CHARS = 10_000
 
-_PLACEHOLDER = re.compile(r"\{([A-Za-z0-9_.]+)\}")
 _NAME_PLACEHOLDERS = frozenset({"devices", "run_summary"})
 _MENTION = re.compile(r"(?<![\w@])@(channel|all|here)\b", re.IGNORECASE)
 
@@ -159,12 +163,6 @@ def _provider_failure(exc: ProviderError) -> FailureInfo:
     )
 
 
-def _bounded_int(raw: Any, default: int, maximum: int, name: str) -> int:
-    return parse_int_flag(
-        {name: raw}, name, default=default, minimum=1, maximum=maximum, step_id=_STEP_ID
-    )
-
-
 def _parse_output_attribute(raw: Any) -> str:
     """The ``bag.field`` the answer is written to; validated before anything is sent."""
     path = str(raw or "").strip() or DEFAULT_OUTPUT_ATTRIBUTE
@@ -183,7 +181,7 @@ def _parse_output_attribute(raw: Any) -> str:
 
 def _names_gap(prompt_template: str, ai: AiRuntimeConfig) -> str | None:
     """``{devices}`` and ``{run_summary}`` name devices, which needs the inventory switch."""
-    names = {m.group(1) for m in _PLACEHOLDER.finditer(prompt_template)}
+    names = {m.group(1) for m in PLACEHOLDER.finditer(prompt_template)}
     if names & _NAME_PLACEHOLDERS and not ai.share_inventory_data:
         return "device names need the 'Inventory and device attributes' sharing switch"
     return None
@@ -240,18 +238,22 @@ async def execute(
     if not prompt_template:
         raise ValueError(f"{_STEP_ID}: prompt is not configured")
     extra_system = str(config.get("system_prompt") or "").strip()
-    max_tokens = _bounded_int(
-        config.get("max_output_tokens"),
-        DEFAULT_MAX_OUTPUT_TOKENS,
-        MAX_OUTPUT_TOKENS_LIMIT,
+    max_tokens = parse_int_flag(
+        config,
         "max_output_tokens",
+        default=DEFAULT_MAX_OUTPUT_TOKENS,
+        minimum=1,
+        maximum=MAX_OUTPUT_TOKENS_LIMIT,
+        step_id=_STEP_ID,
     )
     output_attribute = _parse_output_attribute(config.get("output_attribute"))
-    timeout = _bounded_int(
-        config.get("timeout_seconds"),
-        DEFAULT_TIMEOUT_SECONDS,
-        MAX_TIMEOUT_SECONDS,
+    timeout = parse_int_flag(
+        config,
         "timeout_seconds",
+        default=DEFAULT_TIMEOUT_SECONDS,
+        minimum=1,
+        maximum=MAX_TIMEOUT_SECONDS,
+        step_id=_STEP_ID,
     )
 
     if not context.devices:

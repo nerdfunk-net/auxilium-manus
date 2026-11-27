@@ -16,7 +16,6 @@ from tests.unit._step_helpers import make_context, make_device
 from workflow_steps.common.device_file_upload import parse_socket_timeout
 from workflow_steps.common.read_timeout import parse_read_timeout
 from workflow_steps.common.step_flags import parse_bool_flag, parse_int_flag
-from workflow_steps.contact_the_ai.executor import _bounded_int
 from workflow_steps.generate_password.executor import _parse_config as generate_password
 from workflow_steps.run_catalyst_center_command.executor import _parse_timeout
 from workflow_steps.secret_generate.executor import _parse_config as secret_generate
@@ -35,7 +34,6 @@ _SITES: list[tuple[str, Callable[[Any], Any]]] = [
     ("secret-get version", lambda raw: secret_get({**_SECRET, "version": raw})),
     ("secret-generate length", lambda raw: secret_generate({**_SECRET, "length": raw})),
     ("generate-password length", lambda raw: generate_password({"length": raw})),
-    ("contact-the-ai max", lambda raw: _bounded_int(raw, 5, 10, "max_tokens")),
     ("start-workflow workflow_id", lambda raw: _parse_workflow_id({"workflow_id": raw})),
     ("run-catalyst-center-command timeout", _parse_timeout),
 ]
@@ -58,9 +56,8 @@ def test_a_bool_a_fraction_or_text_is_refused(parse: Callable[[Any], Any], raw: 
         (_PARSERS[2], "3"),
         (_PARSERS[3], "24"),
         (_PARSERS[4], 20),
-        (_PARSERS[5], "4"),
-        (_PARSERS[6], "7"),
-        (_PARSERS[7], 30),
+        (_PARSERS[5], "7"),
+        (_PARSERS[6], 30),
     ],
     ids=_IDS,
 )

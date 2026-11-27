@@ -1353,7 +1353,8 @@ Copies one file (an IOS / IOS-XE image) from a git repository to every device ov
 
 Sends one prompt per step execution to the AI model (palette category Notify) and stores the answer on
 every device in `output_attribute` (`bag.field`, default `ai.response`), so a later step such as
-`notify-mattermost` can post `{ai.response}`. The target is validated with the `update-attribute` write rules
+`notify-mattermost` can post `{ai.response}` (the registry declares `produces: [attributes]`, and the runner
+holds every device of a success run to it). The target is validated with the `update-attribute` write rules
 before anything is sent (no placeholders, no `device.*`, no reserved bag `parsed` / `run_input`, no secret
 path). The run viewer shows the answer, provider, model and target, or the failure reason, under "AI response"
 (`metadata["<node id>.ai_response"]`, `step-result-viewer/ai-response-panel.tsx`). Config: `prompt`,

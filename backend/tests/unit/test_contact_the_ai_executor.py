@@ -5,11 +5,19 @@ from __future__ import annotations
 import asyncio
 import unittest
 from contextlib import ExitStack
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from core.address_masking import AddressMap
-from models.workflow_context import DeviceContext, DeviceError, DeviceStatus, WorkflowContext
+from models.workflow_context import (
+    Capability,
+    DeviceContext,
+    DeviceError,
+    DeviceStatus,
+    WorkflowContext,
+)
+from repositories.plugin_repository import PluginRepository
 from services.ai_assistant.exceptions import AiAssistantDisabledError
 from services.ai_assistant.providers.base import (
     ProviderAuthError,
@@ -18,11 +26,15 @@ from services.ai_assistant.providers.base import (
     StreamEvent,
 )
 from services.ai_assistant.settings_service import AiRuntimeConfig
+from services.plugin_registry.plugin_registry_service import PluginRegistryService
+from services.workflow_context.guards import effective_produces, post_step_guard
+from services.workflow_context.registry import capability_spec_from_plugin
 from services.workflow_context.secret_fields import SEALED_MARKER
 from workflow_steps.common.run_message_template import build_run_summary
 from workflow_steps.contact_the_ai.executor import execute
 
 _MOD = "workflow_steps.contact_the_ai.executor"
+REGISTRY_PATH = Path(__file__).resolve().parents[2] / "workflow_steps" / "registry.yaml"
 _SECRET_LINE = "enable secret 9 hunter2hunter2"
 
 
@@ -48,6 +60,7 @@ class _FakeProvider:
 
     async def stream(self, *, model, system, messages, max_tokens, tools=()):
         self.prompt = messages[0].content
+        self.max_tokens = max_tokens
         self.system = system
         if self.delay:
             await asyncio.sleep(self.delay)
@@ -397,6 +410,22 @@ class ContactTheAiTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(ValueError):
             await _run({"prompt": "hi", "timeout_seconds": "abc"}, ctx)
 
+    async def test_the_token_and_timeout_limits_are_inclusive(self) -> None:
+        ctx = _context(_device("r1"))
+        for key, limit in (("max_output_tokens", 4096), ("timeout_seconds", 600)):
+            with self.subTest(key=key):
+                outcome, _ = await _run({"prompt": "hi", key: limit}, ctx)
+                self.assertEqual(outcome.name, "success")
+                with self.assertRaisesRegex(ValueError, key):
+                    await _run({"prompt": "hi", key: limit + 1}, ctx)
+
+    async def test_the_token_limit_reaches_the_provider(self) -> None:
+        fake = _FakeProvider()
+        await _run(
+            {"prompt": "hi", "max_output_tokens": 77}, _context(_device("r1")), provider=fake
+        )
+        self.assertEqual(fake.max_tokens, 77)
+
     async def test_system_prompt_is_redacted_and_includes_guard(self) -> None:
         _, fake = await _run(
             {"prompt": "hi", "system_prompt": f"Be brief.\n{_SECRET_LINE}"},
@@ -691,6 +720,30 @@ class RunSummaryTests(unittest.TestCase):
 
     def test_empty(self) -> None:
         self.assertEqual(build_run_summary(_context()), "No devices in this run.")
+
+
+class RegistryProducesTests(unittest.IsolatedAsyncioTestCase):
+    """W10-11 item 4: the step writes ``output_attribute`` on every device of a success run, so
+    the registry declares ``produces: [attributes]`` and the runner's guard holds it to that."""
+
+    @staticmethod
+    def _spec():
+        registry = PluginRegistryService(PluginRepository(REGISTRY_PATH)).load_registry()
+        plugin = next(p for p in registry.plugins if p.id == "contact-the-ai")
+        return capability_spec_from_plugin(plugin)
+
+    def test_the_registry_says_the_step_writes_attributes(self) -> None:
+        self.assertEqual(self._spec().produces, frozenset({Capability.ATTRIBUTES}))
+
+    async def test_a_success_run_meets_the_declared_produces(self) -> None:
+        spec = self._spec()
+        ctx = _context(_device("r1"), _device("r2"))
+        outcomes = await _run_all(
+            {"prompt": "Summary: {run_summary}"}, ctx, provider=_FakeProvider()
+        )
+        produces = effective_produces(spec=spec, step_type="contact-the-ai", config={})
+        self.assertEqual(produces, frozenset({Capability.ATTRIBUTES}))
+        post_step_guard(spec=spec, input_context=ctx, outcomes=outcomes, expected_produces=produces)
 
 
 if __name__ == "__main__":

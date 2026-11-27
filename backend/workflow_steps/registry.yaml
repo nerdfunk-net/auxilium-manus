@@ -6076,7 +6076,7 @@ plugins:
     directory: contact_the_ai
     enabled: true
     requires: [identity]
-    produces: []
+    produces: [attributes]
     outcomes:
       - name: success
       - name: failure

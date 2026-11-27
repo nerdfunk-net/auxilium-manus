@@ -57,7 +57,8 @@ from workflow_steps.common.run_message_template import (
 # One structured placeholder is cut here, on top of the cap on the whole prompt.
 MAX_STRUCTURED_CHARS = 20_000
 
-_PLACEHOLDER = re.compile(r"\{([A-Za-z0-9_.]+)\}")
+# ``{path}`` in a prompt; the executor checks the sharing rules on the same names.
+PLACEHOLDER = re.compile(r"\{([A-Za-z0-9_.]+)\}")
 
 _DEVICE_FIELD_CLASS: dict[str, DataClass] = {
     "id": DataClass.INVENTORY,
@@ -184,4 +185,4 @@ def render_prompt(
         value = resolve_device_attribute(device, path, reveal_secrets=False) or ""
         return value.replace("\x00", "")
 
-    return finish_run_placeholders(_PLACEHOLDER.sub(replace, aggregated), context)
+    return finish_run_placeholders(PLACEHOLDER.sub(replace, aggregated), context)
