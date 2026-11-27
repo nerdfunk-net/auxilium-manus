@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 from dataclasses import dataclass
@@ -18,15 +17,17 @@ from models.workflow_context import (
 from services.artifacts import ArtifactService
 from services.network.netmiko.connection import CommandResult as NetmikoCommandResult
 from services.network.netmiko.service import NetmikoService
-from workflow_steps.common.device_outcomes import fail_device_with_error, mark_device_failed
+from workflow_steps.common.device_runner import Fail, run_per_device
 from workflow_steps.common.device_type import connection_device_type
 from workflow_steps.common.failure_records import INVALID_INPUT
-from workflow_steps.common.partial_outcomes import device_error_from_exception
 from workflow_steps.common.step_flags import record_dry_run
 from workflow_steps.run_command.constants import STEP_ID
 from workflow_steps.run_command.parsing import ParsedRunCommandConfig
 
 logger = logging.getLogger(__name__)
+
+# Per successful device: command -> raw output (``None`` marks a TextFSM raw-text fallback).
+_RawOutputs = dict[str, dict[str, str | None]]
 
 
 def _build_summary(*, content: str, structured: bool) -> str:
@@ -56,9 +57,6 @@ class _ExecJob:
     @property
     def use_textfsm(self) -> bool:
         return self.parsed.parser_mode == "textfsm"
-
-
-_DeviceRun = tuple[str, DeviceContext, bool, dict[str, str | None]]
 
 
 def _dry_run(device: DeviceContext, host: str, job: _ExecJob) -> DeviceContext:
@@ -139,95 +137,29 @@ async def _store_rows(
     return step_results, raw_outputs
 
 
-def _to_device_result(
-    device_id: str,
-    device: DeviceContext,
-    result: NetmikoCommandResult,
-    rows: list[CommandResult],
-    raw_outputs: dict[str, str | None],
-    job: _ExecJob,
-) -> _DeviceRun:
-    command_results = {**device.command_results, job.node_id: rows}
-    if not result.success:
-        failed = mark_device_failed(
-            device,
-            node_id=job.node_id,
-            step_id=STEP_ID,
-            code="command_failed",
-            # `result.error` is driver text (it can name a refused line or echo a secret):
-            # the cause is the FailureInfo, never that text.
-            message="Command execution failed",
-            command_results=command_results,
-            failure=result.failure,
-        )
-        return device_id, failed, False, {}
-    enriched = device.model_copy(
-        update={"status": DeviceStatus.OK, "command_results": command_results}
-    )
-    return device_id, enriched, True, raw_outputs
-
-
-async def _run_on_device(device_id: str, device: DeviceContext, job: _ExecJob) -> _DeviceRun:
+async def _run_on_device(
+    device_id: str, device: DeviceContext, job: _ExecJob, raw_outputs: _RawOutputs
+) -> DeviceContext | Fail:
+    """One device. A device that succeeds records its raw outputs in ``raw_outputs``; an
+    unexpected exception is the runner's (class name and ``FailureInfo``, W3a-05)."""
     host = bare_hostname(device.primary_ip4, device.hostname)
     if not host:
-        failed = mark_device_failed(
-            device,
-            node_id=job.node_id,
-            step_id=STEP_ID,
-            code="missing_host",
-            failure=INVALID_INPUT,
-            message=f"Device {device_id} has no hostname or primary IP",
+        return Fail(
+            "missing_host", f"Device {device_id} has no hostname or primary IP", INVALID_INPUT
         )
-        return device_id, failed, False, {}
     if job.parsed.dry_run:
-        return device_id, _dry_run(device, host, job), True, {}
-    try:
-        result = await _send(device, host, job)
-        rows, raw_outputs = await _store_rows(device_id, result, job)
-        return _to_device_result(device_id, device, result, rows, raw_outputs, job)
-    except Exception as exc:
-        error = device_error_from_exception(exc, node_id=job.node_id, step_id=STEP_ID)
-        return device_id, fail_device_with_error(device, error), False, {}
-
-
-async def _run_on_device_logged(
-    index: int, total: int, device_id: str, device: DeviceContext, job: _ExecJob
-) -> _DeviceRun:
-    host = bare_hostname(device.primary_ip4, device.hostname) or "(no host)"
-    logger.info(
-        "run-command device %d/%d id=%s host=%s: connecting run_id=%s",
-        index,
-        total,
-        device_id,
-        host,
-        job.run_id,
-    )
-    result = await _run_on_device(device_id, device, job)
-    logger.info(
-        "run-command device %d/%d id=%s host=%s: %s run_id=%s",
-        index,
-        total,
-        device_id,
-        host,
-        "ok" if result[2] else "failed",
-        job.run_id,
-    )
-    return result
-
-
-def _partition_device_results(
-    results: list[_DeviceRun],
-) -> tuple[dict[str, DeviceContext], dict[str, DeviceContext], dict[str, dict[str, str | None]]]:
-    success_devices: dict[str, DeviceContext] = {}
-    failed_devices: dict[str, DeviceContext] = {}
-    raw_outputs_by_device: dict[str, dict[str, str | None]] = {}
-    for device_id, updated_device, ok, raw_outputs in results:
-        if ok:
-            success_devices[device_id] = updated_device
-            raw_outputs_by_device[device_id] = raw_outputs
-        else:
-            failed_devices[device_id] = updated_device
-    return success_devices, failed_devices, raw_outputs_by_device
+        raw_outputs[device_id] = {}
+        return _dry_run(device, host, job)
+    result = await _send(device, host, job)
+    rows, outputs = await _store_rows(device_id, result, job)
+    command_results = {**device.command_results, job.node_id: rows}
+    if not result.success:
+        # `result.error` is driver text (it can name a refused line or echo a secret): the cause
+        # is the FailureInfo, never that text.
+        recorded = device.model_copy(update={"command_results": command_results})
+        return Fail("command_failed", "Command execution failed", result.failure, device=recorded)
+    raw_outputs[device_id] = outputs
+    return device.model_copy(update={"status": DeviceStatus.OK, "command_results": command_results})
 
 
 async def run_exec_mode(
@@ -240,7 +172,7 @@ async def run_exec_mode(
     password: str,
     netmiko: NetmikoService,
     artifact_service: ArtifactService,
-) -> tuple[dict[str, DeviceContext], dict[str, DeviceContext], dict[str, dict[str, str | None]]]:
+) -> tuple[dict[str, DeviceContext], dict[str, DeviceContext], _RawOutputs]:
     """Run ``parsed.commands`` on every device; return (success, failed, raw outputs)."""
     job = _ExecJob(
         node_id=node_id,
@@ -252,11 +184,12 @@ async def run_exec_mode(
         netmiko=netmiko,
         artifact_service=artifact_service,
     )
-    total = len(context.devices)
-    results = await asyncio.gather(
-        *[
-            _run_on_device_logged(index, total, device_id, device, job)
-            for index, (device_id, device) in enumerate(context.devices.items(), start=1)
-        ]
+    raw_outputs: _RawOutputs = {}
+
+    async def _work(device_id: str, device: DeviceContext) -> DeviceContext | Fail:
+        return await _run_on_device(device_id, device, job, raw_outputs)
+
+    batch = await run_per_device(
+        context, _work, node_id=node_id, step_id=STEP_ID, log_label=STEP_ID
     )
-    return _partition_device_results(results)
+    return dict(batch.ok), dict(batch.failed), {d: raw_outputs[d] for d in batch.ok}

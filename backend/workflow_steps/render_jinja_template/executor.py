@@ -8,18 +8,18 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from core.models.runs import WorkflowRun
-from models.failure import FailureInfo, failure_from_exception
+from models.failure import failure_from_exception
 from models.workflow_context import (
     Capability,
     CommandResult,
     DeviceContext,
-    DeviceError,
     DeviceStatus,
     StepOutcome,
     WorkflowContext,
 )
 from services.artifacts import ArtifactService
-from workflow_steps.common.device_outcomes import fail_device_with_error
+from workflow_steps.common.device_outcomes import build_outcomes
+from workflow_steps.common.device_runner import Fail, run_per_device
 from workflow_steps.common.jinja_render import (
     JinjaTemplateError,
     build_jinja_context,
@@ -131,24 +131,6 @@ def _parsed_template_entry(
     }
 
 
-def _mark_render_failed(
-    device: DeviceContext,
-    node_id: str,
-    *,
-    code: str,
-    message: str,
-    failure: FailureInfo | None = None,
-) -> DeviceContext:
-    err = DeviceError(
-        node_id=node_id,
-        step_id=_STEP_ID,
-        code=code,
-        message=message,
-        failure=failure,
-    )
-    return fail_device_with_error(device, err)
-
-
 async def _render_and_store_device(
     device_id: str,
     device: DeviceContext,
@@ -161,7 +143,7 @@ async def _render_and_store_device(
     artifact_service: ArtifactService,
     allow_multiline_values: bool = False,
     uses_commands: bool = True,
-) -> tuple[str, DeviceContext, bool]:
+) -> DeviceContext | Fail:
     try:
         jinja_context = build_jinja_context(
             device,
@@ -194,7 +176,7 @@ async def _render_and_store_device(
                 "status": DeviceStatus.OK,
             }
         )
-        return device_id, enriched, True
+        return enriched
     except (JinjaTemplateError, ValueError) as exc:
         logger.warning(
             "render-jinja-template failed run_id=%s node_id=%s device_id=%s error=%s",
@@ -203,14 +185,7 @@ async def _render_and_store_device(
             device_id,
             exc,
         )
-        failed = _mark_render_failed(
-            device,
-            node_id,
-            code="template_error",
-            message=str(exc),
-            failure=failure_from_exception(exc),
-        )
-        return device_id, failed, False
+        return Fail("template_error", message=str(exc), failure=failure_from_exception(exc))
     except Exception as exc:
         # D3: not an error of this step; the class name and the record, never its text. The text
         # and traceback go to debug only (they may carry paths or credentials).
@@ -223,44 +198,7 @@ async def _render_and_store_device(
         )
         logger.debug("render-jinja-template failure detail device_id=%s", device_id, exc_info=True)
         error = device_error_from_exception(exc, node_id=node_id, step_id=_STEP_ID)
-        return device_id, fail_device_with_error(device, error), False
-
-
-def _partition_render_results(
-    results: list[tuple[str, DeviceContext, bool]],
-) -> tuple[dict[str, DeviceContext], dict[str, DeviceContext]]:
-    success_devices: dict[str, DeviceContext] = {}
-    failed_devices: dict[str, DeviceContext] = {}
-    for device_id, updated_device, ok in results:
-        if ok:
-            success_devices[device_id] = updated_device
-        else:
-            failed_devices[device_id] = updated_device
-    return success_devices, failed_devices
-
-
-def _build_render_outcomes(
-    context: WorkflowContext,
-    success_devices: dict[str, DeviceContext],
-    failed_devices: dict[str, DeviceContext],
-    metadata: dict[str, Any],
-) -> list[StepOutcome]:
-    outcomes = [
-        StepOutcome(
-            name="success",
-            context=context.model_copy(update={"devices": success_devices, "metadata": metadata}),
-        )
-    ]
-    if failed_devices:
-        outcomes.append(
-            StepOutcome(
-                name="failure",
-                context=context.model_copy(
-                    update={"devices": failed_devices, "metadata": metadata}
-                ),
-            )
-        )
-    return outcomes
+        return Fail(error.code, error.message, error.failure)
 
 
 async def execute(
@@ -293,25 +231,22 @@ async def execute(
         output_key,
     )
 
-    results = await asyncio.gather(
-        *[
-            _render_and_store_device(
-                device_id,
-                device,
-                template=template,
-                output_key=output_key,
-                node_id=node_id,
-                context=context,
-                run=run,
-                artifact_service=artifact_service,
-                allow_multiline_values=allow_multiline_values,
-                uses_commands=uses_commands,
-            )
-            for device_id, device in context.devices.items()
-        ]
-    )
+    async def _work(device_id: str, device: DeviceContext) -> DeviceContext | Fail:
+        return await _render_and_store_device(
+            device_id,
+            device,
+            template=template,
+            output_key=output_key,
+            node_id=node_id,
+            context=context,
+            run=run,
+            artifact_service=artifact_service,
+            allow_multiline_values=allow_multiline_values,
+            uses_commands=uses_commands,
+        )
 
-    success_devices, failed_devices = _partition_render_results(results)
+    batch = await run_per_device(context, _work, node_id=node_id, step_id=_STEP_ID)
+    success_devices, failed_devices = dict(batch.ok), dict(batch.failed)
     metadata = {
         **context.metadata,
         f"{node_id}.rendered_template_key": output_key,
@@ -326,4 +261,4 @@ async def execute(
         log_run_id(run),
     )
 
-    return _build_render_outcomes(context, success_devices, failed_devices, metadata)
+    return build_outcomes(context, success_devices, failed_devices, metadata=metadata)

@@ -329,6 +329,38 @@ class UnexpectedErrorTextTests(unittest.IsolatedAsyncioTestCase):
         self.assertIs(debug[0].exc_info[0], RuntimeError)
 
 
+class TemplateErrorAndMetadataTests(unittest.IsolatedAsyncioTestCase):
+    """W3a-05 (characterization): a template error keeps its own text (the step's error, D3) and
+    both outcomes carry the step's metadata."""
+
+    async def test_a_template_error_fails_only_that_device_and_both_outcomes_carry_counts(
+        self,
+    ) -> None:
+        good = make_device("d1")
+        bad = make_device("d2")
+        template = "{% if device.hostname == 'd2' %}{{ nope_not_defined.attr }}{% endif %}ok"
+
+        outcomes = await execute(
+            config={"output_key": "cfg", "template": template},
+            context=make_context([good, bad]),
+            run=MagicMock(),
+            artifact_service=InMemoryArtifactService(),
+            node_id="render-7",
+            device_sessions=MagicMock(),
+        )
+
+        by_name = {o.name: o.context for o in outcomes}
+        self.assertEqual(list(by_name["success"].devices), ["d1"])
+        error = by_name["failure"].devices["d2"].errors[-1]
+        self.assertEqual(error.code, "template_error")
+        self.assertIn("nope_not_defined", error.message)
+        for name in ("success", "failure"):
+            metadata = by_name[name].metadata
+            self.assertEqual(metadata["render-7.rendered_template_key"], "cfg")
+            self.assertEqual(metadata["render-7.rendered_success_count"], 1)
+            self.assertEqual(metadata["render-7.rendered_failure_count"], 1)
+
+
 class CommandArtifactReadTests(unittest.IsolatedAsyncioTestCase):
     """W3a-15: upstream command artifacts are read only for a template that names them."""
 

@@ -107,7 +107,10 @@ def _errors(device: DeviceContext) -> list[tuple[str, str, str, Any]]:
 
 async def test_the_device_triple_and_records(caplog: pytest.LogCaptureFixture) -> None:
     netmiko = _netmiko()
-    with caplog.at_level(logging.INFO, logger="workflow_steps.run_command.exec_mode"):
+    with (
+        caplog.at_level(logging.INFO, logger="workflow_steps.run_command.exec_mode"),
+        caplog.at_level(logging.INFO, logger="workflow_steps.common.device_runner"),
+    ):
         success, failed, raw, artifacts = await _call(_parsed(), netmiko)
 
     assert list(success) == ["ok"]
@@ -154,9 +157,12 @@ async def test_the_device_triple_and_records(caplog: pytest.LogCaptureFixture) -
     assert len({r.artifact_id for r in refs if r}) == 6
 
     messages = [r.getMessage() for r in caplog.records]
-    assert "run-command device 1/5 id=ok host=10.0.0.1: connecting run_id=7" in messages
-    assert "run-command device 1/5 id=ok host=10.0.0.1: ok run_id=7" in messages
-    assert "run-command device 2/5 id=nohost host=(no host): failed run_id=7" in messages
+    # W3a-05: the per-device lines come from the shared runner (as config mode), with the
+    # context's run id.
+    run_id = _context().run_id
+    assert f"run-command device 1/5 id=ok host=10.0.0.1: connecting run_id={run_id}" in messages
+    assert f"run-command device 1/5 id=ok host=10.0.0.1: ok run_id={run_id}" in messages
+    assert f"run-command device 2/5 id=nohost host=(no host): failed run_id={run_id}" in messages
     assert any("auto-confirmed 1 prompt(s) run_id=7 node_id=n1 device_id=ok" in m for m in messages)
 
 
