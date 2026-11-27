@@ -39,6 +39,14 @@ _VOLATILE = frozenset({"modTs", "createTs", "childAction", "lcOwn", "uid"})
 # name also must survive ``sanitize_relative_path`` unchanged (it rewrites ``..`` and strips leading
 # and trailing dots), otherwise two tenants could share one file: no ``..``, no edge dots.
 _SAFE_NAME = re.compile(r"^(?!.*\.\.)[A-Za-z0-9_\-](?:[A-Za-z0-9_.\-]{0,62}[A-Za-z0-9_\-])?$")
+
+
+def is_safe_aci_name(name: str) -> bool:
+    """True for an ACI name the export may use in a URL and as a file name (``_SAFE_NAME``);
+    ``backup-aci-config`` checks its tenant list with the same rule (W8-09)."""
+    return bool(_SAFE_NAME.match(name))
+
+
 # Attributes that hold a secret (a protocol password or key, an SNMP community, a VMM password).
 # The APIC returns them empty for most objects; one that arrives with a value is replaced, so a
 # backup repository never becomes a store of keys. Compared case-insensitively, whole name.
@@ -150,7 +158,7 @@ class AciConfigExportService:
         async def read(
             label: str, name: str | None, path: str
         ) -> tuple[str, str | None, str | None]:
-            if name is not None and not _SAFE_NAME.match(name):
+            if name is not None and not is_safe_aci_name(name):
                 return label, None, "the tenant name is not safe to use as a file name"
             async with gate:
                 try:

@@ -344,7 +344,7 @@ sorted, 2-space indent, trailing newline. Unchanged files give no commit. The li
 
 **All or nothing.** Everything is read first (tenants four at a time). If any object cannot be read, for example a tenant larger than the APIC will return
 in one answer, the step fails with the list of objects and **writes nothing** and takes no repository lock, so the repository never mixes old and new files.
-A tenant name outside `[A-Za-z0-9_.-]{1,64}` is never put in a URL or file name (reported as an error). An unknown name in `tenants` is a configuration error.
+A tenant name outside `[A-Za-z0-9_.-]{1,64}`, or one with `..` or a leading or trailing dot, is never put in a URL or file name (reported as an error); the step checks its `tenants` list with the same rule (`config_export_service.is_safe_aci_name`), so such a name is a configuration error before anything is read. An unknown name in `tenants` is a configuration error.
 
 **Git.** Same lifecycle as `store-artifact` (destination git): `GitArtifactSink` with `pull_before_write`, the per-repository lease held from prepare to finalize
 and always released, commit (`commit`, default on, message with `{source_id}`), push (`push`, default off, needs `commit`). Files of tenants the APIC no

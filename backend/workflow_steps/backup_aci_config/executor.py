@@ -10,7 +10,6 @@ deleted. The workflow's devices are not used and pass through unchanged.
 from __future__ import annotations
 
 import logging
-import re
 from typing import TYPE_CHECKING, Any
 
 from git.exc import GitCommandError
@@ -20,6 +19,7 @@ from core.models.runs import WorkflowRun
 from models.failure import failure_from_exception
 from models.workflow_context import StepOutcome, WorkflowContext
 from services.aci.common.exceptions import AciAPIError, AciAuthError, AciValidationError
+from services.aci.config_export_service import is_safe_aci_name
 from services.artifacts import ArtifactService
 from services.artifacts.sinks.git_sink import GitArtifactSink, GitSinkPrepareError
 from services.git.failure import GitOperationError, classify_git_exception
@@ -44,7 +44,6 @@ MAX_MESSAGE_CHARS = 200
 MAX_SUMMARY_CHARS = 500
 # A git error ends the step on ``failure``; anything else (a filesystem error, a bug) raises.
 _GIT_ERRORS = (GitOperationError, GitCommandError)
-_TENANT_NAME = re.compile(r"^[A-Za-z0-9_.\-]{1,64}$")
 
 
 def _build_sink(
@@ -82,7 +81,7 @@ def _tenants(raw: Any) -> tuple[str, ...] | None:
     if not isinstance(raw, list) or not all(isinstance(item, str) for item in raw):
         raise ValueError(f"{_STEP_ID}: tenants must be a list of tenant names")
     names = [item.strip() for item in raw if item.strip()]
-    bad = [name for name in names if not _TENANT_NAME.match(name)]
+    bad = [name for name in names if not is_safe_aci_name(name)]
     if bad:
         raise ValueError(f"{_STEP_ID}: not a tenant name: {', '.join(repr(b) for b in bad)}")
     return tuple(names) or None

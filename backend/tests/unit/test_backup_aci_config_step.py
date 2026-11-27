@@ -321,6 +321,11 @@ class ExecutorTests(unittest.IsolatedAsyncioTestCase):
             {"git_repository_id": True},
             {"tenants": "Heroes"},
             {"tenants": ["bad/name"]},
+            # W8-09: the export service's rule, checked when the config is read.
+            {"tenants": ["edge."]},
+            {"tenants": [".edge"]},
+            {"tenants": ["two..dots"]},
+            {"tenants": ["x" * 65]},
             {"tenants": [1]},
             {"repository_subdirectory": "../outside"},
             {"repository_subdirectory": "/abs"},
