@@ -1,4 +1,5 @@
-"""Resolve update-nautobot-device field value expressions against device context."""
+"""Update-nautobot-device fields: map the nautobot bag to fields, and resolve the field value
+expressions against the device context."""
 
 from __future__ import annotations
 
@@ -16,10 +17,135 @@ from workflow_steps.common.attribute_expression import (
     resolve_path_value,
     stringify_resolved,
 )
-from workflow_steps.common.nautobot_update_fields import (
-    DEVICE_FIELD_KEYS,
-    extract_update_fields_from_nautobot_bag,
+from workflow_steps.common.interface_values import strip_empty
+
+# --- the nautobot bag as update-nautobot-device fields (W2-10: was nautobot_update_fields.py) ---
+
+_NAMED_REFERENCE_FIELDS = frozenset(
+    {"location", "role", "status", "platform", "secrets_group", "rack"}
 )
+_DEVICE_TYPE_FIELD = "device_type"
+
+
+def _named_reference_value(value: Any) -> str | None:
+    if isinstance(value, dict):
+        for key in ("name", "id"):
+            candidate = strip_empty(value.get(key))
+            if candidate is not None:
+                return str(candidate)
+        return None
+    cleaned = strip_empty(value)
+    return str(cleaned) if cleaned is not None else None
+
+
+def _device_type_value(value: Any) -> str | None:
+    if isinstance(value, dict):
+        for key in ("model", "name", "id"):
+            candidate = strip_empty(value.get(key))
+            if candidate is not None:
+                return str(candidate)
+        return None
+    cleaned = strip_empty(value)
+    return str(cleaned) if cleaned is not None else None
+
+
+def _primary_ip4_value(value: Any) -> str | None:
+    if isinstance(value, dict):
+        for key in ("address", "host"):
+            candidate = strip_empty(value.get(key))
+            if candidate is not None:
+                return str(candidate)
+        return None
+    cleaned = strip_empty(value)
+    return str(cleaned) if cleaned is not None else None
+
+
+def _tags_value(value: Any) -> list[str] | str | None:
+    if isinstance(value, str):
+        cleaned = strip_empty(value)
+        return cleaned
+    if not isinstance(value, list):
+        return None
+    tags: list[str] = []
+    for item in value:
+        if isinstance(item, str):
+            cleaned = strip_empty(item)
+            if cleaned:
+                tags.append(str(cleaned))
+            continue
+        if isinstance(item, dict):
+            cleaned = _named_reference_value(item)
+            if cleaned:
+                tags.append(cleaned)
+    return tags or None
+
+
+def _custom_fields_value(value: Any) -> dict[str, str] | None:
+    if not isinstance(value, dict) or not value:
+        return None
+    cleaned = {
+        str(key): str(item)
+        for key, item in value.items()
+        if str(key).strip() and item is not None and str(item).strip()
+    }
+    return cleaned or None
+
+
+def _scalar_value(value: Any) -> str | None:
+    cleaned = strip_empty(value)
+    return str(cleaned) if cleaned is not None else None
+
+
+# The fields of an update-nautobot-device spec, in the order payloads are built and reported.
+DEVICE_FIELD_KEYS: tuple[str, ...] = (
+    "name",
+    "location",
+    "serial",
+    "role",
+    "status",
+    "device_type",
+    "platform",
+    "secrets_group",
+    "software_version",
+    "asset_tag",
+    "tags",
+    "custom_fields",
+    "primary_ip4",
+    "rack",
+    "position",
+    "face",
+)
+
+
+def extract_update_fields_from_nautobot_bag(bag: dict[str, Any]) -> dict[str, Any]:
+    """Extract flat update-nautobot-device fields from a nautobot attribute bag."""
+    if not isinstance(bag, dict) or not bag:
+        return {}
+
+    update_data: dict[str, Any] = {}
+
+    for key in DEVICE_FIELD_KEYS:
+        if key not in bag:
+            continue
+
+        value = bag[key]
+        if key in _NAMED_REFERENCE_FIELDS:
+            normalized = _named_reference_value(value)
+        elif key == _DEVICE_TYPE_FIELD:
+            normalized = _device_type_value(value)
+        elif key == "primary_ip4":
+            normalized = _primary_ip4_value(value)
+        elif key == "tags":
+            normalized = _tags_value(value)
+        elif key == "custom_fields":
+            normalized = _custom_fields_value(value)
+        else:
+            normalized = _scalar_value(value)
+
+        if normalized is not None:
+            update_data[key] = normalized
+
+    return update_data
 
 
 def normalize_field_spec(raw: Any) -> tuple[bool, str]:

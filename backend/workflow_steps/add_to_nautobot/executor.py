@@ -31,7 +31,6 @@ from workflow_steps.common.interface_payload import (
     normalize_interfaces,
 )
 from workflow_steps.common.nautobot_step import bind_nautobot_client
-from workflow_steps.common.nautobot_update_fields import extract_update_fields_from_nautobot_bag
 from workflow_steps.common.partial_outcomes import NAUTOBOT_TEXT, device_error_from_exception
 from workflow_steps.common.redundancy_groups import (
     DEFAULT_REDUNDANCY_STATUS,
@@ -39,7 +38,10 @@ from workflow_steps.common.redundancy_groups import (
 )
 from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.common.step_flags import parse_bool_flag, record_dry_run
-from workflow_steps.common.value_expression import build_resolved_update_data
+from workflow_steps.common.value_expression import (
+    build_resolved_update_data,
+    extract_update_fields_from_nautobot_bag,
+)
 
 if TYPE_CHECKING:
     from services.network.netmiko.session_pool import DeviceSessionPool

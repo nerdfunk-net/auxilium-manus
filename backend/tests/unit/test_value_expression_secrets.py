@@ -58,7 +58,7 @@ class DeviceFieldOrderTests(unittest.TestCase):
     """W2-06: the payload order and the field that fails first do not depend on hash seeds."""
 
     def test_the_payload_follows_the_declared_field_order(self) -> None:
-        from workflow_steps.common.nautobot_update_fields import DEVICE_FIELD_KEYS
+        from workflow_steps.common.value_expression import DEVICE_FIELD_KEYS
 
         device = DeviceContext(id="d1", name="d1", hostname="d1")
         raw = {
@@ -88,7 +88,7 @@ class DeviceFieldOrderTests(unittest.TestCase):
             build_resolved_update_data(device=device, raw_fields=raw)
 
     def test_the_field_list_is_declared_once(self) -> None:
-        from workflow_steps.common import nautobot_update_fields
+        from workflow_steps.common import value_expression
 
-        assert len(set(nautobot_update_fields.DEVICE_FIELD_KEYS)) == 16
-        assert nautobot_update_fields.DEVICE_FIELD_KEYS[0] == "name"
+        assert len(set(value_expression.DEVICE_FIELD_KEYS)) == 16
+        assert value_expression.DEVICE_FIELD_KEYS[0] == "name"
