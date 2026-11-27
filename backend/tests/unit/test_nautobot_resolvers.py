@@ -9,7 +9,12 @@ from __future__ import annotations
 import unittest
 from unittest.mock import AsyncMock, MagicMock
 
-from services.nautobot.common.exceptions import NautobotAmbiguousMatchError, NautobotAPIError
+from services.nautobot.common.exceptions import (
+    NautobotAmbiguousMatchError,
+    NautobotAPIError,
+    NautobotInvalidResponseError,
+    NautobotNotFoundError,
+)
 from services.nautobot.resolvers.base_resolver import BaseResolver
 from services.nautobot.resolvers.device_resolver import DeviceResolver
 from services.nautobot.resolvers.metadata_resolver import MetadataResolver
@@ -514,19 +519,48 @@ class NetworkResolverTests(unittest.IsolatedAsyncioTestCase):
             ).resolve_interface_by_name("d1", "Gi0/0")
         )
 
-    async def test_resolve_prefix_found_missing_and_exception(self) -> None:
-        self.assertEqual(
-            await NetworkResolver(
-                _service(rest={"count": 1, "results": [{"id": _UUID}]})
-            ).resolve_prefix("10.0.0.0/24", "ns"),
-            _UUID,
-        )
-        self.assertIsNone(
-            await NetworkResolver(_service(rest={"count": 0})).resolve_prefix("10.0.0.0/24", "ns")
-        )
+    async def test_resolve_prefix_returns_the_one_match(self) -> None:
+        svc = _service(rest={"count": 1, "results": [{"id": _UUID}]})
+        self.assertEqual(await NetworkResolver(svc).resolve_prefix("10.0.0.0/24", "ns"), _UUID)
+        endpoint = svc.rest_request.await_args.kwargs["endpoint"]
+        self.assertIn("prefix=10.0.0.0%2F24", endpoint)
+        self.assertIn("namespace=ns", endpoint)
+
+    async def test_resolve_prefix_is_strict(self) -> None:
+        """W5-15: none, several and a malformed answer raise; a first match is never guessed."""
+        cases = [
+            ({"count": 0, "results": []}, NautobotNotFoundError),
+            ({"count": 2, "results": [{"id": _UUID}, {"id": _UUID}]}, NautobotAmbiguousMatchError),
+            ({"count": 2, "results": [{"id": _UUID}]}, NautobotAmbiguousMatchError),
+            ({"count": 1, "next": "p2", "results": [{"id": _UUID}]}, NautobotAmbiguousMatchError),
+            (["not", "a", "mapping"], NautobotInvalidResponseError),
+            ({"count": 1, "results": [{"id": "../x"}]}, NautobotInvalidResponseError),
+        ]
+        for body, error in cases:
+            with self.subTest(body=body), self.assertRaises(error):
+                await NetworkResolver(_service(rest=body)).resolve_prefix("10.0.0.0/24", "ns")
+
+    async def test_resolve_prefix_lets_a_request_error_through(self) -> None:
         svc = MagicMock()
-        svc.rest_request = AsyncMock(side_effect=RuntimeError("x"))
-        self.assertIsNone(await NetworkResolver(svc).resolve_prefix("10.0.0.0/24", "ns"))
+        svc.rest_request = AsyncMock(side_effect=NautobotAPIError("down", http_status=503))
+        with self.assertRaises(NautobotAPIError):
+            await NetworkResolver(svc).resolve_prefix("10.0.0.0/24", "ns")
+
+    async def test_available_ips_reads_the_list_with_the_limit(self) -> None:
+        svc = _service(rest=[{"address": "10.0.0.5/24"}])
+        self.assertEqual(
+            await NetworkResolver(svc).available_ips(_UUID, limit=7), [{"address": "10.0.0.5/24"}]
+        )
+        endpoint = svc.rest_request.await_args.kwargs["endpoint"]
+        self.assertTrue(endpoint.startswith(f"ipam/prefixes/{_UUID}/available-ips/?"))
+        self.assertIn("limit=7", endpoint)
+
+    async def test_available_ips_refuses_a_body_that_is_not_a_list(self) -> None:
+        with self.assertRaises(NautobotInvalidResponseError):
+            await NetworkResolver(_service(rest={"results": []})).available_ips(_UUID, limit=1)
+
+    def test_an_invalid_response_is_classified_as_such(self) -> None:
+        self.assertEqual(NautobotInvalidResponseError("x").failure.kind, "invalid_response")
 
 
 if __name__ == "__main__":

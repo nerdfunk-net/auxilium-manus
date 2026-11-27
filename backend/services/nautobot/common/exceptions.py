@@ -49,6 +49,10 @@ class NautobotAPIError(NautobotError):
     """Raised when a Nautobot API request fails."""
 
 
+class NautobotInvalidResponseError(NautobotAPIError):
+    """Nautobot answered, but not in the shape the request expects (W5-15)."""
+
+
 class NautobotAmbiguousMatchError(NautobotError):
     """More than one Nautobot object matches one workflow device (C3-03)."""
 

@@ -34,14 +34,6 @@ def not_found(code: str, message: str) -> LookupFailure:
     )
 
 
-def more_than_one(body: Any, results: list[dict[str, Any]]) -> bool:
-    """A second row in the list, or one the answer says exists on another page."""
-    if len(results) > 1 or (isinstance(body, dict) and body.get("next")):
-        return True
-    count = body.get("count") if isinstance(body, dict) else None
-    return isinstance(count, int) and count > len(results)
-
-
 def uuid_or_invalid(value: Any) -> str:
     """An id that is interpolated into a request path must be a UUID."""
     text = str(value or "")

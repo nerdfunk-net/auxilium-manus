@@ -891,7 +891,9 @@ All are in the `nautobot` palette category; the first two share
 `workflow_steps/common/nautobot_prefix_lookup.py` (`find_containing_prefix`, `LookupFailure`).
 
 - **Prefix and namespace.** `get-next-free-ip` finds the prefix by namespace (name, UUID or `{path}`,
-  default `Global`) and CIDR, then reads `/ipam/prefixes/{id}/available-ips/`. A value with a length
+  default `Global`) and CIDR, then reads `/ipam/prefixes/{id}/available-ips/` (both through
+  `DeviceCommonService` / `NetworkResolver`: `resolve_prefix` refuses a name that matches several prefixes,
+  `available_ips` a body that is not a list). A value with a length
   (`192.168.178.240/24`) is reduced to its network (`192.168.178.0/24`). A bare address
   (`{device.primary_ip4}`) has no length: the step asks Nautobot for the most specific prefix of the
   namespace that contains it (`contains=`). Several spellings of one prefix (`Global` and its UUID, an

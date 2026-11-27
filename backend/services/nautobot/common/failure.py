@@ -12,6 +12,7 @@ from services.nautobot.common.exceptions import (
     NautobotAPIError,
     NautobotDuplicateResourceError,
     NautobotError,
+    NautobotInvalidResponseError,
     NautobotNotFoundError,
     NautobotResourceNotFoundError,
     NautobotValidationError,
@@ -58,6 +59,8 @@ def _kind(exc: NautobotError) -> FailureKind:
         return "not_found"
     if isinstance(exc, NautobotValidationError):
         return "bad_request"
+    if isinstance(exc, NautobotInvalidResponseError):
+        return "invalid_response"
     if isinstance(exc, NautobotAPIError):
         if exc.code == "timeout":
             return "timeout"

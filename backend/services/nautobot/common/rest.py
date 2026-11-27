@@ -15,6 +15,14 @@ def rest_query(**params: Any) -> str:
     )
 
 
+def more_than_one(body: Any, results: list[dict[str, Any]]) -> bool:
+    """A second row in a REST list answer, or one the answer says exists on another page."""
+    if len(results) > 1 or (isinstance(body, dict) and body.get("next")):
+        return True
+    count = body.get("count") if isinstance(body, dict) else None
+    return isinstance(count, int) and count > len(results)
+
+
 def _next_endpoint(next_url: str, endpoint: str) -> str:
     """Turn an absolute ``next`` link into an endpoint relative to the API root."""
     parts = urlsplit(next_url)

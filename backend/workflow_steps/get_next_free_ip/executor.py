@@ -14,7 +14,11 @@ from models.workflow_context import (
     WorkflowContext,
 )
 from services.artifacts import ArtifactService
-from services.nautobot.common.exceptions import NautobotAmbiguousMatchError
+from services.nautobot.common.exceptions import (
+    NautobotAmbiguousMatchError,
+    NautobotInvalidResponseError,
+    NautobotNotFoundError,
+)
 from services.nautobot.credentials_bound_client import CredentialsBoundNautobotClient
 from services.nautobot.devices.common import DeviceCommonService
 from workflow_steps.common.attribute_write import set_device_attribute
@@ -27,6 +31,7 @@ from workflow_steps.common.nautobot_plan_fields import (
     not_found_failure,
     resolve_field,
 )
+from workflow_steps.common.nautobot_prefix_lookup import not_found
 from workflow_steps.common.nautobot_step import bind_nautobot_client
 from workflow_steps.common.partial_outcomes import (
     NAUTOBOT_TEXT,
@@ -37,9 +42,7 @@ from workflow_steps.get_next_free_ip.config import get_config
 from workflow_steps.get_next_free_ip.lookup import (
     AVAILABLE_IPS_CAP,
     LookupFailure,
-    fetch_available_ips,
     resolve_containing_prefix,
-    resolve_prefix_id,
 )
 from workflow_steps.get_next_free_ip.pool import (
     bare_address,
@@ -140,6 +143,37 @@ async def _resolve_namespace(bound: _Bound, namespace: str) -> str:
         ) from exc
 
 
+def _invalid_response(exc: NautobotInvalidResponseError) -> LookupFailure:
+    return LookupFailure(
+        "invalid_response", str(exc), FailureInfo(phase="api", kind="invalid_response")
+    )
+
+
+async def _resolve_prefix_id(bound: _Bound, prefix: str, namespace_id: str, label: str) -> str:
+    """The one prefix UUID in the namespace; none, several or a malformed answer fail."""
+    try:
+        return await bound.common.resolve_prefix_id(prefix, namespace_id)
+    except NautobotNotFoundError as exc:
+        raise not_found(
+            "prefix_not_found", f"Prefix {prefix} not found in namespace {label!r}"
+        ) from exc
+    except NautobotAmbiguousMatchError as exc:
+        raise LookupFailure(
+            "prefix_ambiguous",
+            f"Prefix {prefix} matches several prefixes in namespace {label!r}",
+            FailureInfo(phase="api", kind="ambiguous_match", hint="check_request"),
+        ) from exc
+    except NautobotInvalidResponseError as exc:
+        raise _invalid_response(exc) from exc
+
+
+async def _available_ips(bound: _Bound, prefix_id: str, *, limit: int) -> list[Any]:
+    try:
+        return await bound.common.available_ips(prefix_id, limit=limit)
+    except NautobotInvalidResponseError as exc:
+        raise _invalid_response(exc) from exc
+
+
 def _failed(
     device: DeviceContext, *, node_id: str, code: str, message: str, failure: FailureInfo
 ) -> DeviceContext:
@@ -205,9 +239,7 @@ async def _resolve_target(
         )
         network = parse_prefix(found)
     else:
-        prefix_id = await resolve_prefix_id(
-            bound.client, str(network), namespace_id, namespace_label=namespace
-        )
+        prefix_id = await _resolve_prefix_id(bound, str(network), namespace_id, namespace)
     return _Target(
         prefix_id=prefix_id, network=network, label=f"{network} (namespace {namespace!r})"
     )
@@ -227,7 +259,7 @@ async def _load_pool(
     """
     wanted = window_size(parsed.start_offset, parsed.count, devices, cap=AVAILABLE_IPS_CAP * 1000)
     limit = min(wanted, AVAILABLE_IPS_CAP)
-    available = await fetch_available_ips(bound.client, target.prefix_id, limit=limit)
+    available = await _available_ips(bound, target.prefix_id, limit=limit)
     window_cut = wanted > AVAILABLE_IPS_CAP and len(available) >= AVAILABLE_IPS_CAP
     return free_addresses_from(available, target.network, parsed.start_offset), window_cut
 

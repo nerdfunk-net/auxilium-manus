@@ -3,10 +3,15 @@ Network resolver for IP addresses, Interfaces, Namespaces, Prefixes resolution.
 """
 
 import logging
+from typing import Any
 
-from services.nautobot.common.rest import rest_query
+from services.nautobot.common.rest import more_than_one, rest_query
 
-from ..common.exceptions import NautobotAmbiguousMatchError
+from ..common.exceptions import (
+    NautobotAmbiguousMatchError,
+    NautobotInvalidResponseError,
+    NautobotNotFoundError,
+)
 from ..common.utils import graphql_errors_summary
 from ..common.validators import is_valid_uuid
 from .base_resolver import BaseResolver
@@ -171,36 +176,36 @@ class NetworkResolver(BaseResolver):
             logger.error("Error resolving interface: %s", e, exc_info=True)
             return None
 
-    async def resolve_prefix(self, prefix: str, namespace_id: str) -> str | None:
+    async def resolve_prefix(self, prefix: str, namespace_id: str) -> str:
+        """The UUID of the one prefix *prefix* in the namespace (W5-15: never a first match).
+
+        Raises:
+            NautobotNotFoundError: no such prefix in the namespace.
+            NautobotAmbiguousMatchError: more than one (also one on a further page).
+            NautobotInvalidResponseError: the answer is not a list body or the id not a UUID.
         """
-        Resolve prefix UUID from prefix and namespace.
+        query = rest_query(prefix=prefix, namespace=namespace_id, format="json")
+        body = await self.nautobot.rest_request(endpoint=f"ipam/prefixes/?{query}", method="GET")
+        if not isinstance(body, dict):
+            raise NautobotInvalidResponseError("Nautobot answered with an unexpected body")
+        results = [item for item in body.get("results") or [] if isinstance(item, dict)]
+        if not results:
+            raise NautobotNotFoundError("Prefix not found in the namespace")
+        if more_than_one(body, results):
+            raise NautobotAmbiguousMatchError("A prefix matches more than one prefix")
+        prefix_id = str(results[0].get("id") or "")
+        if not is_valid_uuid(prefix_id.lower()):
+            raise NautobotInvalidResponseError("Nautobot answered with an id that is not a UUID")
+        return prefix_id
 
-        Args:
-            prefix: IP prefix in CIDR format (e.g., "192.168.1.0/24")
-            namespace_id: Namespace UUID
-
-        Returns:
-            Prefix UUID if found, None otherwise
-        """
-        try:
-            logger.debug("Resolving prefix '%s' in namespace %s", prefix, namespace_id)
-
-            # Use REST API for prefix lookup
-            prefix_search_endpoint = (
-                f"ipam/prefixes/?{rest_query(prefix=prefix, namespace=namespace_id, format='json')}"
+    async def available_ips(self, prefix_id: str, *, limit: int) -> list[Any]:
+        """The free addresses of a prefix as Nautobot lists them (``available-ips``)."""
+        query = rest_query(limit=limit, format="json")
+        body = await self.nautobot.rest_request(
+            endpoint=f"ipam/prefixes/{prefix_id}/available-ips/?{query}", method="GET"
+        )
+        if not isinstance(body, list):
+            raise NautobotInvalidResponseError(
+                "Nautobot answered available-ips with an unexpected body"
             )
-            prefix_result = await self.nautobot.rest_request(
-                endpoint=prefix_search_endpoint, method="GET"
-            )
-
-            if prefix_result and prefix_result.get("count", 0) > 0:
-                prefix_id = prefix_result["results"][0]["id"]
-                logger.debug("Resolved prefix '%s' to UUID %s", prefix, prefix_id)
-                return prefix_id
-
-            logger.debug("Prefix not found: %s", prefix)
-            return None
-
-        except Exception as e:
-            logger.error("Error resolving prefix: %s", e, exc_info=True)
-            return None
+        return body
