@@ -1,9 +1,10 @@
 """Write one Nautobot object once per distinct change, however many devices resolve to it.
 
-Manual mode of ``update-nautobot-vlan`` (Update VLAN) and ``update-nautobot-prefix`` (Update IP
-Prefix) resolves every device on its own. With a fixed target (a ``vlan_id`` / ``prefix_id`` or a
-fixed ``vid`` / ``prefix``) all devices resolve to the same object and the same values, so N
-concurrent writes raced for one assignment row and Nautobot refused all but one (W5-01, D6).
+Manual mode of ``update-nautobot-vlan`` (Update VLAN), ``update-nautobot-prefix`` (Update IP
+Prefix) and ``update-nautobot-ip`` (Update IP) resolves every device on its own. With a fixed
+target (a ``vlan_id`` / ``prefix_id`` / ``ip_id`` or a fixed ``vid`` / ``prefix``) all devices
+resolve to the same object and the same values, so N concurrent writes raced for one assignment
+row and Nautobot refused all but one (W5-01, D6; Update IP joined in W5-03).
 
 Items are grouped by the change they ask for (``group_of``); each group is written once and every
 device of the group gets that result. Groups of the same object (``target_of``) run one after the

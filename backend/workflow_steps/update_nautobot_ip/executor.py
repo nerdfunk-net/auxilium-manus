@@ -23,11 +23,14 @@ from services.nautobot.credentials_bound_client import CredentialsBoundNautobotC
 from services.nautobot.devices.common import DeviceCommonService
 from workflow_steps.common.device_outcomes import fail_device_with_error
 from workflow_steps.common.nautobot_plan_fields import (
+    OUTCOME_NAMES,
     PlanError,
     bad_request_failure,
+    build_update_outcomes,
     resolve_fields,
 )
 from workflow_steps.common.nautobot_step import NAUTOBOT_CONCURRENCY, bind_nautobot_client
+from workflow_steps.common.nautobot_write_groups import write_once_per_group
 from workflow_steps.common.step_flags import parse_bool_flag
 from workflow_steps.update_nautobot_ip.interfaces_mode import run_from_interfaces
 from workflow_steps.update_nautobot_ip.lookups import (
@@ -47,7 +50,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-_OUTCOME_NAMES = ("success", "failure")
+_COUNTS_KEY = "update_ip_counts"
 _IP_VERSIONS = ("", "4", "6")
 
 
@@ -140,30 +143,6 @@ async def _update(bound: _Bound, plan: Plan, node_id: str) -> tuple[str, DeviceC
     return "success", device, changed
 
 
-def _build_outcomes(
-    *,
-    context: WorkflowContext,
-    node_id: str,
-    buckets: dict[str, dict[str, DeviceContext]],
-    updated: int,
-) -> list[StepOutcome]:
-    counts = {
-        "updated": updated,
-        "unchanged": len(buckets["success"]) - updated,
-        "failed": len(buckets["failure"]),
-    }
-    metadata = {**context.metadata, f"{node_id}.update_ip_counts": counts}
-    return [
-        StepOutcome(
-            name=name,
-            context=context.model_copy(
-                update={"devices": dict(buckets[name]), "metadata": metadata}
-            ),
-        )
-        for name in _OUTCOME_NAMES
-    ]
-
-
 async def execute(
     *,
     config: dict[str, Any],
@@ -176,9 +155,11 @@ async def execute(
     del artifact_service, device_sessions
 
     parsed = _parse_config(config)
-    buckets: dict[str, dict[str, DeviceContext]] = {name: {} for name in _OUTCOME_NAMES}
+    buckets: dict[str, dict[str, DeviceContext]] = {name: {} for name in OUTCOME_NAMES}
     if not context.devices:
-        return _build_outcomes(context=context, node_id=node_id, buckets=buckets, updated=0)
+        return build_update_outcomes(
+            context=context, node_id=node_id, buckets=buckets, updated=0, counts_key=_COUNTS_KEY
+        )
 
     bound = _bind_nautobot(run, parsed.source_id)
     if parsed.from_interfaces:
@@ -219,13 +200,15 @@ async def execute(
         else:
             ready.append(resolved)
 
-    gate = asyncio.Semaphore(NAUTOBOT_CONCURRENCY)
-
-    async def run_one(plan: Plan) -> tuple[str, DeviceContext, bool]:
-        async with gate:
-            return await _update(bound, plan, node_id)
-
-    done = await asyncio.gather(*[run_one(plan) for plan in ready])
+    # Devices that resolve to one address with the same values share one write (W5-03, D6).
+    done = await write_once_per_group(
+        ready,
+        target_of=lambda plan: plan.ip_id,
+        group_of=lambda plan: (plan.ip_id, tuple(sorted(plan.values.items())), plan.namespace),
+        device_of=lambda plan: plan.device,
+        write=lambda plan: _update(bound, plan, node_id),
+        gate=asyncio.Semaphore(NAUTOBOT_CONCURRENCY),
+    )
     updated = 0
     for plan, (bucket, device, changed) in zip(ready, done, strict=True):
         results[plan.device.id] = (bucket, device)
@@ -242,4 +225,6 @@ async def execute(
         updated,
         context.run_id,
     )
-    return _build_outcomes(context=context, node_id=node_id, buckets=buckets, updated=updated)
+    return build_update_outcomes(
+        context=context, node_id=node_id, buckets=buckets, updated=updated, counts_key=_COUNTS_KEY
+    )

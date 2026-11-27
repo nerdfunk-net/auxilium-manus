@@ -39,7 +39,6 @@ LEGACY_PRIVATE_HELPERS: dict[str, int] = {
     "workflow_steps/undefined_and_unused/executor.py": 1,
     "workflow_steps/update_config_context/executor.py": 2,
     "workflow_steps/update_nautobot_device/executor.py": 2,
-    "workflow_steps/update_nautobot_ip/executor.py": 1,
 }
 
 
