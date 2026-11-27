@@ -1718,7 +1718,10 @@ missing or blank key it reads `get_config()["key"]` (for example
 `config.get("mode") or get_config()["mode"]`); it does not restate the value as a module
 constant or a literal, so the panel's pre-filled value and the value the step falls back to
 cannot drift apart. A shared constant from `common/` (such as `DEFAULT_SOCKET_TIMEOUT`) is
-imported by `config.py`. `tests/unit/test_step_defaults_declared_once.py` enforces it.
+imported by `config.py`. `tests/unit/test_step_defaults_declared_once.py` enforces it. A flag
+parser reads the step's `config` itself and takes the fallback from `default=`; it is not handed
+an inline `{**get_config(), **config}` merge (that says the default a second time). Booleans are
+the exception to the first rule: `default=True` / `default=False` stays a literal.
 
 **The step id is one constant.** A module that needs its own registry id declares
 `_STEP_ID = "<registry id>"` and uses only that name (never the literal again). When several

@@ -70,19 +70,13 @@ def _parse_compare_config(config: dict[str, Any]) -> _ParsedCompareConfig:
         source_step_node_id=str(config.get("source_step_node_id") or "").strip() or None,
         parsed_output_key=str(config.get("parsed_output_key") or "").strip() or None,
         reference_location=(
-            str(
-                config.get("reference_location")
-                or get_config().get("reference_location")
-                or "filesystem"
-            )
+            str(config.get("reference_location") or get_config()["reference_location"])
             .strip()
             .lower()
         ),
-        normalize_line_endings=parse_bool_flag(
-            {**get_config(), **config}, "normalize_line_endings", default=True
-        ),
+        normalize_line_endings=parse_bool_flag(config, "normalize_line_endings", default=True),
         ignore_trailing_whitespace=parse_bool_flag(
-            {**get_config(), **config}, "ignore_trailing_whitespace", default=False
+            config, "ignore_trailing_whitespace", default=False
         ),
     )
 

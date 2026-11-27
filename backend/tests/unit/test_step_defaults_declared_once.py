@@ -190,3 +190,48 @@ def test_socket_timeout_default_is_the_common_constant() -> None:
         assert '"socket_timeout": DEFAULT_SOCKET_TIMEOUT' in source, package
         config = importlib.import_module(f"workflow_steps.{package}.config").get_config()
         assert config["socket_timeout"] == DEFAULT_SOCKET_TIMEOUT
+
+
+_FLAG_PARSERS = frozenset({"parse_bool_flag", "parse_int_flag", "parse_output_key"})
+
+
+def _merged_flag_reads(tree: ast.AST) -> list[int]:
+    """Lines where a flag parser reads a ``{**get_config(), ...}`` dict built in the call."""
+    lines: list[int] = []
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.Call) and node.args):
+            continue
+        name = getattr(node.func, "id", None) or getattr(node.func, "attr", None)
+        first = node.args[0]
+        if name in _FLAG_PARSERS and isinstance(first, ast.Dict):
+            unpacked = [v for k, v in zip(first.keys, first.values, strict=True) if k is None]
+            if any(
+                isinstance(v, ast.Call) and getattr(v.func, "id", None) == "get_config"
+                for v in unpacked
+            ):
+                lines.append(node.lineno)
+    return lines
+
+
+def test_flag_parsers_read_the_step_config_not_an_inline_merge() -> None:
+    """The parser's ``default`` is the fallback; merging ``get_config()`` into the argument says
+    the default a second time (route-on-content did it per flag)."""
+    modules = sorted(_STEPS.glob("*/*.py"))
+    # One directory per step: an empty scan would pass by accident.
+    assert len(modules) > 300
+    found = {
+        str(module.relative_to(_STEPS)): lines
+        for module in modules
+        if (lines := _merged_flag_reads(ast.parse(module.read_text())))
+    }
+    assert found == {}
+
+
+def test_the_merge_scan_recognises_an_inline_merge() -> None:
+    tree = ast.parse(
+        'parse_bool_flag({**get_config(), **config}, "x", default=False)\n'
+        'parse_bool_flag(config, "x", default=False)\n'
+        "merged = {**get_config(), **config}\n"
+        'parse_bool_flag(merged, "x")\n'
+    )
+    assert _merged_flag_reads(tree) == [1]

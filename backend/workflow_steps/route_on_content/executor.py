@@ -90,13 +90,9 @@ def _parse_route_config(config: dict[str, Any]) -> _ParsedRouteConfig:
         parsed_output_key=parsed_output_key,
         match_mode=match_mode,
         pattern=pattern,
-        case_sensitive=parse_bool_flag(
-            {**get_config(), **config}, "case_sensitive", default=False
-        ),
-        multiline=parse_bool_flag({**get_config(), **config}, "multiline", default=False),
-        store_matched_text=parse_bool_flag(
-            {**get_config(), **config}, "store_matched_text", default=False
-        ),
+        case_sensitive=parse_bool_flag(config, "case_sensitive", default=False),
+        multiline=parse_bool_flag(config, "multiline", default=False),
+        store_matched_text=parse_bool_flag(config, "store_matched_text", default=False),
     )
 
 
