@@ -12,7 +12,7 @@ from unittest.mock import MagicMock, patch
 from models.workflow_context import Capability, DeviceContext, DeviceStatus, WorkflowContext
 from services.artifacts import InMemoryArtifactService
 from workflow_steps.log_attributes.executor import (
-    LOG_ATTRIBUTES_METADATA_SUFFIX,
+    _METADATA_SUFFIX,
     build_context_snapshot,
     execute,
     format_pretty_text,
@@ -57,7 +57,7 @@ class LogAttributesExecutorTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(len(outcomes), 1)
         self.assertEqual(outcomes[0].name, "success")
-        payload = outcomes[0].context.metadata[f"log-attributes-1{LOG_ATTRIBUTES_METADATA_SUFFIX}"]
+        payload = outcomes[0].context.metadata[f"log-attributes-1{_METADATA_SUFFIX}"]
         self.assertEqual(payload["output_destination"], "stdout")
         self.assertEqual(payload["device_count"], 1)
         snapshot = payload["snapshot"]
@@ -100,9 +100,7 @@ class LogAttributesExecutorTests(unittest.IsolatedAsyncioTestCase):
                     device_sessions=MagicMock(),
                 )
 
-                payload = outcomes[0].context.metadata[
-                    f"log-attributes-2{LOG_ATTRIBUTES_METADATA_SUFFIX}"
-                ]
+                payload = outcomes[0].context.metadata[f"log-attributes-2{_METADATA_SUFFIX}"]
                 target = Path(payload["file_path"])
                 self.assertTrue(target.exists())
                 first_content = target.read_text(encoding="utf-8")
@@ -198,7 +196,7 @@ class LogAttributesExecutorTests(unittest.IsolatedAsyncioTestCase):
             device_sessions=MagicMock(),
         )
 
-        payload = outcomes[0].context.metadata[f"log-attributes-4{LOG_ATTRIBUTES_METADATA_SUFFIX}"]
+        payload = outcomes[0].context.metadata[f"log-attributes-4{_METADATA_SUFFIX}"]
         self.assertFalse(payload["show_parsed_templates"])
         entry = payload["snapshot"]["devices"]["device-1"]["parsed"]["device_config"]
         self.assertNotIn("rendered_content", entry)
@@ -241,7 +239,7 @@ class LogAttributesExecutorTests(unittest.IsolatedAsyncioTestCase):
             device_sessions=MagicMock(),
         )
 
-        payload = outcomes[0].context.metadata[f"log-attributes-5{LOG_ATTRIBUTES_METADATA_SUFFIX}"]
+        payload = outcomes[0].context.metadata[f"log-attributes-5{_METADATA_SUFFIX}"]
         self.assertTrue(payload["show_parsed_templates"])
         entry = payload["snapshot"]["devices"]["device-1"]["parsed"]["device_config"]
         self.assertEqual(entry["rendered_content"], "hostname lab\nrole access-switch")
@@ -272,7 +270,7 @@ class LogAttributesExecutorTests(unittest.IsolatedAsyncioTestCase):
             device_sessions=MagicMock(),
         )
 
-        payload = outcomes[0].context.metadata[f"log-attributes-6{LOG_ATTRIBUTES_METADATA_SUFFIX}"]
+        payload = outcomes[0].context.metadata[f"log-attributes-6{_METADATA_SUFFIX}"]
         self.assertFalse(payload["show_device_configs"])
         device_snapshot = payload["snapshot"]["devices"]["device-1"]
         self.assertNotIn("running_config_content", device_snapshot)
@@ -297,7 +295,7 @@ class LogAttributesExecutorTests(unittest.IsolatedAsyncioTestCase):
             node_id="log-attributes-9",
             device_sessions=MagicMock(),
         )
-        payload = outcomes[0].context.metadata[f"log-attributes-9{LOG_ATTRIBUTES_METADATA_SUFFIX}"]
+        payload = outcomes[0].context.metadata[f"log-attributes-9{_METADATA_SUFFIX}"]
         return payload["snapshot"]["devices"]["device-1"]["running_config_content"]
 
     async def test_attached_config_text_has_secrets_masked(self) -> None:
@@ -366,7 +364,7 @@ class LogAttributesExecutorTests(unittest.IsolatedAsyncioTestCase):
             device_sessions=MagicMock(),
         )
 
-        payload = outcomes[0].context.metadata[f"log-attributes-7{LOG_ATTRIBUTES_METADATA_SUFFIX}"]
+        payload = outcomes[0].context.metadata[f"log-attributes-7{_METADATA_SUFFIX}"]
         self.assertTrue(payload["show_device_configs"])
         device_snapshot = payload["snapshot"]["devices"]["device-1"]
         self.assertEqual(

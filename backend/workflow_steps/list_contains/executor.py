@@ -97,7 +97,7 @@ def _parse_list_contains_config(
         raise ValueError("list-contains: value is required")
 
     case_sensitive = parse_bool_flag(
-        {**get_config(), **config}, "case_sensitive", default=False
+        config, "case_sensitive", default=get_config()["case_sensitive"]
     )
     return list_path, field, value_expr, case_sensitive
 

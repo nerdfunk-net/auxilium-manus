@@ -98,7 +98,7 @@ LEGACY_LONG_FUNCTIONS: dict[str, int] = {
     "workflow_steps/get_virtual_chassis/stack.py": 1,
     "workflow_steps/git_push/executor.py": 1,
     "workflow_steps/list_contains/executor.py": 1,
-    "workflow_steps/log_attributes/executor.py": 2,
+    "workflow_steps/log_attributes/executor.py": 1,
     "workflow_steps/log_message/executor.py": 1,
     "workflow_steps/login_successful/executor.py": 2,
     "workflow_steps/merge_config/executor.py": 2,

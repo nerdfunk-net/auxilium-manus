@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -25,13 +26,23 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-LOG_ATTRIBUTES_METADATA_SUFFIX = ".log_attributes"
+_METADATA_SUFFIX = ".log_attributes"
 _OUTPUT_DESTINATIONS = frozenset({"stdout", "file"})
 _OUTPUT_FORMATS = frozenset({"json", "pretty_text"})
 _FILE_APPEND_SEPARATOR = "\n\n---\n\n"
 
 
-def _parse_config(config: dict[str, Any]) -> dict[str, Any]:
+@dataclass(frozen=True)
+class _LogAttributesConfig:
+    output_destination: str
+    output_format: str
+    filename: str
+    append: bool
+    show_parsed_templates: bool
+    show_device_configs: bool
+
+
+def _parse_config(config: dict[str, Any]) -> _LogAttributesConfig:
     defaults = get_config()
     output_destination = (
         str(config.get("output_destination") or defaults["output_destination"]).strip().lower()
@@ -50,18 +61,18 @@ def _parse_config(config: dict[str, Any]) -> dict[str, Any]:
     if output_destination == "file" and not filename:
         raise ValueError("log-attributes: filename is required when output_destination=file")
 
-    return {
-        "output_destination": output_destination,
-        "output_format": output_format,
-        "filename": filename,
-        "append": parse_bool_flag(config, "append", default=bool(defaults["append"])),
-        "show_parsed_templates": parse_bool_flag(
+    return _LogAttributesConfig(
+        output_destination=output_destination,
+        output_format=output_format,
+        filename=filename,
+        append=parse_bool_flag(config, "append", default=bool(defaults["append"])),
+        show_parsed_templates=parse_bool_flag(
             config, "show_parsed_templates", default=bool(defaults["show_parsed_templates"])
         ),
-        "show_device_configs": parse_bool_flag(
+        show_device_configs=parse_bool_flag(
             config, "show_device_configs", default=bool(defaults["show_device_configs"])
         ),
-    }
+    )
 
 
 def build_context_snapshot(context: WorkflowContext) -> dict[str, Any]:
@@ -190,92 +201,89 @@ def _format_block(value: Any, indent: int) -> list[str]:
     return [f"{prefix}{_format_scalar(value)}"]
 
 
+_IDENTITY_FIELDS = (
+    "id",
+    "name",
+    "hostname",
+    "platform",
+    "network_driver",
+    "primary_ip4",
+    "source",
+    "source_id",
+)
+_DEVICE_SECTIONS = (
+    ("Parsed", "parsed"),
+    ("Command results", "command_results"),
+    ("Errors", "errors"),
+)
+_CONFIG_REFS = (
+    ("Running config ref", "running_config_ref"),
+    ("Startup config ref", "startup_config_ref"),
+)
+_CONFIG_CONTENTS = (
+    ("Running config", "running_config_content"),
+    ("Startup config", "startup_config_content"),
+)
+
+
+def _block_or_none(value: Any, indent: int) -> list[str]:
+    """``value`` as an indented block, or ``(none)`` at that indent when it is empty."""
+    return _format_block(value, indent) if value else [f"{' ' * indent}(none)"]
+
+
+def _identity_lines(device: dict[str, Any]) -> list[str]:
+    lines = ["Identity:"]
+    lines.extend(f"  {field}: {_format_scalar(device.get(field))}" for field in _IDENTITY_FIELDS)
+    lines.append(f"  capabilities: {', '.join(device.get('capabilities') or [])}")
+    lines.append(f"  status: {_format_scalar(device.get('status'))}")
+    return lines
+
+
+def _config_lines(device: dict[str, Any]) -> list[str]:
+    lines: list[str] = []
+    for ref_name, ref_key in _CONFIG_REFS:
+        ref_value = device.get(ref_key)
+        if ref_value:
+            lines.append(f"{ref_name}:")
+            lines.extend(_format_block(ref_value, 2))
+    for content_name, content_key in _CONFIG_CONTENTS:
+        content_value = device.get(content_key)
+        if content_value is not None:
+            lines.append(f"{content_name}:")
+            # Keep multi-line config bodies readable — dump as indented text.
+            lines.extend(f"  {line}" for line in str(content_value).splitlines() or [""])
+    return lines
+
+
+def _device_lines(device_id: str, device: dict[str, Any]) -> list[str]:
+    lines = ["", f"--- Device: {device.get('name', device_id)} ({device_id}) ---"]
+    lines.extend(_identity_lines(device))
+    lines.append("Attribute bags:")
+    lines.extend(_block_or_none(device.get("attribute_bags"), 2))
+    for section_name, section_key in _DEVICE_SECTIONS:
+        lines.append(f"{section_name}:")
+        lines.extend(_block_or_none(device.get(section_key), 2))
+    lines.extend(_config_lines(device))
+    return lines
+
+
 def format_pretty_text(snapshot: dict[str, Any]) -> str:
     """Render a human-readable dump of the full workflow context."""
+    devices = snapshot.get("devices") or {}
     lines = [
         "=== Workflow Context ===",
         f"Run ID: {_format_scalar(snapshot.get('run_id'))}",
         f"Workflow ID: {_format_scalar(snapshot.get('workflow_id'))}",
         f"Schema version: {_format_scalar(snapshot.get('schema_version'))}",
         "",
+        f"Devices ({len(devices)}):",
     ]
-
-    devices = snapshot.get("devices") or {}
-    lines.append(f"Devices ({len(devices)}):")
-    identity_fields = (
-        "id",
-        "name",
-        "hostname",
-        "platform",
-        "network_driver",
-        "primary_ip4",
-        "source",
-        "source_id",
-    )
     for device_id, device in devices.items():
-        if not isinstance(device, dict):
-            continue
-        lines.append("")
-        lines.append(f"--- Device: {device.get('name', device_id)} ({device_id}) ---")
-        lines.append("Identity:")
-        for field in identity_fields:
-            lines.append(f"  {field}: {_format_scalar(device.get(field))}")
-        lines.append(f"  capabilities: {', '.join(device.get('capabilities') or [])}")
-        lines.append(f"  status: {_format_scalar(device.get('status'))}")
-
-        attribute_bags = device.get("attribute_bags") or {}
-        lines.append("Attribute bags:")
-        if attribute_bags:
-            lines.extend(_format_block(attribute_bags, 2))
-        else:
-            lines.append("  (none)")
-
-        for section_name, section_key in (
-            ("Parsed", "parsed"),
-            ("Command results", "command_results"),
-            ("Errors", "errors"),
-        ):
-            section_value = device.get(section_key)
-            lines.append(f"{section_name}:")
-            if section_value:
-                lines.extend(_format_block(section_value, 2))
-            else:
-                lines.append("  (none)")
-
-        for ref_name, ref_key in (
-            ("Running config ref", "running_config_ref"),
-            ("Startup config ref", "startup_config_ref"),
-        ):
-            ref_value = device.get(ref_key)
-            if ref_value:
-                lines.append(f"{ref_name}:")
-                lines.extend(_format_block(ref_value, 2))
-
-        for content_name, content_key in (
-            ("Running config", "running_config_content"),
-            ("Startup config", "startup_config_content"),
-        ):
-            content_value = device.get(content_key)
-            if content_value is not None:
-                lines.append(f"{content_name}:")
-                # Keep multi-line config bodies readable — dump as indented text.
-                for line in str(content_value).splitlines() or [""]:
-                    lines.append(f"  {line}")
-
-    pending_commands = snapshot.get("pending_commands") or {}
-    lines.extend(["", "=== Pending commands ==="])
-    if pending_commands:
-        lines.extend(_format_block(pending_commands, 0))
-    else:
-        lines.append("(none)")
-
-    metadata = snapshot.get("metadata") or {}
-    lines.extend(["", "=== Workflow metadata ==="])
-    if metadata:
-        lines.extend(_format_block(metadata, 0))
-    else:
-        lines.append("(none)")
-
+        if isinstance(device, dict):
+            lines.extend(_device_lines(device_id, device))
+    for title, key in (("Pending commands", "pending_commands"), ("Workflow metadata", "metadata")):
+        lines.extend(["", f"=== {title} ==="])
+        lines.extend(_block_or_none(snapshot.get(key), 0))
     return "\n".join(lines)
 
 
@@ -317,20 +325,20 @@ async def execute(
     parsed = _parse_config(config)
     logger.info("log-attributes started run_id=%s node_id=%s", log_run_id(run), node_id)
     snapshot = build_context_snapshot(context)
-    if parsed["show_parsed_templates"]:
+    if parsed.show_parsed_templates:
         await _attach_rendered_template_content(snapshot, context, artifact_service)
-    if parsed["show_device_configs"]:
+    if parsed.show_device_configs:
         await _attach_device_config_content(snapshot, context, artifact_service)
     # Rendering and the file write are CPU- and disk-bound: off the event loop (W4-15).
-    rendered = await asyncio.to_thread(render_snapshot_text, snapshot, parsed["output_format"])
+    rendered = await asyncio.to_thread(render_snapshot_text, snapshot, parsed.output_format)
     written_at = datetime.now(UTC).isoformat()
 
     file_path: str | None = None
-    if parsed["output_destination"] == "stdout":
+    if parsed.output_destination == "stdout":
         logger.info(
             "log-attributes node_id=%s format=%s devices=%d\n%s",
             node_id,
-            parsed["output_format"],
+            parsed.output_format,
             len(snapshot.get("devices") or {}),
             rendered,
         )
@@ -338,27 +346,27 @@ async def execute(
         target = _file_target(
             workflow_id=context.workflow_id,
             run_id=context.run_id,
-            filename=parsed["filename"],
+            filename=parsed.filename,
         )
         await asyncio.to_thread(
-            _write_output_file, target=target, content=rendered, append=parsed["append"]
+            _write_output_file, target=target, content=rendered, append=parsed.append
         )
         file_path = str(target)
         logger.info(
             "log-attributes node_id=%s wrote file=%s append=%s bytes=%d",
             node_id,
             file_path,
-            parsed["append"],
+            parsed.append,
             len(rendered.encode("utf-8")),
         )
 
     log_attributes = {
-        "output_destination": parsed["output_destination"],
-        "output_format": parsed["output_format"],
-        "filename": parsed["filename"] if parsed["output_destination"] == "file" else None,
-        "append": parsed["append"] if parsed["output_destination"] == "file" else None,
-        "show_parsed_templates": parsed["show_parsed_templates"],
-        "show_device_configs": parsed["show_device_configs"],
+        "output_destination": parsed.output_destination,
+        "output_format": parsed.output_format,
+        "filename": parsed.filename if parsed.output_destination == "file" else None,
+        "append": parsed.append if parsed.output_destination == "file" else None,
+        "show_parsed_templates": parsed.show_parsed_templates,
+        "show_device_configs": parsed.show_device_configs,
         "file_path": file_path,
         "written_at": written_at,
         "device_count": len(snapshot.get("devices") or {}),
@@ -368,7 +376,7 @@ async def execute(
 
     metadata = {
         **context.metadata,
-        f"{node_id}{LOG_ATTRIBUTES_METADATA_SUFFIX}": log_attributes,
+        f"{node_id}{_METADATA_SUFFIX}": log_attributes,
     }
 
     return [
