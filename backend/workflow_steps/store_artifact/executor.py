@@ -14,7 +14,7 @@ import contextlib
 import logging
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, NamedTuple
 
 from core.database import get_db_session
 from core.models.runs import WorkflowRun
@@ -86,7 +86,15 @@ def _parse_store_config(config: dict[str, Any]) -> _ParsedStoreConfig:
     )
 
 
-def _build_sink(config: dict[str, Any], *, base_dir: Path) -> ArtifactSink:
+class _Sinks(NamedTuple):
+    """The sink the devices write to, and the same sink as a git sink when it is one: the git
+    half holds the repository session and is finalized (W9-11: no ``isinstance`` later)."""
+
+    sink: ArtifactSink
+    git: GitArtifactSink | None
+
+
+def _build_sink(config: dict[str, Any], *, base_dir: Path) -> _Sinks:
     destination = str(config.get("destination") or get_config()["destination"]).strip().lower()
     if destination not in _DESTINATIONS:
         raise ValueError(f"store-artifact: destination must be one of {sorted(_DESTINATIONS)}")
@@ -96,16 +104,15 @@ def _build_sink(config: dict[str, Any], *, base_dir: Path) -> ArtifactSink:
             or get_config().get("output_subdirectory")
             or "exports"
         ).strip()
-        return FilesystemArtifactSink(
-            base_dir,
-            output_subdirectory=output_subdirectory,
+        return _Sinks(
+            FilesystemArtifactSink(base_dir, output_subdirectory=output_subdirectory), None
         )
     if destination == "git":
         raw_repository_id = config.get("git_repository_id")
         if raw_repository_id in (None, ""):
             raise ValueError("store-artifact: git_repository_id is required when destination=git")
         repository = load_git_repository(require_repository_id(raw_repository_id, step_id=_STEP_ID))
-        return GitArtifactSink(
+        git_sink = GitArtifactSink(
             repository,
             repository_subdirectory=str(
                 config.get("repository_subdirectory")
@@ -116,6 +123,7 @@ def _build_sink(config: dict[str, Any], *, base_dir: Path) -> ArtifactSink:
             commit_after_write=parse_bool_flag(config, "commit_after_write"),
             push_after_write=parse_bool_flag(config, "push_after_write"),
         )
+        return _Sinks(git_sink, git_sink)
     raise ValueError(f"store-artifact: unsupported destination {destination!r}")
 
 
@@ -318,8 +326,7 @@ async def execute(
         base_dir = GeneralSettingsService(db).resolved_export_directory()
     finally:
         db.close()
-    sink = _build_sink(config, base_dir=base_dir)
-    git_sink = sink if isinstance(sink, GitArtifactSink) else None
+    sink, git_sink = _build_sink(config, base_dir=base_dir)
     metadata = dict(context.metadata)
 
     logger.info(

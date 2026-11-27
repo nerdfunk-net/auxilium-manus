@@ -128,6 +128,33 @@ def _with_session(sink: Any, events: list[str] | None = None) -> Any:
     return sink
 
 
+class BuildSinkTests(unittest.TestCase):
+    """W9-11: the builder says which sink is the git one; execute does not test the type."""
+
+    def test_a_git_destination_returns_the_sink_as_its_git_half(self) -> None:
+        from workflow_steps.store_artifact import executor as mod
+
+        with patch.object(mod, "load_git_repository", return_value={"id": 1}):
+            sink, git_sink = mod._build_sink(
+                {"destination": "git", "git_repository_id": 1}, base_dir=Path("/x")
+            )
+        self.assertIsInstance(sink, GitArtifactSink)
+        self.assertIs(git_sink, sink)
+
+    def test_a_filesystem_destination_has_no_git_half(self) -> None:
+        from workflow_steps.store_artifact import executor as mod
+
+        sink, git_sink = mod._build_sink({"destination": "filesystem"}, base_dir=Path("/x"))
+        self.assertEqual(sink.destination, "filesystem")
+        self.assertIsNone(git_sink)
+
+    def test_execute_does_not_recover_the_type_with_isinstance(self) -> None:
+        steps = Path(__file__).resolve().parents[2] / "workflow_steps"
+        source = (steps / "store_artifact" / "executor.py").read_text()
+        self.assertIn("_build_sink(", source)
+        self.assertNotIn("isinstance(sink, GitArtifactSink)", source)
+
+
 class StoreArtifactExecutorTests(unittest.IsolatedAsyncioTestCase):
     async def test_exports_running_config_to_nested_path(self) -> None:
         run = MagicMock()
@@ -418,7 +445,7 @@ class StoreArtifactExecutorTests(unittest.IsolatedAsyncioTestCase):
         with (
             patch(
                 "workflow_steps.store_artifact.executor._build_sink",
-                return_value=mock_sink,
+                return_value=(mock_sink, mock_sink),
             ),
             _mock_export_directory(Path("/unused")),
         ):
@@ -475,7 +502,7 @@ class StoreArtifactExecutorTests(unittest.IsolatedAsyncioTestCase):
         with (
             patch(
                 "workflow_steps.store_artifact.executor._build_sink",
-                return_value=mock_sink,
+                return_value=(mock_sink, mock_sink),
             ),
             patch.object(
                 artifact_service,
@@ -542,7 +569,10 @@ class StoreArtifactExecutorTests(unittest.IsolatedAsyncioTestCase):
         mock_sink.write_text = _write
 
         with (
-            patch("workflow_steps.store_artifact.executor._build_sink", return_value=mock_sink),
+            patch(
+                "workflow_steps.store_artifact.executor._build_sink",
+                return_value=(mock_sink, mock_sink),
+            ),
             patch.object(artifact_service, "resolve", new=AsyncMock(return_value="hostname lab")),
             _mock_export_directory(Path("/unused")),
         ):

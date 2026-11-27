@@ -37,7 +37,10 @@ async def _run(env: Env, config: dict[str, Any] | None = None) -> list[Any]:
     artifacts = InMemoryArtifactService()
     with (
         env.patched(),
-        patch("workflow_steps.store_artifact.executor._build_sink", return_value=env.sink),
+        patch(
+            "workflow_steps.store_artifact.executor._build_sink",
+            return_value=(env.sink, env.sink),
+        ),
         patch.object(artifacts, "resolve", new=AsyncMock(return_value="hostname lab\n")),
         _mock_export_directory(Path("/unused")),
     ):
@@ -104,7 +107,10 @@ async def test_a_cancelled_wait_for_the_lock_does_not_leak_the_lease(tmp_path: P
     with (
         patch("services.git.repo_lock.acquire_git_repo_lock", side_effect=slow_acquire),
         patch(f"{_SINK}.get_repo_path", return_value=tmp_path),
-        patch("workflow_steps.store_artifact.executor._build_sink", return_value=env.sink),
+        patch(
+            "workflow_steps.store_artifact.executor._build_sink",
+            return_value=(env.sink, env.sink),
+        ),
         _mock_export_directory(Path("/unused")),
     ):
         task = asyncio.create_task(

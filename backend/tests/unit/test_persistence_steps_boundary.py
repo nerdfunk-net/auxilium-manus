@@ -57,7 +57,7 @@ class _Sink:
 async def _store(devices, sink, config: dict | None = None):
     artifacts = InMemoryArtifactService()
     with (
-        patch(f"{_STORE}._build_sink", return_value=sink),
+        patch(f"{_STORE}._build_sink", return_value=(sink, None)),
         patch.object(artifacts, "resolve", new=AsyncMock(return_value="hostname x\n")),
         _mock_export_directory(Path("/unused")),
     ):
@@ -149,8 +149,7 @@ class _GitSession:
 async def _store_git(sink):
     artifacts = InMemoryArtifactService()
     with (
-        patch(f"{_STORE}._build_sink", return_value=sink),
-        patch(f"{_STORE}.GitArtifactSink", _GitSession),
+        patch(f"{_STORE}._build_sink", return_value=(sink, sink)),
         patch.object(artifacts, "resolve", new=AsyncMock(return_value="hostname x\n")),
         _mock_export_directory(Path("/unused")),
     ):

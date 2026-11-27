@@ -62,7 +62,7 @@ def _store_artifact(raw: Any) -> Any:
     with patch.object(mod, "load_git_repository", return_value={"id": 1}):
         return mod._build_sink(
             {"destination": "git", "git_repository_id": raw}, base_dir=Path("/nonexistent")
-        )
+        ).sink
 
 
 _STEPS = [
@@ -169,7 +169,7 @@ def test_store_artifact_git_sink_gets_each_flag_from_its_own_key() -> None:
         with patch.object(mod, "load_git_repository", return_value={"id": 1}):
             return mod._build_sink(
                 {"destination": "git", "git_repository_id": 1, **flags}, base_dir=Path("/x")
-            )
+            ).sink
 
     attributes = ("_pull_before_write", "_commit_after_write", "_push_after_write")
     default = sink()
