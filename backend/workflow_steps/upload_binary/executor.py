@@ -42,7 +42,7 @@ from workflow_steps.common.device_file_upload import (
     upload_outcomes,
     verify_remote_digest,
 )
-from workflow_steps.common.device_runner import Batch, Fail, run_per_device
+from workflow_steps.common.device_runner import Fail, run_per_device
 from workflow_steps.common.device_type import connection_device_type
 from workflow_steps.common.failure_records import INVALID_INPUT
 from workflow_steps.common.file_source_root import resolve_git_root
@@ -350,6 +350,9 @@ async def execute(
     del artifact_service  # the bytes come from the repository, not from an artifact
     parsed = _parse_upload_binary(config, run.run_inputs)
 
+    if not context.devices:
+        return [StepOutcome(name="success", context=context)]
+
     db = require_session(run, _STEP_ID)
     username, password = resolve_ssh_credential(
         db, parsed.credential_reference, acting_user_id=run.triggered_by_id
@@ -369,35 +372,33 @@ async def execute(
         parsed.destination_filename,
     )
 
-    batch = Batch()
-    if context.devices:
-        snapshot = await _take_snapshot(parsed)
-        try:
-            logger.info(
-                "upload-binary source ready run_id=%s bytes=%d md5=%s",
-                run_id,
-                snapshot.size_bytes,
-                snapshot.md5,
+    snapshot = await _take_snapshot(parsed)
+    try:
+        logger.info(
+            "upload-binary source ready run_id=%s bytes=%d md5=%s",
+            run_id,
+            snapshot.size_bytes,
+            snapshot.md5,
+        )
+
+        async def _work(device_id: str, device: DeviceContext) -> DeviceContext | Fail:
+            return await _upload_on_device(
+                device_id=device_id,
+                device=device,
+                node_id=node_id,
+                parsed=parsed,
+                snapshot=snapshot,
+                username=username,
+                password=password,
+                netmiko=netmiko,
             )
 
-            async def _work(device_id: str, device: DeviceContext) -> DeviceContext | Fail:
-                return await _upload_on_device(
-                    device_id=device_id,
-                    device=device,
-                    node_id=node_id,
-                    parsed=parsed,
-                    snapshot=snapshot,
-                    username=username,
-                    password=password,
-                    netmiko=netmiko,
-                )
-
-            # Connect/auth/SCP errors fail that device only (the runner's boundary).
-            batch = await run_per_device(
-                context, _work, node_id=node_id, step_id=_STEP_ID, log_label=_STEP_ID
-            )
-        finally:
-            snapshot.discard()
+        # Connect/auth/SCP errors fail that device only (the runner's boundary).
+        batch = await run_per_device(
+            context, _work, node_id=node_id, step_id=_STEP_ID, log_label=_STEP_ID
+        )
+    finally:
+        snapshot.discard()
 
     logger.info(
         "upload-binary finished success=%d failure=%d run_id=%s",

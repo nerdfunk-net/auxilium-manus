@@ -12,6 +12,7 @@ import ast
 import importlib
 from pathlib import Path
 from typing import Any
+from unittest.mock import patch
 
 import pytest
 
@@ -51,6 +52,146 @@ UNUSABLE_CONFIG: dict[str, dict[str, Any]] = {
     "update_attribute": {"bogus": 1},
     "update_content": {},
 }
+
+
+# R4-02: a step that works per device returns for an empty device list before it opens the DB
+# session or resolves a credential, so an empty branch succeeds without touching the vault.
+# Calls that count as a credential lookup: ``require_session`` and any ``resolve_*credential*``.
+# The steps below are exempt: they make the devices (inventory) or act on the run as a whole,
+# not on ``context.devices``. Two-sided: an entry that no longer looks up first is stale.
+WHOLE_STEP_CREDENTIAL_FIRST: frozenset[str] = frozenset(
+    {
+        "backup_aci_config",
+        "batfish_init_snapshot",
+        "compare_aci_subnets",
+        "get_from_agent",
+        "get_from_user",
+        "get_ise_devices",
+        "get_nautobot_devices",
+        "get_virtual_chassis",
+        "notify_mattermost",
+        "notify_on_error",
+        "send_mail",
+    }
+)
+
+# Step -> a config it can run with; with no devices it must answer success and look nothing up.
+USABLE_CONFIG_NO_LOOKUP: dict[str, dict[str, Any]] = {
+    "upload_binary": {
+        "git_repository_id": 1,
+        "source_path": "img.bin",
+        "file_system": "flash:",
+        "destination_filename": "img.bin",
+    },
+    "upload_config": {
+        "destination_filename": "a.cfg",
+        "file_system": "flash:",
+        "source_step_node_id": "n1",
+    },
+}
+
+
+def _is_lookup(node: ast.AST) -> bool:
+    if not isinstance(node, ast.Call):
+        return False
+    func = node.func
+    name = func.id if isinstance(func, ast.Name) else getattr(func, "attr", "")
+    return name == "require_session" or (name.startswith("resolve_") and "credential" in name)
+
+
+def _is_empty_guard(statement: ast.stmt) -> bool:
+    return (
+        isinstance(statement, ast.If)
+        and isinstance(statement.test, ast.UnaryOp)
+        and isinstance(statement.test.op, ast.Not)
+        and ast.unparse(statement.test.operand).endswith("context.devices")
+    )
+
+
+def _looks_up_first(source: str) -> bool | None:
+    """For an executor's source: ``None`` when ``execute`` looks nothing up, else whether the
+    first lookup comes before the empty-device return (or there is no such return)."""
+    tree = ast.parse(source)
+    body = next(
+        (
+            n.body
+            for n in tree.body
+            if isinstance(n, ast.AsyncFunctionDef | ast.FunctionDef) and n.name == "execute"
+        ),
+        None,
+    )
+    if body is None:
+        return None
+    lookup = next(
+        (i for i, st in enumerate(body) if any(_is_lookup(n) for n in ast.walk(st))), None
+    )
+    if lookup is None:
+        return None
+    guard = next((i for i, st in enumerate(body) if _is_empty_guard(st)), None)
+    return guard is None or lookup < guard
+
+
+def _lookup_before_guard() -> tuple[set[str], int]:
+    """Steps whose ``execute`` looks up a credential before the empty-device return (or with
+    none), and how many executors look one up at all (the scan must not be empty)."""
+    found: set[str] = set()
+    scanned = 0
+    for path in sorted(STEPS_ROOT.glob("*/executor.py")):
+        first = _looks_up_first(path.read_text())
+        if first is None:
+            continue
+        scanned += 1
+        if first:
+            found.add(path.parent.name)
+    return found, scanned
+
+
+@pytest.mark.parametrize(
+    ("body", "expected"),
+    [
+        ("db = require_session(run, 'x')\nif not context.devices:\n    return []", True),
+        ("if not context.devices:\n    return []\ndb = require_session(run, 'x')", False),
+        ("creds = SRC.resolve_credentials(db, 's')", True),
+        ("user = resolve_ssh_credential(db, ref)\nif not context.devices:\n    return []", True),
+        ("if not context.devices:\n    return []\nresolve_ssh_credential(db, ref)", False),
+        ("x = resolve_output_key(config)", None),
+    ],
+)
+def test_the_lookup_scan_reads_the_order(body: str, expected: bool | None) -> None:
+    source = "async def execute(*, config, context, run):\n" + "".join(
+        f"    {line}\n" for line in body.splitlines()
+    )
+    assert _looks_up_first(source) is expected
+
+
+def test_a_per_device_step_returns_for_no_devices_before_any_lookup() -> None:
+    found, scanned = _lookup_before_guard()
+    assert scanned >= 20, f"the scan found only {scanned} executors with a lookup"
+    assert found <= WHOLE_STEP_CREDENTIAL_FIRST, (
+        "a step opens the session or resolves a credential before its empty-device return: "
+        f"{sorted(found - WHOLE_STEP_CREDENTIAL_FIRST)}"
+    )
+
+
+def test_the_whole_step_exemptions_are_not_stale() -> None:
+    found, _ = _lookup_before_guard()
+    stale = WHOLE_STEP_CREDENTIAL_FIRST - found
+    assert not stale, f"delete these entries of WHOLE_STEP_CREDENTIAL_FIRST: {sorted(stale)}"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("step", sorted(USABLE_CONFIG_NO_LOOKUP))
+async def test_an_empty_branch_succeeds_without_a_lookup(step: str) -> None:
+    module = importlib.import_module(f"workflow_steps.{step}.executor")
+    refuse = AssertionError("looked up with no devices")
+    with (
+        patch.object(module, "require_session", side_effect=refuse),
+        patch.object(module, "resolve_ssh_credential", side_effect=refuse),
+    ):
+        outcomes = await call_step(
+            module.execute, USABLE_CONFIG_NO_LOOKUP[step], make_context(), run=make_run()
+        )
+    assert [outcome.name for outcome in outcomes] == ["success"]
 
 
 def _guard_before_config() -> set[str]:

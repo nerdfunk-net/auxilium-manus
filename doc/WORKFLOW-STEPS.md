@@ -494,7 +494,9 @@ status, a transport kind) builds its own. `test_device_error_failure_ratchet.py`
   arrive. `tests/unit/test_empty_branch_validates_config.py` pins this (an AST guard over every `execute`, and one
   unusable config per migrated step that must raise `ValueError` with no devices). Work that needs a session, a
   credential or a remote system (`require_session`, `resolve_ssh_credential`, `common/nautobot_step.py::bind_nautobot`, `common/ise_step.py`) stays
-  after the guard. A step never builds a `CredentialsBoundNautobotClient`, an ISE source config service or an ISE
+  after the guard, so an empty branch succeeds without touching the vault (R4-02; the same file has a second AST guard:
+  `require_session` or a `resolve_*credential*` call before the empty-device return is allowed only for the inventory and
+  whole-step steps in `WHOLE_STEP_CREDENTIAL_FIRST`, which do not work on `context.devices`). A step never builds a `CredentialsBoundNautobotClient`, an ISE source config service or an ISE
   `test_connection()` pre-flight itself (`tests/unit/test_step_source_preambles.py`, W5-06 / W6-03).
 - **An empty branch is a no-op.** A step with `success` / `failure` handles returns `[success]` with the unchanged
   context (`open-change-request` too: nothing to review, nothing staged); a router (`route-on-attribute`,

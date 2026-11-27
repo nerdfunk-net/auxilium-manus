@@ -324,6 +324,9 @@ async def execute(
 ) -> list[StepOutcome]:
     parsed = _parse_upload_config(config, run.run_inputs)
 
+    if not context.devices:
+        return [StepOutcome(name="success", context=context)]
+
     db = require_session(run, _STEP_ID)
     username, password = resolve_ssh_credential(
         db, parsed.credential_reference, acting_user_id=run.triggered_by_id
