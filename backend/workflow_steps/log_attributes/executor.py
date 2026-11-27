@@ -80,6 +80,29 @@ def build_context_snapshot(context: WorkflowContext) -> dict[str, Any]:
     return redact_secrets_in_data(context.model_dump(mode="json"))
 
 
+async def _read_for_dump(
+    artifact_service: ArtifactService, ref: ArtifactRef, *, device_id: str, what: str
+) -> str:
+    """The artifact's text, masked for the dump; a marker when it cannot be read.
+
+    Best effort (maintainer decision 2026-11-27): one unreadable artifact must not fail the
+    dump. Only the class name is shown and logged at warning; the text, which can carry paths
+    or credentials, goes to debug.
+    """
+    try:
+        content = await artifact_service.resolve(ref)
+    except Exception as exc:
+        logger.warning(
+            "log-attributes could not read %s device_id=%s error=%s",
+            what,
+            device_id,
+            type(exc).__name__,
+        )
+        logger.debug("log-attributes read failure detail device_id=%s", device_id, exc_info=True)
+        return f"<unavailable: {type(exc).__name__}>"
+    return scrub_config_text(content)
+
+
 async def _attach_rendered_template_content(
     snapshot: dict[str, Any],
     context: WorkflowContext,
@@ -94,11 +117,12 @@ async def _attach_rendered_template_content(
     devices_snapshot = snapshot.get("devices") or {}
 
     async def resolve_entry(
-        device_snapshot: dict[str, Any], key: str, entry: dict[str, Any]
+        device_id: str, device_snapshot: dict[str, Any], key: str, entry: dict[str, Any]
     ) -> None:
         ref = ArtifactRef.model_validate(entry["artifact_ref"])
-        content = await artifact_service.resolve(ref)
-        device_snapshot["parsed"][key]["rendered_content"] = scrub_config_text(content)
+        device_snapshot["parsed"][key]["rendered_content"] = await _read_for_dump(
+            artifact_service, ref, device_id=device_id, what=f"rendered template {key}"
+        )
 
     tasks = []
     for device_id, device in context.devices.items():
@@ -111,7 +135,7 @@ async def _attach_rendered_template_content(
                 and entry.get("kind") == "rendered_template"
                 and entry.get("artifact_ref")
             ):
-                tasks.append(resolve_entry(device_snapshot, key, entry))
+                tasks.append(resolve_entry(device_id, device_snapshot, key, entry))
 
     if tasks:
         await asyncio.gather(*tasks)
@@ -131,36 +155,24 @@ async def _attach_device_config_content(
     devices_snapshot = snapshot.get("devices") or {}
 
     async def resolve_config(
-        device_snapshot: dict[str, Any],
-        *,
-        ref: ArtifactRef,
-        content_key: str,
+        device_id: str, device_snapshot: dict[str, Any], ref: ArtifactRef, content_key: str
     ) -> None:
-        # Best effort: the artifact itself stays verbatim, the attached copy is masked.
-        content = await artifact_service.resolve(ref)
-        device_snapshot[content_key] = scrub_config_text(content)
+        # The artifact itself stays verbatim, the attached copy is masked.
+        device_snapshot[content_key] = await _read_for_dump(
+            artifact_service, ref, device_id=device_id, what=content_key
+        )
 
     tasks = []
     for device_id, device in context.devices.items():
         device_snapshot = devices_snapshot.get(device_id)
         if not isinstance(device_snapshot, dict):
             continue
-        if device.running_config_ref is not None:
-            tasks.append(
-                resolve_config(
-                    device_snapshot,
-                    ref=device.running_config_ref,
-                    content_key="running_config_content",
-                )
-            )
-        if device.startup_config_ref is not None:
-            tasks.append(
-                resolve_config(
-                    device_snapshot,
-                    ref=device.startup_config_ref,
-                    content_key="startup_config_content",
-                )
-            )
+        for ref, content_key in (
+            (device.running_config_ref, "running_config_content"),
+            (device.startup_config_ref, "startup_config_content"),
+        ):
+            if ref is not None:
+                tasks.append(resolve_config(device_id, device_snapshot, ref, content_key))
 
     if tasks:
         await asyncio.gather(*tasks)

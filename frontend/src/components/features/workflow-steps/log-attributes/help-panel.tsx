@@ -119,6 +119,11 @@ export function LogAttributesHelpPanel() {
           When on, the step also resolves and prints the running and/or startup
           configuration text inline (whichever refs are present on each device).
         </p>
+        <p>
+          Both switches are best effort: an artifact that cannot be read shows
+          as <HelpCode>{"<unavailable: ErrorClass>"}</HelpCode> in the dump and
+          the step goes on with the other devices.
+        </p>
         <HelpExample>
           show_device_configs: true
           <br />
