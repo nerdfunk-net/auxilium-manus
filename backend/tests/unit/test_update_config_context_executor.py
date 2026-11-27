@@ -1148,3 +1148,32 @@ class FailDeviceTextPolicyTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class OutcomeSplitTests(unittest.IsolatedAsyncioTestCase):
+    """W1-01: a failed device leaves on the failure handle, the others on success."""
+
+    async def test_a_failed_device_is_on_the_failure_outcome_only(self) -> None:
+        good, bad = _device("d1"), _device("d2")
+        failed = bad.model_copy(update={"status": DeviceStatus.FAILED})
+
+        async def one(*, device_key: str, device: DeviceContext, **_kwargs):
+            return (device_key, device, True) if device_key == "d1" else (device_key, failed, False)
+
+        context = WorkflowContext(run_id="r", workflow_id="w", devices={"d1": good, "d2": bad})
+        with (
+            patch.object(mod, "_build_update_service", return_value=(None, None, None)),
+            patch.object(mod, "_update_one_device", side_effect=one),
+        ):
+            outcomes = await execute(
+                config=_attribute_config("custom.x", cfg_path="a"),
+                context=context,
+                run=MagicMock(),
+                artifact_service=MagicMock(),
+                node_id="n",
+                device_sessions=MagicMock(),
+            )
+        by_name = {o.name: o for o in outcomes}
+        self.assertEqual(list(by_name), ["success", "failure"])
+        self.assertEqual(list(by_name["success"].context.devices), ["d1"])
+        self.assertEqual(list(by_name["failure"].context.devices), ["d2"])

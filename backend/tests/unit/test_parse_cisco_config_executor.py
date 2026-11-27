@@ -228,6 +228,14 @@ class ParseCiscoConfigExecutorTests(unittest.IsolatedAsyncioTestCase):
         failed = outcomes[1].context.devices["device-1"]
         self.assertEqual(failed.status, DeviceStatus.FAILED)
         self.assertEqual(failed.errors[-1].code, "config_error")
+        # The counts of both handles are in the metadata of each outcome.
+        for outcome in outcomes:
+            self.assertEqual(
+                outcome.context.metadata["parse-cisco-config-1.parse_success_count"], 0
+            )
+            self.assertEqual(
+                outcome.context.metadata["parse-cisco-config-1.parse_failure_count"], 1
+            )
 
     async def test_both_mode_fails_whole_device_when_one_side_missing(self) -> None:
         run = MagicMock()

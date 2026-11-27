@@ -23,7 +23,11 @@ from services.nautobot.common.exceptions import NautobotAPIError, is_duplicate_e
 from services.nautobot.devices.creation import DeviceCreationService
 from services.nautobot.devices.types import AddDeviceRequest
 from workflow_steps.add_to_nautobot.config import get_config
-from workflow_steps.common.device_outcomes import fail_device_with_error
+from workflow_steps.common.device_outcomes import (
+    build_outcomes,
+    fail_device_with_error,
+    split_results,
+)
 from workflow_steps.common.failure_records import INVALID_INPUT
 from workflow_steps.common.interface_payload import (
     build_interfaces_from_config,
@@ -416,35 +420,6 @@ async def _create_one_device(
         )
 
 
-def _partition_and_build_outcomes(
-    *,
-    context: WorkflowContext,
-    results: list[tuple[str, DeviceContext, bool]],
-) -> list[StepOutcome]:
-    success_devices: dict[str, DeviceContext] = {}
-    failed_devices: dict[str, DeviceContext] = {}
-    for device_key, updated_device, ok in results:
-        if ok:
-            success_devices[device_key] = updated_device
-        else:
-            failed_devices[device_key] = updated_device
-
-    outcomes = [
-        StepOutcome(
-            name="success",
-            context=context.model_copy(update={"devices": success_devices}),
-        )
-    ]
-    if failed_devices:
-        outcomes.append(
-            StepOutcome(
-                name="failure",
-                context=context.model_copy(update={"devices": failed_devices}),
-            )
-        )
-    return outcomes
-
-
 async def execute(
     *,
     config: dict[str, Any],
@@ -502,4 +477,4 @@ async def execute(
         log_run_id(run),
     )
 
-    return _partition_and_build_outcomes(context=context, results=results)
+    return build_outcomes(context, *split_results(results))

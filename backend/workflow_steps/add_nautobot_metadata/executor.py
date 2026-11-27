@@ -30,7 +30,11 @@ from services.nautobot.metadata_creation import (
     MetadataCreationService,
     MetadataReferenceNotFoundError,
 )
-from workflow_steps.common.device_outcomes import fail_device_with_error
+from workflow_steps.common.device_outcomes import (
+    build_outcomes,
+    fail_device_with_error,
+    split_results,
+)
 from workflow_steps.common.failure_records import INVALID_INPUT
 from workflow_steps.common.nautobot_step import bind_nautobot_client
 from workflow_steps.common.partial_outcomes import NAUTOBOT_TEXT, device_error_from_exception
@@ -285,21 +289,6 @@ async def _process_device(
     return device_key, _enrich(device, bag_updates), True
 
 
-def _build_outcomes(
-    context: WorkflowContext, results: list[tuple[str, DeviceContext, bool]]
-) -> list[StepOutcome]:
-    success = {key: device for key, device, ok in results if ok}
-    failed = {key: device for key, device, ok in results if not ok}
-    outcomes = [
-        StepOutcome(name="success", context=context.model_copy(update={"devices": success}))
-    ]
-    if failed:
-        outcomes.append(
-            StepOutcome(name="failure", context=context.model_copy(update={"devices": failed}))
-        )
-    return outcomes
-
-
 async def execute(
     *,
     config: dict[str, Any],
@@ -352,4 +341,4 @@ async def execute(
         len(results) - success_count,
         log_run_id(run),
     )
-    return _build_outcomes(context, results)
+    return build_outcomes(context, *split_results(results))

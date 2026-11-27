@@ -7,7 +7,6 @@ import unittest
 
 from models.workflow_context import DeviceContext, WorkflowContext
 from workflow_steps.update_nautobot_device.executor import (
-    _build_outcomes,
     _count_enabled_fields,
     _parse_config,
     _resolve_device_items,
@@ -107,21 +106,6 @@ class CountEnabledFieldsTests(unittest.TestCase):
     def test_zero_when_nothing_enabled(self) -> None:
         count = _count_enabled_fields({"name": {"enabled": False, "value": "x"}})
         self.assertEqual(count, 0)
-
-
-class BuildOutcomesTests(unittest.TestCase):
-    def test_omits_failure_outcome_when_nothing_failed(self) -> None:
-        outcomes = _build_outcomes(_context(), success_devices={}, failed_devices={})
-        self.assertEqual(len(outcomes), 1)
-        self.assertEqual(outcomes[0].name, "success")
-
-    def test_includes_failure_outcome_when_something_failed(self) -> None:
-        failed_device = DeviceContext(id="dev-1", name="dev-1", hostname="dev-1")
-        outcomes = _build_outcomes(
-            _context(), success_devices={}, failed_devices={"dev-1": failed_device}
-        )
-        self.assertEqual([o.name for o in outcomes], ["success", "failure"])
-        self.assertEqual(outcomes[1].context.devices["dev-1"].id, "dev-1")
 
 
 class ParsedListConfigTests(unittest.TestCase):

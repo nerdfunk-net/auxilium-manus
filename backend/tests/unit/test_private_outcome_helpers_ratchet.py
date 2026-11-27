@@ -20,9 +20,9 @@ PATTERN = re.compile(r"^_(fail|build_\w*outcomes|partition_)")
 
 LEGACY_PRIVATE_HELPERS: dict[str, int] = {
     "workflow_steps/add_ip_to_nautobot/executor.py": 2,
-    "workflow_steps/add_nautobot_metadata/executor.py": 2,
+    "workflow_steps/add_nautobot_metadata/executor.py": 1,
     "workflow_steps/add_to_ise/executor.py": 1,
-    "workflow_steps/add_to_nautobot/executor.py": 2,
+    "workflow_steps/add_to_nautobot/executor.py": 1,
     "workflow_steps/collect_client_data/executor.py": 1,
     "workflow_steps/common/device_file_upload.py": 1,
     "workflow_steps/compare_data/executor.py": 1,
@@ -31,12 +31,11 @@ LEGACY_PRIVATE_HELPERS: dict[str, int] = {
     "workflow_steps/get_aci_policy/executor.py": 1,
     "workflow_steps/get_next_free_ip/executor.py": 3,
     "workflow_steps/list_contains/executor.py": 1,
-    "workflow_steps/parse_cisco_config/executor.py": 2,
     "workflow_steps/remove_from_nautobot/executor.py": 2,
     "workflow_steps/route_on_content/executor.py": 1,
     "workflow_steps/undefined_and_unused/executor.py": 1,
-    "workflow_steps/update_config_context/executor.py": 2,
-    "workflow_steps/update_nautobot_device/executor.py": 2,
+    "workflow_steps/update_config_context/executor.py": 1,
+    "workflow_steps/update_nautobot_device/executor.py": 1,
 }
 
 

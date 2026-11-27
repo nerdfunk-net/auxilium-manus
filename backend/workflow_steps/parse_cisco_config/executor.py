@@ -21,7 +21,11 @@ from services.network.cisco_config_parsing import (
     parse_cisco_config_text,
     platform_hint_for_network_driver,
 )
-from workflow_steps.common.device_outcomes import fail_device_with_error
+from workflow_steps.common.device_outcomes import (
+    build_outcomes,
+    fail_device_with_error,
+    split_results,
+)
 from workflow_steps.common.partial_outcomes import device_error_from_exception
 from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.common.step_flags import parse_output_key
@@ -175,58 +179,6 @@ async def _parse_one_device(
         return device_id, failed, False
 
 
-def _partition_parse_results(
-    results: list[tuple[str, DeviceContext, bool]],
-) -> tuple[dict[str, DeviceContext], dict[str, DeviceContext]]:
-    success_devices: dict[str, DeviceContext] = {}
-    failed_devices: dict[str, DeviceContext] = {}
-    for device_id, updated_device, ok in results:
-        if ok:
-            success_devices[device_id] = updated_device
-        else:
-            failed_devices[device_id] = updated_device
-    return success_devices, failed_devices
-
-
-def _build_parse_outcomes(
-    *,
-    context: WorkflowContext,
-    node_id: str,
-    run_id: Any,
-    success_devices: dict[str, DeviceContext],
-    failed_devices: dict[str, DeviceContext],
-) -> list[StepOutcome]:
-    metadata = {
-        **context.metadata,
-        f"{node_id}.parse_success_count": len(success_devices),
-        f"{node_id}.parse_failure_count": len(failed_devices),
-    }
-
-    logger.info(
-        "parse-cisco-config finished success=%d failure=%d run_id=%s",
-        len(success_devices),
-        len(failed_devices),
-        run_id,
-    )
-
-    outcomes = [
-        StepOutcome(
-            name="success",
-            context=context.model_copy(update={"devices": success_devices, "metadata": metadata}),
-        )
-    ]
-    if failed_devices:
-        outcomes.append(
-            StepOutcome(
-                name="failure",
-                context=context.model_copy(
-                    update={"devices": failed_devices, "metadata": metadata}
-                ),
-            )
-        )
-    return outcomes
-
-
 async def execute(
     *,
     config: dict[str, Any],
@@ -268,11 +220,8 @@ async def execute(
             for device_id, device in context.devices.items()
         ]
     )
-    success_devices, failed_devices = _partition_parse_results(results)
-    return _build_parse_outcomes(
-        context=context,
-        node_id=node_id,
-        run_id=log_run_id(run),
-        success_devices=success_devices,
-        failed_devices=failed_devices,
-    )
+    ok, failed = split_results(results)
+    counts = {"parse_success_count": len(ok), "parse_failure_count": len(failed)}
+    logger.info("parse-cisco-config finished %s run_id=%s", counts, log_run_id(run))
+    metadata = {f"{node_id}.{name}": count for name, count in counts.items()}
+    return build_outcomes(context, ok, failed, metadata=metadata)

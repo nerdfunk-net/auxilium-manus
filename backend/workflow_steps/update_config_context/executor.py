@@ -48,7 +48,11 @@ from services.workflow_context.secret_fields import (
     unwrap_all_secrets,
 )
 from workflow_steps.common.attribute_merge import deep_merge_mapping
-from workflow_steps.common.device_outcomes import fail_device_with_error
+from workflow_steps.common.device_outcomes import (
+    build_outcomes,
+    fail_device_with_error,
+    split_results,
+)
 from workflow_steps.common.failure_records import NOT_FOUND
 from workflow_steps.common.jinja_render import build_jinja_context, render_jinja_template
 from workflow_steps.common.nautobot_resolve import resolve_nautobot_device_id
@@ -622,23 +626,6 @@ def _preview_payload(mode: str, change: _ContextChange) -> dict[str, Any]:
     }
 
 
-def _build_outcomes(
-    context: WorkflowContext,
-    success_devices: dict[str, DeviceContext],
-    failed_devices: dict[str, DeviceContext],
-) -> list[StepOutcome]:
-    outcomes = [
-        StepOutcome(name="success", context=context.model_copy(update={"devices": success_devices}))
-    ]
-    if failed_devices:
-        outcomes.append(
-            StepOutcome(
-                name="failure", context=context.model_copy(update={"devices": failed_devices})
-            )
-        )
-    return outcomes
-
-
 async def execute(
     *,
     config: dict[str, Any],
@@ -687,15 +674,7 @@ async def execute(
         ]
     )
 
-    success_devices: dict[str, DeviceContext] = {}
-    failed_devices: dict[str, DeviceContext] = {}
-    for device_key, updated_device, ok in results:
-        if updated_device is None:
-            continue
-        if ok:
-            success_devices[device_key] = updated_device
-        else:
-            failed_devices[device_key] = updated_device
+    success_devices, failed_devices = split_results(results)
 
     logger.info(
         "%s finished success=%d failure=%d run_id=%s",
@@ -705,4 +684,4 @@ async def execute(
         log_run_id(run),
     )
 
-    return _build_outcomes(context, success_devices, failed_devices)
+    return build_outcomes(context, success_devices, failed_devices)

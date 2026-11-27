@@ -13,7 +13,7 @@ Additive: the private copies in the step packages migrate here family by family 
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -66,6 +66,22 @@ def fail_device_with_error(
     return device.model_copy(
         update={"status": DeviceStatus.FAILED, "errors": [*device.errors, error], **updates}
     )
+
+
+def split_results(
+    results: Iterable[tuple[str, DeviceContext | None, bool]],
+) -> tuple[dict[str, DeviceContext], dict[str, DeviceContext]]:
+    """``(succeeded, failed)`` from ``(device id, device, ok)`` results, in their order.
+
+    A result whose device is ``None`` (nothing to report for that id) is left out.
+    """
+    succeeded: dict[str, DeviceContext] = {}
+    failed: dict[str, DeviceContext] = {}
+    for device_id, device, ok in results:
+        if device is None:
+            continue
+        (succeeded if ok else failed)[device_id] = device
+    return succeeded, failed
 
 
 def build_outcomes(

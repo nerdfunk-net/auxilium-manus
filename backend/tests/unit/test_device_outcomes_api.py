@@ -277,3 +277,17 @@ def test_run_command_has_no_private_outcome_module() -> None:
     import importlib.util
 
     assert importlib.util.find_spec("workflow_steps.run_command.outcomes") is None
+
+
+def test_split_results_keeps_the_order_and_leaves_out_a_missing_device() -> None:
+    # W1-01: the "(key, device, ok)" loop five steps wrote for themselves.
+    from workflow_steps.common.device_outcomes import split_results
+
+    a, b, c = make_device("a"), make_device("b"), make_device("c")
+    ok, failed = split_results(
+        [("a", a, True), ("x", None, False), ("b", b, False), ("c", c, True)]
+    )
+    assert list(ok) == ["a", "c"]
+    assert ok["a"] is a
+    assert failed == {"b": b}
+    assert split_results([]) == ({}, {})
