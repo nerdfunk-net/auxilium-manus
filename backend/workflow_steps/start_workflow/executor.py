@@ -33,7 +33,7 @@ from typing import TYPE_CHECKING, Any
 
 from core.domain_exceptions import DomainError
 from core.models.runs import WorkflowRun
-from models.failure import FailureInfo
+from models.failure import FailureInfo, failure_from_exception
 from models.workflow_context import (
     DeviceContext,
     StepOutcome,
@@ -356,8 +356,51 @@ def _group_inputs(parsed: _ParsedConfig, group: _Group) -> dict[str, Any]:
     return run_inputs
 
 
+@dataclass(frozen=True)
+class _Stop:
+    """Why this group and every later one start no run."""
+
+    code: str
+    message: str
+    failure: FailureInfo
+
+
+async def _start_one(parsed: _ParsedConfig, group: _Group, *, parent_run_id: int) -> _Stop | None:
+    """Start the run of one group; a ``_Stop`` when it could not be started."""
+    try:
+        group.run_id = await _start_child(
+            parent_run_id=parent_run_id,
+            workflow_id=parsed.workflow_id,
+            run_inputs=_group_inputs(parsed, group),
+        )
+    except EngineUnavailableError:
+        return _Stop(
+            "engine_unavailable",
+            "the workflow execution engine is unavailable; nothing was started",
+            _engine_failure(),
+        )
+    except DomainError as exc:
+        # Not allowed / not found / recursion / bad run inputs: a configuration problem.
+        raise ValueError(f"{_STEP_ID}: {exc}") from exc
+    except ValueError:
+        raise  # the calling run is gone (``_calling_run_gone``): the step fails
+    except Exception as exc:
+        # Maintainer decision 2026-11-27: like an unavailable engine, so the runs already started
+        # are still waited for and judged. Class name only (D3); the text goes to debug.
+        name = type(exc).__name__
+        logger.warning("start-workflow could not start a run error=%s", name)
+        logger.debug("start-workflow start failure detail", exc_info=True)
+        failure = failure_from_exception(exc) or FailureInfo(
+            phase="internal", kind="internal_error", exception_type=name
+        )
+        message = f"a run could not be started ({name}); nothing more was started"
+        return _Stop("start_failed", message, failure)
+    group.status = "dispatched"
+    return None
+
+
 async def _start_groups(parsed: _ParsedConfig, groups: list[_Group], *, parent_run_id: int) -> None:
-    """Start one run per group; an unreachable engine fails this and every later group.
+    """Start one run per group; a group that cannot be started stops this and every later group.
 
     Every group's run inputs are validated first, so a bad input of a later group starts no run
     at all (W10-10).
@@ -370,36 +413,13 @@ async def _start_groups(parsed: _ParsedConfig, groups: list[_Group], *, parent_r
         )
     except DomainError as exc:
         raise ValueError(f"{_STEP_ID}: {exc}") from exc
-    engine_down = False
+    stop: _Stop | None = None
     for group in groups:
-        if engine_down:
-            group.reject(
-                "engine_unavailable",
-                "the workflow execution engine is unavailable; nothing was started",
-                _engine_failure(),
-                status="not_started",
-                waited=0,
-            )
-            continue
-        try:
-            group.run_id = await _start_child(
-                parent_run_id=parent_run_id,
-                workflow_id=parsed.workflow_id,
-                run_inputs=_group_inputs(parsed, group),
-            )
-            group.status = "dispatched"
-        except EngineUnavailableError:
-            engine_down = True
-            group.reject(
-                "engine_unavailable",
-                "the workflow execution engine is unavailable; nothing was started",
-                _engine_failure(),
-                status="not_started",
-                waited=0,
-            )
-        except DomainError as exc:
-            # Not allowed / not found / recursion / bad run inputs: a configuration problem.
-            raise ValueError(f"{_STEP_ID}: {exc}") from exc
+        if stop is None:
+            stop = await _start_one(parsed, group, parent_run_id=parent_run_id)
+            if stop is None:
+                continue
+        group.reject(stop.code, stop.message, stop.failure, status="not_started", waited=0)
 
 
 async def _wait_for_groups(

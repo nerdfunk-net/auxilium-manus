@@ -526,6 +526,58 @@ class DispatchProblemTests(unittest.IsolatedAsyncioTestCase):
                 with self.assertRaises(ValueError):
                     await h.run(_config())
 
+    # Maintainer decision 2026-11-27: an unexpected start error is handled like an unavailable
+    # engine; the runs already started are still waited for and judged.
+    async def test_an_unexpected_start_error_keeps_the_runs_already_started(self) -> None:
+        h = _Harness(self, {99: [_snap("success", run_id=99)]})
+        secret = "connection to db failed: password=hunter2hunter2"
+        h.start.side_effect = [99, RuntimeError(secret)]
+        with self.assertLogs(mod.logger.name, level="WARNING") as logs:
+            outcomes = await h.run(
+                _config(run_mode="per_device"), _context(_device(A), _device(B), _device(C))
+            )
+        warnings = [r.getMessage() for r in logs.records if r.levelname == "WARNING"]
+        self.assertTrue(any("RuntimeError" in w for w in warnings))
+        self.assertFalse(any("hunter2" in w for w in warnings))
+        self.assertEqual(h.start.await_count, 2)
+        by_name = {o.name: o.context.devices for o in outcomes}
+        self.assertEqual(sorted(by_name), ["failure", "success"])
+        self.assertEqual(list(by_name["success"]), [A])
+        self.assertEqual(sorted(by_name["failure"]), [B, C])
+        first, later = by_name["failure"][B].errors[0], by_name["failure"][C].errors[0]
+        self.assertEqual(first.code, "start_failed")
+        self.assertIn("RuntimeError", first.message)
+        self.assertNotIn("hunter2", first.message)
+        self.assertEqual((first.failure.phase, first.failure.kind), ("internal", "internal_error"))
+        self.assertEqual(first.failure.exception_type, "RuntimeError")
+        self.assertEqual(later.code, "start_failed")
+        self.assertNotIn("hunter2", later.message)
+        self.assertIsNotNone(later.failure)
+        self.assertEqual(by_name["success"][A].attribute_bags["child_run"]["status"], "success")
+        self.assertNotIn("child_run", by_name["failure"][B].attribute_bags)
+
+    async def test_an_unexpected_start_error_of_the_only_run_fails_its_devices(self) -> None:
+        h = _Harness(self, [])
+        h.start.side_effect = KeyError("x")
+        outcomes = await h.run(_config())
+        self.assertEqual([o.name for o in outcomes], ["failure"])
+        self.assertEqual(outcomes[0].context.devices[A].errors[0].code, "start_failed")
+        h.snapshot.assert_not_awaited()
+
+    async def test_a_calling_run_that_is_gone_still_fails_the_step(self) -> None:
+        h = _Harness(self, [])
+        h.start.side_effect = ValueError("start-workflow: the calling run no longer exists")
+        with self.assertRaises(ValueError):
+            await h.run(_config())
+
+    async def test_a_cancelled_start_is_not_swallowed(self) -> None:
+        import asyncio
+
+        h = _Harness(self, [])
+        h.start.side_effect = asyncio.CancelledError()
+        with self.assertRaises(asyncio.CancelledError):
+            await h.run(_config())
+
     async def test_a_target_that_does_not_fit_is_refused_before_dispatch(self) -> None:
         h = _Harness(self, [])
         h.check_target.side_effect = ValueError("no step reads the input")

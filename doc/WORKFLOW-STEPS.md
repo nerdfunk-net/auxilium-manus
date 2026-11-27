@@ -2449,7 +2449,9 @@ case: back up the running config before a change.
   step means nothing was done for the devices), and no step is `failed` or `skipped` or, unless
   `allow_partial`, `partial`. A failed or cancelled run, a partial result, a timeout
   (`task_timeout`, retryable; the run keeps going) or an unreachable engine route the device through
-  `failure`. Configuration refusals (no access, no `workflows:execute`, recursion, bad run inputs,
+  `failure`. A run that cannot be started for any other reason (a database error, a bug) is handled
+  like an unreachable engine: that group and every later one fail with `start_failed` (class name and
+  `FailureInfo` only), and the runs already started are still waited for and judged. Configuration refusals (no access, no `workflows:execute`, recursion, bad run inputs,
   target without the input) `raise` `ValueError`.
 - **No secret inputs.** `run_inputs` lives in the saved canvas as plain JSON, while a `secret` run
   input is only sealed when a run is created. A step may therefore not give a value for a secret
