@@ -3,9 +3,10 @@
 D3: Nautobot, Catalyst Center, ACI, ISE, pyATS and the step's own errors (``ValueError``, its
 own exception classes) may keep their text; SSH driver, git and database errors persist the
 class name and a ``FailureInfo`` (``device_error_from_exception``). A ``message=str(exc)`` or
-``message=f"...{exc}..."`` therefore needs ``exc`` narrowed to a class that is not ``Exception``:
-by its ``except`` clause or by an ``isinstance`` check around the site. The sites are pinned per
-file; the count may only fall (a new one is a review decision: add it here with its class).
+``message=f"...{exc}..."``, and the message argument of the runner's ``Fail(code, message)``,
+therefore need ``exc`` narrowed to a class that is not ``Exception``: by its ``except`` clause or
+by an ``isinstance`` check around the site. The sites are pinned per file; the count may only
+fall (a new one is a review decision: add it here with its class).
 """
 
 from __future__ import annotations
@@ -28,9 +29,17 @@ LEGACY_EXCEPTION_TEXT_SITES: dict[str, int] = {
     "workflow_steps/common/pyats_batch.py": 1,
     "workflow_steps/common/secret_paths.py": 1,
     "workflow_steps/compare_data/executor.py": 1,
+    # Positional ``Fail(code, message)`` sites, seen since the guard reads them (2026-11-27):
+    # FileNotFoundError and (PyATSAPIError, PyATSValidationError).
+    "workflow_steps/compare_pyats_snapshot/executor.py": 2,
+    # The step's own (PassphraseCipherError, CiscoSecretError).
+    "workflow_steps/decrypt_attribute/executor.py": 1,
+    "workflow_steps/encrypt_attribute/executor.py": 1,
     "workflow_steps/exists_in_nautobot/executor.py": 1,
     "workflow_steps/get_age_of_backup/executor.py": 1,
     "workflow_steps/get_catalyst_center_client_data/executor.py": 1,
+    # The Catalyst Center client's validation / API / auth errors (sanitised by the client).
+    "workflow_steps/get_catalyst_center_configs/executor.py": 1,
     "workflow_steps/get_next_free_ip/executor.py": 1,
     "workflow_steps/open_change_request/executor.py": 3,
     "workflow_steps/parse_cisco_config/executor.py": 1,
@@ -99,24 +108,39 @@ def _is_exception_parameter(function: ast.FunctionDef | ast.AsyncFunctionDef, na
     return False
 
 
+def _messages(tree: ast.AST) -> list[ast.expr]:
+    """Every stored message: a ``message=`` keyword, and the second positional argument of the
+    runner's ``Fail(code, message, failure)``."""
+    found: list[ast.expr] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.keyword) and node.arg == "message":
+            found.append(node.value)
+        elif (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "Fail"
+            and len(node.args) >= 2
+        ):
+            found.append(node.args[1])
+    return found
+
+
 def sites_in(source: str) -> list[Site]:
     tree = ast.parse(source)
     parents: dict[ast.AST, ast.AST] = {
         child: parent for parent in ast.walk(tree) for child in ast.iter_child_nodes(parent)
     }
     found: list[Site] = []
-    for node in ast.walk(tree):
-        if not (isinstance(node, ast.keyword) and node.arg == "message"):
-            continue
+    for message in _messages(tree):
         chain: list[ast.AST] = []
-        cursor: ast.AST = node
+        cursor: ast.AST = message
         while cursor in parents:
             cursor = parents[cursor]
             chain.append(cursor)
-        for name in sorted(_text_names(node.value)):
+        for name in sorted(_text_names(message)):
             is_exception, narrowed = _narrowing(chain, name)
             if is_exception:
-                found.append(Site(node.value.lineno, name, narrowed))
+                found.append(Site(message.lineno, name, narrowed))
     return found
 
 
@@ -179,6 +203,7 @@ def _one(source: str) -> Site:
         "try:\n    x()\nexcept (KeyError, ValueError) as exc:\n    f(message=f'bad: {exc}')",
         "try:\n    x()\nexcept Exception as exc:\n    if isinstance(exc, OwnError):\n"
         "        f(message=str(exc))",
+        "try:\n    x()\nexcept ValueError as exc:\n    return Fail('bad', str(exc))",
     ],
 )
 def test_a_narrowed_site_is_safe(source: str) -> None:
@@ -193,6 +218,9 @@ def test_a_narrowed_site_is_safe(source: str) -> None:
         "try:\n    x()\nexcept (ValueError, Exception) as exc:\n    f(message=str(exc))",
         "def g(exc: Exception):\n    return f(message=str(exc))",
         "def g(error):\n    return f(message=f'failed: {error}')",
+        # The runner's ``Fail(code, message, failure)`` takes the message positionally too.
+        "try:\n    x()\nexcept Exception as exc:\n    return Fail('boom', str(exc))",
+        "try:\n    x()\nexcept Exception as exc:\n    return Fail('boom', f'failed: {exc}', None)",
     ],
 )
 def test_an_unnarrowed_site_is_unsafe(source: str) -> None:
@@ -205,6 +233,8 @@ def test_an_unnarrowed_site_is_unsafe(source: str) -> None:
         "f(message=str(count))",
         "def g(text: str):\n    return f(message=str(text))",
         "f(summary=str(exc))",
+        "try:\n    x()\nexcept Exception as exc:\n    return Fail(str(exc))",
+        "try:\n    x()\nexcept Exception as exc:\n    return Other('c', str(exc))",
         "try:\n    x()\nexcept ValueError as exc:\n    f(message=type(exc).__name__)",
     ],
 )

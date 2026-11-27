@@ -470,7 +470,8 @@ errors whose text is sanitised at the source:
   "Connection timeout (NetmikoTimeoutException)", "The device rejected ...") and, for a driver exception, its class
   name; the driver text and traceback go to the debug log. A step may therefore store `result.error` as written.
 
-A step that writes `message=str(exc)` or `message=f"...{exc}..."` itself must have `exc` narrowed to a named class
+A step that writes `message=str(exc)` or `message=f"...{exc}..."` itself (or passes such text as the message of
+`Fail(code, message)`) must have `exc` narrowed to a named class
 that is not `Exception`, by its `except` clause or an `isinstance` check; a catch-all goes through
 `device_error_from_exception`. `tests/unit/test_exception_text_sites_ratchet.py` (guard 9) enforces that and pins the
 sites per file. The warning a catch-all logs follows the same rule: the class name at `warning`, the text and traceback
