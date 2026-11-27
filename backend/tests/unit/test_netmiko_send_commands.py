@@ -209,7 +209,8 @@ class NetmikoSendCommandsTests(unittest.TestCase):
 
         self.assertFalse(result.success)
         self.assertEqual(result.command_outputs, {"show version": "Version 15.2"})
-        self.assertIn("boom", result.error or "")
+        # The driver text stays in the debug log; the result names the class (session layer rule).
+        self.assertEqual(result.error, "RuntimeError")
 
 
 if __name__ == "__main__":

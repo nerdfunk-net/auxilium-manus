@@ -464,7 +464,11 @@ errors whose text is sanitised at the source:
 - **ISE**: the client collapses whitespace and caps an ERS 400 at 300 characters, and sets `code="already_exists"` itself
   when a title says the object is already there (`ISEValidationError.code`). `add-to-ise` (the `exists` handle) and the
   group ensurer decide by that code, never by message text, so an address conflict worded the same way is a failure.
-- **SSH driver, git and database** errors keep the class name and the `FailureInfo` only.
+- **SSH driver, git and database** errors keep the class name and the `FailureInfo` only. The Netmiko session layer
+  enforces this itself (`services/network/netmiko/connection.py::safe_error_text`): `result.error`, the text of a
+  `NetmikoConnectionError` and the live connect events carry only the layer's own wording ("Authentication failed",
+  "Connection timeout (NetmikoTimeoutException)", "The device rejected ...") and, for a driver exception, its class
+  name; the driver text and traceback go to the debug log. A step may therefore store `result.error` as written.
 
 A step that writes `message=str(exc)` or `message=f"...{exc}..."` itself must have `exc` narrowed to a named class
 that is not `Exception`, by its `except` clause or an `isinstance` check; a catch-all goes through

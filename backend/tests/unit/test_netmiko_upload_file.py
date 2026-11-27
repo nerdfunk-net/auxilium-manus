@@ -105,7 +105,8 @@ class NetmikoDeviceSessionUploadFileTests(unittest.TestCase):
             )
 
         self.assertFalse(result.success)
-        self.assertIn("SCP disabled on device", result.error or "")
+        # The driver text stays in the debug log; the result names the class (session layer rule).
+        self.assertEqual(result.error, "RuntimeError")
 
 
 class NetmikoServiceUploadFileTests(unittest.IsolatedAsyncioTestCase):

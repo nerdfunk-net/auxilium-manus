@@ -51,7 +51,8 @@ class NetmikoDeployConfigTests(unittest.TestCase):
             result = session.deploy_config(["interface Gi0/0"], mode="config_mode")
 
         self.assertFalse(result.success)
-        self.assertIn("Pattern not detected", result.error or "")
+        # The driver text stays in the debug log; the result names the class (session layer rule).
+        self.assertEqual(result.error, "RuntimeError")
         self.assertEqual(result.session_log, "LAB(config-if)#")
 
     def test_session_log_disabled_yields_none(self) -> None:

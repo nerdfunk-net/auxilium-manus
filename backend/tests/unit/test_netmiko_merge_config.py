@@ -173,7 +173,8 @@ class MergeRunningConfigTests(unittest.TestCase):
             result = session.merge_running_config("flash:partial.cfg")
 
         self.assertFalse(result.success)
-        self.assertIn("boom", result.error or "")
+        # The driver text stays in the debug log; the result names the class (session layer rule).
+        self.assertEqual(result.error, "RuntimeError")
         self.assertEqual(result.output, "")
 
     def test_read_timeout_passed_through(self) -> None:
