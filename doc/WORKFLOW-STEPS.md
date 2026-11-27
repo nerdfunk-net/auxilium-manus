@@ -673,7 +673,8 @@ one bad value fails that device only (a non-ASCII digit in a prefix is `netmask_
 `keep_text=` for such integrations; `device_error_from_exception` has the same parameter. W7 (pyATS and Batfish): `get-pyats-running-config`, `get-pyats-snapshot` and `compare-pyats-snapshot`
 run on `run_per_device` (the compare step with `concurrency` = the shim's job limit and its match / mismatch verdict kept
 per device; the get-steps over the devices that passed validation, `only=`). The batch call itself stays in
-`common/pyats_batch.py` (chunks of devices per shim job are not part of the runner): a chunk whose answer is malformed or
+`services/pyats/batch.py::run_batched` (chunks of devices per shim job are not part of the runner; the step glue that groups
+the devices by source is `common/pyats_batch.py`): a chunk whose answer is malformed or
 raises fails that chunk only (the class name is the error), a sealed password that cannot be decrypted fails that device
 (`credential_unreadable`), and the artifact store of `get-pyats-snapshot` is inside the per-device boundary.
 `batfish-validate-facts` fails a device whose expected facts cannot be prepared (artifact read, template) instead of the step. W8 (controllers):
@@ -1583,8 +1584,8 @@ response = await shim.run_job(
 ```
 
 The snippet shows one shim call. **A step that runs the same operation on many devices does not call `run_job()`
-per device:** it uses `workflow_steps/common/pyats_batch.py::run_batched`, which groups the devices by pyATS source,
-cuts them into chunks (`DEFAULT_CHUNK_SIZE` 5; the job timeout grows with the chunk), calls `run_job()` once per chunk
+per device:** `workflow_steps/common/pyats_batch.py::validate_and_group_devices` groups the devices by pyATS source and
+`services/pyats/batch.py::run_batched` cuts each group into chunks (`DEFAULT_CHUNK_SIZE` 5; the job timeout grows with the chunk), calls `run_job()` once per chunk
 and runs at most as many chunks at once as the shim's `/health/pyats` limit allows. A failed chunk (network error,
 timeout, rejected request) fails only the devices of that chunk. `get-pyats-running-config` (Get & Parse Config) and
 `get-pyats-snapshot` (Get Snapshot) use it. Two steps call the shim directly on purpose:

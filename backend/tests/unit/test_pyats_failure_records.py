@@ -14,9 +14,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from models.failure import FailureInfo
+from services.pyats import batch
 from services.pyats.common.exceptions import PyATSAPIError, PyATSValidationError
 from tests.unit._step_helpers import make_device
-from workflow_steps.common import pyats_batch
 from workflow_steps.common.device_runner import Fail
 from workflow_steps.compare_pyats_snapshot import executor as compare_mod
 from workflow_steps.configure_replace_config import shim_jobs as replace_mod
@@ -30,7 +30,7 @@ async def _batched(error: BaseException) -> dict[str, Any]:
     shim = MagicMock()
     shim.limits = AsyncMock(side_effect=RuntimeError("no limits"))
     shim.run_job = AsyncMock(side_effect=error)
-    return await pyats_batch.run_batched(
+    return await batch.run_batched(
         shim=shim,
         credentials=MagicMock(),
         operation="parse",
@@ -74,7 +74,7 @@ async def test_an_unexpected_chunk_error_is_an_internal_error_with_the_class_nam
 
 
 def test_a_device_level_error_keeps_its_text_capped_and_is_a_command_error() -> None:
-    message, failure = pyats_batch.shim_device_failure({"success": False, "error": "x" * 2000})
+    message, failure = batch.shim_device_failure({"success": False, "error": "x" * 2000})
 
     assert message == "x" * 300 + "…"
     assert failure.kind == "command_error"
@@ -82,13 +82,13 @@ def test_a_device_level_error_keeps_its_text_capped_and_is_a_command_error() -> 
 
 
 def test_a_short_device_level_error_is_not_changed() -> None:
-    message, _failure = pyats_batch.shim_device_failure({"success": False, "error": "login failed"})
+    message, _failure = batch.shim_device_failure({"success": False, "error": "login failed"})
 
     assert message == "login failed"
 
 
 def test_a_missing_result_gets_the_generic_sentence() -> None:
-    message, failure = pyats_batch.shim_device_failure(None)
+    message, failure = batch.shim_device_failure(None)
 
     assert message == "pyATS shim reported failure for this device"
     assert failure.kind == "command_error"
@@ -97,7 +97,7 @@ def test_a_missing_result_gets_the_generic_sentence() -> None:
 def test_a_carried_failure_wins_over_the_generic_one() -> None:
     carried = FailureInfo(phase="api", kind="timeout", retryable=True)
 
-    _message, failure = pyats_batch.shim_device_failure(
+    _message, failure = batch.shim_device_failure(
         {"success": False, "error": "e", "failure": carried}
     )
 
@@ -132,7 +132,7 @@ def test_get_running_config_device_error_is_a_capped_command_error() -> None:
     )
 
     assert isinstance(fail, Fail)
-    assert len(fail.message) <= pyats_batch.MAX_SHIM_TEXT + 1
+    assert len(fail.message) <= batch.MAX_SHIM_TEXT + 1
     assert fail.failure is not None
     assert fail.failure.kind == "command_error"
 
@@ -171,7 +171,7 @@ async def test_get_snapshot_device_error_is_a_capped_command_error() -> None:
     )
 
     assert isinstance(fail, Fail)
-    assert len(fail.message) <= pyats_batch.MAX_SHIM_TEXT + 1
+    assert len(fail.message) <= batch.MAX_SHIM_TEXT + 1
     assert fail.failure is not None
     assert fail.failure.kind == "command_error"
 
@@ -242,6 +242,6 @@ async def test_configure_replace_device_level_error_carries_a_command_error() ->
     )
 
     assert result.ok is False
-    assert len(str(result.error)) <= pyats_batch.MAX_SHIM_TEXT + 1
+    assert len(str(result.error)) <= batch.MAX_SHIM_TEXT + 1
     assert result.failure is not None
     assert result.failure.kind == "command_error"

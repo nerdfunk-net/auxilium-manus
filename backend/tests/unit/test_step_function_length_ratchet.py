@@ -55,7 +55,7 @@ LEGACY_LONG_FUNCTIONS: dict[str, int] = {
     "workflow_steps/common/interface_payload.py": 1,
     "workflow_steps/common/nautobot_object_update.py": 3,
     "workflow_steps/common/partial_outcomes.py": 1,
-    "workflow_steps/common/pyats_batch.py": 2,
+    "workflow_steps/common/pyats_batch.py": 1,
     "workflow_steps/common/redundancy_groups.py": 1,
     "workflow_steps/common/secret_manager_step.py": 1,
     "workflow_steps/common/value_expression.py": 1,

@@ -45,7 +45,7 @@ A concrete example: `get-pyats-running-config` and `get-pyats-snapshot`
 `get_pyats_snapshot/executor.py`) originally looped over `context.devices`
 and made one HTTP call to the pyATS shim per device. They were later changed
 to group devices by `pyats_source_id` and make one shim call per chunk of up
-to 5 devices instead (`backend/workflow_steps/common/pyats_batch.py`; full
+to 5 devices instead (`backend/services/pyats/batch.py`, grouped by `backend/workflow_steps/common/pyats_batch.py`; full
 rationale in `doc/PYATS_INTEGRATION.md` → "Get & Parse Config"). Both before
 and after that change, `StepRunner` still called each step's `execute()`
 exactly once per node, with the same full `context.devices` dict — only the

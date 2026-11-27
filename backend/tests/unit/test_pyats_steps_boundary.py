@@ -16,6 +16,7 @@ import pytest
 
 from models.workflow_context import DeviceContext
 from services.artifacts import InMemoryArtifactService
+from services.pyats import batch
 from services.workflow_context.secret_fields import SEALED_MARKER, seal_secret
 from tests.unit._step_helpers import call_step, make_context, make_device, make_run
 from tests.unit.test_batfish_validate_facts_executor import _context_with_snapshot, _device
@@ -54,7 +55,7 @@ async def _batched(run_job: AsyncMock, group: list[tuple[str, dict[str, Any]]], 
     shim = MagicMock()
     shim.limits = AsyncMock(side_effect=RuntimeError("no limits"))
     shim.run_job = run_job
-    return await pyats_batch.run_batched(
+    return await batch.run_batched(
         shim=shim,
         credentials=MagicMock(),
         operation="parse",
@@ -188,8 +189,7 @@ async def test_an_unexpected_error_for_one_device_does_not_fail_the_comparison_s
     with (
         patch("workflow_steps.common.run_session.object_session", return_value=MagicMock()),
         patch(f"{mod}.resolve_source_credentials", return_value=({}, {})),
-        patch(f"{mod}.shim_concurrency", create=True, new=AsyncMock(return_value=2)),
-        patch("workflow_steps.common.pyats_batch.shim_concurrency", AsyncMock(return_value=2)),
+        patch(f"{mod}.shim_concurrency", new=AsyncMock(return_value=2)),
         patch(f"{mod}.service_factory"),
         patch(f"{mod}._compare_one_device", side_effect=compare_one),
     ):
@@ -265,7 +265,7 @@ async def test_devices_are_compared_at_most_as_many_at_once_as_the_shim_runs() -
     with (
         patch("workflow_steps.common.run_session.object_session", return_value=MagicMock()),
         patch(f"{mod}.resolve_source_credentials", return_value=({}, {})),
-        patch("workflow_steps.common.pyats_batch.shim_concurrency", AsyncMock(return_value=2)),
+        patch(f"{mod}.shim_concurrency", AsyncMock(return_value=2)),
         patch(f"{mod}.service_factory"),
         patch(f"{mod}._compare_one_device", side_effect=compare_one),
     ):

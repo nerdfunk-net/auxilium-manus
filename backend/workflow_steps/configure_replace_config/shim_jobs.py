@@ -11,9 +11,9 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from models.failure import FailureInfo
+from services.pyats.batch import shim_device_failure
 from services.pyats.common.exceptions import PyATSAPIError
 from services.pyats.credentials import PyATSCredentials
-from workflow_steps.common.pyats_batch import shim_device_failure
 
 logger = logging.getLogger(__name__)
 

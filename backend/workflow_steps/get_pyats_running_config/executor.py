@@ -34,14 +34,13 @@ from models.workflow_context import (
     WorkflowContext,
 )
 from services.artifacts import ArtifactService
+from services.pyats.batch import run_batched, shim_device_failure
 from services.workflow_context.node_result import set_node_result
 from workflow_steps.common.device_outcomes import build_outcomes
 from workflow_steps.common.device_runner import Fail, run_per_device
 from workflow_steps.common.failure_records import INVALID_RESPONSE
 from workflow_steps.common.pyats_batch import (
     resolve_source_credentials,
-    run_batched,
-    shim_device_failure,
     validate_and_group_devices,
 )
 from workflow_steps.common.run_logging import log_run_id

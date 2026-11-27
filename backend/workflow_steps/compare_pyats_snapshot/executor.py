@@ -49,6 +49,7 @@ from models.workflow_context import (
     WorkflowContext,
 )
 from services.artifacts import ArtifactService
+from services.pyats.batch import shim_concurrency
 from services.pyats.common.exceptions import PyATSAPIError, PyATSValidationError
 from services.pyats.credentials import PyATSCredentials
 from services.workflow_context.device_template import (
@@ -654,8 +655,6 @@ async def execute(
 
     # Bounded by what the shim runs at once; an unbounded gather of per-feature jobs makes it queue
     # work that may outlive the client's timeout (C4R-04).
-    from workflow_steps.common.pyats_batch import shim_concurrency
-
     limit = await shim_concurrency(
         service_factory.get_pyats_app_service(),
         next(iter(source_credentials.values()), None),

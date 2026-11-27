@@ -6,15 +6,11 @@ import unittest
 from unittest.mock import AsyncMock, MagicMock
 
 from models.workflow_context import DeviceContext, DeviceStatus
+from services.pyats.batch import BASE_TIMEOUT_SECONDS, PER_DEVICE_TIMEOUT_SECONDS, run_batched
 from services.pyats.common.exceptions import PyATSAPIError
 from services.pyats.credentials import PyATSCredentials
 from services.workflow_context.secret_fields import seal_secret
-from workflow_steps.common.pyats_batch import (
-    BASE_TIMEOUT_SECONDS,
-    PER_DEVICE_TIMEOUT_SECONDS,
-    run_batched,
-    validate_and_group_devices,
-)
+from workflow_steps.common.pyats_batch import validate_and_group_devices
 
 
 def _device_with_testbed(device_id: str, *, source_id: str = "lab-pyats") -> DeviceContext:

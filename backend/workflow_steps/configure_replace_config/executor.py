@@ -82,6 +82,7 @@ from models.workflow_context import (
     WorkflowContext,
 )
 from services.artifacts import ArtifactService
+from services.pyats.batch import shim_concurrency
 from services.pyats.credentials import PyATSCredentials
 from services.workflow_context.node_result import set_node_result
 from services.workflow_context.secret_fields import unwrap_secret
@@ -89,10 +90,7 @@ from workflow_steps.common.device_file_upload import parse_device_token
 from workflow_steps.common.device_outcomes import build_outcomes
 from workflow_steps.common.device_runner import Fail, run_per_device
 from workflow_steps.common.failure_records import COMMAND_FAILED, INVALID_INPUT
-from workflow_steps.common.pyats_batch import (
-    resolve_source_credentials,
-    shim_concurrency,
-)
+from workflow_steps.common.pyats_batch import resolve_source_credentials
 from workflow_steps.common.run_logging import log_run_id
 from workflow_steps.common.run_session import require_session
 from workflow_steps.common.step_flags import parse_bool_flag, parse_int_flag

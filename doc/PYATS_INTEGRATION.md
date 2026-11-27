@@ -95,8 +95,10 @@ backend/main.py                            # PyATSShimService lifespan startup/s
 backend/hatchet/worker_services.py         # PyATSShimService lifespan startup/shutdown (shared by both Hatchet workers)
 backend/services/auth/rbac_seed.py         # sources.pyats read/write/delete permissions
 
-backend/workflow_steps/common/pyats_batch.py # shared: group devices by pyats_source_id, chunk, one
-                                              # run_job() per chunk -- used by get-pyats-running-config and
+backend/services/pyats/batch.py             # client side: chunk a device group, one run_job() per chunk
+                                              # under the shim's job limit, read a per-device result
+backend/workflow_steps/common/pyats_batch.py # step glue: resolve sources, validate and group devices by
+                                              # pyats_source_id -- used by get-pyats-running-config and
                                               # get-pyats-snapshot (see "Get & Parse Config" below)
 backend/workflow_steps/get_pyats_running_config/
 ├── executor.py                            # POST /v1/jobs (operation="parse"), batched via pyats_batch
@@ -112,6 +114,7 @@ backend/tests/unit/test_pyats_source_config_service.py
 backend/tests/unit/test_pyats_router_auth.py
 backend/tests/unit/test_pyats_client.py
 backend/tests/unit/test_pyats_batch.py
+backend/tests/unit/test_pyats_batch_placement.py
 backend/tests/unit/test_get_pyats_running_config_executor.py
 backend/tests/unit/test_get_pyats_snapshot_executor.py
 backend/tests/unit/test_compare_pyats_snapshot_executor.py
@@ -324,9 +327,9 @@ across every pyATS step in the workflow.
 `requires: [identity, pyats_testbed]`, `produces: [parsed]`. For every
 device, reads its `pyats_testbed` bag and `unwrap_secret()`s the password
 (in-memory only, to build the shim request body — never copied elsewhere),
-then calls the shim via the shared `workflow_steps/common/pyats_batch.py`
-helper, which **groups devices by `pyats_source_id` and batches each
-group's devices into one `run_job()` call per chunk** (rather than one call
+then calls the shim via the shared helpers (`workflow_steps/common/pyats_batch.py`
+**groups devices by `pyats_source_id`**, `services/pyats/batch.py` **batches each
+group's devices into one `run_job()` call per chunk**) (rather than one call
 per device):
 
 ```python
@@ -347,7 +350,7 @@ Batching therefore trades "N concurrent pyATS subprocesses" for "fewer
 subprocesses, each doing sequential per-device work" — an unbounded batch
 would mean a single slow or unreachable device serially delays every other
 device queued behind it in the same job, and a chunk-level failure (timeout,
-network error) fails every device in that chunk, not just one. `pyats_batch.py`
+network error) fails every device in that chunk, not just one. `services/pyats/batch.py`
 caps this at `DEFAULT_CHUNK_SIZE = 5` devices per `run_job()` call, chosen to
 roughly saturate the shim's own `PYATS_SHIM_MAX_CONCURRENT_JOBS` (default 4)
 concurrency slot when chunks run concurrently via `asyncio.gather`, while
@@ -388,7 +391,7 @@ from a step" section.
 
 A third step, `get-pyats-snapshot` ("Get Snapshot"), captures Genie
 `device.learn(feature)` output (BGP, OSPF, interfaces, platform, ... or
-`"all"`) the same way — batched via the same `pyats_batch.py` helper as
+`"all"`) the same way — batched via the same `services/pyats/batch.py` helper as
 Get & Parse Config above (grouped by `pyats_source_id`, chunked
 `operation="learn"` calls) — with each feature's `Ops.to_dict()` result
 stored per feature and tolerant of
@@ -560,7 +563,7 @@ bag written by an upstream Add Testbed step. See
   Config" above): device connects run sequentially inside a job, so a
   hung/unreachable device now serially delays every other device queued
   behind it in the same chunk (bounded, per chunk, by
-  `pyats_batch.py`'s `PER_DEVICE_TIMEOUT_SECONDS`-scaled outer timeout —
+  `services/pyats/batch.py`'s `PER_DEVICE_TIMEOUT_SECONDS`-scaled outer timeout —
   `DEFAULT_CHUNK_SIZE=5` keeps this bounded rather than growing with the
   whole step's device count, but a chunk of several unreachable devices is
   still a multi-minute wait today). Before relying on this against real
@@ -568,7 +571,7 @@ bag written by an upstream Add Testbed step. See
   Unicon kwarg needs verifying against the pinned `pyats[full]` version —
   `connection_timeout` did not visibly shorten the hang in a quick local
   test); this would directly shrink both the worst-case chunk latency above
-  and the padding `pyats_batch.py`'s timeout formula currently needs.
+  and the padding `services/pyats/batch.py`'s timeout formula currently needs.
 - **pyATS/Genie version pin.** `pyats-shim/requirements.txt` pins
   `pyats[full]>=26.0,<27.0` (pyATS uses CalVer tied to the release year).
   Re-verify this range resolves before bumping past the current year.
