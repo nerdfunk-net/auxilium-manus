@@ -1,6 +1,6 @@
 {
   "export_format": "auxilium-workflow-v1",
-  "exported_at": "2026-11-15T10:22:59.555Z",
+  "exported_at": "2026-11-28T10:03:45.820Z",
   "name": "Onboarding",
   "description": "Onboarding",
   "folder": "Gallery",
@@ -12,7 +12,7 @@
       "type": "workflowNode",
       "position": {
         "x": 765.2593481760791,
-        "y": 48.943315615732786
+        "y": 48.894922543517495
       },
       "data": {
         "kind": "batfish-init-snapshot",
@@ -34,7 +34,8 @@
           }
         ],
         "pluginConfig": {
-          "batfish_source_id": "batfish"
+          "batfish_source_id": "batfish",
+          "network_name": ""
         },
         "disabled": false,
         "incomeHandleSide": "right",
@@ -52,7 +53,7 @@
       "id": "get-device-configs-5",
       "type": "workflowNode",
       "position": {
-        "x": -290.94752939028785,
+        "x": -295.6876870821229,
         "y": -177.7763023589177
       },
       "zIndex": 1,
@@ -97,55 +98,11 @@
       "dragging": false
     },
     {
-      "id": "batfish-extract-facts-6",
-      "type": "workflowNode",
-      "position": {
-        "x": 403.17115426959515,
-        "y": 48.943315615732786
-      },
-      "data": {
-        "kind": "batfish-extract-facts",
-        "stepUuid": "70d8ebff-2479-4cc5-b438-cdecd86813f3",
-        "title": "Extract Facts",
-        "overview": "Pull parsed device facts out of a Batfish snapshot via Batfish's extract_facts question.",
-        "description": "Retrieves the configuration facts Batfish parsed (hostname, NTP/ TACACS/DNS servers, interfaces, BGP/OSPF settings, etc.) for a set of nodes in an already-initialized snapshot -- no expected values, just what Batfish actually sees. Writes each device's own facts into device.parsed[output_key] for downstream steps to read, in addition to one workflow-level artifact covering every extracted node.\n",
-        "artifactType": "configuration_management",
-        "requires": [
-          "identity"
-        ],
-        "requiresParsed": [],
-        "produces": [
-          "parsed"
-        ],
-        "producesParsed": [],
-        "consumes": [],
-        "outcomes": [
-          {
-            "name": "success"
-          }
-        ],
-        "disabled": false,
-        "pluginConfig": {
-          "output_key": "parsed_config",
-          "batfish_source_id": "batfish"
-        },
-        "incomeHandleSide": "right",
-        "outcomeHandleSide": "left"
-      },
-      "measured": {
-        "width": 320,
-        "height": 128
-      },
-      "dragging": false,
-      "selected": false,
-      "parentId": "background-16"
-    },
-    {
       "id": "config-to-attributes-10",
       "type": "workflowNode",
       "position": {
         "x": 26.12990067101657,
-        "y": 48.943315615732786
+        "y": 48.894922543517495
       },
       "data": {
         "kind": "config-to-attributes",
@@ -174,7 +131,7 @@
           "attributes": [
             "interfaces"
           ],
-          "parsed_key": "parsed_config",
+          "parsed_key": "batfish-extract-facts-24.parsed",
           "update_primary_ipv4": true,
           "primary_ipv4_custom_pattern": "(Ethernet|Vlan)"
         },
@@ -195,7 +152,7 @@
       "type": "workflowNode",
       "position": {
         "x": 505.89191874453536,
-        "y": 24.92355117822379
+        "y": 24.8751581060085
       },
       "zIndex": 1,
       "data": {
@@ -356,9 +313,10 @@
               "mode": "regex",
               "destination_path": "device.name",
               "fixed_value": "",
-              "source_path": "parsed.cisco_config.running.hostname",
+              "source_path": "parsed.parsed.show version.parsed[0].hostname",
               "pattern": "^(.*)$",
               "destination_template": "\\1",
+              "template": "",
               "regex_flags": {
                 "case_insensitive": false,
                 "multiline": false,
@@ -370,9 +328,10 @@
               "mode": "regex",
               "destination_path": "nautobot.serial",
               "fixed_value": "",
-              "source_path": "parsed.parsed.show version.parsed[0].serial",
+              "source_path": "parsed.parsed.show version.parsed[0].serial[0]",
               "pattern": "^(.*)$",
               "destination_template": "\\1",
+              "template": "",
               "regex_flags": {
                 "case_insensitive": false,
                 "multiline": false,
@@ -389,13 +348,13 @@
         "height": 128
       },
       "dragging": false,
-      "selected": true
+      "selected": false
     },
     {
       "id": "run-command-12",
       "type": "workflowNode",
       "position": {
-        "x": -290.94752939028785,
+        "x": -295.6876870821229,
         "y": -357.845245184248
       },
       "zIndex": 1,
@@ -485,9 +444,10 @@
               "mode": "regex",
               "destination_path": "nautobot.location",
               "fixed_value": "",
-              "source_path": "parsed.cisco_config.running.hostname",
+              "source_path": "parsed.parsed.show version.parsed[0].hostname",
               "pattern": "^R(\\d+)\\w+.*$",
               "destination_template": "\\1",
+              "template": "",
               "regex_flags": {
                 "case_insensitive": false,
                 "multiline": false,
@@ -1451,7 +1411,7 @@
       "id": "add-to-nautobot-23",
       "type": "workflowNode",
       "position": {
-        "x": 24.664813907928306,
+        "x": 38.37990796230588,
         "y": 53.91032928286711
       },
       "data": {
@@ -1597,35 +1557,57 @@
       },
       "dragging": false,
       "selected": false
+    },
+    {
+      "id": "batfish-extract-facts-24",
+      "type": "workflowNode",
+      "position": {
+        "x": 398.4309965777601,
+        "y": 48.894922543517495
+      },
+      "data": {
+        "kind": "batfish-extract-facts",
+        "stepUuid": "363d270a-cea4-48b8-98df-755e3a7d6205",
+        "title": "Extract Facts",
+        "overview": "Pull parsed device facts out of a Batfish snapshot via Batfish's extract_facts question.",
+        "description": "Retrieves the configuration facts Batfish parsed (hostname, NTP/ TACACS/DNS servers, interfaces, BGP/OSPF settings, etc.) for a set of nodes in an already-initialized snapshot -- no expected values, just what Batfish actually sees. Writes each device's own facts into device.parsed[output_key] for downstream steps to read, in addition to one workflow-level artifact covering every extracted node. A device whose name matches no node in the snapshot leaves through \"failure\". Each interface with HSRP groups also gets HSRP_Details (group id, virtual addresses, priority, preempt) from Batfish's hsrpProperties question, because the interface facts alone list only the group ids.\n",
+        "artifactType": "configuration_management",
+        "requires": [
+          "identity"
+        ],
+        "requiresParsed": [],
+        "produces": [
+          "parsed"
+        ],
+        "producesParsed": [],
+        "consumes": [],
+        "outcomes": [
+          {
+            "name": "success"
+          },
+          {
+            "name": "failure"
+          }
+        ],
+        "incomeHandleSide": "right",
+        "outcomeHandleSide": "left",
+        "pluginConfig": {
+          "batfish_source_id": "",
+          "network": "",
+          "snapshot": "",
+          "output_key": "parsed"
+        }
+      },
+      "measured": {
+        "width": 320,
+        "height": 128
+      },
+      "dragging": false,
+      "parentId": "background-16",
+      "selected": false
     }
   ],
   "canvas_edges": [
-    {
-      "type": "waypoint",
-      "zIndex": 0,
-      "data": {
-        "edgeStyle": "bezier"
-      },
-      "source": "batfish-init-snapshot-4",
-      "sourceHandle": "success",
-      "target": "batfish-extract-facts-6",
-      "targetHandle": "input",
-      "id": "xy-edge__batfish-init-snapshot-4success-batfish-extract-facts-6input",
-      "selected": false
-    },
-    {
-      "type": "waypoint",
-      "zIndex": 0,
-      "data": {
-        "edgeStyle": "bezier"
-      },
-      "source": "batfish-extract-facts-6",
-      "sourceHandle": "success",
-      "target": "config-to-attributes-10",
-      "targetHandle": "input",
-      "id": "xy-edge__batfish-extract-facts-6success-config-to-attributes-10input",
-      "selected": false
-    },
     {
       "type": "waypoint",
       "zIndex": 0,
@@ -1820,6 +1802,32 @@
       "targetHandle": "input",
       "id": "xy-edge__start-nautobot-job-18success-notify-mattermost-23input",
       "selected": false
+    },
+    {
+      "type": "waypoint",
+      "zIndex": 0,
+      "data": {
+        "edgeStyle": "bezier"
+      },
+      "source": "batfish-init-snapshot-4",
+      "sourceHandle": "success",
+      "target": "batfish-extract-facts-24",
+      "targetHandle": "input",
+      "id": "xy-edge__batfish-init-snapshot-4success-batfish-extract-facts-24input",
+      "selected": false
+    },
+    {
+      "type": "waypoint",
+      "zIndex": 0,
+      "data": {
+        "edgeStyle": "bezier"
+      },
+      "source": "batfish-extract-facts-24",
+      "sourceHandle": "success",
+      "target": "config-to-attributes-10",
+      "targetHandle": "input",
+      "id": "xy-edge__batfish-extract-facts-24success-config-to-attributes-10input",
+      "selected": false
     }
   ],
   "canvas_groups": [
@@ -1838,7 +1846,7 @@
         "y": -271.7962565137673
       },
       "parentGroupId": null,
-      "selected": false
+      "selected": true
     }
   ],
   "static_attributes": [

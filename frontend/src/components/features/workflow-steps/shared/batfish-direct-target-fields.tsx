@@ -99,6 +99,17 @@ export function BatfishDirectTargetFields({ config, onChange }: BatfishDirectTar
     [config, onChange],
   );
 
+  // Back to "neither": the step then reads the snapshot an upstream Init Batfish Snapshot
+  // step created in this run (its default network manus-workflow-<id> included).
+  const handleUseRunSnapshot = useCallback(() => {
+    setNetworkManual(false);
+    setSnapshotManual(false);
+    onChange({ ...config, [BATFISH_SOURCE_ID_KEY]: "", [NETWORK_KEY]: "", [SNAPSHOT_KEY]: "" });
+  }, [config, onChange]);
+
+  const hasDirectTarget = Boolean(sourceId || network || snapshot);
+  const halfConfigured = Boolean(sourceId) !== Boolean(network);
+
   return (
     <div className="space-y-4 border-t pt-3">
       <div className="space-y-0.5">
@@ -108,6 +119,23 @@ export function BatfishDirectTargetFields({ config, onChange }: BatfishDirectTar
           step in this run. Set Source and Network together to query any network directly —
           this always overrides the run&apos;s own snapshot when set.
         </p>
+        {hasDirectTarget ? (
+          <Button
+            className="h-7 w-full text-xs"
+            size="sm"
+            type="button"
+            variant="ghost"
+            onClick={handleUseRunSnapshot}
+          >
+            Use this run&apos;s snapshot (clear source, network and snapshot)
+          </Button>
+        ) : null}
+        {halfConfigured ? (
+          <p role="alert" className="text-[11px] leading-4 text-destructive">
+            Set both Source and Network, or clear them to use this run&apos;s snapshot. The step
+            refuses one without the other.
+          </p>
+        ) : null}
       </div>
 
       <div className="space-y-1.5">

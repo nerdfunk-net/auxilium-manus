@@ -64,6 +64,9 @@ FACT_STEP_DEFAULT_KEYS: dict[str, str] = {
     "get-pyats-snapshot": "pyats_snapshot",
 }
 
+# run-command still writes the flat parsed[<parsed_output_key>]; its get_config() default.
+RUN_COMMAND_DEFAULT_KEY = "parsed"
+
 # content_resolver: these sources need source_step_node_id (pyats_snapshot is new, b3bba81).
 SOURCES_NEEDING_NODE = frozenset(
     {
@@ -235,23 +238,73 @@ def _registry_findings(node: Node) -> list[Finding]:
     return findings
 
 
-def _flat_parsed_findings(node: Node, outputs: dict[str, str]) -> list[Finding]:
+def _reachable(edges: Any) -> dict[str, set[str]] | None:
+    """node id -> every node id downstream of it; ``None`` when the workflow has no edges."""
+    if not isinstance(edges, list) or not edges:
+        return None
+    children: dict[str, set[str]] = {}
+    for edge in edges:
+        if isinstance(edge, dict) and edge.get("source") and edge.get("target"):
+            children.setdefault(str(edge["source"]), set()).add(str(edge["target"]))
+    reach: dict[str, set[str]] = {}
+    for start in children:
+        seen: set[str] = set()
+        stack = list(children[start])
+        while stack:
+            current = stack.pop()
+            if current not in seen:
+                seen.add(current)
+                stack.extend(children.get(current, ()))
+        reach[start] = seen
+    return reach
+
+
+def _flat_writers(nodes: list[Node]) -> dict[str, list[str]]:
+    """Flat key -> node ids of the steps that still write ``parsed[<key>]`` (run-command)."""
+    writers: dict[str, list[str]] = {}
+    for node in nodes:
+        if node.kind == "run-command":
+            key = str(node.config.get("parsed_output_key") or RUN_COMMAND_DEFAULT_KEY).strip()
+            writers.setdefault(key, []).append(node.node_id)
+    return writers
+
+
+def _upstream_of(reach: dict[str, set[str]] | None, source: str, target: str) -> bool:
+    """``True`` when ``source`` runs before ``target`` (always ``True`` without edges)."""
+    return reach is None or target in reach.get(source, set())
+
+
+def _flat_parsed_findings(
+    node: Node,
+    outputs: dict[str, str],
+    reach: dict[str, set[str]] | None,
+    flat_writers: dict[str, list[str]],
+) -> list[Finding]:
     findings: list[Finding] = []
     for output_key, fact_node in outputs.items():
-        if fact_node == node.node_id:
+        if fact_node == node.node_id or not _upstream_of(reach, fact_node, node.node_id):
             continue
+        shared = [
+            writer
+            for writer in flat_writers.get(output_key, [])
+            if writer != node.node_id and _upstream_of(reach, writer, node.node_id)
+        ]
         pattern = _flat_parsed_pattern(output_key)
         for path, text in _strings(node.config):
-            if pattern.search(text):
-                findings.append(
-                    Finding(
-                        BREAKS,
-                        node.node_id,
-                        node.kind,
-                        f"'{path}' reads parsed.{output_key}; {fact_node} now writes "
-                        f"parsed.{fact_node}.{output_key}",
-                    )
+            if not pattern.search(text):
+                continue
+            message = (
+                f"'{path}' reads parsed.{output_key}; {fact_node} now writes "
+                f"parsed.{fact_node}.{output_key}"
+            )
+            severity = BREAKS
+            if shared:
+                severity = CHECK
+                message += (
+                    f", but {', '.join(shared)} also writes the flat parsed.{output_key}; "
+                    "fine if the path is meant for that step's output"
                 )
+            findings.append(Finding(severity, node.node_id, node.kind, message))
     return findings
 
 
@@ -331,6 +384,19 @@ def _step_specific_findings(node: Node) -> list[Finding]:
                     "re-create the update in the attributes list",
                 )
             )
+    if _is_batfish_query(kind):
+        source = str(cfg.get("batfish_source_id") or "").strip()
+        network = str(cfg.get("network") or "").strip()
+        if bool(source) != bool(network):
+            found.append(
+                Finding(
+                    BREAKS,
+                    nid,
+                    kind,
+                    "only one of batfish_source_id / network is set, now a config error "
+                    "(310fad9); clear both to use this run's snapshot, or set both",
+                )
+            )
     if kind == "batfish-path-check" and _is_true(cfg, "invert_search"):
         found.append(Finding(BREAKS, nid, kind, "invert_search is now a config error"))
     if kind == "check-nautobot-job":
@@ -339,6 +405,13 @@ def _step_specific_findings(node: Node) -> list[Finding]:
             found.append(Finding(BREAKS, nid, kind, f"job_uuid '{job_uuid}' is not a UUID"))
     found.extend(_behaviour_findings(node))
     return found
+
+
+def _is_batfish_query(kind: str) -> bool:
+    """Steps whose Batfish target is "source + network, or neither" (parse_direct_target)."""
+    if kind == "batfish-init-snapshot":
+        return False
+    return kind.startswith("batfish-") or kind in {"get-batfish-devices", "undefined-and-unused"}
 
 
 def _is_uuid(text: str) -> bool:
@@ -390,18 +463,29 @@ def _behaviour_findings(node: Node) -> list[Finding]:
     for path, text in _strings(cfg):
         if "error.message" in text:
             found.append(
-                Finding(INFO, nid, kind, f"'{path}' uses error.message; the wording changed")
+                Finding(
+                    INFO,
+                    nid,
+                    kind,
+                    f"'{path}' uses error.message: the syntax is still valid; the text is "
+                    "now the app's own sentence (no driver or SQL text); {error.code} adds "
+                    "the reason code",
+                )
             )
     return found
 
 
-def check_workflow(source: str, workflow_id: str, name: str, canvas_nodes: Any) -> WorkflowReport:
+def check_workflow(
+    source: str, workflow_id: str, name: str, canvas_nodes: Any, canvas_edges: Any = None
+) -> WorkflowReport:
     nodes = _nodes(canvas_nodes)
     outputs = _fact_outputs(nodes)
+    reach = _reachable(canvas_edges)
+    flat_writers = _flat_writers(nodes)
     findings: list[Finding] = []
     for node in nodes:
         findings.extend(_registry_findings(node))
-        findings.extend(_flat_parsed_findings(node, outputs))
+        findings.extend(_flat_parsed_findings(node, outputs, reach, flat_writers))
         if node.kind == "config-to-attributes":
             findings.extend(_config_to_attributes_findings(node, outputs))
         findings.extend(_content_source_findings(node))
@@ -441,9 +525,9 @@ def check_template(
     return TemplateReport(template_id, name, used_by, tuple(findings))
 
 
-def _all_fact_keys(rows: list[tuple[str, str, str, Any]]) -> set[str]:
+def _all_fact_keys(rows: list[tuple[str, str, str, Any, Any]]) -> set[str]:
     keys = set(FACT_STEP_DEFAULT_KEYS.values())
-    for _, _, _, canvas_nodes in rows:
+    for _, _, _, canvas_nodes, _ in rows:
         keys.update(_fact_outputs(_nodes(canvas_nodes)))
     return keys
 
@@ -452,8 +536,8 @@ def _all_fact_keys(rows: list[tuple[str, str, str, Any]]) -> set[str]:
 # input
 
 
-def _rows_from_exports(directory: Path) -> list[tuple[str, str, str, Any]]:
-    rows: list[tuple[str, str, str, Any]] = []
+def _rows_from_exports(directory: Path) -> list[tuple[str, str, str, Any, Any]]:
+    rows: list[tuple[str, str, str, Any, Any]] = []
     for path in sorted(directory.glob("*.json")):
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
@@ -462,12 +546,20 @@ def _rows_from_exports(directory: Path) -> list[tuple[str, str, str, Any]]:
             continue
         if isinstance(data, dict):
             rows.append(
-                ("file", path.name, str(data.get("name", path.stem)), data.get("canvas_nodes"))
+                (
+                    "file",
+                    path.name,
+                    str(data.get("name", path.stem)),
+                    data.get("canvas_nodes"),
+                    data.get("canvas_edges"),
+                )
             )
     return rows
 
 
-def _rows_from_database() -> tuple[list[tuple[str, str, str, Any]], list[tuple[int, str, str]]]:
+def _rows_from_database() -> tuple[
+    list[tuple[str, str, str, Any, Any]], list[tuple[int, str, str]]
+]:
     from sqlalchemy import select
 
     from core.database import SessionLocal
@@ -475,14 +567,16 @@ def _rows_from_database() -> tuple[list[tuple[str, str, str, Any]], list[tuple[i
 
     with SessionLocal() as db:
         workflows = db.execute(
-            select(Workflow.id, Workflow.name, Workflow.canvas_nodes).order_by(Workflow.id)
+            select(
+                Workflow.id, Workflow.name, Workflow.canvas_nodes, Workflow.canvas_edges
+            ).order_by(Workflow.id)
         ).all()
         templates = db.execute(
             select(Template.id, Template.name, Template.content)
             .where(Template.is_active.is_(True))
             .order_by(Template.id)
         ).all()
-    rows = [("db", str(w.id), w.name, w.canvas_nodes) for w in workflows]
+    rows = [("db", str(w.id), w.name, w.canvas_nodes, w.canvas_edges) for w in workflows]
     return rows, [(t.id, t.name, t.content or "") for t in templates]
 
 

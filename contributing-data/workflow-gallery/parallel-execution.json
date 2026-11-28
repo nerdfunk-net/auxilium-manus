@@ -1,9 +1,9 @@
 {
   "export_format": "auxilium-workflow-v1",
-  "exported_at": "2026-09-21T18:53:44.757Z",
+  "exported_at": "2026-11-28T10:21:47.662Z",
   "name": "Parallel Execution",
   "description": "Parallel Parseing and Batfish",
-  "folder": "/",
+  "folder": "Gallery",
   "visibility": "private",
   "notes": null,
   "canvas_nodes": [
@@ -282,7 +282,9 @@
         "incomeHandleSide": "top",
         "outcomeHandleSide": "bottom",
         "pluginConfig": {
-          "batfish_source_id": "batfish"
+          "batfish_source_id": "",
+          "network": "",
+          "snapshot": ""
         }
       },
       "measured": {

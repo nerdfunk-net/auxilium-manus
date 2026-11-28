@@ -1,6 +1,6 @@
 {
   "export_format": "auxilium-workflow-v1",
-  "exported_at": "2026-09-26T20:30:36.885Z",
+  "exported_at": "2026-11-28T10:33:58.639Z",
   "name": "Check VTY",
   "description": "Check if line vty 0 4 is secured",
   "folder": "Gallery",
@@ -95,7 +95,8 @@
           "match_mode": "regex",
           "pattern": "line vty\\s+\\d+\\s+\\d+\\r?\\n(?:\\s+\\S.*\\r?\\n)*?\\s*access-class\\s+(\\S+)\\s+in\\b",
           "case_sensitive": false,
-          "multiline": true
+          "multiline": true,
+          "store_matched_text": true
         },
         "incomeHandleSide": "left",
         "outcomeHandleSide": "right"
@@ -105,7 +106,7 @@
         "height": 128
       },
       "dragging": false,
-      "selected": false
+      "selected": true
     },
     {
       "id": "update-attribute-4",
@@ -146,6 +147,7 @@
               "source_path": "parsed.route-on-content-3.content_match.matched_text",
               "pattern": "access-class\\s+(\\S+)\\s+in",
               "destination_template": "\\1",
+              "template": "",
               "regex_flags": {
                 "case_insensitive": false,
                 "multiline": false,
@@ -693,7 +695,8 @@
           "match_mode": "regex",
           "pattern": "line vty\\s+\\d+\\s+\\d+(?:\\r?\\n|\\Z)(?:[ \\t](?!access-class\\b)[^\\r\\n]*(?:\\r?\\n|\\Z))*(?=\\S|\\Z)",
           "case_sensitive": false,
-          "multiline": true
+          "multiline": true,
+          "store_matched_text": true
         },
         "incomeHandleSide": "top",
         "outcomeHandleSide": "right"

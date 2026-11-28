@@ -24,6 +24,18 @@ describe("parsedKeyFromAttributePath", () => {
     ).toBe("extract-1.batfish_extract_facts");
   });
 
+  it("keeps an output key that has the name of an entry sub-key", () => {
+    expect(parsedKeyFromAttributePath("parsed.batfish-extract-facts-24.parsed", "batfish")).toBe(
+      "batfish-extract-facts-24.parsed",
+    );
+    expect(
+      parsedKeyFromAttributePath("parsed.batfish-extract-facts-24.parsed.parsed.Interfaces", "batfish"),
+    ).toBe("batfish-extract-facts-24.parsed");
+    expect(parsedKeyFromAttributePath("parsed.get-pyats-1.running.running", "genie")).toBe(
+      "get-pyats-1.running",
+    );
+  });
+
   it("keeps a nested path that ends at the entry itself", () => {
     expect(parsedKeyFromAttributePath("parsed.get-pyats-1.pyats_config", "genie")).toBe(
       "get-pyats-1.pyats_config",

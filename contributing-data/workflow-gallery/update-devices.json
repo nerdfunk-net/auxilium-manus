@@ -1,6 +1,6 @@
 {
   "export_format": "auxilium-workflow-v1",
-  "exported_at": "2026-09-26T19:48:39.968Z",
+  "exported_at": "2026-11-28T10:19:05.645Z",
   "name": "Update Devices",
   "description": "Update Devices in Nautobot",
   "folder": "Gallery",
@@ -127,7 +127,7 @@
         ],
         "disabled": false,
         "pluginConfig": {
-          "output_key": "parsed_config"
+          "output_key": "parsed"
         },
         "incomeHandleSide": "right",
         "outcomeHandleSide": "left"
@@ -219,7 +219,7 @@
           "attributes": [
             "interfaces"
           ],
-          "parsed_key": "parsed_config",
+          "parsed_key": "batfish-extract-facts-6.parsed",
           "update_primary_ipv4": true,
           "primary_ipv4_custom_pattern": "(Ethernet|Vlan)"
         },
