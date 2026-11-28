@@ -246,6 +246,9 @@ Each workflow step is a self-contained Python package under
 8. (Optional) `workflow-node.tsx` — one `nodeIconsByKind` entry if the default icon is wrong
 
 **Rules:**
+- ✅ Shared code first: before writing a helper in a step package, check "Shared building blocks" in
+  `doc/WORKFLOW-STEPS.md` (a task → `common/` module table, kept complete by guard 13); logic a second
+  step needs moves to `common/` instead of being copied. The "Structure guards" table there lists guards 1-13
 - ❌ No business logic in `step_registry.py` — dispatch table only
 - ❌ No custom canvas render branch per step in `workflow-node.tsx`
 - ❌ External code must never import `workflow_steps` packages directly

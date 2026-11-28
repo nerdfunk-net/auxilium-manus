@@ -2598,6 +2598,137 @@ model, webhook, and API: [`doc/CICD_PIPELINE.md`](./CICD_PIPELINE.md).
 
 ---
 
+## Shared building blocks
+
+**Read this before you write a helper in a step package.** The workflow-step refactoring of
+2026-11 removed about 45 hand-written copies of the same logic (the per-device loop, the outcome
+builders, source preambles, flag parsers...). Shared code lives in `backend/workflow_steps/common/`
+(step glue) or `backend/services/` (domain logic). The rules:
+
+- If a helper below does what you need, use it; extend it rather than writing a variant.
+- If a second step needs logic that today lives in one step, move it to `common/` (or `services/`)
+  instead of copying it. A step never imports another step (guard 6).
+- A new module in `common/` gets a row in this table, and a deleted or renamed one loses its row:
+  `tests/unit/test_shared_building_blocks_doc.py` (guard 13) fails otherwise.
+
+The table is organised by **what the step needs**. Every module has a docstring with the details.
+
+<!-- shared-building-blocks:start -->
+
+| When a step needs to… | Module | Entry points |
+|---|---|---|
+| **Devices, outcomes, failures** | | |
+| loop over the devices, one failing device does not stop the others | `common/device_runner.py` | `run_per_device`, `Fail`, `AbortRun`, `Batch` |
+| fail a device, split results, build the success/failure outcomes | `common/device_outcomes.py` | `mark_device_failed`, `split_results`, `build_outcomes`, `outcomes_from_buckets`, `whole_step_failure` |
+| turn an exception into a stored device error (safe text only) | `common/partial_outcomes.py` | `device_error_from_exception`, `abort_outcomes` |
+| use a ready-made failure record (`FailureInfo`) | `common/failure_records.py` | constants such as `TRANSPORT_FAILED` |
+| end the step because its controller could not be read | `common/controller_failure.py` | `controller_failure_outcomes` |
+| detect two devices that map to one storage key | `common/duplicate_keys.py` | `find_duplicate_keys` |
+| **Config values** | | |
+| parse a boolean / integer flag, `output_key`, required text; store a dry-run preview | `common/step_flags.py` | `parse_bool_flag`, `parse_int_flag`, `parse_output_key`, `require_text`, `record_dry_run` |
+| parse `read_timeout` / connect retries of a Netmiko step | `common/read_timeout.py`, `common/retry_config.py` | `parse_read_timeout`, `parse_retry_backoff_seconds` |
+| read a value that is a literal or a run parameter (`credential_source: run_param`) | `common/run_param_reference.py` | `resolve_config_reference`, `credential_reference` |
+| parse a typed list of locations / pyATS features | `common/location_list.py`, `common/pyats_features.py` | `split_locations`, `parse_feature_list` |
+| **Run plumbing** | | |
+| get the database session | `common/run_session.py` | `require_session` (guard 4) |
+| write the run id into log lines | `common/run_logging.py` | `log_run_id` |
+| record an outbound API call for the run viewer | `common/request_record.py` | `append_request_record` |
+| emit fan-out metadata from an inventory step | `common/fan_out.py` | `inventory_metadata`, `build_fan_out_metadata` |
+| **Credentials and sources** | | |
+| resolve a vault credential (SSH, generic, shared secret) | `common/credential_resolver.py` | `resolve_ssh_credential`, `resolve_generic_credential`, `resolve_shared_secret_credential` |
+| resolve the credentials of a configured source | `common/source_credentials.py` | `resolve_source` |
+| bind the run to a Nautobot source | `common/nautobot_source.py`, `common/nautobot_step.py` | `resolve_nautobot_credentials`, `bind_nautobot`, `bind_nautobot_client` |
+| prepare an ISE step (credentials, service, pre-flight) | `common/ise_step.py` | `ise_credentials`, `build_ise_device_service`, `preflight_ise` |
+| resolve a Mattermost source and target | `common/mattermost_source.py`, `common/notification_target.py` | `resolve_mattermost_credentials`, `parse_mattermost_target` |
+| call an agent | `common/agent_source.py`, `common/agent_call.py` | `resolve_agent_connection`, `agent_client`, `parse_handler` |
+| read an ACI or Catalyst Center controller | `common/controller_sources.py`, `common/controller_inventory.py`, `common/fact_entries.py` | `ControllerSource`, `run_inventory_step`, `collect_facts`, `ok_entry`, `error_entry` |
+| resolve the pyATS source of each device and group them | `common/pyats_batch.py` | `validate_and_group_devices`, `resolve_source_credentials` |
+| run a secret-get / -set / -generate step | `common/secret_manager_step.py`, `common/secret_paths.py` | `run_secret_step`, `resolve_secret_paths` |
+| **Devices and attributes** | | |
+| build a `DeviceContext` from a source or a typed list | `common/device_builders.py`, `common/device_list.py` | `device_context_from_*`, `normalize_device_entries`, `parse_device_list_text` |
+| write, merge or default device attributes | `common/attribute_write.py`, `common/attribute_merge.py`, `common/attribute_defaults.py` | `set_device_attribute`, `merge_into_device_attribute`, `merge_nautobot_defaults` |
+| resolve a `{path}` / `{path \| default('x')}` expression | `common/attribute_expression.py` | `resolve_attribute_expression` |
+| find or substitute `{path}` placeholders in step text | `common/placeholder_scan.py`, `common/placeholder_template.py` | `next_placeholder`, `render_placeholder_template` |
+| render run-level message placeholders (notifications) | `common/run_message_template.py` | `apply_run_placeholders`, `build_run_summary` |
+| get the Netmiko device type of a device | `common/device_type.py` | `connection_device_type` |
+| get a device's primary IPv4 (ISE) | `common/primary_ip.py` | `effective_primary_ip4` |
+| read the attribute bag of a virtual chassis | `common/virtual_chassis.py` | `bag_name`, `member_bag` |
+| **Templates, regex, content** | | |
+| render author Jinja (isolated, validated) / load a stored template | `common/jinja_render.py`, `common/template_content.py` | `render_jinja_template`, `validate_jinja_template`, `load_stored_template` |
+| run an author regex on device or Nautobot data (isolated worker) | `common/regex_search.py` | `search_many`, `match_any`, `ReplaceRule` |
+| read content an earlier step produced (config, command output, template...) | `common/content_resolver.py` | `parse_content_source`, `list_exportable_content` |
+| write a content-transforming step (filter, merge, update content) | `common/content_step.py` | `run_content_step` |
+| read a reference file (compare steps) from the filesystem or git | `common/reference_reader.py` | `read_reference_text`, `validate_reference_config` |
+| **Files, git, config push** | | |
+| turn `git_repository_id` into a repository | `common/git_repository_loader.py` | `load_git_repository`, `require_repository_id` |
+| find the root a file-reading step reads from (export dir or git) | `common/file_source_root.py` | `resolve_source_root` |
+| run a git step (clone, pull, push) | `common/git_workflow_step.py` | `run_git_workflow_step` |
+| copy a file to a device over SCP | `common/device_file_upload.py` | `transfer_command_results`, `record_transfer`, `upload_outcomes` |
+| store the result of a config push | `common/config_push.py` | `store_push_result` |
+| **Nautobot** | | |
+| find the Nautobot device of a workflow device | `common/nautobot_resolve.py` | `resolve_nautobot_device_id` |
+| handle an explicit `device_identifier` | `common/nautobot_target.py` | `parse_identifier_mode`, `explicit_device_context`, `target_failure` |
+| resolve update fields and value expressions | `common/value_expression.py`, `common/nautobot_plan_fields.py` | `build_resolved_update_data`, `resolve_update_field_expression`, `resolve_fields` |
+| update VLANs / prefixes (manual mode pipeline) | `common/nautobot_object_update.py` | `ObjectUpdateSpec`, `run_object_update` |
+| write one Nautobot object once, however many devices map to it | `common/nautobot_write_groups.py` | `write_once_per_group`, `share_result` |
+| find the containing prefix of an address | `common/nautobot_prefix_lookup.py` | `find_containing_prefix` |
+| add a device's location to the objects in its attributes | `common/device_location_sync.py` | `LocationSyncSpec`, `run_location_sync` |
+| build interface payloads and normalise interface values | `common/interface_payload.py`, `common/interface_values.py` | `build_interfaces_from_config`, `normalize_interfaces`, `normalize_mac`, `normalize_speed_kbps` |
+| read redundancy groups (HSRP, VRRP...) | `common/redundancy_groups.py` | `parse_redundancy_groups`, `redundancy_groups_from_bag` |
+| **Batfish** | | |
+| find the snapshot to query (run's own, or source + network) | `common/batfish_context.py` | `resolve_batfish_snapshot_ref`, `parse_direct_target`, `store_batfish_snapshot` |
+| store a Batfish result | `common/batfish_results.py` | `store_batfish_result`, `batfish_node_device` |
+| write a property-lookup or combined-facts step | `common/batfish_properties.py`, `common/batfish_combined_facts.py` | `run_property_step`, `run_combined_facts_step` |
+| **Client data, neighbours, notifications** | | |
+| store client data (MAC / IP tables) | `common/client_data_store.py` | `store_collection`, `with_summary` |
+| normalise MAC addresses and port names for client data | `common/mac_address.py`, `common/port_names.py` | `normalise_mac`, `normalise_port` |
+| read LLDP / CDP capabilities | `common/neighbor_capabilities.py` | `parse_capabilities` |
+| write notification and statistics rows | `common/notification_context.py` | `write_notifications`, `write_statistics` |
+
+<!-- shared-building-blocks:end -->
+
+**Shared code outside `common/`** (also reuse, never copy):
+
+| Need | Where |
+|---|---|
+| write a step result under its node id | `services/workflow_context/node_result.py` `set_node_result` |
+| read a device attribute by path | `services/workflow_context/attribute_path.py` `resolve_device_attribute` |
+| store a secret value | `services/workflow_context/secret_fields.py` `seal_secret` (guard 5) |
+| CSV lookups (Enrich Attributes, Ask the Net) | `services/csv_lookup/` |
+| call the pyATS shim | `services/pyats/batch.py` |
+| read CDP / LLDP neighbour columns | `services/parsing/neighbors.py` `neighbor_fields` |
+| saved inventories, device lines | `services/workflow/saved_inventory.py`, `services/workflow/device_lines.py` |
+| host policy of a host the app dials | `core/safe_hosts.py` |
+| read-only Nautobot queries | `libs/nautobot_read/` |
+| step tests: contexts, runs, fakes | `tests/unit/_step_helpers.py` (`make_context`, `make_run`, `strict_xfail`) |
+| frontend panel blocks (`SourceRow`, `CheckboxField`...) | `doc/WORKFLOW-STEPS-STYLE_GUIDE.md` |
+
+### Structure guards
+
+These tests fail when a known duplicate or bad pattern comes back. Run the backend suite (or the
+single file) before you push; a failing guard names the rule and the site.
+
+| Guard | File | Fails when… |
+|---|---|---|
+| 1 | `scripts/check_flag_parsing.py` | a step parses a flag by hand instead of through `step_flags` |
+| 2 | `tests/unit/test_private_outcome_helpers_ratchet.py` | a step defines its own fail / split / build-outcome helper |
+| 3 | `tests/unit/test_failure_record_wrapper_ratchet.py` | a failure is recorded through a wrapper without its cause |
+| 4 | `tests/unit/test_object_session_ratchet.py` | a step takes its database session from the run instead of `require_session` |
+| 5 | `tests/unit/test_sealed_envelope_single_producer.py` | a sealed secret is built anywhere but `seal_secret` |
+| 6 | `tests/unit/test_workflow_steps_import_boundaries.py` | `common/` imports a step, a step imports another step, or a repository is imported outside the allowed sites |
+| 7 | `tests/unit/test_step_function_length_ratchet.py` | a new function over 50 lines appears in `workflow_steps` |
+| 8 | `tests/unit/test_common_symbol_usage.py` | a public function or class in `common/` has no production user |
+| 9 | `tests/unit/test_exception_text_sites_ratchet.py` | exception text of an unnamed class is stored in a message |
+| 10 | `tests/unit/test_registry_dispatch_convention.py` | `registry.yaml`, the dispatch table, the packages and the frontend loaders disagree |
+| 11 | `scripts/check_branch_coverage.py` | branch coverage of `workflow_steps` drops below the floor |
+| 12 | `tests/unit/test_strict_xfail_hygiene.py` | an expected-failure test is not strict or names no finding |
+| 13 | `tests/unit/test_shared_building_blocks_doc.py` | a `common/` module is missing from the table above, or the table names one that is gone |
+
+Unnumbered guards of the same kind: `test_step_defaults_declared_once.py` (a config default is
+declared once, in `get_config()`), `test_empty_branch_validates_config.py` (config is checked
+before the empty-branch shortcut), `test_device_error_failure_ratchet.py` (a `DeviceError` names
+its cause) and `test_registry_declares_config_keys.py` (every `get_config()` key is in the registry).
+
 ## Adding a new step — checklist
 
 1. **Backend package** — create `backend/workflow_steps/{step_id}/`:
@@ -2655,3 +2786,9 @@ model, webhook, and API: [`doc/CICD_PIPELINE.md`](./CICD_PIPELINE.md).
     "Workflow step aliases" and delete or re-point aliases that name it (a stale alias is ignored
     by the assistant, so nothing breaks, but it stays in the list). A new step's `id` or `name`
     that equals an existing alias word wins over the alias. No code change is needed.
+
+12. **Shared code first** — before you write a helper, check
+    [Shared building blocks](#shared-building-blocks). If one does what you need, use it. If a
+    second step needs logic that today lives in one step, move it to `common/` (with a row in that
+    table) instead of copying it. Then run the [structure guards](#structure-guards); a failing
+    guard means a known duplicate pattern came back.
