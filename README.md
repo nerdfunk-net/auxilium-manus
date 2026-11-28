@@ -4,13 +4,20 @@
 engineers. It lets you design, configure, and execute network automation workflows
 visually, without writing a script for every task.
 
-> **AI-native, with guardrails.** Auxilium Manus has two AI integrations built into the
-> product, not bolted on. An **in-app assistant** (your own provider and key) authors
-> workflows and templates, explains failed runs, and builds reports, and an **AI
-> collaborator** writes directly into an open workflow through the same code path the UI
-> uses. Both are validated before anything runs, and neither can execute a workflow, open
-> an SSH session, or touch credentials. Every change is yours to review and is audited.
-> See [AI in Auxilium Manus](#ai-in-auxilium-manus).
+> **Ask your network a question.** With **Ask the Net** you type a question in plain
+> words ("Where is the MAC address AA:BB:CC:00:01:00?", "Why is 10.1.2.3 not reachable
+> from r1?", "Do a live check of core1") and the assistant answers from every source
+> Auxilium Manus knows: Nautobot, a Batfish model of your configs, the git config backups,
+> Cisco Catalyst Center, Cisco ACI, client data, workflow runs, and, after you confirm a
+> card, read-only commands on the live device. Few open source tools offer anything like it.
+> See [Ask the Net](#ask-the-net).
+>
+> **AI-native, with guardrails.** Besides Ask the Net, an **in-app assistant** (your own
+> provider and key) authors workflows and templates, explains failed runs, and builds
+> reports, and an **AI collaborator** writes directly into an open workflow through the
+> same code path the UI uses. The model never runs anything by itself: it reads, or it
+> proposes, and nothing is saved or executed until you click. Every change is yours to
+> review and is audited. See [AI in Auxilium Manus](#ai-in-auxilium-manus).
 
 ## What it does
 
@@ -37,6 +44,11 @@ with a visual, repeatable workflow model:
   model, interface states, …) and the **Reports** app turns them into tables, numbers and
   charts across all devices, as saved reports, stored snapshots, PDF exports, and email.
   See [doc/REPORTS.md](doc/REPORTS.md).
+- **Ask the network** — the **Ask the Net** page answers free questions about your
+  network (where is this host, what is r1 connected to, are all BGP sessions up, which
+  interfaces have errors) from Nautobot, Batfish, config backups, Catalyst Center, ACI,
+  workflow runs, and confirmed read-only device commands, with ready-made playbooks for
+  the common checks. See [Ask the Net](#ask-the-net).
 - **Ask the built-in AI assistant** — configure your own LLM provider and key, then use
   chat panels in the template editor, workflow builder, runs page, inventory page, and
   Reports app to draft workflows and templates, explain why a run failed, or query
@@ -124,6 +136,11 @@ trigger specific workflows and settings.
   declarative query engine (filters, grouping, metrics, history over time) feeds an Explore
   tab, saved reports with table/number/bar/line sections, immutable snapshots, report
   templates, PDF export, and email delivery
+- Ask the Net: a chat page for questions about the network, with tools for Batfish,
+  Nautobot, git config backups, Catalyst Center, Cisco ACI, client data, workflow runs,
+  reports, and user-confirmed read-only device commands (live checks, interface errors and
+  utilization, CDP/LLDP and routing neighbours, OSPF/BGP learn, ping/traceroute), plus
+  reviewed playbooks and admin-released workflows it may propose to run
 - In-app AI assistant: bring your own provider (Anthropic Claude, Google Gemini, or any
   OpenAI-compatible endpoint such as Ollama) and private API key; the assistant acts with
   your own permissions, has no execution tools, proposes changes as reviewable diffs
@@ -157,7 +174,7 @@ UI, TanStack Query, Zustand, React Hook Form, Zod
 **Backend:** FastAPI, Python, PostgreSQL, SQLAlchemy, Redis, JWT auth, Hatchet, Netmiko,
 GitPython, pyATS/Genie
 
-**Integrations:** Nautobot API, Cisco ISE, Cisco Catalyst Center, pyATS, Batfish, Mattermost, OpenBao
+**Integrations:** Nautobot API, Cisco ISE, Cisco Catalyst Center, Cisco ACI, pyATS, Batfish, Mattermost, OpenBao
 
 ## The app
 
@@ -209,6 +226,62 @@ unsecured, posting a Mattermost notification for whichever condition matches:
 
 ![Check VTY workflow: parses device config, checks VTY lines for a missing access-class or unsecured configuration, and notifies Mattermost on a match](screenshots/check-vty.png)
 
+## Ask the Net
+
+Most network tools make you go to the data: open Nautobot for what is documented, the
+controller for health, a terminal for the live state, the backup repository for the
+config, and stitch the answers together yourself. **Ask the Net** turns that around. You
+ask one question in plain words, and the assistant picks the right sources, reads them,
+and answers in one place, saying where each fact came from and how old it is. Only a
+handful of open source tools offer anything comparable.
+
+The **Help** button on the page ("What can I ask?") lists every tool with example
+questions; clicking a question puts it into the message box.
+
+**Where is this host?** — asked about an IP address, the `where-is-this-host` playbook checks
+client data, Nautobot, Batfish, ACI, and DNS in a fixed order and sums up what each source
+says and how old its data is, followed by the most likely location of the host:
+
+![Ask the Net: the answer to a question about the IP address 192.168.180.2, with a table of what client data, Nautobot, Batfish, ACI, and DNS report and the age of each source](screenshots/ask-the-net.png)
+
+### What you can ask
+
+| Source | Example questions |
+|---|---|
+| **Playbooks** (reviewed procedures, one summary table) | "Do a live check of core1", "Where is the MAC address AA:BB:CC:00:01:00?", "Where is the prefix 192.168.178.0/24 configured?", "Why is 10.1.2.3 not reachable from r1?", "Show me the uplink utilization on 10.1.2.3" |
+| **Batfish** (offline model built from your configs) | "Which route does 10.1.2.3 use on r1?", "Are all BGP sessions established?", "Does the ACL EDGE-IN on r1 permit TCP 443 from 10.1.1.1 to 10.2.2.2?", "Which devices have no NTP server configured?", "Which flows work in the old snapshot but not in the new one?" |
+| **Nautobot** (documented inventory) | "How many devices are in Nautobot?", "Which device has the MAC address aabb.cc00.0100?", "What is the next free IP address in 10.1.2.0/24?", "Which virtual chassis exist?" |
+| **Cisco Catalyst Center** | "How healthy is LAB according to Catalyst Center?", "What devices are part of site Global/EMEA/Berlin?", SD-Access fabric, virtual networks, border handoffs and transits |
+| **Cisco ACI** | "Where is 10.1.1.5 in ACI?", "Can 10.1.1.5 connect to 10.1.2.5 on tcp 443?", "Which contracts connect the EPGs web and db?" |
+| **Config backups** (git) | "Get the running config of r1", search every backed-up config for a string |
+| **Live device commands** (you confirm each card) | Read-only show commands, ping and traceroute, interface errors and utilization, output parsed with TextFSM or Genie |
+| **Neighbours** | "What is core1 connected to?": CDP/LLDP and routing neighbours, compared with Nautobot cabling and the Batfish model |
+| **OSPF and BGP learn** | "Learn OSPF of r1", "Show me the BGP state of r1", and compare two BGP readings to see what changed or flapped |
+| **Workflow runs** | Which step failed and why, and what a step produced |
+| **Reports** | "Write a report that lists the device type of the network devices grouped by the location": a card you click to generate, then download as PDF or CSV |
+| **File comparison** | Compare a column of a CSV file in git with a Nautobot field (serial number, name, IP, location, version) |
+| **Released workflows** | Describe and start a workflow an administrator released for Ask the Net, such as "Walk through the network starting at core1" |
+
+Every device tool takes an inventory name or an IPv4 address.
+
+### Safe by design
+
+- **It acts as you.** Each tool group is offered only if you hold its permission, and the
+  permission is checked again on every call. A viewer sees fewer tools than an operator.
+- **Nothing runs without your click.** Device commands, feature learns, neighbour
+  discovery, reports, and workflow runs are *proposals*: a card with exactly what will
+  happen. The commands come from a reviewed, per-platform catalogue, never written by the
+  model, and an operator switch turns device commands on at all.
+- **You decide what the model sees.** Per-user switches for inventory, addresses, and
+  content gate every field before it leaves the server; credentials are always redacted.
+  Some answers (the file comparison) are built entirely on the server: the model only gets
+  counts, you get the lists.
+- **Your model.** The same provider and key as the in-app assistant: Anthropic Claude,
+  Google Gemini, or any OpenAI-compatible endpoint, including local models via Ollama.
+
+See [doc/AI_TOOL_CHAIN.md](doc/AI_TOOL_CHAIN.md) for the tool chain, its gates, and the
+playbook format.
+
 ## Reports
 
 A workflow runs once per device, so a single run never shows the whole fleet. Reports
@@ -238,7 +311,7 @@ in the product:
 |---|---|---|
 | **Who** | Chat panel inside the app, acting as *you* | An external AI session acting as its own audited `ai-assistant` user |
 | **Writes** | Proposals only, accepted by you as a diff | Directly into the open workflow, within a time-boxed consent session |
-| **Can execute?** | No | No (no `workflows:execute`, no `credentials:reveal`) |
+| **Can execute?** | No (Ask the Net: only after your click on a proposal) | No (no `workflows:execute`, no `credentials:reveal`) |
 | **Validated** | Before you ever see the proposal | Four validation tiers; the same validator blocks a run |
 
 What sets this apart:
@@ -265,8 +338,8 @@ the in-app assistant is a chat panel inside the product itself:
 - **Your provider, your key.** Each user configures Anthropic Claude, Google Gemini, or an
   OpenAI-compatible endpoint (which covers Ollama), with a private API key. Operators
   control which providers and which kinds of data are allowed at all.
-- **Where it lives.** Template editor, workflow builder, runs page, inventory page, and
-  Reports page.
+- **Where it lives.** Template editor, workflow builder, runs page, inventory page,
+  Reports page, and the [Ask the Net](#ask-the-net) page.
 - **What it does.** Author workflows and Jinja templates, explain a failed run, answer
   questions about inventory and device attributes, and build report queries.
 - **It acts as you.** Every tool call goes through the same services and permission checks
@@ -274,8 +347,10 @@ the in-app assistant is a chat panel inside the product itself:
 - **Read freely, write by proposal.** Write tools never persist. They produce a proposal
   that is validated (and, for templates, rendered) and shown as a diff; accepting it uses
   the normal save path, so audit and version control apply.
-- **No execution.** The assistant cannot run workflows, open SSH sessions, or push to Git.
-  Device, run, and report data is sent to the provider only if you opt in.
+- **No execution.** The authoring assistant cannot run workflows, open SSH sessions, or
+  push to Git. On the Ask the Net page the assistant may *propose* a read-only command or
+  a released workflow, which runs only after your click. Device, run, and report data is
+  sent to the provider only if you opt in.
 
 See [doc/ai_integration/AI_ASSISTANT.md](doc/ai_integration/AI_ASSISTANT.md).
 
