@@ -1,6 +1,6 @@
 {
   "export_format": "auxilium-workflow-v1",
-  "exported_at": "2026-11-28T10:03:45.820Z",
+  "exported_at": "2026-11-28T11:48:38.065Z",
   "name": "Onboarding",
   "description": "Onboarding",
   "folder": "Gallery",
@@ -11,7 +11,7 @@
       "id": "batfish-init-snapshot-4",
       "type": "workflowNode",
       "position": {
-        "x": 765.2593481760791,
+        "x": 770.6661707553519,
         "y": 48.894922543517495
       },
       "data": {
@@ -53,7 +53,7 @@
       "id": "get-device-configs-5",
       "type": "workflowNode",
       "position": {
-        "x": -295.6876870821229,
+        "x": -288.22742511406966,
         "y": -177.7763023589177
       },
       "zIndex": 1,
@@ -151,7 +151,7 @@
       "id": "fan-in-9",
       "type": "workflowNode",
       "position": {
-        "x": 505.89191874453536,
+        "x": 488.34521829388757,
         "y": 24.8751581060085
       },
       "zIndex": 1,
@@ -237,7 +237,7 @@
       "id": "parse-cisco-config-8",
       "type": "workflowNode",
       "position": {
-        "x": 71.14066451619613,
+        "x": 76.54748709546885,
         "y": -177.7763023589177
       },
       "zIndex": 1,
@@ -354,7 +354,7 @@
       "id": "run-command-12",
       "type": "workflowNode",
       "position": {
-        "x": -295.6876870821229,
+        "x": -288.22742511406966,
         "y": -357.845245184248
       },
       "zIndex": 1,
@@ -542,8 +542,8 @@
               "value": "City A"
             },
             "platform": {
-              "enabled": false,
-              "value": ""
+              "enabled": true,
+              "value": "cisco_ios"
             },
             "secrets_group": {
               "enabled": true,
@@ -579,6 +579,10 @@
               "value": ""
             },
             "position": {
+              "enabled": false,
+              "value": ""
+            },
+            "interface_type": {
               "enabled": false,
               "value": ""
             },
@@ -639,13 +643,13 @@
       "id": "label-17",
       "type": "labelNode",
       "position": {
-        "x": -37.32145527742722,
-        "y": 6.294342980574555
+        "x": -11.606186246059337,
+        "y": -3.9162591205907518
       },
-      "width": 200,
+      "width": 160,
       "height": 40,
       "style": {
-        "width": 200,
+        "width": 160,
         "height": 40
       },
       "data": {
@@ -667,12 +671,12 @@
           "font_family": "sans",
           "bold": true,
           "color": "#000000",
-          "width": 200,
+          "width": 160,
           "height": 40
         }
       },
       "measured": {
-        "width": 200,
+        "width": 160,
         "height": 40
       },
       "selected": false,
@@ -727,12 +731,12 @@
       "id": "background-19",
       "type": "backgroundNode",
       "position": {
-        "x": -334.0675950444288,
-        "y": 207.57139701327912
+        "x": -314.1391899384681,
+        "y": 202.36977163219103
       },
       "zIndex": -1,
-      "width": 796,
-      "height": 462,
+      "width": 1187,
+      "height": 448,
       "style": {
         "width": 480,
         "height": 320
@@ -752,13 +756,13 @@
         "outcomes": [],
         "pluginConfig": {
           "color": "#e2e8f0",
-          "width": 796,
-          "height": 462
+          "width": 1187,
+          "height": 448
         }
       },
       "measured": {
-        "width": 796,
-        "height": 462
+        "width": 1187,
+        "height": 448
       },
       "selected": false,
       "dragging": false,
@@ -768,8 +772,8 @@
       "id": "start-nautobot-job-18",
       "type": "workflowNode",
       "position": {
-        "x": 405.2082595606249,
-        "y": 53.91032928286711
+        "x": 802.4844082323557,
+        "y": 239.1779666745811
       },
       "data": {
         "kind": "start-nautobot-job",
@@ -1194,7 +1198,7 @@
       "type": "workflowNode",
       "position": {
         "x": -667.9887829888664,
-        "y": 261.48172629614623
+        "y": 255.58765373484516
       },
       "data": {
         "kind": "update-attribute",
@@ -1296,8 +1300,8 @@
       "id": "update-nautobot-device-21",
       "type": "workflowNode",
       "position": {
-        "x": 405.2082595606249,
-        "y": 244.107825481727
+        "x": 390.686677033937,
+        "y": 53.21788210265413
       },
       "data": {
         "kind": "update-nautobot-device",
@@ -1367,8 +1371,8 @@
       "id": "label-22",
       "type": "labelNode",
       "position": {
-        "x": 447.41657072775786,
-        "y": 382.107825481727
+        "x": 425.686677033937,
+        "y": 2.3891726622950387
       },
       "width": 250,
       "height": 40,
@@ -1411,8 +1415,8 @@
       "id": "add-to-nautobot-23",
       "type": "workflowNode",
       "position": {
-        "x": 38.37990796230588,
-        "y": 53.91032928286711
+        "x": 390.686677033937,
+        "y": 239.1779666745811
       },
       "data": {
         "kind": "add-to-nautobot",
@@ -1518,8 +1522,8 @@
       "id": "notify-mattermost-23",
       "type": "workflowNode",
       "position": {
-        "x": 503.89191874453536,
-        "y": 261.48172629614623
+        "x": 892.4725958601252,
+        "y": 441.54773830677215
       },
       "zIndex": 1,
       "data": {
@@ -1562,7 +1566,7 @@
       "id": "batfish-extract-facts-24",
       "type": "workflowNode",
       "position": {
-        "x": 398.4309965777601,
+        "x": 405.89125854581334,
         "y": 48.894922543517495
       },
       "data": {
@@ -1605,6 +1609,52 @@
       "dragging": false,
       "parentId": "background-16",
       "selected": false
+    },
+    {
+      "id": "exists-in-nautobot-24",
+      "type": "workflowNode",
+      "position": {
+        "x": 25.91176482439846,
+        "y": 53.21788210265413
+      },
+      "data": {
+        "kind": "exists-in-nautobot",
+        "stepUuid": "5c8c8c82-73d3-42e4-9211-1e8eb72cc8cc",
+        "title": "Exists in Nautobot",
+        "overview": "Route devices by whether they already exist in Nautobot.",
+        "description": "Check whether each device already exists in Nautobot — by device name, by an IP address that is a device's primary IPv4, or by an IP address assigned to any interface — and route it to exists or non_existing. The found Nautobot UUID is stored as nautobot.id on devices routed to exists.\n",
+        "artifactType": "control_flow",
+        "requires": [
+          "identity"
+        ],
+        "requiresParsed": [],
+        "produces": [
+          "identity"
+        ],
+        "producesParsed": [],
+        "consumes": [],
+        "outcomes": [
+          {
+            "name": "exists"
+          },
+          {
+            "name": "non_existing"
+          },
+          {
+            "name": "failure"
+          }
+        ],
+        "pluginConfig": {
+          "nautobot_source_id": "nautobot"
+        }
+      },
+      "measured": {
+        "width": 320,
+        "height": 128
+      },
+      "selected": false,
+      "dragging": false,
+      "parentId": "background-19"
     }
   ],
   "canvas_edges": [
@@ -1757,37 +1807,11 @@
       "data": {
         "edgeStyle": "bezier"
       },
-      "source": "update-attribute-19",
-      "sourceHandle": "success",
-      "target": "add-to-nautobot-23",
-      "targetHandle": "input",
-      "id": "xy-edge__update-attribute-19success-add-to-nautobot-23input",
-      "selected": false
-    },
-    {
-      "type": "waypoint",
-      "zIndex": 0,
-      "data": {
-        "edgeStyle": "bezier"
-      },
       "source": "add-to-nautobot-23",
       "sourceHandle": "success",
       "target": "start-nautobot-job-18",
       "targetHandle": "input",
       "id": "xy-edge__add-to-nautobot-23success-start-nautobot-job-18input",
-      "selected": false
-    },
-    {
-      "type": "waypoint",
-      "zIndex": 0,
-      "data": {
-        "edgeStyle": "bezier"
-      },
-      "source": "add-to-nautobot-23",
-      "sourceHandle": "failure",
-      "target": "update-nautobot-device-21",
-      "targetHandle": "input",
-      "id": "xy-edge__add-to-nautobot-23failure-update-nautobot-device-21input",
       "selected": false
     },
     {
@@ -1828,6 +1852,45 @@
       "targetHandle": "input",
       "id": "xy-edge__batfish-extract-facts-24success-config-to-attributes-10input",
       "selected": false
+    },
+    {
+      "type": "waypoint",
+      "zIndex": 0,
+      "data": {
+        "edgeStyle": "bezier"
+      },
+      "source": "update-attribute-19",
+      "sourceHandle": "success",
+      "target": "exists-in-nautobot-24",
+      "targetHandle": "input",
+      "id": "xy-edge__update-attribute-19success-exists-in-nautobot-24input",
+      "selected": false
+    },
+    {
+      "type": "waypoint",
+      "zIndex": 0,
+      "data": {
+        "edgeStyle": "bezier"
+      },
+      "source": "exists-in-nautobot-24",
+      "sourceHandle": "exists",
+      "target": "update-nautobot-device-21",
+      "targetHandle": "input",
+      "id": "xy-edge__exists-in-nautobot-24exists-update-nautobot-device-21input",
+      "selected": false
+    },
+    {
+      "type": "waypoint",
+      "zIndex": 0,
+      "data": {
+        "edgeStyle": "bezier"
+      },
+      "source": "exists-in-nautobot-24",
+      "sourceHandle": "non_existing",
+      "target": "add-to-nautobot-23",
+      "targetHandle": "input",
+      "id": "xy-edge__exists-in-nautobot-24non_existing-add-to-nautobot-23input",
+      "selected": false
     }
   ],
   "canvas_groups": [
@@ -1842,11 +1905,11 @@
       "entryNodeId": "set-default-attributes-15",
       "exitNodeId": "update-attribute-13",
       "position": {
-        "x": 505.89191874453536,
+        "x": 488.34521829388757,
         "y": -271.7962565137673
       },
       "parentGroupId": null,
-      "selected": true
+      "selected": false
     }
   ],
   "static_attributes": [
